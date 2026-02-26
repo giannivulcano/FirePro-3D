@@ -1,9 +1,9 @@
 import sys
-from PyQt6.QtWidgets import QApplication, QGraphicsView, QMainWindow, QToolBar, QMenuBar, QFileDialog,QDockWidget, QInputDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QToolBar, QMenuBar, QFileDialog,QDockWidget, QInputDialog
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
-from Model_View import Model_View  # <- import the new view class
+from Model_View import Model_View
 from sprinkler import Sprinkler
 from pipe import Pipe
 
@@ -197,8 +197,8 @@ class MainWindow(QMainWindow):
             print("Importing:", opts)
 
             # Example: hand off to scene
-            self.scene.import_dxf(opts["file"], dpi=opts["dpi"], page=opts["page"])
-
+            self.scene.import_pdf(opts["file"], dpi=opts["dpi"], page=opts["page"])
+            
     #-------------------------------------
     # PROPERTY MANAGER HELPERS -----------
     #-------------------------------------
