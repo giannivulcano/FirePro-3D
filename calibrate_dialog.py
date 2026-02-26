@@ -5,7 +5,7 @@ Asks for the real-world distance and unit, then calibrates the ScaleManager.
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QDoubleSpinBox, QComboBox, QDialogButtonBox
+    QDoubleSpinBox, QSpinBox, QComboBox, QDialogButtonBox
 )
 
 
@@ -47,6 +47,19 @@ class CalibrateDialog(QDialog):
 
         layout.addLayout(row)
 
+        # Drawing scale row
+        scale_row = QHBoxLayout()
+        scale_row.addWidget(QLabel("Drawing Scale  1 :"))
+        self.drawing_scale_spin = QSpinBox()
+        self.drawing_scale_spin.setRange(1, 10000)
+        self.drawing_scale_spin.setValue(100)
+        self.drawing_scale_spin.setToolTip(
+            "The print scale denominator of the drawing (e.g. 100 for a 1:100 scale drawing)."
+        )
+        scale_row.addWidget(self.drawing_scale_spin)
+        scale_row.addStretch()
+        layout.addLayout(scale_row)
+
         # OK / Cancel
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -63,3 +76,7 @@ class CalibrateDialog(QDialog):
         """Return the short unit code: 'ft', 'in', 'm', 'mm'."""
         idx = self.unit_combo.currentIndex()
         return self.UNITS[idx][1]
+
+    def get_drawing_scale(self) -> float:
+        """Return the drawing scale denominator (e.g. 100 for 1:100)."""
+        return float(self.drawing_scale_spin.value())

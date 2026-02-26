@@ -1,7 +1,8 @@
 import sys, json, math
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
-                              QGraphicsItem, QGraphicsPixmapItem, QGraphicsTextItem,
-                              QGraphicsPathItem, QApplication, QProgressDialog)
+                              QGraphicsItem, QGraphicsItemGroup, QGraphicsPixmapItem,
+                              QGraphicsTextItem, QGraphicsPathItem, QApplication,
+                              QProgressDialog)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
@@ -312,6 +313,7 @@ class Model_Space(QGraphicsScene):
             pipe.set_properties(template)
         self.sprinkler_system.add_pipe(pipe)
         self.addItem(pipe)
+        pipe.update_label()   # re-run now that pipe.scene() is valid
         return pipe
 
     def split_pipe(self, pipe, split_point: QPointF):
@@ -622,8 +624,11 @@ class Model_Space(QGraphicsScene):
         if pair in self.underlays:
             self.underlays.remove(pair)
         if item.scene() is self:
-            # If it's a group, destroy the group properly
-            if hasattr(self, "destroyItemGroup") and isinstance(item, type(self.createItemGroup([]))):
+            if isinstance(item, QGraphicsItemGroup):
+                # destroyItemGroup re-parents children back to the scene rather
+                # than deleting them, so we must remove each child first.
+                for child in item.childItems():
+                    self.removeItem(child)
                 self.destroyItemGroup(item)
             else:
                 self.removeItem(item)
@@ -674,6 +679,38 @@ class Model_Space(QGraphicsScene):
         snapshot = list(self.underlays)
         for data, item in snapshot:
             self.refresh_underlay(data, item)
+
+    # -------------------------------------------------------------------------
+    # SCALE REFRESH
+
+    def _refresh_all_scales(self):
+        """Refresh visual sizes of all pipes, nodes, sprinklers, and fittings
+        after a scale calibration change, then refresh all labels."""
+        sm = self.scale_manager
+        for pipe in self.sprinkler_system.pipes:
+            pipe.update()       # triggers repaint with new scale-aware line weight
+            pipe.update_label()
+        for node in self.sprinkler_system.nodes:
+            node.update()
+            if node.has_sprinkler():
+                node.sprinkler.rescale(sm)
+            if node.has_fitting() and node.fitting.symbol is not None:
+                node.fitting.rescale(sm)
+                node.fitting.update()
+        for dim in self.annotations.dimensions:
+            dim.update_label()
+
+    def _refresh_all_labels(self):
+        """Refresh display text on all pipes and dimension annotations."""
+        for pipe in self.sprinkler_system.pipes:
+            pipe.update_label()
+        for dim in self.annotations.dimensions:
+            dim.update_label()
+
+    def set_display_unit(self, unit):
+        """Change the display unit and refresh all labels."""
+        self.scale_manager.display_unit = unit
+        self._refresh_all_labels()
 
     # -------------------------------------------------------------------------
     # GEOMETRY HELPERS
@@ -799,11 +836,10 @@ class Model_Space(QGraphicsScene):
                         self.scale_manager.calibrate(
                             self._cal_point1, snapped, distance, unit
                         )
-                        print(f"✅ Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm")
-                        for pipe in self.sprinkler_system.pipes:
-                            pipe.update_label()
-                        for dim in self.annotations.dimensions:
-                            dim.update_label()
+                        self.scale_manager.drawing_scale = dialog.get_drawing_scale()
+                        print(f"✅ Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm, "
+                              f"drawing scale 1:{self.scale_manager.drawing_scale:.0f}")
+                        self._refresh_all_scales()
                     except ValueError as e:
                         print(f"❌ Calibration failed: {e}")
                 self._cal_point1 = None

@@ -9,7 +9,9 @@ class Sprinkler(QGraphicsSvgItem):
         "Sprinkler2": r"graphics/sprinkler_graphics/sprinkler2.svg"
     }
 
-    SCALE = 10 / 30
+    SCALE = 10 / 30          # fallback scale when uncalibrated
+    SVG_NATURAL_PX = 30.0    # natural SVG bounding-box width (px)
+    TARGET_PAPER_MM = 8.0    # desired symbol diameter in paper mm (~5/16 in)
 
     def __init__(self, node):
         super().__init__()
@@ -37,7 +39,22 @@ class Sprinkler(QGraphicsSvgItem):
         renderer = QSvgRenderer(svg_path)
         self.setSharedRenderer(renderer)
         self._renderer = renderer  # prevent garbage collection
-        self.setScale(self.SCALE)
+        # Use scale_manager if already in scene; fall back to SCALE constant
+        sm = getattr(self.node.scene() if self.node else None, "scale_manager", None)
+        if sm and sm.is_calibrated:
+            new_scale = sm.paper_to_scene(self.TARGET_PAPER_MM) / self.SVG_NATURAL_PX
+            self.setScale(new_scale)
+        else:
+            self.setScale(self.SCALE)
+        self._centre_on_node()
+
+    def rescale(self, sm) -> None:
+        """Re-apply scale using the current ScaleManager (called after calibration)."""
+        if sm and sm.is_calibrated:
+            new_scale = sm.paper_to_scene(self.TARGET_PAPER_MM) / self.SVG_NATURAL_PX
+        else:
+            new_scale = self.SCALE
+        self.setScale(new_scale)
         self._centre_on_node()
 
     def _centre_on_node(self):

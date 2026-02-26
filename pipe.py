@@ -9,6 +9,11 @@ from CAD_Math import CAD_Math
 class Pipe(QGraphicsLineItem):
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
 
+    # Paper line-weight in mm for each "Line Weight" property value.
+    # Used when the scene has a calibrated scale; otherwise PX_FALLBACK is used.
+    LINE_WEIGHT_MM       = {"1": 0.35, "2": 0.50, "3": 0.70, "4": 1.00}
+    LINE_WEIGHT_PX_FALLBACK = {"1": 5.0,  "2": 6.0,  "3": 7.0,  "4": 8.0}
+
     def __init__(self, node1, node2):
 
         super().__init__()
@@ -156,9 +161,13 @@ class Pipe(QGraphicsLineItem):
             self.set_property(key, meta["value"])
 
     def paint(self, painter, option, widget=None):
-        # get base style from your properties
         colour = QColor(self._properties["Colour"]["value"])
-        line_weight = 4 + float(self._properties["Line Weight"]["value"])
+        lw_key = self._properties["Line Weight"]["value"]
+        sm = getattr(self.scene(), "scale_manager", None)
+        if sm and sm.is_calibrated:
+            line_weight = sm.paper_to_scene(self.LINE_WEIGHT_MM.get(lw_key, 0.5))
+        else:
+            line_weight = self.LINE_WEIGHT_PX_FALLBACK.get(lw_key, 6.0)
         base_pen = QPen(colour, line_weight)
 
         # normal draw
@@ -167,7 +176,7 @@ class Pipe(QGraphicsLineItem):
 
         # highlight if selected
         if self.isSelected():
-            highlight_pen = QPen(colour, line_weight + 4)
+            highlight_pen = QPen(colour, line_weight * 1.6)
             painter.setPen(highlight_pen)
             painter.drawLine(self.line())
             

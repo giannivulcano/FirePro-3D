@@ -11,6 +11,7 @@ from sprinkler import Sprinkler
 from pipe import Pipe
 from dxf_import_dialog import DxfImportDialog
 from property_manager import PropertyManager
+from scale_manager import DisplayUnit
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,6 +177,26 @@ class MainWindow(QMainWindow):
         set_scale = QAction("Set Scale", self)
         set_scale.triggered.connect(self.set_scale_dialog)
         project_menu.addAction(set_scale)
+
+        project_menu.addSeparator()
+
+        # ── Display Units submenu ─────────────────────────────────────
+        units_menu = project_menu.addMenu("Display Units")
+
+        unit_imperial = QAction("Imperial (ft-in)", self)
+        unit_imperial.triggered.connect(
+            lambda: self.scene.set_display_unit(DisplayUnit.IMPERIAL))
+        units_menu.addAction(unit_imperial)
+
+        unit_m = QAction("Metric (m)", self)
+        unit_m.triggered.connect(
+            lambda: self.scene.set_display_unit(DisplayUnit.METRIC_M))
+        units_menu.addAction(unit_m)
+
+        unit_mm = QAction("Metric (mm)", self)
+        unit_mm.triggered.connect(
+            lambda: self.scene.set_display_unit(DisplayUnit.METRIC_MM))
+        units_menu.addAction(unit_mm)
 
     def init_edit_menu(self, menu_bar):
         edit_menu = menu_bar.addMenu("Edit")

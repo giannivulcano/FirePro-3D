@@ -5,6 +5,7 @@ from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 
 class Fitting():
     SIZE = 1
+    TARGET_PAPER_MM = 6.0   # desired fitting symbol size in paper mm
     SYMBOLS = {
         "no fitting": {
             "path": r"graphics/fitting_symbols/no_fitting.svg"
@@ -189,3 +190,14 @@ class Fitting():
         # Use the transformed bounding rect
         transformed_bounds = self.symbol.mapRectToParent(bounds)
         self.symbol.setPos(-transformed_bounds.center())
+
+    def rescale(self, sm) -> None:
+        """Re-apply symbol_scale using ScaleManager, then redraw (called after calibration)."""
+        if self.symbol is None:
+            return
+        svg_natural = max(self.symbol.boundingRect().width(),
+                          self.symbol.boundingRect().height())
+        if svg_natural > 0 and sm and sm.is_calibrated:
+            self.symbol_scale = sm.paper_to_scene(self.TARGET_PAPER_MM) / svg_natural
+        # else: keep existing symbol_scale
+        self.update()
