@@ -9,6 +9,10 @@ from sprinkler import Sprinkler
 class Node(QGraphicsEllipseItem):
     RADIUS = 13
 
+    # Class-level toggle — all nodes share the same visibility state.
+    # Toggled by Model_Space.set_coverage_overlay(visible).
+    _coverage_visible: bool = False
+
 
     def __init__(self, x, y, z=0):
         super().__init__(-self.RADIUS, -self.RADIUS,
@@ -206,6 +210,33 @@ class Node(QGraphicsEllipseItem):
                     Qt.AlignmentFlag.AlignCenter,
                     f"{p:.0f}"
                 )
+
+        # Coverage overlay — translucent green circle sized from sprinkler’s
+        # Coverage Area property (sq ft).  Drawn only when the class-level
+        # flag _coverage_visible is True and this node carries a sprinkler.
+        if Node._coverage_visible and self.has_sprinkler():
+            try:
+                coverage_sqft = float(
+                    self.sprinkler._properties.get("Coverage Area", {}).get("value", 0)
+                )
+            except (ValueError, TypeError):
+                coverage_sqft = 0.0
+
+            if coverage_sqft > 0:
+                sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
+                # Real-world radius in mm: r = sqrt(A_mm² / π)
+                # 1 sq ft = 92 903 mm²
+                r_real_mm = math.sqrt(coverage_sqft * 92_903.0 / math.pi)
+                if sm and sm.is_calibrated and sm.drawing_scale > 0:
+                    r_paper_mm = r_real_mm / sm.drawing_scale
+                    r_scene = sm.paper_to_scene(r_paper_mm)
+                else:
+                    # Fallback when not calibrated — 50 px so it’s at least visible
+                    r_scene = 50.0
+
+                painter.setPen(QPen(QColor(0, 200, 80, 120), 1))
+                painter.setBrush(QBrush(QColor(0, 200, 80, 30)))
+                painter.drawEllipse(QPointF(0, 0), r_scene, r_scene)
 
         # suppress Qt’s default selection box
         option.state &= ~QStyle.StateFlag.State_Selected

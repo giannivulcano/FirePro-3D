@@ -18,6 +18,7 @@ from hydraulic_report import HydraulicReportWidget
 from user_layer_manager import UserLayerManager, UserLayerWidget
 from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
+import theme as th
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -382,6 +383,7 @@ class MainWindow(QMainWindow):
         toggleViewAction() is available on each dock.
         """
         self._view_menu.addSeparator()
+        self._view_menu.addAction(self.dock.toggleViewAction())
         self._view_menu.addAction(self.layer_dock.toggleViewAction())
         self._view_menu.addAction(self.user_layer_dock.toggleViewAction())
         self._view_menu.addAction(self.hydro_dock.toggleViewAction())
@@ -394,31 +396,67 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build all four ribbon tabs and wire every button to existing actions.
+        """Build the three workflow ribbon tabs and wire every button.
+
+        Tabs follow the engineer's natural workflow:
+          1. Reference  — set up reference geometry / building data
+          2. Sprinkler  — model the suppression system + run hydraulics
+          3. Draft      — create final drawings and layouts
 
         Must be called *after* all dock widgets are created so that dock
         visibility toggles can be wired correctly.
         """
         s = self.style()
 
-        # ── Tab 1: Model ─────────────────────────────────────────────────────
-        model_page = self.ribbon.add_page("Model")
+        # ── Tab 1: Reference ─────────────────────────────────────────────────
+        ref_page = self.ribbon.add_page("Reference")
 
-        g_file = model_page.add_group("File")
+        # --- File ---
+        g_file = ref_page.add_group("File")
         g_file.add_large_button(
             "Open", QIcon(r"graphics/File Menu/load_icon.svg"), self.open_file)
         g_file.add_large_button(
             "Save", QIcon(r"graphics/File Menu/save_icon.svg"), self.save_file)
 
-        g_draw = model_page.add_group("Draw")
+        # --- Import ---
+        g_imp = ref_page.add_group("Import")
+        g_imp.add_large_button(
+            "Import\nUnderlay",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon),
+            self.open_import_dialog)
+        g_imp.add_small_button(
+            "Refresh All",
+            s.standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
+            self.refresh_underlays)
+
+        # --- Draw ---
+        g_draw = ref_page.add_group("Draw")
         g_draw.add_large_button(
             "Pipe", QIcon(r"graphics/Toolbar/pipe_icon.svg"),
             lambda: self.scene.set_mode("pipe", self.current_pipe_template))
         g_draw.add_large_button(
-            "Dimension", QIcon(r"graphics/Toolbar/dimension_icon.svg"),
-            lambda: self.scene.set_mode("dimension"))
+            "Construction\nLine",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            lambda: self.scene.set_mode("construction_line"))
+        g_draw.add_large_button(
+            "Polyline",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView),
+            lambda: self.scene.set_mode("polyline"))
 
-        g_edit = model_page.add_group("Edit")
+        # --- Grid ---
+        g_grid = ref_page.add_group("Grid")
+        self._grid_btn = g_grid.add_large_button(
+            "Grid\nOn/Off",
+            s.standardIcon(QStyle.StandardPixmap.SP_DesktopIcon),
+            self.toggle_grid,
+            checkable=True)
+        g_grid.add_small_menu_button(
+            "Grid Size",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            self._build_grid_size_menu())
+
+        # --- Edit ---
+        g_edit = ref_page.add_group("Edit")
         g_edit.add_large_button(
             "Undo",
             s.standardIcon(QStyle.StandardPixmap.SP_ArrowBack),
@@ -438,62 +476,53 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_TrashIcon),
             lambda: self.scene.delete_selected_items())
 
-        g_ulay = model_page.add_group("Underlay")
-        g_ulay.add_large_button(
-            "Import DXF",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileIcon),
-            self.open_dxf_import_dialog)
-        g_ulay.add_large_button(
-            "Import PDF",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon),
-            self.open_pdf_import_dialog)
-        g_ulay.add_small_button(
-            "Refresh All",
-            s.standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
-            self.refresh_underlays)
-
-        g_set = model_page.add_group("Settings")
+        # --- Settings ---
+        g_set = ref_page.add_group("Settings")
         g_set.add_large_button(
             "Set Scale",
             s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
             self.set_scale_dialog)
         g_set.add_small_menu_button(
-            "Units", s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            "Units",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
             self._build_units_menu())
         g_set.add_small_menu_button(
-            "Precision", s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            "Precision",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
             self._build_precision_menu())
 
         # ── Tab 2: Sprinkler ─────────────────────────────────────────────────
         spr_page = self.ribbon.add_page("Sprinkler")
 
+        # --- Place ---
         g_place = spr_page.add_group("Place")
         g_place.add_large_button(
             "Sprinkler", QIcon(r"graphics/Toolbar/sprinkler_icon.svg"),
             lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template))
 
+        # --- System ---
         g_sys = spr_page.add_group("System")
         g_sys.add_large_button(
-            "Water Supply", QIcon(r"graphics/Toolbar/supply_icon.svg"),
+            "Water\nSupply", QIcon(r"graphics/Toolbar/supply_icon.svg"),
             lambda: self.scene.set_mode("water_supply"))
         g_sys.add_large_button(
-            "Design Area", QIcon(r"graphics/Toolbar/design_area_icon.svg"),
+            "Design\nArea", QIcon(r"graphics/Toolbar/design_area_icon.svg"),
             lambda: self.scene.set_mode("design_area"))
-
-        g_view2 = spr_page.add_group("View")
-        snap_btn = g_view2.add_large_button(
-            "Snap to\nUnderlay",
+        self._coverage_btn = g_sys.add_small_button(
+            "Coverage Overlay",
             s.standardIcon(QStyle.StandardPixmap.SP_CommandLink),
-            lambda checked: setattr(self.scene, "_snap_to_underlay", checked),
+            self.toggle_coverage_overlay,
             checkable=True)
-        # Keep ribbon button and menu action in sync
-        self._snap_action.toggled.connect(snap_btn.setChecked)
-        snap_btn.toggled.connect(self._snap_action.setChecked)
 
-        # ── Tab 3: Analysis ──────────────────────────────────────────────────
-        ana_page = self.ribbon.add_page("Analysis")
+        # --- Library ---
+        g_lib = spr_page.add_group("Library")
+        g_lib.add_large_button(
+            "Sprinkler\nManager",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            self.open_sprinkler_manager)
 
-        g_hyd = ana_page.add_group("Hydraulics")
+        # --- Hydraulics ---
+        g_hyd = spr_page.add_group("Hydraulics")
         g_hyd.add_large_button(
             "Run\nHydraulics", QIcon(r"graphics/Toolbar/hydraulics_icon.svg"),
             self.run_hydraulics, shortcut="F5")
@@ -502,7 +531,8 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_DialogResetButton),
             self.clear_hydraulics)
 
-        g_exp = ana_page.add_group("Export")
+        # --- Export ---
+        g_exp = spr_page.add_group("Export")
         g_exp.add_large_button(
             "Export PDF", QIcon(r"graphics/Toolbar/report_icon.svg"),
             self.hydro_report._export_pdf)
@@ -511,18 +541,21 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
             self.hydro_report._export_csv)
 
-        g_pan = ana_page.add_group("Panels")
-        report_toggle = g_pan.add_large_button(
-            "Report\nPanel",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
-            None, checkable=True)
-        report_toggle.toggled.connect(
-            lambda on: self.hydro_dock.show() if on else self.hydro_dock.hide())
-        self.hydro_dock.visibilityChanged.connect(report_toggle.setChecked)
+        # --- View ---
+        g_view = spr_page.add_group("View")
+        snap_btn = g_view.add_large_button(
+            "Snap to\nUnderlay",
+            s.standardIcon(QStyle.StandardPixmap.SP_CommandLink),
+            lambda checked: setattr(self.scene, "_snap_to_underlay", checked),
+            checkable=True)
+        # Keep ribbon button and menu action in sync
+        self._snap_action.toggled.connect(snap_btn.setChecked)
+        snap_btn.toggled.connect(self._snap_action.setChecked)
 
-        # ── Tab 4: Draft ─────────────────────────────────────────────────────
+        # ── Tab 3: Draft ─────────────────────────────────────────────────────
         draft_page = self.ribbon.add_page("Draft")
 
+        # --- Workspace ---
         g_ws = draft_page.add_group("Workspace")
         g_ws.add_large_button(
             "Model\nSpace",
@@ -533,6 +566,7 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView),
             lambda: self.central_tabs.setCurrentIndex(1))
 
+        # --- Page ---
         g_pg = draft_page.add_group("Page")
         g_pg.add_large_menu_button(
             "Paper Size",
@@ -543,32 +577,42 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
             self.paper_space_widget.edit_title_block)
 
+        # --- Annotations ---
         g_ann = draft_page.add_group("Annotations")
         g_ann.add_large_button(
             "Dimension", QIcon(r"graphics/Toolbar/dimension_icon.svg"),
             lambda: self.scene.set_mode("dimension"))
 
-        g_pan2 = draft_page.add_group("Panels")
-        prop_btn = g_pan2.add_small_button(
+        # --- Panels (dock toggles) ---
+        g_pan = draft_page.add_group("Panels")
+        prop_btn = g_pan.add_small_button(
             "Properties",
             s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
             None, checkable=True)
         prop_btn.toggled.connect(self.dock.setVisible)
         self.dock.visibilityChanged.connect(prop_btn.setChecked)
 
-        dxf_btn = g_pan2.add_small_button(
+        dxf_btn = g_pan.add_small_button(
             "DXF Layers",
             s.standardIcon(QStyle.StandardPixmap.SP_DirIcon),
             None, checkable=True)
         dxf_btn.toggled.connect(self.layer_dock.setVisible)
         self.layer_dock.visibilityChanged.connect(dxf_btn.setChecked)
 
-        ul_btn = g_pan2.add_small_button(
+        ul_btn = g_pan.add_small_button(
             "User Layers",
             s.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
             None, checkable=True)
         ul_btn.toggled.connect(self.user_layer_dock.setVisible)
         self.user_layer_dock.visibilityChanged.connect(ul_btn.setChecked)
+
+        report_btn = g_pan.add_small_button(
+            "Report Panel",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            None, checkable=True)
+        report_btn.toggled.connect(
+            lambda on: self.hydro_dock.show() if on else self.hydro_dock.hide())
+        self.hydro_dock.visibilityChanged.connect(report_btn.setChecked)
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
@@ -595,6 +639,77 @@ class MainWindow(QMainWindow):
             m.addAction(name,
                         lambda _, n=name: self.paper_space_widget.change_paper(n))
         return m
+
+    def _build_grid_size_menu(self) -> QMenu:
+        """Return a QMenu of common grid-size presets (scene units)."""
+        m = QMenu(self)
+        for size in (5, 10, 25, 50, 100):
+            m.addAction(f"{size} units",
+                        lambda _, v=size: self._set_grid_size(v))
+        return m
+
+    # ── Stub actions (filled in by later sprints) ─────────────────────────────
+
+    def open_import_dialog(self):
+        """Open the unified PDF/DXF underlay import dialog."""
+        from import_dialog import UnifiedImportDialog
+        dlg = UnifiedImportDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            opts = dlg.get_options()
+            if not opts.get("file"):
+                return
+            if opts["type"] == "pdf":
+                self.scene.import_pdf(
+                    opts["file"], dpi=opts["dpi"], page=opts["page"]
+                )
+            elif opts["type"] == "dxf":
+                self.scene.import_dxf(
+                    opts["file"],
+                    color=opts["color"],
+                    line_weight=opts["line_weight"],
+                    layers=opts["layers"],
+                )
+
+    def toggle_grid(self, checked: bool):
+        """Show/hide the dot grid overlay on the model-space view."""
+        self.view.set_grid(checked)
+
+    def _set_grid_size(self, size: int):
+        """Update grid dot spacing and keep the toggle button checked."""
+        self.view.set_grid(True, size)
+        self._grid_btn.setChecked(True)
+
+    def toggle_coverage_overlay(self, checked: bool):
+        """Show/hide translucent sprinkler coverage circles."""
+        self.scene.set_coverage_overlay(checked)
+
+    def open_sprinkler_manager(self):
+        """Open the Sprinkler Manager database dialog."""
+        from sprinkler_db import SprinklerManagerDialog, SprinklerDatabase
+        if not hasattr(self, "_sprinkler_db"):
+            self._sprinkler_db = SprinklerDatabase()
+        dlg = SprinklerManagerDialog(db=self._sprinkler_db, parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            record = dlg.selected_record()
+            if record:
+                self._apply_sprinkler_template_from_record(record)
+
+    def _apply_sprinkler_template_from_record(self, record):
+        """Apply a SprinklerRecord as the active sprinkler placement template."""
+        from sprinkler import Sprinkler
+        template = Sprinkler(None)
+        template.set_property("K-Factor",      str(record.k_factor))
+        template.set_property("Min Pressure",  str(record.min_pressure))
+        template.set_property("Coverage Area", str(record.coverage_area))
+        template.set_property("Temp Rating",   str(record.temp_rating))
+        template.set_property("Type",          record.type)
+        self.current_sprinkler_template = template
+        self.scene.set_mode("sprinkler", template)
+        self.statusBar().showMessage(
+            f"Active template: {record.manufacturer} {record.model} "
+            f"(K={record.k_factor:.1f}, {record.coverage_area:.0f} ft²)",
+            5000
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER
@@ -717,6 +832,9 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
+    # Apply global theme stylesheet before any widgets are created
+    _t = th.detect()
+    app.setStyleSheet(th.build_app_qss(_t))
     window = MainWindow()
     window.resize(800, 600)
     window.show()

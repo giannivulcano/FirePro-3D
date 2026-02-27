@@ -1,6 +1,9 @@
+import math
+
 from PyQt6.QtWidgets import QGraphicsView, QScrollBar
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QPainter
+from PyQt6.QtCore import Qt, QPoint, QPointF
+from PyQt6.QtGui import QPainter, QPen, QColor
+import theme as th
 
 class Model_View(QGraphicsView):
     def __init__(self, scene, parent=None):
@@ -12,8 +15,54 @@ class Model_View(QGraphicsView):
         self._pan_start = QPoint()
         self._zoom_factor = 1.15  # Zoom speed multiplier
 
+        # Grid overlay
+        self._grid_visible = False
+        self._grid_size = 10       # scene-space units between dots
+
         # Optional: smooth drag
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+
+    # ─────────────────────────────
+    # Grid overlay
+    # ─────────────────────────────
+
+    def set_grid(self, visible: bool, size: int | None = None):
+        """Show / hide the dot grid and optionally update spacing."""
+        self._grid_visible = visible
+        if size is not None and size > 0:
+            self._grid_size = size
+        self.viewport().update()
+
+    def drawBackground(self, painter: QPainter, rect):
+        """Override: draw dot-grid behind scene content when enabled."""
+        super().drawBackground(painter, rect)
+        if not self._grid_visible:
+            return
+
+        grid_px = self._grid_size
+
+        # Skip drawing if dots would be closer than 4 viewport pixels apart
+        # (avoids a performance hit at very low zoom levels)
+        scale = self.transform().m11()          # horizontal scale factor
+        if grid_px * scale < 4.0:
+            return
+
+        # Dot colour from theme
+        dot_color = QColor(th.detect().grid_dot)
+        pen = QPen(dot_color)
+        pen.setWidth(0)                         # cosmetic (1 viewport pixel)
+        painter.setPen(pen)
+
+        left = math.floor(rect.left()  / grid_px) * grid_px
+        top  = math.floor(rect.top()   / grid_px) * grid_px
+
+        x = left
+        while x <= rect.right() + grid_px:
+            y = top
+            while y <= rect.bottom() + grid_px:
+                painter.drawPoint(QPointF(x, y))
+                y += grid_px
+            x += grid_px
 
     # -----------------------------
     # Zoom with mouse wheel

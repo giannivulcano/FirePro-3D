@@ -20,10 +20,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QIcon, QFont, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize
+import theme as th
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Stylesheet
+# Stylesheet (kept for reference; actual QSS now comes from theme.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
 RIBBON_QSS = """
@@ -297,7 +298,7 @@ class RibbonGroup(QWidget):
     def paintEvent(self, event):
         super().paintEvent(event)
         p = QPainter(self)
-        p.setPen(QColor("#c0c0c0"))
+        p.setPen(QColor(th.detect().border_subtle))
         p.drawLine(self.width() - 1, 4, self.width() - 1, self.height() - 20)
         p.end()
 
@@ -343,7 +344,9 @@ class RibbonBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(RIBBON_QSS)
+        # Apply theme-aware stylesheet (auto-detects dark/light from system palette)
+        _t = th.detect()
+        self.setStyleSheet(th.build_ribbon_qss(_t))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -357,7 +360,7 @@ class RibbonBar(QWidget):
 
         # Stacked pages (one per tab)
         self._stack = QStackedWidget(self)
-        self._stack.setStyleSheet("background: #f0f0f0;")
+        self._stack.setStyleSheet(f"background: {_t.bg_raised};")
         self._stack.setFixedHeight(100)
         outer.addWidget(self._stack)
 

@@ -18,6 +18,7 @@ from calibrate_dialog import CalibrateDialog
 from underlay_context_menu import UnderlayContextMenu
 from dxf_import_worker import DxfImportWorker
 from water_supply import WaterSupply
+from construction_geometry import ConstructionLine, PolylineItem
 import os
 
 
@@ -48,6 +49,11 @@ class Model_Space(QGraphicsScene):
         self.active_user_layer: str = "0"                     # Sprint 4A active layer
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
+        # Construction geometry (Sprint C)
+        self._construction_lines: list[ConstructionLine] = []
+        self._polylines: list[PolylineItem] = []
+        self._cline_anchor: "QPointF | None" = None           # first click for construction line
+        self._polyline_active: "PolylineItem | None" = None   # in-progress polyline
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
@@ -155,16 +161,22 @@ class Model_Space(QGraphicsScene):
             else []
         )
 
+        # --- Construction geometry ---
+        clines_data = [cl.to_dict() for cl in self._construction_lines]
+        polylines_data = [pl.to_dict() for pl in self._polylines]
+
         # --- Assemble and write ---
         payload = {
-            "version":      self.SAVE_VERSION,
-            "scale":        self.scale_manager.to_dict(),
-            "user_layers":  layers_data,
-            "nodes":        nodes_data,
-            "pipes":        pipes_data,
-            "annotations":  annotations_data,
-            "underlays":    underlays_data,
-            "water_supply": ws_data,
+            "version":             self.SAVE_VERSION,
+            "scale":               self.scale_manager.to_dict(),
+            "user_layers":         layers_data,
+            "nodes":               nodes_data,
+            "pipes":               pipes_data,
+            "annotations":         annotations_data,
+            "underlays":           underlays_data,
+            "water_supply":        ws_data,
+            "construction_lines":  clines_data,
+            "polylines":           polylines_data,
         }
         with open(filename, "w") as f:
             json.dump(payload, f, indent=2)
@@ -260,6 +272,18 @@ class Model_Space(QGraphicsScene):
             for key, value in ws_data.get("properties", {}).items():
                 ws.set_property(key, value)
 
+        # --- Construction lines ---
+        for entry in payload.get("construction_lines", []):
+            cl = ConstructionLine.from_dict(entry)
+            self.addItem(cl)
+            self._construction_lines.append(cl)
+
+        # --- Polylines ---
+        for entry in payload.get("polylines", []):
+            pl = PolylineItem.from_dict(entry)
+            self.addItem(pl)
+            self._polylines.append(pl)
+
         # Start fresh undo history with the loaded state
         self._undo_stack = []
         self._undo_pos = -1
@@ -274,6 +298,10 @@ class Model_Space(QGraphicsScene):
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
+        self._construction_lines = []
+        self._polylines = []
+        self._cline_anchor = None
+        self._polyline_active = None
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -360,6 +388,17 @@ class Model_Space(QGraphicsScene):
                 self._design_area_rect_item = None
         if self.node_start_pos is not None:
             self.remove_node(self.node_start_pos)
+        # Cancel in-progress construction geometry
+        if mode != "construction_line":
+            self._cline_anchor = None
+        if mode != "polyline" and self._polyline_active is not None:
+            # Discard the partial polyline (fewer than 2 committed points)
+            if len(self._polyline_active._points) < 2:
+                if self._polyline_active.scene() is self:
+                    self.removeItem(self._polyline_active)
+                if self._polyline_active in self._polylines:
+                    self._polylines.remove(self._polyline_active)
+            self._polyline_active = None
         if mode in ("sprinkler", "pipe", "set_scale"):
             self.current_template = template
             if template:
@@ -1003,6 +1042,12 @@ class Model_Space(QGraphicsScene):
         for node in self.sprinkler_system.nodes:
             node.update()
 
+    def set_coverage_overlay(self, visible: bool):
+        """Show or hide translucent coverage circles on all sprinkler nodes."""
+        Node._coverage_visible = visible
+        for node in self.sprinkler_system.nodes:
+            node.update()
+
     # -------------------------------------------------------------------------
     # GEOMETRY HELPERS
 
@@ -1121,6 +1166,24 @@ class Model_Space(QGraphicsScene):
                 c1 = self._design_area_corner1
                 rect = QRectF(c1, snapped).normalized()
                 self._design_area_rect_item.setRect(rect)
+
+        elif self.mode == "construction_line":
+            self.preview_node.hide()
+            if self._cline_anchor is not None:
+                # Show a preview line from anchor to current cursor
+                self.preview_pipe.setLine(
+                    self._cline_anchor.x(), self._cline_anchor.y(),
+                    snapped.x(), snapped.y()
+                )
+                self.preview_pipe.show()
+            else:
+                self.preview_pipe.hide()
+
+        elif self.mode == "polyline":
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._polyline_active is not None:
+                self._polyline_active.update_preview(snapped)
 
         elif self.mode in ("sprinkler", "dimension", "paste", "move", "water_supply"):
             self.update_preview_node(snapped)
@@ -1265,6 +1328,35 @@ class Model_Space(QGraphicsScene):
                 self.set_mode(None)
                 return
 
+        elif self.mode == "construction_line":
+            if self._cline_anchor is None:
+                # First click — store anchor, show preview pipe
+                self._cline_anchor = snapped
+            else:
+                # Second click — place the line
+                cl = ConstructionLine(self._cline_anchor, snapped)
+                self.addItem(cl)
+                self._construction_lines.append(cl)
+                self._cline_anchor = None   # ready for the next line immediately
+                self.preview_pipe.hide()
+                self.push_undo_state()
+
+        elif self.mode == "polyline":
+            if self._polyline_active is None:
+                # First click — create the polyline item
+                color = "#ffffff"
+                if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+                    ldef = self._user_layer_manager.get(self.active_user_layer)
+                    if ldef:
+                        color = ldef.color
+                pl = PolylineItem(snapped, color)
+                self.addItem(pl)
+                self._polylines.append(pl)
+                self._polyline_active = pl
+            else:
+                # Subsequent clicks — append vertex
+                self._polyline_active.append_point(snapped)
+
         elif self.mode is None:
             if isinstance(selection, Node):
                 print(selection)
@@ -1318,6 +1410,14 @@ class Model_Space(QGraphicsScene):
         elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if self.clipboard_data():
                 self.set_mode("paste")
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Finish an in-progress polyline
+            if self.mode == "polyline" and self._polyline_active is not None:
+                if len(self._polyline_active._points) >= 2:
+                    self._polyline_active.finalize()
+                    self._polyline_active = None
+                    self.push_undo_state()
+                    # Stay in polyline mode so user can draw another
         else:
             super().keyPressEvent(event)
 
