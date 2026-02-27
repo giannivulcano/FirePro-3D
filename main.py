@@ -192,6 +192,9 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.mode_label)
         self.scene.cursorMoved.connect(self.coord_label.setText)
 
+        # Now all docks exist — wire their toggles into the View menu
+        self._add_dock_toggles()
+
         # Restore settings
         self.restore_settings()
 
@@ -339,6 +342,7 @@ class MainWindow(QMainWindow):
 
     def init_view_menu(self, menu_bar):
         view_menu = menu_bar.addMenu("View")
+        self._view_menu = view_menu   # saved so _add_dock_toggles() can populate it later
 
         # Snap to underlay toggle
         self._snap_action = QAction("Snap to Underlay", self)
@@ -350,14 +354,9 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        # Dock toggles
-        view_menu.addAction(self.layer_dock.toggleViewAction())
-        view_menu.addAction(self.user_layer_dock.toggleViewAction())
-        view_menu.addAction(self.hydro_dock.toggleViewAction())
+        # Dock toggles are added later in _add_dock_toggles() once the docks exist.
 
-        view_menu.addSeparator()
-
-        # Paper space shortcut
+        # Paper space shortcuts
         paper_action = QAction("Switch to Layout 1 (Paper Space)", self)
         paper_action.triggered.connect(
             lambda: self.central_tabs.setCurrentIndex(1)
@@ -369,6 +368,17 @@ class MainWindow(QMainWindow):
             lambda: self.central_tabs.setCurrentIndex(0)
         )
         view_menu.addAction(model_action)
+
+    def _add_dock_toggles(self):
+        """Append dock visibility toggles to the View menu.
+
+        Must be called *after* all dock widgets have been created so that
+        toggleViewAction() is available on each dock.
+        """
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self.layer_dock.toggleViewAction())
+        self._view_menu.addAction(self.user_layer_dock.toggleViewAction())
+        self._view_menu.addAction(self.hydro_dock.toggleViewAction())
 
     def init_help_menu(self, menu_bar):
         help_menu = menu_bar.addMenu("Help")
