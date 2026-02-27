@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QMenuBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTabWidget, QMenu, QStyle)
+                              QTabWidget, QMenu, QStyle, QWidget)
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
