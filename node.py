@@ -27,6 +27,7 @@ class Node(QGraphicsEllipseItem):
         self.sprinkler = None
         self.fitting = Fitting(self)
         self.pipes = []
+        self.user_layer: str = "0"   # user-defined layer name
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {

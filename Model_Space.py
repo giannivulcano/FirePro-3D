@@ -23,7 +23,7 @@ import os
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 4
+    SAVE_VERSION = 5
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -45,6 +45,7 @@ class Model_Space(QGraphicsScene):
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self.design_area_sprinklers: list = []                # Sprint 2C design area
+        self.active_user_layer: str = "0"                     # Sprint 4A active layer
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
         # Undo/redo
@@ -90,11 +91,12 @@ class Model_Space(QGraphicsScene):
         nodes_data = []
         for node in node_list:
             entry = {
-                "id":        node_id[node],
-                "x":         node.scenePos().x(),
-                "y":         node.scenePos().y(),
-                "elevation": node.z_pos,
-                "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "id":         node_id[node],
+                "x":          node.scenePos().x(),
+                "y":          node.scenePos().y(),
+                "elevation":  node.z_pos,
+                "user_layer": getattr(node, "user_layer", "0"),
+                "sprinkler":  node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             nodes_data.append(entry)
 
@@ -106,6 +108,7 @@ class Model_Space(QGraphicsScene):
             pipes_data.append({
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
+                "user_layer": getattr(pipe, "user_layer", "0"),
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
             })
 
@@ -145,10 +148,18 @@ class Model_Space(QGraphicsScene):
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
 
+        # --- User layers ---
+        layers_data = (
+            self._user_layer_manager.to_list()
+            if hasattr(self, "_user_layer_manager") and self._user_layer_manager
+            else []
+        )
+
         # --- Assemble and write ---
         payload = {
             "version":      self.SAVE_VERSION,
             "scale":        self.scale_manager.to_dict(),
+            "user_layers":  layers_data,
             "nodes":        nodes_data,
             "pipes":        pipes_data,
             "annotations":  annotations_data,
@@ -173,6 +184,11 @@ class Model_Space(QGraphicsScene):
         else:
             self.scale_manager = ScaleManager()
 
+        # --- User layers ---
+        layers_data = payload.get("user_layers", [])
+        if layers_data and hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+            self._user_layer_manager.from_list(layers_data)
+
         # --- Nodes ---
         id_to_node: dict[int, Node] = {}
         for entry in payload.get("nodes", []):
@@ -180,6 +196,7 @@ class Model_Space(QGraphicsScene):
             id_to_node[entry["id"]] = node
             # Restore node elevation (plain nodes)
             node.set_property("Elevation", str(entry.get("elevation", 0)))
+            node.user_layer = entry.get("user_layer", "0")
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -196,6 +213,7 @@ class Model_Space(QGraphicsScene):
             n2 = id_to_node.get(entry["node2_id"])
             if n1 and n2:
                 pipe = self.add_pipe(n1, n2)
+                pipe.user_layer = entry.get("user_layer", "0")
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
 
@@ -368,6 +386,7 @@ class Model_Space(QGraphicsScene):
         node = self.find_nearby_node(x, y)
         if not node:
             node = Node(x, y)
+            node.user_layer = self.active_user_layer
             self.addItem(node)
             self.sprinkler_system.add_node(node)
         return node
@@ -384,6 +403,7 @@ class Model_Space(QGraphicsScene):
 
     def add_pipe(self, n1, n2, template=None):
         pipe = Pipe(n1, n2)
+        pipe.user_layer = self.active_user_layer
         if template:
             pipe.set_properties(template)
         self.sprinkler_system.add_pipe(pipe)

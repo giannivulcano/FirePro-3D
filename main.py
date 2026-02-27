@@ -2,7 +2,8 @@ import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar, QMenuBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit)
+                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
+                              QTabWidget)
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
@@ -14,6 +15,8 @@ from property_manager import PropertyManager
 from scale_manager import DisplayUnit
 from layer_manager import LayerManager
 from hydraulic_report import HydraulicReportWidget
+from user_layer_manager import UserLayerManager, UserLayerWidget
+from paper_space import PaperSpaceWidget
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +103,17 @@ class MainWindow(QMainWindow):
         self.view.setMouseTracking(True)
         self.view.viewport().setMouseTracking(True)
         self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setCentralWidget(self.view)
+
+        # User layer manager — shared between scene and UI
+        self.user_layer_mgr = UserLayerManager()
+        self.scene._user_layer_manager = self.user_layer_mgr   # for save/load
+
+        # Central tab widget: Model Space | Layout 1 (Paper Space)
+        self.paper_space_widget = PaperSpaceWidget(self.scene)
+        self.central_tabs = QTabWidget()
+        self.central_tabs.addTab(self.view, "Model Space")
+        self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
+        self.setCentralWidget(self.central_tabs)
 
         # MENU BAR
         menu_bar = QMenuBar(self)
@@ -123,9 +136,9 @@ class MainWindow(QMainWindow):
         self.dock = QDockWidget("Properties", self)
         self.init_property_manager_dock()
 
-        # Layer manager dock
+        # DXF layer manager dock
         self.layer_manager = LayerManager(self.scene)
-        self.layer_dock = QDockWidget("Layers", self)
+        self.layer_dock = QDockWidget("DXF Layers", self)
         self.layer_dock.setObjectName("LayersDock")
         self.layer_dock.setWidget(self.layer_manager)
         self.layer_dock.setAllowedAreas(
@@ -134,6 +147,27 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.layer_dock)
         self.layer_dock.setMinimumWidth(160)
+
+        # User layer dock
+        self.user_layer_widget = UserLayerWidget(
+            self.user_layer_mgr, scene=self.scene
+        )
+        self.user_layer_widget.activeLayerChanged.connect(
+            lambda name: setattr(self.scene, "active_user_layer", name)
+        )
+        self.user_layer_widget.layersChanged.connect(
+            lambda: self.user_layer_mgr.apply_to_scene(self.scene)
+        )
+        self.user_layer_dock = QDockWidget("User Layers", self)
+        self.user_layer_dock.setObjectName("UserLayersDock")
+        self.user_layer_dock.setWidget(self.user_layer_widget)
+        self.user_layer_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.user_layer_dock)
+        self.tabifyDockWidget(self.layer_dock, self.user_layer_dock)
+        self.user_layer_dock.setMinimumWidth(200)
 
         # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
         self.hydro_report = HydraulicReportWidget()
@@ -318,7 +352,23 @@ class MainWindow(QMainWindow):
 
         # Dock toggles
         view_menu.addAction(self.layer_dock.toggleViewAction())
+        view_menu.addAction(self.user_layer_dock.toggleViewAction())
         view_menu.addAction(self.hydro_dock.toggleViewAction())
+
+        view_menu.addSeparator()
+
+        # Paper space shortcut
+        paper_action = QAction("Switch to Layout 1 (Paper Space)", self)
+        paper_action.triggered.connect(
+            lambda: self.central_tabs.setCurrentIndex(1)
+        )
+        view_menu.addAction(paper_action)
+
+        model_action = QAction("Switch to Model Space", self)
+        model_action.triggered.connect(
+            lambda: self.central_tabs.setCurrentIndex(0)
+        )
+        view_menu.addAction(model_action)
 
     def init_help_menu(self, menu_bar):
         help_menu = menu_bar.addMenu("Help")

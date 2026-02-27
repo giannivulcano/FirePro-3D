@@ -51,6 +51,7 @@ class Pipe(QGraphicsLineItem):
         self.node2 = node2
         self.colour = None
         self.length = 0.0
+        self.user_layer: str = "0"   # user-defined layer name
 
 
         self.label = QGraphicsTextItem("", self)  # Child of pipe
