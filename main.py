@@ -1,9 +1,9 @@
 import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar, QMenuBar,
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QMenuBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTabWidget)
+                              QTabWidget, QMenu, QStyle)
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
@@ -16,7 +16,8 @@ from scale_manager import DisplayUnit
 from layer_manager import LayerManager
 from hydraulic_report import HydraulicReportWidget
 from user_layer_manager import UserLayerManager, UserLayerWidget
-from paper_space import PaperSpaceWidget
+from paper_space import PaperSpaceWidget, PAPER_SIZES
+from ribbon_bar import RibbonBar
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -113,9 +114,18 @@ class MainWindow(QMainWindow):
         self.central_tabs = QTabWidget()
         self.central_tabs.addTab(self.view, "Model Space")
         self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
-        self.setCentralWidget(self.central_tabs)
 
-        # MENU BAR
+        # Ribbon bar + central tabs wrapped in a container widget
+        self.ribbon = RibbonBar()
+        _container = QWidget()
+        _vlay = QVBoxLayout(_container)
+        _vlay.setContentsMargins(0, 0, 0, 0)
+        _vlay.setSpacing(0)
+        _vlay.addWidget(self.ribbon)
+        _vlay.addWidget(self.central_tabs)
+        self.setCentralWidget(_container)
+
+        # MENU BAR (kept for keyboard shortcuts and less-common options)
         menu_bar = QMenuBar(self)
         self.setMenuBar(menu_bar)
         self.init_file_menu(menu_bar)
@@ -124,11 +134,6 @@ class MainWindow(QMainWindow):
         self.init_hydraulics_menu(menu_bar)
         self.init_view_menu(menu_bar)
         self.init_help_menu(menu_bar)
-
-        # Toolbar
-        toolbar = QToolBar("Tools")
-        self.addToolBar(toolbar)
-        self.init_toolbar(toolbar)
 
         # Property manager dock
         self.prop_manager = PropertyManager()
@@ -192,8 +197,9 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.mode_label)
         self.scene.cursorMoved.connect(self.coord_label.setText)
 
-        # Now all docks exist — wire their toggles into the View menu
+        # Now all docks exist — wire their toggles into the View menu and ribbon
         self._add_dock_toggles()
+        self.init_ribbon()
 
         # Restore settings
         self.restore_settings()
@@ -384,59 +390,211 @@ class MainWindow(QMainWindow):
         help_menu = menu_bar.addMenu("Help")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # TOOLBAR INITIALISATION
+    # RIBBON INITIALISATION
     # ─────────────────────────────────────────────────────────────────────────
 
-    def init_toolbar(self, toolbar):
-        toolbar.setObjectName("SprinklerToolbar")
-        toolbar.setIconSize(QSize(64, 64))
-        toolbar.setContentsMargins(5, 5, 5, 5)
+    def init_ribbon(self):
+        """Build all four ribbon tabs and wire every button to existing actions.
 
-        sprinkler_action = QAction(QIcon(r"graphics/Toolbar/sprinkler_icon.svg"), "Sprinkler", self)
-        sprinkler_action.triggered.connect(
-            lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template))
-        toolbar.addAction(sprinkler_action)
+        Must be called *after* all dock widgets are created so that dock
+        visibility toggles can be wired correctly.
+        """
+        s = self.style()
 
-        pipe_action = QAction(QIcon(r"graphics/Toolbar/pipe_icon.svg"), "Pipe", self)
-        pipe_action.triggered.connect(
+        # ── Tab 1: Model ─────────────────────────────────────────────────────
+        model_page = self.ribbon.add_page("Model")
+
+        g_file = model_page.add_group("File")
+        g_file.add_large_button(
+            "Open", QIcon(r"graphics/File Menu/load_icon.svg"), self.open_file)
+        g_file.add_large_button(
+            "Save", QIcon(r"graphics/File Menu/save_icon.svg"), self.save_file)
+
+        g_draw = model_page.add_group("Draw")
+        g_draw.add_large_button(
+            "Pipe", QIcon(r"graphics/Toolbar/pipe_icon.svg"),
             lambda: self.scene.set_mode("pipe", self.current_pipe_template))
-        toolbar.addAction(pipe_action)
+        g_draw.add_large_button(
+            "Dimension", QIcon(r"graphics/Toolbar/dimension_icon.svg"),
+            lambda: self.scene.set_mode("dimension"))
 
-        move_action = QAction(QIcon(r"graphics/Toolbar/move_icon.svg"), "Move", self)
-        move_action.triggered.connect(lambda: self.scene.sprinkler_system.report())
-        toolbar.addAction(move_action)
+        g_edit = model_page.add_group("Edit")
+        g_edit.add_large_button(
+            "Undo",
+            s.standardIcon(QStyle.StandardPixmap.SP_ArrowBack),
+            self.scene.undo, shortcut="Ctrl+Z")
+        g_edit.add_large_button(
+            "Redo",
+            s.standardIcon(QStyle.StandardPixmap.SP_ArrowForward),
+            self.scene.redo, shortcut="Ctrl+Y")
+        g_edit.add_small_button(
+            "Copy", QIcon(r"graphics/Toolbar/copy_icon.svg"),
+            lambda: self.scene.copy_selected_items())
+        g_edit.add_small_button(
+            "Move", QIcon(r"graphics/Toolbar/move_icon.svg"),
+            lambda: self.scene.set_mode("move"))
+        g_edit.add_small_button(
+            "Delete",
+            s.standardIcon(QStyle.StandardPixmap.SP_TrashIcon),
+            lambda: self.scene.delete_selected_items())
 
-        copy_action = QAction(QIcon(r"graphics/Toolbar/copy_icon.svg"), "Copy", self)
-        copy_action.triggered.connect(lambda: self.scene.sprinkler_system.report())
-        toolbar.addAction(copy_action)
+        g_ulay = model_page.add_group("Underlay")
+        g_ulay.add_large_button(
+            "Import DXF",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileIcon),
+            self.open_dxf_import_dialog)
+        g_ulay.add_large_button(
+            "Import PDF",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon),
+            self.open_pdf_import_dialog)
+        g_ulay.add_small_button(
+            "Refresh All",
+            s.standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
+            self.refresh_underlays)
 
-        report_action = QAction(QIcon(r"graphics/Toolbar/report_icon.svg"), "Report", self)
-        report_action.triggered.connect(lambda: self.scene.sprinkler_system.report())
-        toolbar.addAction(report_action)
+        g_set = model_page.add_group("Settings")
+        g_set.add_large_button(
+            "Set Scale",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
+            self.set_scale_dialog)
+        g_set.add_small_menu_button(
+            "Units", s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            self._build_units_menu())
+        g_set.add_small_menu_button(
+            "Precision", s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            self._build_precision_menu())
 
-        dimension_action = QAction(QIcon(r"graphics/Toolbar/dimension_icon.svg"), "Dimension", self)
-        dimension_action.triggered.connect(lambda: self.scene.set_mode("dimension"))
-        toolbar.addAction(dimension_action)
+        # ── Tab 2: Sprinkler ─────────────────────────────────────────────────
+        spr_page = self.ribbon.add_page("Sprinkler")
 
-        supply_action = QAction(QIcon(r"graphics/Toolbar/supply_icon.svg"), "Water Supply", self)
-        supply_action.triggered.connect(lambda: self.scene.set_mode("water_supply"))
-        toolbar.addAction(supply_action)
+        g_place = spr_page.add_group("Place")
+        g_place.add_large_button(
+            "Sprinkler", QIcon(r"graphics/Toolbar/sprinkler_icon.svg"),
+            lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template))
 
-        design_area_action = QAction(
-            QIcon(r"graphics/Toolbar/design_area_icon.svg"), "Design Area", self
-        )
-        design_area_action.triggered.connect(lambda: self.scene.set_mode("design_area"))
-        toolbar.addAction(design_area_action)
+        g_sys = spr_page.add_group("System")
+        g_sys.add_large_button(
+            "Water Supply", QIcon(r"graphics/Toolbar/supply_icon.svg"),
+            lambda: self.scene.set_mode("water_supply"))
+        g_sys.add_large_button(
+            "Design Area", QIcon(r"graphics/Toolbar/design_area_icon.svg"),
+            lambda: self.scene.set_mode("design_area"))
 
-        run_hydraulics_action = QAction(
-            QIcon(r"graphics/Toolbar/hydraulics_icon.svg"), "Run Hydraulics", self
-        )
-        run_hydraulics_action.triggered.connect(self.run_hydraulics)
-        toolbar.addAction(run_hydraulics_action)
+        g_view2 = spr_page.add_group("View")
+        snap_btn = g_view2.add_large_button(
+            "Snap to\nUnderlay",
+            s.standardIcon(QStyle.StandardPixmap.SP_CommandLink),
+            lambda checked: setattr(self.scene, "_snap_to_underlay", checked),
+            checkable=True)
+        # Keep ribbon button and menu action in sync
+        self._snap_action.toggled.connect(snap_btn.setChecked)
+        snap_btn.toggled.connect(self._snap_action.setChecked)
 
-        clear_hydraulics_action = QAction("Clear Results", self)
-        clear_hydraulics_action.triggered.connect(self.clear_hydraulics)
-        toolbar.addAction(clear_hydraulics_action)
+        # ── Tab 3: Analysis ──────────────────────────────────────────────────
+        ana_page = self.ribbon.add_page("Analysis")
+
+        g_hyd = ana_page.add_group("Hydraulics")
+        g_hyd.add_large_button(
+            "Run\nHydraulics", QIcon(r"graphics/Toolbar/hydraulics_icon.svg"),
+            self.run_hydraulics, shortcut="F5")
+        g_hyd.add_large_button(
+            "Clear\nResults",
+            s.standardIcon(QStyle.StandardPixmap.SP_DialogResetButton),
+            self.clear_hydraulics)
+
+        g_exp = ana_page.add_group("Export")
+        g_exp.add_large_button(
+            "Export PDF", QIcon(r"graphics/Toolbar/report_icon.svg"),
+            self.hydro_report._export_pdf)
+        g_exp.add_large_button(
+            "Export CSV",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            self.hydro_report._export_csv)
+
+        g_pan = ana_page.add_group("Panels")
+        report_toggle = g_pan.add_large_button(
+            "Report\nPanel",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            None, checkable=True)
+        report_toggle.toggled.connect(
+            lambda on: self.hydro_dock.show() if on else self.hydro_dock.hide())
+        self.hydro_dock.visibilityChanged.connect(report_toggle.setChecked)
+
+        # ── Tab 4: Draft ─────────────────────────────────────────────────────
+        draft_page = self.ribbon.add_page("Draft")
+
+        g_ws = draft_page.add_group("Workspace")
+        g_ws.add_large_button(
+            "Model\nSpace",
+            s.standardIcon(QStyle.StandardPixmap.SP_DesktopIcon),
+            lambda: self.central_tabs.setCurrentIndex(0))
+        g_ws.add_large_button(
+            "Layout 1\nPaper",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView),
+            lambda: self.central_tabs.setCurrentIndex(1))
+
+        g_pg = draft_page.add_group("Page")
+        g_pg.add_large_menu_button(
+            "Paper Size",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileIcon),
+            self._build_paper_size_menu())
+        g_pg.add_large_button(
+            "Title Block",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            self.paper_space_widget.edit_title_block)
+
+        g_ann = draft_page.add_group("Annotations")
+        g_ann.add_large_button(
+            "Dimension", QIcon(r"graphics/Toolbar/dimension_icon.svg"),
+            lambda: self.scene.set_mode("dimension"))
+
+        g_pan2 = draft_page.add_group("Panels")
+        prop_btn = g_pan2.add_small_button(
+            "Properties",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
+            None, checkable=True)
+        prop_btn.toggled.connect(self.dock.setVisible)
+        self.dock.visibilityChanged.connect(prop_btn.setChecked)
+
+        dxf_btn = g_pan2.add_small_button(
+            "DXF Layers",
+            s.standardIcon(QStyle.StandardPixmap.SP_DirIcon),
+            None, checkable=True)
+        dxf_btn.toggled.connect(self.layer_dock.setVisible)
+        self.layer_dock.visibilityChanged.connect(dxf_btn.setChecked)
+
+        ul_btn = g_pan2.add_small_button(
+            "User Layers",
+            s.standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon),
+            None, checkable=True)
+        ul_btn.toggled.connect(self.user_layer_dock.setVisible)
+        self.user_layer_dock.visibilityChanged.connect(ul_btn.setChecked)
+
+    # ── Ribbon helper menu builders ───────────────────────────────────────────
+
+    def _build_units_menu(self) -> QMenu:
+        m = QMenu(self)
+        m.addAction("Imperial (ft-in)",
+                    lambda: self.scene.set_display_unit(DisplayUnit.IMPERIAL))
+        m.addAction("Metric (m)",
+                    lambda: self.scene.set_display_unit(DisplayUnit.METRIC_M))
+        m.addAction("Metric (mm)",
+                    lambda: self.scene.set_display_unit(DisplayUnit.METRIC_MM))
+        return m
+
+    def _build_precision_menu(self) -> QMenu:
+        m = QMenu(self)
+        for p in range(4):
+            label = f"{p} decimal place{'s' if p != 1 else ''}"
+            m.addAction(label, lambda _, p=p: self._set_precision(p))
+        return m
+
+    def _build_paper_size_menu(self) -> QMenu:
+        m = QMenu(self)
+        for name in PAPER_SIZES:
+            m.addAction(name,
+                        lambda _, n=name: self.paper_space_widget.change_paper(n))
+        return m
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER

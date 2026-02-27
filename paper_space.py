@@ -468,10 +468,18 @@ class PaperSpaceWidget(QWidget):
         self.paper_scene.paper_size = size
         self._fit()
 
+    def change_paper(self, size: str):
+        """Public: change paper size and fit the view."""
+        self._size_combo.setCurrentText(size)  # keeps combo in sync
+
     def _edit_title(self):
         dlg = TitleBlockDialog(self.paper_scene.title_block, self)
         dlg.exec()
         self.paper_scene.refresh_viewport()
+
+    def edit_title_block(self):
+        """Public: open the title block editor dialog."""
+        self._edit_title()
 
     def _refresh(self):
         self.paper_scene.refresh_viewport()
