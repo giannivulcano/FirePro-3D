@@ -14,18 +14,37 @@ class Pipe(QGraphicsLineItem):
     LINE_WEIGHT_MM       = {"1": 0.35, "2": 0.50, "3": 0.70, "4": 1.00}
     LINE_WEIGHT_PX_FALLBACK = {"1": 5.0,  "2": 6.0,  "3": 7.0,  "4": 8.0}
 
+    # Inside diameter (inches) by schedule and nominal pipe size.
+    # Used by the hydraulic solver (Hazen-Williams requires actual ID, not nominal).
+    # Keys match the "Diameter" property option strings.
+    INNER_DIAMETER_IN: dict[str, dict[str, float]] = {
+        "Sch 10":  {"1\"Ø": 1.097, "1-½\"Ø": 1.682, "2\"Ø": 2.157, "3\"Ø": 3.260,
+                    "4\"Ø": 4.260, "5\"Ø": 5.295, "6\"Ø": 6.357, "8\"Ø": 8.329},
+        "Sch 40":  {"1\"Ø": 1.049, "1-½\"Ø": 1.610, "2\"Ø": 2.067, "3\"Ø": 3.068,
+                    "4\"Ø": 4.026, "5\"Ø": 5.047, "6\"Ø": 6.065, "8\"Ø": 7.981},
+        "Sch 80":  {"1\"Ø": 0.957, "1-½\"Ø": 1.500, "2\"Ø": 1.939, "3\"Ø": 2.900,
+                    "4\"Ø": 3.826, "5\"Ø": 4.813, "6\"Ø": 5.761, "8\"Ø": 7.625},
+        "Sch 40S": {"1\"Ø": 1.049, "1-½\"Ø": 1.610, "2\"Ø": 2.067, "3\"Ø": 3.068,
+                    "4\"Ø": 4.026, "5\"Ø": 5.047, "6\"Ø": 6.065, "8\"Ø": 7.981},
+        "Sch 10S": {"1\"Ø": 1.097, "1-½\"Ø": 1.682, "2\"Ø": 2.157, "3\"Ø": 3.260,
+                    "4\"Ø": 4.260, "5\"Ø": 5.295, "6\"Ø": 6.357, "8\"Ø": 8.329},
+    }
+
     def __init__(self, node1, node2):
 
         super().__init__()
         # Properties
         self._properties = {
-            "Diameter": {"type": "enum", "value": "Ø 2\"", "options": ["1\"Ø", "1-½\"Ø", "2\"Ø","3\"Ø","4\"Ø","5\"Ø","6\"Ø","8\"Ø"]},
-            "Material" : {"type": "enum", "value": "Galvanized Steel", "options": ["Galvanized Steel", "Stainless Steel", "Black Steel","PVC"]},
-            "Colour" : {"type": "enum", "value": "Red", "options": ["Black", "White", "Red", "Blue","Grey"]},
-            "Line Weight" : {"type": "enum", "value": "1", "options": ["1", "2","3","4"]},
-            "Phase" : {"type": "enum", "value": "New", "options": ["New", "Existing","Demo"]},
-            "Show Label" : {"type": "enum", "value": "True", "options": ["True", "False"]},
-
+            "Diameter":    {"type": "enum",   "value": "Ø 2\"",          "options": ["1\"Ø", "1-½\"Ø", "2\"Ø","3\"Ø","4\"Ø","5\"Ø","6\"Ø","8\"Ø"]},
+            "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
+            "C-Factor":    {"type": "string", "value": "120"},
+            "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC"]},
+            "Elevation 1": {"type": "string", "value": "0"},
+            "Elevation 2": {"type": "string", "value": "0"},
+            "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
+            "Line Weight": {"type": "enum",   "value": "1",              "options": ["1", "2", "3", "4"]},
+            "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
+            "Show Label":  {"type": "enum",   "value": "True",           "options": ["True", "False"]},
         }
 
         self.node1 = node1
@@ -77,7 +96,18 @@ class Pipe(QGraphicsLineItem):
         else:
             length = f"{self.length:.1f} px"
 
-        html = f"<div style='text-align:center'>{diameter}<br>{length}</div>"
+        # Include hydraulic results if available
+        hr_line = ""
+        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
+            result = scene.hydraulic_result
+            q = result.pipe_flows.get(self)
+            hf = result.pipe_friction_loss.get(self)
+            if q is not None:
+                hr_line = f"<br><span style='color:#00aaff'>{q:.1f} gpm</span>"
+            if hf is not None:
+                hr_line += f"<span style='color:#ffaa00'> | {hf:.2f} psi</span>"
+
+        html = f"<div style='text-align:center'>{diameter}<br>{length}{hr_line}</div>"
         self.label.setHtml(html)
 
         # Adjust width to match content for proper centering
@@ -160,6 +190,16 @@ class Pipe(QGraphicsLineItem):
         for key, meta in template.get_properties().items():
             self.set_property(key, meta["value"])
 
+    def get_inner_diameter(self) -> float:
+        """Return the actual inside diameter in inches for the current nominal size and schedule.
+        Used by the hydraulic solver (Hazen-Williams requires ID, not nominal diameter).
+        Falls back to 2\"-Sch-40 (2.067 in) if the combination is not found.
+        """
+        schedule = self._properties["Schedule"]["value"]
+        nominal  = self._properties["Diameter"]["value"]
+        schedule_map = self.INNER_DIAMETER_IN.get(schedule, self.INNER_DIAMETER_IN["Sch 40"])
+        return schedule_map.get(nominal, 2.067)
+
     def paint(self, painter, option, widget=None):
         colour = QColor(self._properties["Colour"]["value"])
         lw_key = self._properties["Line Weight"]["value"]
@@ -169,6 +209,19 @@ class Pipe(QGraphicsLineItem):
         else:
             line_weight = self.LINE_WEIGHT_PX_FALLBACK.get(lw_key, 6.0)
         base_pen = QPen(colour, line_weight)
+
+        # Velocity color-coding when hydraulic results are available
+        scene = self.scene()
+        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
+            v = scene.hydraulic_result.pipe_velocity.get(self, -1)
+            if v >= 0:
+                if v > 20:
+                    colour = QColor(220, 0, 0)      # red: high velocity
+                elif v > 12:
+                    colour = QColor(220, 140, 0)    # orange: elevated velocity
+                else:
+                    colour = QColor(0, 200, 80)     # green: OK
+                base_pen = QPen(colour, line_weight)
 
         # normal draw
         painter.setPen(base_pen)
