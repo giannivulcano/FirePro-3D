@@ -2,8 +2,7 @@ import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar, QMenuBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
-                              QTextEdit, QSizePolicy)
+                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit)
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
@@ -14,6 +13,7 @@ from dxf_import_dialog import DxfImportDialog
 from property_manager import PropertyManager
 from scale_manager import DisplayUnit
 from layer_manager import LayerManager
+from hydraulic_report import HydraulicReportWidget
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         self.init_file_menu(menu_bar)
         self.init_project_menu(menu_bar)
         self.init_edit_menu(menu_bar)
+        self.init_hydraulics_menu(menu_bar)
         self.init_view_menu(menu_bar)
         self.init_help_menu(menu_bar)
 
@@ -134,17 +135,16 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.layer_dock)
         self.layer_dock.setMinimumWidth(160)
 
-        # Hydraulic results dock
-        self.hydro_output = QTextEdit()
-        self.hydro_output.setReadOnly(True)
-        self.hydro_output.setPlaceholderText("Run hydraulics to see results…")
-        self.hydro_output.setMinimumHeight(80)
-        self.hydro_dock = QDockWidget("Hydraulics", self)
+        # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
+        self.hydro_report = HydraulicReportWidget()
+        self.hydro_dock = QDockWidget("Hydraulic Report", self)
         self.hydro_dock.setObjectName("HydraulicsDock")
-        self.hydro_dock.setWidget(self.hydro_output)
+        self.hydro_dock.setWidget(self.hydro_report)
         self.hydro_dock.setAllowedAreas(
             Qt.DockWidgetArea.BottomDockWidgetArea |
-            Qt.DockWidgetArea.TopDockWidgetArea
+            Qt.DockWidgetArea.TopDockWidgetArea  |
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
         )
         self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.hydro_dock)
         self.hydro_dock.hide()   # hidden until the user runs hydraulics
@@ -183,6 +183,18 @@ class MainWindow(QMainWindow):
         open_action = QAction(QIcon(r"graphics/File Menu/load_icon.svg"), "Open", self)
         open_action.triggered.connect(self.open_file)
         file_menu.addAction(open_action)
+
+        file_menu.addSeparator()
+
+        export_pdf_action = QAction("Export Hydraulic Report (PDF)…", self)
+        export_pdf_action.triggered.connect(lambda: self.hydro_report._export_pdf())
+        file_menu.addAction(export_pdf_action)
+
+        export_csv_action = QAction("Export Hydraulic Report (CSV)…", self)
+        export_csv_action.triggered.connect(lambda: self.hydro_report._export_csv())
+        file_menu.addAction(export_csv_action)
+
+        file_menu.addSeparator()
 
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
@@ -245,6 +257,38 @@ class MainWindow(QMainWindow):
         unit_mm.triggered.connect(
             lambda: self.scene.set_display_unit(DisplayUnit.METRIC_MM))
         units_menu.addAction(unit_mm)
+
+    def init_hydraulics_menu(self, menu_bar):
+        hyd_menu = menu_bar.addMenu("Hydraulics")
+
+        place_ws = QAction("Place Water Supply…", self)
+        place_ws.triggered.connect(lambda: self.scene.set_mode("water_supply"))
+        hyd_menu.addAction(place_ws)
+
+        design_area = QAction("Set Design Area…", self)
+        design_area.triggered.connect(lambda: self.scene.set_mode("design_area"))
+        hyd_menu.addAction(design_area)
+
+        hyd_menu.addSeparator()
+
+        run_action = QAction("Run Hydraulics", self)
+        run_action.setShortcut("F5")
+        run_action.triggered.connect(self.run_hydraulics)
+        hyd_menu.addAction(run_action)
+
+        clear_action = QAction("Clear Results", self)
+        clear_action.triggered.connect(self.clear_hydraulics)
+        hyd_menu.addAction(clear_action)
+
+        hyd_menu.addSeparator()
+
+        pdf_action = QAction("Export Report (PDF)…", self)
+        pdf_action.triggered.connect(lambda: self.hydro_report._export_pdf())
+        hyd_menu.addAction(pdf_action)
+
+        csv_action = QAction("Export Report (CSV)…", self)
+        csv_action.triggered.connect(lambda: self.hydro_report._export_csv())
+        hyd_menu.addAction(csv_action)
 
     def init_edit_menu(self, menu_bar):
         edit_menu = menu_bar.addMenu("Edit")
@@ -409,48 +453,17 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def run_hydraulics(self):
-        """Run the hydraulic solver and display results in the dock."""
+        """Run the hydraulic solver and populate the report dock."""
         design = self.scene.design_area_sprinklers or None
         result = self.scene.run_hydraulics(design_sprinklers=design)
-
-        # Build text report
-        lines = []
-        lines.append("═" * 50)
-        lines.append(f"  HYDRAULIC RESULTS")
-        lines.append("═" * 50)
-        lines.append(f"  Total demand:        {result.total_demand:.1f} gpm")
-        lines.append(f"  Required pressure:   {result.required_pressure:.1f} psi")
-        lines.append(f"  Supply available:    {result.supply_pressure:.1f} psi")
-        lines.append(f"  Status: {'✅ PASS' if result.passed else '❌ FAIL'}")
-        lines.append("")
-        if result.messages:
-            lines.append("  Messages:")
-            for msg in result.messages:
-                lines.append(f"    {msg}")
-        lines.append("")
-
-        if result.pipe_flows:
-            lines.append("  Pipe Results:")
-            lines.append(f"  {'Diameter':<10} {'Sched':<8} {'Q (gpm)':<10} "
-                         f"{'v (fps)':<10} {'hf (psi)':<10}")
-            lines.append("  " + "-" * 48)
-            for pipe, q in sorted(result.pipe_flows.items(),
-                                   key=lambda x: x[1], reverse=True):
-                d  = pipe._properties["Diameter"]["value"]
-                sc = pipe._properties["Schedule"]["value"]
-                v  = result.pipe_velocity.get(pipe, 0.0)
-                hf = result.pipe_friction_loss.get(pipe, 0.0)
-                lines.append(f"  {d:<10} {sc:<8} {q:<10.1f} {v:<10.1f} {hf:<10.2f}")
-
-        self.hydro_output.setPlainText("\n".join(lines))
+        self.hydro_report.populate(result, self.scene, self.scene.scale_manager)
         self.hydro_dock.show()
         self.hydro_dock.raise_()
 
     def clear_hydraulics(self):
-        """Clear the hydraulic overlay and results dock."""
+        """Clear the hydraulic overlay and the report dock."""
         self.scene.clear_hydraulics()
-        self.hydro_output.clear()
-        self.hydro_output.setPlaceholderText("Run hydraulics to see results…")
+        self.hydro_report.clear()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER HELPERS
