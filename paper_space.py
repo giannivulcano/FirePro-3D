@@ -319,7 +319,7 @@ class PaperScene(QGraphicsScene):
         border = self.addRect(
             bx, by, bw, bh,
             QPen(Qt.GlobalColor.black, 0.5),
-            Qt.BrushStyle.NoBrush,
+            QBrush(Qt.BrushStyle.NoBrush),
         )
         border.setZValue(1)
 
