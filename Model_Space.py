@@ -23,7 +23,10 @@ import os
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 3
+    UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
+    cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
+    underlaysChanged = pyqtSignal()    # emitted when underlays list changes (for LayerManager)
 
     def __init__(self):
         super().__init__()
@@ -37,9 +40,15 @@ class Model_Space(QGraphicsScene):
         self.node_start_pos = None
         self.node_end_pos = None
         self._selected_items = None
+        self._snap_to_underlay: bool = False
+        # Undo/redo
+        self._undo_stack: list[dict] = []
+        self._undo_pos: int = -1
+        self._in_undo_restore: bool = False
         self.init_preview_node()
         self.init_preview_pipe()
         self.draw_origin()
+        self.push_undo_state()   # initial empty state
 
     # -------------------------------------------------------------------------
     # Preview items
@@ -202,6 +211,10 @@ class Model_Space(QGraphicsScene):
                                 line_weight=udata.line_weight,
                                 x=udata.x, y=udata.y, _record=udata)
 
+        # Start fresh undo history with the loaded state
+        self._undo_stack = []
+        self._undo_pos = -1
+        self.push_undo_state()
         print(f"✅ Loaded from {filename}")
 
     def _clear_scene(self):
@@ -214,6 +227,10 @@ class Model_Space(QGraphicsScene):
         self.init_preview_node()
         self.init_preview_pipe()
         self.draw_origin()
+        # Reset undo history
+        self._undo_stack = []
+        self._undo_pos = -1
+        self.push_undo_state()
 
     # -------------------------------------------------------------------------
     # SCENE MANAGEMENT
@@ -243,6 +260,18 @@ class Model_Space(QGraphicsScene):
     # DELETE
 
     def delete_selected_items(self):
+        if not self.selectedItems():
+            return
+        selected = list(self.selectedItems())
+        for item in selected:
+            if isinstance(item, DimensionAnnotation):
+                if item in self.annotations.dimensions:
+                    self.annotations.dimensions.remove(item)
+                self.removeItem(item)
+            elif isinstance(item, NoteAnnotation):
+                if item in self.annotations.notes:
+                    self.annotations.notes.remove(item)
+                self.removeItem(item)
         for item in self.selectedItems():
             if isinstance(item, Pipe):
                 self.delete_pipe(item)
@@ -250,11 +279,12 @@ class Model_Space(QGraphicsScene):
             if isinstance(item, Node):
                 if item.has_sprinkler():
                     self.remove_sprinkler(item)
-                for pipe in item.pipes:
+                for pipe in list(item.pipes):
                     self.delete_pipe(pipe)
         for item in self.selectedItems():
             if isinstance(item, Node):
                 self.remove_node(item)
+        self.push_undo_state()
 
     # -------------------------------------------------------------------------
     # MODE MANAGEMENT
@@ -466,6 +496,10 @@ class Model_Space(QGraphicsScene):
 
         # Apply saved display settings
         self._apply_underlay_display(group, record)
+        # Store sorted layer list on the group for the LayerManager
+        all_layers = sorted({geom.get("layer", "0") for geom in geom_list})
+        group.setData(2, all_layers)
+
         self.underlays.append((record, group))
 
         # Restore indexing
@@ -473,24 +507,24 @@ class Model_Space(QGraphicsScene):
 
         progress.close()
         self._cleanup_dxf_worker()
+        self.underlaysChanged.emit()
         print(f"✅ Imported DXF: {params['file_path']} ({len(items)} items)")
 
     def _geom_to_item(self, geom: dict, pen: QPen, color: QColor):
         """Convert a geometry dict (from DxfImportWorker) into a QGraphicsItem.
         Must be called on the main thread."""
         kind = geom["kind"]
+        layer = geom.get("layer", "0")
 
         if kind == "line":
             item = QGraphicsLineItem(geom["x1"], geom["y1"], geom["x2"], geom["y2"])
             item.setPen(pen)
             item.setZValue(-100)
-            return item
 
         elif kind == "circle":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
             item.setPen(pen)
             item.setZValue(-100)
-            return item
 
         elif kind == "arc":
             path = QPainterPath()
@@ -500,7 +534,6 @@ class Model_Space(QGraphicsScene):
             item = QGraphicsPathItem(path)
             item.setPen(pen)
             item.setZValue(-100)
-            return item
 
         elif kind == "ellipse_full":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
@@ -508,7 +541,6 @@ class Model_Space(QGraphicsScene):
             item.setZValue(-100)
             item.setPos(geom["pos_cx"], geom["pos_cy"])
             item.setRotation(geom["rotation"])
-            return item
 
         elif kind == "path_points":
             points = geom["points"]
@@ -523,16 +555,19 @@ class Model_Space(QGraphicsScene):
             item = QGraphicsPathItem(path)
             item.setPen(pen)
             item.setZValue(-100)
-            return item
 
         elif kind == "text":
             item = QGraphicsTextItem(geom["text"])
             item.setPos(geom["x"], geom["y"])
             item.setDefaultTextColor(color)
             item.setZValue(-100)
-            return item
 
-        return None
+        else:
+            return None
+
+        # Tag each item with its DXF layer so LayerManager can toggle visibility
+        item.setData(1, layer)
+        return item
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
         progress.close()
@@ -632,6 +667,7 @@ class Model_Space(QGraphicsScene):
                 self.destroyItemGroup(item)
             else:
                 self.removeItem(item)
+        self.underlaysChanged.emit()
         print(f"🗑️ Removed underlay: {data.path}")
 
     def refresh_underlay(self, data: Underlay, item: QGraphicsItem):
@@ -681,6 +717,139 @@ class Model_Space(QGraphicsScene):
             self.refresh_underlay(data, item)
 
     # -------------------------------------------------------------------------
+    # UNDO / REDO
+
+    def _capture_network(self) -> dict:
+        """Serialize nodes/pipes/annotations to a dict (no underlays/scale)."""
+        node_list = list(self.sprinkler_system.nodes)
+        node_id = {n: i for i, n in enumerate(node_list)}
+        nodes_data = []
+        for node in node_list:
+            nodes_data.append({
+                "id": node_id[node],
+                "x":  node.scenePos().x(),
+                "y":  node.scenePos().y(),
+                "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
+            })
+        pipes_data = []
+        for pipe in self.sprinkler_system.pipes:
+            if pipe.node1 is None or pipe.node2 is None:
+                continue
+            pipes_data.append({
+                "node1_id":   node_id[pipe.node1],
+                "node2_id":   node_id[pipe.node2],
+                "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
+            })
+        annotations_data = []
+        for dim in self.annotations.dimensions:
+            annotations_data.append({
+                "type": "dimension",
+                "p1":   [dim.handle1.scenePos().x(), dim.handle1.scenePos().y()],
+                "p2":   [dim.handle2.scenePos().x(), dim.handle2.scenePos().y()],
+                "properties": {k: v["value"] for k, v in dim.get_properties().items()},
+            })
+        for note in self.annotations.notes:
+            annotations_data.append({
+                "type": "note",
+                "x":    note.scenePos().x(),
+                "y":    note.scenePos().y(),
+                "properties": {k: v["value"] for k, v in note.get_properties().items()},
+            })
+        return {"nodes": nodes_data, "pipes": pipes_data, "annotations": annotations_data}
+
+    def _restore_network(self, state: dict):
+        """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
+        self._in_undo_restore = True
+        try:
+            for pipe in list(self.sprinkler_system.pipes):
+                if pipe.scene() is self:
+                    self.removeItem(pipe)
+            for node in list(self.sprinkler_system.nodes):
+                if node.scene() is self:
+                    self.removeItem(node)
+            for dim in list(self.annotations.dimensions):
+                if dim.scene() is self:
+                    self.removeItem(dim)
+            for note in list(self.annotations.notes):
+                if note.scene() is self:
+                    self.removeItem(note)
+            self.sprinkler_system = SprinklerSystem()
+            self.annotations = Annotation()
+
+            id_to_node: dict[int, Node] = {}
+            for entry in state.get("nodes", []):
+                node = Node(entry["x"], entry["y"])
+                self.addItem(node)
+                self.sprinkler_system.add_node(node)
+                id_to_node[entry["id"]] = node
+                if entry.get("sprinkler"):
+                    template = Sprinkler(None)
+                    for key, value in entry["sprinkler"].items():
+                        if isinstance(value, dict):
+                            template.set_property(key, value["value"])
+                        else:
+                            template.set_property(key, value)
+                    self.add_sprinkler(node, template)
+
+            for entry in state.get("pipes", []):
+                n1 = id_to_node.get(entry["node1_id"])
+                n2 = id_to_node.get(entry["node2_id"])
+                if n1 and n2:
+                    pipe = Pipe(n1, n2)
+                    self.sprinkler_system.add_pipe(pipe)
+                    self.addItem(pipe)
+                    pipe.update_label()
+                    for key, value in entry.get("properties", {}).items():
+                        pipe.set_property(key, value)
+
+            for node in id_to_node.values():
+                node.fitting.update()
+
+            for entry in state.get("annotations", []):
+                ann_type = entry.get("type")
+                if ann_type == "dimension":
+                    p1 = QPointF(entry["p1"][0], entry["p1"][1])
+                    p2 = QPointF(entry["p2"][0], entry["p2"][1])
+                    dim = DimensionAnnotation(p1, p2)
+                    self.addItem(dim)
+                    self.annotations.add_dimension(dim)
+                    for key, value in entry.get("properties", {}).items():
+                        dim.set_property(key, value)
+                elif ann_type == "note":
+                    note = NoteAnnotation(x=entry["x"], y=entry["y"])
+                    self.addItem(note)
+                    self.annotations.add_note(note)
+                    for key, value in entry.get("properties", {}).items():
+                        note.set_property(key, value)
+        finally:
+            self._in_undo_restore = False
+
+    def push_undo_state(self):
+        """Snapshot current network state onto the undo stack."""
+        if self._in_undo_restore:
+            return
+        state = self._capture_network()
+        # Discard redo history beyond current position
+        self._undo_stack = self._undo_stack[:self._undo_pos + 1]
+        self._undo_stack.append(state)
+        if len(self._undo_stack) > self.UNDO_MAX:
+            self._undo_stack.pop(0)
+        else:
+            self._undo_pos = len(self._undo_stack) - 1
+
+    def undo(self):
+        """Restore the previous network state."""
+        if self._undo_pos > 0:
+            self._undo_pos -= 1
+            self._restore_network(self._undo_stack[self._undo_pos])
+
+    def redo(self):
+        """Restore the next network state."""
+        if self._undo_pos < len(self._undo_stack) - 1:
+            self._undo_pos += 1
+            self._restore_network(self._undo_stack[self._undo_pos])
+
+    # -------------------------------------------------------------------------
     # SCALE REFRESH
 
     def _refresh_all_scales(self):
@@ -698,7 +867,7 @@ class Model_Space(QGraphicsScene):
                 node.fitting.rescale(sm)
                 node.fitting.update()
         for dim in self.annotations.dimensions:
-            dim.update_label()
+            dim.rescale(sm)
 
     def _refresh_all_labels(self):
         """Refresh display text on all pipes and dimension annotations."""
@@ -718,6 +887,52 @@ class Model_Space(QGraphicsScene):
     def get_snapped_position(self, x, y):
         grid = 10
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
+
+    def get_effective_position(self, scene_pos: QPointF) -> QPointF:
+        """Return the best-fit cursor position: underlay snap > grid snap."""
+        if self._snap_to_underlay:
+            snap_pt = self.find_snap_point(scene_pos)
+            if snap_pt is not None:
+                return snap_pt
+        return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+
+    def find_snap_point(self, pos: QPointF) -> QPointF | None:
+        """Find the nearest DXF underlay snap point within tolerance."""
+        sm = self.scale_manager
+        tolerance = sm.paper_to_scene(2.0) if sm.is_calibrated else 15.0
+        search_rect = QRectF(pos.x() - tolerance, pos.y() - tolerance,
+                             tolerance * 2, tolerance * 2)
+        best_dist = tolerance
+        best_pt = None
+        for item in self.items(search_rect):
+            parent = item.parentItem()
+            if parent is None or not isinstance(parent, QGraphicsItemGroup):
+                continue
+            for pt in self._item_snap_points(item):
+                d = math.hypot(pos.x() - pt.x(), pos.y() - pt.y())
+                if d < best_dist:
+                    best_dist = d
+                    best_pt = pt
+        return best_pt
+
+    def _item_snap_points(self, item) -> list:
+        """Return scene-coordinate snap points for a QGraphicsItem."""
+        pts = []
+        if isinstance(item, QGraphicsLineItem):
+            line = item.line()
+            pts.append(item.mapToScene(line.p1()))
+            pts.append(item.mapToScene(line.p2()))
+            pts.append(item.mapToScene(
+                QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
+            ))
+        elif isinstance(item, QGraphicsEllipseItem):
+            pts.append(item.mapToScene(item.boundingRect().center()))
+        elif isinstance(item, QGraphicsPathItem):
+            path = item.path()
+            for i in range(min(path.elementCount(), 256)):   # cap to avoid spam on splines
+                elem = path.elementAt(i)
+                pts.append(item.mapToScene(QPointF(elem.x, elem.y)))
+        return pts
 
     def project_point_onto_line(self, p1: QPointF, p2: QPointF, p: QPointF) -> QPointF:
         line_dx = p2.x() - p1.x()
@@ -745,7 +960,15 @@ class Model_Space(QGraphicsScene):
 
     def mouseMoveEvent(self, event):
         scene_pos = event.scenePos()
-        snapped = self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        sm = self.scale_manager
+        if sm.is_calibrated:
+            coord_str = (f"X: {sm.scene_to_display(scene_pos.x())}  "
+                         f"Y: {sm.scene_to_display(scene_pos.y())}")
+        else:
+            coord_str = f"X: {scene_pos.x():.0f} px  Y: {scene_pos.y():.0f} px"
+        self.cursorMoved.emit(coord_str)
+
+        snapped = self.get_effective_position(scene_pos)
 
         if self.mode == "pipe":
             if self.node_start_pos:
@@ -784,7 +1007,7 @@ class Model_Space(QGraphicsScene):
             return
 
         scene_pos = event.scenePos()
-        snapped   = self.get_snapped_position(scene_pos.x(), scene_pos.y())
+        snapped   = self.get_effective_position(scene_pos)
 
         items     = self.items(snapped)
         selection = next((i for i in items if isinstance(i, Node)), None)
@@ -802,6 +1025,7 @@ class Model_Space(QGraphicsScene):
                     return
             self.add_sprinkler(node, getattr(self, "current_template", None))
             node.fitting.update()
+            self.push_undo_state()
 
         elif self.mode == "pipe":
             if self.node_start_pos is None:
@@ -822,6 +1046,7 @@ class Model_Space(QGraphicsScene):
                 self.node_start_pos = None
                 self.preview_pipe.hide()
                 self.preview_node.hide()
+                self.push_undo_state()
 
         elif self.mode == "set_scale":
             if self._cal_point1 is None:
@@ -855,6 +1080,7 @@ class Model_Space(QGraphicsScene):
                 self.annotations.add_dimension(dim)
                 self.requestPropertyUpdate.emit(dim)
                 self.dimension_start = None
+                self.push_undo_state()
 
         elif self.mode in ("paste", "move"):
             if self.node_start_pos is None:
@@ -865,6 +1091,7 @@ class Model_Space(QGraphicsScene):
                     self.paste_items(offset)
                 elif self.mode == "move":
                     self.move_items(offset)
+                self.push_undo_state()
                 self.node_start_pos = None
                 self.set_mode(None)
                 return
@@ -909,6 +1136,10 @@ class Model_Space(QGraphicsScene):
             for item in self.items():
                 if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
                     item.setSelected(True)
+        elif event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.undo()
+        elif event.key() == Qt.Key.Key_Y and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.redo()
         elif event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.copy_selected_items()
         elif event.key() == Qt.Key.Key_M and event.modifiers() & Qt.KeyboardModifier.ControlModifier:

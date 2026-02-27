@@ -107,10 +107,11 @@ class DxfImportWorker(QThread):
 
     def _extract_geometry(self, entity) -> dict | None:
         etype = entity.dxftype()
+        layer = entity.dxf.get("layer", "0") if hasattr(entity.dxf, "get") else "0"
 
         if etype == "LINE":
             return {
-                "kind": "line",
+                "kind": "line", "layer": layer,
                 "x1": entity.dxf.start[0], "y1": -entity.dxf.start[1],
                 "x2": entity.dxf.end[0],   "y2": -entity.dxf.end[1],
             }
@@ -118,7 +119,7 @@ class DxfImportWorker(QThread):
         elif etype == "CIRCLE":
             r = entity.dxf.radius
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
-            return {"kind": "circle", "x": cx - r, "y": -cy - r, "w": 2 * r, "h": 2 * r}
+            return {"kind": "circle", "layer": layer, "x": cx - r, "y": -cy - r, "w": 2 * r, "h": 2 * r}
 
         elif etype == "ARC":
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
@@ -131,7 +132,7 @@ class DxfImportWorker(QThread):
             if span > 0:
                 span -= 360
             return {
-                "kind": "arc",
+                "kind": "arc", "layer": layer,
                 "rx": cx - r, "ry": -cy - r, "rw": 2 * r, "rh": 2 * r,
                 "start": qt_start, "span": span,
             }
@@ -149,7 +150,7 @@ class DxfImportWorker(QThread):
 
             if is_full:
                 return {
-                    "kind": "ellipse_full",
+                    "kind": "ellipse_full", "layer": layer,
                     "x": -major_len, "y": -minor_len, "w": 2 * major_len, "h": 2 * minor_len,
                     "pos_cx": cx, "pos_cy": -cy, "rotation": -rotation,
                 }
@@ -168,7 +169,7 @@ class DxfImportWorker(QThread):
                     rx = px * cos_r - py * sin_r + cx
                     ry = -(px * sin_r + py * cos_r + cy)
                     points.append((rx, ry))
-                return {"kind": "path_points", "points": points, "closed": False}
+                return {"kind": "path_points", "layer": layer, "points": points, "closed": False}
 
         elif etype in ("LWPOLYLINE", "POLYLINE"):
             pts = list(entity.get_points())
@@ -176,7 +177,7 @@ class DxfImportWorker(QThread):
                 return None
             closed = bool(hasattr(entity.dxf, "flags") and entity.dxf.flags & 1)
             return {
-                "kind": "path_points",
+                "kind": "path_points", "layer": layer,
                 "points": [(pt[0], -pt[1]) for pt in pts],
                 "closed": closed,
             }
@@ -186,18 +187,18 @@ class DxfImportWorker(QThread):
             if not pts:
                 return None
             return {
-                "kind": "path_points",
+                "kind": "path_points", "layer": layer,
                 "points": [(pt.x, -pt.y) for pt in pts],
                 "closed": False,
             }
 
         elif etype == "TEXT":
             pos = entity.dxf.insert
-            return {"kind": "text", "x": pos[0], "y": -pos[1], "text": entity.dxf.text}
+            return {"kind": "text", "layer": layer, "x": pos[0], "y": -pos[1], "text": entity.dxf.text}
 
         elif etype == "MTEXT":
             plain = entity.plain_text() if hasattr(entity, "plain_text") else entity.text
             insert = entity.dxf.insert
-            return {"kind": "text", "x": insert.x, "y": -insert.y, "text": plain}
+            return {"kind": "text", "layer": layer, "x": insert.x, "y": -insert.y, "text": plain}
 
         return None

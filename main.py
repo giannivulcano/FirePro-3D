@@ -12,6 +12,7 @@ from pipe import Pipe
 from dxf_import_dialog import DxfImportDialog
 from property_manager import PropertyManager
 from scale_manager import DisplayUnit
+from layer_manager import LayerManager
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -120,6 +121,27 @@ class MainWindow(QMainWindow):
         self.dock = QDockWidget("Properties", self)
         self.init_property_manager_dock()
 
+        # Layer manager dock
+        self.layer_manager = LayerManager(self.scene)
+        self.layer_dock = QDockWidget("Layers", self)
+        self.layer_dock.setObjectName("LayersDock")
+        self.layer_dock.setWidget(self.layer_manager)
+        self.layer_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.layer_dock)
+        self.layer_dock.setMinimumWidth(160)
+
+        # Status bar with cursor coordinates
+        status_bar = self.statusBar()
+        self.coord_label = QLabel("X: —   Y: —")
+        self.coord_label.setMinimumWidth(280)
+        status_bar.addPermanentWidget(self.coord_label)
+        self.mode_label = QLabel("Mode: —")
+        status_bar.addWidget(self.mode_label)
+        self.scene.cursorMoved.connect(self.coord_label.setText)
+
         # Restore settings
         self.restore_settings()
 
@@ -180,6 +202,16 @@ class MainWindow(QMainWindow):
 
         project_menu.addSeparator()
 
+        # ── Label Precision submenu ──────────────────────────────────
+        precision_menu = project_menu.addMenu("Label Precision")
+        for places in (0, 1, 2, 3):
+            act = QAction(f"{places} decimal place{'s' if places != 1 else ''}", self)
+            act.triggered.connect(
+                lambda checked, p=places: self._set_precision(p))
+            precision_menu.addAction(act)
+
+        project_menu.addSeparator()
+
         # ── Display Units submenu ─────────────────────────────────────
         units_menu = project_menu.addMenu("Display Units")
 
@@ -201,8 +233,31 @@ class MainWindow(QMainWindow):
     def init_edit_menu(self, menu_bar):
         edit_menu = menu_bar.addMenu("Edit")
 
+        undo_action = QAction("Undo", self)
+        undo_action.setShortcut("Ctrl+Z")
+        undo_action.triggered.connect(self.scene.undo)
+        edit_menu.addAction(undo_action)
+
+        redo_action = QAction("Redo", self)
+        redo_action.setShortcut("Ctrl+Y")
+        redo_action.triggered.connect(self.scene.redo)
+        edit_menu.addAction(redo_action)
+
     def init_view_menu(self, menu_bar):
         view_menu = menu_bar.addMenu("View")
+
+        # Snap to underlay toggle
+        self._snap_action = QAction("Snap to Underlay", self)
+        self._snap_action.setCheckable(True)
+        self._snap_action.setChecked(False)
+        self._snap_action.toggled.connect(
+            lambda checked: setattr(self.scene, "_snap_to_underlay", checked))
+        view_menu.addAction(self._snap_action)
+
+        view_menu.addSeparator()
+
+        # Layer dock toggle
+        view_menu.addAction(self.layer_dock.toggleViewAction())
 
     def init_help_menu(self, menu_bar):
         help_menu = menu_bar.addMenu("Help")
@@ -307,6 +362,10 @@ class MainWindow(QMainWindow):
 
     def refresh_underlays(self):
         self.scene.refresh_all_underlays()
+
+    def _set_precision(self, places: int):
+        self.scene.scale_manager.precision = places
+        self.scene._refresh_all_labels()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER HELPERS

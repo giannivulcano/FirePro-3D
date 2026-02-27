@@ -60,10 +60,9 @@ class Sprinkler(QGraphicsSvgItem):
     def _centre_on_node(self):
         """Centre the scaled item on the parent node's origin (0, 0)."""
         bounds = self.boundingRect()          # unscaled local rect
-        # Multiply by SCALE to get the actual painted size
-        scaled_w = bounds.width()  * self.SCALE
-        scaled_h = bounds.height() * self.SCALE
-        # Shift so the centre of the painted graphic lands on (0, 0)
+        current_scale = self.scale()          # actual applied scale (not the constant)
+        scaled_w = bounds.width()  * current_scale
+        scaled_h = bounds.height() * current_scale
         self.setPos(-scaled_w / 2, -scaled_h / 2)
 
     # -------------------------------------------------------------------------

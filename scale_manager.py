@@ -37,6 +37,7 @@ class ScaleManager:
         self._display_unit: DisplayUnit = DisplayUnit.IMPERIAL
         self._calibrated: bool = False
         self._drawing_scale: float = 100.0      # denominator (e.g. 100 for 1:100)
+        self._precision: int = 3                # decimal places for metric display
 
         # Store the calibration points for save/load
         self._cal_pt1: QPointF | None = None
@@ -61,6 +62,15 @@ class ScaleManager:
     @display_unit.setter
     def display_unit(self, unit: DisplayUnit):
         self._display_unit = unit
+
+    @property
+    def precision(self) -> int:
+        """Decimal places used for metric display."""
+        return self._precision
+
+    @precision.setter
+    def precision(self, value: int):
+        self._precision = max(0, min(6, int(value)))
 
     @property
     def drawing_scale(self) -> float:
@@ -129,6 +139,8 @@ class ScaleManager:
 
     def scene_to_display(self, scene_length: float) -> str:
         """Convert a scene distance to a formatted display string."""
+        if not self._calibrated:
+            return f"{scene_length:.0f} px"
         mm = self.scene_to_mm(scene_length)
         return self.format_length(mm)
 
@@ -144,14 +156,15 @@ class ScaleManager:
     def format_length(self, mm: float) -> str:
         """Format a length in mm to the current display unit."""
         unit = self._display_unit
+        p = self._precision
         if unit == DisplayUnit.IMPERIAL:
             inches = mm / 25.4
             return self._format_feet_inches(inches)
         elif unit == DisplayUnit.METRIC_M:
             m = mm / 1000.0
-            return f"{m:.3f} m"
+            return f"{m:.{p}f} m"
         else:  # METRIC_MM
-            return f"{mm:.1f} mm"
+            return f"{mm:.{p}f} mm"
 
     # -----------------------------------------------------------------
     # Unit conversion to canonical mm
@@ -248,6 +261,7 @@ class ScaleManager:
             "calibrated":     self._calibrated,
             "display_unit":   self._display_unit.value,
             "drawing_scale":  self._drawing_scale,
+            "precision":      self._precision,
         }
         if self._cal_pt1 is not None:
             d["cal_pt1"] = [self._cal_pt1.x(), self._cal_pt1.y()]
@@ -262,6 +276,7 @@ class ScaleManager:
         sm._calibrated = d.get("calibrated", False)
         sm._display_unit = DisplayUnit(d.get("display_unit", "imperial"))
         sm._drawing_scale = d.get("drawing_scale", 100.0)
+        sm._precision = d.get("precision", 3)
         if "cal_pt1" in d:
             sm._cal_pt1 = QPointF(d["cal_pt1"][0], d["cal_pt1"][1])
             sm._cal_pt2 = QPointF(d["cal_pt2"][0], d["cal_pt2"][1])

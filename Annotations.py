@@ -139,6 +139,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.update_arrows_and_witness()
         self.update_label()
 
+    def rescale(self, sm=None) -> None:
+        """Re-draw with updated scale-aware sizes (called after calibration)."""
+        self.update_geometry()
+
     def update_label(self):
         length = self.line().length()
         scene = self.scene()
@@ -172,9 +176,18 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.label.setRotation(angle)
 
     def update_arrows_and_witness(self):
-        # Parameters
-        witness_len = float(self._properties["Witness Length"]["value"])
-        offset = float(self._properties["Offset"]["value"])
+        # Scale-aware sizes
+        sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
+        if sm and sm.is_calibrated:
+            arrow_size = sm.paper_to_scene(1.5)   # 1.5mm arrow on paper
+            witness_len = sm.paper_to_scene(8.0)  # 8mm witness line on paper
+            offset_gap = sm.paper_to_scene(1.5)   # 1.5mm gap between dim line and annotation line
+            offset_dist = sm.paper_to_scene(2.0)  # 2mm start offset from point
+        else:
+            arrow_size = 6
+            witness_len = float(self._properties["Witness Length"]["value"])
+            offset_gap = 5
+            offset_dist = float(self._properties["Offset"]["value"])
 
         # Original line
         line = self.line()
@@ -187,19 +200,19 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
 
         # Start witness line
         start = QPointF(self.handle1.x(), self.handle1.y())
-        p1a = start + QPointF(dx_perp * offset, dy_perp * offset)
+        p1a = start + QPointF(dx_perp * offset_dist, dy_perp * offset_dist)
         p1b = p1a + QPointF(dx_perp * witness_len, dy_perp * witness_len)
         self.witness1.setLine(p1a.x(), p1a.y(), p1b.x(), p1b.y())
 
         # End witness line
         end = QPointF(self.handle2.x(), self.handle2.y())
-        p2a = end + QPointF(dx_perp * offset, dy_perp * offset)
+        p2a = end + QPointF(dx_perp * offset_dist, dy_perp * offset_dist)
         p2b = p2a + QPointF(dx_perp * witness_len, dy_perp * witness_len)
         self.witness2.setLine(p2a.x(), p2a.y(), p2b.x(), p2b.y())
 
         # Create new offset line
-        ox = dx_perp * 5 #determines offset of line from end of witness lines
-        oy = dy_perp * 5 #determines offset of line from end of witness lines
+        ox = dx_perp * offset_gap
+        oy = dy_perp * offset_gap
         p1 = p1b - QPointF(ox, oy)
         p2 = p2b - QPointF(ox, oy)
         offset_line = QLineF(p1, p2)
@@ -208,8 +221,6 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.setLine(offset_line)
 
         # Arrows
-        # Could eventually replace this with SVG icons
-        arrow_size = 6
         points = [QPointF(0, 0), QPointF(-arrow_size, arrow_size/2), QPointF(-arrow_size, -arrow_size/2)]
         poly = QPolygonF(points)
         self.arrow1.setPolygon(poly)

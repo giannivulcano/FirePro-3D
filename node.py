@@ -136,13 +136,14 @@ class Node(QGraphicsEllipseItem):
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
         if self.isSelected():
-            if self.has_sprinkler():
-                # highlight radius slightly larger than sprinkler
-                radius = self.RADIUS
+            sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
+            if sm and sm.is_calibrated:
+                # 4.5mm circle for sprinkler nodes, 1.5mm for plain nodes
+                radius = sm.paper_to_scene(4.5) if self.has_sprinkler() else sm.paper_to_scene(1.5)
             else:
-                radius = self.RADIUS/2
+                radius = self.RADIUS if self.has_sprinkler() else self.RADIUS / 2
 
-            highlight_pen = QPen(QColor("red"), 3)  # 3px thick red outline
+            highlight_pen = QPen(QColor("red"), 3)
             painter.setPen(highlight_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(0, 0), radius, radius)

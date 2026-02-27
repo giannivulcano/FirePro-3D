@@ -179,9 +179,9 @@ class Pipe(QGraphicsLineItem):
             highlight_pen = QPen(colour, line_weight * 1.6)
             painter.setPen(highlight_pen)
             painter.drawLine(self.line())
-            
-            # also show node endpoints
-            radius = 6  # adjust radius as you like
+
+            # also show node endpoints — scale-aware radius
+            radius = sm.paper_to_scene(0.75) if sm and sm.is_calibrated else 6
             brush = QBrush(QColor("white"))
             painter.setBrush(brush)
             painter.setPen(Qt.PenStyle.NoPen)
