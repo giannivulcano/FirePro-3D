@@ -17,13 +17,16 @@ class Sprinkler(QGraphicsSvgItem):
         super().__init__()
         self.node = node
         self._properties = {
-            "K-Factor":     {"type": "enum",    "value": "5.6",        "options": ["5.6", "8.0", "12.0"]},
-            "Type":         {"type": "enum",    "value": "Wet",        "options": ["Wet", "Dry", "Preaction", "Deluge"]},
-            "Orientation":  {"type": "enum",    "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall"]},
-            "Temperature":  {"type": "string",  "value": "68°C"},
-            "Manufacturer": {"type": "enum",    "value": "Tyco",       "options": ["Victaulic", "Tyco"]},
-            "Graphic":      {"type": "enum",    "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
-            "Elevation":    {"type": "string",  "value": "0"},
+            "K-Factor":        {"type": "enum",   "value": "5.6",        "options": ["5.6", "8.0", "11.2", "14.0", "16.8"]},
+            "Type":            {"type": "enum",   "value": "Wet",        "options": ["Wet", "Dry", "Preaction", "Deluge"]},
+            "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall"]},
+            "Temperature":     {"type": "string", "value": "68°C"},
+            "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
+            "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
+            "Elevation":       {"type": "string", "value": "0"},
+            "Coverage Area":   {"type": "string", "value": "130"},
+            "Min Pressure":    {"type": "string", "value": "7"},
+            "Design Density":  {"type": "string", "value": "0.10"},
         }
 
         if node is not None:
@@ -80,6 +83,12 @@ class Sprinkler(QGraphicsSvgItem):
             svg_path = self.GRAPHICS.get(value)
             if svg_path:
                 self._load_graphic(svg_path)
+        elif key == "Elevation" and self.node is not None:
+            # Keep node.z_pos (used by hydraulic solver) in sync
+            try:
+                self.node.z_pos = float(value)
+            except (ValueError, TypeError):
+                pass
 
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values from a template Sprinkler."""

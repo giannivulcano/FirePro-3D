@@ -1,7 +1,7 @@
 import math
 from CAD_Math import CAD_Math
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QStyle
-from PyQt6.QtCore import Qt, QPointF, QLineF
+from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor
 from fitting import Fitting
 from sprinkler import Sprinkler
@@ -27,6 +27,27 @@ class Node(QGraphicsEllipseItem):
         self.sprinkler = None
         self.fitting = Fitting(self)
         self.pipes = []
+        self.user_layer: str = "0"   # user-defined layer name
+
+        # Property panel support — shown for plain (non-sprinkler) nodes
+        self._properties: dict = {
+            "Elevation": {"type": "string", "value": str(z)},
+        }
+
+    # -------------------------------------------------------------------------
+    # Property API (used by PropertyManager and hydraulic solver)
+
+    def get_properties(self) -> dict:
+        return self._properties.copy()
+
+    def set_property(self, key: str, value: str):
+        if key in self._properties:
+            self._properties[key]["value"] = str(value)
+        if key == "Elevation":
+            try:
+                self.z_pos = float(value)
+            except (ValueError, TypeError):
+                pass
 
     # -------------------------------------------------------------------------
     # Sprinkler helpers
@@ -147,6 +168,44 @@ class Node(QGraphicsEllipseItem):
             painter.setPen(highlight_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(0, 0), radius, radius)
+
+        # Pressure badge when hydraulic results are available
+        scene = self.scene()
+        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
+            p = scene.hydraulic_result.node_pressures.get(self)
+            if p is not None:
+                sm = getattr(scene, "scale_manager", None)
+                badge_r = sm.paper_to_scene(3.0) if (sm and sm.is_calibrated) else 14
+                font_pt = max(5, int(badge_r * 0.55))
+
+                # Pick badge color based on pressure vs. minimum
+                p_min = 7.0
+                if self.has_sprinkler():
+                    try:
+                        p_min = float(self.sprinkler._properties["Min Pressure"]["value"])
+                    except (KeyError, ValueError, TypeError):
+                        pass
+                if p < p_min:
+                    bg = QColor(220, 0, 0, 200)      # red – below minimum
+                elif p < p_min * 1.5:
+                    bg = QColor(220, 140, 0, 200)    # orange – marginal
+                else:
+                    bg = QColor(0, 160, 60, 200)     # green – comfortable
+
+                painter.setBrush(QBrush(bg))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawEllipse(QPointF(0, -badge_r * 2.2), badge_r, badge_r)
+
+                font = painter.font()
+                font.setPointSize(font_pt)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QPen(Qt.GlobalColor.white, 1))
+                painter.drawText(
+                    QRectF(-badge_r, -badge_r * 3.2, badge_r * 2, badge_r * 2),
+                    Qt.AlignmentFlag.AlignCenter,
+                    f"{p:.0f}"
+                )
 
         # suppress Qt’s default selection box
         option.state &= ~QStyle.StateFlag.State_Selected

@@ -2,7 +2,8 @@ import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar, QMenuBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit)
+                              QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
+                              QTabWidget)
 from PyQt6.QtGui import QAction, QPainter, QIcon
 from PyQt6.QtCore import Qt, QSettings, QSize
 from Model_Space import Model_Space
@@ -13,6 +14,9 @@ from dxf_import_dialog import DxfImportDialog
 from property_manager import PropertyManager
 from scale_manager import DisplayUnit
 from layer_manager import LayerManager
+from hydraulic_report import HydraulicReportWidget
+from user_layer_manager import UserLayerManager, UserLayerWidget
+from paper_space import PaperSpaceWidget
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -99,7 +103,17 @@ class MainWindow(QMainWindow):
         self.view.setMouseTracking(True)
         self.view.viewport().setMouseTracking(True)
         self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setCentralWidget(self.view)
+
+        # User layer manager — shared between scene and UI
+        self.user_layer_mgr = UserLayerManager()
+        self.scene._user_layer_manager = self.user_layer_mgr   # for save/load
+
+        # Central tab widget: Model Space | Layout 1 (Paper Space)
+        self.paper_space_widget = PaperSpaceWidget(self.scene)
+        self.central_tabs = QTabWidget()
+        self.central_tabs.addTab(self.view, "Model Space")
+        self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
+        self.setCentralWidget(self.central_tabs)
 
         # MENU BAR
         menu_bar = QMenuBar(self)
@@ -107,6 +121,7 @@ class MainWindow(QMainWindow):
         self.init_file_menu(menu_bar)
         self.init_project_menu(menu_bar)
         self.init_edit_menu(menu_bar)
+        self.init_hydraulics_menu(menu_bar)
         self.init_view_menu(menu_bar)
         self.init_help_menu(menu_bar)
 
@@ -121,9 +136,9 @@ class MainWindow(QMainWindow):
         self.dock = QDockWidget("Properties", self)
         self.init_property_manager_dock()
 
-        # Layer manager dock
+        # DXF layer manager dock
         self.layer_manager = LayerManager(self.scene)
-        self.layer_dock = QDockWidget("Layers", self)
+        self.layer_dock = QDockWidget("DXF Layers", self)
         self.layer_dock.setObjectName("LayersDock")
         self.layer_dock.setWidget(self.layer_manager)
         self.layer_dock.setAllowedAreas(
@@ -132,6 +147,41 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.layer_dock)
         self.layer_dock.setMinimumWidth(160)
+
+        # User layer dock
+        self.user_layer_widget = UserLayerWidget(
+            self.user_layer_mgr, scene=self.scene
+        )
+        self.user_layer_widget.activeLayerChanged.connect(
+            lambda name: setattr(self.scene, "active_user_layer", name)
+        )
+        self.user_layer_widget.layersChanged.connect(
+            lambda: self.user_layer_mgr.apply_to_scene(self.scene)
+        )
+        self.user_layer_dock = QDockWidget("User Layers", self)
+        self.user_layer_dock.setObjectName("UserLayersDock")
+        self.user_layer_dock.setWidget(self.user_layer_widget)
+        self.user_layer_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.user_layer_dock)
+        self.tabifyDockWidget(self.layer_dock, self.user_layer_dock)
+        self.user_layer_dock.setMinimumWidth(200)
+
+        # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
+        self.hydro_report = HydraulicReportWidget()
+        self.hydro_dock = QDockWidget("Hydraulic Report", self)
+        self.hydro_dock.setObjectName("HydraulicsDock")
+        self.hydro_dock.setWidget(self.hydro_report)
+        self.hydro_dock.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea |
+            Qt.DockWidgetArea.TopDockWidgetArea  |
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.hydro_dock)
+        self.hydro_dock.hide()   # hidden until the user runs hydraulics
 
         # Status bar with cursor coordinates
         status_bar = self.statusBar()
@@ -167,6 +217,18 @@ class MainWindow(QMainWindow):
         open_action = QAction(QIcon(r"graphics/File Menu/load_icon.svg"), "Open", self)
         open_action.triggered.connect(self.open_file)
         file_menu.addAction(open_action)
+
+        file_menu.addSeparator()
+
+        export_pdf_action = QAction("Export Hydraulic Report (PDF)…", self)
+        export_pdf_action.triggered.connect(lambda: self.hydro_report._export_pdf())
+        file_menu.addAction(export_pdf_action)
+
+        export_csv_action = QAction("Export Hydraulic Report (CSV)…", self)
+        export_csv_action.triggered.connect(lambda: self.hydro_report._export_csv())
+        file_menu.addAction(export_csv_action)
+
+        file_menu.addSeparator()
 
         exit_action = QAction("Exit", self)
         exit_action.triggered.connect(self.close)
@@ -230,6 +292,38 @@ class MainWindow(QMainWindow):
             lambda: self.scene.set_display_unit(DisplayUnit.METRIC_MM))
         units_menu.addAction(unit_mm)
 
+    def init_hydraulics_menu(self, menu_bar):
+        hyd_menu = menu_bar.addMenu("Hydraulics")
+
+        place_ws = QAction("Place Water Supply…", self)
+        place_ws.triggered.connect(lambda: self.scene.set_mode("water_supply"))
+        hyd_menu.addAction(place_ws)
+
+        design_area = QAction("Set Design Area…", self)
+        design_area.triggered.connect(lambda: self.scene.set_mode("design_area"))
+        hyd_menu.addAction(design_area)
+
+        hyd_menu.addSeparator()
+
+        run_action = QAction("Run Hydraulics", self)
+        run_action.setShortcut("F5")
+        run_action.triggered.connect(self.run_hydraulics)
+        hyd_menu.addAction(run_action)
+
+        clear_action = QAction("Clear Results", self)
+        clear_action.triggered.connect(self.clear_hydraulics)
+        hyd_menu.addAction(clear_action)
+
+        hyd_menu.addSeparator()
+
+        pdf_action = QAction("Export Report (PDF)…", self)
+        pdf_action.triggered.connect(lambda: self.hydro_report._export_pdf())
+        hyd_menu.addAction(pdf_action)
+
+        csv_action = QAction("Export Report (CSV)…", self)
+        csv_action.triggered.connect(lambda: self.hydro_report._export_csv())
+        hyd_menu.addAction(csv_action)
+
     def init_edit_menu(self, menu_bar):
         edit_menu = menu_bar.addMenu("Edit")
 
@@ -256,8 +350,25 @@ class MainWindow(QMainWindow):
 
         view_menu.addSeparator()
 
-        # Layer dock toggle
-#        view_menu.addAction(self.layer_dock.toggleViewAction())
+        # Dock toggles
+        view_menu.addAction(self.layer_dock.toggleViewAction())
+        view_menu.addAction(self.user_layer_dock.toggleViewAction())
+        view_menu.addAction(self.hydro_dock.toggleViewAction())
+
+        view_menu.addSeparator()
+
+        # Paper space shortcut
+        paper_action = QAction("Switch to Layout 1 (Paper Space)", self)
+        paper_action.triggered.connect(
+            lambda: self.central_tabs.setCurrentIndex(1)
+        )
+        view_menu.addAction(paper_action)
+
+        model_action = QAction("Switch to Model Space", self)
+        model_action.triggered.connect(
+            lambda: self.central_tabs.setCurrentIndex(0)
+        )
+        view_menu.addAction(model_action)
 
     def init_help_menu(self, menu_bar):
         help_menu = menu_bar.addMenu("Help")
@@ -296,6 +407,26 @@ class MainWindow(QMainWindow):
         dimension_action = QAction(QIcon(r"graphics/Toolbar/dimension_icon.svg"), "Dimension", self)
         dimension_action.triggered.connect(lambda: self.scene.set_mode("dimension"))
         toolbar.addAction(dimension_action)
+
+        supply_action = QAction(QIcon(r"graphics/Toolbar/supply_icon.svg"), "Water Supply", self)
+        supply_action.triggered.connect(lambda: self.scene.set_mode("water_supply"))
+        toolbar.addAction(supply_action)
+
+        design_area_action = QAction(
+            QIcon(r"graphics/Toolbar/design_area_icon.svg"), "Design Area", self
+        )
+        design_area_action.triggered.connect(lambda: self.scene.set_mode("design_area"))
+        toolbar.addAction(design_area_action)
+
+        run_hydraulics_action = QAction(
+            QIcon(r"graphics/Toolbar/hydraulics_icon.svg"), "Run Hydraulics", self
+        )
+        run_hydraulics_action.triggered.connect(self.run_hydraulics)
+        toolbar.addAction(run_hydraulics_action)
+
+        clear_hydraulics_action = QAction("Clear Results", self)
+        clear_hydraulics_action.triggered.connect(self.clear_hydraulics)
+        toolbar.addAction(clear_hydraulics_action)
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER
@@ -366,6 +497,23 @@ class MainWindow(QMainWindow):
     def _set_precision(self, places: int):
         self.scene.scale_manager.precision = places
         self.scene._refresh_all_labels()
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # HYDRAULICS HELPERS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def run_hydraulics(self):
+        """Run the hydraulic solver and populate the report dock."""
+        design = self.scene.design_area_sprinklers or None
+        result = self.scene.run_hydraulics(design_sprinklers=design)
+        self.hydro_report.populate(result, self.scene, self.scene.scale_manager)
+        self.hydro_dock.show()
+        self.hydro_dock.raise_()
+
+    def clear_hydraulics(self):
+        """Clear the hydraulic overlay and the report dock."""
+        self.scene.clear_hydraulics()
+        self.hydro_report.clear()
 
     # ─────────────────────────────────────────────────────────────────────────
     # PROPERTY MANAGER HELPERS

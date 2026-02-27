@@ -5,6 +5,7 @@ class SprinklerSystem:
         self.pipes = []
         self.sprinklers = []
         self.fittings = []
+        self.supply_node = None   # WaterSupply instance (set by Model_Space)
 
     def add_node(self, node):
         self.nodes.append(node)

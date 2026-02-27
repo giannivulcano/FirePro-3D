@@ -1,8 +1,8 @@
 import sys, json, math
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
                               QGraphicsItem, QGraphicsItemGroup, QGraphicsPixmapItem,
-                              QGraphicsTextItem, QGraphicsPathItem, QApplication,
-                              QProgressDialog)
+                              QGraphicsTextItem, QGraphicsPathItem, QGraphicsRectItem,
+                              QApplication, QProgressDialog)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
@@ -17,12 +17,13 @@ from scale_manager import ScaleManager
 from calibrate_dialog import CalibrateDialog
 from underlay_context_menu import UnderlayContextMenu
 from dxf_import_worker import DxfImportWorker
+from water_supply import WaterSupply
 import os
 
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 3
+    SAVE_VERSION = 5
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -41,6 +42,12 @@ class Model_Space(QGraphicsScene):
         self.node_end_pos = None
         self._selected_items = None
         self._snap_to_underlay: bool = False
+        self.water_supply_node: "WaterSupply | None" = None  # placed water supply
+        self.hydraulic_result = None                          # last solver run (Sprint 2)
+        self.design_area_sprinklers: list = []                # Sprint 2C design area
+        self.active_user_layer: str = "0"                     # Sprint 4A active layer
+        self._design_area_corner1: "QPointF | None" = None
+        self._design_area_rect_item = None                    # QGraphicsRectItem preview
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
@@ -84,10 +91,12 @@ class Model_Space(QGraphicsScene):
         nodes_data = []
         for node in node_list:
             entry = {
-                "id": node_id[node],
-                "x":  node.scenePos().x(),
-                "y":  node.scenePos().y(),
-                "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "id":         node_id[node],
+                "x":          node.scenePos().x(),
+                "y":          node.scenePos().y(),
+                "elevation":  node.z_pos,
+                "user_layer": getattr(node, "user_layer", "0"),
+                "sprinkler":  node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             nodes_data.append(entry)
 
@@ -99,6 +108,7 @@ class Model_Space(QGraphicsScene):
             pipes_data.append({
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
+                "user_layer": getattr(pipe, "user_layer", "0"),
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
             })
 
@@ -128,14 +138,33 @@ class Model_Space(QGraphicsScene):
                 # rotation and opacity are already kept in sync via context menu
             underlays_data.append(data.to_dict())
 
+        # --- Water supply ---
+        ws = self.water_supply_node
+        ws_data = None
+        if ws is not None:
+            ws_data = {
+                "x":          ws.scenePos().x(),
+                "y":          ws.scenePos().y(),
+                "properties": {k: v["value"] for k, v in ws.get_properties().items()},
+            }
+
+        # --- User layers ---
+        layers_data = (
+            self._user_layer_manager.to_list()
+            if hasattr(self, "_user_layer_manager") and self._user_layer_manager
+            else []
+        )
+
         # --- Assemble and write ---
         payload = {
-            "version":     self.SAVE_VERSION,
-            "scale":       self.scale_manager.to_dict(),
-            "nodes":       nodes_data,
-            "pipes":       pipes_data,
-            "annotations": annotations_data,
-            "underlays":   underlays_data,
+            "version":      self.SAVE_VERSION,
+            "scale":        self.scale_manager.to_dict(),
+            "user_layers":  layers_data,
+            "nodes":        nodes_data,
+            "pipes":        pipes_data,
+            "annotations":  annotations_data,
+            "underlays":    underlays_data,
+            "water_supply": ws_data,
         }
         with open(filename, "w") as f:
             json.dump(payload, f, indent=2)
@@ -155,11 +184,19 @@ class Model_Space(QGraphicsScene):
         else:
             self.scale_manager = ScaleManager()
 
+        # --- User layers ---
+        layers_data = payload.get("user_layers", [])
+        if layers_data and hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+            self._user_layer_manager.from_list(layers_data)
+
         # --- Nodes ---
         id_to_node: dict[int, Node] = {}
         for entry in payload.get("nodes", []):
             node = self.add_node(entry["x"], entry["y"])
             id_to_node[entry["id"]] = node
+            # Restore node elevation (plain nodes)
+            node.set_property("Elevation", str(entry.get("elevation", 0)))
+            node.user_layer = entry.get("user_layer", "0")
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -168,6 +205,7 @@ class Model_Space(QGraphicsScene):
                     else:
                         template.set_property(key, value)
                 self.add_sprinkler(node, template)
+                # Sprinkler's set_property("Elevation", ...) also syncs node.z_pos
 
         # --- Pipes ---
         for entry in payload.get("pipes", []):
@@ -175,6 +213,7 @@ class Model_Space(QGraphicsScene):
             n2 = id_to_node.get(entry["node2_id"])
             if n1 and n2:
                 pipe = self.add_pipe(n1, n2)
+                pipe.user_layer = entry.get("user_layer", "0")
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
 
@@ -211,6 +250,16 @@ class Model_Space(QGraphicsScene):
                                 line_weight=udata.line_weight,
                                 x=udata.x, y=udata.y, _record=udata)
 
+        # --- Water supply ---
+        ws_data = payload.get("water_supply")
+        if ws_data:
+            ws = WaterSupply(ws_data["x"], ws_data["y"])
+            self.addItem(ws)
+            self.water_supply_node = ws
+            self.sprinkler_system.supply_node = ws
+            for key, value in ws_data.get("properties", {}).items():
+                ws.set_property(key, value)
+
         # Start fresh undo history with the loaded state
         self._undo_stack = []
         self._undo_pos = -1
@@ -223,6 +272,8 @@ class Model_Space(QGraphicsScene):
         self.annotations = Annotation()
         self.underlays = []
         self.scale_manager = ScaleManager()
+        self.water_supply_node = None
+        self.hydraulic_result = None
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -272,6 +323,11 @@ class Model_Space(QGraphicsScene):
                 if item in self.annotations.notes:
                     self.annotations.notes.remove(item)
                 self.removeItem(item)
+            elif isinstance(item, WaterSupply):
+                self.removeItem(item)
+                if self.water_supply_node is item:
+                    self.water_supply_node = None
+                    self.sprinkler_system.supply_node = None
         for item in self.selectedItems():
             if isinstance(item, Pipe):
                 self.delete_pipe(item)
@@ -295,6 +351,13 @@ class Model_Space(QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
         self._cal_point1 = None
+        # Clean up design_area preview if leaving that mode mid-draw
+        if mode != "design_area":
+            self._design_area_corner1 = None
+            if self._design_area_rect_item is not None:
+                if self._design_area_rect_item.scene() is self:
+                    self.removeItem(self._design_area_rect_item)
+                self._design_area_rect_item = None
         if self.node_start_pos is not None:
             self.remove_node(self.node_start_pos)
         if mode in ("sprinkler", "pipe", "set_scale"):
@@ -323,6 +386,7 @@ class Model_Space(QGraphicsScene):
         node = self.find_nearby_node(x, y)
         if not node:
             node = Node(x, y)
+            node.user_layer = self.active_user_layer
             self.addItem(node)
             self.sprinkler_system.add_node(node)
         return node
@@ -339,6 +403,7 @@ class Model_Space(QGraphicsScene):
 
     def add_pipe(self, n1, n2, template=None):
         pipe = Pipe(n1, n2)
+        pipe.user_layer = self.active_user_layer
         if template:
             pipe.set_properties(template)
         self.sprinkler_system.add_pipe(pipe)
@@ -726,9 +791,10 @@ class Model_Space(QGraphicsScene):
         nodes_data = []
         for node in node_list:
             nodes_data.append({
-                "id": node_id[node],
-                "x":  node.scenePos().x(),
-                "y":  node.scenePos().y(),
+                "id":        node_id[node],
+                "x":         node.scenePos().x(),
+                "y":         node.scenePos().y(),
+                "elevation": node.z_pos,
                 "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
             })
         pipes_data = []
@@ -755,7 +821,20 @@ class Model_Space(QGraphicsScene):
                 "y":    note.scenePos().y(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
             })
-        return {"nodes": nodes_data, "pipes": pipes_data, "annotations": annotations_data}
+        ws = self.water_supply_node
+        ws_data = None
+        if ws is not None:
+            ws_data = {
+                "x":          ws.scenePos().x(),
+                "y":          ws.scenePos().y(),
+                "properties": {k: v["value"] for k, v in ws.get_properties().items()},
+            }
+        return {
+            "nodes":        nodes_data,
+            "pipes":        pipes_data,
+            "annotations":  annotations_data,
+            "water_supply": ws_data,
+        }
 
     def _restore_network(self, state: dict):
         """Restore nodes/pipes/annotations from a dict (keeps underlays and scale)."""
@@ -773,6 +852,10 @@ class Model_Space(QGraphicsScene):
             for note in list(self.annotations.notes):
                 if note.scene() is self:
                     self.removeItem(note)
+            # Remove old water supply if present
+            if self.water_supply_node and self.water_supply_node.scene() is self:
+                self.removeItem(self.water_supply_node)
+            self.water_supply_node = None
             self.sprinkler_system = SprinklerSystem()
             self.annotations = Annotation()
 
@@ -782,6 +865,7 @@ class Model_Space(QGraphicsScene):
                 self.addItem(node)
                 self.sprinkler_system.add_node(node)
                 id_to_node[entry["id"]] = node
+                node.set_property("Elevation", str(entry.get("elevation", 0)))
                 if entry.get("sprinkler"):
                     template = Sprinkler(None)
                     for key, value in entry["sprinkler"].items():
@@ -821,6 +905,16 @@ class Model_Space(QGraphicsScene):
                     self.annotations.add_note(note)
                     for key, value in entry.get("properties", {}).items():
                         note.set_property(key, value)
+
+            # Restore water supply
+            ws_data = state.get("water_supply")
+            if ws_data:
+                ws = WaterSupply(ws_data["x"], ws_data["y"])
+                self.addItem(ws)
+                self.water_supply_node = ws
+                self.sprinkler_system.supply_node = ws
+                for key, value in ws_data.get("properties", {}).items():
+                    ws.set_property(key, value)
         finally:
             self._in_undo_restore = False
 
@@ -868,6 +962,8 @@ class Model_Space(QGraphicsScene):
                 node.fitting.update()
         for dim in self.annotations.dimensions:
             dim.rescale(sm)
+        if self.water_supply_node is not None:
+            self.water_supply_node.rescale(sm)
 
     def _refresh_all_labels(self):
         """Refresh display text on all pipes and dimension annotations."""
@@ -880,6 +976,32 @@ class Model_Space(QGraphicsScene):
         """Change the display unit and refresh all labels."""
         self.scale_manager.display_unit = unit
         self._refresh_all_labels()
+
+    # -------------------------------------------------------------------------
+    # HYDRAULICS
+
+    def run_hydraulics(self, design_sprinklers=None):
+        """Run the Hazen-Williams solver and store results for overlay display."""
+        from hydraulic_solver import HydraulicSolver
+        solver = HydraulicSolver(self.sprinkler_system, self.scale_manager)
+        result = solver.solve(design_sprinklers=design_sprinklers)
+        self.hydraulic_result = result
+        # Refresh all pipe labels and node badges
+        for pipe in self.sprinkler_system.pipes:
+            pipe.update_label()
+            pipe.update()
+        for node in self.sprinkler_system.nodes:
+            node.update()
+        return result
+
+    def clear_hydraulics(self):
+        """Remove the hydraulic results overlay."""
+        self.hydraulic_result = None
+        for pipe in self.sprinkler_system.pipes:
+            pipe.update_label()
+            pipe.update()
+        for node in self.sprinkler_system.nodes:
+            node.update()
 
     # -------------------------------------------------------------------------
     # GEOMETRY HELPERS
@@ -992,7 +1114,15 @@ class Model_Space(QGraphicsScene):
             else:
                 self.preview_pipe.hide()
 
-        elif self.mode in ("sprinkler", "dimension", "paste", "move"):
+        elif self.mode == "design_area":
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._design_area_corner1 is not None and self._design_area_rect_item is not None:
+                c1 = self._design_area_corner1
+                rect = QRectF(c1, snapped).normalized()
+                self._design_area_rect_item.setRect(rect)
+
+        elif self.mode in ("sprinkler", "dimension", "paste", "move", "water_supply"):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
         else:
@@ -1081,6 +1211,45 @@ class Model_Space(QGraphicsScene):
                 self.requestPropertyUpdate.emit(dim)
                 self.dimension_start = None
                 self.push_undo_state()
+
+        elif self.mode == "water_supply":
+            # Place (or replace) the water supply node at the clicked position
+            if self.water_supply_node is not None:
+                self.removeItem(self.water_supply_node)
+            ws = WaterSupply(snapped.x(), snapped.y())
+            self.addItem(ws)
+            self.water_supply_node = ws
+            self.sprinkler_system.supply_node = ws
+            self.requestPropertyUpdate.emit(ws)
+            self.push_undo_state()
+            self.set_mode(None)
+            return
+
+        elif self.mode == "design_area":
+            if self._design_area_corner1 is None:
+                # First click: set corner1 and create preview rect
+                self._design_area_corner1 = snapped
+                rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
+                rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
+                rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
+                rect_item.setZValue(200)
+                self.addItem(rect_item)
+                self._design_area_rect_item = rect_item
+            else:
+                # Second click: commit the rectangle
+                c1 = self._design_area_corner1
+                selection_rect = QRectF(c1, snapped).normalized()
+                # Find sprinklers inside the rectangle
+                self.design_area_sprinklers = [
+                    s for s in self.sprinkler_system.sprinklers
+                    if s.node and selection_rect.contains(s.node.scenePos())
+                ]
+                # Reset corner for next use
+                self._design_area_corner1 = None
+                # Keep the rect visible as a reminder (user can clear it)
+                self.set_mode(None)
+                print(f"Design area: {len(self.design_area_sprinklers)} sprinkler(s) selected.")
+            return
 
         elif self.mode in ("paste", "move"):
             if self.node_start_pos is None:
