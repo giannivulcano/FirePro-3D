@@ -160,6 +160,23 @@ class PolylineItem(QGraphicsPathItem):
         """Snap the path to the committed points and stop accepting input."""
         self._rebuild_path()
 
+    # ── Grip protocol ─────────────────────────────────────────────────────────
+
+    def grip_points(self) -> list[QPointF]:
+        """Return all vertex positions as grip handles (one per vertex)."""
+        return list(self._points)
+
+    def apply_grip(self, index: int, pos: QPointF):
+        """Move vertex *index* to *pos* and rebuild the path."""
+        if 0 <= index < len(self._points):
+            self._points[index] = pos
+            self._rebuild_path()
+
+    def translate(self, dx: float, dy: float):
+        """Move all vertices by (dx, dy)."""
+        self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
+        self._rebuild_path()
+
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -244,6 +261,34 @@ class LineItem(QGraphicsLineItem):
         obj.user_layer = data.get("user_layer", "0")
         return obj
 
+    # ── Grip protocol ─────────────────────────────────────────────────────────
+
+    def grip_points(self) -> list[QPointF]:
+        """Return [pt1, midpoint, pt2] as grip handles."""
+        mid = QPointF((self._pt1.x() + self._pt2.x()) / 2,
+                      (self._pt1.y() + self._pt2.y()) / 2)
+        return [self._pt1, mid, self._pt2]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        """Move a grip handle to *pos*.  index 0=pt1, 1=midpoint, 2=pt2."""
+        if index == 0:
+            self._pt1 = pos
+        elif index == 1:
+            # Mid-grip: translate entire line
+            dx = pos.x() - (self._pt1.x() + self._pt2.x()) / 2
+            dy = pos.y() - (self._pt1.y() + self._pt2.y()) / 2
+            self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
+            self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
+        elif index == 2:
+            self._pt2 = pos
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    def translate(self, dx: float, dy: float):
+        """Move the entire line by (dx, dy)."""
+        self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
+        self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RectangleItem  — axis-aligned rectangle (two corner clicks)
@@ -300,6 +345,49 @@ class RectangleItem(QGraphicsRectItem):
         obj.user_layer = data.get("user_layer", "0")
         return obj
 
+    # ── Grip protocol ─────────────────────────────────────────────────────────
+    # Grip indices (clockwise from top-left):
+    #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
+
+    def grip_points(self) -> list[QPointF]:
+        r = self.rect()
+        cx, cy = r.center().x(), r.center().y()
+        return [
+            QPointF(r.left(),  r.top()),                  # 0 TL
+            QPointF(cx,        r.top()),                  # 1 TM
+            QPointF(r.right(), r.top()),                  # 2 TR
+            QPointF(r.right(), cy),                       # 3 RM
+            QPointF(r.right(), r.bottom()),               # 4 BR
+            QPointF(cx,        r.bottom()),               # 5 BM
+            QPointF(r.left(),  r.bottom()),               # 6 BL
+            QPointF(r.left(),  cy),                       # 7 LM
+            QPointF(cx,        cy),                       # 8 Centre
+        ]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        """Resize or translate the rectangle by dragging one of its 9 grips."""
+        r = self.rect()
+        l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
+
+        if   index == 0:  new_r = QRectF(QPointF(pos.x(), pos.y()), QPointF(ri,  b )).normalized()
+        elif index == 1:  new_r = QRectF(QPointF(l,  pos.y()), QPointF(ri,  b )).normalized()
+        elif index == 2:  new_r = QRectF(QPointF(l,  pos.y()), QPointF(pos.x(), b )).normalized()
+        elif index == 3:  new_r = QRectF(QPointF(l,  t ), QPointF(pos.x(), b )).normalized()
+        elif index == 4:  new_r = QRectF(QPointF(l,  t ), QPointF(pos.x(), pos.y())).normalized()
+        elif index == 5:  new_r = QRectF(QPointF(l,  t ), QPointF(ri,  pos.y())).normalized()
+        elif index == 6:  new_r = QRectF(QPointF(pos.x(), t ), QPointF(ri,  pos.y())).normalized()
+        elif index == 7:  new_r = QRectF(QPointF(pos.x(), t ), QPointF(ri,  b )).normalized()
+        elif index == 8:
+            # Centre grip → translate
+            dx, dy = pos.x() - r.center().x(), pos.y() - r.center().y()
+            new_r = r.translated(dx, dy)
+        else:
+            return
+        self.setRect(new_r)
+
+    def translate(self, dx: float, dy: float):
+        self.setRect(self.rect().translated(dx, dy))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CircleItem  — circle defined by centre + edge point
@@ -355,3 +443,36 @@ class CircleItem(QGraphicsEllipseItem):
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
         obj.user_layer = data.get("user_layer", "0")
         return obj
+
+    # ── Grip protocol ─────────────────────────────────────────────────────────
+    # Grip indices: 0=centre  1=right  2=top  3=left  4=bottom
+
+    def grip_points(self) -> list[QPointF]:
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        return [
+            QPointF(cx,     cy),      # 0 centre
+            QPointF(cx + r, cy),      # 1 right  (0°)
+            QPointF(cx,     cy - r),  # 2 top    (90°)
+            QPointF(cx - r, cy),      # 3 left   (180°)
+            QPointF(cx,     cy + r),  # 4 bottom (270°)
+        ]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        """Translate (index 0) or resize (index 1-4)."""
+        import math as _math
+        if index == 0:
+            self._center = pos
+        else:
+            self._radius = _math.hypot(
+                pos.x() - self._center.x(),
+                pos.y() - self._center.y(),
+            )
+            if self._radius < 1:
+                self._radius = 1
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+
+    def translate(self, dx: float, dy: float):
+        self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        self.setRect(cx - r, cy - r, 2 * r, 2 * r)

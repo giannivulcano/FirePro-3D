@@ -21,6 +21,7 @@ from water_supply import WaterSupply
 from construction_geometry import (
     ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem,
 )
+from snap_engine import SnapEngine, OsnapResult
 import os
 
 
@@ -67,6 +68,14 @@ class Model_Space(QGraphicsScene):
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._draw_color: str = "#ffffff"       # default white (dark theme)
         self._draw_lineweight: float = 1.0      # cosmetic px
+        # OSNAP (Sprint H)
+        self._snap_engine: SnapEngine = SnapEngine()
+        self._snap_result: "OsnapResult | None" = None
+        self._osnap_enabled: bool = True
+        # Grip editing (Sprint I)
+        self._grip_item = None                  # item currently being grip-dragged
+        self._grip_index: int = -1              # grip handle index
+        self._grip_dragging: bool = False
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
@@ -1146,12 +1155,38 @@ class Model_Space(QGraphicsScene):
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
-        """Return the best-fit cursor position: underlay snap > grid snap."""
+        """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
+        # OSNAP takes highest priority
+        if self._osnap_enabled:
+            views = self.views()
+            if views:
+                result = self._snap_engine.find(scene_pos, self, views[0].transform())
+                self._snap_result = result
+                if result is not None:
+                    return result.point
+            else:
+                self._snap_result = None
+        else:
+            self._snap_result = None
+
+        # Underlay snap
         if self._snap_to_underlay:
             snap_pt = self.find_snap_point(scene_pos)
             if snap_pt is not None:
                 return snap_pt
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+
+    def toggle_osnap(self, enabled: bool | None = None):
+        """Toggle or explicitly set OSNAP.  Called from ribbon button / F3."""
+        if enabled is None:
+            self._osnap_enabled = not self._osnap_enabled
+        else:
+            self._osnap_enabled = bool(enabled)
+        self._snap_engine.enabled = self._osnap_enabled
+        self._snap_result = None
+        # Refresh foreground overlay
+        for v in self.views():
+            v.viewport().update()
 
     def find_snap_point(self, pos: QPointF) -> QPointF | None:
         """Find the nearest DXF underlay snap point within tolerance."""
@@ -1306,8 +1341,19 @@ class Model_Space(QGraphicsScene):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
         else:
+            # ── Grip drag ──────────────────────────────────────────────────
+            if self._grip_dragging and self._grip_item is not None:
+                self._grip_item.apply_grip(self._grip_index, snapped)
+                # Refresh foreground (grip handle positions changed)
+                for v in self.views():
+                    v.viewport().update()
+                return
             self.preview_node.hide()
             self.preview_pipe.hide()
+
+        # Repaint foreground for snap indicator / grip overlay
+        for v in self.views():
+            v.viewport().update()
 
         super().mouseMoveEvent(event)
 
@@ -1556,8 +1602,25 @@ class Model_Space(QGraphicsScene):
             if isinstance(selection, Node):
                 print(selection)
                 print(f"node has: {len(selection.pipes)} pipes connected")
+            # ── Check for grip handle hit ───────────────────────────────────
+            grip_hit = self._find_grip_hit(snapped)
+            if grip_hit is not None:
+                self._grip_item, self._grip_index = grip_hit
+                self._grip_dragging = True
+                return  # consumed — don't deselect / pass to super()
 
         super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
+            self._grip_dragging = False
+            self._grip_item     = None
+            self._grip_index    = -1
+            self.push_undo_state()
+            for v in self.views():
+                v.viewport().update()
+            return
+        super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
         """Show context menu for underlays on right-click."""
@@ -1602,6 +1665,8 @@ class Model_Space(QGraphicsScene):
             if self.selectedItems():
                 self._selected_items = self.selectedItems()
                 self.set_mode("move")
+        elif event.key() == Qt.Key.Key_D and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.duplicate_selected()
         elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if self.clipboard_data():
                 self.set_mode("paste")
@@ -1634,12 +1699,16 @@ class Model_Space(QGraphicsScene):
                     "sprinkler": sprinkler,
                     "pipes": pipes,
                 })
+            elif isinstance(item, (LineItem, RectangleItem, CircleItem,
+                                   PolylineItem, ConstructionLine)):
+                data.append(item.to_dict())
         QApplication.clipboard().setText(json.dumps(data))
 
     def paste_items(self, offset):
         data = self.clipboard_data()
         for obj in data:
-            if obj["type"] == "node":
+            obj_type = obj.get("type", "")
+            if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
                 existing = self.find_nearby_node(new_x, new_y)
@@ -1664,12 +1733,43 @@ class Model_Space(QGraphicsScene):
                         self.add_pipe(node1, node2)
                 node1.fitting.update()
 
+            elif obj_type == "draw_line":
+                item = LineItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.user_layer = self.active_user_layer
+                self.addItem(item)
+                self._draw_lines.append(item)
+
+            elif obj_type == "draw_rectangle":
+                item = RectangleItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.user_layer = self.active_user_layer
+                self.addItem(item)
+                self._draw_rects.append(item)
+
+            elif obj_type == "draw_circle":
+                item = CircleItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.user_layer = self.active_user_layer
+                self.addItem(item)
+                self._draw_circles.append(item)
+
+            elif obj_type == "polyline":
+                item = PolylineItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.user_layer = self.active_user_layer if hasattr(PolylineItem, 'user_layer') else "0"
+                self.addItem(item)
+                self._polylines.append(item)
+
     def move_items(self, offset):
         for item in self._selected_items:
             if isinstance(item, Node):
                 item.moveBy(offset.x(), offset.y())
                 item.setSelected(True)
                 item.fitting.update()
+            elif hasattr(item, "translate"):
+                item.translate(offset.x(), offset.y())
+                item.setSelected(True)
 
     def clipboard_data(self):
         text = QApplication.clipboard().text()
@@ -1679,3 +1779,174 @@ class Model_Space(QGraphicsScene):
             return json.loads(text)
         except json.JSONDecodeError:
             return None
+
+    # -------------------------------------------------------------------------
+    # DUPLICATE (Sprint I)
+
+    def duplicate_selected(self):
+        """Copy selected items and immediately paste them at +10,+10 offset."""
+        items = self.selectedItems()
+        if not items:
+            return
+
+        data = []
+        for item in items:
+            if isinstance(item, Node):
+                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
+                pipes_d = []
+                for p in item.pipes:
+                    other = p.node1 if p.node2 == item else p.node2
+                    pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
+                data.append({
+                    "type": "node",
+                    "x": item.pos().x(), "y": item.pos().y(),
+                    "sprinkler": sprinkler, "pipes": pipes_d,
+                })
+            elif isinstance(item, (LineItem, RectangleItem, CircleItem,
+                                   PolylineItem, ConstructionLine)):
+                data.append(item.to_dict())
+
+        if not data:
+            return
+
+        # Temporarily swap clipboard → paste → restore
+        old = QApplication.clipboard().text()
+        QApplication.clipboard().setText(json.dumps(data))
+        self.paste_items(QPointF(10, 10))
+        QApplication.clipboard().setText(old)
+        self.push_undo_state()
+
+    # -------------------------------------------------------------------------
+    # ARRAY (Sprint J)
+
+    def array_items(self, params: dict):
+        """
+        Duplicate selected items in a linear or polar array.
+
+        params keys
+        -----------
+        mode : "linear" | "polar"
+
+        Linear:
+          rows, cols        : int
+          x_spacing         : float  (scene units per column)
+          y_spacing         : float  (scene units per row)
+
+        Polar:
+          cx, cy            : float  (centre of rotation in scene coords)
+          count             : int    (total number of copies incl. original)
+          total_angle       : float  (degrees, e.g. 360 for full circle)
+          rotate_items      : bool   (rotate geometry orientation; Nodes only)
+        """
+        items = self.selectedItems()
+        if not items:
+            return
+
+        # Serialise selected items
+        def _serialise(item):
+            if isinstance(item, Node):
+                sprinkler = item.sprinkler.get_properties() if item.has_sprinkler() else None
+                pipes_d = []
+                for p in item.pipes:
+                    other = p.node1 if p.node2 == item else p.node2
+                    pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
+                return {"type": "node", "x": item.pos().x(), "y": item.pos().y(),
+                        "sprinkler": sprinkler, "pipes": pipes_d}
+            elif hasattr(item, "to_dict"):
+                return item.to_dict()
+            return None
+
+        data = [d for item in items if (d := _serialise(item)) is not None]
+        if not data:
+            return
+
+        old_clip = QApplication.clipboard().text()
+
+        mode = params.get("mode", "linear")
+
+        if mode == "linear":
+            rows = max(1, int(params.get("rows", 1)))
+            cols = max(1, int(params.get("cols", 1)))
+            xs   = float(params.get("x_spacing", 100))
+            ys   = float(params.get("y_spacing", 100))
+
+            QApplication.clipboard().setText(json.dumps(data))
+            for r in range(rows):
+                for c in range(cols):
+                    if r == 0 and c == 0:
+                        continue  # skip the original position
+                    self.paste_items(QPointF(c * xs, r * ys))
+
+        elif mode == "polar":
+            cx    = float(params.get("cx", 0))
+            cy    = float(params.get("cy", 0))
+            count = max(2, int(params.get("count", 4)))
+            ta    = float(params.get("total_angle", 360))
+            # angle step
+            if abs(ta - 360) < 0.01:
+                step = math.radians(ta / count)
+            else:
+                step = math.radians(ta / (count - 1))
+
+            for i in range(1, count):
+                angle = step * i
+                cos_a, sin_a = math.cos(angle), math.sin(angle)
+                rotated = []
+                for obj in data:
+                    rot = dict(obj)
+                    if "x" in rot and "y" in rot:
+                        ox, oy = rot["x"] - cx, rot["y"] - cy
+                        rot["x"] = cx + ox * cos_a - oy * sin_a
+                        rot["y"] = cy + ox * sin_a + oy * cos_a
+                    # Rotate geometry point pairs
+                    for key in ("pt1", "pt2"):
+                        if key in rot:
+                            ox = rot[key][0] - cx
+                            oy = rot[key][1] - cy
+                            rot[key] = [
+                                cx + ox * cos_a - oy * sin_a,
+                                cy + ox * sin_a + oy * cos_a,
+                            ]
+                    # Rotate circle centre
+                    for cx_k, cy_k in (("cx", "cy"),):
+                        if cx_k in rot and cy_k in rot:
+                            ox = rot[cx_k] - cx
+                            oy = rot[cy_k] - cy
+                            rot[cx_k] = cx + ox * cos_a - oy * sin_a
+                            rot[cy_k] = cy + ox * sin_a + oy * cos_a
+                    # Rotate polyline vertices
+                    if "points" in rot:
+                        new_pts = []
+                        for px, py in rot["points"]:
+                            ox, oy = px - cx, py - cy
+                            new_pts.append([cx + ox * cos_a - oy * sin_a,
+                                            cy + ox * sin_a + oy * cos_a])
+                        rot["points"] = new_pts
+                    rotated.append(rot)
+                QApplication.clipboard().setText(json.dumps(rotated))
+                self.paste_items(QPointF(0, 0))
+
+        QApplication.clipboard().setText(old_clip)
+        self.push_undo_state()
+
+    # -------------------------------------------------------------------------
+    # GRIP HELPERS (Sprint I)
+
+    def _find_grip_hit(self, pos: QPointF):
+        """
+        Return *(item, grip_index)* if *pos* is within 8 screen pixels of any
+        grip handle on a selected item, else *None*.
+        """
+        views = self.views()
+        if not views:
+            return None
+        scale = views[0].transform().m11()
+        tol   = 8.0 / max(scale, 1e-6)   # 8 viewport px → scene units
+
+        for item in self.selectedItems():
+            if not hasattr(item, "grip_points"):
+                continue
+            for idx, gpt in enumerate(item.grip_points()):
+                if math.hypot(pos.x() - gpt.x(), pos.y() - gpt.y()) <= tol:
+                    return (item, idx)
+        return None

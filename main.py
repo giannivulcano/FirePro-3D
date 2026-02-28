@@ -18,6 +18,7 @@ from hydraulic_report import HydraulicReportWidget
 from user_layer_manager import UserLayerManager, UserLayerWidget
 from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
+from array_dialog import ArrayDialog
 import theme as th
 
 
@@ -500,9 +501,31 @@ class MainWindow(QMainWindow):
             "Move", QIcon(r"graphics/Toolbar/move_icon.svg"),
             lambda: self.scene.set_mode("move"))
         g_edit.add_small_button(
+            "Duplicate",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder),
+            lambda: self.scene.duplicate_selected(),
+        )
+        g_edit.add_small_button(
+            "Array",
+            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            self._open_array_dialog,
+        )
+        g_edit.add_small_button(
             "Delete",
             s.standardIcon(QStyle.StandardPixmap.SP_TrashIcon),
             lambda: self.scene.delete_selected_items())
+
+        # --- Snap ---
+        g_snap = ref_page.add_group("Snap")
+        self._osnap_btn = g_snap.add_large_button(
+            "OSNAP",
+            s.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton),
+            self._toggle_osnap,
+            checkable=True,
+            shortcut="F3",
+        )
+        self._osnap_btn.setChecked(True)   # OSNAP on by default
+        self._osnap_btn.setToolTip("Object Snap  [F3]")
 
         # --- Settings ---
         g_set = ref_page.add_group("Settings")
@@ -714,6 +737,22 @@ class MainWindow(QMainWindow):
             act = m.addAction(f"{lw:.2f} mm")
             act.triggered.connect(lambda checked=False, w=lw: self._set_draw_lineweight(w))
         return m
+
+    # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
+
+    def _toggle_osnap(self, checked: bool):
+        """Called when the OSNAP ribbon button is toggled (or F3 pressed)."""
+        self.scene.toggle_osnap(checked)
+
+    # ── Array / Multiply (Sprint J) ──────────────────────────────────────────
+
+    def _open_array_dialog(self):
+        """Open the Array dialog and execute the array on the current selection."""
+        if not self.scene.selectedItems():
+            return
+        dlg = ArrayDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.scene.array_items(dlg.get_params())
 
     def open_import_dialog(self):
         """Open the unified PDF/DXF underlay import dialog."""
