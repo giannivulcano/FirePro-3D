@@ -12,6 +12,7 @@ from Model_View import Model_View
 from sprinkler import Sprinkler
 from pipe import Pipe
 from dxf_import_dialog import DxfImportDialog
+from Annotations import NoteAnnotation
 from dxf_preview_dialog import DxfPreviewDialog
 from property_manager import PropertyManager
 from scale_manager import DisplayUnit
@@ -469,6 +470,53 @@ class MainWindow(QMainWindow):
             "Offset", _I("trim_icon.svg"),
             lambda: self.scene.set_mode("offset"))
 
+        # --- Text Formatting (shown when text is selected) ---
+        g_text = modify_page.add_group("Text")
+        self._text_format_group = g_text
+
+        self._text_size_spin = QSpinBox()
+        self._text_size_spin.setRange(4, 200)
+        self._text_size_spin.setValue(12)
+        self._text_size_spin.setSuffix(" pt")
+        self._text_size_spin.setFixedWidth(80)
+        self._text_size_spin.valueChanged.connect(self._set_text_size)
+
+        self._text_bold_btn = QPushButton("B")
+        self._text_bold_btn.setCheckable(True)
+        self._text_bold_btn.setFixedSize(28, 28)
+        self._text_bold_btn.setStyleSheet("font-weight: bold;")
+        self._text_bold_btn.toggled.connect(self._toggle_text_bold)
+
+        self._text_italic_btn = QPushButton("I")
+        self._text_italic_btn.setCheckable(True)
+        self._text_italic_btn.setFixedSize(28, 28)
+        self._text_italic_btn.setStyleSheet("font-style: italic;")
+        self._text_italic_btn.toggled.connect(self._toggle_text_italic)
+
+        self._text_align_combo = QComboBox()
+        self._text_align_combo.addItems(["Left", "Center", "Right"])
+        self._text_align_combo.setFixedWidth(80)
+        self._text_align_combo.currentTextChanged.connect(self._set_text_alignment)
+
+        # Add widgets into the group layout
+        text_row1 = QHBoxLayout()
+        text_row1.addWidget(QLabel("Size:"))
+        text_row1.addWidget(self._text_size_spin)
+        text_row1.addWidget(self._text_bold_btn)
+        text_row1.addWidget(self._text_italic_btn)
+        text_row2 = QHBoxLayout()
+        text_row2.addWidget(QLabel("Align:"))
+        text_row2.addWidget(self._text_align_combo)
+
+        text_container = QVBoxLayout()
+        text_container.setSpacing(2)
+        text_container.addLayout(text_row1)
+        text_container.addLayout(text_row2)
+
+        # Insert into the group's outer layout (before the label row)
+        g_text.layout().insertLayout(0, text_container)
+        g_text.setVisible(False)  # hidden until text is selected
+
         # Auto-switch to Modify tab when items are selected
         self.scene.selectionChanged.connect(self._on_selection_changed_modify)
 
@@ -615,7 +663,7 @@ class MainWindow(QMainWindow):
         "draw_arc":       "Click center, then start angle, then end angle",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
         "dimension":      "Click first point, then second point to place dimension",
-        "text":           "Click to place text",
+        "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
         "offset":         "Click geometry to offset, then enter distance",
@@ -638,23 +686,73 @@ class MainWindow(QMainWindow):
 
     def _on_selection_changed_modify(self):
         """Auto-switch to Modify tab when items are selected (unless drawing)."""
-        if self.scene.selectedItems() and self.scene.mode not in self._DRAW_MODES:
+        sel = self.scene.selectedItems()
+        if sel and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
             # Update layer combo to show selected item's layer
-            sel = self.scene.selectedItems()
-            if sel and hasattr(sel[0], "user_layer"):
+            if hasattr(sel[0], "user_layer"):
                 layer = getattr(sel[0], "user_layer", "0")
                 idx = self._modify_layer_combo.findText(layer)
                 if idx >= 0:
                     self._modify_layer_combo.blockSignals(True)
                     self._modify_layer_combo.setCurrentIndex(idx)
                     self._modify_layer_combo.blockSignals(False)
+            # Show/hide text formatting group
+            has_text = any(isinstance(i, NoteAnnotation) for i in sel)
+            self._text_format_group.setVisible(has_text)
+            if has_text:
+                txt = next(i for i in sel if isinstance(i, NoteAnnotation))
+                props = txt.get_properties()
+                self._text_size_spin.blockSignals(True)
+                self._text_size_spin.setValue(
+                    int(props.get("FontSize", {}).get("value", "12")))
+                self._text_size_spin.blockSignals(False)
+                self._text_bold_btn.blockSignals(True)
+                self._text_bold_btn.setChecked(
+                    props.get("Bold", {}).get("value", "Off") == "On")
+                self._text_bold_btn.blockSignals(False)
+                self._text_italic_btn.blockSignals(True)
+                self._text_italic_btn.setChecked(
+                    props.get("Italic", {}).get("value", "Off") == "On")
+                self._text_italic_btn.blockSignals(False)
+                self._text_align_combo.blockSignals(True)
+                self._text_align_combo.setCurrentText(
+                    props.get("Alignment", {}).get("value", "Left"))
+                self._text_align_combo.blockSignals(False)
+        else:
+            self._text_format_group.setVisible(False)
 
     def _assign_layer_to_selection(self, layer_name: str):
         """Assign a user layer to all selected items."""
         for item in self.scene.selectedItems():
             if hasattr(item, "user_layer"):
                 item.user_layer = layer_name
+
+    # ── Text formatting handlers ──────────────────────────────────────────
+
+    def _set_text_size(self, size: int):
+        for item in self.scene.selectedItems():
+            if isinstance(item, NoteAnnotation):
+                item.set_property("FontSize", str(size))
+        self.scene.push_undo_state()
+
+    def _toggle_text_bold(self, checked: bool):
+        for item in self.scene.selectedItems():
+            if isinstance(item, NoteAnnotation):
+                item.set_property("Bold", "On" if checked else "Off")
+        self.scene.push_undo_state()
+
+    def _toggle_text_italic(self, checked: bool):
+        for item in self.scene.selectedItems():
+            if isinstance(item, NoteAnnotation):
+                item.set_property("Italic", "On" if checked else "Off")
+        self.scene.push_undo_state()
+
+    def _set_text_alignment(self, alignment: str):
+        for item in self.scene.selectedItems():
+            if isinstance(item, NoteAnnotation):
+                item.set_property("Alignment", alignment)
+        self.scene.push_undo_state()
 
     # ── Array / Multiply (Sprint J) ──────────────────────────────────────────
 

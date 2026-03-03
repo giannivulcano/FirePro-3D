@@ -1,15 +1,19 @@
 """ UPDATES
 - On selection highlight handles
 - add handle to centerline
+- Sprint Q: tick marks, label above line, draggable offset, text overhaul
 
 """
 
 # annotations.py
 import math
 from CAD_Math import CAD_Math
-from PyQt6.QtWidgets import QGraphicsTextItem, QGraphicsLineItem, QGraphicsPolygonItem, QGraphicsEllipseItem 
-from PyQt6.QtGui import QPen, QColor, QPolygonF
-from PyQt6.QtCore import Qt, QPointF, QLineF
+from PyQt6.QtWidgets import (
+    QGraphicsTextItem, QGraphicsLineItem,
+    QGraphicsPolygonItem, QGraphicsEllipseItem,
+)
+from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QTextOption
+from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 
 class Annotation:
     """Base class for CAD annotations."""
@@ -39,18 +43,37 @@ class Annotation:
         self.notes.append(note)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# NoteAnnotation — MText-like text annotation
+# ═════════════════════════════════════════════════════════════════════════════
+
 class NoteAnnotation(QGraphicsTextItem, Annotation):
-    """A text note placed on the drawing."""
-    def __init__(self, text="Note", x=0, y=0):
+    """A text note placed on the drawing.  Supports multiline word-wrap,
+    bold/italic, and alignment when a text_width is set."""
+
+    def __init__(self, text="Note", x=0, y=0, text_width=0):
         QGraphicsTextItem.__init__(self, text)
         Annotation.__init__(self)
         self.setDefaultTextColor(Qt.GlobalColor.white)
         self.setPos(x, y)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
+
+        # Enable word wrap if width was specified
+        if text_width > 0:
+            self.setTextWidth(text_width)
 
         self._properties.update({
-            "Text": {"type": "string", "value": text},
-            "FontSize": {"type": "string", "value": "12"},
+            "Text":      {"type": "string", "value": text},
+            "FontSize":  {"type": "string", "value": "12"},
+            "Bold":      {"type": "enum", "options": ["Off", "On"], "value": "Off"},
+            "Italic":    {"type": "enum", "options": ["Off", "On"], "value": "Off"},
+            "Alignment": {"type": "enum",
+                          "options": ["Left", "Center", "Right"],
+                          "value": "Left"},
         })
+
+    # ── property dispatch ─────────────────────────────────────────────────
 
     def set_property(self, key, value):
         super().set_property(key, value)
@@ -63,6 +86,39 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
                 self.setFont(f)
             except (ValueError, TypeError):
                 pass
+        elif key == "Bold":
+            f = self.font()
+            f.setBold(value == "On")
+            self.setFont(f)
+        elif key == "Italic":
+            f = self.font()
+            f.setItalic(value == "On")
+            self.setFont(f)
+        elif key == "Alignment":
+            opt = self.document().defaultTextOption()
+            _map = {
+                "Left":   Qt.AlignmentFlag.AlignLeft,
+                "Center": Qt.AlignmentFlag.AlignCenter,
+                "Right":  Qt.AlignmentFlag.AlignRight,
+            }
+            opt.setAlignment(_map.get(value, Qt.AlignmentFlag.AlignLeft))
+            self.document().setDefaultTextOption(opt)
+
+    # ── visual editing frame ──────────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        if self.hasFocus():
+            pen = QPen(QColor("#88aaff"), 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# DimensionAnnotation — AutoCAD-style linear dimension
+# ═════════════════════════════════════════════════════════════════════════════
 
 class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def __init__(self, p1: QPointF, p2: QPointF):
@@ -77,6 +133,11 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             "Offset": {"type": "string", "value": "10"},
         }
 
+        # Draggable perpendicular offset distance (scene units)
+        self._offset_dist = float(self._properties["Offset"]["value"])
+        self._perp_angle = 0.0     # stored by update_arrows_and_witness
+        self._updating = False     # recursion guard
+
         # Styling
         self._dim_pen = QPen(QColor(self._properties["Colour"]["value"]),
                         float(self._properties["Line Weight"]["value"]),
@@ -89,11 +150,13 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.label = QGraphicsTextItem(parent=self)
         self.label.setZValue(100)
 
-        # Arrows
-        self.arrow1 = QGraphicsPolygonItem(self)
-        self.arrow1.setZValue(0)
-        self.arrow2 = QGraphicsPolygonItem(self)
-        self.arrow2.setZValue(0)
+        # Tick marks (45-degree slashes at each end of dimension line)
+        self.tick1 = QGraphicsLineItem(self)
+        self.tick1.setPen(self._dim_pen)
+        self.tick1.setZValue(0)
+        self.tick2 = QGraphicsLineItem(self)
+        self.tick2.setPen(self._dim_pen)
+        self.tick2.setZValue(0)
 
         # Witness lines
         self.witness1 = QGraphicsLineItem(self)
@@ -135,24 +198,51 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             c = _color_map.get(value, value.lower())
             self._dim_pen = QPen(QColor(c), float(self._properties["Line Weight"]["value"]))
             self.setPen(self._dim_pen)
+            self.tick1.setPen(self._dim_pen)
+            self.tick2.setPen(self._dim_pen)
+            self.witness1.setPen(self._dim_pen)
+            self.witness2.setPen(self._dim_pen)
         elif key in ("Witness Length", "Offset"):
+            if key == "Offset":
+                self._offset_dist = float(value)
             self.update_geometry()
 
     def update_geometry(self):
-        """Recalculate line, arrows, label, and witness lines based on handle positions."""
-        p1 = self.handle1.scenePos()
-        p2 = self.handle2.scenePos()
-        self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+        """Recalculate line, ticks, label, and witness lines based on handle positions."""
+        if self._updating:
+            return
+        self._updating = True
+        try:
+            p1 = self.handle1.scenePos()
+            p2 = self.handle2.scenePos()
 
-        self.update_arrows_and_witness()
-        self.update_label()
+            # Derive offset distance from handle3 if it has been dragged
+            h3 = self.handle3.scenePos()
+            mid_base = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+            line_angle = math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
+            perp = line_angle + math.pi / 2
+            # Project handle3 offset vector onto perpendicular direction
+            dx = h3.x() - mid_base.x()
+            dy = h3.y() - mid_base.y()
+            projected = dx * math.cos(perp) + dy * math.sin(perp)
+            if abs(projected) > 1e-3:
+                self._offset_dist = projected
+
+            self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+            self.update_arrows_and_witness()
+            self.update_label()
+        finally:
+            self._updating = False
 
     def rescale(self, sm=None) -> None:
         """Re-draw with updated scale-aware sizes (called after calibration)."""
         self.update_geometry()
 
     def update_label(self):
-        length = self.line().length()
+        # Compute display length from handle1 → handle2 (the measurement, not the offset line)
+        p1 = self.handle1.scenePos()
+        p2 = self.handle2.scenePos()
+        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
         scene = self.scene()
         if scene and hasattr(scene, "scale_manager"):
             self.label.setPlainText(scene.scale_manager.scene_to_display(length))
@@ -161,8 +251,8 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.set_label_position()
 
     def set_label_position(self):
-        line = self.line()  # QLineF
-    
+        line = self.line()  # QLineF — the offset dimension line
+
         v1 = CAD_Math.get_unit_vector(line.p1(),line.p2())
         # If pointing left, flip direction
         if v1.x() < 0:
@@ -171,7 +261,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         angle = -CAD_Math.get_angle_between_vectors(v1, v2, signed=True)
         if angle == 90:
             angle = -90
-        
+
         mid_point = QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
         bounds = self.label.boundingRect()
         center = bounds.center()
@@ -179,71 +269,78 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         # set transform origin so future rotations work around the center
         self.label.setTransformOriginPoint(center)
 
-        # move label so its center sits on line midpoint
-        self.label.setPos(mid_point - center)
+        # Offset label ABOVE the line (perpendicular direction)
+        sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
+        if sm and sm.is_calibrated:
+            label_gap = sm.paper_to_scene(1.0)  # 1mm gap on paper
+        else:
+            label_gap = 4  # 4px default gap
+
+        # Use the same perpendicular direction as the witness lines
+        perp_dx = math.cos(self._perp_angle)
+        perp_dy = math.sin(self._perp_angle)
+        # Offset the label so its bottom edge sits above the line
+        offset = QPointF(perp_dx * label_gap, perp_dy * label_gap)
+        label_pos = mid_point + offset - QPointF(center.x(), bounds.height())
+        self.label.setPos(label_pos)
         self.label.setRotation(angle)
 
     def update_arrows_and_witness(self):
         # Scale-aware sizes
         sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
         if sm and sm.is_calibrated:
-            arrow_size = sm.paper_to_scene(1.5)   # 1.5mm arrow on paper
-            witness_len = sm.paper_to_scene(8.0)  # 8mm witness line on paper
-            offset_gap = sm.paper_to_scene(1.5)   # 1.5mm gap between dim line and annotation line
-            offset_dist = sm.paper_to_scene(2.0)  # 2mm start offset from point
+            tick_size = sm.paper_to_scene(1.5)    # 1.5mm tick on paper
+            offset_gap = sm.paper_to_scene(1.0)   # 1mm gap at measurement point
         else:
-            arrow_size = 6
-            witness_len = float(self._properties["Witness Length"]["value"])
-            offset_gap = 5
-            offset_dist = float(self._properties["Offset"]["value"])
+            tick_size = 6
+            offset_gap = 3
 
-        # Original line
-        line = self.line()
-        angle = math.atan2(line.dy(), line.dx())  # line angle
-        perp_angle = angle + math.pi / 2          # perpendicular angle
+        # Measurement endpoints from handles
+        start = QPointF(self.handle1.x(), self.handle1.y())
+        end = QPointF(self.handle2.x(), self.handle2.y())
 
-        # Perpendicular unit vector
+        # Line angle and perpendicular
+        line = QLineF(start, end)
+        angle = math.atan2(line.dy(), line.dx())
+        perp_angle = angle + math.pi / 2
+        self._perp_angle = perp_angle  # store for label positioning
+
         dx_perp = math.cos(perp_angle)
         dy_perp = math.sin(perp_angle)
 
-        # Start witness line
-        start = QPointF(self.handle1.x(), self.handle1.y())
-        p1a = start + QPointF(dx_perp * offset_dist, dy_perp * offset_dist)
-        p1b = p1a + QPointF(dx_perp * witness_len, dy_perp * witness_len)
-        self.witness1.setLine(p1a.x(), p1a.y(), p1b.x(), p1b.y())
+        # Dimension line offset from measurement baseline
+        offset = self._offset_dist
 
-        # End witness line
-        end = QPointF(self.handle2.x(), self.handle2.y())
-        p2a = end + QPointF(dx_perp * offset_dist, dy_perp * offset_dist)
-        p2b = p2a + QPointF(dx_perp * witness_len, dy_perp * witness_len)
-        self.witness2.setLine(p2a.x(), p2a.y(), p2b.x(), p2b.y())
+        # Witness lines: from near measurement point to dimension line
+        # Start at a small gap from the point, end past the dimension line
+        w1_start = start + QPointF(dx_perp * offset_gap, dy_perp * offset_gap)
+        w1_end   = start + QPointF(dx_perp * (offset + offset_gap), dy_perp * (offset + offset_gap))
+        self.witness1.setLine(w1_start.x(), w1_start.y(), w1_end.x(), w1_end.y())
 
-        # Create new offset line
-        ox = dx_perp * offset_gap
-        oy = dy_perp * offset_gap
-        p1 = p1b - QPointF(ox, oy)
-        p2 = p2b - QPointF(ox, oy)
-        offset_line = QLineF(p1, p2)
+        w2_start = end + QPointF(dx_perp * offset_gap, dy_perp * offset_gap)
+        w2_end   = end + QPointF(dx_perp * (offset + offset_gap), dy_perp * (offset + offset_gap))
+        self.witness2.setLine(w2_start.x(), w2_start.y(), w2_end.x(), w2_end.y())
 
-        # Apply to the QGraphicsLineItem
-        self.setLine(offset_line)
+        # Dimension line endpoints (at offset distance from measurement points)
+        p1 = start + QPointF(dx_perp * offset, dy_perp * offset)
+        p2 = end   + QPointF(dx_perp * offset, dy_perp * offset)
+        self.setLine(QLineF(p1, p2))
 
-        # Arrows
-        points = [QPointF(0, 0), QPointF(-arrow_size, arrow_size/2), QPointF(-arrow_size, -arrow_size/2)]
-        poly = QPolygonF(points)
-        self.arrow1.setPolygon(poly)
-        self.arrow1.setRotation(CAD_Math.get_vector_angle(p1,p2)+90)
-        self.arrow1.setPos(p1.x(),p1.y())
-        self.arrow1.setPen(self._dim_pen)
+        # Tick marks — 45-degree slashes at each end of the dimension line
+        tick_angle = angle + math.pi / 4
+        dx_tick = math.cos(tick_angle) * tick_size
+        dy_tick = math.sin(tick_angle) * tick_size
+        self.tick1.setLine(p1.x() - dx_tick, p1.y() - dy_tick,
+                           p1.x() + dx_tick, p1.y() + dy_tick)
+        self.tick1.setPen(self._dim_pen)
+        self.tick2.setLine(p2.x() - dx_tick, p2.y() - dy_tick,
+                           p2.x() + dx_tick, p2.y() + dy_tick)
+        self.tick2.setPen(self._dim_pen)
 
-        self.arrow2.setPolygon(poly)
-        self.arrow2.setRotation(CAD_Math.get_vector_angle(p2,p1)+90)
-        self.arrow2.setPos(p2.x(),p2.y())
-        self.arrow2.setPen(self._dim_pen)
+        # Reposition handle3 at midpoint of dimension line
+        center_point = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+        self.handle3.setPos(center_point)
 
-        #update handle 3
-        center_point = self.line().center()
-        #self.handle3.setPos(center_point)  # QPointF directly
 
 class Handle(QGraphicsEllipseItem):
     """Draggable node for annotations."""

@@ -79,6 +79,9 @@ class Model_Space(QGraphicsScene):
         self._draw_arc_step: int = 0  # 0=awaiting centre, 1=awaiting start, 2=awaiting end
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
+        # Text rubber-band (Sprint Q)
+        self._text_anchor: "QPointF | None" = None
+        self._text_preview: "QGraphicsRectItem | None" = None
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -167,6 +170,7 @@ class Model_Space(QGraphicsScene):
                 "type": "dimension",
                 "p1":   [dim.handle1.scenePos().x(), dim.handle1.scenePos().y()],
                 "p2":   [dim.handle2.scenePos().x(), dim.handle2.scenePos().y()],
+                "offset_dist": getattr(dim, "_offset_dist", 10),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
             })
         for note in self.annotations.notes:
@@ -174,6 +178,7 @@ class Model_Space(QGraphicsScene):
                 "type": "note",
                 "x":    note.scenePos().x(),
                 "y":    note.scenePos().y(),
+                "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
             })
 
@@ -293,12 +298,18 @@ class Model_Space(QGraphicsScene):
                 p1 = QPointF(entry["p1"][0], entry["p1"][1])
                 p2 = QPointF(entry["p2"][0], entry["p2"][1])
                 dim = DimensionAnnotation(p1, p2)
+                dim._offset_dist = entry.get("offset_dist",
+                    float(entry.get("properties", {}).get("Offset", "10")))
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
                 for key, value in entry.get("properties", {}).items():
                     dim.set_property(key, value)
+                dim.update_geometry()
             elif ann_type == "note":
-                note = NoteAnnotation(x=entry["x"], y=entry["y"])
+                tw = entry.get("text_width", -1)
+                note = NoteAnnotation(
+                    x=entry["x"], y=entry["y"],
+                    text_width=tw if tw and tw > 0 else 0)
                 self.addItem(note)
                 self.annotations.add_note(note)
                 for key, value in entry.get("properties", {}).items():
@@ -394,6 +405,8 @@ class Model_Space(QGraphicsScene):
         self._draw_arc_step = 0
         self._draw_arc_radius_line = None
         self._draw_arc_preview = None
+        self._text_anchor = None
+        self._text_preview = None
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -547,6 +560,12 @@ class Model_Space(QGraphicsScene):
                 if self._draw_arc_preview.scene() is self:
                     self.removeItem(self._draw_arc_preview)
                 self._draw_arc_preview = None
+        if mode != "text":
+            self._text_anchor = None
+            if self._text_preview is not None:
+                if self._text_preview.scene() is self:
+                    self.removeItem(self._text_preview)
+                self._text_preview = None
         if mode in ("sprinkler", "pipe", "set_scale"):
             self.current_template = template
             if template:
@@ -1178,6 +1197,7 @@ class Model_Space(QGraphicsScene):
                 "type": "dimension",
                 "p1":   [dim.handle1.scenePos().x(), dim.handle1.scenePos().y()],
                 "p2":   [dim.handle2.scenePos().x(), dim.handle2.scenePos().y()],
+                "offset_dist": getattr(dim, "_offset_dist", 10),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
             })
         for note in self.annotations.notes:
@@ -1185,6 +1205,7 @@ class Model_Space(QGraphicsScene):
                 "type": "note",
                 "x":    note.scenePos().x(),
                 "y":    note.scenePos().y(),
+                "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
             })
         ws = self.water_supply_node
@@ -2170,8 +2191,20 @@ class Model_Space(QGraphicsScene):
                     self._draw_dim_hint = f"Span: {span:.1f}\u00b0"
 
         elif self.mode == "text":
-            self.update_preview_node(snapped)
             self.preview_pipe.hide()
+            if self._text_anchor is None:
+                self.update_preview_node(snapped)
+            else:
+                self.preview_node.hide()
+                if self._text_preview is not None:
+                    rect = QRectF(self._text_anchor, snapped).normalized()
+                    self._text_preview.setRect(rect)
+                    self._draw_dim_hint = (
+                        f"W: {sm.scene_to_display(rect.width())}  "
+                        f"H: {sm.scene_to_display(rect.height())}"
+                        if sm.is_calibrated else
+                        f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
+                    )
 
         elif self.mode == "place_import":
             self.preview_node.hide()
@@ -2306,14 +2339,36 @@ class Model_Space(QGraphicsScene):
                 self.push_undo_state()
 
         elif self.mode == "text":
-            note = NoteAnnotation(text="Text", x=snapped.x(), y=snapped.y())
-            note.user_layer = self.active_user_layer
-            note.setTextInteractionFlags(
-                Qt.TextInteractionFlag.TextEditorInteraction)
-            self.addItem(note)
-            self.annotations.notes.append(note)
-            self.requestPropertyUpdate.emit(note)
-            self.push_undo_state()
+            if self._text_anchor is None:
+                # First click — set anchor, create dashed preview rectangle
+                self._text_anchor = snapped
+                self.update_preview_node(snapped)
+                preview = QGraphicsRectItem(QRectF(snapped, snapped))
+                preview.setPen(QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine))
+                preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                preview.setZValue(200)
+                self.addItem(preview)
+                self._text_preview = preview
+            else:
+                # Second click — commit text box
+                rect = QRectF(self._text_anchor, snapped).normalized()
+                text_width = max(rect.width(), 20)  # minimum 20px width
+                note = NoteAnnotation(
+                    text="Text", x=rect.x(), y=rect.y(),
+                    text_width=text_width)
+                note.user_layer = self.active_user_layer
+                note.setTextInteractionFlags(
+                    Qt.TextInteractionFlag.TextEditorInteraction)
+                self.addItem(note)
+                self.annotations.notes.append(note)
+                self.requestPropertyUpdate.emit(note)
+                # Remove preview
+                if self._text_preview is not None:
+                    self.removeItem(self._text_preview)
+                    self._text_preview = None
+                self._text_anchor = None
+                self.push_undo_state()
+            return
 
         elif self.mode == "draw_arc":
             if self._draw_arc_step == 0:
