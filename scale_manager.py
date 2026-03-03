@@ -34,7 +34,7 @@ class ScaleManager:
     # -----------------------------------------------------------------
     def __init__(self):
         self._pixels_per_mm: float = 1.0        # default: 1 px = 1 mm
-        self._display_unit: DisplayUnit = DisplayUnit.IMPERIAL
+        self._display_unit: DisplayUnit = DisplayUnit.METRIC_MM
         self._calibrated: bool = False
         self._drawing_scale: float = 100.0      # denominator (e.g. 100 for 1:100)
         self._precision: int = 3                # decimal places for metric display
@@ -274,7 +274,7 @@ class ScaleManager:
         sm = ScaleManager()
         sm._pixels_per_mm = d.get("pixels_per_mm", 1.0)
         sm._calibrated = d.get("calibrated", False)
-        sm._display_unit = DisplayUnit(d.get("display_unit", "imperial"))
+        sm._display_unit = DisplayUnit(d.get("display_unit", "mm"))
         sm._drawing_scale = d.get("drawing_scale", 100.0)
         sm._precision = d.get("precision", 3)
         if "cal_pt1" in d:

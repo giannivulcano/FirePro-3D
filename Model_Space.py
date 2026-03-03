@@ -36,6 +36,7 @@ class Model_Space(QGraphicsScene):
 
     def __init__(self):
         super().__init__()
+        self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
         self.underlays: list[tuple[Underlay, QGraphicsItem]] = []  # (data, scene_item)
@@ -44,6 +45,7 @@ class Model_Space(QGraphicsScene):
         self.dimension_start = None
         self._dim_preview_line: "QGraphicsLineItem | None" = None
         self._dim_preview_label: "QGraphicsTextItem | None" = None
+        self._dim_pending: "DimensionAnnotation | None" = None  # awaiting offset click (3-click mode)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -71,7 +73,7 @@ class Model_Space(QGraphicsScene):
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._draw_color: str = "#ffffff"       # default white (dark theme)
-        self._draw_lineweight: float = 1.0      # cosmetic px
+        self._draw_lineweight: float = 2.0      # cosmetic px
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
@@ -415,6 +417,7 @@ class Model_Space(QGraphicsScene):
         self.dimension_start = None
         self._dim_preview_line = None
         self._dim_preview_label = None
+        self._dim_pending = None
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -588,6 +591,10 @@ class Model_Space(QGraphicsScene):
         if mode != "dimension":
             self.dimension_start = None
             self._remove_dim_preview()
+            if self._dim_pending is not None:
+                # Finalize at current offset
+                self._dim_pending = None
+                self.push_undo_state()
         if mode in ("sprinkler", "pipe", "set_scale"):
             self.current_template = template
             if template:
@@ -1673,6 +1680,7 @@ class Model_Space(QGraphicsScene):
             item.user_layer = self.active_user_layer
             self.addItem(item)
             self._draw_lines.append(item)
+            item.setSelected(True)
             self._draw_line_anchor = None
             self.preview_pipe.hide()
             self.push_undo_state()
@@ -1721,6 +1729,7 @@ class Model_Space(QGraphicsScene):
             item.user_layer = self.active_user_layer
             self.addItem(item)
             self._draw_rects.append(item)
+            item.setSelected(True)
             if self._draw_rect_preview is not None:
                 self.removeItem(self._draw_rect_preview)
                 self._draw_rect_preview = None
@@ -1803,6 +1812,7 @@ class Model_Space(QGraphicsScene):
             item.user_layer = self.active_user_layer
             self.addItem(item)
             self._draw_circles.append(item)
+            item.setSelected(True)
             if self._draw_circle_preview is not None:
                 self.removeItem(self._draw_circle_preview)
                 self._draw_circle_preview = None
@@ -2216,7 +2226,21 @@ class Model_Space(QGraphicsScene):
 
         elif self.mode == "dimension":
             self.preview_pipe.hide()
-            if self.dimension_start is None:
+            if self._dim_pending is not None:
+                # Offset sub-mode: project cursor onto perpendicular of the base line
+                dim = self._dim_pending
+                p1 = dim.handle1.scenePos()
+                p2 = dim.handle2.scenePos()
+                mid_base = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+                line_angle = math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
+                perp = line_angle + math.pi / 2
+                dx = snapped.x() - mid_base.x()
+                dy = snapped.y() - mid_base.y()
+                projected = dx * math.cos(perp) + dy * math.sin(perp)
+                dim._offset_dist = projected
+                dim.update_geometry()
+                self.preview_node.hide()
+            elif self.dimension_start is None:
                 self.update_preview_node(snapped)
             else:
                 self.preview_node.hide()
@@ -2386,16 +2410,24 @@ class Model_Space(QGraphicsScene):
                 return
 
         elif self.mode == "dimension":
-            if self.dimension_start is None:
+            if self._dim_pending is not None:
+                # Click 3 — finalize offset
+                self._dim_pending = None
+                self.dimension_start = None
+                self.push_undo_state()
+                return
+            elif self.dimension_start is None:
+                # Click 1 — set start point
                 self.dimension_start = snapped
             else:
+                # Click 2 — create dimension, enter offset sub-mode
                 self._remove_dim_preview()
                 dim = DimensionAnnotation(self.dimension_start, snapped)
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
                 self.requestPropertyUpdate.emit(dim)
-                self.dimension_start = None
-                self.push_undo_state()
+                self._dim_pending = dim
+                return
 
         elif self.mode == "text":
             if self._text_anchor is None:
@@ -2482,6 +2514,7 @@ class Model_Space(QGraphicsScene):
                 item.user_layer = self.active_user_layer
                 self.addItem(item)
                 self._draw_arcs.append(item)
+                item.setSelected(True)
                 # Clean up previews
                 if self._draw_arc_preview is not None:
                     self.removeItem(self._draw_arc_preview)
@@ -2652,6 +2685,7 @@ class Model_Space(QGraphicsScene):
                 item.user_layer = self.active_user_layer
                 self.addItem(item)
                 self._draw_lines.append(item)
+                item.setSelected(True)
                 self._draw_line_anchor = None
                 self.preview_pipe.hide()
                 self.push_undo_state()
@@ -2681,6 +2715,7 @@ class Model_Space(QGraphicsScene):
                 item.user_layer = self.active_user_layer
                 self.addItem(item)
                 self._draw_rects.append(item)
+                item.setSelected(True)
                 # Remove preview
                 if self._draw_rect_preview is not None:
                     self.removeItem(self._draw_rect_preview)
@@ -2711,6 +2746,7 @@ class Model_Space(QGraphicsScene):
                     item.user_layer = self.active_user_layer
                     self.addItem(item)
                     self._draw_circles.append(item)
+                    item.setSelected(True)
                 # Remove preview
                 if self._draw_circle_preview is not None:
                     self.removeItem(self._draw_circle_preview)
@@ -2753,8 +2789,10 @@ class Model_Space(QGraphicsScene):
             if len(pts) > 2:
                 pts.pop()
             if len(pts) >= 2:
-                self._polyline_active.finalize()
+                pl = self._polyline_active
+                pl.finalize()
                 self._polyline_active = None
+                pl.setSelected(True)
                 self.push_undo_state()
             event.accept()
             return
@@ -2813,8 +2851,10 @@ class Model_Space(QGraphicsScene):
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
                 if len(self._polyline_active._points) >= 2:
-                    self._polyline_active.finalize()
+                    pl = self._polyline_active
+                    pl.finalize()
                     self._polyline_active = None
+                    pl.setSelected(True)
                     self.push_undo_state()
                     # Stay in polyline mode so user can draw another
         else:

@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow,
                               QTabWidget, QMenu, QStyle, QWidget, QColorDialog,
                               QComboBox)
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap
-from PyQt6.QtCore import Qt, QSettings, QSize
+from PyQt6.QtCore import Qt, QSettings, QSize, QPointF
 from Model_Space import Model_Space
 from Model_View import Model_View
 from sprinkler import Sprinkler
@@ -713,7 +713,7 @@ class MainWindow(QMainWindow):
         "draw_circle":    "Click center, then radius point (Tab for exact input)",
         "draw_arc":       "Click center, then start angle, then end angle",
         "polyline":       "Click to add points, right-click to finish (Tab for exact input)",
-        "dimension":      "Click first point, then second point to place dimension",
+        "dimension":      "Click P1 \u2192 P2 \u2192 drag offset, click to finalize",
         "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
@@ -928,9 +928,15 @@ class MainWindow(QMainWindow):
             params = dialog.get_import_params()
             if not params.geom_list:
                 return
-            # Switch to model space and enter place_import mode
+            # Switch to model space
             self.central_tabs.setCurrentWidget(self.view)
-            self.scene.begin_place_import(params)
+            if params.insert_at_origin:
+                # Place immediately at scene origin
+                self.scene._place_import_params = params
+                self.scene._commit_place_import(QPointF(0, 0))
+            else:
+                # Enter interactive placement mode (ghost follows cursor)
+                self.scene.begin_place_import(params)
 
     def refresh_underlays(self):
         self.scene.refresh_all_underlays()

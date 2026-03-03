@@ -14,6 +14,7 @@ import math
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsEllipseItem,
+    QStyle,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker
@@ -142,6 +143,18 @@ class ConstructionLine(QGraphicsLineItem):
         x2 = self._pt2.x() + ux * _CONSTRUCTION_EXTEND
         y2 = self._pt2.y() + uy * _CONSTRUCTION_EXTEND
         self.setLine(x1, y1, x2, y2)
+
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            ln = self.line()
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawLine(ln.p1(), ln.p2())
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -278,6 +291,17 @@ class PolylineItem(QGraphicsPathItem):
             path.lineTo(p)
         self.setPath(path)
 
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawPath(self.path())
+
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
@@ -383,6 +407,18 @@ class LineItem(QGraphicsLineItem):
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            ln = self.line()
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawLine(ln.p1(), ln.p2())
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
@@ -511,6 +547,17 @@ class RectangleItem(QGraphicsRectItem):
     def translate(self, dx: float, dy: float):
         self.setRect(self.rect().translated(dx, dy))
 
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawRect(self.rect())
+
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
@@ -626,6 +673,17 @@ class CircleItem(QGraphicsEllipseItem):
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawEllipse(self.rect())
+
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
@@ -733,6 +791,17 @@ class ArcItem(QGraphicsPathItem):
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
         self._rebuild_path()
+
+    # ── Paint (selection highlight) ──────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.drawPath(self.path())
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()

@@ -145,6 +145,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self._dim_pen.setCosmetic(True)
         self.setPen(self._dim_pen)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(0)
 
@@ -194,6 +195,8 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             self.handle1.setVisible(vis)
             self.handle2.setVisible(vis)
             self.handle3.setVisible(vis)
+        elif change == self.GraphicsItemChange.ItemPositionHasChanged:
+            self.update_geometry()
         return super().itemChange(change, value)
 
     # ---------------------------------|

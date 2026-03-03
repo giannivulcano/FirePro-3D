@@ -65,6 +65,7 @@ class ImportParams:
         self.color: QColor = QColor("#ffffff")
         self.line_weight: float = 0.0
         self.selected_layers: list[str] | None = None  # None = all
+        self.insert_at_origin: bool = True  # place at (0,0) automatically
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -254,35 +255,42 @@ class DxfPreviewDialog(QDialog):
         # Snap engine for preview (reuses the main SnapEngine)
         self._snap_engine = SnapEngine()
 
-        # Snap indicator marker (small cosmetic cross, initially hidden)
-        self._snap_marker_h = QGraphicsLineItem()
-        self._snap_marker_v = QGraphicsLineItem()
-        snap_pen = QPen(QColor("#ffff00"), 2)
-        snap_pen.setCosmetic(True)
-        for m in (self._snap_marker_h, self._snap_marker_v):
-            m.setPen(snap_pen)
-            m.setZValue(998)
-            m.setVisible(False)
-        self._preview_scene.addItem(self._snap_marker_h)
-        self._preview_scene.addItem(self._snap_marker_v)
-
-        # Cursor crosshair for pick mode (orange dashed, spans viewport)
-        self._cursor_h = QGraphicsLineItem()
-        self._cursor_v = QGraphicsLineItem()
-        cursor_pen = QPen(QColor("#ff8800"), 1, Qt.PenStyle.DashDotLine)
-        cursor_pen.setCosmetic(True)
-        for ch in (self._cursor_h, self._cursor_v):
-            ch.setPen(cursor_pen)
-            ch.setZValue(997)
-            ch.setVisible(False)
-        self._preview_scene.addItem(self._cursor_h)
-        self._preview_scene.addItem(self._cursor_v)
+        # Create overlay items (snap markers + cursor crosshair)
+        self._create_overlay_items()
 
         self._build_ui()
 
         if file_path:
             self._file_edit.setText(file_path)
             self._load_file()
+
+    # ── Overlay items (snap markers + cursor crosshair) ─────────────────────
+
+    def _create_overlay_items(self):
+        """Create (or re-create) snap markers and cursor crosshair on the preview scene.
+
+        Called from __init__ and after scene.clear() in _rebuild_preview() so
+        that references always point at live C++ objects.
+        """
+        snap_pen = QPen(QColor("#ffff00"), 2)
+        snap_pen.setCosmetic(True)
+        self._snap_marker_h = QGraphicsLineItem()
+        self._snap_marker_v = QGraphicsLineItem()
+        for m in (self._snap_marker_h, self._snap_marker_v):
+            m.setPen(snap_pen)
+            m.setZValue(998)
+            m.setVisible(False)
+            self._preview_scene.addItem(m)
+
+        cursor_pen = QPen(QColor("#ff8800"), 1, Qt.PenStyle.DashDotLine)
+        cursor_pen.setCosmetic(True)
+        self._cursor_h = QGraphicsLineItem()
+        self._cursor_v = QGraphicsLineItem()
+        for ch in (self._cursor_h, self._cursor_v):
+            ch.setPen(cursor_pen)
+            ch.setZValue(997)
+            ch.setVisible(False)
+            self._preview_scene.addItem(ch)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -435,6 +443,9 @@ class DxfPreviewDialog(QDialog):
         bot = QHBoxLayout()
         self._status_lbl = QLabel("")
         bot.addWidget(self._status_lbl, 1)
+        self._origin_cb = QCheckBox("Insert at origin")
+        self._origin_cb.setChecked(True)
+        bot.addWidget(self._origin_cb)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
@@ -535,11 +546,8 @@ class DxfPreviewDialog(QDialog):
         self._base_marker = None
         self._pick_markers = []
 
-        # Re-add overlay items lost by scene.clear()
-        for m in (self._snap_marker_h, self._snap_marker_v,
-                  self._cursor_h, self._cursor_v):
-            m.setVisible(False)
-            self._preview_scene.addItem(m)
+        # Re-create overlay items (old C++ objects were destroyed by scene.clear())
+        self._create_overlay_items()
 
         pen_normal = QPen(QColor("#c0c0c0"), 0)
         pen_normal.setCosmetic(True)
@@ -912,4 +920,5 @@ class DxfPreviewDialog(QDialog):
                 continue
             geoms.append(g)
         p.geom_list = geoms
+        p.insert_at_origin = self._origin_cb.isChecked()
         return p

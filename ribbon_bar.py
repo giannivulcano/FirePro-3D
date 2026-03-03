@@ -174,8 +174,9 @@ class RibbonGroup(QWidget):
         self._btn_row.setContentsMargins(0, 0, 0, 0)
         self._btn_row.setSpacing(2)
         outer.addLayout(self._btn_row)
+        outer.addStretch(1)
 
-        # Group label — flush against bottom of buttons (no stretch, no separator)
+        # Group label — pushed to bottom by stretch (aligns across groups of different heights)
         _t = th.detect()
         lbl = QLabel(title)
         lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
