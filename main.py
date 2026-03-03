@@ -399,11 +399,11 @@ class MainWindow(QMainWindow):
         g_imp = ref_page.add_group("Import")
         g_imp.add_large_button(
             "Import\nUnderlay",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileLinkIcon),
+            QIcon(r"graphics/Toolbar/import_icon.svg"),
             self.open_import_dialog)
         g_imp.add_small_button(
             "Refresh All",
-            s.standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
+            QIcon(r"graphics/Toolbar/load_icon.svg"),
             self.refresh_underlays)
 
         # --- Draw (reference geometry + basic drafting — pipe lives in Sprinkler tab) ---
@@ -412,27 +412,27 @@ class MainWindow(QMainWindow):
         # Row 1 — standard drawing tools (large buttons)
         g_draw.add_large_button(
             "Line",
-            s.standardIcon(QStyle.StandardPixmap.SP_ArrowRight),
+            QIcon(r"graphics/Toolbar/trim_icon.svg"),
             lambda: self.scene.set_mode("draw_line"))
         g_draw.add_large_button(
             "Rectangle",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            QIcon(r"graphics/Toolbar/rectangle_icon.svg"),
             lambda: self.scene.set_mode("draw_rectangle"))
         g_draw.add_large_button(
             "Circle",
-            s.standardIcon(QStyle.StandardPixmap.SP_CommandLink),
+            QIcon(r"graphics/Toolbar/circle_icon.svg"),
             lambda: self.scene.set_mode("draw_circle"))
         g_draw.add_large_button(
             "Polyline",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView),
+            QIcon(r"graphics/Toolbar/polyline_icon.svg"),
             lambda: self.scene.set_mode("polyline"))
         g_draw.add_large_button(
             "Grid\nLines",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            QIcon(r"graphics/Toolbar/gridline_icon.svg"),
             self._place_grid_lines)
         g_draw.add_large_button(
             "Offset",
-            s.standardIcon(QStyle.StandardPixmap.SP_ArrowForward),
+            QIcon(r"graphics/Toolbar/trim_icon.svg"),
             lambda: self.scene.set_mode("offset"))
 
         # Row 2 — colour and lineweight controls (small buttons)
@@ -461,11 +461,11 @@ class MainWindow(QMainWindow):
         g_edit = ref_page.add_group("Edit")
         g_edit.add_large_button(
             "Undo",
-            s.standardIcon(QStyle.StandardPixmap.SP_ArrowBack),
+            QIcon(r"graphics/Toolbar/undo_icon.svg"),
             self.scene.undo, shortcut="Ctrl+Z")
         g_edit.add_large_button(
             "Redo",
-            s.standardIcon(QStyle.StandardPixmap.SP_ArrowForward),
+            QIcon(r"graphics/Toolbar/redo_icon.svg"),
             self.scene.redo, shortcut="Ctrl+Y")
         g_edit.add_small_button(
             "Copy", QIcon(r"graphics/Toolbar/copy_icon.svg"),
@@ -475,17 +475,22 @@ class MainWindow(QMainWindow):
             lambda: self.scene.set_mode("move"))
         g_edit.add_small_button(
             "Duplicate",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder),
+            QIcon(r"graphics/Toolbar/duplicate_icon.svg"),
             lambda: self.scene.duplicate_selected(),
         )
         g_edit.add_small_button(
             "Array",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogListView),
+            QIcon(r"graphics/Toolbar/array_icon.svg"),
             self._open_array_dialog,
         )
         g_edit.add_small_button(
+            "Rotate",
+            QIcon(r"graphics/Toolbar/rotate_icon.svg"),
+            lambda: self.scene.rotate_selected_items(),
+        )
+        g_edit.add_small_button(
             "Delete",
-            s.standardIcon(QStyle.StandardPixmap.SP_TrashIcon),
+            QIcon(r"graphics/Toolbar/delete_icon.svg"),
             lambda: self.scene.delete_selected_items())
 
         # --- Snap ---
@@ -504,7 +509,7 @@ class MainWindow(QMainWindow):
         g_set = ref_page.add_group("Settings")
         g_set.add_large_button(
             "Set Scale",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
+            QIcon(r"graphics/Toolbar/scale_icon.svg"),
             self.set_scale_dialog)
         g_set.add_small_menu_button(
             "Units",
@@ -555,7 +560,7 @@ class MainWindow(QMainWindow):
             self.run_hydraulics, shortcut="F5")
         g_hyd.add_large_button(
             "Clear\nResults",
-            s.standardIcon(QStyle.StandardPixmap.SP_DialogResetButton),
+            QIcon(r"graphics/Toolbar/clear_icon.svg"),
             self.clear_hydraulics)
 
         # --- Export ---
@@ -565,7 +570,7 @@ class MainWindow(QMainWindow):
             self.hydro_report._export_pdf)
         g_exp.add_large_button(
             "Export CSV",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView),
+            QIcon(r"graphics/Toolbar/export_icon.svg"),
             self.hydro_report._export_csv)
 
         # --- View ---
@@ -611,7 +616,7 @@ class MainWindow(QMainWindow):
         g_pan = draft_page.add_group("Panels")
         prop_btn = g_pan.add_small_button(
             "Properties",
-            s.standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView),
+            QIcon(r"graphics/Toolbar/info_icon.svg"),
             None, checkable=True)
         prop_btn.toggled.connect(self.dock.setVisible)
         self.dock.visibilityChanged.connect(prop_btn.setChecked)

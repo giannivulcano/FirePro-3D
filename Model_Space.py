@@ -215,9 +215,12 @@ class Model_Space(QGraphicsScene):
             "draw_rectangles":     draw_rects_data,
             "draw_circles":        draw_circles_data,
         }
-        with open(filename, "w") as f:
-            json.dump(payload, f, indent=2)
-        print(f"✅ Saved to {filename}")
+        try:
+            with open(filename, "w") as f:
+                json.dump(payload, f, indent=2)
+            print(f"✅ Saved to {filename}")
+        except Exception as e:
+            print(f"❌ Error saving: {e}")
 
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
@@ -2388,21 +2391,22 @@ class Model_Space(QGraphicsScene):
         super().mouseReleaseEvent(event)
 
     def contextMenuEvent(self, event):
-        """Show context menu for underlays on right-click."""
-        item = self.itemAt(event.scenePos(), self.views()[0].transform() if self.views() else __import__('PyQt6.QtGui', fromlist=['QTransform']).QTransform())
+        """Show context menu for underlays on right-click.
+        Uses self.items() instead of itemAt() so locked underlays (ItemIsSelectable=False) are found."""
+        hit_items = self.items(event.scenePos())
 
-        # Walk up parent chain to find if this item belongs to an underlay group
-        candidate = item
-        while candidate is not None:
-            result = self.find_underlay_for_item(candidate)
-            if result is not None:
-                data, scene_item = result
-                UnderlayContextMenu.show(
-                    self, data, scene_item,
-                    event.screenPos()
-                )
-                return
-            candidate = candidate.parentItem()
+        for item in hit_items:
+            candidate = item
+            while candidate is not None:
+                result = self.find_underlay_for_item(candidate)
+                if result is not None:
+                    data, scene_item = result
+                    UnderlayContextMenu.show(
+                        self, data, scene_item,
+                        event.screenPos()
+                    )
+                    return
+                candidate = candidate.parentItem()
 
         super().contextMenuEvent(event)
 
@@ -2464,8 +2468,7 @@ class Model_Space(QGraphicsScene):
                     "sprinkler": sprinkler,
                     "pipes": pipes,
                 })
-            elif isinstance(item, (LineItem, RectangleItem, CircleItem,
-                                   PolylineItem, ConstructionLine)):
+            elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
         QApplication.clipboard().setText(json.dumps(data))
 
@@ -2522,9 +2525,37 @@ class Model_Space(QGraphicsScene):
             elif obj_type == "polyline":
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer if hasattr(PolylineItem, 'user_layer') else "0"
+                item.user_layer = self.active_user_layer
                 self.addItem(item)
                 self._polylines.append(item)
+
+            elif obj_type == "construction_line":
+                item = ConstructionLine.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                self.addItem(item)
+                self._construction_lines.append(item)
+
+            elif obj_type == "block_item":
+                from block_item import BlockItem
+                def _item_factory(d):
+                    t = d.get("type", "")
+                    if t == "draw_line":
+                        return LineItem.from_dict(d)
+                    elif t == "draw_rectangle":
+                        return RectangleItem.from_dict(d)
+                    elif t == "draw_circle":
+                        return CircleItem.from_dict(d)
+                    elif t == "polyline":
+                        return PolylineItem.from_dict(d)
+                    elif t == "construction_line":
+                        return ConstructionLine.from_dict(d)
+                    elif t == "block_item":
+                        return BlockItem.from_dict(d, _item_factory)
+                    return None
+                item = BlockItem.from_dict(obj, _item_factory)
+                item.translate(offset.x(), offset.y())
+                self.addItem(item)
+                # BlockItems live in the scene but aren't tracked in a dedicated list
 
     def move_items(self, offset):
         if not self._selected_items:
@@ -2570,8 +2601,7 @@ class Model_Space(QGraphicsScene):
                     "x": item.pos().x(), "y": item.pos().y(),
                     "sprinkler": sprinkler, "pipes": pipes_d,
                 })
-            elif isinstance(item, (LineItem, RectangleItem, CircleItem,
-                                   PolylineItem, ConstructionLine)):
+            elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
 
         if not data:
@@ -2695,6 +2725,114 @@ class Model_Space(QGraphicsScene):
                 self.paste_items(QPointF(0, 0))
 
         QApplication.clipboard().setText(old_clip)
+        self.push_undo_state()
+
+    # -------------------------------------------------------------------------
+    # ROTATE SELECTED (Sprint M recovery)
+
+    def rotate_selected_items(self):
+        """Rotate selected items by a user-specified angle around their centroid."""
+        items = self.selectedItems()
+        if not items:
+            return
+        from PyQt6.QtWidgets import (
+            QDialog, QVBoxLayout, QFormLayout,
+            QDoubleSpinBox, QDialogButtonBox,
+        )
+        dlg = QDialog()
+        dlg.setWindowTitle("Rotate")
+        form = QFormLayout()
+        a_spin = QDoubleSpinBox()
+        a_spin.setRange(-360, 360)
+        a_spin.setDecimals(2)
+        a_spin.setValue(90)
+        a_spin.setSuffix("  °")
+        form.addRow("Angle:", a_spin)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        outer = QVBoxLayout(dlg)
+        outer.addLayout(form)
+        outer.addWidget(buttons)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        angle = a_spin.value()
+        angle_rad = math.radians(angle)
+        cos_a = math.cos(angle_rad)
+        sin_a = math.sin(angle_rad)
+
+        # Compute centroid of all selected items
+        xs, ys = [], []
+        for item in items:
+            pos = item.scenePos()
+            xs.append(pos.x())
+            ys.append(pos.y())
+        cx = sum(xs) / len(xs)
+        cy = sum(ys) / len(ys)
+
+        for item in items:
+            if isinstance(item, Node):
+                ox = item.scenePos().x() - cx
+                oy = item.scenePos().y() - cy
+                nx = cx + ox * cos_a - oy * sin_a
+                ny = cy + ox * sin_a + oy * cos_a
+                item.setPos(nx, ny)
+                item.fitting.update()
+            elif isinstance(item, (LineItem, PolylineItem, RectangleItem,
+                                   CircleItem, ConstructionLine)):
+                if hasattr(item, '_pt1') and hasattr(item, '_pt2'):
+                    # LineItem or ConstructionLine
+                    for attr in ('_pt1', '_pt2'):
+                        pt = getattr(item, attr)
+                        ox, oy = pt.x() - cx, pt.y() - cy
+                        setattr(item, attr, QPointF(
+                            cx + ox * cos_a - oy * sin_a,
+                            cy + ox * sin_a + oy * cos_a))
+                    if isinstance(item, LineItem):
+                        item.setLine(item._pt1.x(), item._pt1.y(),
+                                     item._pt2.x(), item._pt2.y())
+                    elif isinstance(item, ConstructionLine):
+                        item._recompute_line()
+                elif isinstance(item, PolylineItem):
+                    item._points = [
+                        QPointF(cx + (p.x() - cx) * cos_a - (p.y() - cy) * sin_a,
+                                cy + (p.x() - cx) * sin_a + (p.y() - cy) * cos_a)
+                        for p in item._points
+                    ]
+                    item._rebuild_path()
+                elif isinstance(item, CircleItem):
+                    ox = item._center.x() - cx
+                    oy = item._center.y() - cy
+                    item._center = QPointF(
+                        cx + ox * cos_a - oy * sin_a,
+                        cy + ox * sin_a + oy * cos_a)
+                    r = item._radius
+                    item.setRect(item._center.x() - r, item._center.y() - r,
+                                 2 * r, 2 * r)
+                elif isinstance(item, RectangleItem):
+                    # Rotate all four corners and rebuild
+                    rect = item.rect()
+                    corners = [
+                        QPointF(rect.left(), rect.top()),
+                        QPointF(rect.right(), rect.top()),
+                        QPointF(rect.right(), rect.bottom()),
+                        QPointF(rect.left(), rect.bottom()),
+                    ]
+                    rotated = []
+                    for c in corners:
+                        ox, oy = c.x() - cx, c.y() - cy
+                        rotated.append(QPointF(
+                            cx + ox * cos_a - oy * sin_a,
+                            cy + ox * sin_a + oy * cos_a))
+                    xs_r = [p.x() for p in rotated]
+                    ys_r = [p.y() for p in rotated]
+                    item.setRect(QRectF(
+                        QPointF(min(xs_r), min(ys_r)),
+                        QPointF(max(xs_r), max(ys_r))))
         self.push_undo_state()
 
     # -------------------------------------------------------------------------

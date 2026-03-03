@@ -103,6 +103,26 @@ class ConstructionLine(QGraphicsLineItem):
         pt2 = QPointF(data["pt2"][0], data["pt2"][1])
         return cls(pt1, pt2)
 
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        return {
+            "Type": {"type": "label", "value": "Construction Line"},
+            "pt1": {"type": "label", "value": f"({self._pt1.x():.1f}, {self._pt1.y():.1f})"},
+            "pt2": {"type": "label", "value": f"({self._pt2.x():.1f}, {self._pt2.y():.1f})"},
+        }
+
+    def set_property(self, key: str, value):
+        pass  # read-only for now
+
+    # ── Move ──────────────────────────────────────────────────────────────
+
+    def translate(self, dx: float, dy: float):
+        """Move both anchor points by (dx, dy) and recompute."""
+        self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
+        self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
+        self._recompute_line()
+
     # ── Internal ─────────────────────────────────────────────────────────────
 
     def _recompute_line(self):
@@ -159,6 +179,7 @@ class PolylineItem(QGraphicsPathItem):
                  lineweight: float = 1.0):
         super().__init__()
         self._points: list[QPointF] = [start]
+        self.user_layer: str = "0"
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -171,6 +192,21 @@ class PolylineItem(QGraphicsPathItem):
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
         self._rebuild_path()
+
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        return {
+            "Type": {"type": "label", "value": "Polyline"},
+            "Colour": {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+            "Vertices": {"type": "label", "value": str(len(self._points))},
+            "Layer": {"type": "label", "value": self.user_layer},
+        }
+
+    def set_property(self, key: str, value):
+        if key == "Layer":
+            self.user_layer = value
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -218,6 +254,7 @@ class PolylineItem(QGraphicsPathItem):
             "color":      pen_color,
             "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
+            "user_layer": self.user_layer,
         }
 
     @classmethod
@@ -228,6 +265,7 @@ class PolylineItem(QGraphicsPathItem):
         obj = cls(pts[0], color, lw)
         for p in pts[1:]:
             obj.append_point(p)
+        obj.user_layer = data.get("user_layer", "0")
         return obj
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -281,6 +319,21 @@ class LineItem(QGraphicsLineItem):
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
         self.setLine(pt1.x(), pt1.y(), pt2.x(), pt2.y())
+
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        return {
+            "Type": {"type": "label", "value": "Line"},
+            "Colour": {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+            "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
+            "Layer": {"type": "label", "value": self.user_layer},
+        }
+
+    def set_property(self, key: str, value):
+        if key == "Layer":
+            self.user_layer = value
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -373,6 +426,23 @@ class RectangleItem(QGraphicsRectItem):
         self.setZValue(1)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        r = self.rect()
+        return {
+            "Type": {"type": "label", "value": "Rectangle"},
+            "Width": {"type": "label", "value": f"{r.width():.1f}"},
+            "Height": {"type": "label", "value": f"{r.height():.1f}"},
+            "Colour": {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+            "Layer": {"type": "label", "value": self.user_layer},
+        }
+
+    def set_property(self, key: str, value):
+        if key == "Layer":
+            self.user_layer = value
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -485,6 +555,22 @@ class CircleItem(QGraphicsEllipseItem):
         self.setZValue(1)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        return {
+            "Type": {"type": "label", "value": "Circle"},
+            "Centre": {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
+            "Radius": {"type": "label", "value": f"{self._radius:.1f}"},
+            "Colour": {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
+            "Layer": {"type": "label", "value": self.user_layer},
+        }
+
+    def set_property(self, key: str, value):
+        if key == "Layer":
+            self.user_layer = value
 
     # ── Serialisation ────────────────────────────────────────────────────────
 

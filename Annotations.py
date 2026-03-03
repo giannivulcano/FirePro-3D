@@ -57,7 +57,12 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         if key == "Text":
             self.setPlainText(value)
         elif key == "FontSize":
-            self.setFont(self.font().setPointSize(int(value)))
+            try:
+                f = self.font()
+                f.setPointSize(int(value))
+                self.setFont(f)
+            except (ValueError, TypeError):
+                pass
 
 class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def __init__(self, p1: QPointF, p2: QPointF):
@@ -73,10 +78,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         }
 
         # Styling
-        self.pen = QPen(QColor(self._properties["Colour"]["value"]), 
-                        float(self._properties["Line Weight"]["value"]), 
+        self._dim_pen = QPen(QColor(self._properties["Colour"]["value"]),
+                        float(self._properties["Line Weight"]["value"]),
                         Qt.PenStyle.SolidLine)
-        self.setPen(self.pen)
+        self.setPen(self._dim_pen)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(0)
 
@@ -92,10 +97,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
 
         # Witness lines
         self.witness1 = QGraphicsLineItem(self)
-        self.witness1.setPen(self.pen)
+        self.witness1.setPen(self._dim_pen)
         self.witness1.setZValue(0)
         self.witness2 = QGraphicsLineItem(self)
-        self.witness2.setPen(self.pen)
+        self.witness2.setPen(self._dim_pen)
         self.witness2.setZValue(0)
 
         # Handles
@@ -125,8 +130,11 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             font = self.label.font()
             font.setPointSize(int(value))
             self.label.setFont(font)
-        elif key == "Color":
-            self.setPen(QPen(QColor(value.lower()), 1))
+        elif key == "Colour":
+            _color_map = {"Black": "#000000", "Red": "#ff0000", "Blue": "#0000ff", "White": "#ffffff"}
+            c = _color_map.get(value, value.lower())
+            self._dim_pen = QPen(QColor(c), float(self._properties["Line Weight"]["value"]))
+            self.setPen(self._dim_pen)
         elif key in ("Witness Length", "Offset"):
             self.update_geometry()
 
@@ -226,12 +234,12 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.arrow1.setPolygon(poly)
         self.arrow1.setRotation(CAD_Math.get_vector_angle(p1,p2)+90)
         self.arrow1.setPos(p1.x(),p1.y())
-        self.arrow1.setPen(self.pen)
+        self.arrow1.setPen(self._dim_pen)
 
         self.arrow2.setPolygon(poly)
         self.arrow2.setRotation(CAD_Math.get_vector_angle(p2,p1)+90)
         self.arrow2.setPos(p2.x(),p2.y())
-        self.arrow2.setPen(self.pen)
+        self.arrow2.setPen(self._dim_pen)
 
         #update handle 3
         center_point = self.line().center()
