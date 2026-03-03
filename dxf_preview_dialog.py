@@ -210,10 +210,12 @@ class DxfPreviewDialog(QDialog):
         self._base_marker: QGraphicsEllipseItem | None = None
         self._pick_markers: list[QGraphicsItem] = []
 
+        self._pick_mode: str | None = None   # "base", "scale_pt1", "scale_pt2"
+
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene)
         self._preview_view.rubber_band_rect.connect(self._on_rubber_band)
-        self._preview_view.point_picked.connect(self._on_point_picked)
+        self._preview_view.point_picked.connect(self._on_any_point_picked)
 
         self._build_ui()
 
@@ -670,14 +672,20 @@ class DxfPreviewDialog(QDialog):
             if m.scene() is self._preview_scene:
                 self._preview_scene.removeItem(m)
         self._pick_markers = []
+        self._pick_mode = "scale_pt1"
         self._preview_view.set_mode("pick_point")
-        self._status_lbl.setText("Click the FIRST point on the preview…")
-        # Connect temporarily
-        self._preview_view.point_picked.disconnect()
-        self._preview_view.point_picked.connect(self._on_pick2_pt)
+        self._status_lbl.setText("Click the FIRST point on the preview\u2026")
 
-    def _on_pick2_pt(self, raw_pt: QPointF):
+    def _on_any_point_picked(self, raw_pt: QPointF):
+        """Single dispatcher for all point-pick modes — avoids fragile disconnect/connect."""
         pt = self._snap_to_nearest(raw_pt)
+        if self._pick_mode in ("scale_pt1", "scale_pt2"):
+            self._on_pick2_pt(pt)
+        elif self._pick_mode == "base":
+            self._on_point_picked(pt)
+
+    def _on_pick2_pt(self, pt: QPointF):
+        """Handle a point picked during 2-point scale mode (already snapped)."""
         pen = QPen(QColor("#ff0000"), 2)
         pen.setCosmetic(True)
         s = 8
@@ -691,7 +699,8 @@ class DxfPreviewDialog(QDialog):
         self._pick_pts.append(pt)
 
         if len(self._pick_pts) == 1:
-            self._status_lbl.setText("Click the SECOND point on the preview…")
+            self._pick_mode = "scale_pt2"
+            self._status_lbl.setText("Click the SECOND point on the preview\u2026")
             self._preview_view.set_mode("pick_point")
         elif len(self._pick_pts) == 2:
             # Draw line between the two points
@@ -708,13 +717,12 @@ class DxfPreviewDialog(QDialog):
                 self._pick_pts[1].x() - self._pick_pts[0].x(),
                 self._pick_pts[1].y() - self._pick_pts[0].y()
             )
-            # Reconnect to base picker and return to pan
-            self._preview_view.point_picked.disconnect()
-            self._preview_view.point_picked.connect(self._on_point_picked)
+            # Return to pan mode
+            self._pick_mode = None
             self._preview_view.set_mode("pan")
 
             if px_dist < 1.0:
-                self._status_lbl.setText("Points too close — try again.")
+                self._status_lbl.setText("Points too close \u2014 try again.")
                 return
 
             real_dist, ok = QInputDialog.getDouble(
@@ -730,7 +738,7 @@ class DxfPreviewDialog(QDialog):
                 self._scale_combo.setCurrentIndex(custom_idx)
                 self._custom_scale_spin.setValue(factor)
                 self._status_lbl.setText(
-                    f"Scale set: {px_dist:.1f} preview units = {real_dist} real → ×{factor:.5f}"
+                    f"Scale set: {px_dist:.1f} preview units = {real_dist} real \u2192 \u00d7{factor:.5f}"
                 )
             else:
                 self._status_lbl.setText("Scale pick cancelled.")
@@ -783,14 +791,12 @@ class DxfPreviewDialog(QDialog):
     # ── Base point ────────────────────────────────────────────────────────────
 
     def _start_pick_base(self):
-        self._preview_view.point_picked.disconnect()
-        self._preview_view.point_picked.connect(self._on_point_picked)
+        self._pick_mode = "base"
         self._preview_view.set_mode("pick_point")
-        self._status_lbl.setText("Click the base / insertion point on the preview…")
+        self._status_lbl.setText("Click the base / insertion point on the preview\u2026")
 
-    def _on_point_picked(self, raw_pt: QPointF):
-        """Store the picked point as the DXF base point."""
-        pt = self._snap_to_nearest(raw_pt)
+    def _on_point_picked(self, pt: QPointF):
+        """Store the picked point as the DXF base point (already snapped)."""
         # The preview is in the same coordinate space as the raw DXF geometry
         self._base_x_spin.blockSignals(True)
         self._base_y_spin.blockSignals(True)
@@ -799,6 +805,7 @@ class DxfPreviewDialog(QDialog):
         self._base_x_spin.blockSignals(False)
         self._base_y_spin.blockSignals(False)
         self._draw_base_marker()
+        self._pick_mode = None
         self._status_lbl.setText(
             f"Base point set to ({pt.x():.3f}, {pt.y():.3f}) in DXF coordinates."
         )
