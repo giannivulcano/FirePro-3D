@@ -271,6 +271,13 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_BrowserReload),
             self.refresh_underlays)
 
+        # --- Export (placeholder) ---
+        g_exp = manage_page.add_group("Export")
+        _exp_btn = g_exp.add_large_button(
+            "Export", _I("export_icon.svg"), lambda: None)
+        _exp_btn.setEnabled(False)
+        _exp_btn.setToolTip("Export functionality — coming soon")
+
         # --- Project ---
         g_proj = manage_page.add_group("Project")
         g_proj.add_large_button(

@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore  import QPointF, QRectF
 from PyQt6.QtGui   import QTransform
 from PyQt6.QtWidgets import (
-    QGraphicsScene, QGraphicsItem,
+    QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
 )
 
@@ -119,23 +119,47 @@ class SnapEngine:
             tol * 2, tol * 2,
         )
 
+        # Lazy-import annotation types so snap engine never snaps to them
+        try:
+            from Annotations import DimensionAnnotation, NoteAnnotation
+            _anno_types = (DimensionAnnotation, NoteAnnotation)
+        except ImportError:
+            _anno_types = ()
+
         best_dist   = tol
         best_result: OsnapResult | None = None
 
+        def _check(snap_type: str, pt: QPointF, src_item: QGraphicsItem):
+            nonlocal best_dist, best_result
+            d = math.hypot(pt.x() - cursor_scene.x(), pt.y() - cursor_scene.y())
+            if d < best_dist:
+                best_dist   = d
+                best_result = OsnapResult(point=pt, snap_type=snap_type, source_item=src_item)
+
         for item in scene.items(search_rect):
-            # Skip items inside DXF/PDF underlay groups
+            # Skip child items (parts of groups) — underlay children handled below
             if item.parentItem() is not None:
                 continue
             # Skip pure preview/overlay items (very high z)
             z = item.zValue()
             if z > 150:
                 continue
+            # Skip annotations (dimensions, notes) and origin markers
+            if _anno_types and isinstance(item, _anno_types):
+                continue
+            if item.data(0) == "origin":
+                continue
+
+            # DXF underlay groups — descend into children for snap
+            if isinstance(item, QGraphicsItemGroup) and item.data(0) == "DXF Underlay":
+                for child in item.childItems():
+                    for snap_type, scene_pt in self._collect(child):
+                        # _collect already returns scene-mapped points
+                        _check(snap_type, scene_pt, child)
+                continue
 
             for snap_type, pt in self._collect(item):
-                d = math.hypot(pt.x() - cursor_scene.x(), pt.y() - cursor_scene.y())
-                if d < best_dist:
-                    best_dist   = d
-                    best_result = OsnapResult(point=pt, snap_type=snap_type, source_item=item)
+                _check(snap_type, pt, item)
 
         return best_result
 

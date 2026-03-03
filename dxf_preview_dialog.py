@@ -47,6 +47,7 @@ except ImportError:
     _HAS_EZDXF = False
 
 from dxf_import_dialog import _sanitize_dxf
+from snap_engine import SnapEngine, OsnapResult, SNAP_COLORS
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ class _PreviewView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setInteractive(False)
+        self.setMouseTracking(True)   # fire mouseMoveEvent without button held
         self._mode = "pan"          # "pan" | "rubber_band" | "pick_point"
         self._pan_start = None
         self._rb_start: QPointF | None = None
@@ -100,6 +102,13 @@ class _PreviewView(QGraphicsView):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Hide crosshair/snap markers when leaving pick mode
+            dlg = self.parent()
+            if dlg and hasattr(dlg, "_cursor_h"):
+                dlg._cursor_h.setVisible(False)
+                dlg._cursor_v.setVisible(False)
+                dlg._snap_marker_h.setVisible(False)
+                dlg._snap_marker_v.setVisible(False)
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
@@ -143,6 +152,40 @@ class _PreviewView(QGraphicsView):
             rect = QRectF(self._rb_start, scene_pos).normalized()
             if self._rb_item:
                 self._rb_item.setRect(rect)
+        elif self._mode == "pick_point":
+            scene_pos = self.mapToScene(event.pos())
+            dlg = self.parent()
+            if dlg and hasattr(dlg, "_cursor_h"):
+                # Update crosshair spanning the visible viewport
+                vr = self.mapToScene(self.viewport().rect()).boundingRect()
+                dlg._cursor_h.setLine(vr.left(), scene_pos.y(),
+                                       vr.right(), scene_pos.y())
+                dlg._cursor_v.setLine(scene_pos.x(), vr.top(),
+                                       scene_pos.x(), vr.bottom())
+                dlg._cursor_h.setVisible(True)
+                dlg._cursor_v.setVisible(True)
+
+                # Snap indicator
+                result = dlg._snap_engine.find(
+                    scene_pos, self.scene(), self.transform())
+                if result is not None:
+                    s = 6  # marker half-size in scene units
+                    sp = result.point
+                    dlg._snap_marker_h.setLine(
+                        sp.x() - s, sp.y(), sp.x() + s, sp.y())
+                    dlg._snap_marker_v.setLine(
+                        sp.x(), sp.y() - s, sp.x(), sp.y() + s)
+                    # Colour by snap type
+                    c = SNAP_COLORS.get(result.snap_type, "#ffff00")
+                    pen = QPen(QColor(c), 2)
+                    pen.setCosmetic(True)
+                    dlg._snap_marker_h.setPen(pen)
+                    dlg._snap_marker_v.setPen(pen)
+                    dlg._snap_marker_h.setVisible(True)
+                    dlg._snap_marker_v.setVisible(True)
+                else:
+                    dlg._snap_marker_h.setVisible(False)
+                    dlg._snap_marker_v.setVisible(False)
 
     def mouseReleaseEvent(self, event):
         if self._pan_start is not None:
@@ -186,15 +229,6 @@ class DxfPreviewDialog(QDialog):
         ("Custom…",           None),
     ]
 
-    _LW_OPTIONS = [
-        ("Hairline (0)",          0.0),
-        ("Very Light (0.18 mm)",  0.18),
-        ("Light (0.25 mm)",       0.25),
-        ("Medium (0.35 mm)",      0.35),
-        ("Heavy (0.50 mm)",       0.50),
-        ("Very Heavy (0.70 mm)",  0.70),
-    ]
-
     def __init__(self, parent=None, file_path: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Import DXF — Preview")
@@ -213,9 +247,36 @@ class DxfPreviewDialog(QDialog):
         self._pick_mode: str | None = None   # "base", "scale_pt1", "scale_pt2"
 
         self._preview_scene = QGraphicsScene()
-        self._preview_view = _PreviewView(self._preview_scene)
+        self._preview_view = _PreviewView(self._preview_scene, parent=self)
         self._preview_view.rubber_band_rect.connect(self._on_rubber_band)
         self._preview_view.point_picked.connect(self._on_any_point_picked)
+
+        # Snap engine for preview (reuses the main SnapEngine)
+        self._snap_engine = SnapEngine()
+
+        # Snap indicator marker (small cosmetic cross, initially hidden)
+        self._snap_marker_h = QGraphicsLineItem()
+        self._snap_marker_v = QGraphicsLineItem()
+        snap_pen = QPen(QColor("#ffff00"), 2)
+        snap_pen.setCosmetic(True)
+        for m in (self._snap_marker_h, self._snap_marker_v):
+            m.setPen(snap_pen)
+            m.setZValue(998)
+            m.setVisible(False)
+        self._preview_scene.addItem(self._snap_marker_h)
+        self._preview_scene.addItem(self._snap_marker_v)
+
+        # Cursor crosshair for pick mode (orange dashed, spans viewport)
+        self._cursor_h = QGraphicsLineItem()
+        self._cursor_v = QGraphicsLineItem()
+        cursor_pen = QPen(QColor("#ff8800"), 1, Qt.PenStyle.DashDotLine)
+        cursor_pen.setCosmetic(True)
+        for ch in (self._cursor_h, self._cursor_v):
+            ch.setPen(cursor_pen)
+            ch.setZValue(997)
+            ch.setVisible(False)
+        self._preview_scene.addItem(self._cursor_h)
+        self._preview_scene.addItem(self._cursor_v)
 
         self._build_ui()
 
@@ -361,11 +422,6 @@ class DxfPreviewDialog(QDialog):
         colour_row.addWidget(self._colour_btn)
         colour_row.addStretch()
         disp_lay.addRow("Colour:", colour_row)
-        self._lw_combo = QComboBox()
-        for label, _ in self._LW_OPTIONS:
-            self._lw_combo.addItem(label)
-        self._lw_combo.setCurrentIndex(1)
-        disp_lay.addRow("Line weight:", self._lw_combo)
         right_lay.addWidget(disp_grp)
 
         right_lay.addStretch()
@@ -478,6 +534,12 @@ class DxfPreviewDialog(QDialog):
         self._preview_scene.clear()
         self._base_marker = None
         self._pick_markers = []
+
+        # Re-add overlay items lost by scene.clear()
+        for m in (self._snap_marker_h, self._snap_marker_v,
+                  self._cursor_h, self._cursor_v):
+            m.setVisible(False)
+            self._preview_scene.addItem(m)
 
         pen_normal = QPen(QColor("#c0c0c0"), 0)
         pen_normal.setCosmetic(True)
@@ -746,47 +808,16 @@ class DxfPreviewDialog(QDialog):
     # ── Snap to nearest geometry vertex ──────────────────────────────────────
 
     def _snap_to_nearest(self, pt: QPointF, tolerance: float = 0.0) -> QPointF:
-        """Snap *pt* to the nearest geometry vertex within tolerance.
+        """Snap *pt* using the full OsnapEngine against preview scene items.
 
-        If tolerance is 0, it auto-calculates from the current zoom level.
         Returns the snapped point, or the original if nothing is close enough.
         """
-        if tolerance <= 0:
-            # ~15 pixels in scene coordinates
-            vp = self._preview_view
-            p0 = vp.mapToScene(0, 0)
-            p1 = vp.mapToScene(15, 0)
-            tolerance = abs(p1.x() - p0.x())
-            if tolerance < 1e-6:
-                tolerance = 20.0
-
-        best_dist = tolerance
-        best_pt = pt
-
-        for g in self._all_geoms:
-            candidates: list[tuple[float, float]] = []
-            kind = g.get("kind")
-            if kind == "line":
-                candidates.append((g["x1"], g["y1"]))
-                candidates.append((g["x2"], g["y2"]))
-            elif kind in ("circle", "arc"):
-                cx = g.get("x", g.get("rx", 0)) + g.get("w", g.get("rw", 0)) / 2
-                cy = g.get("y", g.get("ry", 0)) + g.get("h", g.get("rh", 0)) / 2
-                candidates.append((cx, cy))
-            elif kind == "path_points":
-                for p in g.get("points", []):
-                    if len(p) >= 2:
-                        candidates.append((p[0], p[1]))
-            elif kind == "text":
-                candidates.append((g.get("x", 0), g.get("y", 0)))
-
-            for cx, cy in candidates:
-                d = math.hypot(cx - pt.x(), cy - pt.y())
-                if d < best_dist:
-                    best_dist = d
-                    best_pt = QPointF(cx, cy)
-
-        return best_pt
+        result = self._snap_engine.find(
+            pt, self._preview_scene, self._preview_view.transform()
+        )
+        if result is not None:
+            return result.point
+        return pt
 
     # ── Base point ────────────────────────────────────────────────────────────
 
@@ -865,7 +896,7 @@ class DxfPreviewDialog(QDialog):
         p.base_x = self._base_x_spin.value()
         p.base_y = self._base_y_spin.value()
         p.color = QColor(self._colour)
-        p.line_weight = self._LW_OPTIONS[self._lw_combo.currentIndex()][1]
+        p.line_weight = 1.5  # cosmetic pen applied in scene; value kept for record
         p.selected_layers = (
             list(self._active_layers())
             if self._active_layers() is not None

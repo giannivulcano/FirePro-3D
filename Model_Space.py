@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
                               QGraphicsTextItem, QGraphicsPathItem, QGraphicsRectItem,
                               QApplication, QProgressDialog)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath
+from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath, QFont
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from node import Node
 from pipe import Pipe
@@ -42,6 +42,8 @@ class Model_Space(QGraphicsScene):
         self.scale_manager = ScaleManager()
         self.mode = None
         self.dimension_start = None
+        self._dim_preview_line: "QGraphicsLineItem | None" = None
+        self._dim_preview_label: "QGraphicsTextItem | None" = None
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -410,6 +412,9 @@ class Model_Space(QGraphicsScene):
         self._draw_arc_preview = None
         self._text_anchor = None
         self._text_preview = None
+        self.dimension_start = None
+        self._dim_preview_line = None
+        self._dim_preview_label = None
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -423,23 +428,36 @@ class Model_Space(QGraphicsScene):
     # SCENE MANAGEMENT
 
     def draw_origin(self):
-        """Draw a small white cross at the origin — non-selectable, non-movable."""
+        """Draw a small white cross at the origin — constant screen size, non-selectable."""
         pen = QPen(QColor("#ffffff"))
         pen.setWidthF(1.5)
         pen.setCosmetic(True)
-        size = 12
+        size = 10  # ±10 device pixels → 20px cross on screen
         h_line = QGraphicsLineItem(-size, 0, size, 0)
         v_line = QGraphicsLineItem(0, -size, 0, size)
         h_line.setPen(pen)
         v_line.setPen(pen)
-        # Non-interactive — purely decorative
+        # Non-interactive — purely decorative, constant screen size
         for item in (h_line, v_line):
             item.setFlag(item.GraphicsItemFlag.ItemIsSelectable, False)
             item.setFlag(item.GraphicsItemFlag.ItemIsMovable, False)
+            item.setFlag(item.GraphicsItemFlag.ItemIgnoresTransformations, True)
             item.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             item.setZValue(-100)
+            item.setData(0, "origin")  # tag so snap engine skips it
         self.addItem(h_line)
         self.addItem(v_line)
+
+    def _remove_dim_preview(self):
+        """Remove the temporary dimension placement preview items."""
+        if self._dim_preview_line is not None:
+            if self._dim_preview_line.scene() is self:
+                self.removeItem(self._dim_preview_line)
+            self._dim_preview_line = None
+        if self._dim_preview_label is not None:
+            if self._dim_preview_label.scene() is self:
+                self.removeItem(self._dim_preview_label)
+            self._dim_preview_label = None
 
     # -------------------------------------------------------------------------
     # DELETE
@@ -567,6 +585,9 @@ class Model_Space(QGraphicsScene):
                 if self._text_preview.scene() is self:
                     self.removeItem(self._text_preview)
                 self._text_preview = None
+        if mode != "dimension":
+            self.dimension_start = None
+            self._remove_dim_preview()
         if mode in ("sprinkler", "pipe", "set_scale"):
             self.current_template = template
             if template:
@@ -804,9 +825,10 @@ class Model_Space(QGraphicsScene):
                 t["y"] = (g["y"] - by) * s
             transformed.append(t)
 
-        # Build scene items and group them
+        # Build scene items and group them — cosmetic pen for visibility at any zoom
         color = params.color
-        pen = QPen(color, params.line_weight)
+        pen = QPen(color, 1.5)
+        pen.setCosmetic(True)
 
         items = []
         for geom in transformed:
@@ -907,7 +929,8 @@ class Model_Space(QGraphicsScene):
             return
 
         color = params["color"]
-        pen = QPen(color, params["line_weight"])
+        pen = QPen(color, 1.5)
+        pen.setCosmetic(True)
 
         items = []
         for geom in geom_list:
@@ -2191,6 +2214,40 @@ class Model_Space(QGraphicsScene):
                     self._draw_arc_preview.setPath(path)
                     self._draw_dim_hint = f"Span: {span:.1f}\u00b0"
 
+        elif self.mode == "dimension":
+            self.preview_pipe.hide()
+            if self.dimension_start is None:
+                self.update_preview_node(snapped)
+            else:
+                self.preview_node.hide()
+                # Show live preview line from first point to cursor
+                p1 = self.dimension_start
+                p2 = snapped
+                if self._dim_preview_line is None:
+                    preview_pen = QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine)
+                    preview_pen.setCosmetic(True)
+                    self._dim_preview_line = QGraphicsLineItem()
+                    self._dim_preview_line.setPen(preview_pen)
+                    self._dim_preview_line.setZValue(200)
+                    self.addItem(self._dim_preview_line)
+                self._dim_preview_line.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+                # Show live distance label
+                dist = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+                dist_text = (sm.scene_to_display(dist) if sm.is_calibrated
+                             else f"{dist:.0f} mm")
+                if self._dim_preview_label is None:
+                    self._dim_preview_label = QGraphicsTextItem()
+                    self._dim_preview_label.setDefaultTextColor(QColor("#ffffff"))
+                    f = QFont("Consolas", 10)
+                    self._dim_preview_label.setFont(f)
+                    self._dim_preview_label.setFlag(
+                        self._dim_preview_label.GraphicsItemFlag.ItemIgnoresTransformations, True)
+                    self._dim_preview_label.setZValue(201)
+                    self.addItem(self._dim_preview_label)
+                self._dim_preview_label.setPlainText(dist_text)
+                mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+                self._dim_preview_label.setPos(mid)
+
         elif self.mode == "text":
             self.preview_pipe.hide()
             if self._text_anchor is None:
@@ -2332,6 +2389,7 @@ class Model_Space(QGraphicsScene):
             if self.dimension_start is None:
                 self.dimension_start = snapped
             else:
+                self._remove_dim_preview()
                 dim = DimensionAnnotation(self.dimension_start, snapped)
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
@@ -2684,6 +2742,23 @@ class Model_Space(QGraphicsScene):
                 v.viewport().update()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.mode == "polyline"
+                and self._polyline_active is not None):
+            # Double-click fires two mousePressEvents first, adding an extra
+            # vertex.  Remove that extra point before finalizing.
+            pts = self._polyline_active._points
+            if len(pts) > 2:
+                pts.pop()
+            if len(pts) >= 2:
+                self._polyline_active.finalize()
+                self._polyline_active = None
+                self.push_undo_state()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def contextMenuEvent(self, event):
         """Show context menu for underlays on right-click.

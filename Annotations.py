@@ -145,11 +145,13 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self._dim_pen.setCosmetic(True)
         self.setPen(self._dim_pen)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(0)
 
-        # Label — 12pt so it's always readable
+        # Label — 12pt, zoom-independent so it's always readable
         self.label = QGraphicsTextItem(parent=self)
         self.label.setZValue(100)
+        self.label.setFlag(self.label.GraphicsItemFlag.ItemIgnoresTransformations, True)
         label_font = QFont("Consolas", 12)
         self.label.setFont(label_font)
         self.label.setDefaultTextColor(QColor(self._properties["Colour"]["value"]))
@@ -170,19 +172,29 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.witness2.setPen(self._dim_pen)
         self.witness2.setZValue(0)
 
-        # Handles
+        # Handles — hidden by default, shown when dimension is selected
         self.handle1 = Handle(self, p1.x(), p1.y())
         self.handle1.setTransformOriginPoint(self.handle1.boundingRect().center())
-        self.handle1.setVisible(True)
+        self.handle1.setVisible(False)
         self.handle2 = Handle(self, p2.x(), p2.y())
         self.handle2.setTransformOriginPoint(self.handle2.boundingRect().center())
-        self.handle2.setVisible(True)
+        self.handle2.setVisible(False)
         center_point = self.line().center()
         self.handle3 = Handle(self, center_point.x(), center_point.y())
-        self.handle3.setVisible(True)
+        self.handle3.setVisible(False)
         self.handle3.setTransformOriginPoint(self.handle3.boundingRect().center())
 
         self.update_geometry()
+
+    # ── Selection → handle visibility ─────────────────────────────────────
+
+    def itemChange(self, change, value):
+        if change == self.GraphicsItemChange.ItemSelectedHasChanged:
+            vis = bool(value)
+            self.handle1.setVisible(vis)
+            self.handle2.setVisible(vis)
+            self.handle3.setVisible(vis)
+        return super().itemChange(change, value)
 
     # ---------------------------------|
     # Helpers -------------------------|
@@ -259,7 +271,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def set_label_position(self):
         line = self.line()  # QLineF — the offset dimension line
 
-        v1 = CAD_Math.get_unit_vector(line.p1(),line.p2())
+        v1 = CAD_Math.get_unit_vector(line.p1(), line.p2())
         # If pointing left, flip direction
         if v1.x() < 0:
             v1 = QPointF(-v1.x(), -v1.y())
@@ -275,19 +287,22 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         # set transform origin so future rotations work around the center
         self.label.setTransformOriginPoint(center)
 
+        # Because ItemIgnoresTransformations is set, boundingRect() is in
+        # device pixels.  Convert to scene units by dividing by view scale.
+        views = self.scene().views() if self.scene() else []
+        view_scale = abs(views[0].transform().m11()) if views else 1.0
+        scene_center_x = center.x() / view_scale
+        scene_bounds_h = bounds.height() / view_scale
+
         # Offset label ABOVE the line (perpendicular direction)
-        sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
-        if sm and sm.is_calibrated:
-            label_gap = sm.paper_to_scene(1.0)  # 1mm gap on paper
-        else:
-            label_gap = 4  # 4px default gap
+        label_gap = 4.0 / view_scale   # 4 screen-px gap
 
         # Use the same perpendicular direction as the witness lines
         perp_dx = math.cos(self._perp_angle)
         perp_dy = math.sin(self._perp_angle)
         # Offset the label so its bottom edge sits above the line
         offset = QPointF(perp_dx * label_gap, perp_dy * label_gap)
-        label_pos = mid_point + offset - QPointF(center.x(), bounds.height())
+        label_pos = mid_point + offset - QPointF(scene_center_x, scene_bounds_h)
         self.label.setPos(label_pos)
         self.label.setRotation(angle)
 

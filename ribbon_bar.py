@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QToolButton, QLabel,
-    QFrame, QSizePolicy, QStackedWidget, QTabBar,
+    QSizePolicy, QStackedWidget, QTabBar,
 )
 from PyQt6.QtGui import QIcon, QFont, QPainter, QColor
 from PyQt6.QtCore import Qt, QSize
@@ -175,23 +175,14 @@ class RibbonGroup(QWidget):
         self._btn_row.setSpacing(2)
         outer.addLayout(self._btn_row)
 
-        outer.addStretch(1)
-
-        # Horizontal separator above label — color adapts to theme
+        # Group label — flush against bottom of buttons (no stretch, no separator)
         _t = th.detect()
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {_t.border_subtle};")
-        outer.addWidget(sep)
-
-        # Group label — use theme text color so it's white in dark mode
         lbl = QLabel(title)
         lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         f = QFont()
         f.setPointSizeF(9.0)
         lbl.setFont(f)
-        lbl.setStyleSheet(f"color: {_t.text_primary}; padding: 1px 0 1px 0;")
+        lbl.setStyleSheet(f"color: {_t.text_primary}; padding: 0px 0 1px 0;")
         outer.addWidget(lbl)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
