@@ -127,15 +127,10 @@ class MainWindow(QMainWindow):
         self.central_tabs.addTab(self.view, "Model Space")
         self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
 
-        # Ribbon bar + central tabs wrapped in a container widget
+        # Ribbon spans full window width (above docks) via setMenuWidget
         self.ribbon = RibbonBar()
-        _container = QWidget()
-        _vlay = QVBoxLayout(_container)
-        _vlay.setContentsMargins(0, 0, 0, 0)
-        _vlay.setSpacing(0)
-        _vlay.addWidget(self.ribbon)
-        _vlay.addWidget(self.central_tabs)
-        self.setCentralWidget(_container)
+        self.setMenuWidget(self.ribbon)
+        self.setCentralWidget(self.central_tabs)
 
         # Property manager dock
         self.prop_manager = PropertyManager()
@@ -167,8 +162,9 @@ class MainWindow(QMainWindow):
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
 
-        self.browser_dock = QDockWidget("Browser", self)
+        self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
+        self.browser_dock.setTitleBarWidget(QWidget())  # hide title bar
         self.browser_dock.setWidget(self._left_tabs)
         self.browser_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |
@@ -336,9 +332,6 @@ class MainWindow(QMainWindow):
         g_geom.add_large_button(
             "Grid\nLines", _I("gridline_icon.svg"),
             self._place_grid_lines)
-        g_geom.add_large_button(
-            "Offset", _I("trim_icon.svg"),
-            lambda: self.scene.set_mode("offset"))
 
         # --- Style ---
         g_style = draw_page.add_group("Style")
@@ -363,6 +356,10 @@ class MainWindow(QMainWindow):
             s.standardIcon(QStyle.StandardPixmap.SP_CommandLink),
             lambda checked: setattr(self.scene, "_snap_to_underlay", checked),
             checkable=True)
+        g_snap.add_small_menu_button(
+            "Angle Snap",
+            s.standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton),
+            self._build_snap_angle_menu())
 
         # --- Annotations ---
         g_ann = draw_page.add_group("Annotations")
@@ -411,15 +408,18 @@ class MainWindow(QMainWindow):
         g_medit = modify_page.add_group("Edit")
         g_medit.add_large_button("Undo", _I("undo_icon.svg"), self.scene.undo)
         g_medit.add_large_button("Redo", _I("redo_icon.svg"), self.scene.redo)
-
-        # --- Clipboard ---
-        g_clip = modify_page.add_group("Clipboard")
-        g_clip.add_small_button(
+        g_medit.add_small_button(
+            "Cut", _I("cut_icon.svg"),
+            lambda: (self.scene.copy_selected_items(), self.scene.delete_selected_items()))
+        g_medit.add_small_button(
             "Copy", _I("copy_icon.svg"),
             lambda: self.scene.copy_selected_items())
-        g_clip.add_small_button(
-            "Paste", _I("duplicate_icon.svg"),
+        g_medit.add_small_button(
+            "Paste", _I("paste_icon.svg"),
             lambda: self.scene.paste_items())
+        g_medit.add_small_button(
+            "Delete", _I("delete_icon.svg"),
+            lambda: self.scene.delete_selected_items())
 
         # --- Transform ---
         g_xform = modify_page.add_group("Transform")
@@ -438,12 +438,9 @@ class MainWindow(QMainWindow):
         g_xform.add_small_button(
             "Scale", _I("scale_icon.svg"),
             self.set_scale_dialog)
-
-        # --- Delete ---
-        g_del = modify_page.add_group("Delete")
-        g_del.add_small_button(
-            "Delete", _I("delete_icon.svg"),
-            lambda: self.scene.delete_selected_items())
+        g_xform.add_small_button(
+            "Offset", _I("trim_icon.svg"),
+            lambda: self.scene.set_mode("offset"))
 
         # Auto-switch to Modify tab when items are selected
         self.scene.selectionChanged.connect(self._on_selection_changed_modify)
@@ -529,6 +526,15 @@ class MainWindow(QMainWindow):
             act.triggered.connect(lambda checked=False, s=size: self._set_grid_size(s))
         return m
 
+    def _build_snap_angle_menu(self) -> QMenu:
+        """Return a QMenu of angle snap increments for Ctrl-constrain."""
+        m = QMenu(self)
+        for deg in (15, 30, 45, 90):
+            act = m.addAction(f"{deg}°")
+            act.triggered.connect(
+                lambda checked=False, d=deg: setattr(self.scene, "_snap_angle_deg", float(d)))
+        return m
+
     # ── Stub actions (filled in by later sprints) ─────────────────────────────
 
     # ── Draw tool helpers ─────────────────────────────────────────────────────
@@ -597,9 +603,13 @@ class MainWindow(QMainWindow):
 
     # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
 
+    _DRAW_MODES = {"draw_line", "draw_rectangle", "draw_circle", "polyline",
+                    "dimension", "text", "pipe", "sprinkler", "water_supply",
+                    "design_area", "set_scale", "offset", "offset_side"}
+
     def _on_selection_changed_modify(self):
-        """Auto-switch to the Modify tab when items are selected."""
-        if self.scene.selectedItems():
+        """Auto-switch to Modify tab when items are selected (unless drawing)."""
+        if self.scene.selectedItems() and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
 
     # ── Array / Multiply (Sprint J) ──────────────────────────────────────────

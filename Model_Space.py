@@ -75,6 +75,7 @@ class Model_Space(QGraphicsScene):
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
+        self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_index: int = -1              # grip handle index
@@ -1483,11 +1484,11 @@ class Model_Space(QGraphicsScene):
                 pts.append(item.mapToScene(QPointF(elem.x, elem.y)))
         return pts
 
-    @staticmethod
-    def _constrain_angle(anchor: QPointF, raw: QPointF) -> QPointF:
+    def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """
-        Return *raw* projected onto the nearest 0/45/90/135/180/225/270/315 °
-        ray from *anchor*.  Used when the user holds Ctrl while drawing a line.
+        Return *raw* projected onto the nearest angle increment ray from
+        *anchor*.  Increment is self._snap_angle_deg (default 45°).
+        Used when the user holds Ctrl while drawing or grip-dragging.
         """
         dx = raw.x() - anchor.x()
         dy = raw.y() - anchor.y()
@@ -1495,8 +1496,8 @@ class Model_Space(QGraphicsScene):
         if dist < 1e-6:
             return anchor
         angle = math.atan2(dy, dx)
-        # Snap angle to nearest multiple of π/4 (45°)
-        snapped = round(angle / (math.pi / 4)) * (math.pi / 4)
+        step = math.radians(self._snap_angle_deg)
+        snapped = round(angle / step) * step
         return QPointF(anchor.x() + dist * math.cos(snapped),
                        anchor.y() + dist * math.sin(snapped))
 
@@ -2085,7 +2086,16 @@ class Model_Space(QGraphicsScene):
         else:
             # ── Grip drag ──────────────────────────────────────────────────
             if self._grip_dragging and self._grip_item is not None:
-                self._grip_item.apply_grip(self._grip_index, snapped)
+                pos = snapped
+                # Ctrl constrains to angle increments from the opposite grip
+                if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                        and hasattr(self._grip_item, "grip_points")):
+                    grips = self._grip_item.grip_points()
+                    # Use opposite endpoint as anchor (skip mid-grips)
+                    if len(grips) >= 2 and self._grip_index != 1:
+                        opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
+                        pos = self._constrain_angle(grips[opp], snapped)
+                self._grip_item.apply_grip(self._grip_index, pos)
                 # Refresh foreground (grip handle positions changed)
                 for v in self.views():
                     v.viewport().update()
@@ -2159,9 +2169,7 @@ class Model_Space(QGraphicsScene):
                         self.scale_manager.calibrate(
                             self._cal_point1, snapped, distance, unit
                         )
-                        self.scale_manager.drawing_scale = dialog.get_drawing_scale()
-                        print(f"✅ Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm, "
-                              f"drawing scale 1:{self.scale_manager.drawing_scale:.0f}")
+                        print(f"Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm")
                         self._refresh_all_scales()
                     except ValueError as e:
                         print(f"❌ Calibration failed: {e}")
