@@ -151,6 +151,9 @@ class MainWindow(QMainWindow):
         self.user_layer_widget.layersChanged.connect(
             lambda: self.user_layer_mgr.apply_to_scene(self.scene)
         )
+        self.user_layer_widget.layersChanged.connect(
+            self._refresh_modify_layer_combo
+        )
         self.project_browser = ProjectBrowser()
         self.project_browser.activateModelSpace.connect(
             lambda: self.central_tabs.setCurrentWidget(self.view)
@@ -199,6 +202,9 @@ class MainWindow(QMainWindow):
         self.scene.cursorMoved.connect(self.coord_label.setText)
         self.scene.modeChanged.connect(self._update_mode_label)
         self.scene.modeChanged.connect(self._sync_mode_buttons)
+        self.scene.instructionChanged.connect(
+            lambda text: self.mode_label.setText(text)
+        )
 
         self.init_ribbon()
 
@@ -349,9 +355,7 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc")
-        g_geom.add_large_button(
-            "Gridlines", _I("gridline_icon.svg"),
-            self._place_grid_lines)
+        _mode_btn(g_geom, "Gridlines", _I("gridline_icon.svg"), "gridline")
 
         # --- Style ---
         g_style = draw_page.add_group("Style")
@@ -406,21 +410,29 @@ class MainWindow(QMainWindow):
 
         # --- Place ---
         g_place = build_page.add_group("Place")
-        g_place.add_large_button(
+        _pipe_btn = g_place.add_large_button(
             "Pipe", _I("pipe_icon.svg"),
-            lambda: self.scene.set_mode("pipe", self.current_pipe_template))
-        g_place.add_large_button(
+            lambda: self.scene.set_mode("pipe", self.current_pipe_template),
+            checkable=True)
+        self._mode_buttons["pipe"] = _pipe_btn
+        _sprinkler_btn = g_place.add_large_button(
             "Sprinkler", _I("sprinkler_icon.svg"),
-            lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template))
+            lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template),
+            checkable=True)
+        self._mode_buttons["sprinkler"] = _sprinkler_btn
 
         # --- System ---
         g_sys = build_page.add_group("System")
-        g_sys.add_large_button(
+        _ws_btn = g_sys.add_large_button(
             "Water\nSupply", _I("supply_icon.svg"),
-            lambda: self.scene.set_mode("water_supply"))
-        g_sys.add_large_button(
+            lambda: self.scene.set_mode("water_supply"),
+            checkable=True)
+        self._mode_buttons["water_supply"] = _ws_btn
+        _da_btn = g_sys.add_large_button(
             "Design\nArea", _I("design_area_icon.svg"),
-            lambda: self.scene.set_mode("design_area"))
+            lambda: self.scene.set_mode("design_area"),
+            checkable=True)
+        self._mode_buttons["design_area"] = _da_btn
         self._coverage_btn = g_sys.add_small_button(
             "Coverage Overlay", _I("sprinkler_icon.svg"),
             self.toggle_coverage_overlay, checkable=True)
@@ -464,19 +476,19 @@ class MainWindow(QMainWindow):
         g_xform = modify_page.add_group("Transform")
         g_xform.add_small_button(
             "Move", _I("move_icon.svg"),
-            lambda: self.scene.set_mode("move"))
+            lambda: self._require_selection(lambda: self.scene.set_mode("move")))
         g_xform.add_small_button(
             "Duplicate", _I("duplicate_icon.svg"),
-            lambda: self.scene.duplicate_selected())
+            lambda: self._require_selection(lambda: self.scene.duplicate_selected()))
         g_xform.add_small_button(
             "Array", _I("array_icon.svg"),
-            self._open_array_dialog)
+            lambda: self._require_selection(self._open_array_dialog))
         g_xform.add_small_button(
             "Rotate", _I("rotate_icon.svg"),
-            lambda: self.scene.rotate_selected_items())
+            lambda: self._require_selection(lambda: self.scene.rotate_selected_items()))
         g_xform.add_small_button(
             "Scale", _I("scale_icon.svg"),
-            self.set_scale_dialog)
+            lambda: self._require_selection(self.set_scale_dialog))
         g_xform.add_small_button(
             "Offset", _I("trim_icon.svg"),
             lambda: self.scene.set_mode("offset"))
@@ -779,6 +791,25 @@ class MainWindow(QMainWindow):
                 self._text_align_combo.blockSignals(False)
         else:
             self._text_format_group.setVisible(False)
+
+    def _require_selection(self, action):
+        """Run *action* only if something is selected; otherwise show message."""
+        if not self.scene.selectedItems():
+            self.statusBar().showMessage("Select an item first", 3000)
+            return
+        action()
+
+    def _refresh_modify_layer_combo(self):
+        """Re-populate the Modify ribbon's layer dropdown after layers change."""
+        combo = self._modify_layer_combo
+        combo.blockSignals(True)
+        current = combo.currentText()
+        combo.clear()
+        combo.addItems([l.name for l in self.user_layer_mgr.layers])
+        idx = combo.findText(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.blockSignals(False)
 
     def _assign_layer_to_selection(self, layer_name: str):
         """Assign a user layer to all selected items."""

@@ -11,6 +11,7 @@ from CAD_Math import CAD_Math
 from PyQt6.QtWidgets import (
     QGraphicsTextItem, QGraphicsLineItem,
     QGraphicsPolygonItem, QGraphicsEllipseItem,
+    QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QTextOption
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
@@ -137,6 +138,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self._offset_dist = float(self._properties["Offset"]["value"])
         self._perp_angle = 0.0     # stored by update_arrows_and_witness
         self._updating = False     # recursion guard
+        self.is_radius: bool = False  # True → label shows "R" prefix
 
         # Styling — cosmetic pen so dimension lines stay visible at any zoom
         self._dim_pen = QPen(QColor(self._properties["Colour"]["value"]),
@@ -145,9 +147,12 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self._dim_pen.setCosmetic(True)
         self.setPen(self._dim_pen)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(0)
+
+        # Manual drag state (avoids ItemIsMovable feedback loop with child handles)
+        self._dragging = False
+        self._drag_start: QPointF | None = None
 
         # Label — 12pt, zoom-independent so it's always readable
         self.label = QGraphicsTextItem(parent=self)
@@ -195,9 +200,44 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             self.handle1.setVisible(vis)
             self.handle2.setVisible(vis)
             self.handle3.setVisible(vis)
-        elif change == self.GraphicsItemChange.ItemPositionHasChanged:
-            self.update_geometry()
         return super().itemChange(change, value)
+
+    # ── Paint override — suppress Qt's dashed selection rectangle ─────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+
+    # ── Manual whole-dimension drag ───────────────────────────────────────
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.isSelected():
+            self._dragging = True
+            self._drag_start = event.scenePos()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging and self._drag_start is not None:
+            delta = event.scenePos() - self._drag_start
+            self._drag_start = event.scenePos()
+            # Translate all three handles by the delta
+            self.handle1.setPos(self.handle1.pos() + delta)
+            self.handle2.setPos(self.handle2.pos() + delta)
+            self.handle3.setPos(self.handle3.pos() + delta)
+            self.update_geometry()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._dragging = False
+            self._drag_start = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     # ---------------------------------|
     # Helpers -------------------------|
@@ -265,10 +305,11 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         p2 = self.handle2.scenePos()
         length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
         scene = self.scene()
+        prefix = "R " if self.is_radius else ""
         if scene and hasattr(scene, "scale_manager"):
-            self.label.setPlainText(scene.scale_manager.scene_to_display(length))
+            self.label.setPlainText(prefix + scene.scale_manager.scene_to_display(length))
         else:
-            self.label.setPlainText(f"{length:.1f} px")
+            self.label.setPlainText(f"{prefix}{length:.1f} px")
         self.set_label_position()
 
     def set_label_position(self):

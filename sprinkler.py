@@ -9,9 +9,9 @@ class Sprinkler(QGraphicsSvgItem):
         "Sprinkler2": r"graphics/sprinkler_graphics/sprinkler2.svg"
     }
 
-    SCALE = 10 / 30          # fallback scale when uncalibrated
+    SCALE = 20 / 30          # fallback scale when uncalibrated (doubled)
     SVG_NATURAL_PX = 30.0    # natural SVG bounding-box width (px)
-    TARGET_PAPER_MM = 8.0    # desired symbol diameter in paper mm (~5/16 in)
+    TARGET_PAPER_MM = 12.0   # desired symbol diameter in paper mm
 
     def __init__(self, node):
         super().__init__()

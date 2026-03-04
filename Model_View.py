@@ -23,6 +23,10 @@ class Model_View(QGraphicsView):
         self._grid_visible = False
         self._grid_size = 10       # scene-space units between dots
 
+        # Hide scroll bars — panning via middle-mouse drag
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         # Optional: smooth drag
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
@@ -313,6 +317,9 @@ class Model_View(QGraphicsView):
             return
         rect = sc.itemsBoundingRect()
         if rect.isNull() or rect.isEmpty():
+            # Nothing in scene — center on origin
+            self.resetTransform()
+            self.centerOn(QPointF(0, 0))
             return
         # Add 5% margin
         margin = max(rect.width(), rect.height()) * 0.05

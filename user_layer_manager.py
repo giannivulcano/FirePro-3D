@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QColorDialog, QMessageBox,
-    QAbstractItemView, QFrame, QLabel,
+    QAbstractItemView, QFrame, QLabel, QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
@@ -71,6 +71,38 @@ DEFAULT_LAYERS: list[UserLayer] = [
     UserLayer("Annotations",  "#333333", 0.25, True,  False, True),
     UserLayer("Underlay",     "#aaaaaa", 0.18, True,  False, False),
 ]
+
+
+# Named lineweight options:  (display label, mm value, cosmetic screen px)
+LINEWEIGHT_OPTIONS: list[tuple[str, float, float]] = [
+    ("Very Thin (0.18 mm)", 0.18, 1.0),
+    ("Thin (0.25 mm)",      0.25, 1.5),
+    ("Medium (0.35 mm)",    0.35, 2.0),
+    ("Thick (0.50 mm)",     0.50, 3.0),
+    ("Very Thick (0.70 mm)", 0.70, 4.0),
+]
+
+def lw_mm_to_cosmetic_px(mm: float) -> float:
+    """Map a layer lineweight (mm) to the nearest named cosmetic px value."""
+    best_px = 2.0
+    best_dist = 999.0
+    for _, lw_mm, px in LINEWEIGHT_OPTIONS:
+        d = abs(mm - lw_mm)
+        if d < best_dist:
+            best_dist = d
+            best_px = px
+    return best_px
+
+def lw_mm_to_label(mm: float) -> str:
+    """Return the display label for the closest named lineweight."""
+    best_label = LINEWEIGHT_OPTIONS[2][0]  # Medium fallback
+    best_dist = 999.0
+    for label, lw_mm, _ in LINEWEIGHT_OPTIONS:
+        d = abs(mm - lw_mm)
+        if d < best_dist:
+            best_dist = d
+            best_label = label
+    return best_label
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,9 +208,10 @@ class UserLayerManager:
             if callable(getattr(item, "pen", None)) and callable(getattr(item, "setPen", None)):
                 pen = QPen(item.pen())
                 pen.setColor(_QColor(ldef.color))
-                # lineweight: cosmetic items keep their device-pixel width;
-                # items with non-cosmetic pens have their width updated
-                if not pen.isCosmetic():
+                # Apply lineweight: cosmetic pens use screen px, non-cosmetic use mm
+                if pen.isCosmetic():
+                    pen.setWidthF(lw_mm_to_cosmetic_px(ldef.lineweight))
+                else:
                     pen.setWidthF(ldef.lineweight)
                 item.setPen(pen)
 
@@ -291,10 +324,11 @@ class UserLayerWidget(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
         )
-        for col in (_COL_VIS, _COL_LOCK, _COL_COLOR, _COL_LW):
+        for col in (_COL_VIS, _COL_LOCK, _COL_COLOR):
             self.table.horizontalHeader().setSectionResizeMode(
                 col, QHeaderView.ResizeMode.ResizeToContents
             )
+        self.table.setColumnWidth(_COL_LW, 150)
         self.table.verticalHeader().setDefaultSectionSize(22)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -363,9 +397,24 @@ class UserLayerWidget(QWidget):
             name_it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
         self.table.setItem(row, _COL_NAME, name_it)
 
-        # Lineweight
-        lw_it = QTableWidgetItem(f"{lyr.lineweight:.2f}")
-        self.table.setItem(row, _COL_LW, lw_it)
+        # Lineweight — QComboBox with named options
+        lw_combo = QComboBox()
+        lw_combo.setFixedHeight(20)
+        for label, mm, _px in LINEWEIGHT_OPTIONS:
+            lw_combo.addItem(label, mm)
+        # Select the closest match
+        best_idx = 0
+        best_dist = 999.0
+        for i, (_, mm, _px) in enumerate(LINEWEIGHT_OPTIONS):
+            d = abs(lyr.lineweight - mm)
+            if d < best_dist:
+                best_dist = d
+                best_idx = i
+        lw_combo.setCurrentIndex(best_idx)
+        lw_combo.currentIndexChanged.connect(
+            lambda idx, r=row: self._on_lw_combo_changed(r, idx)
+        )
+        self.table.setCellWidget(row, _COL_LW, lw_combo)
 
     # ── Active-layer highlight ────────────────────────────────────────────────
 
@@ -415,14 +464,16 @@ class UserLayerWidget(QWidget):
                     self._highlight_active()
                     self.layersChanged.emit()
 
-        elif col == _COL_LW:
-            try:
-                lw = float(item.text())
-                lyr.lineweight = max(0.0, lw)
-            except ValueError:
-                self._building = True
-                item.setText(f"{lyr.lineweight:.2f}")
-                self._building = False
+    def _on_lw_combo_changed(self, row: int, idx: int):
+        """Handle lineweight combo selection in a table row."""
+        if self._building:
+            return
+        lyr = self._layer_at_row(row)
+        if lyr is None or idx < 0 or idx >= len(LINEWEIGHT_OPTIONS):
+            return
+        _, mm, _ = LINEWEIGHT_OPTIONS[idx]
+        lyr.lineweight = mm
+        self._apply_and_emit()
 
     def _on_double_click(self, row: int, col: int):
         if col != _COL_COLOR:

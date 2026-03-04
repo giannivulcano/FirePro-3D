@@ -22,6 +22,7 @@ from construction_geometry import (
     ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from snap_engine import SnapEngine, OsnapResult
+from gridline import GridlineItem, reset_grid_counters
 import os
 
 
@@ -33,6 +34,7 @@ class Model_Space(QGraphicsScene):
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
     underlaysChanged = pyqtSignal()    # emitted when underlays list changes (for LayerManager)
     modeChanged = pyqtSignal(str)      # emits mode name for status bar instructions
+    instructionChanged = pyqtSignal(str)  # emits step-by-step instruction text
 
     def __init__(self):
         super().__init__()
@@ -46,6 +48,7 @@ class Model_Space(QGraphicsScene):
         self._dim_preview_line: "QGraphicsLineItem | None" = None
         self._dim_preview_label: "QGraphicsTextItem | None" = None
         self._dim_pending: "DimensionAnnotation | None" = None  # awaiting offset click (3-click mode)
+        self._dim_line1: "LineItem | None" = None  # line hit on dim click 1 (for perpendicular detection)
         self._cal_point1 = None          # first point for "set_scale" mode
         self.node_start_pos = None
         self.node_end_pos = None
@@ -73,7 +76,7 @@ class Model_Space(QGraphicsScene):
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._draw_color: str = "#ffffff"       # default white (dark theme)
-        self._draw_lineweight: float = 2.0      # cosmetic px
+        self._draw_lineweight: float = 3.0      # cosmetic px
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
@@ -86,6 +89,9 @@ class Model_Space(QGraphicsScene):
         # Text rubber-band (Sprint Q)
         self._text_anchor: "QPointF | None" = None
         self._text_preview: "QGraphicsRectItem | None" = None
+        # Gridlines (Sprint U)
+        self._gridlines: list[GridlineItem] = []
+        self._gridline_anchor: "QPointF | None" = None  # first click for gridline placement
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -118,7 +124,8 @@ class Model_Space(QGraphicsScene):
 
     def init_preview_pipe(self):
         self.preview_pipe = QGraphicsLineItem()
-        pen = QPen(Qt.GlobalColor.darkGray, 2, Qt.PenStyle.DashLine)
+        pen = QPen(Qt.GlobalColor.darkGray, 3, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
         self.preview_pipe.setPen(pen)
         self.preview_pipe.setZValue(200)
         self.addItem(self.preview_pipe)
@@ -220,6 +227,7 @@ class Model_Space(QGraphicsScene):
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
         draw_circles_data = [c.to_dict() for c in self._draw_circles]
         draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
+        gridlines_data = [gl.to_dict() for gl in self._gridlines]
 
         # --- Assemble and write ---
         payload = {
@@ -238,6 +246,7 @@ class Model_Space(QGraphicsScene):
             "draw_rectangles":     draw_rects_data,
             "draw_circles":        draw_circles_data,
             "draw_arcs":           draw_arcs_data,
+            "gridlines":           gridlines_data,
         }
         try:
             with open(filename, "w") as f:
@@ -379,6 +388,12 @@ class Model_Space(QGraphicsScene):
             self.addItem(item)
             self._draw_arcs.append(item)
 
+        # --- Gridlines ---
+        for entry in payload.get("gridlines", []):
+            gl = GridlineItem.from_dict(entry)
+            self.addItem(gl)
+            self._gridlines.append(gl)
+
         # Start fresh undo history with the loaded state
         self._undo_stack = []
         self._undo_pos = -1
@@ -414,7 +429,11 @@ class Model_Space(QGraphicsScene):
         self._draw_arc_preview = None
         self._text_anchor = None
         self._text_preview = None
+        self._gridlines = []
+        self._gridline_anchor = None
+        reset_grid_counters()
         self.dimension_start = None
+        self._dim_line1 = None
         self._dim_preview_line = None
         self._dim_preview_label = None
         self._dim_pending = None
@@ -507,6 +526,10 @@ class Model_Space(QGraphicsScene):
                 if item in self._draw_arcs:
                     self._draw_arcs.remove(item)
                 self.removeItem(item)
+            elif isinstance(item, GridlineItem):
+                if item in self._gridlines:
+                    self._gridlines.remove(item)
+                self.removeItem(item)
         for item in selected:
             if isinstance(item, Pipe):
                 self.delete_pipe(item)
@@ -588,8 +611,11 @@ class Model_Space(QGraphicsScene):
                 if self._text_preview.scene() is self:
                     self.removeItem(self._text_preview)
                 self._text_preview = None
+        if mode != "gridline":
+            self._gridline_anchor = None
         if mode != "dimension":
             self.dimension_start = None
+            self._dim_line1 = None
             self._remove_dim_preview()
             if self._dim_pending is not None:
                 # Finalize at current offset
@@ -622,6 +648,30 @@ class Model_Space(QGraphicsScene):
         self._snap_result = None
         for v in self.views():
             v.viewport().update()
+
+        # Emit initial step instruction for this mode
+        _initial_steps = {
+            "select":         "Select items to edit",
+            "pipe":           "Pick start node",
+            "sprinkler":      "Click a node or pipe to place sprinkler",
+            "draw_line":      "Pick first point",
+            "draw_rectangle": "Pick first corner",
+            "draw_circle":    "Pick center point",
+            "draw_arc":       "Pick center point",
+            "polyline":       "Pick first point",
+            "dimension":      "Pick first point",
+            "text":           "Pick first corner",
+            "set_scale":      "Pick first calibration point",
+            "move":           "Pick base point",
+            "offset":         "Click geometry to offset",
+            "design_area":    "Pick first corner",
+            "water_supply":   "Click to place water supply",
+            "paste":          "Click to place pasted items",
+            "gridline":       "Pick start point",
+        }
+        instr = _initial_steps.get(mode, "")
+        if instr:
+            self.instructionChanged.emit(instr)
 
     # -------------------------------------------------------------------------
     # NODE / PIPE / SPRINKLER MANAGEMENT
@@ -1259,6 +1309,7 @@ class Model_Space(QGraphicsScene):
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
+            "gridlines":          [gl.to_dict() for gl in self._gridlines],
         }
 
     def _restore_network(self, state: dict):
@@ -1373,6 +1424,11 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(item)
             self._draw_arcs.clear()
 
+            for gl in list(self._gridlines):
+                if gl.scene() is self:
+                    self.removeItem(gl)
+            self._gridlines.clear()
+
             # Restore from snapshot
             for d in state.get("construction_lines", []):
                 cl = ConstructionLine.from_dict(d)
@@ -1403,6 +1459,11 @@ class Model_Space(QGraphicsScene):
                 ai = ArcItem.from_dict(d)
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
+
+            for d in state.get("gridlines", []):
+                gl = GridlineItem.from_dict(d)
+                self.addItem(gl)
+                self._gridlines.append(gl)
 
         finally:
             self._in_undo_restore = False
@@ -2248,7 +2309,7 @@ class Model_Space(QGraphicsScene):
                 p1 = self.dimension_start
                 p2 = snapped
                 if self._dim_preview_line is None:
-                    preview_pen = QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine)
+                    preview_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
                     preview_pen.setCosmetic(True)
                     self._dim_preview_line = QGraphicsLineItem()
                     self._dim_preview_line.setPen(preview_pen)
@@ -2287,6 +2348,17 @@ class Model_Space(QGraphicsScene):
                         if sm.is_calibrated else
                         f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
                     )
+
+        elif self.mode == "gridline":
+            if self._gridline_anchor is None:
+                self.update_preview_node(snapped)
+            else:
+                self.preview_node.hide()
+                self.preview_pipe.setLine(
+                    self._gridline_anchor.x(), self._gridline_anchor.y(),
+                    snapped.x(), snapped.y()
+                )
+                self.preview_pipe.show()
 
         elif self.mode == "place_import":
             self.preview_node.hide()
@@ -2373,6 +2445,7 @@ class Model_Space(QGraphicsScene):
                     self.node_start_pos = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
                 else:
                     self.node_start_pos = self.find_or_create_node(snapped.x(), snapped.y())
+                self.instructionChanged.emit("Pick end node")
             else:
                 start_pos   = self.node_start_pos.scenePos()
                 snapped_end = self.node_start_pos.snap_point_45(start_pos, snapped)
@@ -2387,6 +2460,7 @@ class Model_Space(QGraphicsScene):
                 self.preview_pipe.hide()
                 self.preview_node.hide()
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick start node")
 
         elif self.mode == "set_scale":
             if self._cal_point1 is None:
@@ -2415,18 +2489,78 @@ class Model_Space(QGraphicsScene):
                 self._dim_pending = None
                 self.dimension_start = None
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick first point")
                 return
             elif self.dimension_start is None:
-                # Click 1 — set start point
+                # Click 1 — check if clicking on a circle or arc for radius dim
+                hit_items = self.items(event.scenePos())
+                _radius_target = None
+                for hit in hit_items:
+                    if isinstance(hit, CircleItem):
+                        _radius_target = (hit._center, snapped)
+                        break
+                    elif isinstance(hit, ArcItem):
+                        _radius_target = (hit._center, snapped)
+                        break
+                if _radius_target is not None:
+                    # Create radius dimension immediately (center → click point)
+                    center_pt, edge_pt = _radius_target
+                    self._remove_dim_preview()
+                    dim = DimensionAnnotation(center_pt, edge_pt)
+                    dim.is_radius = True
+                    self.addItem(dim)
+                    self.annotations.add_dimension(dim)
+                    self.requestPropertyUpdate.emit(dim)
+                    self._dim_pending = dim
+                    self.instructionChanged.emit("Click to set offset position")
+                    return
+                # Normal Click 1 — set start point; detect if on a LineItem
                 self.dimension_start = snapped
+                self._dim_line1 = None
+                for hit in hit_items:
+                    if isinstance(hit, LineItem):
+                        self._dim_line1 = hit
+                        break
+                self.instructionChanged.emit("Pick second point")
             else:
-                # Click 2 — create dimension, enter offset sub-mode
+                # Click 2 — check for parallel lines, then create dimension
+                p1 = self.dimension_start
+                p2 = snapped
+
+                # Detect if click 2 is on a LineItem and lines are parallel
+                hit2_items = self.items(event.scenePos())
+                _line2 = None
+                for hit in hit2_items:
+                    if isinstance(hit, LineItem) and hit is not self._dim_line1:
+                        _line2 = hit
+                        break
+
+                if self._dim_line1 is not None and _line2 is not None:
+                    # Both clicks on lines — check parallelism
+                    l1 = self._dim_line1.line()
+                    l2 = _line2.line()
+                    a1 = math.atan2(l1.dy(), l1.dx())
+                    a2 = math.atan2(l2.dy(), l2.dx())
+                    angle_diff = abs(a1 - a2) % math.pi
+                    if angle_diff < math.radians(5) or angle_diff > math.radians(175):
+                        # Parallel — compute perpendicular foot points
+                        # Project p2 onto the perpendicular from p1
+                        perp_angle = a1 + math.pi / 2
+                        nx, ny = math.cos(perp_angle), math.sin(perp_angle)
+                        # p2_foot = p1 + t * n where t = (p2 - p1) · n
+                        dx = p2.x() - p1.x()
+                        dy = p2.y() - p1.y()
+                        t = dx * nx + dy * ny
+                        p2 = QPointF(p1.x() + t * nx, p1.y() + t * ny)
+
+                self._dim_line1 = None  # reset
                 self._remove_dim_preview()
-                dim = DimensionAnnotation(self.dimension_start, snapped)
+                dim = DimensionAnnotation(p1, p2)
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
                 self.requestPropertyUpdate.emit(dim)
                 self._dim_pending = dim
+                self.instructionChanged.emit("Click to set offset position")
                 return
 
         elif self.mode == "text":
@@ -2435,7 +2569,9 @@ class Model_Space(QGraphicsScene):
                 self._text_anchor = snapped
                 self.update_preview_node(snapped)
                 preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                preview.setPen(QPen(QColor("#ffffff"), 1, Qt.PenStyle.DashLine))
+                _prev_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
+                _prev_pen.setCosmetic(True)
+                preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 preview.setZValue(200)
                 self.addItem(preview)
@@ -2467,11 +2603,13 @@ class Model_Space(QGraphicsScene):
                 self._draw_arc_center = snapped
                 self._draw_arc_step = 1
                 self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick start angle point")
                 # Create radius preview line (centre → cursor)
                 line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                          snapped.x(), snapped.y())
-                line.setPen(QPen(QColor(self._draw_color), 1,
-                                 Qt.PenStyle.DashLine))
+                _prev_pen = QPen(QColor(self._draw_color), 2, Qt.PenStyle.DashLine)
+                _prev_pen.setCosmetic(True)
+                line.setPen(_prev_pen)
                 line.setZValue(200)
                 self.addItem(line)
                 self._draw_arc_radius_line = line
@@ -2486,13 +2624,15 @@ class Model_Space(QGraphicsScene):
                     math.atan2(-(snapped.y() - cy), snapped.x() - cx)
                 )
                 self._draw_arc_step = 2
+                self.instructionChanged.emit("Pick end angle point")
                 # Remove radius line, create arc preview path
                 if self._draw_arc_radius_line is not None:
                     self.removeItem(self._draw_arc_radius_line)
                     self._draw_arc_radius_line = None
                 preview = QGraphicsPathItem()
-                preview.setPen(QPen(QColor(self._draw_color), 1,
-                                    Qt.PenStyle.DashLine))
+                _prev_pen = QPen(QColor(self._draw_color), 2, Qt.PenStyle.DashLine)
+                _prev_pen.setCosmetic(True)
+                preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 preview.setZValue(200)
                 self.addItem(preview)
@@ -2524,6 +2664,25 @@ class Model_Space(QGraphicsScene):
                 self._draw_arc_start_deg = 0.0
                 self._draw_arc_step = 0
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick center point")
+            return
+
+        elif self.mode == "gridline":
+            if self._gridline_anchor is None:
+                self._gridline_anchor = snapped
+                self.instructionChanged.emit("Pick end point")
+            else:
+                # Create gridline from anchor to snapped
+                gl = GridlineItem(self._gridline_anchor, snapped)
+                gl.user_layer = self.active_user_layer
+                self.addItem(gl)
+                self._gridlines.append(gl)
+                self.requestPropertyUpdate.emit(gl)
+                gl.setSelected(True)
+                self._gridline_anchor = None
+                self.preview_pipe.hide()
+                self.push_undo_state()
+                self.instructionChanged.emit("Pick start point")
             return
 
         elif self.mode == "water_supply":
@@ -2659,6 +2818,7 @@ class Model_Space(QGraphicsScene):
                 self._polylines.append(pl)
                 self._polyline_active = pl
                 self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick next point (Enter to finish)")
             else:
                 # Subsequent clicks — append vertex (apply Ctrl constraint if held)
                 tip = snapped
@@ -2674,6 +2834,7 @@ class Model_Space(QGraphicsScene):
             if self._draw_line_anchor is None:
                 self._draw_line_anchor = snapped
                 self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick second point")
             else:
                 # Place the line (apply Ctrl constraint if held)
                 tip = snapped
@@ -2689,15 +2850,19 @@ class Model_Space(QGraphicsScene):
                 self._draw_line_anchor = None
                 self.preview_pipe.hide()
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick first point")
             return
 
         elif self.mode == "draw_rectangle":
             if self._draw_rect_anchor is None:
                 self._draw_rect_anchor = snapped
                 self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick opposite corner")
                 # Create preview rect
                 preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                preview.setPen(QPen(QColor(self._draw_color), 1, Qt.PenStyle.DashLine))
+                _prev_pen = QPen(QColor(self._draw_color), 2, Qt.PenStyle.DashLine)
+                _prev_pen.setCosmetic(True)
+                preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 preview.setZValue(200)
                 self.addItem(preview)
@@ -2722,15 +2887,19 @@ class Model_Space(QGraphicsScene):
                     self._draw_rect_preview = None
                 self._draw_rect_anchor = None
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick first corner")
             return
 
         elif self.mode == "draw_circle":
             if self._draw_circle_center is None:
                 self._draw_circle_center = snapped
                 self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick radius point")
                 # Create preview circle
                 preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-                preview.setPen(QPen(QColor(self._draw_color), 1, Qt.PenStyle.DashLine))
+                _prev_pen = QPen(QColor(self._draw_color), 2, Qt.PenStyle.DashLine)
+                _prev_pen.setCosmetic(True)
+                preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 preview.setZValue(200)
                 self.addItem(preview)
@@ -2753,6 +2922,7 @@ class Model_Space(QGraphicsScene):
                     self._draw_circle_preview = None
                 self._draw_circle_center = None
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick center point")
             return
 
         elif self.mode is None:
@@ -2824,8 +2994,6 @@ class Model_Space(QGraphicsScene):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.set_mode(None)
-            for item in self.selectedItems():
-                item.setSelected(False)
         elif event.key() == Qt.Key.Key_Delete:
             self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:

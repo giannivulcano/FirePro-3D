@@ -12,7 +12,7 @@ class Pipe(QGraphicsLineItem):
     # Paper line-weight in mm for each "Line Weight" property value.
     # Used when the scene has a calibrated scale; otherwise PX_FALLBACK is used.
     LINE_WEIGHT_MM       = {"1": 0.35, "2": 0.50, "3": 0.70, "4": 1.00}
-    LINE_WEIGHT_PX_FALLBACK = {"1": 5.0,  "2": 6.0,  "3": 7.0,  "4": 8.0}
+    LINE_WEIGHT_PX_FALLBACK = {"1": 10.0,  "2": 12.0,  "3": 14.0,  "4": 16.0}
 
     # Inside diameter (inches) by schedule and nominal pipe size.
     # Used by the hydraulic solver (Hazen-Williams requires actual ID, not nominal).
