@@ -185,15 +185,25 @@ class LevelManager:
 
         def _set_level_vis(item):
             lvl_name = getattr(item, "level", "Level 1")
-            if lvl_name == active:
-                # Active level — always fully visible
-                item.setVisible(True)
-                item.setOpacity(1.0)
-                return
-            # Non-active level — check display_mode
             lvl_def = lvl_map.get(lvl_name)
             mode = lvl_def.display_mode if lvl_def else "Auto"
 
+            # "Hidden" always hides, even if active
+            if mode == "Hidden":
+                item.setVisible(False)
+                item.setOpacity(1.0)
+                return
+
+            if lvl_name == active:
+                # Active level — fully visible and selectable
+                item.setVisible(True)
+                item.setOpacity(1.0)
+                item.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
+                )
+                return
+
+            # Non-active level — check display_mode
             if mode == "Faded":
                 item.setVisible(True)
                 item.setOpacity(FADE_OPACITY)
@@ -207,7 +217,7 @@ class LevelManager:
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
                 )
             else:
-                # "Auto" or "Hidden" when not active
+                # "Auto" when not active — hidden
                 item.setVisible(False)
                 item.setOpacity(1.0)
 
@@ -467,27 +477,20 @@ class LevelWidget(QWidget):
                 it = self.table.item(row, col)
                 if it:
                     it.setFont(bold if is_active else normal)
-            # Update display combo for active row
+            # Update display combo — always show full options
             combo = self.table.cellWidget(row, _COL_DISPLAY)
             if combo and isinstance(combo, QComboBox):
                 combo.blockSignals(True)
-                if is_active:
-                    # Show "Active" as the only option (disabled editing)
+                # Restore full options if previously locked to "Active"
+                if combo.count() == 1 and combo.itemText(0) == "Active":
+                    lvl = self._level_at_row(row)
                     combo.clear()
-                    combo.addItem("Active")
-                    combo.setCurrentIndex(0)
-                    combo.setEnabled(False)
-                else:
-                    # Restore normal display mode options
-                    if combo.count() == 1 and combo.itemText(0) == "Active":
-                        lvl = self._level_at_row(row)
-                        combo.clear()
-                        combo.addItems(DISPLAY_MODES)
-                        if lvl:
-                            idx = combo.findText(lvl.display_mode)
-                            if idx >= 0:
-                                combo.setCurrentIndex(idx)
-                    combo.setEnabled(True)
+                    combo.addItems(DISPLAY_MODES)
+                    if lvl:
+                        idx = combo.findText(lvl.display_mode)
+                        if idx >= 0:
+                            combo.setCurrentIndex(idx)
+                combo.setEnabled(True)
                 combo.blockSignals(False)
 
     # ── Event handlers ────────────────────────────────────────────────────────
