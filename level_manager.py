@@ -5,7 +5,7 @@ Floor-level system for multi-story building support.
 
 Each drawing item carries a ``level`` string attribute naming the floor
 level it belongs to.  Switching the active level hides entities on other
-levels.
+levels, with optional faded display for context.
 
 Classes
 -------
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox,
-    QAbstractItemView, QFrame, QLabel, QGraphicsItem,
+    QAbstractItemView, QFrame, QLabel, QGraphicsItem, QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -30,28 +30,37 @@ from PyQt6.QtGui import QFont
 # Data model
 # ─────────────────────────────────────────────────────────────────────────────
 
+FADE_OPACITY = 0.25  # opacity for faded levels
+
+# Display mode options (stored in Level.display_mode)
+DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
+
+
 @dataclass
 class Level:
     name:         str
     elevation:    float = 0.0       # mm, relative to project datum
     view_top:     float = 2000.0    # mm above elevation (future use)
     view_bottom:  float = -1000.0   # mm below elevation (future use)
+    display_mode: str   = "Auto"    # Auto | Hidden | Faded | Visible
 
     def to_dict(self) -> dict:
         return {
-            "name":        self.name,
-            "elevation":   self.elevation,
-            "view_top":    self.view_top,
-            "view_bottom": self.view_bottom,
+            "name":         self.name,
+            "elevation":    self.elevation,
+            "view_top":     self.view_top,
+            "view_bottom":  self.view_bottom,
+            "display_mode": self.display_mode,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Level":
         return cls(
-            name        = d["name"],
-            elevation   = d.get("elevation",   0.0),
-            view_top    = d.get("view_top",    2000.0),
-            view_bottom = d.get("view_bottom", -1000.0),
+            name         = d["name"],
+            elevation    = d.get("elevation",    0.0),
+            view_top     = d.get("view_top",     2000.0),
+            view_bottom  = d.get("view_bottom",  -1000.0),
+            display_mode = d.get("display_mode", "Auto"),
         )
 
 
@@ -152,18 +161,39 @@ class LevelManager:
     # ── Apply to scene ────────────────────────────────────────────────────────
 
     def apply_to_scene(self, scene):
-        """Show/hide entities based on active level, then re-apply layer
-        visibility so that both level AND layer filtering are respected."""
+        """Show/hide/fade entities based on active level and display_mode,
+        then re-apply layer visibility so both level AND layer filtering
+        are respected."""
         active = self._active
+        lvl_map = {l.name: l for l in self._levels}
 
         def _set_level_vis(item):
             lvl_name = getattr(item, "level", "Level 1")
-            vis = (lvl_name == active)
-            item.setVisible(vis)
-            if not vis:
+            if lvl_name == active:
+                # Active level — always fully visible
+                item.setVisible(True)
+                item.setOpacity(1.0)
+                return
+            # Non-active level — check display_mode
+            lvl_def = lvl_map.get(lvl_name)
+            mode = lvl_def.display_mode if lvl_def else "Auto"
+
+            if mode == "Faded":
+                item.setVisible(True)
+                item.setOpacity(FADE_OPACITY)
                 item.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
                 )
+            elif mode == "Visible":
+                item.setVisible(True)
+                item.setOpacity(1.0)
+                item.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
+                )
+            else:
+                # "Auto" or "Hidden" when not active
+                item.setVisible(False)
+                item.setOpacity(1.0)
 
         # ── Sprinkler system ──────────────────────────────────────────────
         for node in scene.sprinkler_system.nodes:
@@ -217,13 +247,60 @@ class LevelManager:
         if ulm is not None:
             ulm.apply_to_scene(scene)
 
+        # ── Fixup: restore faded opacity for items that survived layer
+        #    filtering (ulm.apply_to_scene may have reset opacity) ─────────
+        faded_levels = {l.name for l in self._levels
+                        if l.display_mode == "Faded" and l.name != active}
+        if faded_levels:
+            self._reapply_fade(scene, faded_levels)
+
+    def _reapply_fade(self, scene, faded_levels: set[str]):
+        """Re-apply FADE_OPACITY to items on faded levels that are still
+        visible after user-layer filtering."""
+        def _fix(item):
+            if not item.isVisible():
+                return
+            if getattr(item, "level", "Level 1") in faded_levels:
+                item.setOpacity(FADE_OPACITY)
+
+        for node in scene.sprinkler_system.nodes:
+            _fix(node)
+        for pipe in scene.sprinkler_system.pipes:
+            _fix(pipe)
+        for item in getattr(scene, "_construction_lines", []):
+            _fix(item)
+        for item in getattr(scene, "_polylines", []):
+            _fix(item)
+        for item in getattr(scene, "_draw_lines", []):
+            _fix(item)
+        for item in getattr(scene, "_draw_rects", []):
+            _fix(item)
+        for item in getattr(scene, "_draw_circles", []):
+            _fix(item)
+        for item in getattr(scene, "_draw_arcs", []):
+            _fix(item)
+        for item in getattr(scene, "_gridlines", []):
+            _fix(item)
+        annotations = getattr(scene, "annotations", None)
+        if annotations is not None:
+            for dim in getattr(annotations, "dimensions", []):
+                _fix(dim)
+            for note in getattr(annotations, "notes", []):
+                _fix(note)
+        for item in getattr(scene, "_hatch_items", []):
+            _fix(item)
+        ws = getattr(scene, "water_supply_node", None)
+        if ws is not None:
+            _fix(ws)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Table column indices
 # ─────────────────────────────────────────────────────────────────────────────
 
-_COL_NAME  = 0
-_COL_ELEV  = 1
+_COL_NAME    = 0
+_COL_ELEV    = 1
+_COL_DISPLAY = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -281,15 +358,18 @@ class LevelWidget(QWidget):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Name", "Elevation (mm)"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(
+            ["Name", "Elevation (mm)", "Display"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
         )
         self.table.horizontalHeader().setSectionResizeMode(
-            _COL_ELEV, QHeaderView.ResizeMode.Stretch
+            _COL_ELEV, QHeaderView.ResizeMode.ResizeToContents
         )
-        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.setColumnWidth(_COL_DISPLAY, 100)
+        self.table.verticalHeader().setDefaultSectionSize(24)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows
@@ -336,6 +416,18 @@ class LevelWidget(QWidget):
         elev_it = QTableWidgetItem(str(lvl.elevation))
         self.table.setItem(row, _COL_ELEV, elev_it)
 
+        # Display mode combo
+        combo = QComboBox()
+        combo.setFixedHeight(20)
+        combo.addItems(DISPLAY_MODES)
+        idx = combo.findText(lvl.display_mode)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        combo.currentIndexChanged.connect(
+            lambda _idx, r=row: self._on_display_combo_changed(r, _idx)
+        )
+        self.table.setCellWidget(row, _COL_DISPLAY, combo)
+
     # ── Active-level highlight ────────────────────────────────────────────────
 
     def _highlight_active(self):
@@ -347,10 +439,32 @@ class LevelWidget(QWidget):
             if name_it is None:
                 continue
             is_active = name_it.text() == active
-            for col in range(self.table.columnCount()):
+            for col in (_COL_NAME, _COL_ELEV):
                 it = self.table.item(row, col)
                 if it:
                     it.setFont(bold if is_active else normal)
+            # Update display combo for active row
+            combo = self.table.cellWidget(row, _COL_DISPLAY)
+            if combo and isinstance(combo, QComboBox):
+                combo.blockSignals(True)
+                if is_active:
+                    # Show "Active" as the only option (disabled editing)
+                    combo.clear()
+                    combo.addItem("Active")
+                    combo.setCurrentIndex(0)
+                    combo.setEnabled(False)
+                else:
+                    # Restore normal display mode options
+                    if combo.count() == 1 and combo.itemText(0) == "Active":
+                        lvl = self._level_at_row(row)
+                        combo.clear()
+                        combo.addItems(DISPLAY_MODES)
+                        if lvl:
+                            idx = combo.findText(lvl.display_mode)
+                            if idx >= 0:
+                                combo.setCurrentIndex(idx)
+                    combo.setEnabled(True)
+                combo.blockSignals(False)
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -389,6 +503,16 @@ class LevelWidget(QWidget):
                 return
             lvl.elevation = new_elev
             self.levelsChanged.emit()
+
+    def _on_display_combo_changed(self, row: int, idx: int):
+        """Handle display mode combo selection."""
+        if self._building:
+            return
+        lvl = self._level_at_row(row)
+        if lvl is None or idx < 0 or idx >= len(DISPLAY_MODES):
+            return
+        lvl.display_mode = DISPLAY_MODES[idx]
+        self.levelsChanged.emit()
 
     def _on_selection_changed(self):
         rows = self.table.selectedItems()

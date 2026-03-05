@@ -223,6 +223,9 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.mode_name_label)
         self.mode_label = QLabel("")
         status_bar.addWidget(self.mode_label)
+        self.level_label = QLabel("Level: Level 1")
+        self.level_label.setMinimumWidth(150)
+        status_bar.addPermanentWidget(self.level_label)
         self.scene.cursorMoved.connect(self.coord_label.setText)
         self.scene.modeChanged.connect(self._update_mode_label)
         self.scene.modeChanged.connect(self._sync_mode_buttons)
@@ -825,6 +828,7 @@ class MainWindow(QMainWindow):
         self.scene.active_level = name
         self.level_mgr.active_level = name
         self.level_mgr.apply_to_scene(self.scene)
+        self.level_label.setText(f"Level: {name}")
         # Sync ribbon combo (if the signal came from the widget, not the combo)
         self._level_combo.blockSignals(True)
         idx = self._level_combo.findText(name)
@@ -1074,6 +1078,7 @@ class MainWindow(QMainWindow):
             self.level_widget.populate()
             self._refresh_level_combo()
             self.user_layer_widget.populate()
+            self.level_label.setText(f"Level: {self.level_mgr.active_level}")
             self._modified = False
             self._update_title()
 
@@ -1084,6 +1089,7 @@ class MainWindow(QMainWindow):
         self.level_widget.populate()
         self._refresh_level_combo()
         self.user_layer_widget.populate()
+        self.level_label.setText("Level: Level 1")
         self._modified = False
         self._update_title()
 
