@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
 
         # Property manager (will be added as tab in browser dock)
         self.prop_manager = PropertyManager()
+        self.prop_manager.set_level_manager(self.level_mgr)
         self.scene.requestPropertyUpdate.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.update_property_manager)
 

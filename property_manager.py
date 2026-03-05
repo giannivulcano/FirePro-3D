@@ -9,6 +9,10 @@ class PropertyManager(QWidget):
         super().__init__(parent)
         self.layout = QFormLayout(self)
         self.labels = {}
+        self._level_manager = None
+
+    def set_level_manager(self, lm):
+        self._level_manager = lm
 
     def show_properties(self, item):
         # Clear old props
@@ -56,3 +60,21 @@ class PropertyManager(QWidget):
                 )
 
             self.layout.addRow(QLabel(key), widget)
+
+        # Level assignment (dynamic — options come from LevelManager)
+        if hasattr(item, "level") and self._level_manager is not None:
+            combo = QComboBox()
+            for lv in self._level_manager.levels:
+                combo.addItem(lv.name)
+            combo.setCurrentText(item.level)
+            combo.currentTextChanged.connect(
+                lambda val, target=item: self._change_level(target, val)
+            )
+            self.layout.addRow(QLabel("Level"), combo)
+
+    def _change_level(self, item, new_level):
+        item.level = new_level
+        if self._level_manager is not None:
+            scene = item.scene()
+            if scene:
+                self._level_manager.apply_to_scene(scene)
