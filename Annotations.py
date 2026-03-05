@@ -244,72 +244,27 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     # ── Grip protocol (integrates with Model_View grip squares) ──────────
 
     def grip_points(self) -> list[QPointF]:
-        """Return [p1, midpoint, p2, witness1_end, witness2_end] for the grip system."""
-        mid = QPointF((self._p1.x() + self._p2.x()) / 2,
-                      (self._p1.y() + self._p2.y()) / 2)
-        # Compute witness line end positions (same math as update_arrows_and_witness)
-        w1_end, w2_end = self._witness_end_points()
-        return [QPointF(self._p1), mid, QPointF(self._p2), w1_end, w2_end]
-
-    def _witness_end_points(self) -> tuple[QPointF, QPointF]:
-        """Compute the end points of both witness lines."""
-        sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
-        if self._witness_ext_override is not None:
-            witness_ext = self._witness_ext_override
-        elif sm and sm.is_calibrated:
-            witness_ext = sm.paper_to_scene(2.0)
-        else:
-            witness_ext = 6
-
-        if sm and sm.is_calibrated:
-            offset_gap = sm.paper_to_scene(1.0)
-        else:
-            offset_gap = 3
-
+        """Return single grip at dimension line midpoint for offset dragging."""
         line = QLineF(self._p1, self._p2)
         angle = math.atan2(line.dy(), line.dx())
-        perp_angle = angle + math.pi / 2
-        dx_perp = math.cos(perp_angle)
-        dy_perp = math.sin(perp_angle)
-        offset = self._offset_dist
-        total = offset + offset_gap + witness_ext
-
-        w1_end = self._p1 + QPointF(dx_perp * total, dy_perp * total)
-        w2_end = self._p2 + QPointF(dx_perp * total, dy_perp * total)
-        return w1_end, w2_end
+        perp = angle + math.pi / 2
+        mid = QPointF((self._p1.x() + self._p2.x()) / 2,
+                      (self._p1.y() + self._p2.y()) / 2)
+        # Grip is at the midpoint of the offset dimension line
+        return [QPointF(mid.x() + self._offset_dist * math.cos(perp),
+                        mid.y() + self._offset_dist * math.sin(perp))]
 
     def apply_grip(self, index: int, pos: QPointF):
-        """Move grip point: 0=p1 (stretch), 1=midpoint (move whole), 2=p2 (stretch),
-        3=witness1 end (extend/shorten), 4=witness2 end (extend/shorten)."""
+        """Single grip (index 0): drag to change perpendicular offset distance."""
         if index == 0:
-            self._p1 = QPointF(pos)
-        elif index == 2:
-            self._p2 = QPointF(pos)
-        elif index == 1:
-            # Move whole dimension — compute delta from current midpoint
             mid = QPointF((self._p1.x() + self._p2.x()) / 2,
                           (self._p1.y() + self._p2.y()) / 2)
-            delta = pos - mid
-            self._p1 = QPointF(self._p1.x() + delta.x(), self._p1.y() + delta.y())
-            self._p2 = QPointF(self._p2.x() + delta.x(), self._p2.y() + delta.y())
-        elif index in (3, 4):
-            # User dragged a witness line end — compute new witness extension
-            # Project the dragged position onto the perpendicular direction
-            base_pt = self._p1 if index == 3 else self._p2
             line = QLineF(self._p1, self._p2)
             angle = math.atan2(line.dy(), line.dx())
-            perp_angle = angle + math.pi / 2
-            dx_perp = math.cos(perp_angle)
-            dy_perp = math.sin(perp_angle)
-            # Project (pos - base_pt) onto perpendicular direction
-            delta = pos - base_pt
-            projected = delta.x() * dx_perp + delta.y() * dy_perp
-
-            sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
-            offset_gap = sm.paper_to_scene(1.0) if (sm and sm.is_calibrated) else 3
-            # witness_ext = total_projected - offset - offset_gap
-            new_ext = projected - self._offset_dist - offset_gap
-            self._witness_ext_override = max(0, new_ext)
+            perp = angle + math.pi / 2
+            dx = pos.x() - mid.x()
+            dy = pos.y() - mid.y()
+            self._offset_dist = dx * math.cos(perp) + dy * math.sin(perp)
         self.update_geometry()
 
     # ---------------------------------|
@@ -519,6 +474,7 @@ class HatchItem(QGraphicsPathItem):
         self._angle = angle
         self._spacing = spacing
         self._colour = colour
+        self._source_item = None  # reference to source geometry for dynamic updates
 
         # Set the boundary as the item's path (used for boundingRect / shape)
         self.setPath(self._boundary_path)
@@ -576,6 +532,16 @@ class HatchItem(QGraphicsPathItem):
 
     def grip_points(self) -> list[QPointF]:
         return []
+
+    def rebuild_from_source(self):
+        """Rebuild hatch boundary from the source geometry item."""
+        if self._source_item is not None and hasattr(self._source_item, 'get_closed_path'):
+            new_path = self._source_item.get_closed_path()
+            if new_path is not None:
+                self._boundary_path = QPainterPath(new_path)
+                self.setPath(self._boundary_path)
+                self.setPos(self._source_item.pos())
+                self.update()
 
     # ── Property panel integration ───────────────────────────────────────────
 

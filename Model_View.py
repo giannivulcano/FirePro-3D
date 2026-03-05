@@ -229,6 +229,9 @@ class Model_View(QGraphicsView):
             for c in constraints:
                 if not c.enabled:
                     continue
+                # Only show constraint when one of the constrained items is selected
+                if not (c.item_a.isSelected() or c.item_b.isSelected()):
+                    continue
                 vis = c.visual_points()
                 for vtype, vpt in vis:
                     vp = self.mapFromScene(vpt)
@@ -394,7 +397,7 @@ class Model_View(QGraphicsView):
         sc = self.scene()
         if sc is not None and getattr(sc, "mode", None) in (
             "draw_line", "draw_rectangle", "draw_circle",
-            "construction_line", "polyline",
+            "construction_line", "polyline", "offset_side",
         ):
             return False   # let Tab fall through to keyPressEvent
         return super().focusNextPrevChild(next_child)

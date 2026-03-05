@@ -107,6 +107,7 @@ class Model_Space(QGraphicsScene):
         self._offset_dist: float = 0.0          # distance entered by user
         self._offset_preview = None             # preview item shown during side-pick
         self._offset_manual: bool = False       # True when user typed distance via Tab
+        self._offset_highlight = None           # highlight overlay for selected offset entity
         # Move preview (Sprint Z)
         self._move_preview_line = None          # rubber-band line from base point to cursor
         # Single place mode (Sprint Y) — return to select after placing one item
@@ -489,6 +490,7 @@ class Model_Space(QGraphicsScene):
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
+        self.design_area_sprinklers = []
         self._construction_lines = []
         self._polylines = []
         self._cline_anchor = None
@@ -747,6 +749,10 @@ class Model_Space(QGraphicsScene):
             self._clear_offset_preview()
             self._offset_source = None
             self._offset_manual = False
+            if self._offset_highlight is not None:
+                if self._offset_highlight.scene() is self:
+                    self.removeItem(self._offset_highlight)
+                self._offset_highlight = None
 
         # Clean up trim state
         if mode not in ("trim", "trim_pick"):
@@ -1407,6 +1413,7 @@ class Model_Space(QGraphicsScene):
                 "y":         node.scenePos().y(),
                 "elevation": node.z_pos,
                 "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "user_layer": getattr(node, "user_layer", "0"),
             })
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
@@ -1416,6 +1423,7 @@ class Model_Space(QGraphicsScene):
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
+                "user_layer": getattr(pipe, "user_layer", "0"),
             })
         annotations_data = []
         for dim in self.annotations.dimensions:
@@ -1514,6 +1522,7 @@ class Model_Space(QGraphicsScene):
                         else:
                             template.set_property(key, value)
                     self.add_sprinkler(node, template)
+                node.user_layer = entry.get("user_layer", "0")
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -1525,6 +1534,7 @@ class Model_Space(QGraphicsScene):
                     pipe.update_label()
                     for key, value in entry.get("properties", {}).items():
                         pipe.set_property(key, value)
+                    pipe.user_layer = entry.get("user_layer", "0")
 
             for node in id_to_node.values():
                 node.fitting.update()
@@ -1676,8 +1686,7 @@ class Model_Space(QGraphicsScene):
         self._undo_stack.append(state)
         if len(self._undo_stack) > self.UNDO_MAX:
             self._undo_stack.pop(0)
-        else:
-            self._undo_pos = len(self._undo_stack) - 1
+        self._undo_pos = len(self._undo_stack) - 1
         self.sceneModified.emit()
 
     def undo(self):
@@ -2726,6 +2735,12 @@ class Model_Space(QGraphicsScene):
         # ── Grip hit takes priority over mode handlers ──────────────────
         grip_hit = self._find_grip_hit(snapped)
         if grip_hit is not None:
+            if self.mode == "move" and self.node_start_pos is None:
+                # In move mode, use grip point as precise base point
+                item, idx = grip_hit
+                self.node_start_pos = item.grip_points()[idx]
+                self.instructionChanged.emit("Pick destination point")
+                return
             self._grip_item, self._grip_index = grip_hit
             self._grip_dragging = True
             return  # consumed by grip system
@@ -3063,7 +3078,7 @@ class Model_Space(QGraphicsScene):
             if not hit:
                 return
             self._offset_source = hit[0]
-            self._highlight_item(hit[0])
+            self._offset_highlight = self._highlight_item(hit[0])
             self._offset_dist = 0  # will be computed from cursor distance
             self._offset_manual = False  # cursor-driven distance
             self.set_mode("offset_side")
@@ -3097,6 +3112,10 @@ class Model_Space(QGraphicsScene):
                     self.push_undo_state()
             # Stay in offset mode ready for next entity
             self._offset_source = None
+            if self._offset_highlight is not None:
+                if self._offset_highlight.scene() is self:
+                    self.removeItem(self._offset_highlight)
+                self._offset_highlight = None
             self.set_mode("offset")
             return
 
@@ -3261,6 +3280,10 @@ class Model_Space(QGraphicsScene):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
             self._solve_constraints(self._grip_item)  # enforce constraints
+            # Rebuild any hatches whose source was the dragged item
+            for h in self._hatch_items:
+                if getattr(h, '_source_item', None) is self._grip_item:
+                    h.rebuild_from_source()
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
@@ -3364,6 +3387,37 @@ class Model_Space(QGraphicsScene):
                 return
 
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Commit offset on Enter (same logic as click)
+            if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
+                cursor_pos = self._last_scene_pos
+                if cursor_pos is not None:
+                    sd = self._offset_signed_dist(self._offset_source, self._offset_dist, cursor_pos)
+                    self._clear_offset_preview()
+                    new_item = self._make_offset_item(self._offset_source, sd)
+                    if new_item is not None:
+                        if isinstance(new_item, LineItem):
+                            self.addItem(new_item)
+                            self._draw_lines.append(new_item)
+                        elif isinstance(new_item, PolylineItem):
+                            self.addItem(new_item)
+                            self._polylines.append(new_item)
+                        elif isinstance(new_item, CircleItem):
+                            self.addItem(new_item)
+                            self._draw_circles.append(new_item)
+                        elif isinstance(new_item, RectangleItem):
+                            self.addItem(new_item)
+                            self._draw_rects.append(new_item)
+                        elif isinstance(new_item, ArcItem):
+                            self.addItem(new_item)
+                            self._draw_arcs.append(new_item)
+                        self.push_undo_state()
+                    self._offset_source = None
+                    if self._offset_highlight is not None:
+                        if self._offset_highlight.scene() is self:
+                            self.removeItem(self._offset_highlight)
+                        self._offset_highlight = None
+                    self.set_mode("offset")
+                return
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
                 if len(self._polyline_active._points) >= 2:
@@ -4150,6 +4204,7 @@ class Model_Space(QGraphicsScene):
             return
 
         hatch = HatchItem(closed_path, item.pos())
+        hatch._source_item = item
         self.addItem(hatch)
         self._hatch_items.append(hatch)
         hatch.setSelected(True)

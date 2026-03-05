@@ -135,11 +135,10 @@ class MainWindow(QMainWindow):
         self.setMenuWidget(self.ribbon)
         self.setCentralWidget(self.central_tabs)
 
-        # Property manager dock
+        # Property manager (will be added as tab in browser dock)
         self.prop_manager = PropertyManager()
         self.scene.requestPropertyUpdate.connect(self.prop_manager.show_properties)
-        self.dock = QDockWidget("Properties", self)
-        self.init_property_manager_dock()
+        self.scene.selectionChanged.connect(self.update_property_manager)
 
         # Combined left-side dock: DXF Layers | User Layers | Project Browser
         self.layer_manager = LayerManager(self.scene)
@@ -170,6 +169,7 @@ class MainWindow(QMainWindow):
         self._left_tabs.addTab(self.project_browser, "Project Browser")
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
+        self._left_tabs.addTab(self.prop_manager, "Properties")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -237,8 +237,6 @@ class MainWindow(QMainWindow):
         if state:
             self.restoreState(state, self._STATE_VERSION)
         # Restore dock visibility (only if settings exist, otherwise keep defaults)
-        if self.settings.contains("dock/properties"):
-            self.dock.setVisible(self.settings.value("dock/properties", True, type=bool))
         if self.settings.contains("dock/browser"):
             self.browser_dock.setVisible(self.settings.value("dock/browser", True, type=bool))
         if self.settings.contains("dock/hydraulics"):
@@ -343,10 +341,9 @@ class MainWindow(QMainWindow):
         # --- Panels (dock toggles) ---
         g_pan = manage_page.add_group("Panels")
         prop_btn = g_pan.add_small_button(
-            "Properties", _I("info_icon.svg"), None, checkable=True)
-        prop_btn.setToolTip("Toggle Properties panel")
-        prop_btn.toggled.connect(self.dock.setVisible)
-        self.dock.visibilityChanged.connect(prop_btn.setChecked)
+            "Properties", _I("info_icon.svg"),
+            lambda: self._left_tabs.setCurrentWidget(self.prop_manager))
+        prop_btn.setToolTip("Switch to Properties tab")
 
         browser_btn = g_pan.add_small_button(
             "Browser",
@@ -513,8 +510,10 @@ class MainWindow(QMainWindow):
         g_xform = modify_page.add_group("Transform")
         self._btn_move = g_xform.add_small_button(
             "Move", _I("move_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.set_mode("move")))
+            lambda: self._require_selection(lambda: self.scene.set_mode("move")),
+            checkable=True)
         self._btn_move.setToolTip("Move selected items [Ctrl+M]")
+        self._mode_buttons["move"] = self._btn_move
         self._btn_duplicate = g_xform.add_small_button(
             "Duplicate", _I("duplicate_icon.svg"),
             lambda: self._require_selection(lambda: self.scene.duplicate_selected()))
@@ -533,8 +532,10 @@ class MainWindow(QMainWindow):
         self._btn_scale.setToolTip("Scale selected items")
         _btn = g_xform.add_small_button(
             "Offset", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("offset"))
+            lambda: self.scene.set_mode("offset"),
+            checkable=True)
         _btn.setToolTip("Offset geometry (Tab for exact distance)")
+        self._mode_buttons["offset"] = _btn
         _mode_btn(g_xform, "Trim", _I("trim_icon.svg"), "trim", large=False).setToolTip(
             "Trim geometry at intersection")
         _mode_btn(g_xform, "Extend", _I("placeholder_icon.svg"), "extend", large=False).setToolTip(
@@ -820,6 +821,8 @@ class MainWindow(QMainWindow):
         self._btn_paste.setEnabled(bool(self.scene.clipboard_data()))
         if sel and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
+            # Auto-switch to Properties tab in browser dock
+            self._left_tabs.setCurrentWidget(self.prop_manager)
             # Update layer combo to show selected item's layer
             if hasattr(sel[0], "user_layer"):
                 layer = getattr(sel[0], "user_layer", "0")
@@ -958,17 +961,7 @@ class MainWindow(QMainWindow):
     # PROPERTY MANAGER
     # ─────────────────────────────────────────────────────────────────────────
 
-    def init_property_manager_dock(self):
-        self.dock.setObjectName("PropertiesDock")
-        self.dock.setWidget(self.prop_manager)
-        self.dock.setAllowedAreas(
-            Qt.DockWidgetArea.RightDockWidgetArea |
-            Qt.DockWidgetArea.LeftDockWidgetArea
-        )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock)
-        self.dock.setMinimumWidth(200)
-        self.resizeDocks([self.dock], [300], Qt.Orientation.Horizontal)
-        self.scene.selectionChanged.connect(self.update_property_manager)
+    # init_property_manager_dock removed — Properties is now a tab in browser dock
 
     # ─────────────────────────────────────────────────────────────────────────
     # MENU BAR HELPERS
@@ -1107,12 +1100,11 @@ class MainWindow(QMainWindow):
         self.save_settings()
         super().closeEvent(event)
 
-    _STATE_VERSION = 2  # bump when dock layout changes between sprints
+    _STATE_VERSION = 3  # bump when dock layout changes between sprints
 
     def save_settings(self):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState(self._STATE_VERSION))
-        self.settings.setValue("dock/properties", self.dock.isVisible())
         self.settings.setValue("dock/browser", self.browser_dock.isVisible())
         self.settings.setValue("dock/hydraulics", self.hydro_dock.isVisible())
 
