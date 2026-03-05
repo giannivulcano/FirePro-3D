@@ -106,6 +106,9 @@ class Model_Space(QGraphicsScene):
         self._offset_source = None              # entity selected for offset
         self._offset_dist: float = 0.0          # distance entered by user
         self._offset_preview = None             # preview item shown during side-pick
+        self._offset_manual: bool = False       # True when user typed distance via Tab
+        # Move preview (Sprint Z)
+        self._move_preview_line = None          # rubber-band line from base point to cursor
         # Single place mode (Sprint Y) — return to select after placing one item
         self.single_place_mode: bool = False
         # Trim / Extend / Merge state (Sprint Y)
@@ -200,6 +203,7 @@ class Model_Space(QGraphicsScene):
                 "offset_dist": getattr(dim, "_offset_dist", 10),
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
+                "user_layer": getattr(dim, "user_layer", "Default"),
             })
         for note in self.annotations.notes:
             annotations_data.append({
@@ -208,6 +212,7 @@ class Model_Space(QGraphicsScene):
                 "y":    note.scenePos().y(),
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
+                "user_layer": getattr(note, "user_layer", "Default"),
             })
 
         # --- Hatch items ---
@@ -373,6 +378,7 @@ class Model_Space(QGraphicsScene):
                 for key, value in entry.get("properties", {}).items():
                     dim.set_property(key, value)
                 dim.update_geometry()
+                dim.user_layer = entry.get("user_layer", "Default")
             elif ann_type == "note":
                 tw = entry.get("text_width", -1)
                 note = NoteAnnotation(
@@ -382,6 +388,7 @@ class Model_Space(QGraphicsScene):
                 self.annotations.add_note(note)
                 for key, value in entry.get("properties", {}).items():
                     note.set_property(key, value)
+                note.user_layer = entry.get("user_layer", "Default")
 
         # --- Underlays (re-link from path) ---
         for entry in payload.get("underlays", []):
@@ -614,6 +621,13 @@ class Model_Space(QGraphicsScene):
                 if item in self._gridlines:
                     self._gridlines.remove(item)
                 self.removeItem(item)
+            else:
+                # Handle HatchItem and any other selectable items
+                from Annotations import HatchItem
+                if isinstance(item, HatchItem):
+                    if item in self._hatch_items:
+                        self._hatch_items.remove(item)
+                    self.removeItem(item)
         for item in selected:
             if isinstance(item, Pipe):
                 self.delete_pipe(item)
@@ -626,6 +640,10 @@ class Model_Space(QGraphicsScene):
         for item in selected:
             if isinstance(item, Node):
                 self.remove_node(item)
+        # Remove constraints referencing deleted items
+        deleted_set = set(selected)
+        self._constraints = [c for c in self._constraints
+                             if not any(c.involves(d) for d in deleted_set)]
         self.push_undo_state()
 
     # -------------------------------------------------------------------------
@@ -712,10 +730,18 @@ class Model_Space(QGraphicsScene):
         else:
             self.current_template = None
 
+        # Clean up move preview line
+        if mode != "move":
+            if self._move_preview_line is not None:
+                if self._move_preview_line.scene() is self:
+                    self.removeItem(self._move_preview_line)
+                self._move_preview_line = None
+
         # Clean up offset preview whenever leaving offset modes
         if mode not in ("offset", "offset_side"):
             self._clear_offset_preview()
             self._offset_source = None
+            self._offset_manual = False
 
         # Clean up trim state
         if mode not in ("trim", "trim_pick"):
@@ -1395,6 +1421,7 @@ class Model_Space(QGraphicsScene):
                 "offset_dist": getattr(dim, "_offset_dist", 10),
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
+                "user_layer": getattr(dim, "user_layer", "Default"),
             })
         for note in self.annotations.notes:
             annotations_data.append({
@@ -1403,6 +1430,7 @@ class Model_Space(QGraphicsScene):
                 "y":    note.scenePos().y(),
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
+                "user_layer": getattr(note, "user_layer", "Default"),
             })
         ws = self.water_supply_node
         ws_data = None
@@ -1509,12 +1537,14 @@ class Model_Space(QGraphicsScene):
                     for key, value in entry.get("properties", {}).items():
                         dim.set_property(key, value)
                     dim.update_geometry()
+                    dim.user_layer = entry.get("user_layer", "Default")
                 elif ann_type == "note":
                     note = NoteAnnotation(x=entry["x"], y=entry["y"])
                     self.addItem(note)
                     self.annotations.add_note(note)
                     for key, value in entry.get("properties", {}).items():
                         note.set_property(key, value)
+                    note.user_layer = entry.get("user_layer", "Default")
 
             # Restore water supply
             ws_data = state.get("water_supply")
@@ -2169,6 +2199,58 @@ class Model_Space(QGraphicsScene):
                     result.append(op2)  # fallback: parallel segments
         return result
 
+    def _perpendicular_distance(self, source, pt: QPointF) -> float:
+        """Return the perpendicular distance from *pt* to *source* entity."""
+        if isinstance(source, LineItem):
+            line = source.line()
+            p1 = source.mapToScene(line.p1())
+            p2 = source.mapToScene(line.p2())
+            dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+            seg_len = math.hypot(dx, dy)
+            if seg_len < 1e-10:
+                return math.hypot(pt.x() - p1.x(), pt.y() - p1.y())
+            # Point-to-line distance (not segment — infinite line)
+            return abs(dx * (p1.y() - pt.y()) - dy * (p1.x() - pt.x())) / seg_len
+
+        if isinstance(source, PolylineItem):
+            pts = source._points
+            if len(pts) < 2:
+                return 0.0
+            # Minimum distance to any segment
+            min_d = float("inf")
+            for i in range(len(pts) - 1):
+                a, b = pts[i], pts[i + 1]
+                dx, dy = b.x() - a.x(), b.y() - a.y()
+                seg_len = math.hypot(dx, dy)
+                if seg_len < 1e-10:
+                    continue
+                d = abs(dx * (a.y() - pt.y()) - dy * (a.x() - pt.x())) / seg_len
+                min_d = min(min_d, d)
+            return min_d if min_d < float("inf") else 0.0
+
+        if isinstance(source, CircleItem):
+            cx = source.x() + source.boundingRect().center().x()
+            cy = source.y() + source.boundingRect().center().y()
+            r = source.boundingRect().width() / 2
+            return abs(math.hypot(pt.x() - cx, pt.y() - cy) - r)
+
+        if isinstance(source, RectangleItem):
+            r = source.mapRectToScene(source.rect())
+            # Distance to nearest edge
+            cx = max(r.left(), min(pt.x(), r.right()))
+            cy = max(r.top(), min(pt.y(), r.bottom()))
+            if r.contains(pt):
+                # Inside: distance to nearest edge
+                return min(pt.x() - r.left(), r.right() - pt.x(),
+                           pt.y() - r.top(), r.bottom() - pt.y())
+            return math.hypot(pt.x() - cx, pt.y() - cy)
+
+        if isinstance(source, ArcItem):
+            cx, cy = source._center.x(), source._center.y()
+            return abs(math.hypot(pt.x() - cx, pt.y() - cy) - source._radius)
+
+        return 0.0
+
     def _offset_signed_dist(self, source, dist: float, side_pt: QPointF) -> float:
         """Return +dist or -dist depending on which side of source the cursor is on."""
         if isinstance(source, LineItem):
@@ -2310,6 +2392,22 @@ class Model_Space(QGraphicsScene):
 
         snapped = self.get_effective_position(scene_pos)
         self._draw_dim_hint = None   # cleared each frame; draw modes set it below
+
+        # ── Grip drag (mode-independent, takes priority) ────────────────
+        if self._grip_dragging and self._grip_item is not None:
+            pos = snapped
+            # Ctrl constrains to angle increments from the opposite grip
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and hasattr(self._grip_item, "grip_points")):
+                grips = self._grip_item.grip_points()
+                if len(grips) >= 2 and self._grip_index != 1:
+                    opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
+                    pos = self._constrain_angle(grips[opp], snapped)
+            self._grip_item.apply_grip(self._grip_index, pos)
+            self._solve_constraints(self._grip_item)
+            for v in self.views():
+                v.viewport().update()
+            return
 
         if self.mode == "pipe":
             if self.node_start_pos:
@@ -2548,39 +2646,56 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "offset_side":
             self.preview_node.hide()
             self.preview_pipe.hide()
-            if self._offset_source is not None and self._offset_dist > 0:
-                sd = self._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
-                self._clear_offset_preview()
-                preview = self._make_offset_item(self._offset_source, sd)
-                if preview is not None:
-                    pen = preview.pen()
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                    preview.setPen(pen)
-                    preview.setZValue(200)
-                    self.addItem(preview)
-                    self._offset_preview = preview
+            if self._offset_source is not None:
+                # Compute distance from cursor to source entity
+                if not getattr(self, '_offset_manual', False):
+                    self._offset_dist = self._perpendicular_distance(
+                        self._offset_source, snapped)
+                if self._offset_dist > 0:
+                    sd = self._offset_signed_dist(
+                        self._offset_source, self._offset_dist, snapped)
+                    self._clear_offset_preview()
+                    preview = self._make_offset_item(self._offset_source, sd)
+                    if preview is not None:
+                        pen = preview.pen()
+                        pen.setStyle(Qt.PenStyle.DashLine)
+                        preview.setPen(pen)
+                        preview.setZValue(200)
+                        self.addItem(preview)
+                        self._offset_preview = preview
+                    self._show_status(
+                        f"Offset: {self._offset_dist:.1f} mm  "
+                        f"(Tab = type distance, click to commit)", timeout=0)
 
-        elif self.mode in ("sprinkler", "dimension", "paste", "move", "water_supply"):
+        elif self.mode == "move":
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+            if self.node_start_pos is not None:
+                # Show rubber-band line from base point to cursor
+                if self._move_preview_line is None:
+                    self._move_preview_line = QGraphicsLineItem()
+                    pen = QPen(QColor("#00aaff"), 0)
+                    pen.setCosmetic(True)
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    self._move_preview_line.setPen(pen)
+                    self._move_preview_line.setZValue(200)
+                    self.addItem(self._move_preview_line)
+                self._move_preview_line.setLine(
+                    self.node_start_pos.x(), self.node_start_pos.y(),
+                    snapped.x(), snapped.y())
+                self._move_preview_line.show()
+                # Show displacement in status bar
+                dx = snapped.x() - self.node_start_pos.x()
+                dy = snapped.y() - self.node_start_pos.y()
+                self._show_status(
+                    f"Move: dx={dx:.1f}  dy={dy:.1f}  "
+                    f"dist={math.hypot(dx, dy):.1f}", timeout=0)
+
+        elif self.mode in ("sprinkler", "dimension", "paste", "water_supply"):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
         else:
-            # ── Grip drag ──────────────────────────────────────────────────
-            if self._grip_dragging and self._grip_item is not None:
-                pos = snapped
-                # Ctrl constrains to angle increments from the opposite grip
-                if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                        and hasattr(self._grip_item, "grip_points")):
-                    grips = self._grip_item.grip_points()
-                    # Use opposite endpoint as anchor (skip mid-grips)
-                    if len(grips) >= 2 and self._grip_index != 1:
-                        opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
-                        pos = self._constrain_angle(grips[opp], snapped)
-                self._grip_item.apply_grip(self._grip_index, pos)
-                self._solve_constraints(self._grip_item)  # live constraint solving
-                # Refresh foreground (grip handle positions changed)
-                for v in self.views():
-                    v.viewport().update()
-                return
+            # (Grip drag was moved above the mode chain — always takes priority)
             self.preview_node.hide()
             self.preview_pipe.hide()
 
@@ -2602,6 +2717,13 @@ class Model_Space(QGraphicsScene):
         selection = next((i for i in items if isinstance(i, Node)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
+
+        # ── Grip hit takes priority over mode handlers ──────────────────
+        grip_hit = self._find_grip_hit(snapped)
+        if grip_hit is not None:
+            self._grip_item, self._grip_index = grip_hit
+            self._grip_dragging = True
+            return  # consumed by grip system
 
         if self.mode == "sprinkler":
             if selection is None:
@@ -2930,41 +3052,19 @@ class Model_Space(QGraphicsScene):
             return
 
         elif self.mode == "offset":
-            # Select entity to offset
+            # Select entity to offset — go straight to live preview (no dialog)
             hit = [i for i in self.items(scene_pos)
                    if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem))]
             if not hit:
                 return
             self._offset_source = hit[0]
-            # Ask for offset distance
-            from PyQt6.QtWidgets import (
-                QDialog, QVBoxLayout, QFormLayout,
-                QDoubleSpinBox, QDialogButtonBox,
-            )
-            dlg = QDialog()
-            dlg.setWindowTitle("Offset Distance")
-            form = QFormLayout()
-            d_spin = QDoubleSpinBox()
-            d_spin.setRange(0.01, 1_000_000)
-            d_spin.setDecimals(3)
-            d_spin.setValue(self._offset_dist if self._offset_dist > 0 else 10.0)
-            sm = self.scale_manager
-            d_spin.setSuffix("  mm")
-            form.addRow("Distance:", d_spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            outer = QVBoxLayout(dlg)
-            outer.addLayout(form)
-            outer.addWidget(buttons)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
-            if dlg.exec() != QDialog.DialogCode.Accepted:
-                self._offset_source = None
-                return
-            self._offset_dist = d_spin.value()
+            self._highlight_item(hit[0])
+            self._offset_dist = 0  # will be computed from cursor distance
+            self._offset_manual = False  # cursor-driven distance
             self.set_mode("offset_side")
+            self._show_status(
+                "Move cursor to set offset distance and side, "
+                "click to commit. Tab = type distance.")
             return
 
         elif self.mode == "offset_side":
@@ -3149,15 +3249,7 @@ class Model_Space(QGraphicsScene):
                     self.instructionChanged.emit("Pick center point")
             return
 
-        elif self.mode is None:
-            if isinstance(selection, Node):
-                pass  # node selected — grip check follows
-            # ── Check for grip handle hit ───────────────────────────────────
-            grip_hit = self._find_grip_hit(snapped)
-            if grip_hit is not None:
-                self._grip_item, self._grip_index = grip_hit
-                self._grip_dragging = True
-                return  # consumed — don't deselect / pass to super()
+        # (Grip check was moved above the mode chain — always takes priority)
 
         super().mousePressEvent(event)
 
@@ -3242,6 +3334,21 @@ class Model_Space(QGraphicsScene):
         elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if self.clipboard_data():
                 self.set_mode("paste")
+        elif event.key() == Qt.Key.Key_Tab:
+            if self.mode == "offset_side":
+                from PyQt6.QtWidgets import QInputDialog
+                val, ok = QInputDialog.getDouble(
+                    None, "Offset Distance", "Distance:",
+                    self._offset_dist if self._offset_dist > 0 else 10.0,
+                    0.01, 1_000_000, 3)
+                if ok:
+                    self._offset_dist = val
+                    self._offset_manual = True
+                    self._show_status(
+                        f"Offset: {val:.1f} mm (fixed)  "
+                        f"Click to pick side and commit.", timeout=0)
+                return
+
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             # Finish an in-progress polyline
             if self.mode == "polyline" and self._polyline_active is not None:
@@ -4028,6 +4135,7 @@ class Model_Space(QGraphicsScene):
         self.addItem(hatch)
         self._hatch_items.append(hatch)
         hatch.setSelected(True)
+        hatch.user_layer = getattr(item, "user_layer", self.active_user_layer)
         self.push_undo_state()
         self._show_status("Hatch applied")
 

@@ -59,12 +59,14 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setPos(x, y)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
+        self.user_layer: str = "Default"
 
         # Enable word wrap if width was specified
         if text_width > 0:
             self.setTextWidth(text_width)
 
         self._properties.update({
+            "Layer":     {"type": "label", "value": "Default"},
             "Text":      {"type": "string", "value": text},
             "Color":     {"type": "enum",
                           "options": ["White", "Black", "Red", "Blue"],
@@ -81,7 +83,9 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
 
     def set_property(self, key, value):
         super().set_property(key, value)
-        if key == "Text":
+        if key == "Layer":
+            self.user_layer = value
+        elif key == "Text":
             self.setPlainText(value)
         elif key == "Color":
             _color_map = {"Black": "#000000", "Red": "#ff0000",
@@ -112,6 +116,16 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
             opt.setAlignment(_map.get(value, Qt.AlignmentFlag.AlignLeft))
             self.document().setDefaultTextOption(opt)
 
+    # ── grip protocol ────────────────────────────────────────────────────
+
+    def grip_points(self) -> list[QPointF]:
+        """Single grip at the note's position."""
+        return [self.pos()]
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if index == 0:
+            self.setPos(pos)
+
     # ── visual editing frame ──────────────────────────────────────────────
 
     def paint(self, painter, option, widget=None):
@@ -132,8 +146,11 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def __init__(self, p1: QPointF, p2: QPointF):
         super().__init__(p1.x(), p1.y(), p2.x(), p2.y())
 
+        self.user_layer: str = "Default"
+
         # Properties
         self._properties = {
+            "Layer": {"type": "label", "value": "Default"},
             "Text Size": {"type": "string", "value": "10"},
             "Colour": {"type": "enum", "options": ["Black", "Red", "Blue", "White"], "value": "White"},
             "Line Weight": {"type": "enum", "options": ["2", "4", "6"], "value": "2"},
@@ -304,7 +321,9 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def set_property(self, key, value):
         if key in self._properties:
             self._properties[key]["value"] = value
-        if key == "Text Size":
+        if key == "Layer":
+            self.user_layer = value
+        elif key == "Text Size":
             font = self.label.font()
             font.setPointSize(int(value))
             self.label.setFont(font)
@@ -512,6 +531,7 @@ class HatchItem(QGraphicsPathItem):
         self.setZValue(0)  # sits between geometry and annotations
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self.user_layer: str = "Default"
 
     # ── Public properties ────────────────────────────────────────────────────
 
@@ -562,6 +582,7 @@ class HatchItem(QGraphicsPathItem):
     def get_properties(self) -> dict:
         return {
             "Type":    {"type": "label",  "value": "Hatch"},
+            "Layer":   {"type": "label",  "value": self.user_layer},
             "Pattern": {"type": "enum",   "options": ["diagonal", "cross", "solid"],
                         "value": self._pattern_type},
             "Angle":   {"type": "string", "value": f"{self._angle:.1f}"},
@@ -570,7 +591,9 @@ class HatchItem(QGraphicsPathItem):
         }
 
     def set_property(self, key: str, value):
-        if key == "Pattern":
+        if key == "Layer":
+            self.user_layer = value
+        elif key == "Pattern":
             self.pattern_type = value
         elif key == "Angle":
             try:
@@ -606,6 +629,7 @@ class HatchItem(QGraphicsPathItem):
             "angle":        self._angle,
             "spacing":      self._spacing,
             "colour":       self._colour,
+            "user_layer":   self.user_layer,
         }
 
     @classmethod
@@ -615,7 +639,7 @@ class HatchItem(QGraphicsPathItem):
 
         pos_data = data.get("pos", [0, 0])
         pos = QPointF(pos_data[0], pos_data[1])
-        return cls(
+        obj = cls(
             boundary_path=path,
             pos=pos,
             pattern_type=data.get("pattern_type", "diagonal"),
@@ -623,6 +647,8 @@ class HatchItem(QGraphicsPathItem):
             spacing=data.get("spacing", 8.0),
             colour=data.get("colour", "#888888"),
         )
+        obj.user_layer = data.get("user_layer", "Default")
+        return obj
 
     @staticmethod
     def _rebuild_path_from_elements(elements: list) -> QPainterPath:
