@@ -1,0 +1,198 @@
+{
+  "library": [
+    {
+      "id": "tyco_ty315",
+      "manufacturer": "Tyco",
+      "model": "TY315",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response, light/ordinary hazard"
+    },
+    {
+      "id": "tyco_ty323",
+      "manufacturer": "Tyco",
+      "model": "TY323",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Quick response, light/ordinary hazard"
+    },
+    {
+      "id": "tyco_ty3131",
+      "manufacturer": "Tyco",
+      "model": "TY3131",
+      "type": "Upright",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Quick response upright"
+    },
+    {
+      "id": "tyco_ty4131",
+      "manufacturer": "Tyco",
+      "model": "TY4131",
+      "type": "Upright",
+      "k_factor": 8.0,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Large orifice upright, K8.0"
+    },
+    {
+      "id": "tyco_ty5131",
+      "manufacturer": "Tyco",
+      "model": "TY5131",
+      "type": "Sidewall",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 96.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Horizontal sidewall, residential"
+    },
+    {
+      "id": "tyco_ty3251",
+      "manufacturer": "Tyco",
+      "model": "TY3251",
+      "type": "Concealed",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 196.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Concealed pendent, white cover plate"
+    },
+    {
+      "id": "viking_vk100",
+      "manufacturer": "Viking",
+      "model": "VK100",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response pendent"
+    },
+    {
+      "id": "viking_vk102",
+      "manufacturer": "Viking",
+      "model": "VK102",
+      "type": "Upright",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response upright"
+    },
+    {
+      "id": "viking_vk200",
+      "manufacturer": "Viking",
+      "model": "VK200",
+      "type": "Pendent",
+      "k_factor": 8.0,
+      "min_pressure": 7.0,
+      "coverage_area": 196.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Large orifice pendent, K8.0"
+    },
+    {
+      "id": "viking_vk457",
+      "manufacturer": "Viking",
+      "model": "VK457",
+      "type": "Concealed",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 196.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Concealed pendent, adjustable cover"
+    },
+    {
+      "id": "viking_vk500",
+      "manufacturer": "Viking",
+      "model": "VK500",
+      "type": "Sidewall",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 96.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Horizontal sidewall standard response"
+    },
+    {
+      "id": "vic_v2710",
+      "manufacturer": "Victaulic",
+      "model": "V2710",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response, light hazard"
+    },
+    {
+      "id": "vic_v2720",
+      "manufacturer": "Victaulic",
+      "model": "V2720",
+      "type": "Upright",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response upright"
+    },
+    {
+      "id": "central_a1",
+      "manufacturer": "Central",
+      "model": "A-1 Pendent",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Classic standard response pendent"
+    }
+  ],
+  "templates": [
+    {
+      "id": "viking_vk102",
+      "manufacturer": "Viking",
+      "model": "VK102",
+      "type": "Upright",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response upright"
+    },
+    {
+      "id": "tyco_ty315",
+      "manufacturer": "Tyco",
+      "model": "TY315",
+      "type": "Pendent",
+      "k_factor": 5.6,
+      "min_pressure": 7.0,
+      "coverage_area": 130.0,
+      "temp_rating": 155,
+      "orifice": "1/2\"",
+      "notes": "Standard response, light/ordinary hazard"
+    }
+  ]
+}
