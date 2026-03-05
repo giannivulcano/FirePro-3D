@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox,
-    QAbstractItemView, QFrame, QLabel, QGraphicsItem, QComboBox,
+    QAbstractItemView, QFrame, QLabel, QGraphicsItem, QComboBox, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -39,7 +39,7 @@ DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
 @dataclass
 class Level:
     name:         str
-    elevation:    float = 0.0       # mm, relative to project datum
+    elevation:    float = 0.0       # ft, relative to project datum
     view_top:     float = 2000.0    # mm above elevation (future use)
     view_bottom:  float = -1000.0   # mm below elevation (future use)
     display_mode: str   = "Auto"    # Auto | Hidden | Faded | Visible
@@ -157,6 +157,22 @@ class LevelManager:
         """Reset to default levels (used on new file)."""
         self._levels = [Level(**vars(l)) for l in DEFAULT_LEVELS]
         self._active = "Level 1"
+
+    # ── Elevation helpers ───────────────────────────────────────────────────
+
+    def update_elevations(self, scene):
+        """Recompute z_pos for all nodes: z_pos = level.elevation + z_offset."""
+        from node import Node
+        lvl_map = {l.name: l for l in self._levels}
+        for node in scene.sprinkler_system.nodes:
+            lvl = lvl_map.get(getattr(node, "level", "Level 1"))
+            level_elev = lvl.elevation if lvl else 0.0
+            node.z_pos = level_elev + node.z_offset
+            node._properties.get("Elevation Offset", {})["value"] = str(node.z_offset)
+            if node.has_sprinkler():
+                sp = node.sprinkler._properties.get("Elevation Offset")
+                if sp:
+                    sp["value"] = str(node.z_offset)
 
     # ── Apply to scene ────────────────────────────────────────────────────────
 
@@ -320,6 +336,7 @@ class LevelWidget(QWidget):
 
     activeLevelChanged = pyqtSignal(str)
     levelsChanged      = pyqtSignal()
+    duplicateLevel     = pyqtSignal(str, str)   # (source_level, new_level)
 
     def __init__(self, manager: LevelManager, scene=None, parent=None):
         super().__init__(parent)
@@ -348,8 +365,13 @@ class LevelWidget(QWidget):
         del_btn.setFixedSize(24, 24)
         del_btn.setToolTip("Delete selected level")
         del_btn.clicked.connect(self._delete_level)
+        dup_btn = QPushButton("\u29C9")
+        dup_btn.setFixedSize(24, 24)
+        dup_btn.setToolTip("Duplicate level (copy all entities to new level)")
+        dup_btn.clicked.connect(self._duplicate_level)
         hdr.addWidget(add_btn)
         hdr.addWidget(del_btn)
+        hdr.addWidget(dup_btn)
         layout.addLayout(hdr)
 
         sep = QFrame()
@@ -360,7 +382,7 @@ class LevelWidget(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Elevation (mm)", "Display"]
+            ["Name", "Elevation (ft)", "Display"]
         )
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
@@ -381,6 +403,8 @@ class LevelWidget(QWidget):
             QAbstractItemView.EditTrigger.DoubleClicked |
             QAbstractItemView.EditTrigger.SelectedClicked
         )
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.table)
@@ -502,6 +526,8 @@ class LevelWidget(QWidget):
                 self._building = False
                 return
             lvl.elevation = new_elev
+            if self.scene:
+                self.manager.update_elevations(self.scene)
             self.levelsChanged.emit()
 
     def _on_display_combo_changed(self, row: int, idx: int):
@@ -575,6 +601,33 @@ class LevelWidget(QWidget):
             if hasattr(item, "level"):
                 item.level = active
         self.levelsChanged.emit()
+
+    def _duplicate_level(self):
+        """Duplicate the currently selected level (create new + copy entities)."""
+        row = self.table.currentRow()
+        lvl = self._level_at_row(row)
+        if lvl is None:
+            return
+        self._duplicate_level_from(lvl)
+
+    def _duplicate_level_from(self, source_lvl: Level):
+        """Create a new level and emit signal to copy all entities from source."""
+        new_lvl = self.manager.add_level(elevation=source_lvl.elevation)
+        self._building = True
+        self._append_row(new_lvl)
+        self._building = False
+        self.duplicateLevel.emit(source_lvl.name, new_lvl.name)
+        self.levelsChanged.emit()
+
+    def _on_table_context_menu(self, pos):
+        row = self.table.rowAt(pos.y())
+        lvl = self._level_at_row(row)
+        if lvl is None:
+            return
+        menu = QMenu(self)
+        dup_action = menu.addAction("Duplicate Level...")
+        dup_action.triggered.connect(lambda: self._duplicate_level_from(lvl))
+        menu.exec(self.table.viewport().mapToGlobal(pos))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

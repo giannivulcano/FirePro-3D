@@ -27,6 +27,7 @@ class Node(QGraphicsEllipseItem):
         self.x_pos = x
         self.y_pos = y
         self.z_pos = z
+        self.z_offset: float = z             # offset from level elevation (ft)
         self.icon_scale = 4
         self.sprinkler = None
         self.fitting = Fitting(self)
@@ -36,7 +37,7 @@ class Node(QGraphicsEllipseItem):
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {
-            "Elevation": {"type": "string", "value": str(z)},
+            "Elevation Offset": {"type": "string", "value": str(z)},
         }
 
     # -------------------------------------------------------------------------
@@ -46,11 +47,14 @@ class Node(QGraphicsEllipseItem):
         return self._properties.copy()
 
     def set_property(self, key: str, value: str):
+        # Accept legacy name from old save files
+        if key == "Elevation":
+            key = "Elevation Offset"
         if key in self._properties:
             self._properties[key]["value"] = str(value)
-        if key == "Elevation":
+        if key == "Elevation Offset":
             try:
-                self.z_pos = float(value)
+                self.z_offset = float(value)
             except (ValueError, TypeError):
                 pass
 

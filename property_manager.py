@@ -72,9 +72,31 @@ class PropertyManager(QWidget):
             )
             self.layout.addRow(QLabel("Level"), combo)
 
+        # Read-only absolute elevation for nodes
+        node = None
+        if isinstance(item, Node):
+            node = item
+        elif isinstance(item, Sprinkler) and item.node is not None:
+            node = item.node
+        if node is not None:
+            abs_field = QLineEdit(f"{node.z_pos:.2f}")
+            abs_field.setReadOnly(True)
+            abs_field.setStyleSheet("background: #2a2a2a; color: #888;")
+            self.layout.addRow(QLabel("Absolute Elev. (ft)"), abs_field)
+
     def _change_level(self, item, new_level):
         item.level = new_level
         if self._level_manager is not None:
+            # Recompute elevation for nodes
+            node = item if isinstance(item, Node) else None
+            if isinstance(item, Sprinkler) and item.node:
+                node = item.node
+            if node is not None:
+                lvl = self._level_manager.get(new_level)
+                if lvl:
+                    node.z_pos = lvl.elevation + node.z_offset
             scene = item.scene()
             if scene:
                 self._level_manager.apply_to_scene(scene)
+        # Refresh properties to update absolute elevation display
+        self.show_properties(item)
