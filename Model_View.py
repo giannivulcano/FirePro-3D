@@ -301,6 +301,8 @@ class Model_View(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
+            # Track rubber-band start for crossing selection (stretch mode)
+            self._rb_start = event.pos()
             # When clicking on a grip handle the scene will consume the event.
             # However, QGraphicsView starts rubber-band selection before the
             # scene processes the click (grip handles are foreground overlays,
@@ -333,10 +335,30 @@ class Model_View(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
             self.setCursor(Qt.CursorShape.ArrowCursor)
-        else:
+        elif event.button() == Qt.MouseButton.LeftButton:
             if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
                 self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            # Crossing selection for stretch mode: detect right-to-left drag
+            sc = self.scene()
+            rb_start = getattr(self, "_rb_start", None)
+            if (sc is not None and rb_start is not None
+                    and getattr(sc, "mode", None) == "stretch"
+                    and getattr(sc, "_stretch_base", None) is None):
+                end = event.pos()
+                dx = end.x() - rb_start.x()
+                dy = end.y() - rb_start.y()
+                # Right-to-left drag with enough distance = crossing selection
+                if dx < -5 and (abs(dx) > 10 or abs(dy) > 10):
+                    tl = self.mapToScene(min(rb_start.x(), end.x()),
+                                         min(rb_start.y(), end.y()))
+                    br = self.mapToScene(max(rb_start.x(), end.x()),
+                                         max(rb_start.y(), end.y()))
+                    crossing_rect = QRectF(tl, br).normalized()
+                    sc.begin_stretch_crossing(crossing_rect)
+            self._rb_start = None
+            super().mouseReleaseEvent(event)
+        else:
             super().mouseReleaseEvent(event)
 
     # -----------------------------
@@ -353,6 +375,7 @@ class Model_View(QGraphicsView):
         if sc is not None and getattr(sc, "mode", None) in (
             "draw_line", "draw_rectangle", "draw_circle",
             "construction_line", "polyline", "offset_side",
+            "rotate", "scale", "fillet", "chamfer",
         ):
             return False   # let Tab fall through to keyPressEvent
         return super().focusNextPrevChild(next_child)

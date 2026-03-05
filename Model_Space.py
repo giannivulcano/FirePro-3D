@@ -125,6 +125,38 @@ class Model_Space(QGraphicsScene):
         self._constraints: list = []        # list of Constraint objects
         self._constraint_circle_a = None    # first circle for concentric constraint
         self._constraint_grip_a: tuple | None = None  # (item, grip_index) for dimensional
+        # Interactive transforms (Rotate, Scale, Mirror)
+        self._rotate_pivot: "QPointF | None" = None
+        self._rotate_preview_line = None
+        self._scale_base: "QPointF | None" = None
+        self._scale_preview_line = None
+        self._scale_factor: float = 1.0
+        self._mirror_p1: "QPointF | None" = None
+        self._mirror_preview_line = None
+        # Break / Break at Point
+        self._break_target = None
+        self._break_highlight = None
+        self._break_p1: "QPointF | None" = None
+        self._break_at_target = None
+        self._break_at_highlight = None
+        # Fillet / Chamfer
+        self._fillet_radius: float = 5.0
+        self._fillet_item1 = None
+        self._fillet_item2 = None
+        self._fillet_highlight1 = None
+        self._fillet_highlight2 = None
+        self._fillet_preview = None
+        self._chamfer_dist: float = 5.0
+        self._chamfer_item1 = None
+        self._chamfer_item2 = None
+        self._chamfer_highlight1 = None
+        self._chamfer_highlight2 = None
+        self._chamfer_preview = None
+        # Stretch
+        self._stretch_vertices: list = []
+        self._stretch_full_items: list = []
+        self._stretch_base: "QPointF | None" = None
+        self._stretch_preview_line = None
         # Place-import mode (Sprint L)
         self._place_import_params = None
         self._place_import_ghost = None
@@ -577,6 +609,50 @@ class Model_Space(QGraphicsScene):
     # -------------------------------------------------------------------------
     # DELETE
 
+    def _delete_single_item(self, item):
+        """Remove a single geometry/annotation item from the scene and its tracking list."""
+        from Annotations import HatchItem
+        if isinstance(item, DimensionAnnotation):
+            if item in self.annotations.dimensions:
+                self.annotations.dimensions.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, NoteAnnotation):
+            if item in self.annotations.notes:
+                self.annotations.notes.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, ConstructionLine):
+            if item in self._construction_lines:
+                self._construction_lines.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, PolylineItem):
+            if item in self._polylines:
+                self._polylines.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, LineItem):
+            if item in self._draw_lines:
+                self._draw_lines.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, RectangleItem):
+            if item in self._draw_rects:
+                self._draw_rects.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, CircleItem):
+            if item in self._draw_circles:
+                self._draw_circles.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, ArcItem):
+            if item in self._draw_arcs:
+                self._draw_arcs.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, GridlineItem):
+            if item in self._gridlines:
+                self._gridlines.remove(item)
+            self.removeItem(item)
+        elif isinstance(item, HatchItem):
+            if item in self._hatch_items:
+                self._hatch_items.remove(item)
+            self.removeItem(item)
+
     def delete_selected_items(self):
         if not self.selectedItems():
             return
@@ -778,8 +854,50 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(self._place_import_ghost)
                 self._place_import_ghost = None
 
-        # Capture current selection when entering move mode from ribbon/keyboard
-        if mode == "move" and not self._selected_items:
+        # Clean up interactive transforms
+        def _remove_preview(attr):
+            item = getattr(self, attr, None)
+            if item is not None:
+                if item.scene() is self:
+                    self.removeItem(item)
+                setattr(self, attr, None)
+
+        if mode != "rotate":
+            self._rotate_pivot = None
+            _remove_preview("_rotate_preview_line")
+        if mode != "scale":
+            self._scale_base = None
+            _remove_preview("_scale_preview_line")
+        if mode != "mirror":
+            self._mirror_p1 = None
+            _remove_preview("_mirror_preview_line")
+        if mode != "break":
+            self._break_target = None
+            self._break_p1 = None
+            _remove_preview("_break_highlight")
+        if mode != "break_at_point":
+            self._break_at_target = None
+            _remove_preview("_break_at_highlight")
+        if mode != "fillet":
+            self._fillet_item1 = None
+            self._fillet_item2 = None
+            _remove_preview("_fillet_highlight1")
+            _remove_preview("_fillet_highlight2")
+            _remove_preview("_fillet_preview")
+        if mode != "chamfer":
+            self._chamfer_item1 = None
+            self._chamfer_item2 = None
+            _remove_preview("_chamfer_highlight1")
+            _remove_preview("_chamfer_highlight2")
+            _remove_preview("_chamfer_preview")
+        if mode != "stretch":
+            self._stretch_vertices = []
+            self._stretch_full_items = []
+            self._stretch_base = None
+            _remove_preview("_stretch_preview_line")
+
+        # Capture current selection when entering move/rotate/scale mode from ribbon
+        if mode in ("move", "rotate", "scale") and not self._selected_items:
             self._selected_items = list(self.selectedItems())
 
         # Clear OSNAP snap trace whenever mode changes
@@ -814,6 +932,14 @@ class Model_Space(QGraphicsScene):
             "hatch":          "Click a closed object to apply hatching",
             "constraint_concentric":   "Select first circle",
             "constraint_dimensional":  "Click first grip point",
+            "rotate":          "Pick pivot point",
+            "scale":           "Pick base point (Tab = enter factor)",
+            "mirror":          "Pick first axis point",
+            "break":           "Select object to break",
+            "break_at_point":  "Select object to split",
+            "fillet":          "Click first object",
+            "chamfer":         "Click first object",
+            "stretch":         "Draw crossing window (right-to-left)",
         }
         instr = _initial_steps.get(mode, "")
         if instr:
@@ -2414,6 +2540,10 @@ class Model_Space(QGraphicsScene):
                     pos = self._constrain_angle(grips[opp], snapped)
             self._grip_item.apply_grip(self._grip_index, pos)
             self._solve_constraints(self._grip_item)
+            # Real-time hatch rebuild during grip drag
+            for h in self._hatch_items:
+                if getattr(h, '_source_item', None) is self._grip_item:
+                    h.rebuild_from_source()
             for v in self.views():
                 v.viewport().update()
             return
@@ -2703,6 +2833,59 @@ class Model_Space(QGraphicsScene):
         elif self.mode in ("sprinkler", "dimension", "paste", "water_supply"):
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
+
+        elif self.mode == "rotate" and self._rotate_pivot is not None:
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._rotate_preview_line is None:
+                self._rotate_preview_line = QGraphicsLineItem()
+                p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
+                p.setStyle(Qt.PenStyle.DashLine)
+                self._rotate_preview_line.setPen(p)
+                self._rotate_preview_line.setZValue(200)
+                self.addItem(self._rotate_preview_line)
+            self._rotate_preview_line.setLine(
+                self._rotate_pivot.x(), self._rotate_pivot.y(),
+                snapped.x(), snapped.y())
+            self._rotate_preview_line.show()
+            dx = snapped.x() - self._rotate_pivot.x()
+            dy = snapped.y() - self._rotate_pivot.y()
+            angle = math.degrees(math.atan2(-dy, dx))
+            self._show_status(f"Rotate: {angle:.1f}°", timeout=0)
+
+        elif self.mode == "mirror" and self._mirror_p1 is not None:
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._mirror_preview_line is None:
+                self._mirror_preview_line = QGraphicsLineItem()
+                p = QPen(QColor("#ff00ff"), 0); p.setCosmetic(True)
+                p.setStyle(Qt.PenStyle.DashDotLine)
+                self._mirror_preview_line.setPen(p)
+                self._mirror_preview_line.setZValue(200)
+                self.addItem(self._mirror_preview_line)
+            self._mirror_preview_line.setLine(
+                self._mirror_p1.x(), self._mirror_p1.y(),
+                snapped.x(), snapped.y())
+            self._mirror_preview_line.show()
+
+        elif self.mode == "stretch" and self._stretch_base is not None:
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._stretch_preview_line is None:
+                self._stretch_preview_line = QGraphicsLineItem()
+                p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
+                p.setStyle(Qt.PenStyle.DashLine)
+                self._stretch_preview_line.setPen(p)
+                self._stretch_preview_line.setZValue(200)
+                self.addItem(self._stretch_preview_line)
+            self._stretch_preview_line.setLine(
+                self._stretch_base.x(), self._stretch_base.y(),
+                snapped.x(), snapped.y())
+            self._stretch_preview_line.show()
+            dx = snapped.x() - self._stretch_base.x()
+            dy = snapped.y() - self._stretch_base.y()
+            self._show_status(f"Stretch: dx={dx:.1f}  dy={dy:.1f}", timeout=0)
+
         else:
             # (Grip drag was moved above the mode chain — always takes priority)
             self.preview_node.hide()
@@ -3114,6 +3297,157 @@ class Model_Space(QGraphicsScene):
             self.set_mode("offset")
             return
 
+        # ── Interactive Rotate ────────────────────────────────────────────
+        elif self.mode == "rotate":
+            if self._rotate_pivot is None:
+                self._rotate_pivot = snapped
+                self.instructionChanged.emit("Click to set angle, or Tab for exact angle")
+            else:
+                dx = snapped.x() - self._rotate_pivot.x()
+                dy = snapped.y() - self._rotate_pivot.y()
+                angle = math.degrees(math.atan2(-dy, dx))
+                self._apply_rotate(self._rotate_pivot, angle)
+                self.push_undo_state()
+                self._selected_items = []
+                self.set_mode(None)
+            return
+
+        # ── Interactive Scale ─────────────────────────────────────────────
+        elif self.mode == "scale":
+            if self._scale_base is None:
+                self._scale_base = snapped
+                self.instructionChanged.emit("Tab = enter scale factor")
+            return
+
+        # ── Mirror ────────────────────────────────────────────────────────
+        elif self.mode == "mirror":
+            if self._mirror_p1 is None:
+                self._mirror_p1 = snapped
+                self.instructionChanged.emit("Pick second axis point")
+            else:
+                self._apply_mirror(self._mirror_p1, snapped)
+                from PyQt6.QtWidgets import QMessageBox
+                reply = QMessageBox.question(
+                    None, "Mirror", "Delete original objects?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    for item in list(self._selected_items or self.selectedItems()):
+                        self._delete_single_item(item)
+                self.push_undo_state()
+                self._selected_items = []
+                self.set_mode(None)
+            return
+
+        # ── Break (2-point) ──────────────────────────────────────────────
+        elif self.mode == "break":
+            if self._break_target is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None:
+                    self._break_target = hit
+                    self._break_highlight = self._highlight_item(hit)
+                    self.instructionChanged.emit("Pick first break point on object")
+            elif self._break_p1 is None:
+                self._break_p1 = snapped
+                self.instructionChanged.emit("Pick second break point")
+            else:
+                self._break_item(self._break_target, self._break_p1, snapped)
+                self.push_undo_state()
+                self.set_mode("break")
+            return
+
+        # ── Break at Point ───────────────────────────────────────────────
+        elif self.mode == "break_at_point":
+            if self._break_at_target is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None:
+                    self._break_at_target = hit
+                    self._break_at_highlight = self._highlight_item(hit)
+                    self.instructionChanged.emit("Pick break point on object")
+            else:
+                self._break_at_point(self._break_at_target, snapped)
+                self.push_undo_state()
+                self.set_mode("break_at_point")
+            return
+
+        # ── Fillet ───────────────────────────────────────────────────────
+        elif self.mode == "fillet":
+            if self._fillet_item1 is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None and isinstance(hit, LineItem):
+                    self._fillet_item1 = hit
+                    self._fillet_highlight1 = self._highlight_item(hit)
+                    self.instructionChanged.emit("Click second line (Tab = set radius)")
+            elif self._fillet_item2 is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
+                    self._fillet_item2 = hit
+                    self._fillet_highlight2 = self._highlight_item(hit)
+                    data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                                               self._fillet_radius)
+                    if data is None:
+                        self._show_status("Cannot fillet these lines (parallel?)")
+                        self.set_mode("fillet")
+                    else:
+                        # Show preview
+                        from PyQt6.QtGui import QPainterPath as _PP
+                        pp = _PP()
+                        r = data["radius"]
+                        c = data["center"]
+                        pp.addEllipse(c, r, r)
+                        self._fillet_preview = self.addPath(
+                            pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                        self._fillet_preview.setPen(
+                            QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                        self._fillet_preview.pen().setCosmetic(True)
+                        self.instructionChanged.emit(
+                            f"Radius: {self._fillet_radius:.1f}  Press Enter to commit, Tab to change")
+            return
+
+        # ── Chamfer ──────────────────────────────────────────────────────
+        elif self.mode == "chamfer":
+            if self._chamfer_item1 is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None and isinstance(hit, LineItem):
+                    self._chamfer_item1 = hit
+                    self._chamfer_highlight1 = self._highlight_item(hit)
+                    self.instructionChanged.emit("Click second line (Tab = set distance)")
+            elif self._chamfer_item2 is None:
+                hit = self._find_geometry_at(scene_pos)
+                if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
+                    self._chamfer_item2 = hit
+                    self._chamfer_highlight2 = self._highlight_item(hit)
+                    data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                                                 self._chamfer_dist)
+                    if data is None:
+                        self._show_status("Cannot chamfer these lines (parallel?)")
+                        self.set_mode("chamfer")
+                    else:
+                        self._chamfer_preview = QGraphicsLineItem(
+                            data["cp1"].x(), data["cp1"].y(),
+                            data["cp2"].x(), data["cp2"].y())
+                        p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
+                        p.setCosmetic(True)
+                        self._chamfer_preview.setPen(p)
+                        self.addItem(self._chamfer_preview)
+                        self.instructionChanged.emit(
+                            f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit, Tab to change")
+            return
+
+        # ── Stretch (base/destination pick after crossing window) ────────
+        elif self.mode == "stretch":
+            if self._stretch_vertices or self._stretch_full_items:
+                if self._stretch_base is None:
+                    self._stretch_base = snapped
+                    self.instructionChanged.emit("Pick destination point")
+                else:
+                    delta = QPointF(snapped.x() - self._stretch_base.x(),
+                                    snapped.y() - self._stretch_base.y())
+                    self._commit_stretch(delta)
+                    self.push_undo_state()
+                    self.set_mode(None)
+            return
+
         # ── Trim / Extend / Merge / Hatch / Constraints (Sprint Y) ────────
         elif self.mode in ("trim", "trim_pick"):
             self._handle_trim_click(snapped)
@@ -3371,6 +3705,74 @@ class Model_Space(QGraphicsScene):
                         f"Offset: {val:.1f} mm (fixed)  "
                         f"Click to pick side and commit.", timeout=0)
                 return
+            elif self.mode == "rotate" and self._rotate_pivot is not None:
+                from PyQt6.QtWidgets import QInputDialog
+                val, ok = QInputDialog.getDouble(
+                    None, "Rotate Angle", "Angle (degrees):", 90.0, -360, 360, 2)
+                if ok:
+                    self._apply_rotate(self._rotate_pivot, val)
+                    self.push_undo_state()
+                    self._selected_items = []
+                    self.set_mode(None)
+                return
+            elif self.mode == "scale" and self._scale_base is not None:
+                from PyQt6.QtWidgets import QInputDialog
+                val, ok = QInputDialog.getDouble(
+                    None, "Scale Factor", "Factor:", 2.0, 0.001, 10000, 4)
+                if ok:
+                    self._apply_scale(self._scale_base, val)
+                    self.push_undo_state()
+                    self._selected_items = []
+                    self.set_mode(None)
+                return
+            elif self.mode == "fillet" and self._fillet_item2 is not None:
+                from PyQt6.QtWidgets import QInputDialog
+                val, ok = QInputDialog.getDouble(
+                    None, "Fillet Radius", "Radius:",
+                    self._fillet_radius, 0.01, 1_000_000, 3)
+                if ok:
+                    self._fillet_radius = val
+                    # Update preview
+                    if self._fillet_preview is not None:
+                        if self._fillet_preview.scene() is self:
+                            self.removeItem(self._fillet_preview)
+                        self._fillet_preview = None
+                    data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                                               self._fillet_radius)
+                    if data is not None:
+                        from PyQt6.QtGui import QPainterPath as _PP
+                        pp = _PP()
+                        pp.addEllipse(data["center"], data["radius"], data["radius"])
+                        self._fillet_preview = self.addPath(
+                            pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                    self._show_status(
+                        f"Fillet radius: {val:.1f}  Press Enter to commit", timeout=0)
+                return
+            elif self.mode == "chamfer" and self._chamfer_item2 is not None:
+                from PyQt6.QtWidgets import QInputDialog
+                val, ok = QInputDialog.getDouble(
+                    None, "Chamfer Distance", "Distance:",
+                    self._chamfer_dist, 0.01, 1_000_000, 3)
+                if ok:
+                    self._chamfer_dist = val
+                    # Update preview
+                    if self._chamfer_preview is not None:
+                        if self._chamfer_preview.scene() is self:
+                            self.removeItem(self._chamfer_preview)
+                        self._chamfer_preview = None
+                    data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                                                 self._chamfer_dist)
+                    if data is not None:
+                        self._chamfer_preview = QGraphicsLineItem(
+                            data["cp1"].x(), data["cp1"].y(),
+                            data["cp2"].x(), data["cp2"].y())
+                        p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
+                        p.setCosmetic(True)
+                        self._chamfer_preview.setPen(p)
+                        self.addItem(self._chamfer_preview)
+                    self._show_status(
+                        f"Chamfer distance: {val:.1f}  Press Enter to commit", timeout=0)
+                return
 
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             # Commit offset on Enter (same logic as click)
@@ -3415,6 +3817,28 @@ class Model_Space(QGraphicsScene):
                     if self.single_place_mode:
                         self.set_mode("select")
                     # Stay in polyline mode so user can draw another
+            # Commit fillet
+            elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
+                data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                                            self._fillet_radius)
+                if data is not None:
+                    self._commit_fillet(data)
+                    self.push_undo_state()
+                else:
+                    self._show_status("Cannot compute fillet for these objects", timeout=3000)
+                self.set_mode(None)
+                return
+            # Commit chamfer
+            elif self.mode == "chamfer" and self._chamfer_item1 is not None and self._chamfer_item2 is not None:
+                data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                                              self._chamfer_dist)
+                if data is not None:
+                    self._commit_chamfer(data)
+                    self.push_undo_state()
+                else:
+                    self._show_status("Cannot compute chamfer for these objects", timeout=3000)
+                self.set_mode(None)
+                return
         else:
             super().keyPressEvent(event)
 
@@ -3717,118 +4141,526 @@ class Model_Space(QGraphicsScene):
     # -------------------------------------------------------------------------
     # ROTATE SELECTED (Sprint M recovery)
 
-    def rotate_selected_items(self):
-        """Rotate selected items by a user-specified angle around their centroid."""
-        items = self.selectedItems()
-        if not items:
-            return
-        from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QFormLayout,
-            QDoubleSpinBox, QDialogButtonBox,
-        )
-        dlg = QDialog()
-        dlg.setWindowTitle("Rotate")
-        form = QFormLayout()
-        a_spin = QDoubleSpinBox()
-        a_spin.setRange(-360, 360)
-        a_spin.setDecimals(2)
-        a_spin.setValue(90)
-        a_spin.setSuffix("  °")
-        form.addRow("Angle:", a_spin)
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        outer = QVBoxLayout(dlg)
-        outer.addLayout(form)
-        outer.addWidget(buttons)
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+    # -------------------------------------------------------------------------
+    # INTERACTIVE TRANSFORMS (Rotate / Scale / Mirror)
 
-        angle = a_spin.value()
-        angle_rad = math.radians(angle)
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-
-        # Compute centroid of all selected items
-        xs, ys = [], []
-        for item in items:
-            pos = item.scenePos()
-            xs.append(pos.x())
-            ys.append(pos.y())
-        cx = sum(xs) / len(xs)
-        cy = sum(ys) / len(ys)
-
+    def _apply_rotate(self, pivot: QPointF, angle_deg: float, items: list = None):
+        """Rotate *items* around *pivot* by *angle_deg*."""
+        if items is None:
+            items = self._selected_items or self.selectedItems()
+        rp = CAD_Math.rotate_point
         for item in items:
             if isinstance(item, Node):
-                ox = item.scenePos().x() - cx
-                oy = item.scenePos().y() - cy
-                nx = cx + ox * cos_a - oy * sin_a
-                ny = cy + ox * sin_a + oy * cos_a
-                item.setPos(nx, ny)
+                new_pos = rp(item.scenePos(), pivot, angle_deg)
+                item.setPos(new_pos)
                 item.fitting.update()
-            elif isinstance(item, (LineItem, PolylineItem, RectangleItem,
-                                   CircleItem, ArcItem, ConstructionLine)):
-                if hasattr(item, '_pt1') and hasattr(item, '_pt2'):
-                    # LineItem or ConstructionLine
-                    for attr in ('_pt1', '_pt2'):
-                        pt = getattr(item, attr)
-                        ox, oy = pt.x() - cx, pt.y() - cy
-                        setattr(item, attr, QPointF(
-                            cx + ox * cos_a - oy * sin_a,
-                            cy + ox * sin_a + oy * cos_a))
-                    if isinstance(item, LineItem):
-                        item.setLine(item._pt1.x(), item._pt1.y(),
-                                     item._pt2.x(), item._pt2.y())
-                    elif isinstance(item, ConstructionLine):
-                        item._recompute_line()
-                elif isinstance(item, PolylineItem):
-                    item._points = [
-                        QPointF(cx + (p.x() - cx) * cos_a - (p.y() - cy) * sin_a,
-                                cy + (p.x() - cx) * sin_a + (p.y() - cy) * cos_a)
-                        for p in item._points
-                    ]
-                    item._rebuild_path()
-                elif isinstance(item, CircleItem):
-                    ox = item._center.x() - cx
-                    oy = item._center.y() - cy
-                    item._center = QPointF(
-                        cx + ox * cos_a - oy * sin_a,
-                        cy + ox * sin_a + oy * cos_a)
-                    r = item._radius
-                    item.setRect(item._center.x() - r, item._center.y() - r,
-                                 2 * r, 2 * r)
-                elif isinstance(item, RectangleItem):
-                    # Rotate all four corners and rebuild
-                    rect = item.rect()
-                    corners = [
-                        QPointF(rect.left(), rect.top()),
-                        QPointF(rect.right(), rect.top()),
-                        QPointF(rect.right(), rect.bottom()),
-                        QPointF(rect.left(), rect.bottom()),
-                    ]
-                    rotated = []
-                    for c in corners:
-                        ox, oy = c.x() - cx, c.y() - cy
-                        rotated.append(QPointF(
-                            cx + ox * cos_a - oy * sin_a,
-                            cy + ox * sin_a + oy * cos_a))
-                    xs_r = [p.x() for p in rotated]
-                    ys_r = [p.y() for p in rotated]
-                    item.setRect(QRectF(
-                        QPointF(min(xs_r), min(ys_r)),
-                        QPointF(max(xs_r), max(ys_r))))
-                elif isinstance(item, ArcItem):
-                    ox = item._center.x() - cx
-                    oy = item._center.y() - cy
-                    item._center = QPointF(
-                        cx + ox * cos_a - oy * sin_a,
-                        cy + ox * sin_a + oy * cos_a)
-                    item._start_deg += angle  # rotate the arc angles too
-                    item._rebuild_path()
+            elif isinstance(item, (LineItem, ConstructionLine)):
+                item._pt1 = rp(item._pt1, pivot, angle_deg)
+                item._pt2 = rp(item._pt2, pivot, angle_deg)
+                if isinstance(item, LineItem):
+                    item.setLine(item._pt1.x(), item._pt1.y(),
+                                 item._pt2.x(), item._pt2.y())
+                else:
+                    item._recompute_line()
+            elif isinstance(item, PolylineItem):
+                item._points = [rp(p, pivot, angle_deg) for p in item._points]
+                item._rebuild_path()
+            elif isinstance(item, CircleItem):
+                item._center = rp(item._center, pivot, angle_deg)
+                r = item._radius
+                item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
+            elif isinstance(item, RectangleItem):
+                # Convert to polyline (axis-aligned rect can't represent rotation)
+                rect = item.rect()
+                corners = [QPointF(rect.left(), rect.top()),
+                           QPointF(rect.right(), rect.top()),
+                           QPointF(rect.right(), rect.bottom()),
+                           QPointF(rect.left(), rect.bottom()),
+                           QPointF(rect.left(), rect.top())]
+                rotated = [rp(c, pivot, angle_deg) for c in corners]
+                pl = PolylineItem(rotated[0],
+                                  color=item.pen().color().name(),
+                                  lineweight=item.pen().widthF())
+                for pt in rotated[1:]:
+                    pl.append_point(pt)
+                pl.finalize()
+                pl.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(pl)
+                self._polylines.append(pl)
+                # Remove original rect
+                if item.scene() is self:
+                    self.removeItem(item)
+                if item in self._draw_rects:
+                    self._draw_rects.remove(item)
+            elif isinstance(item, ArcItem):
+                item._center = rp(item._center, pivot, angle_deg)
+                item._start_deg += angle_deg
+                item._rebuild_path()
+
+    def _apply_scale(self, base: QPointF, factor: float, items: list = None):
+        """Scale *items* relative to *base* by *factor*."""
+        if items is None:
+            items = self._selected_items or self.selectedItems()
+        sp = CAD_Math.scale_point
+        for item in items:
+            if isinstance(item, Node):
+                new_pos = sp(item.scenePos(), base, factor)
+                item.setPos(new_pos)
+                item.fitting.update()
+            elif isinstance(item, (LineItem, ConstructionLine)):
+                item._pt1 = sp(item._pt1, base, factor)
+                item._pt2 = sp(item._pt2, base, factor)
+                if isinstance(item, LineItem):
+                    item.setLine(item._pt1.x(), item._pt1.y(),
+                                 item._pt2.x(), item._pt2.y())
+                else:
+                    item._recompute_line()
+            elif isinstance(item, PolylineItem):
+                item._points = [sp(p, base, factor) for p in item._points]
+                item._rebuild_path()
+            elif isinstance(item, CircleItem):
+                item._center = sp(item._center, base, factor)
+                item._radius *= factor
+                r = item._radius
+                item.setRect(item._center.x() - r, item._center.y() - r, 2*r, 2*r)
+            elif isinstance(item, RectangleItem):
+                rect = item.rect()
+                tl = sp(rect.topLeft(), base, factor)
+                br = sp(rect.bottomRight(), base, factor)
+                item.setRect(QRectF(tl, br))
+            elif isinstance(item, ArcItem):
+                item._center = sp(item._center, base, factor)
+                item._radius *= factor
+                item._rebuild_path()
+
+    def _apply_mirror(self, axis_p1: QPointF, axis_p2: QPointF):
+        """Create mirrored copies of selected items across the axis line."""
+        items = self._selected_items or self.selectedItems()
+        mp = CAD_Math.mirror_point
+        new_items = []
+        for item in items:
+            if isinstance(item, Node):
+                new_pos = mp(item.scenePos(), axis_p1, axis_p2)
+                node = self.add_node(new_pos.x(), new_pos.y())
+                if item.has_sprinkler():
+                    self.add_sprinkler(node, None)
+                new_items.append(node)
+            elif isinstance(item, LineItem):
+                p1 = mp(item._pt1, axis_p1, axis_p2)
+                p2 = mp(item._pt2, axis_p1, axis_p2)
+                ln = LineItem(p1, p2, color=item.pen().color().name(),
+                              lineweight=item.pen().widthF())
+                ln.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(ln)
+                self._draw_lines.append(ln)
+                new_items.append(ln)
+            elif isinstance(item, PolylineItem):
+                pts = [mp(p, axis_p1, axis_p2) for p in item._points]
+                pl = PolylineItem(pts[0], color=item.pen().color().name(),
+                                  lineweight=item.pen().widthF())
+                for pt in pts[1:]:
+                    pl.append_point(pt)
+                pl.finalize()
+                pl.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(pl)
+                self._polylines.append(pl)
+                new_items.append(pl)
+            elif isinstance(item, CircleItem):
+                c = mp(item._center, axis_p1, axis_p2)
+                ci = CircleItem(c, item._radius, color=item.pen().color().name(),
+                                lineweight=item.pen().widthF())
+                ci.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(ci)
+                self._draw_circles.append(ci)
+                new_items.append(ci)
+            elif isinstance(item, RectangleItem):
+                rect = item.rect()
+                tl = mp(rect.topLeft(), axis_p1, axis_p2)
+                br = mp(rect.bottomRight(), axis_p1, axis_p2)
+                ri = RectangleItem(tl, br, color=item.pen().color().name(),
+                                   lineweight=item.pen().widthF())
+                ri.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(ri)
+                self._draw_rects.append(ri)
+                new_items.append(ri)
+            elif isinstance(item, ArcItem):
+                c = mp(item._center, axis_p1, axis_p2)
+                # Mirror reverses arc direction
+                ai = ArcItem(c, item._radius, item._start_deg,
+                             -item._span_deg, color=item.pen().color().name(),
+                             lineweight=item.pen().widthF())
+                ai.user_layer = getattr(item, "user_layer", "0")
+                self.addItem(ai)
+                self._draw_arcs.append(ai)
+                new_items.append(ai)
+            elif isinstance(item, ConstructionLine):
+                p1 = mp(item._pt1, axis_p1, axis_p2)
+                p2 = mp(item._pt2, axis_p1, axis_p2)
+                cl = ConstructionLine(p1, p2)
+                self.addItem(cl)
+                self._construction_lines.append(cl)
+                new_items.append(cl)
+        return new_items
+
+    # -------------------------------------------------------------------------
+    # GEOMETRY OPERATIONS (Join / Explode)
+
+    def join_selected_items(self):
+        """Join selected lines/polylines into a single polyline if endpoints match."""
+        items = [i for i in self.selectedItems()
+                 if isinstance(i, (LineItem, PolylineItem))]
+        if len(items) < 2:
+            self._show_status("Select 2+ lines/polylines to join", 3000)
+            return
+        TOL = 1.0  # tolerance in scene units
+        # Extract segments as ordered point lists
+        segments = []
+        for item in items:
+            if isinstance(item, LineItem):
+                segments.append([QPointF(item._pt1), QPointF(item._pt2)])
+            elif isinstance(item, PolylineItem):
+                segments.append([QPointF(p) for p in item._points])
+        # Greedy chain builder
+        chain = list(segments.pop(0))
+        changed = True
+        while changed and segments:
+            changed = False
+            for i, seg in enumerate(segments):
+                head, tail = chain[0], chain[-1]
+                s_head, s_tail = seg[0], seg[-1]
+                def _close(a, b):
+                    return abs(a.x()-b.x()) < TOL and abs(a.y()-b.y()) < TOL
+                if _close(tail, s_head):
+                    chain.extend(seg[1:])
+                    segments.pop(i); changed = True; break
+                elif _close(tail, s_tail):
+                    chain.extend(reversed(seg[:-1]))
+                    segments.pop(i); changed = True; break
+                elif _close(head, s_tail):
+                    chain = seg[:-1] + chain
+                    segments.pop(i); changed = True; break
+                elif _close(head, s_head):
+                    chain = list(reversed(seg[1:])) + chain
+                    segments.pop(i); changed = True; break
+        if segments:
+            self._show_status("Cannot join: endpoints do not match", 3000)
+            return
+        # Create merged polyline
+        color = items[0].pen().color().name()
+        lw = items[0].pen().widthF()
+        pl = PolylineItem(chain[0], color=color, lineweight=lw)
+        for pt in chain[1:]:
+            pl.append_point(pt)
+        pl.finalize()
+        pl.user_layer = getattr(items[0], "user_layer", "0")
+        # Remove originals
+        for item in items:
+            if item.scene() is self:
+                self.removeItem(item)
+            if isinstance(item, LineItem) and item in self._draw_lines:
+                self._draw_lines.remove(item)
+            elif isinstance(item, PolylineItem) and item in self._polylines:
+                self._polylines.remove(item)
+        self.addItem(pl)
+        self._polylines.append(pl)
+        pl.setSelected(True)
         self.push_undo_state()
+        self._show_status("Joined into polyline", 2000)
+
+    def explode_selected_items(self):
+        """Explode polylines into lines and rectangles into 4 lines."""
+        items = [i for i in self.selectedItems()
+                 if isinstance(i, (PolylineItem, RectangleItem))]
+        if not items:
+            self._show_status("Select polylines or rectangles to explode", 3000)
+            return
+        for item in items:
+            color = item.pen().color().name()
+            lw = item.pen().widthF()
+            layer = getattr(item, "user_layer", "0")
+            if isinstance(item, PolylineItem):
+                pts = item._points
+                for i in range(len(pts) - 1):
+                    ln = LineItem(QPointF(pts[i]), QPointF(pts[i+1]),
+                                  color=color, lineweight=lw)
+                    ln.user_layer = layer
+                    self.addItem(ln)
+                    self._draw_lines.append(ln)
+                if item.scene() is self:
+                    self.removeItem(item)
+                if item in self._polylines:
+                    self._polylines.remove(item)
+            elif isinstance(item, RectangleItem):
+                rect = item.rect()
+                corners = [rect.topLeft(), rect.topRight(),
+                           rect.bottomRight(), rect.bottomLeft()]
+                for i in range(4):
+                    ln = LineItem(QPointF(corners[i]), QPointF(corners[(i+1)%4]),
+                                  color=color, lineweight=lw)
+                    ln.user_layer = layer
+                    self.addItem(ln)
+                    self._draw_lines.append(ln)
+                if item.scene() is self:
+                    self.removeItem(item)
+                if item in self._draw_rects:
+                    self._draw_rects.remove(item)
+        self.push_undo_state()
+        self._show_status("Exploded into individual segments", 2000)
+
+    # -------------------------------------------------------------------------
+    # BREAK / BREAK AT POINT
+
+    def _break_item(self, item, bp1: QPointF, bp2: QPointF):
+        """Break *item* between two points, removing the segment between them."""
+        from geometry_intersect import point_on_segment_param
+        if isinstance(item, LineItem):
+            t1 = point_on_segment_param(bp1, item._pt1, item._pt2)
+            t2 = point_on_segment_param(bp2, item._pt1, item._pt2)
+            if t1 > t2:
+                t1, t2 = t2, t1
+                bp1, bp2 = bp2, bp1
+            proj1 = QPointF(item._pt1.x() + t1*(item._pt2.x()-item._pt1.x()),
+                            item._pt1.y() + t1*(item._pt2.y()-item._pt1.y()))
+            proj2 = QPointF(item._pt1.x() + t2*(item._pt2.x()-item._pt1.x()),
+                            item._pt1.y() + t2*(item._pt2.y()-item._pt1.y()))
+            color = item.pen().color().name()
+            lw = item.pen().widthF()
+            layer = getattr(item, "user_layer", "0")
+            l1 = LineItem(QPointF(item._pt1), proj1, color=color, lineweight=lw)
+            l2 = LineItem(proj2, QPointF(item._pt2), color=color, lineweight=lw)
+            l1.user_layer = layer; l2.user_layer = layer
+            if item.scene() is self:
+                self.removeItem(item)
+            if item in self._draw_lines:
+                self._draw_lines.remove(item)
+            for ln in (l1, l2):
+                self.addItem(ln)
+                self._draw_lines.append(ln)
+        elif isinstance(item, CircleItem):
+            # Convert to arc, removing segment between the two angles
+            a1 = math.degrees(math.atan2(bp1.y()-item._center.y(), bp1.x()-item._center.x()))
+            a2 = math.degrees(math.atan2(bp2.y()-item._center.y(), bp2.x()-item._center.x()))
+            span = (a1 - a2) % 360
+            arc = ArcItem(QPointF(item._center), item._radius, a2, span,
+                          color=item.pen().color().name(),
+                          lineweight=item.pen().widthF())
+            arc.user_layer = getattr(item, "user_layer", "0")
+            if item.scene() is self:
+                self.removeItem(item)
+            if item in self._draw_circles:
+                self._draw_circles.remove(item)
+            self.addItem(arc)
+            self._draw_arcs.append(arc)
+
+    def _break_at_point(self, item, bp: QPointF):
+        """Split *item* into two at *bp*."""
+        from geometry_intersect import point_on_segment_param
+        if isinstance(item, LineItem):
+            t = point_on_segment_param(bp, item._pt1, item._pt2)
+            proj = QPointF(item._pt1.x() + t*(item._pt2.x()-item._pt1.x()),
+                           item._pt1.y() + t*(item._pt2.y()-item._pt1.y()))
+            color = item.pen().color().name()
+            lw = item.pen().widthF()
+            layer = getattr(item, "user_layer", "0")
+            l1 = LineItem(QPointF(item._pt1), proj, color=color, lineweight=lw)
+            l2 = LineItem(proj, QPointF(item._pt2), color=color, lineweight=lw)
+            l1.user_layer = layer; l2.user_layer = layer
+            if item.scene() is self:
+                self.removeItem(item)
+            if item in self._draw_lines:
+                self._draw_lines.remove(item)
+            for ln in (l1, l2):
+                self.addItem(ln)
+                self._draw_lines.append(ln)
+        elif isinstance(item, CircleItem):
+            a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
+            arc = ArcItem(QPointF(item._center), item._radius,
+                          a + 0.5, 359.0,
+                          color=item.pen().color().name(),
+                          lineweight=item.pen().widthF())
+            arc.user_layer = getattr(item, "user_layer", "0")
+            if item.scene() is self:
+                self.removeItem(item)
+            if item in self._draw_circles:
+                self._draw_circles.remove(item)
+            self.addItem(arc)
+            self._draw_arcs.append(arc)
+        elif isinstance(item, ArcItem):
+            a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
+            # Normalize to arc range
+            rel = (a - item._start_deg) % 360
+            if rel > abs(item._span_deg):
+                return  # point outside arc
+            s = item._span_deg
+            a1 = ArcItem(QPointF(item._center), item._radius,
+                         item._start_deg, rel,
+                         color=item.pen().color().name(),
+                         lineweight=item.pen().widthF())
+            a2 = ArcItem(QPointF(item._center), item._radius,
+                         item._start_deg + rel, s - rel,
+                         color=item.pen().color().name(),
+                         lineweight=item.pen().widthF())
+            a1.user_layer = getattr(item, "user_layer", "0")
+            a2.user_layer = getattr(item, "user_layer", "0")
+            if item.scene() is self:
+                self.removeItem(item)
+            if item in self._draw_arcs:
+                self._draw_arcs.remove(item)
+            for ai in (a1, a2):
+                self.addItem(ai)
+                self._draw_arcs.append(ai)
+
+    # -------------------------------------------------------------------------
+    # FILLET / CHAMFER
+
+    def _compute_fillet(self, item1, item2, radius):
+        """Compute fillet arc data between two line items. Returns dict or None."""
+        if not isinstance(item1, LineItem) or not isinstance(item2, LineItem):
+            return None
+        from geometry_intersect import line_line_intersection_unbounded
+        ix = line_line_intersection_unbounded(item1._pt1, item1._pt2,
+                                              item2._pt1, item2._pt2)
+        if ix is None:
+            return None  # parallel lines
+        # Determine which ends are near intersection
+        def _near_end(item, ix):
+            d1 = CAD_Math.get_vector_length(item._pt1, ix)
+            d2 = CAD_Math.get_vector_length(item._pt2, ix)
+            return ("_pt1", "_pt2") if d1 < d2 else ("_pt2", "_pt1")
+        near1, far1 = _near_end(item1, ix)
+        near2, far2 = _near_end(item2, ix)
+        # Vectors from intersection along each line
+        u1 = CAD_Math.get_unit_vector(ix, getattr(item1, far1))
+        u2 = CAD_Math.get_unit_vector(ix, getattr(item2, far2))
+        # Half-angle between the two lines
+        dot = u1.x()*u2.x() + u1.y()*u2.y()
+        dot = max(-1.0, min(1.0, dot))
+        half = math.acos(dot) / 2
+        if half < 1e-6:
+            return None  # lines too close to parallel
+        # Bisector
+        bx = u1.x() + u2.x()
+        by = u1.y() + u2.y()
+        bl = math.hypot(bx, by)
+        if bl < 1e-12:
+            return None
+        bx /= bl; by /= bl
+        # Fillet center distance from intersection
+        d = radius / math.sin(half)
+        center = QPointF(ix.x() + bx * d, ix.y() + by * d)
+        # Tangent points (perpendicular foot from center to each line)
+        tp1 = CAD_Math.point_on_line_nearest(center, item1._pt1, item1._pt2)
+        tp2 = CAD_Math.point_on_line_nearest(center, item2._pt1, item2._pt2)
+        # Arc angles
+        sa = math.degrees(math.atan2(tp1.y()-center.y(), tp1.x()-center.x()))
+        ea = math.degrees(math.atan2(tp2.y()-center.y(), tp2.x()-center.x()))
+        span = (ea - sa) % 360
+        if span > 180:
+            span -= 360
+        return {"center": center, "radius": radius, "start": sa, "span": span,
+                "tp1": tp1, "tp2": tp2,
+                "item1": item1, "near1": near1,
+                "item2": item2, "near2": near2}
+
+    def _commit_fillet(self, data):
+        """Create the fillet arc and trim the source lines."""
+        if data is None:
+            return
+        arc = ArcItem(data["center"], data["radius"], data["start"], data["span"],
+                      color=data["item1"].pen().color().name(),
+                      lineweight=data["item1"].pen().widthF())
+        arc.user_layer = getattr(data["item1"], "user_layer", "0")
+        self.addItem(arc)
+        self._draw_arcs.append(arc)
+        # Trim lines to tangent points
+        setattr(data["item1"], data["near1"], QPointF(data["tp1"]))
+        item1 = data["item1"]
+        item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
+        setattr(data["item2"], data["near2"], QPointF(data["tp2"]))
+        item2 = data["item2"]
+        item2.setLine(item2._pt1.x(), item2._pt1.y(), item2._pt2.x(), item2._pt2.y())
+
+    def _compute_chamfer(self, item1, item2, dist):
+        """Compute chamfer data between two line items. Returns dict or None."""
+        if not isinstance(item1, LineItem) or not isinstance(item2, LineItem):
+            return None
+        from geometry_intersect import line_line_intersection_unbounded
+        ix = line_line_intersection_unbounded(item1._pt1, item1._pt2,
+                                              item2._pt1, item2._pt2)
+        if ix is None:
+            return None
+        def _near_end(item, ix):
+            d1 = CAD_Math.get_vector_length(item._pt1, ix)
+            d2 = CAD_Math.get_vector_length(item._pt2, ix)
+            return ("_pt1", "_pt2") if d1 < d2 else ("_pt2", "_pt1")
+        near1, far1 = _near_end(item1, ix)
+        near2, far2 = _near_end(item2, ix)
+        u1 = CAD_Math.get_unit_vector(ix, getattr(item1, far1))
+        u2 = CAD_Math.get_unit_vector(ix, getattr(item2, far2))
+        cp1 = QPointF(ix.x() + u1.x()*dist, ix.y() + u1.y()*dist)
+        cp2 = QPointF(ix.x() + u2.x()*dist, ix.y() + u2.y()*dist)
+        return {"cp1": cp1, "cp2": cp2,
+                "item1": item1, "near1": near1,
+                "item2": item2, "near2": near2}
+
+    def _commit_chamfer(self, data):
+        """Create chamfer bevel line and trim source lines."""
+        if data is None:
+            return
+        ln = LineItem(data["cp1"], data["cp2"],
+                      color=data["item1"].pen().color().name(),
+                      lineweight=data["item1"].pen().widthF())
+        ln.user_layer = getattr(data["item1"], "user_layer", "0")
+        self.addItem(ln)
+        self._draw_lines.append(ln)
+        setattr(data["item1"], data["near1"], QPointF(data["cp1"]))
+        item1 = data["item1"]
+        item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
+        setattr(data["item2"], data["near2"], QPointF(data["cp2"]))
+        item2 = data["item2"]
+        item2.setLine(item2._pt1.x(), item2._pt1.y(), item2._pt2.x(), item2._pt2.y())
+
+    # -------------------------------------------------------------------------
+    # STRETCH
+
+    def begin_stretch_crossing(self, scene_rect: QRectF):
+        """Collect vertices inside crossing window, transition to base point pick."""
+        self._stretch_vertices = []
+        self._stretch_full_items = []
+        all_geom = self._all_geometry_items()
+        for item in all_geom:
+            if not hasattr(item, "grip_points"):
+                continue
+            grips = item.grip_points()
+            inside = [(idx, g) for idx, g in enumerate(grips)
+                      if scene_rect.contains(g)]
+            if not inside:
+                continue
+            if len(inside) == len(grips):
+                self._stretch_full_items.append(item)
+            else:
+                for idx, g in inside:
+                    self._stretch_vertices.append((item, idx, QPointF(g)))
+        if not self._stretch_vertices and not self._stretch_full_items:
+            self._show_status("No vertices in crossing window", 3000)
+            return
+        count = len(self._stretch_vertices) + len(self._stretch_full_items)
+        self._show_status(f"Captured {count} items/vertices. Pick base point.")
+        self.instructionChanged.emit("Pick base point")
+
+    def _commit_stretch(self, delta: QPointF):
+        """Apply stretch delta to captured vertices and full items."""
+        for item in self._stretch_full_items:
+            if hasattr(item, 'translate'):
+                item.translate(delta.x(), delta.y())
+            elif isinstance(item, Node):
+                item.moveBy(delta.x(), delta.y())
+        for item, idx, _orig in self._stretch_vertices:
+            grips = item.grip_points()
+            if idx < len(grips):
+                new_pt = QPointF(grips[idx].x() + delta.x(),
+                                 grips[idx].y() + delta.y())
+                item.apply_grip(idx, new_pt)
 
     # -------------------------------------------------------------------------
     # GRIP HELPERS (Sprint I)

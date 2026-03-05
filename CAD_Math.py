@@ -66,6 +66,47 @@ class CAD_Math:
         return angle
     
     # ---------------------------------------------------------|
+    # ----------- POINT TRANSFORMS (Sprint) -------------------|
+    # ---------------------------------------------------------|
+
+    @staticmethod
+    def rotate_point(pt: QPointF, pivot: QPointF, angle_deg: float) -> QPointF:
+        """Rotate *pt* around *pivot* by *angle_deg* (CCW positive, screen Y-down)."""
+        rad = math.radians(angle_deg)
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        ox, oy = pt.x() - pivot.x(), pt.y() - pivot.y()
+        return QPointF(pivot.x() + ox * cos_a - oy * sin_a,
+                       pivot.y() + ox * sin_a + oy * cos_a)
+
+    @staticmethod
+    def mirror_point(pt: QPointF, axis_p1: QPointF, axis_p2: QPointF) -> QPointF:
+        """Reflect *pt* across the line defined by *axis_p1* → *axis_p2*."""
+        dx, dy = axis_p2.x() - axis_p1.x(), axis_p2.y() - axis_p1.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return QPointF(pt)
+        t = ((pt.x() - axis_p1.x()) * dx + (pt.y() - axis_p1.y()) * dy) / len_sq
+        foot_x = axis_p1.x() + t * dx
+        foot_y = axis_p1.y() + t * dy
+        return QPointF(2 * foot_x - pt.x(), 2 * foot_y - pt.y())
+
+    @staticmethod
+    def scale_point(pt: QPointF, base: QPointF, factor: float) -> QPointF:
+        """Scale *pt* relative to *base* by *factor*."""
+        return QPointF(base.x() + (pt.x() - base.x()) * factor,
+                       base.y() + (pt.y() - base.y()) * factor)
+
+    @staticmethod
+    def point_on_line_nearest(pt: QPointF, lp1: QPointF, lp2: QPointF) -> QPointF:
+        """Project *pt* onto the infinite line through *lp1* and *lp2*."""
+        dx, dy = lp2.x() - lp1.x(), lp2.y() - lp1.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return QPointF(lp1)
+        t = ((pt.x() - lp1.x()) * dx + (pt.y() - lp1.y()) * dy) / len_sq
+        return QPointF(lp1.x() + t * dx, lp1.y() + t * dy)
+
+    # ---------------------------------------------------------|
     # ----------------- TRANSFORMS ----------------------------|
     # ---------------------------------------------------------|
     @staticmethod 
