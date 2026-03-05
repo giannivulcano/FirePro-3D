@@ -166,6 +166,7 @@ class MainWindow(QMainWindow):
         )
 
         self._left_tabs = QTabWidget()
+        self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project Browser")
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
@@ -498,14 +499,6 @@ class MainWindow(QMainWindow):
             lambda: self.scene.paste_items())
         self._btn_paste.setToolTip("Paste items [Ctrl+V]")
 
-        # --- Layer ---
-        g_layer = modify_page.add_group("Layer")
-        self._modify_layer_combo = QComboBox()
-        self._modify_layer_combo.setMinimumWidth(120)
-        self._modify_layer_combo.addItems([l.name for l in self.user_layer_mgr.layers])
-        self._modify_layer_combo.currentTextChanged.connect(self._assign_layer_to_selection)
-        g_layer._btn_row.addWidget(self._modify_layer_combo)
-
         # --- Transform ---
         g_xform = modify_page.add_group("Transform")
         self._btn_move = g_xform.add_small_button(
@@ -524,22 +517,50 @@ class MainWindow(QMainWindow):
         self._btn_array.setToolTip("Create linear/radial array of selected items")
         self._btn_rotate = g_xform.add_small_button(
             "Rotate", _I("rotate_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.rotate_selected_items()))
-        self._btn_rotate.setToolTip("Rotate selected items 90 deg")
+            lambda: self._require_selection(lambda: self.scene.set_mode("rotate")),
+            checkable=True)
+        self._btn_rotate.setToolTip("Rotate selected items interactively (pick pivot, then angle)")
+        self._mode_buttons["rotate"] = self._btn_rotate
         self._btn_scale = g_xform.add_small_button(
             "Scale", _I("scale_icon.svg"),
-            lambda: self._require_selection(self.set_scale_dialog))
-        self._btn_scale.setToolTip("Scale selected items")
+            lambda: self._require_selection(lambda: self.scene.set_mode("scale")),
+            checkable=True)
+        self._btn_scale.setToolTip("Scale selected items interactively (pick base, Tab for factor)")
+        self._mode_buttons["scale"] = self._btn_scale
+        _btn = g_xform.add_small_button(
+            "Mirror", _I("placeholder_icon.svg"),
+            lambda: self._require_selection(lambda: self.scene.set_mode("mirror")),
+            checkable=True)
+        _btn.setToolTip("Mirror selected items across an axis (2 clicks)")
+        self._mode_buttons["mirror"] = _btn
         _btn = g_xform.add_small_button(
             "Offset", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("offset"),
             checkable=True)
         _btn.setToolTip("Offset geometry (Tab for exact distance)")
         self._mode_buttons["offset"] = _btn
+        _mode_btn(g_xform, "Stretch", _I("placeholder_icon.svg"), "stretch", large=False).setToolTip(
+            "Stretch items using crossing selection")
         _mode_btn(g_xform, "Trim", _I("trim_icon.svg"), "trim", large=False).setToolTip(
             "Trim geometry at intersection")
         _mode_btn(g_xform, "Extend", _I("placeholder_icon.svg"), "extend", large=False).setToolTip(
             "Extend geometry to boundary")
+        _mode_btn(g_xform, "Fillet", _I("placeholder_icon.svg"), "fillet", large=False).setToolTip(
+            "Round corner between two lines (Tab for radius)")
+        _mode_btn(g_xform, "Chamfer", _I("placeholder_icon.svg"), "chamfer", large=False).setToolTip(
+            "Bevel corner between two lines (Tab for distance)")
+        _mode_btn(g_xform, "Break", _I("placeholder_icon.svg"), "break", large=False).setToolTip(
+            "Break object between two points")
+        _mode_btn(g_xform, "Break at\nPoint", _I("placeholder_icon.svg"), "break_at_point", large=False).setToolTip(
+            "Split object at a single point")
+        _btn = g_xform.add_small_button(
+            "Join", _I("placeholder_icon.svg"),
+            lambda: self._require_selection(lambda: self.scene.join_selected_items()))
+        _btn.setToolTip("Join connected lines/polylines into one polyline")
+        _btn = g_xform.add_small_button(
+            "Explode", _I("placeholder_icon.svg"),
+            lambda: self._require_selection(lambda: self.scene.explode_selected_items()))
+        _btn.setToolTip("Explode polylines/rectangles into individual lines")
         _mode_btn(g_xform, "Merge\nPoints", _I("placeholder_icon.svg"), "merge_points", large=False).setToolTip(
             "Merge two endpoints")
 
@@ -551,6 +572,14 @@ class MainWindow(QMainWindow):
         _mode_btn(g_constraint, "Distance", _I("placeholder_icon.svg"),
                   "constraint_dimensional", large=False).setToolTip(
             "Fix the distance between two points")
+
+        # --- Layer ---
+        g_layer = modify_page.add_group("Layer")
+        self._modify_layer_combo = QComboBox()
+        self._modify_layer_combo.setMinimumWidth(120)
+        self._modify_layer_combo.addItems([l.name for l in self.user_layer_mgr.layers])
+        self._modify_layer_combo.currentTextChanged.connect(self._assign_layer_to_selection)
+        g_layer._btn_row.addWidget(self._modify_layer_combo)
 
         # --- Text Formatting (shown when text is selected) ---
         g_text = modify_page.add_group("Text")
@@ -1013,9 +1042,6 @@ class MainWindow(QMainWindow):
         if isinstance(focus, QGraphicsTextItem) and focus.hasFocus():
             return  # let the text editor handle Delete
         self.scene.delete_selected_items()
-
-    def set_scale_dialog(self):
-        self.scene.set_mode("set_scale")
 
     def open_pdf_import_dialog(self):
         dialog = ImportDialog(self)
