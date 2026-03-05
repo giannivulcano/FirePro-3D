@@ -2,7 +2,7 @@ import sys, json, math, shutil
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
                               QGraphicsItem, QGraphicsItemGroup, QGraphicsPixmapItem,
                               QGraphicsTextItem, QGraphicsPathItem, QGraphicsRectItem,
-                              QApplication, QProgressDialog)
+                              QApplication, QProgressDialog, QMenu)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath, QFont
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
@@ -28,7 +28,7 @@ import os
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 6
+    SAVE_VERSION = 7
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -211,6 +211,7 @@ class Model_Space(QGraphicsScene):
                 "x":          node.scenePos().x(),
                 "y":          node.scenePos().y(),
                 "elevation":  node.z_pos,
+                "z_offset":   getattr(node, "z_offset", node.z_pos),
                 "user_layer": getattr(node, "user_layer", "0"),
                 "level":      getattr(node, "level", "Level 1"),
                 "sprinkler":  node.sprinkler.get_properties() if node.has_sprinkler() else None,
@@ -390,8 +391,14 @@ class Model_Space(QGraphicsScene):
             id_to_node[entry["id"]] = node
             # Restore node elevation (plain nodes)
             node.set_property("Elevation", str(entry.get("elevation", 0)))
+            node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
             node.user_layer = entry.get("user_layer", "0")
             node.level = entry.get("level", "Level 1")
+            # Recompute z_pos from level elevation + offset
+            if self._level_manager:
+                lvl = self._level_manager.get(node.level)
+                if lvl:
+                    node.z_pos = lvl.elevation + node.z_offset
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -1001,6 +1008,11 @@ class Model_Space(QGraphicsScene):
             node = Node(x, y)
             node.user_layer = self.active_user_layer
             node.level = self.active_level
+            # Compute z_pos from level elevation
+            if self._level_manager:
+                lvl = self._level_manager.get(self.active_level)
+                if lvl:
+                    node.z_pos = lvl.elevation + node.z_offset
             self.addItem(node)
             self.sprinkler_system.add_node(node)
         return node
@@ -1570,6 +1582,7 @@ class Model_Space(QGraphicsScene):
                 "x":         node.scenePos().x(),
                 "y":         node.scenePos().y(),
                 "elevation": node.z_pos,
+                "z_offset":  getattr(node, "z_offset", node.z_pos),
                 "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
                 "user_layer": getattr(node, "user_layer", "0"),
                 "level":     getattr(node, "level", "Level 1"),
@@ -1676,6 +1689,7 @@ class Model_Space(QGraphicsScene):
                 self.sprinkler_system.add_node(node)
                 id_to_node[entry["id"]] = node
                 node.set_property("Elevation", str(entry.get("elevation", 0)))
+                node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
                 if entry.get("sprinkler"):
                     template = Sprinkler(None)
                     for key, value in entry["sprinkler"].items():
@@ -1686,6 +1700,10 @@ class Model_Space(QGraphicsScene):
                     self.add_sprinkler(node, template)
                 node.user_layer = entry.get("user_layer", "0")
                 node.level = entry.get("level", "Level 1")
+                if self._level_manager:
+                    lvl = self._level_manager.get(node.level)
+                    if lvl:
+                        node.z_pos = lvl.elevation + node.z_offset
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -3711,10 +3729,10 @@ class Model_Space(QGraphicsScene):
         super().mouseDoubleClickEvent(event)
 
     def contextMenuEvent(self, event):
-        """Show context menu for underlays on right-click.
-        Uses self.items() instead of itemAt() so locked underlays (ItemIsSelectable=False) are found."""
+        """Show context menu on right-click for underlays or scene entities."""
         hit_items = self.items(event.scenePos())
 
+        # 1. Check underlays first
         for item in hit_items:
             candidate = item
             while candidate is not None:
@@ -3728,7 +3746,181 @@ class Model_Space(QGraphicsScene):
                     return
                 candidate = candidate.parentItem()
 
+        # 2. Check for scene entities
+        target = self._find_entity_at(event.scenePos())
+        if target is not None:
+            # If target is not selected, select it alone
+            if not target.isSelected():
+                self.clearSelection()
+                target.setSelected(True)
+            self._show_entity_context_menu(target, event.screenPos())
+            return
+
         super().contextMenuEvent(event)
+
+    # ── Entity context menu helpers ────────────────────────────────────────
+
+    def _find_entity_at(self, pos):
+        """Find the first selectable scene entity at the given position."""
+        from Annotations import HatchItem
+        ENTITY_TYPES = (
+            Node, Pipe, DimensionAnnotation, NoteAnnotation,
+            ConstructionLine, PolylineItem, LineItem, RectangleItem,
+            CircleItem, ArcItem, GridlineItem, HatchItem, WaterSupply,
+        )
+        for item in self.items(pos):
+            # Sprinklers are children of Nodes — resolve to parent
+            if isinstance(item, Sprinkler):
+                item = item.parentItem()
+            if isinstance(item, ENTITY_TYPES):
+                return item
+        return None
+
+    def _show_entity_context_menu(self, target, screen_pos):
+        """Build and show the right-click context menu for scene entities."""
+        menu = QMenu()
+        selected = self.selectedItems()
+
+        # ── Move to Level submenu ──
+        if self._level_manager:
+            move_menu = menu.addMenu("Move to Level")
+            for lvl in self._level_manager.levels:
+                act = move_menu.addAction(lvl.name)
+                act.triggered.connect(
+                    lambda checked, ln=lvl.name: self._move_selection_to_level(ln)
+                )
+
+            # ── Copy to Level submenu ──
+            copy_menu = menu.addMenu("Copy to Level")
+            for lvl in self._level_manager.levels:
+                act = copy_menu.addAction(lvl.name)
+                act.triggered.connect(
+                    lambda checked, ln=lvl.name: self.copy_items_to_level(
+                        list(self.selectedItems()), ln
+                    )
+                )
+
+        # ── Select Same Level ──
+        target_level = getattr(target, "level", None)
+        if target_level:
+            act = menu.addAction("Select Same Level")
+            act.triggered.connect(
+                lambda: self._select_same_level(target_level)
+            )
+
+        menu.addSeparator()
+
+        # ── Standard actions ──
+        act_copy = menu.addAction("Copy")
+        act_copy.triggered.connect(self.copy_selected_items)
+
+        act_delete = menu.addAction("Delete")
+        act_delete.triggered.connect(self.delete_selected_items)
+
+        act_props = menu.addAction("Properties")
+        act_props.triggered.connect(lambda: self.requestPropertyUpdate.emit(target))
+
+        menu.exec(screen_pos)
+
+    def _move_selection_to_level(self, target_level: str):
+        """Move all selected items to the target level, updating elevations."""
+        self.push_undo_state()
+        items = list(self.selectedItems())
+        moved_nodes = set()
+        for item in items:
+            if hasattr(item, "level"):
+                item.level = target_level
+                if isinstance(item, Node):
+                    moved_nodes.add(item)
+                    if self._level_manager:
+                        lvl = self._level_manager.get(target_level)
+                        if lvl:
+                            item.z_pos = lvl.elevation + item.z_offset
+
+        # Move pipes whose both endpoints moved
+        for item in items:
+            if isinstance(item, Pipe):
+                if item.node1 in moved_nodes and item.node2 in moved_nodes:
+                    item.level = target_level
+
+        if self._level_manager:
+            self._level_manager.apply_to_scene(self)
+        self.sceneModified.emit()
+
+    def _select_same_level(self, level_name: str):
+        """Select all visible entities on the given level."""
+        self.clearSelection()
+        for item in self._items_on_level(level_name):
+            if item.isVisible() and item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
+                item.setSelected(True)
+
+    def _items_on_level(self, level_name: str) -> list:
+        """Return all scene items assigned to the given level."""
+        result = []
+        for node in self.sprinkler_system.nodes:
+            if getattr(node, "level", None) == level_name:
+                result.append(node)
+        for pipe in self.sprinkler_system.pipes:
+            if getattr(pipe, "level", None) == level_name:
+                result.append(pipe)
+        for lst in [self._construction_lines, self._polylines, self._draw_lines,
+                    self._draw_rects, self._draw_circles, self._draw_arcs,
+                    self._gridlines, self._hatch_items]:
+            for item in lst:
+                if getattr(item, "level", None) == level_name:
+                    result.append(item)
+        ann = getattr(self, "annotations", None)
+        if ann:
+            for dim in getattr(ann, "dimensions", []):
+                if getattr(dim, "level", None) == level_name:
+                    result.append(dim)
+            for note in getattr(ann, "notes", []):
+                if getattr(note, "level", None) == level_name:
+                    result.append(note)
+        ws = getattr(self, "water_supply_node", None)
+        if ws is not None and getattr(ws, "level", None) == level_name:
+            result.append(ws)
+        return result
+
+    def copy_items_to_level(self, items: list, target_level: str):
+        """Duplicate items and assign copies to target_level."""
+        if not items:
+            return
+        self.push_undo_state()
+
+        # Serialize selected items via copy mechanism
+        old_selection = list(self.selectedItems())
+        self.clearSelection()
+        for item in items:
+            if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
+                item.setSelected(True)
+
+        old_clip = QApplication.clipboard().text()
+        self.copy_selected_items()
+
+        # Temporarily set active level so paste assigns the target level
+        saved_level = self.active_level
+        self.active_level = target_level
+        self.paste_items(QPointF(0, 0))
+        self.active_level = saved_level
+
+        QApplication.clipboard().setText(old_clip)
+
+        # Restore original selection
+        self.clearSelection()
+        for item in old_selection:
+            if item.scene() == self:
+                item.setSelected(True)
+
+        if self._level_manager:
+            self._level_manager.apply_to_scene(self)
+        self.sceneModified.emit()
+
+    def duplicate_level_entities(self, source_level: str, target_level: str):
+        """Copy all entities on source_level to target_level."""
+        items = self._items_on_level(source_level)
+        if items:
+            self.copy_items_to_level(items, target_level)
 
     # -------------------------------------------------------------------------
     # KEY EVENTS
@@ -3930,6 +4122,8 @@ class Model_Space(QGraphicsScene):
                     "type": "node",
                     "x": item.pos().x(), "y": item.pos().y(),
                     "elevation": item.z_pos,
+                    "z_offset": getattr(item, "z_offset", item.z_pos),
+                    "level": getattr(item, "level", "Level 1"),
                     "user_layer": getattr(item, "user_layer", "Default"),
                     "sprinkler": sprinkler,
                     "pipes": pipes,
@@ -3949,12 +4143,21 @@ class Model_Space(QGraphicsScene):
                 existing = self.find_nearby_node(new_x, new_y)
                 node1 = existing if existing else self.add_node(new_x, new_y)
 
-                # Restore elevation and layer from copied data
-                if "elevation" in obj:
-                    node1.z_pos = obj["elevation"]
-                    node1.set_property("Elevation", str(obj["elevation"]))
+                # Restore elevation offset and layer from copied data
+                if "z_offset" in obj:
+                    node1.z_offset = obj["z_offset"]
+                elif "elevation" in obj:
+                    node1.z_offset = obj["elevation"]
+                node1.set_property("Elevation Offset", str(node1.z_offset))
+                if "level" in obj:
+                    node1.level = obj["level"]
                 if "user_layer" in obj:
                     node1.user_layer = obj["user_layer"]
+                # Recompute z_pos from level
+                if self._level_manager:
+                    lvl = self._level_manager.get(node1.level)
+                    if lvl:
+                        node1.z_pos = lvl.elevation + node1.z_offset
 
                 if obj.get("sprinkler"):
                     template = Sprinkler(None)

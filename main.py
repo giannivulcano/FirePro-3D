@@ -171,6 +171,7 @@ class MainWindow(QMainWindow):
             lambda: self.level_mgr.apply_to_scene(self.scene)
         )
         self.level_widget.levelsChanged.connect(self._refresh_level_combo)
+        self.level_widget.duplicateLevel.connect(self.scene.duplicate_level_entities)
 
         self.project_browser = ProjectBrowser()
         self.project_browser.activateModelSpace.connect(

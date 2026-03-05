@@ -25,7 +25,7 @@ class Sprinkler(QGraphicsSvgItem):
             "Temperature":     {"type": "string", "value": "68°C"},
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
             "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
-            "Elevation":       {"type": "string", "value": "0"},
+            "Elevation Offset": {"type": "string", "value": "0"},
             "Coverage Area":   {"type": "string", "value": "130"},
             "Min Pressure":    {"type": "string", "value": "7"},
             "Design Density":  {"type": "string", "value": "0.10"},
@@ -74,6 +74,9 @@ class Sprinkler(QGraphicsSvgItem):
         return self._properties.copy()
 
     def set_property(self, key: str, value):
+        # Accept legacy name from old save files
+        if key == "Elevation":
+            key = "Elevation Offset"
         if key not in self._properties:
             return
         self._properties[key]["value"] = value
@@ -82,10 +85,10 @@ class Sprinkler(QGraphicsSvgItem):
             svg_path = self.GRAPHICS.get(value)
             if svg_path:
                 self._load_graphic(svg_path)
-        elif key == "Elevation" and self.node is not None:
-            # Keep node.z_pos (used by hydraulic solver) in sync
+        elif key == "Elevation Offset" and self.node is not None:
+            # Keep node.z_offset in sync (z_pos is recomputed from level)
             try:
-                self.node.z_pos = float(value)
+                self.node.z_offset = float(value)
             except (ValueError, TypeError):
                 pass
 
