@@ -489,6 +489,7 @@ class Model_Space(QGraphicsScene):
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
+        self.design_area_sprinklers = []
         self._construction_lines = []
         self._polylines = []
         self._cline_anchor = None
@@ -1402,6 +1403,7 @@ class Model_Space(QGraphicsScene):
                 "y":         node.scenePos().y(),
                 "elevation": node.z_pos,
                 "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "user_layer": getattr(node, "user_layer", "0"),
             })
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
@@ -1411,6 +1413,7 @@ class Model_Space(QGraphicsScene):
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
+                "user_layer": getattr(pipe, "user_layer", "0"),
             })
         annotations_data = []
         for dim in self.annotations.dimensions:
@@ -1509,6 +1512,7 @@ class Model_Space(QGraphicsScene):
                         else:
                             template.set_property(key, value)
                     self.add_sprinkler(node, template)
+                node.user_layer = entry.get("user_layer", "0")
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -1520,6 +1524,7 @@ class Model_Space(QGraphicsScene):
                     pipe.update_label()
                     for key, value in entry.get("properties", {}).items():
                         pipe.set_property(key, value)
+                    pipe.user_layer = entry.get("user_layer", "0")
 
             for node in id_to_node.values():
                 node.fitting.update()
@@ -1671,8 +1676,7 @@ class Model_Space(QGraphicsScene):
         self._undo_stack.append(state)
         if len(self._undo_stack) > self.UNDO_MAX:
             self._undo_stack.pop(0)
-        else:
-            self._undo_pos = len(self._undo_stack) - 1
+        self._undo_pos = len(self._undo_stack) - 1
         self.sceneModified.emit()
 
     def undo(self):
