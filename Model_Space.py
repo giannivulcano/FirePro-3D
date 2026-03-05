@@ -644,6 +644,7 @@ class Model_Space(QGraphicsScene):
         deleted_set = set(selected)
         self._constraints = [c for c in self._constraints
                              if not any(c.involves(d) for d in deleted_set)]
+        self._show_status(f"Deleted {len(selected)} item(s)")
         self.push_undo_state()
 
     # -------------------------------------------------------------------------
@@ -651,6 +652,10 @@ class Model_Space(QGraphicsScene):
 
     def set_mode(self, mode, template=None):
         self.mode = mode
+        # Reset grip editing state (prevents stale grip after Escape mid-drag)
+        self._grip_item = None
+        self._grip_index = -1
+        self._grip_dragging = False
         self.modeChanged.emit(mode)
         self.preview_node.hide()
         self.preview_pipe.hide()
@@ -3272,6 +3277,9 @@ class Model_Space(QGraphicsScene):
             # Double-click fires two mousePressEvents first, adding an extra
             # vertex.  Remove that extra point before finalizing.
             pts = self._polyline_active._points
+            # Double-click fires two mousePressEvents, each adding a point
+            if len(pts) > 2:
+                pts.pop()
             if len(pts) > 2:
                 pts.pop()
             if len(pts) >= 2:
@@ -3312,6 +3320,8 @@ class Model_Space(QGraphicsScene):
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
+            if self.mode and self.mode not in (None, "select"):
+                self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
         elif event.key() == Qt.Key.Key_Delete:
             self.delete_selected_items()
@@ -3322,6 +3332,10 @@ class Model_Space(QGraphicsScene):
         elif event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.undo()
         elif event.key() == Qt.Key.Key_Y and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.redo()
+        elif (event.key() == Qt.Key.Key_Z
+              and event.modifiers() == (Qt.KeyboardModifier.ControlModifier
+                                        | Qt.KeyboardModifier.ShiftModifier)):
             self.redo()
         elif event.key() == Qt.Key.Key_C and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             self.copy_selected_items()
@@ -3387,6 +3401,7 @@ class Model_Space(QGraphicsScene):
             elif hasattr(item, "to_dict"):
                 data.append(item.to_dict())
         QApplication.clipboard().setText(json.dumps(data))
+        self._show_status(f"Copied {len(data)} item(s)")
 
     def paste_items(self, offset):
         data = self.clipboard_data()
@@ -3488,6 +3503,7 @@ class Model_Space(QGraphicsScene):
                 item.translate(offset.x(), offset.y())
                 self.addItem(item)
                 # BlockItems live in the scene but aren't tracked in a dedicated list
+        self._show_status(f"Pasted {len(data)} item(s)")
 
     def move_items(self, offset):
         if not self._selected_items:
@@ -3545,6 +3561,7 @@ class Model_Space(QGraphicsScene):
         QApplication.clipboard().setText(json.dumps(data))
         self.paste_items(QPointF(10, 10))
         QApplication.clipboard().setText(old)
+        self._show_status(f"Duplicated {len(data)} item(s)")
         self.push_undo_state()
 
     # -------------------------------------------------------------------------
@@ -3774,6 +3791,7 @@ class Model_Space(QGraphicsScene):
                         cy + ox * sin_a + oy * cos_a)
                     item._start_deg += angle  # rotate the arc angles too
                     item._rebuild_path()
+        self._show_status(f"Rotated {len(items)} item(s) by {angle}°")
         self.push_undo_state()
 
     # -------------------------------------------------------------------------

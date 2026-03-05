@@ -201,7 +201,11 @@ class MainWindow(QMainWindow):
         self.coord_label = QLabel("X: —   Y: —")
         self.coord_label.setMinimumWidth(280)
         status_bar.addPermanentWidget(self.coord_label)
-        self.mode_label = QLabel("Mode: —")
+        self.mode_name_label = QLabel("Select")
+        self.mode_name_label.setMinimumWidth(100)
+        self.mode_name_label.setStyleSheet("font-weight: bold; padding: 0 8px;")
+        status_bar.addWidget(self.mode_name_label)
+        self.mode_label = QLabel("")
         status_bar.addWidget(self.mode_label)
         self.scene.cursorMoved.connect(self.coord_label.setText)
         self.scene.modeChanged.connect(self._update_mode_label)
@@ -479,23 +483,23 @@ class MainWindow(QMainWindow):
         _btn = g_medit.add_large_button("Undo", _I("undo_icon.svg"), self.scene.undo)
         _btn.setToolTip("Undo last action [Ctrl+Z]")
         _btn = g_medit.add_large_button("Redo", _I("redo_icon.svg"), self.scene.redo)
-        _btn.setToolTip("Redo last undone action [Ctrl+Y]")
-        _btn = g_medit.add_large_button(
+        _btn.setToolTip("Redo last undone action [Ctrl+Y / Ctrl+Shift+Z]")
+        self._btn_delete = g_medit.add_large_button(
             "Delete", _I("delete_icon.svg"),
             lambda: self.scene.delete_selected_items())
-        _btn.setToolTip("Delete selected items [Del]")
-        _btn = g_medit.add_small_button(
+        self._btn_delete.setToolTip("Delete selected items [Del]")
+        self._btn_cut = g_medit.add_small_button(
             "Cut", _I("cut_icon.svg"),
             lambda: (self.scene.copy_selected_items(), self.scene.delete_selected_items()))
-        _btn.setToolTip("Cut selected items")
-        _btn = g_medit.add_small_button(
+        self._btn_cut.setToolTip("Cut selected items [Ctrl+X]")
+        self._btn_copy = g_medit.add_small_button(
             "Copy", _I("copy_icon.svg"),
             lambda: self.scene.copy_selected_items())
-        _btn.setToolTip("Copy selected items")
-        _btn = g_medit.add_small_button(
+        self._btn_copy.setToolTip("Copy selected items [Ctrl+C]")
+        self._btn_paste = g_medit.add_small_button(
             "Paste", _I("paste_icon.svg"),
             lambda: self.scene.paste_items())
-        _btn.setToolTip("Paste items")
+        self._btn_paste.setToolTip("Paste items [Ctrl+V]")
 
         # --- Layer ---
         g_layer = modify_page.add_group("Layer")
@@ -507,30 +511,30 @@ class MainWindow(QMainWindow):
 
         # --- Transform ---
         g_xform = modify_page.add_group("Transform")
-        _btn = g_xform.add_small_button(
+        self._btn_move = g_xform.add_small_button(
             "Move", _I("move_icon.svg"),
             lambda: self._require_selection(lambda: self.scene.set_mode("move")))
-        _btn.setToolTip("Move selected items (pick base + dest)")
-        _btn = g_xform.add_small_button(
+        self._btn_move.setToolTip("Move selected items [Ctrl+M]")
+        self._btn_duplicate = g_xform.add_small_button(
             "Duplicate", _I("duplicate_icon.svg"),
             lambda: self._require_selection(lambda: self.scene.duplicate_selected()))
-        _btn.setToolTip("Duplicate selected items in place")
-        _btn = g_xform.add_small_button(
+        self._btn_duplicate.setToolTip("Duplicate selected items [Ctrl+D]")
+        self._btn_array = g_xform.add_small_button(
             "Array", _I("array_icon.svg"),
             lambda: self._require_selection(self._open_array_dialog))
-        _btn.setToolTip("Create linear/radial array of selected items")
-        _btn = g_xform.add_small_button(
+        self._btn_array.setToolTip("Create linear/radial array of selected items")
+        self._btn_rotate = g_xform.add_small_button(
             "Rotate", _I("rotate_icon.svg"),
             lambda: self._require_selection(lambda: self.scene.rotate_selected_items()))
-        _btn.setToolTip("Rotate selected items 90 deg")
-        _btn = g_xform.add_small_button(
+        self._btn_rotate.setToolTip("Rotate selected items 90 deg")
+        self._btn_scale = g_xform.add_small_button(
             "Scale", _I("scale_icon.svg"),
             lambda: self._require_selection(self.set_scale_dialog))
-        _btn.setToolTip("Scale selected items")
+        self._btn_scale.setToolTip("Scale selected items")
         _btn = g_xform.add_small_button(
             "Offset", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("offset"))
-        _btn.setToolTip("Offset geometry by a distance")
+        _btn.setToolTip("Offset geometry (Tab for exact distance)")
         _mode_btn(g_xform, "Trim", _I("trim_icon.svg"), "trim", large=False).setToolTip(
             "Trim geometry at intersection")
         _mode_btn(g_xform, "Extend", _I("placeholder_icon.svg"), "extend", large=False).setToolTip(
@@ -593,6 +597,16 @@ class MainWindow(QMainWindow):
         # Insert into the group's outer layout (before the label row)
         g_text.layout().insertLayout(0, text_container)
         g_text.setVisible(False)  # hidden until text is selected
+
+        # Selection-dependent button enable/disable
+        self._selection_buttons = [
+            self._btn_delete, self._btn_cut, self._btn_copy,
+            self._btn_move, self._btn_duplicate, self._btn_array,
+            self._btn_rotate, self._btn_scale,
+        ]
+        for btn in self._selection_buttons:
+            btn.setEnabled(False)
+        self._btn_paste.setEnabled(False)
 
         # Auto-switch to Modify tab when items are selected
         self.scene.selectionChanged.connect(self._on_selection_changed_modify)
@@ -769,7 +783,7 @@ class MainWindow(QMainWindow):
         "text":           "Click first corner, then drag to define text area",
         "set_scale":      "Click two known points, then enter real-world distance",
         "move":           "Click base point, then destination",
-        "offset":         "Click geometry to offset, then enter distance",
+        "offset":         "Click geometry to offset (Tab for exact distance)",
         "offset_side":    "Click the side to offset towards",
         "design_area":    "Click two corners to define design area",
         "water_supply":   "Click to place water supply",
@@ -779,6 +793,8 @@ class MainWindow(QMainWindow):
     def _update_mode_label(self, mode: str):
         text = self._MODE_INSTRUCTIONS.get(mode, mode.replace("_", " ").title())
         self.mode_label.setText(text)
+        pretty = mode.replace("_", " ").title() if mode else "Select"
+        self.mode_name_label.setText(pretty)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
@@ -797,6 +813,11 @@ class MainWindow(QMainWindow):
     def _on_selection_changed_modify(self):
         """Auto-switch to Modify tab when items are selected (unless drawing)."""
         sel = self.scene.selectedItems()
+        # Enable/disable selection-dependent buttons
+        has_sel = bool(sel)
+        for btn in self._selection_buttons:
+            btn.setEnabled(has_sel)
+        self._btn_paste.setEnabled(bool(self.scene.clipboard_data()))
         if sel and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
             # Update layer combo to show selected item's layer

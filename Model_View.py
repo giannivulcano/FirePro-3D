@@ -30,6 +30,48 @@ class Model_View(QGraphicsView):
         # Optional: smooth drag
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
+        # Mode-dependent cursor shapes
+        _C = Qt.CursorShape
+        self._mode_cursors = {
+            None:                     _C.ArrowCursor,
+            "select":                 _C.ArrowCursor,
+            "draw_line":              _C.CrossCursor,
+            "draw_rectangle":         _C.CrossCursor,
+            "draw_circle":            _C.CrossCursor,
+            "draw_arc":               _C.CrossCursor,
+            "polyline":               _C.CrossCursor,
+            "gridline":               _C.CrossCursor,
+            "pipe":                   _C.CrossCursor,
+            "sprinkler":              _C.CrossCursor,
+            "water_supply":           _C.CrossCursor,
+            "dimension":              _C.CrossCursor,
+            "text":                   _C.CrossCursor,
+            "set_scale":              _C.CrossCursor,
+            "construction_line":      _C.CrossCursor,
+            "trim":                   _C.CrossCursor,
+            "trim_pick":              _C.CrossCursor,
+            "extend":                 _C.CrossCursor,
+            "extend_pick":            _C.CrossCursor,
+            "merge_points":           _C.CrossCursor,
+            "constraint_concentric":  _C.CrossCursor,
+            "constraint_dimensional": _C.CrossCursor,
+            "design_area":            _C.CrossCursor,
+            "move":                   _C.SizeAllCursor,
+            "paste":                  _C.SizeAllCursor,
+            "offset":                 _C.PointingHandCursor,
+            "offset_side":            _C.PointingHandCursor,
+            "hatch":                  _C.PointingHandCursor,
+        }
+        if hasattr(scene, "modeChanged"):
+            scene.modeChanged.connect(self._on_mode_changed)
+
+    def _on_mode_changed(self, mode: str):
+        """Update viewport cursor to match the active scene mode."""
+        if self._panning:
+            return
+        cursor = self._mode_cursors.get(mode, Qt.CursorShape.ArrowCursor)
+        self.setCursor(cursor)
+
     # ─────────────────────────────
     # Grid overlay
     # ─────────────────────────────
@@ -329,7 +371,10 @@ class Model_View(QGraphicsView):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            sc = self.scene()
+            mode = getattr(sc, "mode", None) if sc else None
+            self.setCursor(self._mode_cursors.get(
+                mode, Qt.CursorShape.ArrowCursor))
         else:
             if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
