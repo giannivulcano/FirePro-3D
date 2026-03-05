@@ -248,6 +248,55 @@ class UserLayerManager:
         for item in getattr(scene, "_draw_circles", []):
             _apply_item(item, getattr(item, "user_layer", "0"))
 
+        for item in getattr(scene, "_draw_arcs", []):
+            _apply_item(item, getattr(item, "user_layer", "0"))
+
+        # ── Annotations (dimensions, notes, hatches) ─────────────────────────
+        annotations = getattr(scene, "annotations", None)
+        if annotations is not None:
+            for dim in getattr(annotations, "dimensions", []):
+                lyr_name = getattr(dim, "user_layer", "Default")
+                ldef = lyr_map.get(lyr_name)
+                if ldef is None:
+                    continue
+                dim.setVisible(ldef.visible)
+                dim.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                    ldef.visible and not ldef.locked,
+                )
+                # Apply colour to dim pen and child items
+                c = _QColor(ldef.color)
+                dim._dim_pen.setColor(c)
+                dim.setPen(dim._dim_pen)
+                dim.label.setDefaultTextColor(c)
+                for child in (dim.tick1, dim.tick2, dim.witness1, dim.witness2):
+                    if child:
+                        child.setPen(dim._dim_pen)
+            for note in getattr(annotations, "notes", []):
+                lyr_name = getattr(note, "user_layer", "Default")
+                ldef = lyr_map.get(lyr_name)
+                if ldef is None:
+                    continue
+                note.setVisible(ldef.visible)
+                note.setFlag(
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                    ldef.visible and not ldef.locked,
+                )
+                note.setDefaultTextColor(_QColor(ldef.color))
+
+        for item in getattr(scene, "_hatch_items", []):
+            lyr_name = getattr(item, "user_layer", "Default")
+            ldef = lyr_map.get(lyr_name)
+            if ldef is None:
+                continue
+            item.setVisible(ldef.visible)
+            item.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+                ldef.visible and not ldef.locked,
+            )
+            item._colour = ldef.color
+            item.update()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Table column indices
