@@ -60,6 +60,7 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         # Enable word wrap if width was specified
         if text_width > 0:
@@ -147,6 +148,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         super().__init__(p1.x(), p1.y(), p2.x(), p2.y())
 
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         # Properties
         self._properties = {
@@ -488,6 +490,7 @@ class HatchItem(QGraphicsPathItem):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
     # ── Public properties ────────────────────────────────────────────────────
 
@@ -596,6 +599,7 @@ class HatchItem(QGraphicsPathItem):
             "spacing":      self._spacing,
             "colour":       self._colour,
             "user_layer":   self.user_layer,
+            "level":        self.level,
         }
 
     @classmethod
@@ -614,6 +618,7 @@ class HatchItem(QGraphicsPathItem):
             colour=data.get("colour", "#888888"),
         )
         obj.user_layer = data.get("user_layer", "Default")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     @staticmethod

@@ -44,6 +44,7 @@ class WaterSupply(QGraphicsItem):
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
         self.setZValue(50)
+        self.level: str = "Level 1"
 
     # ─────────────────────────────────────────────────────────────────────────
     # Property API (compatible with PropertyManager)

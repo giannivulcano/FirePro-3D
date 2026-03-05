@@ -28,7 +28,7 @@ import os
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 5
+    SAVE_VERSION = 6
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -59,6 +59,7 @@ class Model_Space(QGraphicsScene):
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self.design_area_sprinklers: list = []                # Sprint 2C design area
         self.active_user_layer: str = "Default"                  # Sprint 4A active layer
+        self.active_level: str = "Level 1"                     # floor level
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
         # Construction geometry (Sprint C)
@@ -98,6 +99,7 @@ class Model_Space(QGraphicsScene):
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
         self._project_info: dict = {}            # project metadata (name, address, etc.)
+        self._level_manager = None                             # set by main.py
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_index: int = -1              # grip handle index
@@ -210,6 +212,7 @@ class Model_Space(QGraphicsScene):
                 "y":          node.scenePos().y(),
                 "elevation":  node.z_pos,
                 "user_layer": getattr(node, "user_layer", "0"),
+                "level":      getattr(node, "level", "Level 1"),
                 "sprinkler":  node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             nodes_data.append(entry)
@@ -223,6 +226,7 @@ class Model_Space(QGraphicsScene):
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "user_layer": getattr(pipe, "user_layer", "0"),
+                "level":      getattr(pipe, "level", "Level 1"),
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
             })
 
@@ -237,6 +241,7 @@ class Model_Space(QGraphicsScene):
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
                 "user_layer": getattr(dim, "user_layer", "Default"),
+                "level":      getattr(dim, "level", "Level 1"),
             })
         for note in self.annotations.notes:
             annotations_data.append({
@@ -246,6 +251,7 @@ class Model_Space(QGraphicsScene):
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
                 "user_layer": getattr(note, "user_layer", "Default"),
+                "level":      getattr(note, "level", "Level 1"),
             })
 
         # --- Hatch items ---
@@ -290,6 +296,13 @@ class Model_Space(QGraphicsScene):
             else []
         )
 
+        # --- Levels ---
+        levels_data = (
+            self._level_manager.to_list()
+            if self._level_manager
+            else []
+        )
+
         # --- Construction geometry ---
         clines_data = [cl.to_dict() for cl in self._construction_lines]
         polylines_data = [pl.to_dict() for pl in self._polylines]
@@ -305,6 +318,7 @@ class Model_Space(QGraphicsScene):
             "project_info":        self._project_info,
             "scale":               self.scale_manager.to_dict(),
             "user_layers":         layers_data,
+            "levels":              levels_data,
             "nodes":               nodes_data,
             "pipes":               pipes_data,
             "annotations":         annotations_data,
@@ -364,6 +378,11 @@ class Model_Space(QGraphicsScene):
         if layers_data and hasattr(self, "_user_layer_manager") and self._user_layer_manager:
             self._user_layer_manager.from_list(layers_data)
 
+        # --- Levels ---
+        levels_data = payload.get("levels", [])
+        if levels_data and self._level_manager:
+            self._level_manager.from_list(levels_data)
+
         # --- Nodes ---
         id_to_node: dict[int, Node] = {}
         for entry in payload.get("nodes", []):
@@ -372,6 +391,7 @@ class Model_Space(QGraphicsScene):
             # Restore node elevation (plain nodes)
             node.set_property("Elevation", str(entry.get("elevation", 0)))
             node.user_layer = entry.get("user_layer", "0")
+            node.level = entry.get("level", "Level 1")
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -389,6 +409,7 @@ class Model_Space(QGraphicsScene):
             if n1 and n2:
                 pipe = self.add_pipe(n1, n2)
                 pipe.user_layer = entry.get("user_layer", "0")
+                pipe.level = entry.get("level", "Level 1")
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
 
@@ -412,6 +433,7 @@ class Model_Space(QGraphicsScene):
                     dim.set_property(key, value)
                 dim.update_geometry()
                 dim.user_layer = entry.get("user_layer", "Default")
+                dim.level = entry.get("level", "Level 1")
             elif ann_type == "note":
                 tw = entry.get("text_width", -1)
                 note = NoteAnnotation(
@@ -422,6 +444,7 @@ class Model_Space(QGraphicsScene):
                 for key, value in entry.get("properties", {}).items():
                     note.set_property(key, value)
                 note.user_layer = entry.get("user_layer", "Default")
+                note.level = entry.get("level", "Level 1")
 
         # --- Underlays (re-link from path) ---
         for entry in payload.get("underlays", []):
@@ -508,6 +531,10 @@ class Model_Space(QGraphicsScene):
             except Exception:
                 pass  # skip malformed constraint data
 
+        # Apply level visibility
+        if self._level_manager:
+            self._level_manager.apply_to_scene(self)
+
         # Start fresh undo history with the loaded state
         self._undo_stack = []
         self._undo_pos = -1
@@ -554,6 +581,9 @@ class Model_Space(QGraphicsScene):
         self._dim_preview_line = None
         self._dim_preview_label = None
         self._dim_pending = None
+        self.active_level = "Level 1"
+        if self._level_manager:
+            self._level_manager.reset()
         self.clear()
         self.init_preview_node()
         self.init_preview_pipe()
@@ -965,6 +995,7 @@ class Model_Space(QGraphicsScene):
         if not node:
             node = Node(x, y)
             node.user_layer = self.active_user_layer
+            node.level = self.active_level
             self.addItem(node)
             self.sprinkler_system.add_node(node)
         return node
@@ -982,6 +1013,7 @@ class Model_Space(QGraphicsScene):
     def add_pipe(self, n1, n2, template=None):
         pipe = Pipe(n1, n2)
         pipe.user_layer = self.active_user_layer
+        pipe.level = self.active_level
         if template:
             pipe.set_properties(template)
         self.sprinkler_system.add_pipe(pipe)
@@ -1535,6 +1567,7 @@ class Model_Space(QGraphicsScene):
                 "elevation": node.z_pos,
                 "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
                 "user_layer": getattr(node, "user_layer", "0"),
+                "level":     getattr(node, "level", "Level 1"),
             })
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
@@ -1545,6 +1578,7 @@ class Model_Space(QGraphicsScene):
                 "node2_id":   node_id[pipe.node2],
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
                 "user_layer": getattr(pipe, "user_layer", "0"),
+                "level":     getattr(pipe, "level", "Level 1"),
             })
         annotations_data = []
         for dim in self.annotations.dimensions:
@@ -1556,6 +1590,7 @@ class Model_Space(QGraphicsScene):
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
                 "user_layer": getattr(dim, "user_layer", "Default"),
+                "level":     getattr(dim, "level", "Level 1"),
             })
         for note in self.annotations.notes:
             annotations_data.append({
@@ -1565,6 +1600,7 @@ class Model_Space(QGraphicsScene):
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
                 "user_layer": getattr(note, "user_layer", "Default"),
+                "level":     getattr(note, "level", "Level 1"),
             })
         ws = self.water_supply_node
         ws_data = None
@@ -1644,6 +1680,7 @@ class Model_Space(QGraphicsScene):
                             template.set_property(key, value)
                     self.add_sprinkler(node, template)
                 node.user_layer = entry.get("user_layer", "0")
+                node.level = entry.get("level", "Level 1")
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -1656,6 +1693,7 @@ class Model_Space(QGraphicsScene):
                     for key, value in entry.get("properties", {}).items():
                         pipe.set_property(key, value)
                     pipe.user_layer = entry.get("user_layer", "0")
+                    pipe.level = entry.get("level", "Level 1")
 
             for node in id_to_node.values():
                 node.fitting.update()
@@ -1674,6 +1712,7 @@ class Model_Space(QGraphicsScene):
                         dim.set_property(key, value)
                     dim.update_geometry()
                     dim.user_layer = entry.get("user_layer", "Default")
+                    dim.level = entry.get("level", "Level 1")
                 elif ann_type == "note":
                     note = NoteAnnotation(x=entry["x"], y=entry["y"])
                     self.addItem(note)
@@ -1681,6 +1720,7 @@ class Model_Space(QGraphicsScene):
                     for key, value in entry.get("properties", {}).items():
                         note.set_property(key, value)
                     note.user_layer = entry.get("user_layer", "Default")
+                    note.level = entry.get("level", "Level 1")
 
             # Restore water supply
             ws_data = state.get("water_supply")
@@ -1793,6 +1833,10 @@ class Model_Space(QGraphicsScene):
                         self._constraints.append(c)
                 except Exception:
                     pass
+
+            # Re-apply level visibility
+            if self._level_manager:
+                self._level_manager.apply_to_scene(self)
 
         finally:
             self._in_undo_restore = False
@@ -2075,6 +2119,7 @@ class Model_Space(QGraphicsScene):
             color = self._get_draw_color()
             item = LineItem(anchor, tip, color, self._get_draw_lineweight())
             item.user_layer = self.active_user_layer
+            item.level = self.active_level
             self.addItem(item)
             self._draw_lines.append(item)
             item.setSelected(True)
@@ -2126,6 +2171,7 @@ class Model_Space(QGraphicsScene):
             color = self._get_draw_color()
             item = RectangleItem(self._draw_rect_anchor, pt2, color, self._get_draw_lineweight())
             item.user_layer = self.active_user_layer
+            item.level = self.active_level
             self.addItem(item)
             self._draw_rects.append(item)
             item.setSelected(True)
@@ -2211,6 +2257,7 @@ class Model_Space(QGraphicsScene):
             color = self._get_draw_color()
             item = CircleItem(self._draw_circle_center, r, color, self._get_draw_lineweight())
             item.user_layer = self.active_user_layer
+            item.level = self.active_level
             self.addItem(item)
             self._draw_circles.append(item)
             item.setSelected(True)
@@ -2440,6 +2487,7 @@ class Model_Space(QGraphicsScene):
             new_p2 = QPointF(p2.x() + signed_dist * nx, p2.y() + signed_dist * ny)
             item = LineItem(new_p1, new_p2, color, lw)
             item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.level = getattr(source, "level", "Level 1")
             return item
 
         if isinstance(source, PolylineItem):
@@ -2451,6 +2499,7 @@ class Model_Space(QGraphicsScene):
             for p in new_pts[1:]:
                 item.append_point(p)
             item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.level = getattr(source, "level", "Level 1")
             return item
 
         if isinstance(source, CircleItem):
@@ -2464,6 +2513,7 @@ class Model_Space(QGraphicsScene):
             cy = scene_rect.center().y()
             item = CircleItem(QPointF(cx, cy), new_r, color, lw)
             item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.level = getattr(source, "level", "Level 1")
             return item
 
         if isinstance(source, RectangleItem):
@@ -2473,6 +2523,7 @@ class Model_Space(QGraphicsScene):
                 return None
             item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
             item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.level = getattr(source, "level", "Level 1")
             return item
 
         if isinstance(source, ArcItem):
@@ -2482,6 +2533,7 @@ class Model_Space(QGraphicsScene):
             item = ArcItem(source._center, new_r,
                            source._start_deg, source._span_deg, color, lw)
             item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.level = getattr(source, "level", "Level 1")
             return item
         return None
 
@@ -3151,6 +3203,7 @@ class Model_Space(QGraphicsScene):
                 item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
                                self._draw_arc_start_deg, span, color, lw)
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_arcs.append(item)
                 item.setSelected(True)
@@ -3178,6 +3231,7 @@ class Model_Space(QGraphicsScene):
                 # Create gridline from anchor to snapped
                 gl = GridlineItem(self._gridline_anchor, snapped)
                 gl.user_layer = self.active_user_layer
+                gl.level = self.active_level
                 self.addItem(gl)
                 self._gridlines.append(gl)
                 self.requestPropertyUpdate.emit(gl)
@@ -3479,6 +3533,7 @@ class Model_Space(QGraphicsScene):
                 color = self._get_draw_color()
                 pl = PolylineItem(snapped, color, self._get_draw_lineweight())
                 pl.user_layer = self.active_user_layer
+                pl.level = self.active_level
                 self.addItem(pl)
                 self._polylines.append(pl)
                 self._polyline_active = pl
@@ -3509,6 +3564,7 @@ class Model_Space(QGraphicsScene):
                 lw = self._get_draw_lineweight()
                 item = LineItem(self._draw_line_anchor, tip, color, lw)
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_lines.append(item)
                 item.setSelected(True)
@@ -3547,6 +3603,7 @@ class Model_Space(QGraphicsScene):
                     color, lw
                 )
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_rects.append(item)
                 item.setSelected(True)
@@ -3586,6 +3643,7 @@ class Model_Space(QGraphicsScene):
                     lw = self._get_draw_lineweight()
                     item = CircleItem(self._draw_circle_center, r, color, lw)
                     item.user_layer = self.active_user_layer
+                    item.level = self.active_level
                     self.addItem(item)
                     self._draw_circles.append(item)
                     item.setSelected(True)
@@ -3906,6 +3964,7 @@ class Model_Space(QGraphicsScene):
                 item = LineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_lines.append(item)
 
@@ -3913,6 +3972,7 @@ class Model_Space(QGraphicsScene):
                 item = RectangleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_rects.append(item)
 
@@ -3920,6 +3980,7 @@ class Model_Space(QGraphicsScene):
                 item = CircleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_circles.append(item)
 
@@ -3927,6 +3988,7 @@ class Model_Space(QGraphicsScene):
                 item = ArcItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._draw_arcs.append(item)
 
@@ -3934,6 +3996,7 @@ class Model_Space(QGraphicsScene):
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
                 item.user_layer = self.active_user_layer
+                item.level = self.active_level
                 self.addItem(item)
                 self._polylines.append(item)
 
@@ -4185,6 +4248,7 @@ class Model_Space(QGraphicsScene):
                     pl.append_point(pt)
                 pl.finalize()
                 pl.user_layer = getattr(item, "user_layer", "0")
+                pl.level = getattr(item, "level", "Level 1")
                 self.addItem(pl)
                 self._polylines.append(pl)
                 # Remove original rect
@@ -4251,6 +4315,7 @@ class Model_Space(QGraphicsScene):
                 ln = LineItem(p1, p2, color=item.pen().color().name(),
                               lineweight=item.pen().widthF())
                 ln.user_layer = getattr(item, "user_layer", "0")
+                ln.level = getattr(item, "level", "Level 1")
                 self.addItem(ln)
                 self._draw_lines.append(ln)
                 new_items.append(ln)
@@ -4262,6 +4327,7 @@ class Model_Space(QGraphicsScene):
                     pl.append_point(pt)
                 pl.finalize()
                 pl.user_layer = getattr(item, "user_layer", "0")
+                pl.level = getattr(item, "level", "Level 1")
                 self.addItem(pl)
                 self._polylines.append(pl)
                 new_items.append(pl)
@@ -4270,6 +4336,7 @@ class Model_Space(QGraphicsScene):
                 ci = CircleItem(c, item._radius, color=item.pen().color().name(),
                                 lineweight=item.pen().widthF())
                 ci.user_layer = getattr(item, "user_layer", "0")
+                ci.level = getattr(item, "level", "Level 1")
                 self.addItem(ci)
                 self._draw_circles.append(ci)
                 new_items.append(ci)
@@ -4280,6 +4347,7 @@ class Model_Space(QGraphicsScene):
                 ri = RectangleItem(tl, br, color=item.pen().color().name(),
                                    lineweight=item.pen().widthF())
                 ri.user_layer = getattr(item, "user_layer", "0")
+                ri.level = getattr(item, "level", "Level 1")
                 self.addItem(ri)
                 self._draw_rects.append(ri)
                 new_items.append(ri)
@@ -4290,6 +4358,7 @@ class Model_Space(QGraphicsScene):
                              -item._span_deg, color=item.pen().color().name(),
                              lineweight=item.pen().widthF())
                 ai.user_layer = getattr(item, "user_layer", "0")
+                ai.level = getattr(item, "level", "Level 1")
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
                 new_items.append(ai)
@@ -4353,6 +4422,7 @@ class Model_Space(QGraphicsScene):
             pl.append_point(pt)
         pl.finalize()
         pl.user_layer = getattr(items[0], "user_layer", "0")
+        pl.level = getattr(items[0], "level", "Level 1")
         # Remove originals
         for item in items:
             if item.scene() is self:
@@ -4445,6 +4515,7 @@ class Model_Space(QGraphicsScene):
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
             arc.user_layer = getattr(item, "user_layer", "0")
+            arc.level = getattr(item, "level", "Level 1")
             if item.scene() is self:
                 self.removeItem(item)
             if item in self._draw_circles:
@@ -4479,6 +4550,7 @@ class Model_Space(QGraphicsScene):
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
             arc.user_layer = getattr(item, "user_layer", "0")
+            arc.level = getattr(item, "level", "Level 1")
             if item.scene() is self:
                 self.removeItem(item)
             if item in self._draw_circles:
@@ -4502,6 +4574,8 @@ class Model_Space(QGraphicsScene):
                          lineweight=item.pen().widthF())
             a1.user_layer = getattr(item, "user_layer", "0")
             a2.user_layer = getattr(item, "user_layer", "0")
+            a1.level = getattr(item, "level", "Level 1")
+            a2.level = getattr(item, "level", "Level 1")
             if item.scene() is self:
                 self.removeItem(item)
             if item in self._draw_arcs:
@@ -4570,6 +4644,7 @@ class Model_Space(QGraphicsScene):
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
         arc.user_layer = getattr(data["item1"], "user_layer", "0")
+        arc.level = getattr(data["item1"], "level", "Level 1")
         self.addItem(arc)
         self._draw_arcs.append(arc)
         # Trim lines to tangent points
@@ -4611,6 +4686,7 @@ class Model_Space(QGraphicsScene):
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
         ln.user_layer = getattr(data["item1"], "user_layer", "0")
+        ln.level = getattr(data["item1"], "level", "Level 1")
         self.addItem(ln)
         self._draw_lines.append(ln)
         setattr(data["item1"], data["near1"], QPointF(data["cp1"]))
@@ -4882,6 +4958,7 @@ class Model_Space(QGraphicsScene):
                 lw = item.pen().widthF()
                 arc = ArcItem(center, r, start, span, color, lw)
                 arc.user_layer = getattr(item, 'user_layer', 'Default')
+                arc.level = getattr(item, 'level', 'Level 1')
                 self.addItem(arc)
                 self._draw_arcs.append(arc)
 
@@ -5023,6 +5100,7 @@ class Model_Space(QGraphicsScene):
         self._hatch_items.append(hatch)
         hatch.setSelected(True)
         hatch.user_layer = getattr(item, "user_layer", self.active_user_layer)
+        hatch.level = getattr(item, "level", self.active_level)
         self.push_undo_state()
         self._show_status("Hatch applied")
 

@@ -75,6 +75,7 @@ class ConstructionLine(QGraphicsLineItem):
         self.setZValue(-5)          # drawn behind all model items
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self.level: str = "Level 1"
 
         self._recompute_line()
 
@@ -96,13 +97,16 @@ class ConstructionLine(QGraphicsLineItem):
             "type": "construction_line",
             "pt1":  [self._pt1.x(), self._pt1.y()],
             "pt2":  [self._pt2.x(), self._pt2.y()],
+            "level": self.level,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConstructionLine":
         pt1 = QPointF(data["pt1"][0], data["pt1"][1])
         pt2 = QPointF(data["pt2"][0], data["pt2"][1])
-        return cls(pt1, pt2)
+        obj = cls(pt1, pt2)
+        obj.level = data.get("level", "Level 1")
+        return obj
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -193,6 +197,7 @@ class PolylineItem(QGraphicsPathItem):
         super().__init__()
         self._points: list[QPointF] = [start]
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -288,6 +293,7 @@ class PolylineItem(QGraphicsPathItem):
             "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
             "user_layer": self.user_layer,
+            "level":      self.level,
         }
 
     @classmethod
@@ -299,6 +305,7 @@ class PolylineItem(QGraphicsPathItem):
         for p in pts[1:]:
             obj.append_point(p)
         obj.user_layer = data.get("user_layer", "0")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -352,6 +359,7 @@ class LineItem(QGraphicsLineItem):
         self._pt1 = pt1
         self._pt2 = pt2
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -389,6 +397,7 @@ class LineItem(QGraphicsLineItem):
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
             "user_layer":  self.user_layer,
+            "level":       self.level,
         }
 
     @classmethod
@@ -398,6 +407,7 @@ class LineItem(QGraphicsLineItem):
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
         obj.user_layer = data.get("user_layer", "0")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -482,6 +492,7 @@ class RectangleItem(QGraphicsRectItem):
         rect = QRectF(pt1, pt2).normalized()
         super().__init__(rect)
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -523,6 +534,7 @@ class RectangleItem(QGraphicsRectItem):
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
             "user_layer":  self.user_layer,
+            "level":       self.level,
         }
 
     @classmethod
@@ -532,6 +544,7 @@ class RectangleItem(QGraphicsRectItem):
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
         obj.user_layer = data.get("user_layer", "0")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -634,6 +647,7 @@ class CircleItem(QGraphicsEllipseItem):
         r = radius
         super().__init__(center.x() - r, center.y() - r, 2 * r, 2 * r)
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -672,6 +686,7 @@ class CircleItem(QGraphicsEllipseItem):
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
             "user_layer":  self.user_layer,
+            "level":       self.level,
         }
 
     @classmethod
@@ -680,6 +695,7 @@ class CircleItem(QGraphicsEllipseItem):
         obj = cls(center, data["radius"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
         obj.user_layer = data.get("user_layer", "0")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -770,6 +786,7 @@ class ArcItem(QGraphicsPathItem):
         self._start_deg = start_deg
         self._span_deg = span_deg
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
         pen = QPen(QColor(color), lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
@@ -801,6 +818,7 @@ class ArcItem(QGraphicsPathItem):
             "color":      self.pen().color().name(),
             "lineweight": self.pen().widthF(),
             "user_layer": self.user_layer,
+            "level":      self.level,
         }
 
     @classmethod
@@ -809,6 +827,7 @@ class ArcItem(QGraphicsPathItem):
         obj = cls(center, data["radius"], data["start_deg"], data["span_deg"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
         obj.user_layer = data.get("user_layer", "0")
+        obj.level = data.get("level", "Level 1")
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ from scale_manager import DisplayUnit
 from layer_manager import LayerManager
 from hydraulic_report import HydraulicReportWidget
 from user_layer_manager import UserLayerManager, UserLayerWidget
+from level_manager import LevelManager, LevelWidget
 from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
 from array_dialog import ArrayDialog
@@ -124,6 +125,10 @@ class MainWindow(QMainWindow):
         self.user_layer_mgr = UserLayerManager()
         self.scene._user_layer_manager = self.user_layer_mgr   # for save/load
 
+        # Level manager — shared between scene and UI
+        self.level_mgr = LevelManager()
+        self.scene._level_manager = self.level_mgr
+
         # Central tab widget: Model Space | Layout 1 (Paper Space)
         self.paper_space_widget = PaperSpaceWidget(self.scene)
         self.central_tabs = QTabWidget()
@@ -157,6 +162,15 @@ class MainWindow(QMainWindow):
         self.user_layer_widget.layersChanged.connect(
             self._refresh_draw_layer_combo
         )
+
+        # Level widget (floor levels)
+        self.level_widget = LevelWidget(self.level_mgr, scene=self.scene)
+        self.level_widget.activeLevelChanged.connect(self._on_active_level_changed)
+        self.level_widget.levelsChanged.connect(
+            lambda: self.level_mgr.apply_to_scene(self.scene)
+        )
+        self.level_widget.levelsChanged.connect(self._refresh_level_combo)
+
         self.project_browser = ProjectBrowser()
         self.project_browser.activateModelSpace.connect(
             lambda: self.central_tabs.setCurrentWidget(self.view)
@@ -170,6 +184,7 @@ class MainWindow(QMainWindow):
         self._left_tabs.addTab(self.project_browser, "Project Browser")
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
+        self._left_tabs.addTab(self.level_widget, "Levels")
         self._left_tabs.addTab(self.prop_manager, "Properties")
 
         self.browser_dock = QDockWidget("", self)
@@ -467,6 +482,17 @@ class MainWindow(QMainWindow):
             "Sprinkler\nManager", _I("sprinkler_icon.svg"),
             self.open_sprinkler_manager)
         _btn.setToolTip("Open sprinkler database manager")
+
+        # --- Level ---
+        g_level = build_page.add_group("Level")
+        self._level_combo = QComboBox()
+        self._level_combo.setMinimumWidth(130)
+        self._level_combo.addItems([l.name for l in self.level_mgr.levels])
+        idx = self._level_combo.findText(self.scene.active_level)
+        if idx >= 0:
+            self._level_combo.setCurrentIndex(idx)
+        self._level_combo.currentTextChanged.connect(self._on_active_level_changed)
+        g_level.layout().addWidget(self._level_combo)
 
         # ── Tab 4: Modify (always visible, auto-switches on selection) ────────
         modify_page = self.ribbon.add_page("Modify")
@@ -778,6 +804,34 @@ class MainWindow(QMainWindow):
             combo.setCurrentIndex(0)
         combo.blockSignals(False)
 
+    # ── Level helpers ──────────────────────────────────────────────────────────
+
+    def _on_active_level_changed(self, name: str):
+        """Handle active level change from widget or ribbon combo."""
+        self.scene.active_level = name
+        self.level_mgr.active_level = name
+        self.level_mgr.apply_to_scene(self.scene)
+        # Sync ribbon combo (if the signal came from the widget, not the combo)
+        self._level_combo.blockSignals(True)
+        idx = self._level_combo.findText(name)
+        if idx >= 0:
+            self._level_combo.setCurrentIndex(idx)
+        self._level_combo.blockSignals(False)
+
+    def _refresh_level_combo(self):
+        """Re-populate the Build ribbon's level dropdown after levels change."""
+        combo = self._level_combo
+        combo.blockSignals(True)
+        current = combo.currentText()
+        combo.clear()
+        combo.addItems([l.name for l in self.level_mgr.levels])
+        idx = combo.findText(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        else:
+            combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
     # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
 
     def _toggle_osnap(self, checked: bool):
@@ -996,6 +1050,9 @@ class MainWindow(QMainWindow):
         if file:
             self._current_file = file
             self.scene.load_from_file(file)
+            self.level_widget.populate()
+            self._refresh_level_combo()
+            self.user_layer_widget.populate()
             self._modified = False
             self._update_title()
 
@@ -1003,6 +1060,9 @@ class MainWindow(QMainWindow):
         """Clear the scene and start a fresh project."""
         self._current_file = None
         self.scene._clear_scene()
+        self.level_widget.populate()
+        self._refresh_level_combo()
+        self.user_layer_widget.populate()
         self._modified = False
         self._update_title()
 

@@ -143,6 +143,7 @@ class GridlineItem(QGraphicsLineItem):
 
         # User layer
         self.user_layer: str = "Default"
+        self.level: str = "Level 1"
 
     # ── Bubble positioning ────────────────────────────────────────────────
 
@@ -194,6 +195,7 @@ class GridlineItem(QGraphicsLineItem):
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
             "user_layer": self.user_layer,
+            "level":      self.level,
         }
 
     @classmethod
@@ -204,6 +206,7 @@ class GridlineItem(QGraphicsLineItem):
         item.bubble1.setVisible(d.get("bubble1_vis", True))
         item.bubble2.setVisible(d.get("bubble2_vis", True))
         item.user_layer = d.get("user_layer", "0")
+        item.level = d.get("level", "Level 1")
         return item
 
     # ── Properties for property panel ─────────────────────────────────────
