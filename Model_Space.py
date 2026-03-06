@@ -172,6 +172,8 @@ class Model_Space(QGraphicsScene):
         self._next_wall_num: int = 1
         self._next_floor_num: int = 1
         self._wall_alignment: str = "Center"                  # alignment mode for new walls
+        self._wall_template: "WallSegment | None" = None      # pre-placement property template
+        self._floor_template: "FloorSlab | None" = None       # pre-placement property template
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
         self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
         self._wall_preview_line: "QGraphicsLineItem | None" = None
@@ -2189,6 +2191,28 @@ class Model_Space(QGraphicsScene):
     # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
     # ─────────────────────────────────────────────────────────────────────────
+    # Template getters (pre-placement property editing)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _get_wall_template(self) -> "WallSegment":
+        """Return (lazily-created) wall template for pre-placement editing."""
+        if self._wall_template is None:
+            self._wall_template = WallSegment(QPointF(0, 0), QPointF(100, 0))
+            self._wall_template.name = "(Template)"
+            self._wall_template._alignment = self._wall_alignment
+            self._wall_template.level = self.active_level
+            self._wall_template._base_level = self.active_level
+        return self._wall_template
+
+    def _get_floor_template(self) -> "FloorSlab":
+        """Return (lazily-created) floor slab template for pre-placement editing."""
+        if self._floor_template is None:
+            self._floor_template = FloorSlab(color="#8888cc")
+            self._floor_template.name = "(Template)"
+            self._floor_template.level = self.active_level
+        return self._floor_template
+
+    # ─────────────────────────────────────────────────────────────────────────
 
     def _handle_tab_input(self):
         """
@@ -2217,6 +2241,9 @@ class Model_Space(QGraphicsScene):
                 combo.blockSignals(True)
                 combo.setCurrentText(self._wall_alignment)
                 combo.blockSignals(False)
+            # Sync template alignment
+            if self._wall_template is not None:
+                self._wall_template._alignment = self._wall_alignment
             return
 
         from PyQt6.QtWidgets import (
@@ -3133,9 +3160,10 @@ class Model_Space(QGraphicsScene):
                         self._wall_preview_rect.setBrush(QBrush(_fill))
                         self._wall_preview_rect.setZValue(199)
                         self.addItem(self._wall_preview_rect)
+                    _wtmpl = self._get_wall_template()
                     p1l, p1r, p2r, p2l = compute_wall_quad(
-                        self._wall_anchor, tip, DEFAULT_THICKNESS_IN,
-                        self._wall_alignment, self.scale_manager)
+                        self._wall_anchor, tip, _wtmpl._thickness_in,
+                        _wtmpl._alignment, self.scale_manager)
                     _pp = QPainterPath()
                     _pp.moveTo(p1l)
                     _pp.lineTo(p2l)
@@ -3886,13 +3914,21 @@ class Model_Space(QGraphicsScene):
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._wall_anchor, snapped)
-                wall = WallSegment(self._wall_anchor, tip)
+                _tmpl = self._get_wall_template()
+                wall = WallSegment(self._wall_anchor, tip,
+                                   thickness_in=_tmpl._thickness_in,
+                                   color=_tmpl._color.name())
                 wall.name = f"Wall {self._next_wall_num}"
                 self._next_wall_num += 1
-                wall._alignment = self._wall_alignment
-                wall.level = self.active_level
-                wall._base_level = self.active_level
+                wall._alignment = _tmpl._alignment
+                wall._fill_mode = _tmpl._fill_mode
+                wall.level = _tmpl.level if _tmpl.level else self.active_level
+                wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
+                wall._top_level = getattr(_tmpl, "_top_level", "")
+                wall._height_ft = getattr(_tmpl, "_height_ft", 10.0)
                 wall.user_layer = self.active_user_layer
+                # Keep scene alignment in sync with template
+                self._wall_alignment = _tmpl._alignment
                 self.addItem(wall)
                 self._walls.append(wall)
                 # Auto-join: snap endpoints to nearby walls
@@ -3911,10 +3947,12 @@ class Model_Space(QGraphicsScene):
         # ── Floor drawing ─────────────────────────────────────────────────
         elif self.mode == "floor":
             if self._floor_active is None:
-                slab = FloorSlab(color="#8888cc")
+                _ftmpl = self._get_floor_template()
+                slab = FloorSlab(color=_ftmpl._color.name())
                 slab.name = f"Floor {self._next_floor_num}"
                 self._next_floor_num += 1
-                slab.level = self.active_level
+                slab._thickness_ft = _ftmpl._thickness_ft
+                slab.level = _ftmpl.level if _ftmpl.level else self.active_level
                 slab.user_layer = self.active_user_layer
                 slab.add_point(snapped)
                 self.addItem(slab)

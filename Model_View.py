@@ -421,6 +421,7 @@ class Model_View(QGraphicsView):
             "draw_line", "draw_rectangle", "draw_circle",
             "construction_line", "polyline", "offset_side",
             "rotate", "scale", "fillet", "chamfer",
+            "wall",
         ):
             return False   # let Tab fall through to keyPressEvent
         return super().focusNextPrevChild(next_child)

@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
         self.level_widget.levelsChanged.connect(
             lambda: self.level_mgr.apply_to_scene(self.scene)
         )
-        self.level_widget.levelsChanged.connect(self._refresh_level_combo)
+        # (Level combo removed from ribbon — levels managed via Levels tab)
         self.level_widget.duplicateLevel.connect(self.scene.duplicate_level_entities)
 
         self.project_browser = ProjectBrowser()
@@ -199,7 +199,6 @@ class MainWindow(QMainWindow):
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
         self._left_tabs.addTab(self.level_widget, "Levels")
-        self._left_tabs.addTab(self.prop_manager, "Properties")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -211,6 +210,17 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.browser_dock)
         self.browser_dock.setMinimumWidth(200)
+
+        # Properties dock (right side — always visible)
+        self.prop_dock = QDockWidget("Properties", self)
+        self.prop_dock.setObjectName("PropertiesDock")
+        self.prop_dock.setWidget(self.prop_manager)
+        self.prop_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea |
+            Qt.DockWidgetArea.LeftDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.prop_dock)
+        self.prop_dock.setMinimumWidth(200)
 
         # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
         self.hydro_report = HydraulicReportWidget()
@@ -243,6 +253,7 @@ class MainWindow(QMainWindow):
         self.scene.cursorMoved.connect(self.coord_label.setText)
         self.scene.modeChanged.connect(self._update_mode_label)
         self.scene.modeChanged.connect(self._sync_mode_buttons)
+        self.scene.modeChanged.connect(self._on_mode_changed_template)
         self.scene.sceneModified.connect(self._on_scene_modified)
         self.scene.instructionChanged.connect(
             lambda text: self.mode_label.setText(text)
@@ -375,8 +386,8 @@ class MainWindow(QMainWindow):
         g_pan = manage_page.add_group("Panels")
         prop_btn = g_pan.add_small_button(
             "Properties", _I("info_icon.svg"),
-            lambda: self._left_tabs.setCurrentWidget(self.prop_manager))
-        prop_btn.setToolTip("Switch to Properties tab")
+            lambda: self.prop_dock.show())
+        prop_btn.setToolTip("Show/hide Properties dock")
 
         browser_btn = g_pan.add_small_button(
             "Browser",
@@ -463,6 +474,41 @@ class MainWindow(QMainWindow):
         # ── Tab 3: Build ─────────────────────────────────────────────────────
         build_page = self.ribbon.add_page("Build")
 
+        # --- 3D Modeling ---
+        g_3d = build_page.add_group("3D Modeling")
+        _wall_btn = g_3d.add_large_button(
+            "Wall", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("wall"),
+            checkable=True)
+        _wall_btn.setToolTip("Draw a wall segment")
+        self._mode_buttons["wall"] = _wall_btn
+        self._wall_align_combo = QComboBox()
+        self._wall_align_combo.addItems(["Center", "Interior", "Exterior"])
+        self._wall_align_combo.setToolTip("Wall placement alignment")
+        self._wall_align_combo.setFixedWidth(90)
+        self._wall_align_combo.currentTextChanged.connect(
+            self._on_wall_align_combo_changed)
+        g_3d._btn_row.addWidget(self._wall_align_combo)
+        self.scene._wall_align_combo_ref = self._wall_align_combo
+        _floor_btn = g_3d.add_large_button(
+            "Floor", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("floor"),
+            checkable=True)
+        _floor_btn.setToolTip("Draw a floor slab boundary")
+        self._mode_buttons["floor"] = _floor_btn
+        _door_btn = g_3d.add_small_button(
+            "Door", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("door"),
+            checkable=True)
+        _door_btn.setToolTip("Place a door opening in a wall")
+        self._mode_buttons["door"] = _door_btn
+        _window_btn = g_3d.add_small_button(
+            "Window", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("window"),
+            checkable=True)
+        _window_btn.setToolTip("Place a window opening in a wall")
+        self._mode_buttons["window"] = _window_btn
+
         # --- Fire Suppression Systems ---
         g_sys = build_page.add_group("Fire Suppression Systems")
         _pipe_btn = g_sys.add_large_button(
@@ -500,52 +546,6 @@ class MainWindow(QMainWindow):
             "Sprinkler\nManager", _I("sprinkler_manager_icon.svg"),
             self.open_sprinkler_manager)
         _btn.setToolTip("Open sprinkler database manager")
-
-        # --- 3D Modeling ---
-        g_3d = build_page.add_group("3D Modeling")
-        _wall_btn = g_3d.add_large_button(
-            "Wall", _I("pipe_icon.svg"),
-            lambda: self.scene.set_mode("wall"),
-            checkable=True)
-        _wall_btn.setToolTip("Draw a wall segment")
-        self._mode_buttons["wall"] = _wall_btn
-        self._wall_align_combo = QComboBox()
-        self._wall_align_combo.addItems(["Center", "Interior", "Exterior"])
-        self._wall_align_combo.setToolTip("Wall placement alignment")
-        self._wall_align_combo.setFixedWidth(90)
-        self._wall_align_combo.currentTextChanged.connect(
-            lambda t: setattr(self.scene, "_wall_alignment", t))
-        g_3d._btn_row.addWidget(self._wall_align_combo)
-        self.scene._wall_align_combo_ref = self._wall_align_combo
-        _floor_btn = g_3d.add_large_button(
-            "Floor", _I("design_area_icon.svg"),
-            lambda: self.scene.set_mode("floor"),
-            checkable=True)
-        _floor_btn.setToolTip("Draw a floor slab boundary")
-        self._mode_buttons["floor"] = _floor_btn
-        _door_btn = g_3d.add_small_button(
-            "Door", _I("pipe_icon.svg"),
-            lambda: self.scene.set_mode("door"),
-            checkable=True)
-        _door_btn.setToolTip("Place a door opening in a wall")
-        self._mode_buttons["door"] = _door_btn
-        _window_btn = g_3d.add_small_button(
-            "Window", _I("pipe_icon.svg"),
-            lambda: self.scene.set_mode("window"),
-            checkable=True)
-        _window_btn.setToolTip("Place a window opening in a wall")
-        self._mode_buttons["window"] = _window_btn
-
-        # --- Level ---
-        g_level = build_page.add_group("Level")
-        self._level_combo = QComboBox()
-        self._level_combo.setMinimumWidth(130)
-        self._level_combo.addItems([l.name for l in self.level_mgr.levels])
-        idx = self._level_combo.findText(self.scene.active_level)
-        if idx >= 0:
-            self._level_combo.setCurrentIndex(idx)
-        self._level_combo.currentTextChanged.connect(self._on_active_level_changed)
-        g_level.layout().addWidget(self._level_combo)
 
         # ── Tab 4: Modify (always visible, auto-switches on selection) ────────
         modify_page = self.ribbon.add_page("Modify")
@@ -875,26 +875,26 @@ class MainWindow(QMainWindow):
         self.level_mgr.active_level = name
         self.level_mgr.apply_to_scene(self.scene)
         self.level_label.setText(f"Level: {name}")
-        # Sync ribbon combo (if the signal came from the widget, not the combo)
-        self._level_combo.blockSignals(True)
-        idx = self._level_combo.findText(name)
-        if idx >= 0:
-            self._level_combo.setCurrentIndex(idx)
-        self._level_combo.blockSignals(False)
 
-    def _refresh_level_combo(self):
-        """Re-populate the Build ribbon's level dropdown after levels change."""
-        combo = self._level_combo
-        combo.blockSignals(True)
-        current = combo.currentText()
-        combo.clear()
-        combo.addItems([l.name for l in self.level_mgr.levels])
-        idx = combo.findText(current)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        else:
-            combo.setCurrentIndex(0)
-        combo.blockSignals(False)
+    # ── Template workflow helpers ─────────────────────────────────────────────
+
+    def _on_mode_changed_template(self, mode: str):
+        """Show pre-placement template properties when entering wall/floor mode."""
+        if mode == "wall":
+            template = self.scene._get_wall_template()
+            template._alignment = self.scene._wall_alignment
+            self.prop_manager.show_properties(template)
+        elif mode == "floor":
+            template = self.scene._get_floor_template()
+            self.prop_manager.show_properties(template)
+
+    def _on_wall_align_combo_changed(self, alignment: str):
+        """Sync wall alignment from ribbon combo to scene and template."""
+        self.scene._wall_alignment = alignment
+        if self.scene._wall_template is not None:
+            self.scene._wall_template._alignment = alignment
+            if self.scene.mode == "wall":
+                self.prop_manager.show_properties(self.scene._wall_template)
 
     # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
 
@@ -942,7 +942,7 @@ class MainWindow(QMainWindow):
     _DRAW_MODES = {"draw_line", "draw_rectangle", "draw_circle", "draw_arc",
                     "polyline", "dimension", "text", "pipe", "sprinkler",
                     "water_supply", "design_area", "set_scale", "offset",
-                    "offset_side"}
+                    "offset_side", "wall", "floor", "door", "window"}
 
     def _on_selection_changed_modify(self):
         """Auto-switch to Modify tab when items are selected (unless drawing)."""
@@ -954,8 +954,6 @@ class MainWindow(QMainWindow):
         self._btn_paste.setEnabled(bool(self.scene.clipboard_data()))
         if sel and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
-            # Auto-switch to Properties tab in browser dock
-            self._left_tabs.setCurrentWidget(self.prop_manager)
             # Update layer combo to show selected item's layer
             if hasattr(sel[0], "user_layer"):
                 layer = getattr(sel[0], "user_layer", "0")
@@ -1122,7 +1120,7 @@ class MainWindow(QMainWindow):
             self._current_file = file
             self.scene.load_from_file(file)
             self.level_widget.populate()
-            self._refresh_level_combo()
+
             self.user_layer_widget.populate()
             self.level_label.setText(f"Level: {self.level_mgr.active_level}")
             self._modified = False
@@ -1133,7 +1131,6 @@ class MainWindow(QMainWindow):
         self._current_file = None
         self.scene._clear_scene()
         self.level_widget.populate()
-        self._refresh_level_combo()
         self.user_layer_widget.populate()
         self.level_label.setText("Level: Level 1")
         self._modified = False
