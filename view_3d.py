@@ -254,6 +254,12 @@ class View3D(QWidget):
         self._extract_floor_slabs()
         self._on_2d_selection_changed()
 
+        # Always keep rotation center at the geometry bounding box centre
+        bounds = self._compute_scene_bounds()
+        if bounds is not None:
+            center, _ = bounds
+            self._view.camera.center = tuple(center)
+
         if self._first_build:
             self._fit_camera()
             self._first_build = False
@@ -664,11 +670,30 @@ class View3D(QWidget):
 
     # ── Camera ─────────────────────────────────────────────────────────────
 
+    def _compute_scene_bounds(self):
+        """Compute bounding box center and span across ALL 3D geometry.
+
+        Returns (center, span) as numpy arrays, or None if no geometry.
+        """
+        all_pts: list[np.ndarray] = []
+        if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
+            all_pts.append(self._node_positions_3d)
+        if self._pipe_midpoints_3d is not None and len(self._pipe_midpoints_3d) > 0:
+            all_pts.append(self._pipe_midpoints_3d)
+        if self._wall_centroids_3d is not None and len(self._wall_centroids_3d) > 0:
+            all_pts.append(self._wall_centroids_3d)
+        if self._slab_centroids_3d is not None and len(self._slab_centroids_3d) > 0:
+            all_pts.append(self._slab_centroids_3d)
+        if not all_pts:
+            return None
+        combined = np.vstack(all_pts)
+        return combined.mean(axis=0), combined.ptp(axis=0)
+
     def _fit_camera(self):
         """Auto-fit camera to encompass all geometry."""
-        if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
-            center = self._node_positions_3d.mean(axis=0)
-            span = self._node_positions_3d.ptp(axis=0)  # range per axis
+        bounds = self._compute_scene_bounds()
+        if bounds is not None:
+            center, span = bounds
             dist = max(span) * 1.8
             self._view.camera.center = tuple(center)
             self._view.camera.distance = max(dist, 1000)
@@ -906,7 +931,11 @@ class View3D(QWidget):
 
     def _on_2d_selection_changed(self):
         """Highlight selected items in 3D."""
-        selected = self._scene.selectedItems()
+        try:
+            selected = self._scene.selectedItems()
+        except RuntimeError:
+            # Scene C++ object already deleted during shutdown
+            return
         if not selected:
             self._highlight_markers.visible = False
             self._highlight_mesh_selection(None)

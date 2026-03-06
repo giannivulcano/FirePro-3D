@@ -220,11 +220,11 @@ class WallSegment(QGraphicsPathItem):
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
     def _rebuild_path(self):
-        """Reconstruct the QPainterPath from current geometry."""
-        p1l, p1r, p2r, p2l = self.quad_points()
+        """Reconstruct the QPainterPath from current geometry (mitered)."""
+        p1l, p1r, p2r, p2l = self.mitered_quad()
 
         path = QPainterPath()
-        # Outer rectangle
+        # Outer rectangle (possibly mitered)
         path.moveTo(p1l)
         path.lineTo(p2l)
         path.lineTo(p2r)
@@ -237,7 +237,7 @@ class WallSegment(QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        p1l, p1r, p2r, p2l = self.quad_points()
+        p1l, p1r, p2r, p2l = self.mitered_quad()
         pen = QPen(self._color, 1)
         pen.setCosmetic(True)
 
@@ -482,8 +482,8 @@ class WallSegment(QGraphicsPathItem):
         if abs(top_z - base_z) < 1.0:
             return None
 
-        # 2D quad corners (scene coords → mm via scale manager)
-        p1l, p1r, p2r, p2l = self.quad_points()
+        # 2D quad corners (scene coords → mm via scale manager), mitered
+        p1l, p1r, p2r, p2l = self.mitered_quad()
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
 
@@ -523,6 +523,78 @@ class WallSegment(QGraphicsPathItem):
             "color": (self._color.redF(), self._color.greenF(),
                       self._color.blueF(), 0.9),
         }
+
+    # ── Miter join ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _intersect_lines(p1: QPointF, p2: QPointF,
+                         p3: QPointF, p4: QPointF) -> QPointF | None:
+        """Intersect infinite lines (p1→p2) and (p3→p4). None if parallel."""
+        dx1 = p2.x() - p1.x()
+        dy1 = p2.y() - p1.y()
+        dx2 = p4.x() - p3.x()
+        dy2 = p4.y() - p3.y()
+        denom = dx1 * dy2 - dy1 * dx2
+        if abs(denom) < 1e-10:
+            return None  # parallel
+        t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
+        return QPointF(p1.x() + t * dx1, p1.y() + t * dy1)
+
+    def mitered_quad(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
+        """Return quad_points adjusted for miter joins at connected endpoints.
+
+        At each endpoint, if exactly one other wall shares the same point
+        the left/right corner vertices are moved to the intersection of
+        the two walls' corresponding side edges, producing a clean miter.
+        """
+        p1l, p1r, p2r, p2l = self.quad_points()
+
+        sc = self.scene()
+        if sc is None or not hasattr(sc, '_walls'):
+            return (p1l, p1r, p2r, p2l)
+
+        MITER_TOL = 1.0  # scene units — tight, walls are snapped exactly
+        MAX_MITER = self.half_thickness_scene() * 4
+
+        for my_idx in (0, 1):
+            my_pt = self._pt1 if my_idx == 0 else self._pt2
+            for other in sc._walls:
+                if other is self:
+                    continue
+                other_ep = other.endpoint_near(my_pt, MITER_TOL)
+                if other_ep is None:
+                    continue
+
+                o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
+
+                # Same endpoint index → cross pairing, different → parallel
+                cross = (my_idx == other_ep)
+                if cross:
+                    left_target = (o_p1r, o_p2r)   # my left ∩ other right
+                    right_target = (o_p1l, o_p2l)   # my right ∩ other left
+                else:
+                    left_target = (o_p1l, o_p2l)    # my left ∩ other left
+                    right_target = (o_p1r, o_p2r)   # my right ∩ other right
+
+                int_l = self._intersect_lines(p1l, p2l,
+                                              left_target[0], left_target[1])
+                int_r = self._intersect_lines(p1r, p2r,
+                                              right_target[0], right_target[1])
+
+                if int_l is not None and int_r is not None:
+                    # Guard: skip if miter extends too far (very acute angle)
+                    dist_l = math.hypot(int_l.x() - my_pt.x(),
+                                        int_l.y() - my_pt.y())
+                    dist_r = math.hypot(int_r.x() - my_pt.x(),
+                                        int_r.y() - my_pt.y())
+                    if dist_l < MAX_MITER and dist_r < MAX_MITER:
+                        if my_idx == 0:
+                            p1l, p1r = int_l, int_r
+                        else:
+                            p2l, p2r = int_l, int_r
+                break  # one miter partner per endpoint
+
+        return (p1l, p1r, p2r, p2l)
 
     # ── Wall joining helper ──────────────────────────────────────────────────
 

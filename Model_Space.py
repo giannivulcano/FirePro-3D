@@ -2200,16 +2200,16 @@ class Model_Space(QGraphicsScene):
             self._wall_template = WallSegment(QPointF(0, 0), QPointF(100, 0))
             self._wall_template.name = "(Template)"
             self._wall_template._alignment = self._wall_alignment
-            self._wall_template.level = self.active_level
-            self._wall_template._base_level = self.active_level
-            # Auto-detect top level: next level above active
-            if self._level_manager is not None:
-                levels = self._level_manager.levels
-                active_idx = next(
-                    (i for i, l in enumerate(levels)
-                     if l.name == self.active_level), 0)
-                if active_idx + 1 < len(levels):
-                    self._wall_template._top_level = levels[active_idx + 1].name
+        # Always sync levels with current active level
+        self._wall_template.level = self.active_level
+        self._wall_template._base_level = self.active_level
+        if self._level_manager is not None:
+            levels = self._level_manager.levels
+            active_idx = next(
+                (i for i, l in enumerate(levels)
+                 if l.name == self.active_level), 0)
+            if active_idx + 1 < len(levels):
+                self._wall_template._top_level = levels[active_idx + 1].name
         return self._wall_template
 
     def _get_floor_template(self) -> "FloorSlab":
@@ -2217,7 +2217,8 @@ class Model_Space(QGraphicsScene):
         if self._floor_template is None:
             self._floor_template = FloorSlab(color="#8888cc")
             self._floor_template.name = "(Template)"
-            self._floor_template.level = self.active_level
+        # Always sync level with current active level
+        self._floor_template.level = self.active_level
         return self._floor_template
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -4251,6 +4252,9 @@ class Model_Space(QGraphicsScene):
                 if hit is not None:
                     target = other.pt1 if hit == 0 else other.pt2
                     wall.snap_endpoint_to(my_idx, target)
+                    # Rebuild connected wall so its miter updates too
+                    other._rebuild_path()
+                    other.update()
 
     def _find_wall_at(self, pos: QPointF) -> "WallSegment | None":
         """Return the first wall whose shape contains pos."""
