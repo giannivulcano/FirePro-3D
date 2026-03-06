@@ -501,7 +501,7 @@ class View3D(QWidget):
         scene_obj = self._scene
         if scene_obj is None:
             return
-        lm = self._level_manager
+        lm = self._lm
         for wall in getattr(scene_obj, "_walls", []):
             mesh_data = wall.get_3d_mesh(level_manager=lm)
             if mesh_data is None:
@@ -528,7 +528,7 @@ class View3D(QWidget):
         scene_obj = self._scene
         if scene_obj is None:
             return
-        lm = self._level_manager
+        lm = self._lm
         for slab in getattr(scene_obj, "_floor_slabs", []):
             mesh_data = slab.get_3d_mesh(level_manager=lm)
             if mesh_data is None:
@@ -571,8 +571,8 @@ class View3D(QWidget):
         self._h_cut_enabled = self._section_h_btn.isChecked()
         if self._h_cut_enabled:
             # Use mid-level height as default cut if levels exist
-            if self._level_manager is not None:
-                levels = self._level_manager.levels
+            if self._lm is not None:
+                levels = self._lm.levels
                 if len(levels) >= 2:
                     self._h_cut_height_mm = levels[1].elevation * FT_TO_MM
             self._apply_horizontal_cut()

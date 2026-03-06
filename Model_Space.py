@@ -1052,7 +1052,7 @@ class Model_Space(QGraphicsScene):
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point",
-            "floor":           "Pick first boundary point (double-click to close)",
+            "floor":           "Pick first boundary point (double-click or Enter to close)",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
         }
@@ -3856,7 +3856,7 @@ class Model_Space(QGraphicsScene):
                 self._floor_slabs.append(slab)
                 self._floor_active = slab
                 self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick next point (double-click to close)")
+                self.instructionChanged.emit("Pick next point (double-click or Enter to close)")
             else:
                 self._floor_active.add_point(snapped)
             return
@@ -4339,6 +4339,18 @@ class Model_Space(QGraphicsScene):
                     if self.single_place_mode:
                         self.set_mode("select")
                     # Stay in polyline mode so user can draw another
+            # Close an in-progress floor slab
+            elif self.mode == "floor" and self._floor_active is not None:
+                if len(self._floor_active._points) >= 3:
+                    self._floor_active.close_polygon()
+                    self._floor_active.setSelected(True)
+                    self._floor_active = None
+                    for v in self.views(): v.viewport().update()
+                    self.push_undo_state()
+                    if self.single_place_mode:
+                        self.set_mode("select")
+                    else:
+                        self.instructionChanged.emit("Pick first boundary point (double-click or Enter to close)")
             # Commit fillet
             elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
                 data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
