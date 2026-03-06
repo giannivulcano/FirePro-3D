@@ -20,10 +20,11 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox,
-    QAbstractItemView, QFrame, QLabel, QGraphicsItem, QComboBox, QMenu,
+    QAbstractItemView, QLabel, QGraphicsItem, QComboBox, QMenu,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
+import theme as th
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -372,34 +373,56 @@ class LevelWidget(QWidget):
     # ── UI construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
+        _t = th.detect()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header row
-        hdr = QHBoxLayout()
-        hdr.addWidget(QLabel("<b>Levels</b>"))
-        hdr.addStretch()
+        # Header — matches ProjectBrowser / ModelBrowser / PropertyManager
+        hdr = QLabel("Levels")
+        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        hdr.setFont(f)
+        hdr.setStyleSheet(
+            f"color: {_t.text_primary}; "
+            f"background: {_t.bg_raised}; "
+            f"padding: 4px; "
+            f"border-radius: 3px;"
+        )
+        layout.addWidget(hdr)
+
+        # Toolbar row
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.addStretch()
+        _btn_ss = (
+            f"QPushButton {{ background: {_t.bg_raised}; "
+            f"border: 1px solid {_t.border_subtle}; "
+            f"border-radius: 2px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {_t.btn_hover}; }}"
+        )
         add_btn = QPushButton("+")
         add_btn.setFixedSize(24, 24)
         add_btn.setToolTip("Add new level")
+        add_btn.setStyleSheet(_btn_ss)
         add_btn.clicked.connect(self._add_level)
         del_btn = QPushButton("-")
         del_btn.setFixedSize(24, 24)
         del_btn.setToolTip("Delete selected level")
+        del_btn.setStyleSheet(_btn_ss)
         del_btn.clicked.connect(self._delete_level)
         dup_btn = QPushButton("\u29C9")
         dup_btn.setFixedSize(24, 24)
         dup_btn.setToolTip("Duplicate level (copy all entities to new level)")
+        dup_btn.setStyleSheet(_btn_ss)
         dup_btn.clicked.connect(self._duplicate_level)
-        hdr.addWidget(add_btn)
-        hdr.addWidget(del_btn)
-        hdr.addWidget(dup_btn)
-        layout.addLayout(hdr)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(sep)
+        toolbar.addWidget(add_btn)
+        toolbar.addWidget(del_btn)
+        toolbar.addWidget(dup_btn)
+        layout.addLayout(toolbar)
 
         # Table
         self.table = QTableWidget()
@@ -425,6 +448,11 @@ class LevelWidget(QWidget):
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked |
             QAbstractItemView.EditTrigger.SelectedClicked
+        )
+        self.table.setStyleSheet(
+            f"QTableWidget {{ background: {_t.bg_raised}; color: {_t.text_primary}; "
+            f"border: 1px solid {_t.border_subtle}; }}"
+            f"QTableWidget::item:selected {{ background: {_t.accent_primary}; color: #ffffff; }}"
         )
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)

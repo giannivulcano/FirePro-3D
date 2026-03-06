@@ -59,6 +59,9 @@ COL_SPRINKLER   = (1.0, 0.2, 0.2, 1.0)
 COL_WATER_SUPPLY = (0.0, 0.7, 0.86, 1.0)
 COL_HIGHLIGHT   = (1.0, 1.0, 0.0, 0.85)
 COL_CONSTR      = (0.4, 0.4, 0.4, 0.6)
+COL_SEL_MESH    = (0.3, 0.6, 1.0, 1.0)      # selected wall/slab tint
+COL_SEL_EDGE    = (0.2, 0.5, 1.0, 1.0)      # bright edge for selected mesh
+DESELECT_ALPHA  = 0.3                         # fade non-selected meshes
 
 # Pipe color name → RGBA
 _PIPE_COLORS = {
@@ -103,6 +106,14 @@ class View3D(QWidget):
         self._pipe_refs: list[Pipe] = []
         self._node_positions_3d: np.ndarray | None = None
         self._pipe_midpoints_3d: np.ndarray | None = None
+
+        # Wall / slab pick maps
+        self._wall_refs: list[WallSegment] = []
+        self._slab_refs: list[FloorSlab] = []
+        self._wall_centroids_3d: np.ndarray | None = None
+        self._slab_centroids_3d: np.ndarray | None = None
+        self._original_wall_colors: list[tuple] = []
+        self._original_slab_colors: list[tuple] = []
 
         # Ortho / perspective state
         self._perspective = True
@@ -556,13 +567,18 @@ class View3D(QWidget):
             m.parent = None
         self._wall_meshes.clear()
         for ln in self._wall_edge_lines:
-            ln.parent = None
+            if ln is not None:
+                ln.parent = None
         self._wall_edge_lines.clear()
+        self._wall_refs.clear()
+        self._original_wall_colors.clear()
 
         scene_obj = self._scene
         if scene_obj is None:
+            self._wall_centroids_3d = None
             return
         lm = self._lm
+        centroids = []
         for wall in getattr(scene_obj, "_walls", []):
             mesh_data = wall.get_3d_mesh(level_manager=lm)
             if mesh_data is None:
@@ -576,6 +592,9 @@ class View3D(QWidget):
                 parent=self._view.scene,
             )
             self._wall_meshes.append(mesh)
+            self._wall_refs.append(wall)
+            self._original_wall_colors.append((col, (0.1, 0.1, 0.1, 0.8)))
+            centroids.append(verts.mean(axis=0))
             # Edge wireframe
             edge_segs = self._edges_from_faces(verts, faces)
             if len(edge_segs) > 0:
@@ -587,6 +606,9 @@ class View3D(QWidget):
                     parent=self._view.scene,
                 )
                 self._wall_edge_lines.append(edge_line)
+            else:
+                self._wall_edge_lines.append(None)
+        self._wall_centroids_3d = np.array(centroids) if centroids else None
 
     # ── Extract: Floor Slabs ──────────────────────────────────────────────
 
@@ -597,13 +619,18 @@ class View3D(QWidget):
             m.parent = None
         self._slab_meshes.clear()
         for ln in self._slab_edge_lines:
-            ln.parent = None
+            if ln is not None:
+                ln.parent = None
         self._slab_edge_lines.clear()
+        self._slab_refs.clear()
+        self._original_slab_colors.clear()
 
         scene_obj = self._scene
         if scene_obj is None:
+            self._slab_centroids_3d = None
             return
         lm = self._lm
+        centroids = []
         for slab in getattr(scene_obj, "_floor_slabs", []):
             mesh_data = slab.get_3d_mesh(level_manager=lm)
             if mesh_data is None:
@@ -617,6 +644,9 @@ class View3D(QWidget):
                 parent=self._view.scene,
             )
             self._slab_meshes.append(mesh)
+            self._slab_refs.append(slab)
+            self._original_slab_colors.append((col, (0.15, 0.15, 0.15, 0.7)))
+            centroids.append(verts.mean(axis=0))
             # Edge wireframe
             edge_segs = self._edges_from_faces(verts, faces)
             if len(edge_segs) > 0:
@@ -628,6 +658,9 @@ class View3D(QWidget):
                     parent=self._view.scene,
                 )
                 self._slab_edge_lines.append(edge_line)
+            else:
+                self._slab_edge_lines.append(None)
+        self._slab_centroids_3d = np.array(centroids) if centroids else None
 
     # ── Camera ─────────────────────────────────────────────────────────────
 
@@ -684,9 +717,11 @@ class View3D(QWidget):
 
         # Sync edge line visibility with their corresponding meshes
         for i, ln in enumerate(self._wall_edge_lines):
-            ln.visible = self._wall_meshes[i].visible if i < len(self._wall_meshes) else True
+            if ln is not None:
+                ln.visible = self._wall_meshes[i].visible if i < len(self._wall_meshes) else True
         for i, ln in enumerate(self._slab_edge_lines):
-            ln.visible = self._slab_meshes[i].visible if i < len(self._slab_meshes) else True
+            if ln is not None:
+                ln.visible = self._slab_meshes[i].visible if i < len(self._slab_meshes) else True
 
         # Clip nodes/sprinklers above cut
         if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
@@ -708,7 +743,8 @@ class View3D(QWidget):
                 m.visible = True
         # Restore edge lines
         for ln in self._wall_edge_lines + self._slab_edge_lines:
-            ln.visible = True
+            if ln is not None:
+                ln.visible = True
         # Restore node markers
         if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
             self._node_markers.set_data(
@@ -731,13 +767,14 @@ class View3D(QWidget):
             self._scene.clearSelection()
             hit.setSelected(True)
             self.entitySelected.emit(hit)
+            self._highlight_mesh_selection(hit)
         else:
             self._scene.clearSelection()
             self.entitySelected.emit(None)
+            self._highlight_mesh_selection(None)
 
     def _pick_nearest(self, screen_pos: np.ndarray):
         """Find nearest entity to a screen-space click position."""
-        tr = self._view.camera.transform
         best_item = None
         best_dist = float("inf")
 
@@ -763,6 +800,29 @@ class View3D(QWidget):
                     best_dist = dist
                     best_item = self._pipe_refs[i]
 
+        # Check wall centroids (wider tolerance for large entities)
+        mesh_tol = PICK_TOLERANCE_PX * 2
+        if self._wall_centroids_3d is not None:
+            for i, pos3d in enumerate(self._wall_centroids_3d):
+                screen = self._project_to_screen(pos3d)
+                if screen is None:
+                    continue
+                dist = np.linalg.norm(screen - screen_pos)
+                if dist < mesh_tol and dist < best_dist:
+                    best_dist = dist
+                    best_item = self._wall_refs[i]
+
+        # Check slab centroids
+        if self._slab_centroids_3d is not None:
+            for i, pos3d in enumerate(self._slab_centroids_3d):
+                screen = self._project_to_screen(pos3d)
+                if screen is None:
+                    continue
+                dist = np.linalg.norm(screen - screen_pos)
+                if dist < mesh_tol and dist < best_dist:
+                    best_dist = dist
+                    best_item = self._slab_refs[i]
+
         return best_item
 
     def _project_to_screen(self, world_pos: np.ndarray):
@@ -774,6 +834,68 @@ class View3D(QWidget):
         except Exception:
             return None
 
+    # ── Mesh Selection Highlight ─────────────────────────────────────────────
+
+    def _highlight_mesh_selection(self, selected_item):
+        """Highlight the selected wall/slab and fade non-selected ones."""
+        # Reset all walls to original colors
+        for i, mesh in enumerate(self._wall_meshes):
+            if i < len(self._original_wall_colors):
+                orig_col, orig_edge = self._original_wall_colors[i]
+                mesh.color = orig_col
+                if i < len(self._wall_edge_lines) and self._wall_edge_lines[i] is not None:
+                    self._wall_edge_lines[i].set_data(color=orig_edge, width=1.5)
+
+        for i, mesh in enumerate(self._slab_meshes):
+            if i < len(self._original_slab_colors):
+                orig_col, orig_edge = self._original_slab_colors[i]
+                mesh.color = orig_col
+                if i < len(self._slab_edge_lines) and self._slab_edge_lines[i] is not None:
+                    self._slab_edge_lines[i].set_data(color=orig_edge, width=1.0)
+
+        if selected_item is None:
+            self._canvas.update()
+            return
+
+        # Find which wall or slab is selected
+        sel_wall_idx = None
+        sel_slab_idx = None
+        for i, ref in enumerate(self._wall_refs):
+            if ref is selected_item:
+                sel_wall_idx = i
+                break
+        if sel_wall_idx is None:
+            for i, ref in enumerate(self._slab_refs):
+                if ref is selected_item:
+                    sel_slab_idx = i
+                    break
+
+        if sel_wall_idx is None and sel_slab_idx is None:
+            return  # not a wall/slab
+
+        # Highlight selected, fade others
+        for i, mesh in enumerate(self._wall_meshes):
+            if i == sel_wall_idx:
+                mesh.color = COL_SEL_MESH
+                if i < len(self._wall_edge_lines) and self._wall_edge_lines[i] is not None:
+                    self._wall_edge_lines[i].set_data(color=COL_SEL_EDGE, width=3.0)
+            else:
+                if i < len(self._original_wall_colors):
+                    r, g, b, _a = self._original_wall_colors[i][0]
+                    mesh.color = (r, g, b, DESELECT_ALPHA)
+
+        for i, mesh in enumerate(self._slab_meshes):
+            if i == sel_slab_idx:
+                mesh.color = COL_SEL_MESH
+                if i < len(self._slab_edge_lines) and self._slab_edge_lines[i] is not None:
+                    self._slab_edge_lines[i].set_data(color=COL_SEL_EDGE, width=2.5)
+            else:
+                if i < len(self._original_slab_colors):
+                    r, g, b, _a = self._original_slab_colors[i][0]
+                    mesh.color = (r, g, b, DESELECT_ALPHA)
+
+        self._canvas.update()
+
     # ── 2D → 3D Selection Sync ─────────────────────────────────────────────
 
     def _on_2d_selection_changed(self):
@@ -781,15 +903,19 @@ class View3D(QWidget):
         selected = self._scene.selectedItems()
         if not selected:
             self._highlight_markers.visible = False
+            self._highlight_mesh_selection(None)
             return
 
         positions = []
+        mesh_selected = None
         for item in selected:
             if isinstance(item, Node):
                 positions.append(self._node_to_3d(item))
             elif isinstance(item, Pipe):
                 mid = (self._node_to_3d(item.node1) + self._node_to_3d(item.node2)) / 2
                 positions.append(mid)
+            elif isinstance(item, (WallSegment, FloorSlab)):
+                mesh_selected = item
 
         if positions:
             self._highlight_markers.set_data(
@@ -801,3 +927,5 @@ class View3D(QWidget):
             self._highlight_markers.visible = True
         else:
             self._highlight_markers.visible = False
+
+        self._highlight_mesh_selection(mesh_selected)

@@ -19,10 +19,11 @@ from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QColorDialog, QMessageBox,
-    QAbstractItemView, QFrame, QLabel, QComboBox,
+    QAbstractItemView, QLabel, QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QBrush, QFont
+import theme as th
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -338,29 +339,50 @@ class UserLayerWidget(QWidget):
     # ── UI construction ──────────────────────────────────────────────────────
 
     def _build_ui(self):
+        _t = th.detect()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(4)
 
-        # Header row
-        hdr = QHBoxLayout()
-        hdr.addWidget(QLabel("<b>User Layers</b>"))
-        hdr.addStretch()
-        add_btn = QPushButton("＋")
+        # Header — matches ProjectBrowser / ModelBrowser / PropertyManager
+        hdr = QLabel("User Layers")
+        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        hdr.setFont(f)
+        hdr.setStyleSheet(
+            f"color: {_t.text_primary}; "
+            f"background: {_t.bg_raised}; "
+            f"padding: 4px; "
+            f"border-radius: 3px;"
+        )
+        layout.addWidget(hdr)
+
+        # Toolbar row
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(0, 0, 0, 0)
+        toolbar.addStretch()
+        _btn_ss = (
+            f"QPushButton {{ background: {_t.bg_raised}; "
+            f"border: 1px solid {_t.border_subtle}; "
+            f"border-radius: 2px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: {_t.btn_hover}; }}"
+        )
+        add_btn = QPushButton("+")
         add_btn.setFixedSize(24, 24)
         add_btn.setToolTip("Add new layer")
+        add_btn.setStyleSheet(_btn_ss)
         add_btn.clicked.connect(self._add_layer)
-        del_btn = QPushButton("✕")
+        del_btn = QPushButton("\u2715")
         del_btn.setFixedSize(24, 24)
         del_btn.setToolTip("Delete selected layer")
+        del_btn.setStyleSheet(_btn_ss)
         del_btn.clicked.connect(self._delete_layer)
-        hdr.addWidget(add_btn)
-        hdr.addWidget(del_btn)
-        layout.addLayout(hdr)
-
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        layout.addWidget(sep)
+        toolbar.addWidget(add_btn)
+        toolbar.addWidget(del_btn)
+        layout.addLayout(toolbar)
 
         # Table
         self.table = QTableWidget()
@@ -374,13 +396,18 @@ class UserLayerWidget(QWidget):
                 col, QHeaderView.ResizeMode.ResizeToContents
             )
         self.table.setColumnWidth(_COL_LW, 150)
-        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.verticalHeader().setDefaultSectionSize(24)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked |
             QAbstractItemView.EditTrigger.SelectedClicked
+        )
+        self.table.setStyleSheet(
+            f"QTableWidget {{ background: {_t.bg_raised}; color: {_t.text_primary}; "
+            f"border: 1px solid {_t.border_subtle}; }}"
+            f"QTableWidget::item:selected {{ background: {_t.accent_primary}; color: #ffffff; }}"
         )
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.cellDoubleClicked.connect(self._on_double_click)

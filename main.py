@@ -131,15 +131,13 @@ class MainWindow(QMainWindow):
         self.level_mgr = LevelManager()
         self.scene._level_manager = self.level_mgr
 
-        # Central tab widget: Model Space | Layout 1 (Paper Space)
+        # Central tab widget: Model Space | 3D View | Layout 1 (Paper Space)
         self.paper_space_widget = PaperSpaceWidget(self.scene)
+        self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs = QTabWidget()
         self.central_tabs.addTab(self.view, "Model Space")
-        self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
-
-        # 3D View tab (signal wired after prop_manager is created below)
-        self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs.addTab(self.view_3d, "3D View")
+        self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self.ribbon = RibbonBar()
@@ -194,9 +192,9 @@ class MainWindow(QMainWindow):
 
         self._left_tabs = QTabWidget()
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
-        self._left_tabs.addTab(self.project_browser, "Project Browser")
+        self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
-        self._left_tabs.addTab(self.layer_manager, "DXF Layers")
+        self._left_tabs.addTab(self.layer_manager, "Underlay")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
         self._left_tabs.addTab(self.level_widget, "Levels")
 
