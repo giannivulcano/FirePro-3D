@@ -67,6 +67,8 @@ class Level:
 # Defaults shipped with every new document
 DEFAULT_LEVELS: list[Level] = [
     Level("Level 1", elevation=0.0),
+    Level("Level 2", elevation=10.0),
+    Level("Level 3", elevation=20.0),
 ]
 
 

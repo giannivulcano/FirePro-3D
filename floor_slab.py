@@ -148,7 +148,7 @@ class FloorSlab(QGraphicsPathItem):
         return {
             "Type":          {"type": "label",  "value": "Floor Slab"},
             "Name":          {"type": "string", "value": self.name},
-            "Colour":        {"type": "string", "value": self._color.name()},
+            "Colour":        {"type": "color",  "value": self._color.name()},
             "Thickness (ft)":{"type": "string", "value": str(self._thickness_ft)},
             "Points":        {"type": "label",  "value": str(len(self._points))},
         }

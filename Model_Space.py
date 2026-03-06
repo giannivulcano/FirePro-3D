@@ -2197,6 +2197,14 @@ class Model_Space(QGraphicsScene):
             self._wall_template._alignment = self._wall_alignment
             self._wall_template.level = self.active_level
             self._wall_template._base_level = self.active_level
+            # Auto-detect top level: next level above active
+            if self._level_manager is not None:
+                levels = self._level_manager.levels
+                active_idx = next(
+                    (i for i, l in enumerate(levels)
+                     if l.name == self.active_level), 0)
+                if active_idx + 1 < len(levels):
+                    self._wall_template._top_level = levels[active_idx + 1].name
         return self._wall_template
 
     def _get_floor_template(self) -> "FloorSlab":
@@ -2230,15 +2238,10 @@ class Model_Space(QGraphicsScene):
                 self.instructionChanged.emit(f"Pick wall start point [{self._wall_alignment}]")
             else:
                 self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]")
-            # Sync ribbon combo if available
-            combo = getattr(self, "_wall_align_combo_ref", None)
-            if combo is not None:
-                combo.blockSignals(True)
-                combo.setCurrentText(self._wall_alignment)
-                combo.blockSignals(False)
-            # Sync template alignment
+            # Sync template alignment and update Properties dock live
             if self._wall_template is not None:
                 self._wall_template._alignment = self._wall_alignment
+                self.requestPropertyUpdate.emit(self._wall_template)
             return
 
         from PyQt6.QtWidgets import (
@@ -4331,12 +4334,10 @@ class Model_Space(QGraphicsScene):
                     self.instructionChanged.emit(f"Pick wall start point [{self._wall_alignment}]")
                 else:
                     self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]")
-                # Sync ribbon combo if available
-                combo = getattr(self, "_wall_align_combo_ref", None)
-                if combo is not None:
-                    combo.blockSignals(True)
-                    combo.setCurrentText(self._wall_alignment)
-                    combo.blockSignals(False)
+                # Sync template alignment and update Properties dock live
+                if self._wall_template is not None:
+                    self._wall_template._alignment = self._wall_alignment
+                    self.requestPropertyUpdate.emit(self._wall_template)
                 return
             elif self.mode == "offset_side":
                 from PyQt6.QtWidgets import QInputDialog

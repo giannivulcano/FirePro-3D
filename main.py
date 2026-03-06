@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         # Properties dock (right side — always visible)
         self.prop_dock = QDockWidget("Properties", self)
         self.prop_dock.setObjectName("PropertiesDock")
+        self.prop_dock.setTitleBarWidget(QWidget())   # hide default title bar
         self.prop_dock.setWidget(self.prop_manager)
         self.prop_dock.setAllowedAreas(
             Qt.DockWidgetArea.RightDockWidgetArea |
@@ -478,14 +479,6 @@ class MainWindow(QMainWindow):
             checkable=True)
         _wall_btn.setToolTip("Draw a wall segment")
         self._mode_buttons["wall"] = _wall_btn
-        self._wall_align_combo = QComboBox()
-        self._wall_align_combo.addItems(["Center", "Interior", "Exterior"])
-        self._wall_align_combo.setToolTip("Wall placement alignment")
-        self._wall_align_combo.setFixedWidth(90)
-        self._wall_align_combo.currentTextChanged.connect(
-            self._on_wall_align_combo_changed)
-        g_3d._btn_row.addWidget(self._wall_align_combo)
-        self.scene._wall_align_combo_ref = self._wall_align_combo
         _floor_btn = g_3d.add_large_button(
             "Floor", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("floor"),
@@ -874,14 +867,6 @@ class MainWindow(QMainWindow):
             template = self.scene._get_floor_template()
             self.prop_manager.show_properties(template)
 
-    def _on_wall_align_combo_changed(self, alignment: str):
-        """Sync wall alignment from ribbon combo to scene and template."""
-        self.scene._wall_alignment = alignment
-        if self.scene._wall_template is not None:
-            self.scene._wall_template._alignment = alignment
-            if self.scene.mode == "wall":
-                self.prop_manager.show_properties(self.scene._wall_template)
-
     # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
 
     def _toggle_osnap(self, checked: bool):
@@ -1188,7 +1173,7 @@ class MainWindow(QMainWindow):
     def update_property_manager(self):
         items = self.scene.selectedItems()
         if items:
-            self.prop_manager.show_properties(items[0])
+            self.prop_manager.show_properties(items)
         else:
             self.prop_manager.show_properties(None)
 

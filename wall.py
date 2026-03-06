@@ -122,6 +122,8 @@ class WallSegment(QGraphicsPathItem):
         self._base_level: str = "Level 1"
         self._top_level: str = "Level 2"
         self._height_ft: float = 10.0              # fallback when top_level is "Custom"
+        self._base_offset_ft: float = 0.0          # offset from base level elevation
+        self._top_offset_ft: float = 0.0           # offset from top level elevation
 
         # Alignment mode (centerline / interior / exterior)
         self._alignment: str = ALIGN_CENTER
@@ -346,33 +348,24 @@ class WallSegment(QGraphicsPathItem):
 
     def get_properties(self) -> dict:
         return {
-            "Type":       {"type": "label",  "value": "Wall"},
-            "Name":       {"type": "string", "value": self.name},
-            "Thickness":  {"type": "enum",   "value": str(int(self._thickness_in)),
-                           "options": [str(t) for t in THICKNESS_PRESETS_IN] + ["Custom"]},
-            "Thickness (in)": {"type": "string", "value": str(self._thickness_in)},
-            "Colour":     {"type": "string", "value": self._color.name()},
-            "Fill Mode":  {"type": "enum",   "value": self._fill_mode,
-                           "options": [FILL_NONE, FILL_SOLID, FILL_HATCH]},
-            "Alignment":  {"type": "enum",   "value": self._alignment,
-                           "options": [ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR]},
-            "Base Level": {"type": "string", "value": self._base_level},
-            "Top Level":  {"type": "string", "value": self._top_level},
-            "Height (ft)":{"type": "string", "value": str(self._height_ft)},
+            "Type":             {"type": "label",     "value": "Wall"},
+            "Name":             {"type": "string",    "value": self.name},
+            "Thickness (in)":   {"type": "string",    "value": str(self._thickness_in)},
+            "Colour":           {"type": "color",     "value": self._color.name()},
+            "Fill Mode":        {"type": "enum",      "value": self._fill_mode,
+                                 "options": [FILL_NONE, FILL_SOLID, FILL_HATCH]},
+            "Alignment":        {"type": "enum",      "value": self._alignment,
+                                 "options": [ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR]},
+            "Base Level":       {"type": "level_ref", "value": self._base_level},
+            "Base Offset (ft)": {"type": "string",    "value": str(self._base_offset_ft)},
+            "Top Level":        {"type": "level_ref", "value": self._top_level},
+            "Top Offset (ft)":  {"type": "string",    "value": str(self._top_offset_ft)},
+            "Height (ft)":      {"type": "string",    "value": str(self._height_ft)},
         }
 
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
-        elif key == "Thickness":
-            if value == "Custom":
-                return   # user will set via "Thickness (in)" field
-            try:
-                self._thickness_in = float(value)
-            except (ValueError, TypeError):
-                return
-            self._rebuild_path()
-            self.update()
         elif key == "Thickness (in)":
             try:
                 self._thickness_in = float(value)
@@ -386,6 +379,7 @@ class WallSegment(QGraphicsPathItem):
         elif key == "Fill Mode":
             if value in (FILL_NONE, FILL_SOLID, FILL_HATCH):
                 self._fill_mode = value
+                self._rebuild_path()
                 self.update()
         elif key == "Alignment":
             if value in (ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR):
@@ -396,6 +390,16 @@ class WallSegment(QGraphicsPathItem):
             self._base_level = str(value)
         elif key == "Top Level":
             self._top_level = str(value)
+        elif key == "Base Offset (ft)":
+            try:
+                self._base_offset_ft = float(value)
+            except (ValueError, TypeError):
+                pass
+        elif key == "Top Offset (ft)":
+            try:
+                self._top_offset_ft = float(value)
+            except (ValueError, TypeError):
+                pass
         elif key == "Height (ft)":
             try:
                 self._height_ft = float(value)
@@ -419,6 +423,8 @@ class WallSegment(QGraphicsPathItem):
             "base_level":    self._base_level,
             "top_level":     self._top_level,
             "height_ft":     self._height_ft,
+            "base_offset_ft": self._base_offset_ft,
+            "top_offset_ft":  self._top_offset_ft,
             "level":         self.level,
             "user_layer":    self.user_layer,
             "name":          self.name,
@@ -437,6 +443,8 @@ class WallSegment(QGraphicsPathItem):
         wall._base_level = data.get("base_level", "Level 1")
         wall._top_level = data.get("top_level", "Level 2")
         wall._height_ft = data.get("height_ft", 10.0)
+        wall._base_offset_ft = data.get("base_offset_ft", 0.0)
+        wall._top_offset_ft = data.get("top_offset_ft", 0.0)
         wall.level = data.get("level", "Level 1")
         wall.user_layer = data.get("user_layer", "Default")
         wall.name = data.get("name", "")
@@ -462,10 +470,10 @@ class WallSegment(QGraphicsPathItem):
         if level_manager is not None:
             base_lvl = level_manager.get(self._base_level)
             if base_lvl:
-                base_z_ft = base_lvl.elevation
+                base_z_ft = base_lvl.elevation + self._base_offset_ft
             top_lvl = level_manager.get(self._top_level)
             if top_lvl:
-                top_z_ft = top_lvl.elevation
+                top_z_ft = top_lvl.elevation + self._top_offset_ft
             else:
                 top_z_ft = base_z_ft + self._height_ft
 
