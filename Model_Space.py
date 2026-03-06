@@ -78,6 +78,7 @@ class Model_Space(QGraphicsScene):
         self._draw_line_anchor: "QPointF | None" = None       # first click for line
         self._draw_rect_anchor: "QPointF | None" = None       # first click for rectangle
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
+        self._draw_rect_from_center: bool = False                # center vs corner rectangle
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         # Draw colour/lineweight now derived from active layer (see _get_draw_color/_get_draw_lineweight)
@@ -178,6 +179,9 @@ class Model_Space(QGraphicsScene):
         self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
         self._wall_preview_line: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
+        self._floor_rect_anchor: "QPointF | None" = None   # first click for rect floor
+        self._floor_rect_preview: "QGraphicsRectItem | None" = None
+        self._geometry_template = None                      # pre-placement template for geometry tools
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
@@ -965,6 +969,12 @@ class Model_Space(QGraphicsScene):
                     if self._floor_active in self._floor_slabs:
                         self._floor_slabs.remove(self._floor_active)
                 self._floor_active = None
+        if mode != "floor_rect":
+            self._floor_rect_anchor = None
+            if self._floor_rect_preview is not None:
+                if self._floor_rect_preview.scene() is self:
+                    self.removeItem(self._floor_rect_preview)
+                self._floor_rect_preview = None
 
         # Clean up place_import ghost
         if mode != "place_import":
@@ -1061,6 +1071,7 @@ class Model_Space(QGraphicsScene):
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point",
             "floor":           "Pick first boundary point (double-click to close)",
+            "floor_rect":      "Pick first corner for rectangular floor",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
         }
@@ -2216,6 +2227,23 @@ class Model_Space(QGraphicsScene):
         self._floor_template.level = self.active_level
         return self._floor_template
 
+    def _get_geometry_template(self):
+        """Return (lazily-created) geometry template for line/rect/circle/polyline."""
+        from construction_geometry import GeometryTemplate
+        if self._geometry_template is None:
+            self._geometry_template = GeometryTemplate()
+            # Initialize colour / lineweight from the active user layer
+            if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+                ldef = self._user_layer_manager.get(self.active_user_layer)
+                if ldef:
+                    self._geometry_template.color = ldef.color
+                    from user_layer_manager import lw_mm_to_cosmetic_px
+                    self._geometry_template.lineweight = lw_mm_to_cosmetic_px(ldef.lineweight)
+        # Sync with active level
+        self._geometry_template.level = self.active_level
+        self._geometry_template.user_layer = self.active_user_layer
+        return self._geometry_template
+
     # ─────────────────────────────────────────────────────────────────────────
 
     def _handle_tab_input(self):
@@ -2302,8 +2330,8 @@ class Model_Space(QGraphicsScene):
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
             )
-            color = self._get_draw_color()
-            item = LineItem(anchor, tip, color, self._get_draw_lineweight())
+            tmpl = self._get_geometry_template()
+            item = LineItem(anchor, tip, tmpl.color, tmpl.lineweight)
             item.user_layer = self.active_user_layer
             item.level = self.active_level
             self.addItem(item)
@@ -2350,12 +2378,23 @@ class Model_Space(QGraphicsScene):
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
-            pt2 = QPointF(
-                self._draw_rect_anchor.x() + w_spin.value(),
-                self._draw_rect_anchor.y() - h_spin.value(),   # Y-up → scene Y-down
-            )
-            color = self._get_draw_color()
-            item = RectangleItem(self._draw_rect_anchor, pt2, color, self._get_draw_lineweight())
+            if self._draw_rect_from_center:
+                # Center mode: anchor is center, X/Y are half-extents
+                hw = w_spin.value()
+                hh = h_spin.value()
+                pt1 = QPointF(self._draw_rect_anchor.x() - hw,
+                              self._draw_rect_anchor.y() + hh)  # Y-up → scene Y-down
+                pt2 = QPointF(self._draw_rect_anchor.x() + hw,
+                              self._draw_rect_anchor.y() - hh)
+            else:
+                pt1 = QPointF(self._draw_rect_anchor.x(),
+                              self._draw_rect_anchor.y())
+                pt2 = QPointF(
+                    self._draw_rect_anchor.x() + w_spin.value(),
+                    self._draw_rect_anchor.y() - h_spin.value(),   # Y-up → scene Y-down
+                )
+            tmpl = self._get_geometry_template()
+            item = RectangleItem(pt1, pt2, tmpl.color, tmpl.lineweight)
             item.user_layer = self.active_user_layer
             item.level = self.active_level
             self.addItem(item)
@@ -2440,8 +2479,8 @@ class Model_Space(QGraphicsScene):
                 return
 
             r = r_spin.value()
-            color = self._get_draw_color()
-            item = CircleItem(self._draw_circle_center, r, color, self._get_draw_lineweight())
+            tmpl = self._get_geometry_template()
+            item = CircleItem(self._draw_circle_center, r, tmpl.color, tmpl.lineweight)
             item.user_layer = self.active_user_layer
             item.level = self.active_level
             self.addItem(item)
@@ -2872,7 +2911,17 @@ class Model_Space(QGraphicsScene):
                 self.preview_node.hide()
             self.preview_pipe.hide()
             if self._draw_rect_anchor is not None and self._draw_rect_preview is not None:
-                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
+                if self._draw_rect_from_center:
+                    # Center mode: anchor is center, rect extends symmetrically
+                    hw = abs(snapped.x() - self._draw_rect_anchor.x())
+                    hh = abs(snapped.y() - self._draw_rect_anchor.y())
+                    rect = QRectF(
+                        self._draw_rect_anchor.x() - hw,
+                        self._draw_rect_anchor.y() - hh,
+                        2 * hw, 2 * hh,
+                    )
+                else:
+                    rect = QRectF(self._draw_rect_anchor, snapped).normalized()
                 self._draw_rect_preview.setRect(rect)
                 self._draw_dim_hint = (
                     f"W: {sm.scene_to_display(rect.width())}  H: {sm.scene_to_display(rect.height())}"
@@ -3175,8 +3224,36 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "floor":
             if self._floor_active is None:
                 self.update_preview_node(snapped)
+                self.preview_pipe.hide()
             else:
                 self.preview_node.hide()
+                # Rubber-band line from last vertex to cursor
+                last_pt = self._floor_active._points[-1]
+                self.preview_pipe.setLine(
+                    last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
+                pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                self.preview_pipe.setPen(pen)
+                self.preview_pipe.show()
+                _dx = snapped.x() - last_pt.x()
+                _dy = snapped.y() - last_pt.y()
+                _len = math.hypot(_dx, _dy)
+                _ang = math.degrees(math.atan2(-_dy, _dx))
+                self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+
+        elif self.mode == "floor_rect":
+            if self._floor_rect_anchor is None:
+                self.update_preview_node(snapped)
+            else:
+                self.preview_node.hide()
+            self.preview_pipe.hide()
+            if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
+                rect = QRectF(self._floor_rect_anchor, snapped).normalized()
+                self._floor_rect_preview.setRect(rect)
+                self._draw_dim_hint = (
+                    f"W: {sm.scene_to_display(rect.width())}  "
+                    f"H: {sm.scene_to_display(rect.height())}"
+                )
 
         elif self.mode in ("door", "window"):
             self.update_preview_node(snapped)
@@ -3401,7 +3478,7 @@ class Model_Space(QGraphicsScene):
                 # Create radius preview line (centre → cursor)
                 line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                          snapped.x(), snapped.y())
-                _prev_pen = QPen(QColor(self._get_draw_color()), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 line.setPen(_prev_pen)
                 line.setZValue(200)
@@ -3424,7 +3501,7 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(self._draw_arc_radius_line)
                     self._draw_arc_radius_line = None
                 preview = QGraphicsPathItem()
-                _prev_pen = QPen(QColor(self._get_draw_color()), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3441,10 +3518,9 @@ class Model_Space(QGraphicsScene):
                 # Normalise span to positive CCW direction
                 if span <= 0:
                     span += 360.0
-                color = self._get_draw_color()
-                lw = self._get_draw_lineweight()
+                tmpl = self._get_geometry_template()
                 item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
-                               self._draw_arc_start_deg, span, color, lw)
+                               self._draw_arc_start_deg, span, tmpl.color, tmpl.lineweight)
                 item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
@@ -3773,8 +3849,8 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "polyline":
             if self._polyline_active is None:
                 # First click — create the polyline item
-                color = self._get_draw_color()
-                pl = PolylineItem(snapped, color, self._get_draw_lineweight())
+                tmpl = self._get_geometry_template()
+                pl = PolylineItem(snapped, tmpl.color, tmpl.lineweight)
                 pl.user_layer = self.active_user_layer
                 pl.level = self.active_level
                 self.addItem(pl)
@@ -3803,9 +3879,8 @@ class Model_Space(QGraphicsScene):
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._draw_line_anchor, snapped)
-                color = self._get_draw_color()
-                lw = self._get_draw_lineweight()
-                item = LineItem(self._draw_line_anchor, tip, color, lw)
+                tmpl = self._get_geometry_template()
+                item = LineItem(self._draw_line_anchor, tip, tmpl.color, tmpl.lineweight)
                 item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
@@ -3825,10 +3900,12 @@ class Model_Space(QGraphicsScene):
             if self._draw_rect_anchor is None:
                 self._draw_rect_anchor = snapped
                 self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick opposite corner")
+                _instr = "Pick opposite corner" if not self._draw_rect_from_center else "Pick corner (from center)"
+                self.instructionChanged.emit(_instr)
                 # Create preview rect
                 preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                _prev_pen = QPen(QColor(self._get_draw_color()), 2, Qt.PenStyle.DashLine)
+                tmpl = self._get_geometry_template()
+                _prev_pen = QPen(QColor(tmpl.color), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3837,14 +3914,17 @@ class Model_Space(QGraphicsScene):
                 self._draw_rect_preview = preview
             else:
                 # Commit rectangle
-                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
-                color = self._get_draw_color()
-                lw = self._get_draw_lineweight()
-                item = RectangleItem(
-                    QPointF(rect.x(), rect.y()),
-                    QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
-                    color, lw
-                )
+                if self._draw_rect_from_center:
+                    hw = abs(snapped.x() - self._draw_rect_anchor.x())
+                    hh = abs(snapped.y() - self._draw_rect_anchor.y())
+                    pt1 = QPointF(self._draw_rect_anchor.x() - hw, self._draw_rect_anchor.y() - hh)
+                    pt2 = QPointF(self._draw_rect_anchor.x() + hw, self._draw_rect_anchor.y() + hh)
+                else:
+                    rect = QRectF(self._draw_rect_anchor, snapped).normalized()
+                    pt1 = QPointF(rect.x(), rect.y())
+                    pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
+                tmpl = self._get_geometry_template()
+                item = RectangleItem(pt1, pt2, tmpl.color, tmpl.lineweight)
                 item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
@@ -3860,7 +3940,8 @@ class Model_Space(QGraphicsScene):
                 if self.single_place_mode:
                     self.set_mode("select")
                 else:
-                    self.instructionChanged.emit("Pick first corner")
+                    _instr = "Pick center point" if self._draw_rect_from_center else "Pick first corner"
+                    self.instructionChanged.emit(_instr)
             return
 
         elif self.mode == "draw_circle":
@@ -3870,7 +3951,7 @@ class Model_Space(QGraphicsScene):
                 self.instructionChanged.emit("Pick radius point")
                 # Create preview circle
                 preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-                _prev_pen = QPen(QColor(self._get_draw_color()), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3882,9 +3963,8 @@ class Model_Space(QGraphicsScene):
                 r = math.hypot(snapped.x() - self._draw_circle_center.x(),
                                snapped.y() - self._draw_circle_center.y())
                 if r > 0:
-                    color = self._get_draw_color()
-                    lw = self._get_draw_lineweight()
-                    item = CircleItem(self._draw_circle_center, r, color, lw)
+                    tmpl = self._get_geometry_template()
+                    item = CircleItem(self._draw_circle_center, r, tmpl.color, tmpl.lineweight)
                     item.user_layer = self.active_user_layer
                     item.level = self.active_level
                     self.addItem(item)
@@ -3958,9 +4038,87 @@ class Model_Space(QGraphicsScene):
                 self._floor_slabs.append(slab)
                 self._floor_active = slab
                 self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick next point (double-click to close)")
+                self.instructionChanged.emit("Pick next point (click near first to close)")
             else:
+                pts = self._floor_active._points
+                # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
+                if len(pts) >= 3:
+                    scale = self.views()[0].transform().m11() if self.views() else 1.0
+                    tol = 8.0 / max(scale, 1e-6)
+                    d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
+                    if d0 <= tol:
+                        self._floor_active.close_polygon()
+                        self._floor_active.setSelected(True)
+                        self._floor_active = None
+                        self.preview_pipe.hide()
+                        for v in self.views(): v.viewport().update()
+                        self.push_undo_state()
+                        if self.single_place_mode:
+                            self.set_mode("select")
+                        else:
+                            self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                        return
+                # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
+                if len(pts) >= 2:
+                    scale = self.views()[0].transform().m11() if self.views() else 1.0
+                    tol = 8.0 / max(scale, 1e-6)
+                    for vi in range(len(pts)):
+                        dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
+                        if dv <= tol:
+                            pts.pop(vi)
+                            self._floor_active._rebuild_path()
+                            for v in self.views(): v.viewport().update()
+                            return
                 self._floor_active.add_point(snapped)
+            return
+
+        # ── Floor rectangle (2-click) ─────────────────────────────────────
+        elif self.mode == "floor_rect":
+            if self._floor_rect_anchor is None:
+                self._floor_rect_anchor = snapped
+                self.instructionChanged.emit("Pick opposite corner for rectangular floor")
+                # Create preview rect
+                preview = QGraphicsRectItem(QRectF(snapped, snapped))
+                _ftmpl = self._get_floor_template()
+                _fc = QColor(_ftmpl._color)
+                pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
+                pen.setCosmetic(True)
+                preview.setPen(pen)
+                _fc.setAlpha(30)
+                preview.setBrush(QBrush(_fc))
+                preview.setZValue(200)
+                self.addItem(preview)
+                self._floor_rect_preview = preview
+            else:
+                # Commit rectangular floor
+                rect = QRectF(self._floor_rect_anchor, snapped).normalized()
+                corners = [
+                    QPointF(rect.x(), rect.y()),
+                    QPointF(rect.x() + rect.width(), rect.y()),
+                    QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
+                    QPointF(rect.x(), rect.y() + rect.height()),
+                ]
+                _ftmpl = self._get_floor_template()
+                slab = FloorSlab(points=corners, color=_ftmpl._color.name())
+                slab.name = f"Floor {self._next_floor_num}"
+                self._next_floor_num += 1
+                slab._thickness_ft = _ftmpl._thickness_ft
+                slab.level = _ftmpl.level if _ftmpl.level else self.active_level
+                slab.user_layer = self.active_user_layer
+                self.addItem(slab)
+                self._floor_slabs.append(slab)
+                slab.setSelected(True)
+                for v in self.views(): v.viewport().update()
+                # Clean up preview
+                if self._floor_rect_preview is not None:
+                    self.removeItem(self._floor_rect_preview)
+                    self._floor_rect_preview = None
+                self._floor_rect_anchor = None
+                self.push_undo_state()
+                if self.single_place_mode:
+                    self.set_mode("select")
+                else:
+                    self.instructionChanged.emit("Pick first corner for rectangular floor")
             return
 
         # ── Door placement ────────────────────────────────────────────────
@@ -3990,6 +4148,34 @@ class Model_Space(QGraphicsScene):
                 self.push_undo_state()
                 self.instructionChanged.emit("Click on a wall to place another window")
             return
+
+        # ── Shift-click floor vertex editing (select mode) ────────────────
+        if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                and self.mode in (None, "select")):
+            # Find FloorSlab under cursor
+            for it in self.items(snapped):
+                if isinstance(it, FloorSlab) and len(it._points) >= 3:
+                    scale = self.views()[0].transform().m11() if self.views() else 1.0
+                    vtx_tol = 8.0 / max(scale, 1e-6)
+                    # Check if near an existing vertex → delete it (min 3)
+                    for vi, vpt in enumerate(it._points):
+                        dv = math.hypot(snapped.x() - vpt.x(), snapped.y() - vpt.y())
+                        if dv <= vtx_tol:
+                            it.remove_point(vi)
+                            it.update()
+                            for v in self.views(): v.viewport().update()
+                            self.push_undo_state()
+                            return
+                    # Check if near an edge → insert vertex at projection
+                    edge_idx, edge_dist, proj_pt = it.nearest_edge(snapped)
+                    edge_tol = 12.0 / max(scale, 1e-6)
+                    if edge_dist <= edge_tol:
+                        it.insert_point(edge_idx + 1, proj_pt)
+                        it.update()
+                        for v in self.views(): v.viewport().update()
+                        self.push_undo_state()
+                        return
+                    break  # only edit the topmost floor
 
         # (Grip check was moved above the mode chain — always takes priority)
 

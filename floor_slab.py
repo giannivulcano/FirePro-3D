@@ -138,6 +138,40 @@ class FloorSlab(QGraphicsPathItem):
             self._points[index] = QPointF(new_pos)
             self._rebuild_path()
 
+    def insert_point(self, idx: int, pt: QPointF):
+        """Insert a vertex at position *idx* (shifts subsequent points)."""
+        self._points.insert(idx, QPointF(pt))
+        self._rebuild_path()
+
+    def remove_point(self, idx: int):
+        """Remove vertex at *idx* (no-op if would leave < 3 points)."""
+        if len(self._points) <= 3:
+            return
+        if 0 <= idx < len(self._points):
+            self._points.pop(idx)
+            self._rebuild_path()
+
+    def nearest_edge(self, pt: QPointF) -> tuple[int, float, QPointF]:
+        """Return (edge_index, distance, projection_point) for the edge
+        closest to *pt*.  Edge *i* runs from _points[i] → _points[(i+1)%n].
+        """
+        best_idx, best_dist, best_proj = 0, float("inf"), QPointF(pt)
+        n = len(self._points)
+        for i in range(n):
+            a = self._points[i]
+            b = self._points[(i + 1) % n]
+            dx, dy = b.x() - a.x(), b.y() - a.y()
+            len_sq = dx * dx + dy * dy
+            if len_sq < 1e-12:
+                t = 0.0
+            else:
+                t = max(0.0, min(1.0, ((pt.x() - a.x()) * dx + (pt.y() - a.y()) * dy) / len_sq))
+            proj = QPointF(a.x() + t * dx, a.y() + t * dy)
+            d = math.hypot(pt.x() - proj.x(), pt.y() - proj.y())
+            if d < best_dist:
+                best_idx, best_dist, best_proj = i, d, proj
+        return best_idx, best_dist, best_proj
+
     def translate(self, dx: float, dy: float):
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
         self._rebuild_path()

@@ -120,6 +120,26 @@ class Model_View(QGraphicsView):
 
             painter.restore()
 
+        # ── 1b. Floor vertex dots during placement ─────────────────────────────
+        floor_active = getattr(scene, "_floor_active", None)
+        if floor_active is not None and hasattr(floor_active, "_points"):
+            pts = floor_active._points
+            if pts:
+                painter.save()
+                painter.resetTransform()
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                for idx, fpt in enumerate(pts):
+                    vp = self.mapFromScene(fpt)
+                    # First vertex green (close target), others blue
+                    if idx == 0 and len(pts) >= 3:
+                        fill = QColor("#00cc44")
+                    else:
+                        fill = QColor("#3399ff")
+                    painter.setPen(QPen(QColor("#000000"), 1))
+                    painter.setBrush(QBrush(fill))
+                    painter.drawEllipse(vp, 5, 5)
+                painter.restore()
+
         # ── 2. Grip handles (viewport coordinates) ────────────────────────────
         selected = [i for i in scene.selectedItems() if hasattr(i, "grip_points")]
         active_item  = getattr(scene, "_grip_item",  None)

@@ -416,7 +416,20 @@ class MainWindow(QMainWindow):
             self._mode_buttons[mode_name] = btn
             return btn
         _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip("Draw a line segment")
-        _mode_btn(g_geom, "Rectangle", _I("rectangle_icon.svg"), "draw_rectangle").setToolTip("Draw a rectangle")
+        # Rectangle split-menu: main click → draw_rectangle, dropdown → Corner/Center mode
+        _rect_btn = g_geom.add_large_button(
+            "Rectangle", _I("rectangle_icon.svg"),
+            lambda: self.scene.set_mode("draw_rectangle"), checkable=True)
+        _rect_btn.setToolTip("Draw a rectangle")
+        _rect_menu = QMenu(_rect_btn)
+        _rect_corner_act = _rect_menu.addAction("Corner Mode")
+        _rect_center_act = _rect_menu.addAction("Center Mode")
+        _rect_corner_act.triggered.connect(lambda: self._set_rect_mode(False))
+        _rect_center_act.triggered.connect(lambda: self._set_rect_mode(True))
+        _rect_btn.setMenu(_rect_menu)
+        from PyQt6.QtWidgets import QToolButton
+        _rect_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._mode_buttons["draw_rectangle"] = _rect_btn
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
@@ -482,7 +495,16 @@ class MainWindow(QMainWindow):
             lambda: self.scene.set_mode("floor"),
             checkable=True)
         _floor_btn.setToolTip("Draw a floor slab boundary")
+        _floor_menu = QMenu(_floor_btn)
+        _floor_poly_act = _floor_menu.addAction("Floor (Polygon)")
+        _floor_rect_act = _floor_menu.addAction("Floor (Rectangle)")
+        _floor_poly_act.triggered.connect(lambda: self.scene.set_mode("floor"))
+        _floor_rect_act.triggered.connect(lambda: self.scene.set_mode("floor_rect"))
+        from PyQt6.QtWidgets import QToolButton
+        _floor_btn.setMenu(_floor_menu)
+        _floor_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self._mode_buttons["floor"] = _floor_btn
+        self._mode_buttons["floor_rect"] = _floor_btn  # same button shows checked for both
         _door_btn = g_3d.add_small_button(
             "Door", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("door"),
@@ -855,14 +877,23 @@ class MainWindow(QMainWindow):
 
     # ── Template workflow helpers ─────────────────────────────────────────────
 
+    def _set_rect_mode(self, from_center: bool):
+        """Switch rectangle drawing between corner and center mode."""
+        self.scene._draw_rect_from_center = from_center
+        self.scene.set_mode("draw_rectangle")
+
     def _on_mode_changed_template(self, mode: str):
-        """Show pre-placement template properties when entering wall/floor mode."""
+        """Show pre-placement template properties when entering wall/floor/geometry mode."""
         if mode == "wall":
             template = self.scene._get_wall_template()
             template._alignment = self.scene._wall_alignment
             self.prop_manager.show_properties(template)
-        elif mode == "floor":
+        elif mode in ("floor", "floor_rect"):
             template = self.scene._get_floor_template()
+            self.prop_manager.show_properties(template)
+        elif mode in ("draw_line", "draw_rectangle", "draw_circle", "draw_arc",
+                       "polyline"):
+            template = self.scene._get_geometry_template()
             self.prop_manager.show_properties(template)
 
     # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
@@ -909,7 +940,7 @@ class MainWindow(QMainWindow):
     _DRAW_MODES = {"draw_line", "draw_rectangle", "draw_circle", "draw_arc",
                     "polyline", "dimension", "text", "pipe", "sprinkler",
                     "water_supply", "design_area", "set_scale", "offset",
-                    "offset_side", "wall", "floor", "door", "window"}
+                    "offset_side", "wall", "floor", "floor_rect", "door", "window"}
 
     def _on_selection_changed_modify(self):
         """Auto-switch to Modify tab when items are selected (unless drawing)."""

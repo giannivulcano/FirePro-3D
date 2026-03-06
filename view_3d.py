@@ -687,7 +687,7 @@ class View3D(QWidget):
         if not all_pts:
             return None
         combined = np.vstack(all_pts)
-        return combined.mean(axis=0), combined.ptp(axis=0)
+        return combined.mean(axis=0), combined.max(axis=0) - combined.min(axis=0)
 
     def _fit_camera(self):
         """Auto-fit camera to encompass all geometry."""
