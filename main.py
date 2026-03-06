@@ -136,10 +136,9 @@ class MainWindow(QMainWindow):
         self.central_tabs.addTab(self.view, "Model Space")
         self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
 
-        # 3D View tab
+        # 3D View tab (signal wired after prop_manager is created below)
         self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs.addTab(self.view_3d, "3D View")
-        self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self.ribbon = RibbonBar()
@@ -150,6 +149,7 @@ class MainWindow(QMainWindow):
         self.prop_manager = PropertyManager()
         self.prop_manager.set_level_manager(self.level_mgr)
         self.scene.requestPropertyUpdate.connect(self.prop_manager.show_properties)
+        self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.update_property_manager)
 
         # Combined left-side dock: DXF Layers | User Layers | Project Browser
@@ -499,6 +499,13 @@ class MainWindow(QMainWindow):
             checkable=True)
         _wall_btn.setToolTip("Draw a wall segment")
         self._mode_buttons["wall"] = _wall_btn
+        _wall_align = QComboBox()
+        _wall_align.addItems(["Center", "Interior", "Exterior"])
+        _wall_align.setToolTip("Wall placement alignment")
+        _wall_align.setFixedWidth(90)
+        _wall_align.currentTextChanged.connect(
+            lambda t: setattr(self.scene, "_wall_alignment", t))
+        g_3d._btn_row.addWidget(_wall_align)
         _floor_btn = g_3d.add_large_button(
             "Floor", _I("design_area_icon.svg"),
             lambda: self.scene.set_mode("floor"),

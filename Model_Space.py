@@ -169,6 +169,7 @@ class Model_Space(QGraphicsScene):
         # Walls, Floors, Openings (Phase B/C/D)
         self._walls: list[WallSegment] = []
         self._floor_slabs: list[FloorSlab] = []
+        self._wall_alignment: str = "Center"                  # alignment mode for new walls
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
         self._wall_preview_line: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
@@ -3824,6 +3825,7 @@ class Model_Space(QGraphicsScene):
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._wall_anchor, snapped)
                 wall = WallSegment(self._wall_anchor, tip)
+                wall._alignment = self._wall_alignment
                 wall.level = self.active_level
                 wall._base_level = self.active_level
                 wall.user_layer = self.active_user_layer

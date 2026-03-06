@@ -33,6 +33,11 @@ FILL_NONE  = "None"
 FILL_SOLID = "Solid"
 FILL_HATCH = "Hatch"
 
+# Alignment modes (Revit-style wall placement line)
+ALIGN_CENTER   = "Center"
+ALIGN_INTERIOR = "Interior"
+ALIGN_EXTERIOR = "Exterior"
+
 _HATCH_SPACING = 6.0      # cosmetic pixel spacing for 2D hatch lines
 _SELECTION_COLOR = QColor("red")
 
@@ -74,6 +79,9 @@ class WallSegment(QGraphicsPathItem):
         self._base_level: str = "Level 1"
         self._top_level: str = "Level 2"
         self._height_ft: float = 10.0              # fallback when top_level is "Custom"
+
+        # Alignment mode (centerline / interior / exterior)
+        self._alignment: str = ALIGN_CENTER
 
         # Wall openings (doors / windows)
         self.openings: list[WallOpening] = []
@@ -136,15 +144,31 @@ class WallSegment(QGraphicsPathItem):
         """Return the four corner points of the wall rectangle (2D).
 
         Order: p1_left, p1_right, p2_right, p2_left  (CCW winding).
+
+        Alignment controls how the wall rectangle relates to the click line
+        (defined by _pt1 / _pt2):
+          Center   — click line is the wall centerline (default)
+          Interior — click line is the left (normal-side) face
+          Exterior — click line is the right face
         """
         nx, ny = self.normal()
         ht = self.half_thickness_scene()
-        offset = QPointF(nx * ht, ny * ht)
+        if self._alignment == ALIGN_INTERIOR:
+            # Click line = left face; full thickness extends to the right
+            off_left = QPointF(0, 0)
+            off_right = QPointF(-nx * ht * 2, -ny * ht * 2)
+        elif self._alignment == ALIGN_EXTERIOR:
+            # Click line = right face; full thickness extends to the left
+            off_left = QPointF(nx * ht * 2, ny * ht * 2)
+            off_right = QPointF(0, 0)
+        else:  # ALIGN_CENTER
+            off_left = QPointF(nx * ht, ny * ht)
+            off_right = QPointF(-nx * ht, -ny * ht)
         return (
-            self._pt1 + offset,   # p1 left
-            self._pt1 - offset,   # p1 right
-            self._pt2 - offset,   # p2 right
-            self._pt2 + offset,   # p2 left
+            self._pt1 + off_left,    # p1 left
+            self._pt1 + off_right,   # p1 right
+            self._pt2 + off_right,   # p2 right
+            self._pt2 + off_left,    # p2 left
         )
 
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
@@ -285,6 +309,8 @@ class WallSegment(QGraphicsPathItem):
             "Colour":     {"type": "string", "value": self._color.name()},
             "Fill Mode":  {"type": "enum",   "value": self._fill_mode,
                            "options": [FILL_NONE, FILL_SOLID, FILL_HATCH]},
+            "Alignment":  {"type": "enum",   "value": self._alignment,
+                           "options": [ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR]},
             "Base Level": {"type": "string", "value": self._base_level},
             "Top Level":  {"type": "string", "value": self._top_level},
             "Height (ft)":{"type": "string", "value": str(self._height_ft)},
@@ -314,6 +340,11 @@ class WallSegment(QGraphicsPathItem):
             if value in (FILL_NONE, FILL_SOLID, FILL_HATCH):
                 self._fill_mode = value
                 self.update()
+        elif key == "Alignment":
+            if value in (ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR):
+                self._alignment = value
+                self._rebuild_path()
+                self.update()
         elif key == "Base Level":
             self._base_level = str(value)
         elif key == "Top Level":
@@ -337,6 +368,7 @@ class WallSegment(QGraphicsPathItem):
             "thickness_in":  self._thickness_in,
             "color":         self._color.name(),
             "fill_mode":     self._fill_mode,
+            "alignment":     self._alignment,
             "base_level":    self._base_level,
             "top_level":     self._top_level,
             "height_ft":     self._height_ft,
@@ -353,6 +385,7 @@ class WallSegment(QGraphicsPathItem):
                    thickness_in=data.get("thickness_in", DEFAULT_THICKNESS_IN),
                    color=data.get("color", "#cccccc"))
         wall._fill_mode = data.get("fill_mode", FILL_NONE)
+        wall._alignment = data.get("alignment", ALIGN_CENTER)
         wall._base_level = data.get("base_level", "Level 1")
         wall._top_level = data.get("top_level", "Level 2")
         wall._height_ft = data.get("height_ft", 10.0)
