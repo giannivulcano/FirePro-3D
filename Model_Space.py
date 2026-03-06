@@ -176,6 +176,7 @@ class Model_Space(QGraphicsScene):
         self._wall_template: "WallSegment | None" = None      # pre-placement property template
         self._floor_template: "FloorSlab | None" = None       # pre-placement property template
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
+        self._wall_chain_start: "QPointF | None" = None    # very first anchor for wall-close
         self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
         self._wall_preview_line: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
@@ -626,6 +627,7 @@ class Model_Space(QGraphicsScene):
         self._walls = []
         self._floor_slabs = []
         self._wall_anchor = None
+        self._wall_chain_start = None
         self._floor_active = None
         self._hatch_items = []
         self._constraints = []
@@ -952,6 +954,7 @@ class Model_Space(QGraphicsScene):
         # Clean up wall drawing state
         if mode != "wall":
             self._wall_anchor = None
+            self._wall_chain_start = None
             if self._wall_preview_line is not None:
                 if self._wall_preview_line.scene() is self:
                     self.removeItem(self._wall_preview_line)
@@ -2232,17 +2235,20 @@ class Model_Space(QGraphicsScene):
         from construction_geometry import GeometryTemplate
         if self._geometry_template is None:
             self._geometry_template = GeometryTemplate()
-            # Initialize colour / lineweight from the active user layer
-            if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-                ldef = self._user_layer_manager.get(self.active_user_layer)
-                if ldef:
-                    self._geometry_template.color = ldef.color
-                    from user_layer_manager import lw_mm_to_cosmetic_px
-                    self._geometry_template.lineweight = lw_mm_to_cosmetic_px(ldef.lineweight)
+            self._geometry_template.user_layer = self.active_user_layer
         # Sync with active level
         self._geometry_template.level = self.active_level
-        self._geometry_template.user_layer = self.active_user_layer
         return self._geometry_template
+
+    def _geom_color_lw(self):
+        """Return (color, lineweight) derived from the geometry template's layer."""
+        tmpl = self._get_geometry_template()
+        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+            ldef = self._user_layer_manager.get(tmpl.user_layer)
+            if ldef:
+                from user_layer_manager import lw_mm_to_cosmetic_px
+                return ldef.color, lw_mm_to_cosmetic_px(ldef.lineweight)
+        return "#ffffff", 2.0
 
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -2331,9 +2337,10 @@ class Model_Space(QGraphicsScene):
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
             )
             tmpl = self._get_geometry_template()
-            item = LineItem(anchor, tip, tmpl.color, tmpl.lineweight)
-            item.user_layer = self.active_user_layer
-            item.level = self.active_level
+            _c, _lw = self._geom_color_lw()
+            item = LineItem(anchor, tip, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
             self.addItem(item)
             self._draw_lines.append(item)
             item.setSelected(True)
@@ -2394,9 +2401,10 @@ class Model_Space(QGraphicsScene):
                     self._draw_rect_anchor.y() - h_spin.value(),   # Y-up → scene Y-down
                 )
             tmpl = self._get_geometry_template()
-            item = RectangleItem(pt1, pt2, tmpl.color, tmpl.lineweight)
-            item.user_layer = self.active_user_layer
-            item.level = self.active_level
+            _c, _lw = self._geom_color_lw()
+            item = RectangleItem(pt1, pt2, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
             self.addItem(item)
             self._draw_rects.append(item)
             item.setSelected(True)
@@ -2480,9 +2488,10 @@ class Model_Space(QGraphicsScene):
 
             r = r_spin.value()
             tmpl = self._get_geometry_template()
-            item = CircleItem(self._draw_circle_center, r, tmpl.color, tmpl.lineweight)
-            item.user_layer = self.active_user_layer
-            item.level = self.active_level
+            _c, _lw = self._geom_color_lw()
+            item = CircleItem(self._draw_circle_center, r, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
             self.addItem(item)
             self._draw_circles.append(item)
             item.setSelected(True)
@@ -3478,7 +3487,7 @@ class Model_Space(QGraphicsScene):
                 # Create radius preview line (centre → cursor)
                 line = QGraphicsLineItem(snapped.x(), snapped.y(),
                                          snapped.x(), snapped.y())
-                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 line.setPen(_prev_pen)
                 line.setZValue(200)
@@ -3501,7 +3510,7 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(self._draw_arc_radius_line)
                     self._draw_arc_radius_line = None
                 preview = QGraphicsPathItem()
-                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3519,10 +3528,11 @@ class Model_Space(QGraphicsScene):
                 if span <= 0:
                     span += 360.0
                 tmpl = self._get_geometry_template()
+                _c, _lw = self._geom_color_lw()
                 item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
-                               self._draw_arc_start_deg, span, tmpl.color, tmpl.lineweight)
-                item.user_layer = self.active_user_layer
-                item.level = self.active_level
+                               self._draw_arc_start_deg, span, _c, _lw)
+                item.user_layer = tmpl.user_layer
+                item.level = tmpl.level
                 self.addItem(item)
                 self._draw_arcs.append(item)
                 item.setSelected(True)
@@ -3850,9 +3860,10 @@ class Model_Space(QGraphicsScene):
             if self._polyline_active is None:
                 # First click — create the polyline item
                 tmpl = self._get_geometry_template()
-                pl = PolylineItem(snapped, tmpl.color, tmpl.lineweight)
-                pl.user_layer = self.active_user_layer
-                pl.level = self.active_level
+                _c, _lw = self._geom_color_lw()
+                pl = PolylineItem(snapped, _c, _lw)
+                pl.user_layer = tmpl.user_layer
+                pl.level = tmpl.level
                 self.addItem(pl)
                 self._polylines.append(pl)
                 self._polyline_active = pl
@@ -3880,9 +3891,10 @@ class Model_Space(QGraphicsScene):
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._draw_line_anchor, snapped)
                 tmpl = self._get_geometry_template()
-                item = LineItem(self._draw_line_anchor, tip, tmpl.color, tmpl.lineweight)
-                item.user_layer = self.active_user_layer
-                item.level = self.active_level
+                _c, _lw = self._geom_color_lw()
+                item = LineItem(self._draw_line_anchor, tip, _c, _lw)
+                item.user_layer = tmpl.user_layer
+                item.level = tmpl.level
                 self.addItem(item)
                 self._draw_lines.append(item)
                 item.setSelected(True)
@@ -3904,8 +3916,7 @@ class Model_Space(QGraphicsScene):
                 self.instructionChanged.emit(_instr)
                 # Create preview rect
                 preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                tmpl = self._get_geometry_template()
-                _prev_pen = QPen(QColor(tmpl.color), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3924,9 +3935,10 @@ class Model_Space(QGraphicsScene):
                     pt1 = QPointF(rect.x(), rect.y())
                     pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
                 tmpl = self._get_geometry_template()
-                item = RectangleItem(pt1, pt2, tmpl.color, tmpl.lineweight)
-                item.user_layer = self.active_user_layer
-                item.level = self.active_level
+                _c, _lw = self._geom_color_lw()
+                item = RectangleItem(pt1, pt2, _c, _lw)
+                item.user_layer = tmpl.user_layer
+                item.level = tmpl.level
                 self.addItem(item)
                 self._draw_rects.append(item)
                 item.setSelected(True)
@@ -3951,7 +3963,7 @@ class Model_Space(QGraphicsScene):
                 self.instructionChanged.emit("Pick radius point")
                 # Create preview circle
                 preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-                _prev_pen = QPen(QColor(self._get_geometry_template().color), 2, Qt.PenStyle.DashLine)
+                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
                 _prev_pen.setCosmetic(True)
                 preview.setPen(_prev_pen)
                 preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -3964,9 +3976,10 @@ class Model_Space(QGraphicsScene):
                                snapped.y() - self._draw_circle_center.y())
                 if r > 0:
                     tmpl = self._get_geometry_template()
-                    item = CircleItem(self._draw_circle_center, r, tmpl.color, tmpl.lineweight)
-                    item.user_layer = self.active_user_layer
-                    item.level = self.active_level
+                    _c, _lw = self._geom_color_lw()
+                    item = CircleItem(self._draw_circle_center, r, _c, _lw)
+                    item.user_layer = tmpl.user_layer
+                    item.level = tmpl.level
                     self.addItem(item)
                     self._draw_circles.append(item)
                     item.setSelected(True)
@@ -3987,12 +4000,23 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "wall":
             if self._wall_anchor is None:
                 self._wall_anchor = snapped
+                self._wall_chain_start = QPointF(snapped)
                 self.update_preview_node(snapped)
                 self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Tab=cycle")
             else:
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._wall_anchor, snapped)
+                # Close wall loop: if clicking near chain start → snap tip to start
+                _close_loop = False
+                if self._wall_chain_start is not None:
+                    scale = self.views()[0].transform().m11() if self.views() else 1.0
+                    tol = 8.0 / max(scale, 1e-6)
+                    d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
+                                         tip.y() - self._wall_chain_start.y())
+                    if d_start <= tol:
+                        tip = QPointF(self._wall_chain_start)
+                        _close_loop = True
                 _tmpl = self._get_wall_template()
                 wall = WallSegment(self._wall_anchor, tip,
                                    thickness_in=_tmpl._thickness_in,
@@ -4014,13 +4038,24 @@ class Model_Space(QGraphicsScene):
                 self._auto_join_wall(wall)
                 wall.setSelected(True)
                 for v in self.views(): v.viewport().update()
-                # Chain: end of this wall becomes start of next
-                self._wall_anchor = QPointF(tip)
                 self.preview_pipe.hide()
                 if self._wall_preview_rect is not None:
                     self._wall_preview_rect.hide()
                 self.push_undo_state()
-                self.instructionChanged.emit(f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
+                if _close_loop:
+                    # Loop closed — stop wall chain
+                    self._wall_anchor = None
+                    self._wall_chain_start = None
+                    if self.single_place_mode:
+                        self.set_mode("select")
+                    else:
+                        self.instructionChanged.emit(
+                            f"Pick wall start point [{self._wall_alignment}]")
+                else:
+                    # Chain: end of this wall becomes start of next
+                    self._wall_anchor = QPointF(tip)
+                    self.instructionChanged.emit(
+                        f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
             return
 
         # ── Floor drawing ─────────────────────────────────────────────────

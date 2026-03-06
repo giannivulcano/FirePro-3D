@@ -905,32 +905,24 @@ class GeometryTemplate:
     """Pre-placement template for geometry tools (line, rectangle, circle, etc.).
 
     Provides ``get_properties()`` / ``set_property()`` so the PropertyManager
-    can display and edit default values before placement.  Values persist
-    across mode changes as "last-used" defaults.
+    can display and edit default values before placement.  Colour and
+    line-weight are derived from the selected layer at placement time.
     """
 
     def __init__(self):
-        self.color: str = "#ffffff"
-        self.lineweight: float = 2.0
         self.level: str = "Level 1"
         self.user_layer: str = "Default"
         self.name: str = "(Template)"
 
     def get_properties(self) -> dict:
         return {
-            "Type":        {"type": "label",     "value": "Geometry"},
-            "Colour":      {"type": "color",     "value": self.color},
-            "Line Weight": {"type": "string",    "value": str(self.lineweight)},
-            "Level":       {"type": "level_ref", "value": self.level},
+            "Type":  {"type": "label",     "value": "Geometry"},
+            "Layer": {"type": "layer_ref", "value": self.user_layer},
+            "Level": {"type": "level_ref", "value": self.level},
         }
 
     def set_property(self, key: str, value):
-        if key == "Colour":
-            self.color = str(value)
-        elif key == "Line Weight":
-            try:
-                self.lineweight = float(value)
-            except (ValueError, TypeError):
-                pass
+        if key == "Layer":
+            self.user_layer = str(value)
         elif key == "Level":
             self.level = str(value)
