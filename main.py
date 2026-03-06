@@ -26,6 +26,7 @@ from ribbon_bar import RibbonBar
 from view_3d import View3D
 from array_dialog import ArrayDialog
 from project_browser import ProjectBrowser
+from model_browser import ModelBrowser
 from grid_lines_dialog import GridLinesDialog
 import theme as th
 
@@ -187,9 +188,14 @@ class MainWindow(QMainWindow):
             self._activate_paper_sheet
         )
 
+        self.model_browser = ModelBrowser()
+        self.model_browser.set_scene(self.scene)
+        self.model_browser.entitySelected.connect(self.prop_manager.show_properties)
+
         self._left_tabs = QTabWidget()
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project Browser")
+        self._left_tabs.addTab(self.model_browser, "Model")
         self._left_tabs.addTab(self.layer_manager, "DXF Layers")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
         self._left_tabs.addTab(self.level_widget, "Levels")
@@ -530,13 +536,14 @@ class MainWindow(QMainWindow):
             checkable=True)
         _wall_btn.setToolTip("Draw a wall segment")
         self._mode_buttons["wall"] = _wall_btn
-        _wall_align = QComboBox()
-        _wall_align.addItems(["Center", "Interior", "Exterior"])
-        _wall_align.setToolTip("Wall placement alignment")
-        _wall_align.setFixedWidth(90)
-        _wall_align.currentTextChanged.connect(
+        self._wall_align_combo = QComboBox()
+        self._wall_align_combo.addItems(["Center", "Interior", "Exterior"])
+        self._wall_align_combo.setToolTip("Wall placement alignment")
+        self._wall_align_combo.setFixedWidth(90)
+        self._wall_align_combo.currentTextChanged.connect(
             lambda t: setattr(self.scene, "_wall_alignment", t))
-        g_3d._btn_row.addWidget(_wall_align)
+        g_3d._btn_row.addWidget(self._wall_align_combo)
+        self.scene._wall_align_combo_ref = self._wall_align_combo
         _floor_btn = g_3d.add_large_button(
             "Floor", _I("design_area_icon.svg"),
             lambda: self.scene.set_mode("floor"),

@@ -54,6 +54,7 @@ class FloorSlab(QGraphicsPathItem):
 
         self.level: str = "Level 1"
         self.user_layer: str = "Default"
+        self.name: str = ""
 
         self.setZValue(-80)      # behind walls and pipes
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -146,13 +147,16 @@ class FloorSlab(QGraphicsPathItem):
     def get_properties(self) -> dict:
         return {
             "Type":          {"type": "label",  "value": "Floor Slab"},
+            "Name":          {"type": "string", "value": self.name},
             "Colour":        {"type": "string", "value": self._color.name()},
             "Thickness (ft)":{"type": "string", "value": str(self._thickness_ft)},
             "Points":        {"type": "label",  "value": str(len(self._points))},
         }
 
     def set_property(self, key: str, value):
-        if key == "Colour":
+        if key == "Name":
+            self.name = str(value)
+        elif key == "Colour":
             self._color = QColor(value)
             self.update()
         elif key == "Thickness (ft)":
@@ -171,6 +175,7 @@ class FloorSlab(QGraphicsPathItem):
             "thickness_ft": self._thickness_ft,
             "level":        self.level,
             "user_layer":   self.user_layer,
+            "name":         self.name,
         }
 
     @classmethod
@@ -180,6 +185,7 @@ class FloorSlab(QGraphicsPathItem):
         slab._thickness_ft = data.get("thickness_ft", DEFAULT_THICKNESS_FT)
         slab.level = data.get("level", "Level 1")
         slab.user_layer = data.get("user_layer", "Default")
+        slab.name = data.get("name", "")
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
