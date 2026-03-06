@@ -259,6 +259,17 @@ class LevelManager:
             for note in getattr(annotations, "notes", []):
                 _set_level_vis(note)
 
+        # ── Walls ─────────────────────────────────────────────────────────
+        for item in getattr(scene, "_walls", []):
+            _set_level_vis(item)
+            # Also handle openings belonging to this wall
+            for op in getattr(item, "openings", []):
+                _set_level_vis(op)
+
+        # ── Floor slabs ──────────────────────────────────────────────────
+        for item in getattr(scene, "_floor_slabs", []):
+            _set_level_vis(item)
+
         # ── Hatches ───────────────────────────────────────────────────────
         for item in getattr(scene, "_hatch_items", []):
             _set_level_vis(item)

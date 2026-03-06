@@ -23,12 +23,15 @@ from construction_geometry import (
 )
 from snap_engine import SnapEngine, OsnapResult
 from gridline import GridlineItem, reset_grid_counters
+from wall import WallSegment
+from floor_slab import FloorSlab
+from wall_opening import WallOpening, DoorOpening, WindowOpening
 import os
 
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 7
+    SAVE_VERSION = 8
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -163,6 +166,12 @@ class Model_Space(QGraphicsScene):
         self._place_import_params = None
         self._place_import_ghost = None
         self._place_import_bounds = QRectF(-50, -50, 100, 100)
+        # Walls, Floors, Openings (Phase B/C/D)
+        self._walls: list[WallSegment] = []
+        self._floor_slabs: list[FloorSlab] = []
+        self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
+        self._wall_preview_line: "QGraphicsLineItem | None" = None
+        self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1
@@ -312,6 +321,8 @@ class Model_Space(QGraphicsScene):
         draw_circles_data = [c.to_dict() for c in self._draw_circles]
         draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
+        walls_data = [w.to_dict() for w in self._walls]
+        floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]
 
         # --- Assemble and write ---
         payload = {
@@ -332,6 +343,8 @@ class Model_Space(QGraphicsScene):
             "draw_circles":        draw_circles_data,
             "draw_arcs":           draw_arcs_data,
             "gridlines":           gridlines_data,
+            "walls":               walls_data,
+            "floor_slabs":         floor_slabs_data,
             "hatches":             hatch_data,
             "constraints":         constraints_data,
         }
@@ -516,6 +529,23 @@ class Model_Space(QGraphicsScene):
             self.addItem(gl)
             self._gridlines.append(gl)
 
+        # --- Walls ---
+        for entry in payload.get("walls", []):
+            wall = WallSegment.from_dict(entry)
+            self.addItem(wall)
+            self._walls.append(wall)
+            # Restore openings
+            for op_data in entry.get("openings", []):
+                op = WallOpening.from_dict(op_data, wall=wall)
+                wall.openings.append(op)
+                self.addItem(op)
+
+        # --- Floor slabs ---
+        for entry in payload.get("floor_slabs", []):
+            slab = FloorSlab.from_dict(entry)
+            self.addItem(slab)
+            self._floor_slabs.append(slab)
+
         # --- Hatches ---
         from Annotations import HatchItem
         for entry in payload.get("hatches", []):
@@ -580,6 +610,10 @@ class Model_Space(QGraphicsScene):
         self._text_preview = None
         self._gridlines = []
         self._gridline_anchor = None
+        self._walls = []
+        self._floor_slabs = []
+        self._wall_anchor = None
+        self._floor_active = None
         self._hatch_items = []
         self._constraints = []
         reset_grid_counters()
@@ -736,6 +770,24 @@ class Model_Space(QGraphicsScene):
                 if item in self._gridlines:
                     self._gridlines.remove(item)
                 self.removeItem(item)
+            elif isinstance(item, WallSegment):
+                # Also remove openings belonging to this wall
+                for op in list(item.openings):
+                    if op.scene() is self:
+                        self.removeItem(op)
+                item.openings.clear()
+                if item in self._walls:
+                    self._walls.remove(item)
+                self.removeItem(item)
+            elif isinstance(item, FloorSlab):
+                if item in self._floor_slabs:
+                    self._floor_slabs.remove(item)
+                self.removeItem(item)
+            elif isinstance(item, (DoorOpening, WindowOpening)):
+                # Remove opening from parent wall
+                if item.wall is not None and item in item.wall.openings:
+                    item.wall.openings.remove(item)
+                self.removeItem(item)
             else:
                 # Handle HatchItem and any other selectable items
                 from Annotations import HatchItem
@@ -884,6 +936,23 @@ class Model_Space(QGraphicsScene):
         if mode != "constraint_dimensional":
             self._constraint_grip_a = None
 
+        # Clean up wall drawing state
+        if mode != "wall":
+            self._wall_anchor = None
+            if self._wall_preview_line is not None:
+                if self._wall_preview_line.scene() is self:
+                    self.removeItem(self._wall_preview_line)
+                self._wall_preview_line = None
+        # Clean up floor drawing state
+        if mode != "floor":
+            if self._floor_active is not None:
+                if len(self._floor_active._points) < 3:
+                    if self._floor_active.scene() is self:
+                        self.removeItem(self._floor_active)
+                    if self._floor_active in self._floor_slabs:
+                        self._floor_slabs.remove(self._floor_active)
+                self._floor_active = None
+
         # Clean up place_import ghost
         if mode != "place_import":
             if self._place_import_ghost is not None:
@@ -977,6 +1046,10 @@ class Model_Space(QGraphicsScene):
             "fillet":          "Click first object",
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
+            "wall":            "Pick wall start point",
+            "floor":           "Pick first boundary point (double-click to close)",
+            "door":            "Click on a wall to place door",
+            "window":          "Click on a wall to place window",
         }
         instr = _initial_steps.get(mode, "")
         if instr:
@@ -1636,6 +1709,9 @@ class Model_Space(QGraphicsScene):
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
+            # ── Walls & Floors ────────────────────────────────────────────
+            "walls":              [w.to_dict()  for w in self._walls],
+            "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],
             # ── Hatches & Constraints ─────────────────────────────────────
             "hatches":            [h.to_dict() for h in self._hatch_items
                                   if hasattr(h, 'to_dict')],
@@ -1787,6 +1863,19 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(gl)
             self._gridlines.clear()
 
+            for w in list(self._walls):
+                for op in w.openings:
+                    if op.scene() is self:
+                        self.removeItem(op)
+                if w.scene() is self:
+                    self.removeItem(w)
+            self._walls.clear()
+
+            for fs in list(self._floor_slabs):
+                if fs.scene() is self:
+                    self.removeItem(fs)
+            self._floor_slabs.clear()
+
             for h in list(self._hatch_items):
                 if h.scene() is self:
                     self.removeItem(h)
@@ -1829,6 +1918,21 @@ class Model_Space(QGraphicsScene):
                 gl = GridlineItem.from_dict(d)
                 self.addItem(gl)
                 self._gridlines.append(gl)
+
+            # ── Walls & Floors ────────────────────────────────────────────
+            for d in state.get("walls", []):
+                wall = WallSegment.from_dict(d)
+                self.addItem(wall)
+                self._walls.append(wall)
+                for op_data in d.get("openings", []):
+                    op = WallOpening.from_dict(op_data, wall=wall)
+                    wall.openings.append(op)
+                    self.addItem(op)
+
+            for d in state.get("floor_slabs", []):
+                slab = FloorSlab.from_dict(d)
+                self.addItem(slab)
+                self._floor_slabs.append(slab)
 
             # ── Hatches ───────────────────────────────────────────────────
             from Annotations import HatchItem
@@ -2956,6 +3060,37 @@ class Model_Space(QGraphicsScene):
             dy = snapped.y() - self._stretch_base.y()
             self._show_status(f"Stretch: dx={dx:.1f}  dy={dy:.1f}", timeout=0)
 
+        elif self.mode == "wall":
+            if self._wall_anchor is None:
+                self.update_preview_node(snapped)
+            else:
+                tip = snapped
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    tip = self._constrain_angle(self._wall_anchor, snapped)
+                self.preview_pipe.setLine(
+                    self._wall_anchor.x(), self._wall_anchor.y(),
+                    tip.x(), tip.y()
+                )
+                self.preview_pipe.show()
+                self.preview_node.hide()
+                _dx = tip.x() - self._wall_anchor.x()
+                _dy = tip.y() - self._wall_anchor.y()
+                _len = math.hypot(_dx, _dy)
+                self._draw_dim_hint = (
+                    f"L: {sm.scene_to_display(_len)}"
+                    if sm.is_calibrated else
+                    f"L: {_len:.0f}mm"
+                )
+
+        elif self.mode == "floor":
+            if self._floor_active is None:
+                self.update_preview_node(snapped)
+            else:
+                self.preview_node.hide()
+
+        elif self.mode in ("door", "window"):
+            self.update_preview_node(snapped)
+
         else:
             # (Grip drag was moved above the mode chain — always takes priority)
             self.preview_node.hide()
@@ -3678,6 +3813,77 @@ class Model_Space(QGraphicsScene):
                     self.instructionChanged.emit("Pick center point")
             return
 
+        # ── Wall drawing ──────────────────────────────────────────────────
+        elif self.mode == "wall":
+            if self._wall_anchor is None:
+                self._wall_anchor = snapped
+                self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick wall end point")
+            else:
+                tip = snapped
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    tip = self._constrain_angle(self._wall_anchor, snapped)
+                wall = WallSegment(self._wall_anchor, tip)
+                wall.level = self.active_level
+                wall._base_level = self.active_level
+                wall.user_layer = self.active_user_layer
+                self.addItem(wall)
+                self._walls.append(wall)
+                # Auto-join: snap endpoints to nearby walls
+                self._auto_join_wall(wall)
+                wall.setSelected(True)
+                for v in self.views(): v.viewport().update()
+                # Chain: end of this wall becomes start of next
+                self._wall_anchor = QPointF(tip)
+                self.preview_pipe.hide()
+                self.push_undo_state()
+                self.instructionChanged.emit("Pick next wall end (Esc to stop)")
+            return
+
+        # ── Floor drawing ─────────────────────────────────────────────────
+        elif self.mode == "floor":
+            if self._floor_active is None:
+                slab = FloorSlab(color="#8888cc")
+                slab.level = self.active_level
+                slab.user_layer = self.active_user_layer
+                slab.add_point(snapped)
+                self.addItem(slab)
+                self._floor_slabs.append(slab)
+                self._floor_active = slab
+                self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick next point (double-click to close)")
+            else:
+                self._floor_active.add_point(snapped)
+            return
+
+        # ── Door placement ────────────────────────────────────────────────
+        elif self.mode == "door":
+            wall = self._find_wall_at(snapped)
+            if wall is not None:
+                offset = self._offset_along_wall(wall, snapped)
+                door = DoorOpening(wall=wall, offset_along=offset)
+                door.level = wall.level
+                door.user_layer = wall.user_layer
+                wall.openings.append(door)
+                self.addItem(door)
+                self.push_undo_state()
+                self.instructionChanged.emit("Click on a wall to place another door")
+            return
+
+        # ── Window placement ──────────────────────────────────────────────
+        elif self.mode == "window":
+            wall = self._find_wall_at(snapped)
+            if wall is not None:
+                offset = self._offset_along_wall(wall, snapped)
+                win = WindowOpening(wall=wall, offset_along=offset)
+                win.level = wall.level
+                win.user_layer = wall.user_layer
+                wall.openings.append(win)
+                self.addItem(win)
+                self.push_undo_state()
+                self.instructionChanged.emit("Click on a wall to place another window")
+            return
+
         # (Grip check was moved above the mode chain — always takes priority)
 
         super().mousePressEvent(event)
@@ -3718,6 +3924,28 @@ class Model_Space(QGraphicsScene):
                     self.set_mode("select")
             event.accept()
             return
+
+        # ── Floor: double-click closes the polygon ───────────────────────
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.mode == "floor"
+                and self._floor_active is not None):
+            pts = self._floor_active._points
+            # Double-click adds an extra point via mousePressEvent — remove it
+            if len(pts) > 3:
+                pts.pop()
+            if len(pts) >= 3:
+                self._floor_active.close_polygon()
+                self._floor_active.setSelected(True)
+                self._floor_active = None
+                for v in self.views(): v.viewport().update()
+                self.push_undo_state()
+                if self.single_place_mode:
+                    self.set_mode("select")
+                else:
+                    self.instructionChanged.emit("Pick first boundary point (double-click to close)")
+            event.accept()
+            return
+
         super().mouseDoubleClickEvent(event)
 
     def contextMenuEvent(self, event):
@@ -3759,6 +3987,7 @@ class Model_Space(QGraphicsScene):
             Node, Pipe, DimensionAnnotation, NoteAnnotation,
             ConstructionLine, PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, GridlineItem, HatchItem, WaterSupply,
+            WallSegment, FloorSlab, DoorOpening, WindowOpening,
         )
         for item in self.items(pos):
             # Sprinklers are children of Nodes — resolve to parent
@@ -3857,7 +4086,8 @@ class Model_Space(QGraphicsScene):
                 result.append(pipe)
         for lst in [self._construction_lines, self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._gridlines, self._hatch_items]:
+                    self._gridlines, self._hatch_items,
+                    self._walls, self._floor_slabs]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:
                     result.append(item)
@@ -3873,6 +4103,34 @@ class Model_Space(QGraphicsScene):
         if ws is not None and getattr(ws, "level", None) == level_name:
             result.append(ws)
         return result
+
+    # ── Wall / Floor helpers ─────────────────────────────────────────────
+
+    def _auto_join_wall(self, wall: WallSegment, tolerance: float = 20.0):
+        """Snap wall endpoints to nearby existing wall endpoints (miter join)."""
+        for other in self._walls:
+            if other is wall:
+                continue
+            for my_idx in (0, 1):
+                my_pt = wall.pt1 if my_idx == 0 else wall.pt2
+                hit = other.endpoint_near(my_pt, tolerance)
+                if hit is not None:
+                    target = other.pt1 if hit == 0 else other.pt2
+                    wall.snap_endpoint_to(my_idx, target)
+
+    def _find_wall_at(self, pos: QPointF) -> "WallSegment | None":
+        """Return the first wall whose shape contains pos."""
+        for wall in self._walls:
+            if wall.shape().contains(pos):
+                return wall
+        return None
+
+    def _offset_along_wall(self, wall: WallSegment, pos: QPointF) -> float:
+        """Project pos onto the wall centerline and return distance from pt1."""
+        a = wall.centerline_angle_rad()
+        dx = pos.x() - wall.pt1.x()
+        dy = pos.y() - wall.pt1.y()
+        return dx * math.cos(a) + dy * math.sin(a)
 
     def copy_items_to_level(self, items: list, target_level: str):
         """Duplicate items and assign copies to target_level."""

@@ -23,6 +23,7 @@ from user_layer_manager import UserLayerManager, UserLayerWidget
 from level_manager import LevelManager, LevelWidget
 from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
+from view_3d import View3D
 from array_dialog import ArrayDialog
 from project_browser import ProjectBrowser
 from grid_lines_dialog import GridLinesDialog
@@ -134,6 +135,11 @@ class MainWindow(QMainWindow):
         self.central_tabs = QTabWidget()
         self.central_tabs.addTab(self.view, "Model Space")
         self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
+
+        # 3D View tab
+        self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
+        self.central_tabs.addTab(self.view_3d, "3D View")
+        self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
 
         # Ribbon spans full window width (above docks) via setMenuWidget
         self.ribbon = RibbonBar()
@@ -447,23 +453,20 @@ class MainWindow(QMainWindow):
         # ── Tab 3: Build ─────────────────────────────────────────────────────
         build_page = self.ribbon.add_page("Build")
 
-        # --- Place ---
-        g_place = build_page.add_group("Place")
-        _pipe_btn = g_place.add_large_button(
+        # --- System (Pipe, Sprinkler, Water Supply, Design Area) ---
+        g_sys = build_page.add_group("System")
+        _pipe_btn = g_sys.add_large_button(
             "Pipe", _I("pipe_icon.svg"),
             lambda: self.scene.set_mode("pipe", self.current_pipe_template),
             checkable=True)
         _pipe_btn.setToolTip("Draw a pipe between two nodes")
         self._mode_buttons["pipe"] = _pipe_btn
-        _sprinkler_btn = g_place.add_large_button(
+        _sprinkler_btn = g_sys.add_large_button(
             "Sprinkler", _I("sprinkler_icon.svg"),
             lambda: self.scene.set_mode("sprinkler", self.current_sprinkler_template),
             checkable=True)
         _sprinkler_btn.setToolTip("Place a sprinkler on a node or pipe")
         self._mode_buttons["sprinkler"] = _sprinkler_btn
-
-        # --- System ---
-        g_sys = build_page.add_group("System")
         _ws_btn = g_sys.add_large_button(
             "Water\nSupply", _I("supply_icon.svg"),
             lambda: self.scene.set_mode("water_supply"),
@@ -487,6 +490,33 @@ class MainWindow(QMainWindow):
             "Sprinkler\nManager", _I("sprinkler_icon.svg"),
             self.open_sprinkler_manager)
         _btn.setToolTip("Open sprinkler database manager")
+
+        # --- 3D Modeling ---
+        g_3d = build_page.add_group("3D Modeling")
+        _wall_btn = g_3d.add_large_button(
+            "Wall", _I("pipe_icon.svg"),
+            lambda: self.scene.set_mode("wall"),
+            checkable=True)
+        _wall_btn.setToolTip("Draw a wall segment")
+        self._mode_buttons["wall"] = _wall_btn
+        _floor_btn = g_3d.add_large_button(
+            "Floor", _I("design_area_icon.svg"),
+            lambda: self.scene.set_mode("floor"),
+            checkable=True)
+        _floor_btn.setToolTip("Draw a floor slab boundary")
+        self._mode_buttons["floor"] = _floor_btn
+        _door_btn = g_3d.add_small_button(
+            "Door", _I("pipe_icon.svg"),
+            lambda: self.scene.set_mode("door"),
+            checkable=True)
+        _door_btn.setToolTip("Place a door opening in a wall")
+        self._mode_buttons["door"] = _door_btn
+        _window_btn = g_3d.add_small_button(
+            "Window", _I("pipe_icon.svg"),
+            lambda: self.scene.set_mode("window"),
+            checkable=True)
+        _window_btn.setToolTip("Place a window opening in a wall")
+        self._mode_buttons["window"] = _window_btn
 
         # --- Level ---
         g_level = build_page.add_group("Level")
