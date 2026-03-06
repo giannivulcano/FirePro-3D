@@ -174,6 +174,9 @@ class View3D(QWidget):
         # Wall and slab meshes (dynamic, recreated on rebuild)
         self._wall_meshes: list[visuals.Mesh] = []
         self._slab_meshes: list[visuals.Mesh] = []
+        # Edge wireframe lines for walls and slabs
+        self._wall_edge_lines: list[visuals.Line] = []
+        self._slab_edge_lines: list[visuals.Line] = []
 
         # Section cut state
         self._h_cut_enabled: bool = False
@@ -489,14 +492,39 @@ class View3D(QWidget):
             )
             self._floor_meshes.append(mesh)
 
-    # ── Extract: Walls (stub — filled in Phase B) ─────────────────────────
+    # ── Edge extraction helper ──────────────────────────────────────────────
+
+    @staticmethod
+    def _edges_from_faces(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
+        """Extract unique edge segments from triangulated mesh.
+
+        Returns Nx3 array of line-segment endpoints (pairs of 3D points),
+        suitable for ``visuals.Line(connect='segments')``.
+        """
+        edges: set[tuple[int, int]] = set()
+        for f in faces:
+            for i in range(3):
+                e = tuple(sorted([int(f[i]), int(f[(i + 1) % 3])]))
+                edges.add(e)
+        if not edges:
+            return np.zeros((0, 3), dtype=np.float32)
+        segments = []
+        for a, b in edges:
+            segments.append(verts[a])
+            segments.append(verts[b])
+        return np.array(segments, dtype=np.float32)
+
+    # ── Extract: Walls ────────────────────────────────────────────────────
 
     def _extract_walls(self):
-        """Render wall entities as extruded 3D meshes."""
-        # Remove old meshes
+        """Render wall entities as extruded 3D meshes with edge lines."""
+        # Remove old meshes and edge lines
         for m in self._wall_meshes:
             m.parent = None
         self._wall_meshes.clear()
+        for ln in self._wall_edge_lines:
+            ln.parent = None
+        self._wall_edge_lines.clear()
 
         scene_obj = self._scene
         if scene_obj is None:
@@ -515,15 +543,29 @@ class View3D(QWidget):
                 parent=self._view.scene,
             )
             self._wall_meshes.append(mesh)
+            # Edge wireframe
+            edge_segs = self._edges_from_faces(verts, faces)
+            if len(edge_segs) > 0:
+                edge_line = visuals.Line(
+                    pos=edge_segs,
+                    color=(0.1, 0.1, 0.1, 0.8),
+                    width=1.5,
+                    connect='segments',
+                    parent=self._view.scene,
+                )
+                self._wall_edge_lines.append(edge_line)
 
     # ── Extract: Floor Slabs ──────────────────────────────────────────────
 
     def _extract_floor_slabs(self):
-        """Render floor slab entities as solid 3D meshes."""
-        # Remove old meshes
+        """Render floor slab entities as solid 3D meshes with edge lines."""
+        # Remove old meshes and edge lines
         for m in self._slab_meshes:
             m.parent = None
         self._slab_meshes.clear()
+        for ln in self._slab_edge_lines:
+            ln.parent = None
+        self._slab_edge_lines.clear()
 
         scene_obj = self._scene
         if scene_obj is None:
@@ -542,6 +584,17 @@ class View3D(QWidget):
                 parent=self._view.scene,
             )
             self._slab_meshes.append(mesh)
+            # Edge wireframe
+            edge_segs = self._edges_from_faces(verts, faces)
+            if len(edge_segs) > 0:
+                edge_line = visuals.Line(
+                    pos=edge_segs,
+                    color=(0.15, 0.15, 0.15, 0.7),
+                    width=1.0,
+                    connect='segments',
+                    parent=self._view.scene,
+                )
+                self._slab_edge_lines.append(edge_line)
 
     # ── Camera ─────────────────────────────────────────────────────────────
 
@@ -596,6 +649,12 @@ class View3D(QWidget):
                 else:
                     m.visible = True
 
+        # Sync edge line visibility with their corresponding meshes
+        for i, ln in enumerate(self._wall_edge_lines):
+            ln.visible = self._wall_meshes[i].visible if i < len(self._wall_meshes) else True
+        for i, ln in enumerate(self._slab_edge_lines):
+            ln.visible = self._slab_meshes[i].visible if i < len(self._slab_meshes) else True
+
         # Clip nodes/sprinklers above cut
         if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
             below = self._node_positions_3d[:, 2] < cut_z
@@ -614,6 +673,9 @@ class View3D(QWidget):
         for mesh_list in (self._wall_meshes, self._slab_meshes, self._floor_meshes):
             for m in mesh_list:
                 m.visible = True
+        # Restore edge lines
+        for ln in self._wall_edge_lines + self._slab_edge_lines:
+            ln.visible = True
         # Restore node markers
         if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
             self._node_markers.set_data(

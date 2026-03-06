@@ -52,6 +52,49 @@ def _scene_hit_width(item) -> float:
     return 8.0
 
 
+def compute_wall_quad(
+    pt1: QPointF, pt2: QPointF,
+    thickness_in: float,
+    alignment: str,
+    scale_manager=None,
+) -> tuple[QPointF, QPointF, QPointF, QPointF]:
+    """Compute the 4 corner points of a wall rectangle without a QGraphicsItem.
+
+    Returns (p1_left, p1_right, p2_right, p2_left) — same order as
+    ``WallSegment.quad_points()``.
+    """
+    dx = pt2.x() - pt1.x()
+    dy = pt2.y() - pt1.y()
+    angle = math.atan2(dy, dx)
+    nx, ny = -math.sin(angle), math.cos(angle)
+
+    # Half-thickness in scene units
+    half_mm = (thickness_in * 25.4) / 2.0
+    if (scale_manager is not None
+            and scale_manager.is_calibrated
+            and scale_manager.drawing_scale > 0):
+        paper_mm = half_mm / scale_manager.drawing_scale
+        ht = scale_manager.paper_to_scene(paper_mm)
+    else:
+        ht = thickness_in * 3.0  # cosmetic fallback
+
+    if alignment == ALIGN_INTERIOR:
+        off_left = QPointF(0, 0)
+        off_right = QPointF(-nx * ht * 2, -ny * ht * 2)
+    elif alignment == ALIGN_EXTERIOR:
+        off_left = QPointF(nx * ht * 2, ny * ht * 2)
+        off_right = QPointF(0, 0)
+    else:  # Center
+        off_left = QPointF(nx * ht, ny * ht)
+        off_right = QPointF(-nx * ht, -ny * ht)
+    return (
+        pt1 + off_left,
+        pt1 + off_right,
+        pt2 + off_right,
+        pt2 + off_left,
+    )
+
+
 # ── WallSegment ──────────────────────────────────────────────────────────────
 
 class WallSegment(QGraphicsPathItem):
@@ -88,6 +131,7 @@ class WallSegment(QGraphicsPathItem):
 
         # Cosmetic / user layer
         self.user_layer: str = "Default"
+        self.name: str = ""
 
         self.setZValue(-50)                         # behind pipes, above underlays
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -303,6 +347,7 @@ class WallSegment(QGraphicsPathItem):
     def get_properties(self) -> dict:
         return {
             "Type":       {"type": "label",  "value": "Wall"},
+            "Name":       {"type": "string", "value": self.name},
             "Thickness":  {"type": "enum",   "value": str(int(self._thickness_in)),
                            "options": [str(t) for t in THICKNESS_PRESETS_IN] + ["Custom"]},
             "Thickness (in)": {"type": "string", "value": str(self._thickness_in)},
@@ -317,7 +362,9 @@ class WallSegment(QGraphicsPathItem):
         }
 
     def set_property(self, key: str, value):
-        if key == "Thickness":
+        if key == "Name":
+            self.name = str(value)
+        elif key == "Thickness":
             if value == "Custom":
                 return   # user will set via "Thickness (in)" field
             try:
@@ -374,6 +421,7 @@ class WallSegment(QGraphicsPathItem):
             "height_ft":     self._height_ft,
             "level":         self.level,
             "user_layer":    self.user_layer,
+            "name":          self.name,
             "openings":      openings_data,
         }
 
@@ -391,6 +439,7 @@ class WallSegment(QGraphicsPathItem):
         wall._height_ft = data.get("height_ft", 10.0)
         wall.level = data.get("level", "Level 1")
         wall.user_layer = data.get("user_layer", "Default")
+        wall.name = data.get("name", "")
         # Openings restored by caller after wall_opening module is available
         return wall
 

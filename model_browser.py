@@ -1,0 +1,199 @@
+"""
+model_browser.py
+================
+Model Browser dock widget for FireFlow Pro.
+
+Displays all model entities (walls, floors, doors, windows) in a
+categorised tree view with auto-generated names.  Click to select
+an entity in the 2D scene, double-click to zoom-to-fit.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
+)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont
+
+import theme as th
+from wall import WallSegment
+from floor_slab import FloorSlab
+from wall_opening import DoorOpening, WindowOpening
+
+
+_ROLE_ENTITY = Qt.ItemDataRole.UserRole  # stores Python id() of the entity
+
+
+class ModelBrowser(QWidget):
+    """Tree-view browser listing all model entities by category."""
+
+    entitySelected = pyqtSignal(object)  # emits the QGraphicsItem (or None)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._scene = None
+
+        _t = th.detect()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        # Header
+        hdr = QLabel("Model Browser")
+        hdr.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        f = QFont()
+        f.setBold(True)
+        f.setPointSize(9)
+        hdr.setFont(f)
+        hdr.setStyleSheet(
+            f"color: {_t.text_primary}; "
+            f"background: {_t.bg_raised}; "
+            f"padding: 4px; border-radius: 3px;"
+        )
+        layout.addWidget(hdr)
+
+        # Tree widget
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setRootIsDecorated(True)
+        self._tree.setIndentation(16)
+        self._tree.setStyleSheet(
+            f"QTreeWidget {{ background: {_t.bg_raised}; color: {_t.text_primary}; "
+            f"border: 1px solid {_t.border_subtle}; }}"
+            f"QTreeWidget::item:selected {{ background: {_t.accent_primary}; color: #ffffff; }}"
+            f"QTreeWidget::item:hover   {{ background: {_t.bg_base}; }}"
+        )
+        self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        layout.addWidget(self._tree)
+
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+
+        # Debounce timer for refresh
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(200)
+        self._refresh_timer.timeout.connect(self._do_refresh)
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    def set_scene(self, scene):
+        """Connect to a Model_Space scene."""
+        self._scene = scene
+        if scene is not None and hasattr(scene, "sceneModified"):
+            scene.sceneModified.connect(self.schedule_refresh)
+        self.refresh()
+
+    def schedule_refresh(self):
+        """Schedule a debounced refresh."""
+        if not self._refresh_timer.isActive():
+            self._refresh_timer.start()
+
+    # ── Internals ─────────────────────────────────────────────────────────
+
+    def _do_refresh(self):
+        self.refresh()
+
+    def refresh(self):
+        """Rebuild the tree from current scene data."""
+        self._tree.clear()
+        if self._scene is None:
+            return
+
+        f_bold = QFont()
+        f_bold.setBold(True)
+
+        # -- Walls --
+        walls = getattr(self._scene, "_walls", [])
+        walls_root = QTreeWidgetItem(self._tree, [f"Walls ({len(walls)})"])
+        walls_root.setFont(0, f_bold)
+        walls_root.setExpanded(True)
+        for wall in walls:
+            label = wall.name if wall.name else "Wall"
+            item = QTreeWidgetItem(walls_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(wall))
+            item.setToolTip(0, f"Level: {wall.level}  Layer: {wall.user_layer}")
+
+        # -- Floors --
+        slabs = getattr(self._scene, "_floor_slabs", [])
+        floors_root = QTreeWidgetItem(self._tree, [f"Floors ({len(slabs)})"])
+        floors_root.setFont(0, f_bold)
+        floors_root.setExpanded(True)
+        for slab in slabs:
+            label = slab.name if slab.name else "Floor"
+            item = QTreeWidgetItem(floors_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(slab))
+            pts = len(slab.points) if hasattr(slab, "points") else 0
+            item.setToolTip(0, f"Level: {slab.level}  Points: {pts}")
+
+        # -- Doors --
+        doors: list = []
+        for wall in walls:
+            for op in getattr(wall, "openings", []):
+                if isinstance(op, DoorOpening):
+                    doors.append(op)
+        doors_root = QTreeWidgetItem(self._tree, [f"Doors ({len(doors)})"])
+        doors_root.setFont(0, f_bold)
+        for i, door in enumerate(doors, 1):
+            item = QTreeWidgetItem(doors_root, [f"Door {i}"])
+            item.setData(0, _ROLE_ENTITY, id(door))
+
+        # -- Windows --
+        windows: list = []
+        for wall in walls:
+            for op in getattr(wall, "openings", []):
+                if isinstance(op, WindowOpening):
+                    windows.append(op)
+        windows_root = QTreeWidgetItem(self._tree, [f"Windows ({len(windows)})"])
+        windows_root.setFont(0, f_bold)
+        for i, win in enumerate(windows, 1):
+            item = QTreeWidgetItem(windows_root, [f"Window {i}"])
+            item.setData(0, _ROLE_ENTITY, id(win))
+
+    # ── Entity lookup ─────────────────────────────────────────────────────
+
+    def _find_entity_by_id(self, entity_id: int):
+        """Look up a scene entity by its Python id()."""
+        if self._scene is None:
+            return None
+        for wall in getattr(self._scene, "_walls", []):
+            if id(wall) == entity_id:
+                return wall
+            for op in getattr(wall, "openings", []):
+                if id(op) == entity_id:
+                    return op
+        for slab in getattr(self._scene, "_floor_slabs", []):
+            if id(slab) == entity_id:
+                return slab
+        return None
+
+    # ── Click handlers ────────────────────────────────────────────────────
+
+    def _on_item_clicked(self, item: QTreeWidgetItem, column: int):
+        entity_id = item.data(0, _ROLE_ENTITY)
+        if entity_id is not None:
+            entity = self._find_entity_by_id(entity_id)
+            if entity is not None:
+                self._scene.clearSelection()
+                entity.setSelected(True)
+                self.entitySelected.emit(entity)
+
+    def _on_item_double_clicked(self, item: QTreeWidgetItem, column: int):
+        """Double-click: select + zoom to fit the entity."""
+        entity_id = item.data(0, _ROLE_ENTITY)
+        if entity_id is not None:
+            entity = self._find_entity_by_id(entity_id)
+            if entity is not None:
+                self._scene.clearSelection()
+                entity.setSelected(True)
+                self.entitySelected.emit(entity)
+                # Zoom to fit in the first view
+                views = self._scene.views()
+                if views:
+                    br = entity.boundingRect()
+                    views[0].fitInView(
+                        entity.mapToScene(br).boundingRect().adjusted(-50, -50, 50, 50),
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                    )

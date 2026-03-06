@@ -23,7 +23,7 @@ from construction_geometry import (
 )
 from snap_engine import SnapEngine, OsnapResult
 from gridline import GridlineItem, reset_grid_counters
-from wall import WallSegment
+from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_IN
 from floor_slab import FloorSlab
 from wall_opening import WallOpening, DoorOpening, WindowOpening
 import os
@@ -169,8 +169,11 @@ class Model_Space(QGraphicsScene):
         # Walls, Floors, Openings (Phase B/C/D)
         self._walls: list[WallSegment] = []
         self._floor_slabs: list[FloorSlab] = []
+        self._next_wall_num: int = 1
+        self._next_floor_num: int = 1
         self._wall_alignment: str = "Center"                  # alignment mode for new walls
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
+        self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
         self._wall_preview_line: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
         # Undo/redo
@@ -546,6 +549,9 @@ class Model_Space(QGraphicsScene):
             slab = FloorSlab.from_dict(entry)
             self.addItem(slab)
             self._floor_slabs.append(slab)
+
+        # --- Recalculate auto-name counters ---
+        self._recalc_name_counters()
 
         # --- Hatches ---
         from Annotations import HatchItem
@@ -944,6 +950,10 @@ class Model_Space(QGraphicsScene):
                 if self._wall_preview_line.scene() is self:
                     self.removeItem(self._wall_preview_line)
                 self._wall_preview_line = None
+            if self._wall_preview_rect is not None:
+                if self._wall_preview_rect.scene() is self:
+                    self.removeItem(self._wall_preview_rect)
+                self._wall_preview_rect = None
         # Clean up floor drawing state
         if mode != "floor":
             if self._floor_active is not None:
@@ -1053,7 +1063,10 @@ class Model_Space(QGraphicsScene):
             "window":          "Click on a wall to place window",
         }
         instr = _initial_steps.get(mode, "")
-        if instr:
+        if mode == "wall":
+            self.instructionChanged.emit(
+                f"Pick wall start point [{self._wall_alignment}]")
+        elif instr:
             self.instructionChanged.emit(instr)
 
     # -------------------------------------------------------------------------
@@ -3064,6 +3077,8 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "wall":
             if self._wall_anchor is None:
                 self.update_preview_node(snapped)
+                if self._wall_preview_rect is not None:
+                    self._wall_preview_rect.hide()
             else:
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -3082,6 +3097,29 @@ class Model_Space(QGraphicsScene):
                     if sm.is_calibrated else
                     f"L: {_len:.0f}mm"
                 )
+                # -- Wall thickness preview rectangle --
+                if _len > 1.0:  # avoid degenerate preview
+                    if self._wall_preview_rect is None:
+                        self._wall_preview_rect = QGraphicsPathItem()
+                        _ppn = QPen(QColor("#aaaaaa"), 1, Qt.PenStyle.DashLine)
+                        _ppn.setCosmetic(True)
+                        self._wall_preview_rect.setPen(_ppn)
+                        _fill = QColor("#cccccc")
+                        _fill.setAlpha(30)
+                        self._wall_preview_rect.setBrush(QBrush(_fill))
+                        self._wall_preview_rect.setZValue(199)
+                        self.addItem(self._wall_preview_rect)
+                    p1l, p1r, p2r, p2l = compute_wall_quad(
+                        self._wall_anchor, tip, DEFAULT_THICKNESS_IN,
+                        self._wall_alignment, self.scale_manager)
+                    _pp = QPainterPath()
+                    _pp.moveTo(p1l)
+                    _pp.lineTo(p2l)
+                    _pp.lineTo(p2r)
+                    _pp.lineTo(p1r)
+                    _pp.closeSubpath()
+                    self._wall_preview_rect.setPath(_pp)
+                    self._wall_preview_rect.show()
 
         elif self.mode == "floor":
             if self._floor_active is None:
@@ -3819,12 +3857,14 @@ class Model_Space(QGraphicsScene):
             if self._wall_anchor is None:
                 self._wall_anchor = snapped
                 self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick wall end point")
+                self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Tab=cycle")
             else:
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._wall_anchor, snapped)
                 wall = WallSegment(self._wall_anchor, tip)
+                wall.name = f"Wall {self._next_wall_num}"
+                self._next_wall_num += 1
                 wall._alignment = self._wall_alignment
                 wall.level = self.active_level
                 wall._base_level = self.active_level
@@ -3838,14 +3878,18 @@ class Model_Space(QGraphicsScene):
                 # Chain: end of this wall becomes start of next
                 self._wall_anchor = QPointF(tip)
                 self.preview_pipe.hide()
+                if self._wall_preview_rect is not None:
+                    self._wall_preview_rect.hide()
                 self.push_undo_state()
-                self.instructionChanged.emit("Pick next wall end (Esc to stop)")
+                self.instructionChanged.emit(f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
             return
 
         # ── Floor drawing ─────────────────────────────────────────────────
         elif self.mode == "floor":
             if self._floor_active is None:
                 slab = FloorSlab(color="#8888cc")
+                slab.name = f"Floor {self._next_floor_num}"
+                self._next_floor_num += 1
                 slab.level = self.active_level
                 slab.user_layer = self.active_user_layer
                 slab.add_point(snapped)
@@ -4108,6 +4152,26 @@ class Model_Space(QGraphicsScene):
 
     # ── Wall / Floor helpers ─────────────────────────────────────────────
 
+    def _recalc_name_counters(self):
+        """Recalculate auto-name counters from existing entity names."""
+        wall_nums = []
+        for w in self._walls:
+            if w.name.startswith("Wall "):
+                try:
+                    wall_nums.append(int(w.name.split(" ", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+        self._next_wall_num = (max(wall_nums) + 1) if wall_nums else 1
+
+        floor_nums = []
+        for fs in self._floor_slabs:
+            if fs.name.startswith("Floor "):
+                try:
+                    floor_nums.append(int(fs.name.split(" ", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+        self._next_floor_num = (max(floor_nums) + 1) if floor_nums else 1
+
     def _auto_join_wall(self, wall: WallSegment, tolerance: float = 20.0):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)."""
         for other in self._walls:
@@ -4202,7 +4266,22 @@ class Model_Space(QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() == Qt.Key.Key_Tab:
-            if self.mode == "offset_side":
+            if self.mode == "wall":
+                # Cycle alignment: Center -> Interior -> Exterior -> Center
+                _cycle = {"Center": "Interior", "Interior": "Exterior", "Exterior": "Center"}
+                self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
+                if self._wall_anchor is None:
+                    self.instructionChanged.emit(f"Pick wall start point [{self._wall_alignment}]")
+                else:
+                    self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]")
+                # Sync ribbon combo if available
+                combo = getattr(self, "_wall_align_combo_ref", None)
+                if combo is not None:
+                    combo.blockSignals(True)
+                    combo.setCurrentText(self._wall_alignment)
+                    combo.blockSignals(False)
+                return
+            elif self.mode == "offset_side":
                 from PyQt6.QtWidgets import QInputDialog
                 val, ok = QInputDialog.getDouble(
                     None, "Offset Distance", "Distance:",
