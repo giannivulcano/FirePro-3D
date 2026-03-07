@@ -42,7 +42,7 @@ from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPainterPath, QFont, QCursor, QPainter,
     QPixmap, QIcon,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QSizeF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSizeF, QSize, QSettings, pyqtSignal
 
 try:
     import ezdxf
@@ -282,6 +282,7 @@ class UnderlayImportDialog(QDialog):
         self._snap_engine = SnapEngine()
         self._create_overlay_items()
         self._build_ui()
+        self._restore_saved_settings()
 
         if file_path:
             self._file_edit.setText(file_path)
@@ -539,6 +540,51 @@ class UnderlayImportDialog(QDialog):
                 return
         self._layer_colour_lbl.setText("")
 
+    # ── Persist settings between sessions ──────────────────────────────────
+
+    _SETTINGS_KEY = "UnderlayImport"
+
+    def _restore_saved_settings(self):
+        """Restore last-used import settings from QSettings."""
+        s = QSettings("FireFlowPro", self._SETTINGS_KEY)
+        # Scale combo
+        scale_idx = s.value("scale_idx", 0, type=int)
+        if 0 <= scale_idx < self._scale_combo.count():
+            self._scale_combo.blockSignals(True)
+            self._scale_combo.setCurrentIndex(scale_idx)
+            self._scale_combo.blockSignals(False)
+            self._on_scale_combo_changed(scale_idx)
+        custom_scale = s.value("custom_scale", 1.0, type=float)
+        self._custom_scale_spin.blockSignals(True)
+        self._custom_scale_spin.setValue(custom_scale)
+        self._custom_scale_spin.blockSignals(False)
+        # Rotation
+        rotation = s.value("rotation", 0.0, type=float)
+        self._rotation_spin.blockSignals(True)
+        self._rotation_spin.setValue(rotation)
+        self._rotation_spin.blockSignals(False)
+        # Destination layer
+        layer = s.value("dest_layer", "", type=str)
+        if layer:
+            idx = self._dest_layer_combo.findText(layer)
+            if idx >= 0:
+                self._dest_layer_combo.blockSignals(True)
+                self._dest_layer_combo.setCurrentIndex(idx)
+                self._dest_layer_combo.blockSignals(False)
+                self._on_dest_layer_changed()
+        # Insert at origin
+        origin = s.value("insert_at_origin", True, type=bool)
+        self._origin_cb.setChecked(origin)
+
+    def _save_settings(self):
+        """Save current import settings to QSettings."""
+        s = QSettings("FireFlowPro", self._SETTINGS_KEY)
+        s.setValue("scale_idx", self._scale_combo.currentIndex())
+        s.setValue("custom_scale", self._custom_scale_spin.value())
+        s.setValue("rotation", self._rotation_spin.value())
+        s.setValue("dest_layer", self._dest_layer_combo.currentText())
+        s.setValue("insert_at_origin", self._origin_cb.isChecked())
+
     # ── File loading ──────────────────────────────────────────────────────────
 
     def _browse_file(self):
@@ -675,8 +721,10 @@ class UnderlayImportDialog(QDialog):
         except Exception as e:
             self._info_lbl.setText(f"Error opening PDF: {e}")
             return
-
-        self._pdf_page_count = len(doc)
+        try:
+            self._pdf_page_count = len(doc)
+        finally:
+            doc.close()
 
         # Generate thumbnails
         self._thumb_list.clear()
@@ -740,6 +788,7 @@ class UnderlayImportDialog(QDialog):
         self._pick_markers = []
         self._create_overlay_items()
 
+        doc = None
         try:
             doc = fitz.open(path)
             pg = doc[page]
@@ -758,6 +807,9 @@ class UnderlayImportDialog(QDialog):
             )
         except Exception:
             pass
+        finally:
+            if doc is not None:
+                doc.close()
 
     def _on_page_thumb_clicked(self, row: int):
         if row < 0:
@@ -1157,6 +1209,7 @@ class UnderlayImportDialog(QDialog):
                 continue
             geoms.append(g)
         p.geom_list = geoms
+        self._save_settings()
         return p
 
 

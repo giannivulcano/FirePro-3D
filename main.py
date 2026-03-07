@@ -1094,10 +1094,19 @@ class MainWindow(QMainWindow):
             if (not params.geom_list
                     and params.file_type == "pdf"
                     and not params.has_vectors):
+                from underlay import Underlay
+                record = Underlay(
+                    type="pdf", path=params.file_path,
+                    dpi=params.pdf_dpi, page=params.pdf_page,
+                    rotation=params.rotation,
+                    scale=params.scale,
+                    user_layer=params.user_layer,
+                )
                 self.scene.import_pdf(
                     params.file_path,
                     dpi=params.pdf_dpi,
                     page=params.pdf_page,
+                    _record=record,
                 )
                 return
             if not params.geom_list:

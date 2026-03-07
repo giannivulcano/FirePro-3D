@@ -56,6 +56,22 @@ class UnderlayContextMenu:
 
         menu.addSeparator()
 
+        # ── Reset Transform ────────────────────────────────────────
+        reset_action = QAction("↩ Reset Transform", menu)
+        reset_action.triggered.connect(
+            lambda: UnderlayContextMenu._reset_transform(scene, underlay_data, underlay_item)
+        )
+        menu.addAction(reset_action)
+
+        # ── Duplicate ──────────────────────────────────────────────
+        dup_action = QAction("Duplicate", menu)
+        dup_action.triggered.connect(
+            lambda: UnderlayContextMenu._duplicate(scene, underlay_data, underlay_item)
+        )
+        menu.addAction(dup_action)
+
+        menu.addSeparator()
+
         # ── Lock / Unlock ────────────────────────────────────────────
         if underlay_data.locked:
             lock_action = QAction("🔓 Unlock", menu)
@@ -97,6 +113,7 @@ class UnderlayContextMenu:
         if ok:
             data.scale = val
             item.setScale(val)
+            scene.push_undo_state()
 
     @staticmethod
     def _set_rotation(scene, data: Underlay, item: QGraphicsItem):
@@ -109,6 +126,7 @@ class UnderlayContextMenu:
         if ok:
             data.rotation = val
             item.setRotation(val)
+            scene.push_undo_state()
 
     @staticmethod
     def _set_opacity(scene, data: Underlay, item: QGraphicsItem):
@@ -121,6 +139,7 @@ class UnderlayContextMenu:
         if ok:
             data.opacity = val / 100.0
             item.setOpacity(data.opacity)
+            scene.push_undo_state()
 
     @staticmethod
     def _change_layer(scene, data: Underlay, item: QGraphicsItem):
@@ -158,6 +177,7 @@ class UnderlayContextMenu:
                         child.setPen(pen)
                     if hasattr(child, "setDefaultTextColor"):
                         child.setDefaultTextColor(color)
+            scene.push_undo_state()
 
     @staticmethod
     def _toggle_lock(scene, data: Underlay, item: QGraphicsItem):
@@ -168,3 +188,41 @@ class UnderlayContextMenu:
         else:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        scene.push_undo_state()
+
+    @staticmethod
+    def _reset_transform(scene, data: Underlay, item: QGraphicsItem):
+        """Reset scale, rotation, and opacity to defaults."""
+        data.scale = 1.0
+        data.rotation = 0.0
+        data.opacity = 1.0
+        item.setScale(1.0)
+        item.setRotation(0.0)
+        item.setOpacity(1.0)
+        scene.push_undo_state()
+
+    @staticmethod
+    def _duplicate(scene, data: Underlay, item: QGraphicsItem):
+        """Duplicate the underlay with a small position offset."""
+        new_data = Underlay(
+            type=data.type, path=data.path,
+            x=data.x + 50, y=data.y + 50,
+            scale=data.scale, rotation=data.rotation,
+            opacity=data.opacity, locked=False,
+            page=data.page, dpi=data.dpi,
+            colour=data.colour, line_weight=data.line_weight,
+            user_layer=data.user_layer,
+        )
+        if data.type == "pdf":
+            scene.import_pdf(
+                data.path, dpi=data.dpi, page=data.page,
+                x=new_data.x, y=new_data.y, _record=new_data,
+            )
+        elif data.type == "dxf":
+            scene.import_dxf(
+                data.path, color=QColor(data.colour),
+                line_weight=data.line_weight,
+                x=new_data.x, y=new_data.y,
+                _record=new_data, user_layer=data.user_layer,
+            )
+        scene.push_undo_state()

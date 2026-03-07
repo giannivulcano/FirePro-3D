@@ -116,70 +116,73 @@ class PdfImportWorker(QThread):
             self.error.emit(f"Failed to open PDF: {e}")
             return
 
-        # ── Generate thumbnails ───────────────────────────────────────
-        self.status.emit("Generating page thumbnails…")
-        thumbs = []
-        for i in range(len(doc)):
-            if self._cancelled:
-                return
-            try:
-                pg = doc[i]
-                # 128px wide thumbnail
-                zoom = 128.0 / max(pg.rect.width, 1)
-                mat = fitz.Matrix(zoom, zoom)
-                pix = pg.get_pixmap(matrix=mat, alpha=False)
-                qimg = QImage(pix.samples, pix.width, pix.height,
-                              pix.stride, QImage.Format.Format_RGB888)
-                thumbs.append((i, QPixmap.fromImage(qimg)))
-            except Exception:
-                pass
-        if thumbs:
-            self.thumbnails_ready.emit(thumbs)
-
-        # ── Extract vectors from the selected page ────────────────────
-        if not self.extract_vectors:
-            self.finished_data.emit([])
-            return
-
-        if self.page < 0 or self.page >= len(doc):
-            self.error.emit(f"Page {self.page} out of range (0–{len(doc)-1})")
-            return
-
-        page_obj = doc[self.page]
-        self.status.emit(f"Extracting vectors from page {self.page + 1}…")
-
         try:
-            drawings = page_obj.get_drawings()
-        except Exception as e:
-            self.error.emit(f"Failed to extract drawings: {e}")
-            return
+            # ── Generate thumbnails ───────────────────────────────────────
+            self.status.emit("Generating page thumbnails…")
+            thumbs = []
+            for i in range(len(doc)):
+                if self._cancelled:
+                    return
+                try:
+                    pg = doc[i]
+                    # 128px wide thumbnail
+                    zoom = 128.0 / max(pg.rect.width, 1)
+                    mat = fitz.Matrix(zoom, zoom)
+                    pix = pg.get_pixmap(matrix=mat, alpha=False)
+                    qimg = QImage(pix.samples, pix.width, pix.height,
+                                  pix.stride, QImage.Format.Format_RGB888)
+                    thumbs.append((i, QPixmap.fromImage(qimg)))
+                except Exception:
+                    pass
+            if thumbs:
+                self.thumbnails_ready.emit(thumbs)
 
-        total = len(drawings)
-        self.status.emit(f"Processing {total} drawing paths…")
-
-        geometries: list[dict] = []
-        skipped = 0
-
-        for i, path in enumerate(drawings):
-            if self._cancelled:
-                self.status.emit("Cancelled")
+            # ── Extract vectors from the selected page ────────────────────
+            if not self.extract_vectors:
+                self.finished_data.emit([])
                 return
 
+            if self.page < 0 or self.page >= len(doc):
+                self.error.emit(f"Page {self.page} out of range (0–{len(doc)-1})")
+                return
+
+            page_obj = doc[self.page]
+            self.status.emit(f"Extracting vectors from page {self.page + 1}…")
+
             try:
-                geoms = self._extract_path(path)
-                geometries.extend(geoms)
-            except Exception:
-                skipped += 1
+                drawings = page_obj.get_drawings()
+            except Exception as e:
+                self.error.emit(f"Failed to extract drawings: {e}")
+                return
 
-            if i % 200 == 0 or i == total - 1:
-                self.progress.emit(i + 1, total)
+            total = len(drawings)
+            self.status.emit(f"Processing {total} drawing paths…")
 
-        if skipped:
-            self.status.emit(f"Done — {len(geometries)} geometries, {skipped} skipped")
-        else:
-            self.status.emit(f"Done — {len(geometries)} geometries")
+            geometries: list[dict] = []
+            skipped = 0
 
-        self.finished_data.emit(geometries)
+            for i, path in enumerate(drawings):
+                if self._cancelled:
+                    self.status.emit("Cancelled")
+                    return
+
+                try:
+                    geoms = self._extract_path(path)
+                    geometries.extend(geoms)
+                except Exception:
+                    skipped += 1
+
+                if i % 200 == 0 or i == total - 1:
+                    self.progress.emit(i + 1, total)
+
+            if skipped:
+                self.status.emit(f"Done — {len(geometries)} geometries, {skipped} skipped")
+            else:
+                self.status.emit(f"Done — {len(geometries)} geometries")
+
+            self.finished_data.emit(geometries)
+        finally:
+            doc.close()
 
     # ─────────────────────────────────────────────────────────────────
     # Path → geometry dicts
@@ -296,28 +299,31 @@ def extract_pdf_vectors_sync(
         return [], []
 
     doc = fitz.open(file_path)
-    if page < 0 or page >= len(doc):
-        return [], []
+    try:
+        if page < 0 or page >= len(doc):
+            return [], []
 
-    page_obj = doc[page]
-    drawings = page_obj.get_drawings()
+        page_obj = doc[page]
+        drawings = page_obj.get_drawings()
 
-    worker = PdfImportWorker.__new__(PdfImportWorker)
-    worker._cancelled = False
+        worker = PdfImportWorker.__new__(PdfImportWorker)
+        worker._cancelled = False
 
-    geometries: list[dict] = []
-    layers_set: set[str] = set()
+        geometries: list[dict] = []
+        layers_set: set[str] = set()
 
-    for path in drawings:
-        try:
-            geoms = worker._extract_path(path)
-            for g in geoms:
-                geometries.append(g)
-                layers_set.add(g.get("layer", "PDF Vectors"))
-        except Exception:
-            pass
+        for path in drawings:
+            try:
+                geoms = worker._extract_path(path)
+                for g in geoms:
+                    geometries.append(g)
+                    layers_set.add(g.get("layer", "PDF Vectors"))
+            except Exception:
+                pass
 
-    return geometries, sorted(layers_set) if layers_set else ["PDF Vectors"]
+        return geometries, sorted(layers_set) if layers_set else ["PDF Vectors"]
+    finally:
+        doc.close()
 
 
 def generate_pdf_thumbnails(file_path: str, width: int = 128) -> list[tuple[int, QPixmap]]:
@@ -329,6 +335,7 @@ def generate_pdf_thumbnails(file_path: str, width: int = 128) -> list[tuple[int,
         return []
 
     thumbs = []
+    doc = None
     try:
         doc = fitz.open(file_path)
         for i in range(len(doc)):
@@ -341,5 +348,8 @@ def generate_pdf_thumbnails(file_path: str, width: int = 128) -> list[tuple[int,
             thumbs.append((i, QPixmap.fromImage(qimg)))
     except Exception:
         pass
+    finally:
+        if doc is not None:
+            doc.close()
 
     return thumbs

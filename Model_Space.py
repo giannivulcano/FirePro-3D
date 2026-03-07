@@ -1243,14 +1243,17 @@ class Model_Space(QGraphicsScene):
             self._place_import_ghost = None
 
         r = self._place_import_bounds
-        ghost = QGraphicsRectItem(
-            pos.x() + r.x(), pos.y() + r.y(), r.width(), r.height()
-        )
+        ghost = QGraphicsRectItem(r)  # local coords
         pen = QPen(QColor("#4fa3e0"), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
         ghost.setBrush(QBrush(QColor(79, 163, 224, 20)))
         ghost.setZValue(200)
+        ghost.setPos(pos)
+        # Show rotation from import params
+        rotation = getattr(self._place_import_params, "rotation", 0.0)
+        if rotation != 0.0:
+            ghost.setRotation(rotation)
         self.addItem(ghost)
         self._place_import_ghost = ghost
 
@@ -1602,12 +1605,9 @@ class Model_Space(QGraphicsScene):
 
     def _apply_underlay_display(self, item: QGraphicsItem, record: Underlay):
         """Apply scale, rotation, opacity, and lock state from the record."""
-        if record.scale != 1.0:
-            item.setScale(record.scale)
-        if record.rotation != 0.0:
-            item.setRotation(record.rotation)
-        if record.opacity < 1.0:
-            item.setOpacity(record.opacity)
+        item.setScale(record.scale)
+        item.setRotation(record.rotation)
+        item.setOpacity(record.opacity)
         if record.locked:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
@@ -1638,9 +1638,12 @@ class Model_Space(QGraphicsScene):
 
     def refresh_underlay(self, data: Underlay, item: QGraphicsItem):
         """Re-import an underlay from disk, preserving position/scale/rotation/opacity."""
-        # Sync current position back to record
+        # Sync current transform state back to record
         data.x = item.scenePos().x()
         data.y = item.scenePos().y()
+        data.scale = item.scale()
+        data.rotation = item.rotation()
+        data.opacity = item.opacity()
 
         # Remove old item from scene
         idx = None

@@ -35,6 +35,7 @@ class Model_View(QGraphicsView):
 
         # Accept drag-drop for PDF/DXF import
         self.setAcceptDrops(True)
+        self._drop_highlight = False
 
     # ─────────────────────────────
     # Grid overlay
@@ -297,6 +298,21 @@ class Model_View(QGraphicsView):
 
             painter.restore()
 
+        # ── 5. Drag-drop overlay (viewport coordinates) ────────────────────
+        if getattr(self, "_drop_highlight", False):
+            painter.save()
+            painter.resetTransform()
+            vp = self.viewport().rect()
+            painter.setPen(QPen(QColor("#4fa3e0"), 3))
+            painter.setBrush(QBrush(QColor(79, 163, 224, 30)))
+            painter.drawRect(vp.adjusted(2, 2, -2, -2))
+            painter.setFont(QFont("Segoe UI", 14))
+            painter.setPen(QPen(QColor("#ffffff")))
+            painter.drawText(
+                QRectF(vp), Qt.AlignmentFlag.AlignCenter, "Drop to Import"
+            )
+            painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────
@@ -307,22 +323,35 @@ class Model_View(QGraphicsView):
                 path = url.toLocalFile().lower()
                 if path.endswith(('.pdf', '.dxf')):
                     event.acceptProposedAction()
+                    self._drop_highlight = True
+                    self.viewport().update()
                     return
         event.ignore()
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith(('.pdf', '.dxf')):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._drop_highlight = False
+        self.viewport().update()
+        super().dragLeaveEvent(event)
 
     def dropEvent(self, event):
+        import os
+        self._drop_highlight = False
+        self.viewport().update()
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if path.lower().endswith(('.pdf', '.dxf')):
-                self.drop_import_requested.emit(path)
-                event.acceptProposedAction()
-                return
+                if os.path.isfile(path):
+                    self.drop_import_requested.emit(path)
+                    event.acceptProposedAction()
+                    return
         event.ignore()
 
     # -----------------------------
