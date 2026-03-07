@@ -1341,9 +1341,11 @@ class Model_Space(QGraphicsScene):
         self.setItemIndexMethod(old_method)
 
         user_layer = getattr(params, "user_layer", "Default")
+        rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
             type=file_type, path=params.file_path,
             x=insert_pt.x(), y=insert_pt.y(),
+            rotation=rotation,
             colour=color.name(),
             line_weight=lw,
             user_layer=user_layer,

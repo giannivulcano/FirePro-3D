@@ -28,7 +28,7 @@ import tempfile
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
-    QGraphicsView, QGraphicsScene, QGraphicsItem,
+    QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
     QLabel, QPushButton, QComboBox, QColorDialog,
@@ -91,6 +91,7 @@ class ImportParams:
         self.base_y: float = 0.0
         self.user_layer: str = "Default"   # destination layer (colour derived from it)
         self.selected_layers: list[str] | None = None  # None = all
+        self.rotation: float = 0.0         # degrees (applied to final group)
         self.insert_at_origin: bool = True
         # PDF-specific
         self.pdf_page: int = 0
@@ -436,6 +437,35 @@ class UnderlayImportDialog(QDialog):
         scale_vlay.addWidget(pick2_btn)
         right_lay.addWidget(scale_grp)
 
+        # Rotation
+        rot_grp = QGroupBox("Rotation")
+        rot_vlay = QVBoxLayout(rot_grp)
+        rot_form = QFormLayout()
+        self._rotation_spin = QDoubleSpinBox()
+        self._rotation_spin.setRange(-360.0, 360.0)
+        self._rotation_spin.setDecimals(1)
+        self._rotation_spin.setSingleStep(1.0)
+        self._rotation_spin.setValue(0.0)
+        self._rotation_spin.setSuffix(" °")
+        self._rotation_spin.valueChanged.connect(self._on_rotation_changed)
+        rot_form.addRow("Angle:", self._rotation_spin)
+        rot_vlay.addLayout(rot_form)
+        rot_btn_lay = QHBoxLayout()
+        btn_ccw = QPushButton("⟲ −90°")
+        btn_ccw.clicked.connect(lambda: self._rotation_spin.setValue(
+            self._rotation_spin.value() - 90.0))
+        btn_cw = QPushButton("⟳ +90°")
+        btn_cw.clicked.connect(lambda: self._rotation_spin.setValue(
+            self._rotation_spin.value() + 90.0))
+        btn_180 = QPushButton("180°")
+        btn_180.clicked.connect(lambda: self._rotation_spin.setValue(
+            self._rotation_spin.value() + 180.0))
+        rot_btn_lay.addWidget(btn_ccw)
+        rot_btn_lay.addWidget(btn_cw)
+        rot_btn_lay.addWidget(btn_180)
+        rot_vlay.addLayout(rot_btn_lay)
+        right_lay.addWidget(rot_grp)
+
         # Base point
         base_grp = QGroupBox("Base / Insertion Point")
         base_form = QFormLayout(base_grp)
@@ -753,6 +783,7 @@ class UnderlayImportDialog(QDialog):
     def _rebuild_preview(self):
         self._preview_scene.clear()
         self._base_marker = None
+        self._preview_geom_group = None
         self._pick_markers = []
         self._create_overlay_items()
 
@@ -763,6 +794,7 @@ class UnderlayImportDialog(QDialog):
         pen_dim = QPen(QColor("#444444"), 0)
         pen_dim.setCosmetic(True)
 
+        geom_items: list[QGraphicsItem] = []
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
             layer_key = g.get("layer", "0")
@@ -774,7 +806,19 @@ class UnderlayImportDialog(QDialog):
                 pen = pen_normal
             else:
                 pen = pen_dim
-            self._add_preview_geom(g, pen)
+            item = self._add_preview_geom(g, pen)
+            if item is not None:
+                geom_items.append(item)
+
+        # Group geometry items and apply rotation around the base point
+        rotation = self._rotation_spin.value() if hasattr(self, "_rotation_spin") else 0.0
+        if geom_items and rotation != 0.0:
+            group = self._preview_scene.createItemGroup(geom_items)
+            bx = self._base_x_spin.value() if hasattr(self, "_base_x_spin") else 0.0
+            by = self._base_y_spin.value() if hasattr(self, "_base_y_spin") else 0.0
+            group.setTransformOriginPoint(bx, by)
+            group.setRotation(rotation)
+            self._preview_geom_group = group
 
         self._draw_base_marker()
         if self._all_geoms:
@@ -783,8 +827,9 @@ class UnderlayImportDialog(QDialog):
                 Qt.AspectRatioMode.KeepAspectRatio
             )
 
-    def _add_preview_geom(self, g: dict, pen: QPen):
+    def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
+        item: QGraphicsItem | None = None
         if kind == "line":
             item = QGraphicsLineItem(g["x1"], g["y1"], g["x2"], g["y2"])
             item.setPen(pen)
@@ -809,10 +854,10 @@ class UnderlayImportDialog(QDialog):
                 item.setPen(pen)
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 self._preview_scene.addItem(item)
-                return
+                return item
             pts = [QPointF(p[0], p[1]) for p in g["points"]]
             if len(pts) < 2:
-                return
+                return None
             path = QPainterPath(pts[0])
             for p in pts[1:]:
                 path.lineTo(p)
@@ -830,6 +875,7 @@ class UnderlayImportDialog(QDialog):
             item.setFont(f)
             item.setPos(g["x"], g["y"])
             self._preview_scene.addItem(item)
+        return item
 
     def _draw_base_marker(self):
         if self._base_marker is not None:
@@ -1042,6 +1088,10 @@ class UnderlayImportDialog(QDialog):
         )
         self._preview_view.set_mode("pan")
 
+    def _on_rotation_changed(self):
+        """Rebuild preview to reflect the new rotation angle."""
+        self._rebuild_preview()
+
     def _on_base_changed(self):
         self._draw_base_marker()
 
@@ -1086,6 +1136,7 @@ class UnderlayImportDialog(QDialog):
         p.scale = self._current_scale()
         p.base_x = self._base_x_spin.value()
         p.base_y = self._base_y_spin.value()
+        p.rotation = self._rotation_spin.value()
         p.user_layer = self._dest_layer_combo.currentText()
         p.selected_layers = (
             list(self._active_layers())
