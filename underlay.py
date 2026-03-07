@@ -24,6 +24,8 @@ class Underlay:
     # DXF-specific — store colour as hex string e.g. "#ffffff"
     colour: str = "#ffffff"
     line_weight: float = 0.0
+    # Layer assignment (colour/lineweight derived from this layer at runtime)
+    user_layer: str = "Default"
 
     def to_dict(self) -> dict:
         d = {
@@ -42,6 +44,7 @@ class Underlay:
         elif self.type == "dxf":
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
+        d["user_layer"] = self.user_layer
         return d
 
     @staticmethod
@@ -59,4 +62,5 @@ class Underlay:
             dpi         = d.get("dpi", 150),
             colour      = d.get("colour", "#ffffff"),
             line_weight = d.get("line_weight", 0),
+            user_layer  = d.get("user_layer", "Default"),
         )

@@ -4,12 +4,15 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
-from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF
+from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont
 import theme as th
 from snap_engine import SNAP_COLORS, SNAP_MARKERS
 
 class Model_View(QGraphicsView):
+    # Emitted when a PDF/DXF file is dropped onto the canvas
+    drop_import_requested = pyqtSignal(str)
+
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHints(self.renderHints() | QPainter.RenderHint.Antialiasing)
@@ -64,6 +67,9 @@ class Model_View(QGraphicsView):
         }
         if hasattr(scene, "modeChanged"):
             scene.modeChanged.connect(self._on_mode_changed)
+
+        # Accept drag-drop for PDF/DXF import
+        self.setAcceptDrops(True)
 
     def _on_mode_changed(self, mode: str):
         """Update viewport cursor to match the active scene mode."""
@@ -332,6 +338,34 @@ class Model_View(QGraphicsView):
             painter.drawText(tx, ty, dim_hint)
 
             painter.restore()
+
+    # ─────────────────────────────
+    # Drag & Drop (PDF / DXF import)
+    # ─────────────────────────────
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                path = url.toLocalFile().lower()
+                if path.endswith(('.pdf', '.dxf')):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if path.lower().endswith(('.pdf', '.dxf')):
+                self.drop_import_requested.emit(path)
+                event.acceptProposedAction()
+                return
+        event.ignore()
 
     # -----------------------------
     # Zoom with mouse wheel

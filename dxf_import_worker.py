@@ -7,6 +7,9 @@ QGraphicsItems are built on the main thread after the signal is received.
 """
 
 import math
+import os
+import tempfile
+
 from PyQt6.QtCore import QThread, pyqtSignal
 
 try:
@@ -14,8 +17,42 @@ try:
 except ImportError:
     ezdxf = None
 
-from dxf_import_dialog import _sanitize_dxf
-import os
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DXF sanitiser (moved here from the deleted dxf_import_dialog.py)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _sanitize_dxf(file_path: str) -> str:
+    """
+    Some DXF files have stray whitespace, BOM markers, or \\r\\r\\n line
+    endings that confuse ezdxf's parser.  This reads the file, cleans up
+    the line endings, strips trailing whitespace from every line, and
+    writes a temp copy that ezdxf can parse.
+
+    Returns the path to the cleaned temp file (caller should delete when done),
+    or the original path if no cleaning was needed.
+    """
+    try:
+        raw = open(file_path, "rb").read()
+    except Exception:
+        return file_path
+
+    # Strip BOM
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raw = raw[3:]
+
+    # Normalise line endings to plain \\n
+    text = raw.replace(b"\r\n", b"\n").replace(b"\r", b"\n").decode("utf-8", errors="replace")
+
+    # Strip trailing whitespace on each line (stray spaces/tabs after group codes)
+    lines = [line.rstrip() for line in text.split("\n")]
+    cleaned = "\n".join(lines)
+
+    # Write to a temp file
+    fd, tmp_path = tempfile.mkstemp(suffix=".dxf")
+    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+        f.write(cleaned)
+    return tmp_path
 
 
 class DxfImportWorker(QThread):

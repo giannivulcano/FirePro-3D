@@ -1,22 +1,23 @@
 """
 dxf_preview_dialog.py
 =====================
-Preview-first DXF import dialog.
+Unified underlay import dialog for FireFlow Pro.
+
+Handles both **PDF** and **DXF** files from a single preview-first dialog.
 
 Workflow
 --------
-1. User browses to a DXF file → entities load in a preview view.
+1. User browses (or drags) a PDF or DXF file → entities load in a preview view.
 2. User can:
-   • Filter layers via checkboxes
+   • Filter source layers via checkboxes
    • Rubber-band drag on the preview to select a spatial subset
-   • Choose scale (dropdown or pick-2-pts-on-preview)
-   • Pick a base point on the preview (default = DXF origin 0,0)
-   • Set display colour and lineweight
+   • Choose scale (dropdown, pick-2-pts, or auto-detected DXF units)
+   • Pick a base point on the preview (default = origin 0,0)
+   • Choose a destination Layer (colour/lineweight derived from it)
+   • For multi-page PDFs: click a thumbnail to switch pages
 3. On "Import →":
    • Dialog returns ImportParams with all settings
-4. Caller (main.py) calls scene.begin_place_import(params)
-5. A ghost bounding box follows the cursor on the model-space canvas.
-6. User clicks the canvas → underlay group is placed at that point.
+4. Caller (main.py) calls scene.begin_place_import(params)  or places at origin.
 """
 
 from __future__ import annotations
@@ -29,16 +30,19 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
     QGraphicsView, QGraphicsScene, QGraphicsItem,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
-    QGraphicsRectItem, QGraphicsTextItem,
+    QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
     QLabel, QPushButton, QComboBox, QColorDialog,
     QListWidget, QListWidgetItem, QGroupBox,
     QFileDialog, QLineEdit, QDoubleSpinBox, QFormLayout,
     QDialogButtonBox, QProgressDialog, QApplication,
     QCheckBox, QWidget, QSizePolicy, QScrollArea,
-    QMessageBox, QInputDialog,
+    QMessageBox, QInputDialog, QAbstractItemView,
 )
-from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QFont, QCursor, QPainter
-from PyQt6.QtCore import Qt, QPointF, QRectF, QSizeF, pyqtSignal
+from PyQt6.QtGui import (
+    QPen, QColor, QBrush, QPainterPath, QFont, QCursor, QPainter,
+    QPixmap, QIcon,
+)
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSizeF, QSize, pyqtSignal
 
 try:
     import ezdxf
@@ -46,8 +50,30 @@ try:
 except ImportError:
     _HAS_EZDXF = False
 
-from dxf_import_dialog import _sanitize_dxf
+try:
+    import fitz  # PyMuPDF
+    _HAS_FITZ = True
+except ImportError:
+    fitz = None
+    _HAS_FITZ = False
+
+from dxf_import_worker import _sanitize_dxf
 from snap_engine import SnapEngine, OsnapResult, SNAP_COLORS
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DXF $INSUNITS mapping
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DXF_INSUNITS: dict[int, tuple[str, float]] = {
+    # code: (display_name, scale_factor_to_inches)
+    0: ("Unitless",  1.0),
+    1: ("Inches",    1.0),
+    2: ("Feet",      12.0),
+    4: ("Millimeters", 1.0 / 25.4),
+    5: ("Centimeters", 1.0 / 2.54),
+    6: ("Meters",    1.0 / 0.0254),
+}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -58,18 +84,22 @@ class ImportParams:
     """Carries all parameters from the dialog to the scene."""
     def __init__(self):
         self.file_path: str = ""
-        self.geom_list: list[dict] = []   # filtered geometry dicts
-        self.scale: float = 1.0           # multiplier applied to all coordinates
-        self.base_x: float = 0.0          # DXF-coord base point (subtracted before scaling)
+        self.file_type: str = "dxf"       # "dxf" or "pdf"
+        self.geom_list: list[dict] = []    # filtered geometry dicts
+        self.scale: float = 1.0            # multiplier applied to all coordinates
+        self.base_x: float = 0.0           # base point (subtracted before scaling)
         self.base_y: float = 0.0
-        self.color: QColor = QColor("#ffffff")
-        self.line_weight: float = 0.0
+        self.user_layer: str = "Default"   # destination layer (colour derived from it)
         self.selected_layers: list[str] | None = None  # None = all
-        self.insert_at_origin: bool = True  # place at (0,0) automatically
+        self.insert_at_origin: bool = True
+        # PDF-specific
+        self.pdf_page: int = 0
+        self.pdf_dpi: int = 150
+        self.has_vectors: bool = True      # False → raster fallback
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Preview view
+# Preview view (unchanged from DXF-only version)
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _PreviewView(QGraphicsView):
@@ -89,21 +119,18 @@ class _PreviewView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setInteractive(False)
-        self.setMouseTracking(True)   # fire mouseMoveEvent without button held
-        self._mode = "pan"          # "pan" | "rubber_band" | "pick_point"
+        self.setMouseTracking(True)
+        self._mode = "pan"
         self._pan_start = None
         self._rb_start: QPointF | None = None
         self._rb_item: QGraphicsRectItem | None = None
 
     def set_mode(self, mode: str):
         self._mode = mode
-        if mode == "rubber_band":
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        elif mode == "pick_point":
+        if mode in ("rubber_band", "pick_point"):
             self.setCursor(Qt.CursorShape.CrossCursor)
         else:
             self.setCursor(Qt.CursorShape.ArrowCursor)
-            # Hide crosshair/snap markers when leaving pick mode
             dlg = self.parent()
             if dlg and hasattr(dlg, "_cursor_h"):
                 dlg._cursor_h.setVisible(False)
@@ -137,8 +164,6 @@ class _PreviewView(QGraphicsView):
                 self.scene().addItem(self._rb_item)
             elif self._mode == "pick_point":
                 self.point_picked.emit(scene_pos)
-                # Don't auto-switch to "pan" here — let the signal handler
-                # decide (it may re-enter pick_point for multi-pick flows).
 
     def mouseMoveEvent(self, event):
         if self._pan_start is not None:
@@ -157,7 +182,6 @@ class _PreviewView(QGraphicsView):
             scene_pos = self.mapToScene(event.pos())
             dlg = self.parent()
             if dlg and hasattr(dlg, "_cursor_h"):
-                # Update crosshair spanning the visible viewport
                 vr = self.mapToScene(self.viewport().rect()).boundingRect()
                 dlg._cursor_h.setLine(vr.left(), scene_pos.y(),
                                        vr.right(), scene_pos.y())
@@ -166,17 +190,15 @@ class _PreviewView(QGraphicsView):
                 dlg._cursor_h.setVisible(True)
                 dlg._cursor_v.setVisible(True)
 
-                # Snap indicator
                 result = dlg._snap_engine.find(
                     scene_pos, self.scene(), self.transform())
                 if result is not None:
-                    s = 6  # marker half-size in scene units
+                    s = 6
                     sp = result.point
                     dlg._snap_marker_h.setLine(
                         sp.x() - s, sp.y(), sp.x() + s, sp.y())
                     dlg._snap_marker_v.setLine(
                         sp.x(), sp.y() - s, sp.x(), sp.y() + s)
-                    # Colour by snap type
                     c = SNAP_COLORS.get(result.snap_type, "#ffff00")
                     pen = QPen(QColor(c), 2)
                     pen.setCosmetic(True)
@@ -210,11 +232,11 @@ class _PreviewView(QGraphicsView):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main dialog
+# Unified import dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DxfPreviewDialog(QDialog):
-    """Preview-first DXF import dialog."""
+class UnderlayImportDialog(QDialog):
+    """Unified preview-first import dialog for PDF and DXF underlays."""
 
     _SCALE_OPTIONS = [
         ("1:1   (full size)",  1.0),
@@ -230,48 +252,43 @@ class DxfPreviewDialog(QDialog):
         ("Custom…",           None),
     ]
 
-    def __init__(self, parent=None, file_path: str = ""):
+    def __init__(self, parent=None, file_path: str = "",
+                 user_layer_manager=None):
         super().__init__(parent)
-        self.setWindowTitle("Import DXF — Preview")
+        self.setWindowTitle("Import Underlay — Preview")
         self.resize(1100, 700)
 
-        self._colour = QColor("#ffffff")
-        self._all_geoms: list[dict] = []      # all parsed geometry dicts
+        self._user_layer_manager = user_layer_manager
+        self._file_type: str = ""          # "dxf" or "pdf"
+        self._all_geoms: list[dict] = []
         self._layers: list[str] = []
-        self._selected_indices: set[int] | None = None  # None = all
+        self._selected_indices: set[int] | None = None
         self._base_x = 0.0
         self._base_y = 0.0
-        self._pick_pts: list[QPointF] = []    # for 2-point scale pick
+        self._pick_pts: list[QPointF] = []
         self._base_marker: QGraphicsEllipseItem | None = None
         self._pick_markers: list[QGraphicsItem] = []
-
-        self._pick_mode: str | None = None   # "base", "scale_pt1", "scale_pt2"
+        self._pick_mode: str | None = None
+        self._has_vectors: bool = True
+        self._pdf_page: int = 0
+        self._pdf_page_count: int = 0
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
         self._preview_view.rubber_band_rect.connect(self._on_rubber_band)
         self._preview_view.point_picked.connect(self._on_any_point_picked)
 
-        # Snap engine for preview (reuses the main SnapEngine)
         self._snap_engine = SnapEngine()
-
-        # Create overlay items (snap markers + cursor crosshair)
         self._create_overlay_items()
-
         self._build_ui()
 
         if file_path:
             self._file_edit.setText(file_path)
             self._load_file()
 
-    # ── Overlay items (snap markers + cursor crosshair) ─────────────────────
+    # ── Overlay items ─────────────────────────────────────────────────────────
 
     def _create_overlay_items(self):
-        """Create (or re-create) snap markers and cursor crosshair on the preview scene.
-
-        Called from __init__ and after scene.clear() in _rebuild_preview() so
-        that references always point at live C++ objects.
-        """
         snap_pen = QPen(QColor("#ffff00"), 2)
         snap_pen.setCosmetic(True)
         self._snap_marker_h = QGraphicsLineItem()
@@ -301,7 +318,7 @@ class DxfPreviewDialog(QDialog):
 
         # File bar
         file_bar = QHBoxLayout()
-        file_bar.addWidget(QLabel("DXF File:"))
+        file_bar.addWidget(QLabel("File:"))
         self._file_edit = QLineEdit()
         file_bar.addWidget(self._file_edit, 1)
         browse_btn = QPushButton("Browse…")
@@ -311,6 +328,22 @@ class DxfPreviewDialog(QDialog):
         reload_btn.clicked.connect(self._load_file)
         file_bar.addWidget(reload_btn)
         outer.addLayout(file_bar)
+
+        # PDF page thumbnail strip (hidden by default)
+        self._thumb_list = QListWidget()
+        self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
+        self._thumb_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self._thumb_list.setIconSize(QSize(80, 100))
+        self._thumb_list.setFixedHeight(120)
+        self._thumb_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self._thumb_list.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._thumb_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self._thumb_list.currentRowChanged.connect(self._on_page_thumb_clicked)
+        self._thumb_list.setVisible(False)
+        outer.addWidget(self._thumb_list)
 
         # Preview + controls splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -343,7 +376,7 @@ class DxfPreviewDialog(QDialog):
 
         left_lay.addWidget(self._preview_view, 1)
 
-        self._info_lbl = QLabel("Load a DXF file to see a preview.")
+        self._info_lbl = QLabel("Load a PDF or DXF file to see a preview.")
         self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_lay.addWidget(self._info_lbl)
         splitter.addWidget(left)
@@ -358,8 +391,8 @@ class DxfPreviewDialog(QDialog):
         right_lay.setContentsMargins(4, 4, 4, 4)
         right_lay.setSpacing(6)
 
-        # Layers
-        layer_grp = QGroupBox("Layers")
+        # Source layers
+        layer_grp = QGroupBox("Source Layers")
         layer_vlay = QVBoxLayout(layer_grp)
         la_btn_row = QHBoxLayout()
         all_btn = QPushButton("All")
@@ -391,6 +424,10 @@ class DxfPreviewDialog(QDialog):
         self._custom_scale_spin.setSuffix("  ×")
         self._custom_scale_spin.setVisible(False)
         scale_vlay.addWidget(self._custom_scale_spin)
+        self._units_info_lbl = QLabel("")
+        self._units_info_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._units_info_lbl.setVisible(False)
+        scale_vlay.addWidget(self._units_info_lbl)
         pick2_btn = QPushButton("📐 Pick 2 pts on preview")
         pick2_btn.setToolTip(
             "Click two points on the preview, then enter the real distance between them."
@@ -400,7 +437,7 @@ class DxfPreviewDialog(QDialog):
         right_lay.addWidget(scale_grp)
 
         # Base point
-        base_grp = QGroupBox("Base / Insertion Point (DXF coords)")
+        base_grp = QGroupBox("Base / Insertion Point")
         base_form = QFormLayout(base_grp)
         self._base_x_spin = QDoubleSpinBox()
         self._base_x_spin.setRange(-1e9, 1e9)
@@ -419,18 +456,22 @@ class DxfPreviewDialog(QDialog):
         base_form.addRow(pick_base_btn)
         right_lay.addWidget(base_grp)
 
-        # Display
-        disp_grp = QGroupBox("Display")
-        disp_lay = QFormLayout(disp_grp)
-        colour_row = QHBoxLayout()
-        self._colour_btn = QPushButton()
-        self._colour_btn.setFixedSize(60, 24)
-        self._update_colour_btn()
-        self._colour_btn.clicked.connect(self._pick_colour)
-        colour_row.addWidget(self._colour_btn)
-        colour_row.addStretch()
-        disp_lay.addRow("Colour:", colour_row)
-        right_lay.addWidget(disp_grp)
+        # Destination layer (replaces old colour picker)
+        dest_grp = QGroupBox("Destination Layer")
+        dest_lay = QVBoxLayout(dest_grp)
+        self._dest_layer_combo = QComboBox()
+        if self._user_layer_manager is not None:
+            for lyr in self._user_layer_manager.layers:
+                self._dest_layer_combo.addItem(lyr.name)
+        else:
+            self._dest_layer_combo.addItem("Default")
+        dest_lay.addWidget(self._dest_layer_combo)
+        self._layer_colour_lbl = QLabel("")
+        self._layer_colour_lbl.setStyleSheet("font-size: 11px; color: #aaa;")
+        dest_lay.addWidget(self._layer_colour_lbl)
+        self._dest_layer_combo.currentTextChanged.connect(self._on_dest_layer_changed)
+        self._on_dest_layer_changed()
+        right_lay.addWidget(dest_grp)
 
         right_lay.addStretch()
         right_scroll.setWidget(right_w)
@@ -456,11 +497,24 @@ class DxfPreviewDialog(QDialog):
         bot.addWidget(buttons)
         outer.addLayout(bot)
 
+    # ── Destination layer ────────────────────────────────────────────────────
+
+    def _on_dest_layer_changed(self):
+        name = self._dest_layer_combo.currentText()
+        if self._user_layer_manager:
+            ldef = self._user_layer_manager.get(name)
+            if ldef:
+                self._layer_colour_lbl.setText(
+                    f"Colour: {ldef.color}  •  Lineweight: {ldef.lineweight} mm")
+                return
+        self._layer_colour_lbl.setText("")
+
     # ── File loading ──────────────────────────────────────────────────────────
 
     def _browse_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select DXF File", "", "DXF Files (*.dxf)"
+            self, "Select Underlay File", "",
+            "All Supported (*.dxf *.pdf);;DXF Files (*.dxf);;PDF Files (*.pdf);;All Files (*)"
         )
         if path:
             self._file_edit.setText(path)
@@ -470,16 +524,33 @@ class DxfPreviewDialog(QDialog):
         path = self._file_edit.text().strip()
         if not path or not os.path.exists(path):
             return
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
+            self._load_pdf(path)
+        elif ext == ".dxf":
+            self._load_dxf(path)
+        else:
+            QMessageBox.warning(self, "Unsupported file",
+                                f"File type '{ext}' is not supported.\n"
+                                "Please select a PDF or DXF file.")
+
+    # ── DXF loading ──────────────────────────────────────────────────────────
+
+    def _load_dxf(self, path: str):
+        self._file_type = "dxf"
+        self._thumb_list.setVisible(False)
+        self._has_vectors = True
+
         if not _HAS_EZDXF:
             QMessageBox.warning(self, "Missing dependency",
                                 "ezdxf is required for DXF import.\n"
                                 "Install it with: pip install ezdxf")
             return
 
-        self._info_lbl.setText("Loading…")
+        self._info_lbl.setText("Loading DXF…")
         QApplication.processEvents()
 
-        # Parse DXF
         clean = _sanitize_dxf(path)
         try:
             doc = ezdxf.readfile(clean)
@@ -490,19 +561,24 @@ class DxfPreviewDialog(QDialog):
             if clean != path and os.path.exists(clean):
                 os.remove(clean)
 
+        # Auto-detect DXF units ($INSUNITS)
+        self._detect_dxf_units(doc)
+
         msp = doc.modelspace()
         layers_set: set[str] = {"0"}
         for layer in doc.layers:
             layers_set.add(layer.dxf.name)
         for entity in msp:
-            layers_set.add(entity.dxf.get("layer", "0") if hasattr(entity.dxf, "get") else "0")
+            layers_set.add(
+                entity.dxf.get("layer", "0")
+                if hasattr(entity.dxf, "get") else "0"
+            )
 
         self._layers = sorted(layers_set)
         self._populate_layer_list()
 
-        # Extract geometry
+        # Extract geometry synchronously
         from dxf_import_worker import DxfImportWorker
-        # Run synchronously for preview (small files are fine; large files show a dialog)
         geoms = []
         all_ents = list(msp)
         prog = QProgressDialog("Loading preview…", "Cancel", 0, len(all_ents), self)
@@ -522,12 +598,145 @@ class DxfPreviewDialog(QDialog):
             except Exception:
                 pass
         prog.close()
+
         self._all_geoms = geoms
-        self._selected_indices = None  # all selected
+        self._selected_indices = None
         self._rebuild_preview()
         n = len(self._all_geoms)
         self._info_lbl.setText(f"{n} entities loaded from {os.path.basename(path)}")
         self._update_status()
+
+    def _detect_dxf_units(self, doc):
+        """Read $INSUNITS from DXF header and pre-fill scale if known."""
+        try:
+            code = doc.header.get("$INSUNITS", 0)
+            if not isinstance(code, int):
+                code = int(code)
+        except Exception:
+            code = 0
+
+        if code in _DXF_INSUNITS and code != 0:
+            name, factor = _DXF_INSUNITS[code]
+            self._units_info_lbl.setText(f"Detected units: {name}")
+            self._units_info_lbl.setVisible(True)
+            # Auto-set custom scale
+            custom_idx = len(self._SCALE_OPTIONS) - 1
+            self._scale_combo.setCurrentIndex(custom_idx)
+            self._custom_scale_spin.setValue(factor)
+        else:
+            self._units_info_lbl.setVisible(False)
+
+    # ── PDF loading ──────────────────────────────────────────────────────────
+
+    def _load_pdf(self, path: str):
+        self._file_type = "pdf"
+
+        if not _HAS_FITZ:
+            QMessageBox.warning(self, "Missing dependency",
+                                "PyMuPDF (fitz) is required for PDF vector import.\n"
+                                "Install it with: pip install PyMuPDF")
+            return
+
+        self._info_lbl.setText("Loading PDF…")
+        QApplication.processEvents()
+
+        try:
+            doc = fitz.open(path)
+        except Exception as e:
+            self._info_lbl.setText(f"Error opening PDF: {e}")
+            return
+
+        self._pdf_page_count = len(doc)
+
+        # Generate thumbnails
+        self._thumb_list.clear()
+        if self._pdf_page_count > 1:
+            from pdf_import_worker import generate_pdf_thumbnails
+            thumbs = generate_pdf_thumbnails(path, width=80)
+            for page_idx, pixmap in thumbs:
+                item = QListWidgetItem(QIcon(pixmap), f"Page {page_idx + 1}")
+                self._thumb_list.addItem(item)
+            self._thumb_list.setVisible(True)
+            if self._thumb_list.count() > 0:
+                self._thumb_list.setCurrentRow(0)
+        else:
+            self._thumb_list.setVisible(False)
+
+        self._pdf_page = 0
+        self._load_pdf_page(path, 0)
+
+    def _load_pdf_page(self, path: str, page: int):
+        """Load vectors from a specific PDF page."""
+        from pdf_import_worker import extract_pdf_vectors_sync
+
+        self._pdf_page = page
+        self._info_lbl.setText(f"Extracting vectors from page {page + 1}…")
+        QApplication.processEvents()
+
+        geoms, layers = extract_pdf_vectors_sync(path, page)
+
+        if geoms:
+            self._has_vectors = True
+            self._all_geoms = geoms
+            self._layers = layers
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._rebuild_preview()
+            n = len(geoms)
+            self._info_lbl.setText(
+                f"{n} vector entities from page {page + 1} of "
+                f"{os.path.basename(path)}"
+            )
+        else:
+            # No vectors — show raster preview
+            self._has_vectors = False
+            self._all_geoms = []
+            self._layers = []
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._show_raster_preview(path, page)
+            self._info_lbl.setText(
+                f"No vector geometry found on page {page + 1} — "
+                f"will import as raster image."
+            )
+
+        self._units_info_lbl.setVisible(False)
+        self._update_status()
+
+    def _show_raster_preview(self, path: str, page: int):
+        """Show a raster rendering of the PDF page as a fallback preview."""
+        self._preview_scene.clear()
+        self._base_marker = None
+        self._pick_markers = []
+        self._create_overlay_items()
+
+        try:
+            doc = fitz.open(path)
+            pg = doc[page]
+            # Render at 72 DPI for preview
+            pix = pg.get_pixmap(alpha=False)
+            from PyQt6.QtGui import QImage
+            qimg = QImage(pix.samples, pix.width, pix.height,
+                          pix.stride, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimg)
+            item = QGraphicsPixmapItem(pixmap)
+            item.setZValue(-200)
+            self._preview_scene.addItem(item)
+            self._preview_view.fitInView(
+                self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
+                Qt.AspectRatioMode.KeepAspectRatio
+            )
+        except Exception:
+            pass
+
+    def _on_page_thumb_clicked(self, row: int):
+        if row < 0:
+            return
+        path = self._file_edit.text().strip()
+        if path and os.path.exists(path):
+            self._load_pdf_page(path, row)
+
+    # ── Common helpers ───────────────────────────────────────────────────────
 
     def _populate_layer_list(self):
         self._layer_list.blockSignals(True)
@@ -545,8 +754,6 @@ class DxfPreviewDialog(QDialog):
         self._preview_scene.clear()
         self._base_marker = None
         self._pick_markers = []
-
-        # Re-create overlay items (old C++ objects were destroyed by scene.clear())
         self._create_overlay_items()
 
         pen_normal = QPen(QColor("#c0c0c0"), 0)
@@ -558,7 +765,8 @@ class DxfPreviewDialog(QDialog):
 
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
-            is_active_layer = (active_layers is None or g.get("layer", "0") in active_layers)
+            layer_key = g.get("layer", "0")
+            is_active_layer = (active_layers is None or layer_key in active_layers)
             is_selected = (self._selected_indices is None or idx in self._selected_indices)
             if is_active_layer and is_selected:
                 pen = pen_sel
@@ -595,7 +803,6 @@ class DxfPreviewDialog(QDialog):
             self._preview_scene.addItem(item)
         elif kind in ("path_points", "ellipse_full"):
             if kind == "ellipse_full":
-                pts_raw = g
                 item = QGraphicsEllipseItem(
                     g["pos_cx"] + g["x"], g["pos_cy"] + g["y"], g["w"], g["h"]
                 )
@@ -629,9 +836,8 @@ class DxfPreviewDialog(QDialog):
             if self._base_marker.scene() is self._preview_scene:
                 self._preview_scene.removeItem(self._base_marker)
             self._base_marker = None
-        # Draw a cross at base point
         bx = self._base_x_spin.value()
-        by = self._base_y_spin.value()  # already in preview coords (y-flipped by worker)
+        by = self._base_y_spin.value()
         s = 15
         pen = QPen(QColor("#ff4400"), 2)
         pen.setCosmetic(True)
@@ -643,7 +849,7 @@ class DxfPreviewDialog(QDialog):
         v.setZValue(500)
         self._preview_scene.addItem(h)
         self._preview_scene.addItem(v)
-        self._base_marker = h  # store one for cleanup
+        self._base_marker = h
 
     # ── Layer controls ────────────────────────────────────────────────────────
 
@@ -686,7 +892,6 @@ class DxfPreviewDialog(QDialog):
         self._preview_view.set_mode(mode)
 
     def _on_rubber_band(self, rect: QRectF):
-        """Select geometry items that fall within the rubber-band rect."""
         selected = set()
         for idx, g in enumerate(self._all_geoms):
             if self._geom_in_rect(g, rect):
@@ -735,19 +940,16 @@ class DxfPreviewDialog(QDialog):
         return val
 
     def _start_pick2(self):
-        """Enter 2-point scale pick mode."""
         self._pick_pts = []
-        # Remove old markers
         for m in self._pick_markers:
             if m.scene() is self._preview_scene:
                 self._preview_scene.removeItem(m)
         self._pick_markers = []
         self._pick_mode = "scale_pt1"
         self._preview_view.set_mode("pick_point")
-        self._status_lbl.setText("Click the FIRST point on the preview\u2026")
+        self._status_lbl.setText("Click the FIRST point on the preview…")
 
     def _on_any_point_picked(self, raw_pt: QPointF):
-        """Single dispatcher for all point-pick modes — avoids fragile disconnect/connect."""
         pt = self._snap_to_nearest(raw_pt)
         if self._pick_mode in ("scale_pt1", "scale_pt2"):
             self._on_pick2_pt(pt)
@@ -755,7 +957,6 @@ class DxfPreviewDialog(QDialog):
             self._on_point_picked(pt)
 
     def _on_pick2_pt(self, pt: QPointF):
-        """Handle a point picked during 2-point scale mode (already snapped)."""
         pen = QPen(QColor("#ff0000"), 2)
         pen.setCosmetic(True)
         s = 8
@@ -770,10 +971,9 @@ class DxfPreviewDialog(QDialog):
 
         if len(self._pick_pts) == 1:
             self._pick_mode = "scale_pt2"
-            self._status_lbl.setText("Click the SECOND point on the preview\u2026")
+            self._status_lbl.setText("Click the SECOND point on the preview…")
             self._preview_view.set_mode("pick_point")
         elif len(self._pick_pts) == 2:
-            # Draw line between the two points
             line = QGraphicsLineItem(
                 self._pick_pts[0].x(), self._pick_pts[0].y(),
                 self._pick_pts[1].x(), self._pick_pts[1].y()
@@ -787,12 +987,11 @@ class DxfPreviewDialog(QDialog):
                 self._pick_pts[1].x() - self._pick_pts[0].x(),
                 self._pick_pts[1].y() - self._pick_pts[0].y()
             )
-            # Return to pan mode
             self._pick_mode = None
             self._preview_view.set_mode("pan")
 
             if px_dist < 1.0:
-                self._status_lbl.setText("Points too close \u2014 try again.")
+                self._status_lbl.setText("Points too close — try again.")
                 return
 
             real_dist, ok = QInputDialog.getDouble(
@@ -803,23 +1002,18 @@ class DxfPreviewDialog(QDialog):
             )
             if ok and real_dist > 0:
                 factor = real_dist / px_dist
-                # Set custom scale
                 custom_idx = len(self._SCALE_OPTIONS) - 1
                 self._scale_combo.setCurrentIndex(custom_idx)
                 self._custom_scale_spin.setValue(factor)
                 self._status_lbl.setText(
-                    f"Scale set: {px_dist:.1f} preview units = {real_dist} real \u2192 \u00d7{factor:.5f}"
+                    f"Scale set: {px_dist:.1f} preview units = {real_dist} real → ×{factor:.5f}"
                 )
             else:
                 self._status_lbl.setText("Scale pick cancelled.")
 
-    # ── Snap to nearest geometry vertex ──────────────────────────────────────
+    # ── Snap ──────────────────────────────────────────────────────────────────
 
     def _snap_to_nearest(self, pt: QPointF, tolerance: float = 0.0) -> QPointF:
-        """Snap *pt* using the full OsnapEngine against preview scene items.
-
-        Returns the snapped point, or the original if nothing is close enough.
-        """
         result = self._snap_engine.find(
             pt, self._preview_scene, self._preview_view.transform()
         )
@@ -832,11 +1026,9 @@ class DxfPreviewDialog(QDialog):
     def _start_pick_base(self):
         self._pick_mode = "base"
         self._preview_view.set_mode("pick_point")
-        self._status_lbl.setText("Click the base / insertion point on the preview\u2026")
+        self._status_lbl.setText("Click the base / insertion point on the preview…")
 
     def _on_point_picked(self, pt: QPointF):
-        """Store the picked point as the DXF base point (already snapped)."""
-        # The preview is in the same coordinate space as the raw DXF geometry
         self._base_x_spin.blockSignals(True)
         self._base_y_spin.blockSignals(True)
         self._base_x_spin.setValue(pt.x())
@@ -846,30 +1038,20 @@ class DxfPreviewDialog(QDialog):
         self._draw_base_marker()
         self._pick_mode = None
         self._status_lbl.setText(
-            f"Base point set to ({pt.x():.3f}, {pt.y():.3f}) in DXF coordinates."
+            f"Base point set to ({pt.x():.3f}, {pt.y():.3f})."
         )
         self._preview_view.set_mode("pan")
 
     def _on_base_changed(self):
         self._draw_base_marker()
 
-    # ── Colour ────────────────────────────────────────────────────────────────
-
-    def _pick_colour(self):
-        c = QColorDialog.getColor(self._colour, self, "Line Colour")
-        if c.isValid():
-            self._colour = c
-            self._update_colour_btn()
-
-    def _update_colour_btn(self):
-        self._colour_btn.setStyleSheet(
-            f"background-color: {self._colour.name()}; border: 1px solid #888;"
-        )
-
     # ── Status ────────────────────────────────────────────────────────────────
 
     def _update_status(self):
         total = len(self._all_geoms)
+        if total == 0 and not self._has_vectors:
+            self._status_lbl.setText("Raster import — no vector entities.")
+            return
         active_layers = self._active_layers()
         layer_filtered = [
             g for g in self._all_geoms
@@ -890,9 +1072,9 @@ class DxfPreviewDialog(QDialog):
     # ── Accept / result ───────────────────────────────────────────────────────
 
     def _on_accept(self):
-        if not self._all_geoms:
+        if not self._all_geoms and self._has_vectors:
             QMessageBox.warning(self, "Nothing to import",
-                                "Load a DXF file before importing.")
+                                "Load a file before importing.")
             return
         self.accept()
 
@@ -900,16 +1082,20 @@ class DxfPreviewDialog(QDialog):
         """Call after dialog.exec() == Accepted."""
         p = ImportParams()
         p.file_path = self._file_edit.text().strip()
+        p.file_type = self._file_type
         p.scale = self._current_scale()
         p.base_x = self._base_x_spin.value()
         p.base_y = self._base_y_spin.value()
-        p.color = QColor(self._colour)
-        p.line_weight = 1.5  # cosmetic pen applied in scene; value kept for record
+        p.user_layer = self._dest_layer_combo.currentText()
         p.selected_layers = (
             list(self._active_layers())
             if self._active_layers() is not None
             else None
         )
+        p.has_vectors = self._has_vectors
+        p.pdf_page = self._pdf_page
+        p.pdf_dpi = 150
+        p.insert_at_origin = self._origin_cb.isChecked()
 
         active_layers = self._active_layers()
         geoms = []
@@ -920,5 +1106,8 @@ class DxfPreviewDialog(QDialog):
                 continue
             geoms.append(g)
         p.geom_list = geoms
-        p.insert_at_origin = self._origin_cb.isChecked()
         return p
+
+
+# ── Backwards compat alias ───────────────────────────────────────────────────
+DxfPreviewDialog = UnderlayImportDialog

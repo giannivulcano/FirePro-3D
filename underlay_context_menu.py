@@ -2,13 +2,13 @@
 Underlay Context Menu
 =====================
 Right-click context menu for underlay items (PDF / DXF) in the scene.
-Provides: Scale, Rotate, Opacity, Lock/Unlock, Refresh from disk, Remove.
+Provides: Scale, Rotate, Opacity, Change Layer, Lock/Unlock, Refresh from disk, Remove.
 """
 
 from PyQt6.QtWidgets import (
     QMenu, QInputDialog, QGraphicsItem, QGraphicsItemGroup
 )
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QPen, QColor
 from underlay import Underlay
 
 
@@ -44,6 +44,15 @@ class UnderlayContextMenu:
             lambda: UnderlayContextMenu._set_opacity(scene, underlay_data, underlay_item)
         )
         menu.addAction(opacity_action)
+
+        # ── Change Layer ─────────────────────────────────────────────
+        layer_action = QAction(
+            f"Change Layer… (current: {underlay_data.user_layer})", menu)
+        layer_action.triggered.connect(
+            lambda: UnderlayContextMenu._change_layer(
+                scene, underlay_data, underlay_item)
+        )
+        menu.addAction(layer_action)
 
         menu.addSeparator()
 
@@ -112,6 +121,43 @@ class UnderlayContextMenu:
         if ok:
             data.opacity = val / 100.0
             item.setOpacity(data.opacity)
+
+    @staticmethod
+    def _change_layer(scene, data: Underlay, item: QGraphicsItem):
+        """Let the user pick a new layer for this underlay."""
+        # Gather layer names from UserLayerManager
+        layer_names = ["Default"]
+        if hasattr(scene, "_user_layer_manager") and scene._user_layer_manager:
+            layer_names = [lyr.name for lyr in scene._user_layer_manager.layers]
+
+        current_idx = 0
+        if data.user_layer in layer_names:
+            current_idx = layer_names.index(data.user_layer)
+
+        parent = scene.views()[0] if scene.views() else None
+        new_layer, ok = QInputDialog.getItem(
+            parent,
+            "Change Underlay Layer",
+            "Select layer:",
+            layer_names,
+            current_idx,
+            False,  # not editable
+        )
+        if ok and new_layer:
+            data.user_layer = new_layer
+            # Derive new colour/lineweight from the chosen layer
+            color, lw = scene._underlay_color_lw(new_layer)
+            data.colour = color.name()
+            data.line_weight = lw
+            # Update all child items in the group
+            pen = QPen(color, lw)
+            pen.setCosmetic(True)
+            if isinstance(item, QGraphicsItemGroup):
+                for child in item.childItems():
+                    if hasattr(child, "setPen"):
+                        child.setPen(pen)
+                    if hasattr(child, "setDefaultTextColor"):
+                        child.setDefaultTextColor(color)
 
     @staticmethod
     def _toggle_lock(scene, data: Underlay, item: QGraphicsItem):

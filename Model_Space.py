@@ -1306,9 +1306,10 @@ class Model_Space(QGraphicsScene):
                 t["y"] = (g["y"] - by) * s
             transformed.append(t)
 
-        # Build scene items and group them — cosmetic pen for visibility at any zoom
-        color = params.color
-        pen = QPen(color, 1.5)
+        # Derive colour/lineweight from user_layer
+        color, lw = self._underlay_color_lw(
+            getattr(params, "user_layer", "Default"))
+        pen = QPen(color, lw)
         pen.setCosmetic(True)
 
         items = []
@@ -1332,16 +1333,20 @@ class Model_Space(QGraphicsScene):
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
-        group.setData(0, "DXF Underlay")
+        file_type = getattr(params, "file_type", "dxf")
+        label = "PDF Underlay" if file_type == "pdf" else "DXF Underlay"
+        group.setData(0, label)
         all_layers = sorted({g.get("layer", "0") for g in transformed})
         group.setData(2, all_layers)
         self.setItemIndexMethod(old_method)
 
+        user_layer = getattr(params, "user_layer", "Default")
         record = Underlay(
-            type="dxf", path=params.file_path,
+            type=file_type, path=params.file_path,
             x=insert_pt.x(), y=insert_pt.y(),
             colour=color.name(),
-            line_weight=params.line_weight,
+            line_weight=lw,
+            user_layer=user_layer,
         )
         self._apply_underlay_display(group, record)
         self.underlays.append((record, group))
@@ -1350,7 +1355,8 @@ class Model_Space(QGraphicsScene):
         self.set_mode(None)
 
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
-                   x=0.0, y=0.0, layers=None, _record: Underlay = None):
+                   x=0.0, y=0.0, layers=None, _record: Underlay = None,
+                   user_layer: str = "Default"):
         """
         Import a DXF file as an underlay using a background thread.
 
@@ -1381,6 +1387,7 @@ class Model_Space(QGraphicsScene):
         self._dxf_import_params = {
             "file_path": file_path, "color": color, "line_weight": line_weight,
             "x": x, "y": y, "layers": layers, "_record": _record,
+            "user_layer": user_layer,
         }
 
         # Wire signals
@@ -1409,8 +1416,14 @@ class Model_Space(QGraphicsScene):
             self._cleanup_dxf_worker()
             return
 
-        color = params["color"]
-        pen = QPen(color, 1.5)
+        # Derive colour from user_layer if available, otherwise use params["color"]
+        ul = params.get("user_layer", "Default")
+        color, lw = self._underlay_color_lw(ul)
+        # Fall back to explicit color if the layer lookup returned default white
+        if params.get("color") and ul == "Default":
+            color = params["color"]
+            lw = 1.5
+        pen = QPen(color, lw)
         pen.setCosmetic(True)
 
         items = []
@@ -1446,7 +1459,8 @@ class Model_Space(QGraphicsScene):
             type="dxf", path=params["file_path"],
             x=params["x"], y=params["y"],
             colour=color.name(),
-            line_weight=params["line_weight"],
+            line_weight=params.get("line_weight", lw),
+            user_layer=ul,
         )
 
         # Apply saved display settings
@@ -1650,7 +1664,8 @@ class Model_Space(QGraphicsScene):
             self.import_dxf(
                 data.path, color=QColor(data.colour),
                 line_weight=data.line_weight,
-                x=data.x, y=data.y, _record=data
+                x=data.x, y=data.y, _record=data,
+                user_layer=data.user_layer,
             )
 
         # The import functions append a new entry — remove the duplicate old slot if needed
@@ -2254,6 +2269,15 @@ class Model_Space(QGraphicsScene):
                 from user_layer_manager import lw_mm_to_cosmetic_px
                 return ldef.color, lw_mm_to_cosmetic_px(ldef.lineweight)
         return "#ffffff", 2.0
+
+    def _underlay_color_lw(self, user_layer: str = "Default"):
+        """Return (QColor, lineweight_px) derived from a user layer name."""
+        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
+            ldef = self._user_layer_manager.get(user_layer)
+            if ldef:
+                from user_layer_manager import lw_mm_to_cosmetic_px
+                return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
+        return QColor("#ffffff"), 1.5
 
     # ─────────────────────────────────────────────────────────────────────────
 

@@ -12,9 +12,8 @@ from Model_Space import Model_Space
 from Model_View import Model_View
 from sprinkler import Sprinkler
 from pipe import Pipe
-from dxf_import_dialog import DxfImportDialog
 from Annotations import NoteAnnotation
-from dxf_preview_dialog import DxfPreviewDialog
+from dxf_preview_dialog import UnderlayImportDialog
 from property_manager import PropertyManager
 from scale_manager import DisplayUnit
 from layer_manager import LayerManager
@@ -29,69 +28,6 @@ from project_browser import ProjectBrowser
 from model_browser import ModelBrowser
 from grid_lines_dialog import GridLinesDialog
 import theme as th
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PDF Import Dialog
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ImportDialog(QDialog):
-    """Ask user for PDF import options: file, DPI, page."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Import PDF Underlay")
-
-        layout = QVBoxLayout(self)
-
-        # File picker row
-        file_layout = QHBoxLayout()
-        self.file_edit = QLineEdit()
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse_file)
-        file_layout.addWidget(QLabel("PDF File:"))
-        file_layout.addWidget(self.file_edit)
-        file_layout.addWidget(browse_btn)
-        layout.addLayout(file_layout)
-
-        # DPI option
-        dpi_layout = QHBoxLayout()
-        self.dpi_spin = QSpinBox()
-        self.dpi_spin.setRange(50, 600)
-        self.dpi_spin.setValue(150)
-        dpi_layout.addWidget(QLabel("Render DPI:"))
-        dpi_layout.addWidget(self.dpi_spin)
-        layout.addLayout(dpi_layout)
-
-        # Page number option
-        page_layout = QHBoxLayout()
-        self.page_spin = QSpinBox()
-        self.page_spin.setRange(0, 999)
-        self.page_spin.setValue(0)
-        page_layout.addWidget(QLabel("Page:"))
-        page_layout.addWidget(self.page_spin)
-        layout.addLayout(page_layout)
-
-        # OK/Cancel
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def _browse_file(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Select PDF", "", "PDF Files (*.pdf)")
-        if file:
-            self.file_edit.setText(file)
-
-    def get_options(self):
-        return {
-            "file": str(self.file_edit.text()),
-            "dpi":  self.dpi_spin.value(),
-            "page": self.page_spin.value(),
-        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +53,9 @@ class MainWindow(QMainWindow):
         self.view.setMouseTracking(True)
         self.view.viewport().setMouseTracking(True)
         self.view.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        # Drag-drop import
+        self.view.drop_import_requested.connect(self._on_drop_import)
 
         # Draw tool style defaults (white pen in dark theme, 1px cosmetic)
         _t = th.detect()
@@ -327,13 +266,10 @@ class MainWindow(QMainWindow):
         _btn = g_file.add_large_button("Save As", _I("saveas_icon.svg"), self.save_file_as)
         _btn.setToolTip("Save as a new file")
 
-        # --- Import (split menu: PDF / DXF) ---
+        # --- Import ---
         g_imp = manage_page.add_group("Import")
-        import_menu = QMenu(self)
-        import_menu.addAction("PDF Underlay\u2026", self.open_pdf_import_dialog)
-        import_menu.addAction("DXF Underlay\u2026", self.open_dxf_import_dialog)
-        _btn = g_imp.add_large_menu_button(
-            "Import\nUnderlay", _I("import_icon.svg"), import_menu)
+        _btn = g_imp.add_large_button(
+            "Import\nUnderlay", _I("import_icon.svg"), self.open_import_dialog)
         _btn.setToolTip("Import a PDF or DXF underlay")
         _btn = g_imp.add_small_button(
             "Refresh All",
@@ -1167,31 +1103,37 @@ class MainWindow(QMainWindow):
             return  # let the text editor handle Delete
         self.scene.delete_selected_items()
 
-    def open_pdf_import_dialog(self):
-        dialog = ImportDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            opts = dialog.get_options()
-            if opts["file"]:
-                self.scene.import_pdf(
-                    opts["file"], dpi=opts["dpi"], page=opts["page"]
-                )
-
-    def open_dxf_import_dialog(self):
-        """Open the preview-first DXF import dialog."""
-        dialog = DxfPreviewDialog(self)
+    def open_import_dialog(self, file_path: str = ""):
+        """Open the unified underlay import dialog (PDF + DXF)."""
+        dialog = UnderlayImportDialog(
+            self, file_path=file_path,
+            user_layer_manager=self.user_layer_mgr,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             params = dialog.get_import_params()
+            # PDF with no vectors → raster fallback
+            if (not params.geom_list
+                    and params.file_type == "pdf"
+                    and not params.has_vectors):
+                self.scene.import_pdf(
+                    params.file_path,
+                    dpi=params.pdf_dpi,
+                    page=params.pdf_page,
+                )
+                return
             if not params.geom_list:
                 return
             # Switch to model space
             self.central_tabs.setCurrentWidget(self.view)
             if params.insert_at_origin:
-                # Place immediately at scene origin
                 self.scene._place_import_params = params
                 self.scene._commit_place_import(QPointF(0, 0))
             else:
-                # Enter interactive placement mode (ghost follows cursor)
                 self.scene.begin_place_import(params)
+
+    def _on_drop_import(self, path: str):
+        """Handle a file dropped onto the canvas."""
+        self.open_import_dialog(file_path=path)
 
     def refresh_underlays(self):
         self.scene.refresh_all_underlays()
