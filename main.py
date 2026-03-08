@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
                               QTabWidget, QMenu, QWidget,
-                              QComboBox)
+                              QComboBox, QDoubleSpinBox, QFormLayout)
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF
 from PyQt6.QtWidgets import QGraphicsTextItem
@@ -220,6 +220,12 @@ class MainWindow(QMainWindow):
             self.browser_dock.setVisible(self.settings.value("dock/browser", True, type=bool))
         if self.settings.contains("dock/hydraulics"):
             self.hydro_dock.setVisible(self.settings.value("dock/hydraulics", False, type=bool))
+        # Restore snap settings
+        if self.settings.contains("snap/grid_size"):
+            grid = self.settings.value("snap/grid_size", 10, type=float)
+            self.model_view.set_grid(self.model_view._grid_visible, grid)
+        if self.settings.contains("snap/angle_deg"):
+            self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
 
     def _activate_paper_sheet(self, name: str):
         """Switch the central area to the paper space tab matching *name*."""
@@ -295,6 +301,9 @@ class MainWindow(QMainWindow):
         _btn = g_set.add_small_menu_button(
             "Precision", _I("info_icon.svg"), self._build_precision_menu())
         _btn.setToolTip("Set decimal precision")
+        _btn = g_set.add_small_button(
+            "Snaps", _I("info_icon.svg"), self._open_snap_settings)
+        _btn.setToolTip("Configure grid spacing and angle snap")
 
         # --- Edit (Undo/Redo always accessible) ---
         g_edit = manage_page.add_group("Edit")
@@ -745,6 +754,55 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_info = {k: le.text() for k, le in editors.items()}
             self.scene._project_info = new_info
+
+    # ── Snap Settings ────────────────────────────────────────────────────────
+
+    def _open_snap_settings(self):
+        """Open dialog to configure grid spacing and angle snap increment."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Snap Settings")
+        dlg.setMinimumWidth(300)
+        layout = QFormLayout(dlg)
+
+        grid_spin = QDoubleSpinBox()
+        grid_spin.setRange(1, 1000)
+        grid_spin.setDecimals(1)
+        grid_spin.setValue(self.model_view._grid_size)
+        grid_spin.setSuffix(" mm")
+        layout.addRow("Grid spacing:", grid_spin)
+
+        angle_spin = QDoubleSpinBox()
+        angle_spin.setRange(1, 90)
+        angle_spin.setDecimals(1)
+        angle_spin.setValue(self.scene._snap_angle_deg)
+        angle_spin.setSuffix("°")
+        layout.addRow("Angle snap:", angle_spin)
+
+        # Angle presets
+        preset_combo = QComboBox()
+        preset_combo.addItems(["15", "30", "45", "90"])
+        idx = preset_combo.findText(str(int(self.scene._snap_angle_deg)))
+        if idx >= 0:
+            preset_combo.setCurrentIndex(idx)
+        preset_combo.currentTextChanged.connect(
+            lambda t: angle_spin.setValue(float(t)))
+        layout.addRow("Angle preset:", preset_combo)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_grid = grid_spin.value()
+            new_angle = angle_spin.value()
+            self.model_view.set_grid(self.model_view._grid_visible, new_grid)
+            self.scene._snap_angle_deg = new_angle
+            # Persist
+            self.settings.setValue("snap/grid_size", new_grid)
+            self.settings.setValue("snap/angle_deg", new_angle)
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 

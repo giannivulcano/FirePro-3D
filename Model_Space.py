@@ -854,12 +854,13 @@ class Model_Space(QGraphicsScene):
         # Cancel in-progress construction geometry
         self._cline_anchor = None
         if mode != "polyline" and self._polyline_active is not None:
-            # Discard the partial polyline (fewer than 2 committed points)
-            if len(self._polyline_active._points) < 2:
-                if self._polyline_active.scene() is self:
-                    self.removeItem(self._polyline_active)
-                if self._polyline_active in self._polylines:
-                    self._polylines.remove(self._polyline_active)
+            # Cancel: always discard the in-progress polyline
+            # (Enter commits via finalize() and sets _polyline_active=None
+            #  before reaching here, so this path is only hit by Escape/mode-change)
+            if self._polyline_active.scene() is self:
+                self.removeItem(self._polyline_active)
+            if self._polyline_active in self._polylines:
+                self._polylines.remove(self._polyline_active)
             self._polyline_active = None
         # Cancel in-progress draw geometry
         if mode != "draw_line":
@@ -979,12 +980,14 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(self._floor_rect_preview)
                 self._floor_rect_preview = None
 
-        # Clean up place_import ghost
+        # Clean up place_import ghost and params
         if mode != "place_import":
             if self._place_import_ghost is not None:
                 if self._place_import_ghost.scene() is self:
                     self.removeItem(self._place_import_ghost)
                 self._place_import_ghost = None
+            self._place_import_params = None
+            self._place_import_bounds = QRectF(-50, -50, 100, 100)
 
         # Clean up interactive transforms
         def _remove_preview(attr):
@@ -3556,6 +3559,10 @@ class Model_Space(QGraphicsScene):
                 # Normalise span to positive CCW direction
                 if span <= 0:
                     span += 360.0
+                # Reject near-zero arcs
+                if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
+                    self._show_status("Arc span too small — skipped", timeout=2000)
+                    return
                 tmpl = self._get_geometry_template()
                 _c, _lw = self._geom_color_lw()
                 item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
@@ -3919,6 +3926,11 @@ class Model_Space(QGraphicsScene):
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     tip = self._constrain_angle(self._draw_line_anchor, snapped)
+                # Reject zero-length lines
+                if math.hypot(tip.x() - self._draw_line_anchor.x(),
+                              tip.y() - self._draw_line_anchor.y()) < 0.5:
+                    self._show_status("Line too short — skipped", timeout=2000)
+                    return
                 tmpl = self._get_geometry_template()
                 _c, _lw = self._geom_color_lw()
                 item = LineItem(self._draw_line_anchor, tip, _c, _lw)
@@ -3963,6 +3975,10 @@ class Model_Space(QGraphicsScene):
                     rect = QRectF(self._draw_rect_anchor, snapped).normalized()
                     pt1 = QPointF(rect.x(), rect.y())
                     pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
+                # Reject zero-size rectangles
+                if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
+                    self._show_status("Rectangle too small — skipped", timeout=2000)
+                    return
                 tmpl = self._get_geometry_template()
                 _c, _lw = self._geom_color_lw()
                 item = RectangleItem(pt1, pt2, _c, _lw)
@@ -4003,7 +4019,9 @@ class Model_Space(QGraphicsScene):
                 # Commit circle
                 r = math.hypot(snapped.x() - self._draw_circle_center.x(),
                                snapped.y() - self._draw_circle_center.y())
-                if r > 0:
+                if r < 0.5:
+                    self._show_status("Circle radius too small — skipped", timeout=2000)
+                if r >= 0.5:
                     tmpl = self._get_geometry_template()
                     _c, _lw = self._geom_color_lw()
                     item = CircleItem(self._draw_circle_center, r, _c, _lw)
@@ -6033,18 +6051,47 @@ class Model_Space(QGraphicsScene):
                 v.viewport().update()
 
     def _solve_constraints(self, moved_item=None):
-        """Run the constraint solver. Called after every movement operation."""
-        for _iteration in range(5):
+        """Run the constraint solver with convergence detection.
+
+        Called after every movement operation.  If the solver stalls for 3
+        consecutive iterations (no progress) we assume a conflict and report
+        it via the status bar.
+        """
+        MAX_ITERATIONS = 20
+        prev_unsatisfied = float('inf')
+        stall_count = 0
+
+        for _iteration in range(MAX_ITERATIONS):
             all_satisfied = True
+            unsatisfied: list = []
             for c in self._constraints:
                 if not c.enabled:
                     continue
                 if not c.solve(moved_item):
                     all_satisfied = False
+                    unsatisfied.append(c)
             if all_satisfied:
                 break
+
+            # Convergence / stall detection
+            n = len(unsatisfied)
+            if n >= prev_unsatisfied:
+                stall_count += 1
+                if stall_count >= 3:
+                    self._report_constraint_conflict(unsatisfied)
+                    break
+            else:
+                stall_count = 0
+            prev_unsatisfied = n
+
         for v in self.views():
             v.viewport().update()
+
+    def _report_constraint_conflict(self, unsatisfied: list):
+        """Emit a status message about conflicting constraints."""
+        ids = [str(getattr(c, 'id', '?')) for c in unsatisfied[:3]]
+        msg = f"⚠ Constraint conflict: {', '.join(ids)} cannot be satisfied simultaneously"
+        self._show_status(msg, timeout=5000)
 
     def _compute_intersections(self, item, edge):
         """Compute intersection points between two geometry items."""

@@ -43,6 +43,7 @@ from floor_slab import FloorSlab
 FT_TO_MM = 304.8
 CIRCLE_SEGMENTS = 64
 PICK_TOLERANCE_PX = 15
+MAX_CYLINDER_PIPES = 200   # above this count, fall back to line rendering
 
 # Pipe nominal diameter → approximate OD in inches (for cylinder radius)
 _NOMINAL_OD_IN = {
@@ -74,11 +75,11 @@ _PIPE_COLORS = {
 
 # Level floor hues (cycled)
 _FLOOR_COLORS = [
-    (0.2, 0.4, 0.8, 0.12),
-    (0.2, 0.8, 0.4, 0.12),
-    (0.8, 0.4, 0.2, 0.12),
-    (0.8, 0.2, 0.8, 0.12),
-    (0.2, 0.8, 0.8, 0.12),
+    (0.2, 0.4, 0.8, 0.35),
+    (0.2, 0.8, 0.4, 0.35),
+    (0.8, 0.4, 0.2, 0.35),
+    (0.8, 0.2, 0.8, 0.35),
+    (0.2, 0.8, 0.8, 0.35),
 ]
 
 
@@ -154,6 +155,30 @@ class View3D(QWidget):
         self._section_h_btn.clicked.connect(self._toggle_horizontal_cut)
         tb.addWidget(self._section_h_btn)
 
+        self._grid_btn = QPushButton("Grid")
+        self._grid_btn.setFixedHeight(24)
+        self._grid_btn.setCheckable(True)
+        self._grid_btn.setChecked(True)
+        self._grid_btn.setToolTip("Toggle ground grid and axis lines")
+        self._grid_btn.clicked.connect(self._toggle_3d_grid)
+        tb.addWidget(self._grid_btn)
+
+        # View preset buttons
+        tb.addWidget(QLabel("  "))  # spacer
+        for label, elev, azim, tip in [
+            ("Top",   90, 0,   "Top view (plan)"),
+            ("Front", 0,  0,   "Front elevation"),
+            ("Right", 0,  90,  "Right elevation"),
+            ("Iso",   30, 45,  "Isometric view"),
+        ]:
+            btn = QPushButton(label)
+            btn.setFixedHeight(24)
+            btn.setToolTip(tip)
+            btn.clicked.connect(
+                lambda checked, e=elev, a=azim: self._set_view_preset(e, a)
+            )
+            tb.addWidget(btn)
+
         tb.addStretch()
         self._info_label = QLabel("")
         tb.addWidget(self._info_label)
@@ -173,6 +198,7 @@ class View3D(QWidget):
         self._node_markers = visuals.Markers(parent=self._view.scene)
         self._sprinkler_markers = visuals.Markers(parent=self._view.scene)
         self._pipe_lines = visuals.Line(parent=self._view.scene, antialias=True)
+        self._pipe_cylinder_meshes: list[visuals.Mesh] = []
         self._constr_lines = visuals.Line(
             parent=self._view.scene, antialias=True, color=COL_CONSTR,
         )
@@ -180,14 +206,49 @@ class View3D(QWidget):
         self._highlight_markers = visuals.Markers(parent=self._view.scene)
         self._highlight_markers.visible = False
 
-        # Level floor meshes (dynamic, recreated on rebuild)
+        # Level floor meshes, edge outlines, and labels (dynamic, recreated on rebuild)
         self._floor_meshes: list[visuals.Mesh] = []
+        self._floor_edge_lines: list[visuals.Line] = []
+        self._floor_labels: list[visuals.Text] = []
         # Wall and slab meshes (dynamic, recreated on rebuild)
         self._wall_meshes: list[visuals.Mesh] = []
         self._slab_meshes: list[visuals.Mesh] = []
         # Edge wireframe lines for walls and slabs
         self._wall_edge_lines: list[visuals.Line] = []
         self._slab_edge_lines: list[visuals.Line] = []
+
+        # XYZ axis lines at world origin
+        axis_len = 500.0  # mm
+        axis_data = np.array([
+            [0, 0, 0], [axis_len, 0, 0],    # X
+            [0, 0, 0], [0, axis_len, 0],    # Y
+            [0, 0, 0], [0, 0, axis_len],    # Z
+        ], dtype=np.float32)
+        axis_colors = np.array([
+            [1, 0, 0, 1], [1, 0, 0, 1],     # X red
+            [0, 1, 0, 1], [0, 1, 0, 1],     # Y green
+            [0, 0, 1, 1], [0, 0, 1, 1],     # Z blue
+        ], dtype=np.float32)
+        self._axis_lines = visuals.Line(
+            pos=axis_data, color=axis_colors, width=2.5,
+            connect='segments', parent=self._view.scene,
+        )
+        self._axis_labels: list[visuals.Text] = []
+        for lbl, pos, col in [
+            ("X", [axis_len + 60, 0, 0], (1, 0.2, 0.2, 1)),
+            ("Y", [0, axis_len + 60, 0], (0.2, 1, 0.2, 1)),
+            ("Z", [0, 0, axis_len + 60], (0.4, 0.4, 1.0, 1)),
+        ]:
+            t = visuals.Text(
+                text=lbl, pos=np.array([pos], dtype=np.float32),
+                color=col, font_size=14, bold=True,
+                parent=self._view.scene,
+            )
+            self._axis_labels.append(t)
+
+        # Ground grid in XY plane at Z=0
+        self._ground_grid = self._create_ground_grid(5000, 1000)
+        self._3d_grid_visible = True
 
         # Section cut state
         self._h_cut_enabled: bool = False
@@ -214,6 +275,8 @@ class View3D(QWidget):
         return np.array([sx / ppm, -sy / ppm, z_ft * FT_TO_MM])
 
     def _node_to_3d(self, node: Node):
+        if node is None:
+            return np.array([0.0, 0.0, 0.0])
         return self._scene_to_3d(
             node.scenePos().x(), node.scenePos().y(), node.z_pos,
         )
@@ -324,6 +387,11 @@ class View3D(QWidget):
     # ── Extract: Pipes ─────────────────────────────────────────────────────
 
     def _extract_pipes(self):
+        # Remove old cylinder meshes
+        for m in self._pipe_cylinder_meshes:
+            m.parent = None
+        self._pipe_cylinder_meshes.clear()
+
         pipes = list(self._scene.sprinkler_system.pipes)
         self._pipe_refs = pipes
         if not pipes:
@@ -331,11 +399,14 @@ class View3D(QWidget):
             self._pipe_midpoints_3d = None
             return
 
-        # Build line segment pairs
+        # Build line segment pairs (always needed for midpoints + fallback)
         positions = []
         colors = []
         mids = []
+        pipe_data = []  # (p1, p2, color, radius_mm) for cylinder rendering
         for p in pipes:
+            if p.node1 is None or p.node2 is None:
+                continue
             p1 = self._node_to_3d(p.node1)
             p2 = self._node_to_3d(p.node2)
             positions.append(p1)
@@ -347,20 +418,96 @@ class View3D(QWidget):
             colors.append(c)
             colors.append(c)
 
+            nom = p._properties.get("Diameter", {}).get("value", '2"Ø')
+            od_in = _NOMINAL_OD_IN.get(nom, 2.375)
+            radius_mm = od_in * 25.4 / 2.0
+            pipe_data.append((p1, p2, c, radius_mm))
+
+        if not mids:
+            self._pipe_lines.visible = False
+            self._pipe_midpoints_3d = None
+            return
+
         self._pipe_midpoints_3d = np.array(mids)
 
-        # Line width from average nominal diameter
-        nom = pipes[0]._properties.get("Diameter", {}).get("value", '2"Ø')
-        od = _NOMINAL_OD_IN.get(nom, 2.375)
-        width = max(2.0, od * 1.5)
+        use_cylinders = len(pipe_data) <= MAX_CYLINDER_PIPES
 
-        self._pipe_lines.set_data(
-            pos=np.array(positions),
-            color=np.array(colors),
-            width=width,
-            connect="segments",
-        )
-        self._pipe_lines.visible = True
+        if use_cylinders:
+            # Render pipes as 3D cylinders
+            self._pipe_lines.visible = False
+            for p1, p2, color, radius in pipe_data:
+                length = float(np.linalg.norm(p2 - p1))
+                if length < 1e-6:
+                    continue
+                try:
+                    md = create_cylinder(
+                        rows=2, cols=8,
+                        radius=[radius, radius],
+                        length=length,
+                    )
+                    verts = md.get_vertices()
+                    faces = md.get_faces()
+                    # Align cylinder: create_cylinder makes Z-axis cylinder
+                    # centered at origin. We need to rotate to p1→p2 direction.
+                    verts = self._align_cylinder(verts, p1, p2, length)
+                    mesh = visuals.Mesh(
+                        vertices=verts, faces=faces,
+                        color=color,
+                        parent=self._view.scene,
+                    )
+                    self._pipe_cylinder_meshes.append(mesh)
+                except Exception:
+                    pass  # skip problematic pipes
+        else:
+            # Fallback: line rendering for large pipe counts
+            nom = pipes[0]._properties.get("Diameter", {}).get("value", '2"Ø')
+            od = _NOMINAL_OD_IN.get(nom, 2.375)
+            width = max(2.0, od * 1.5)
+            self._pipe_lines.set_data(
+                pos=np.array(positions),
+                color=np.array(colors),
+                width=width,
+                connect="segments",
+            )
+            self._pipe_lines.visible = True
+
+    @staticmethod
+    def _align_cylinder(verts: np.ndarray, p1: np.ndarray, p2: np.ndarray,
+                        length: float) -> np.ndarray:
+        """Rotate + translate cylinder vertices from Z-axis to p1→p2 direction.
+
+        create_cylinder produces a cylinder along Z, centered at origin,
+        spanning z ∈ [-length/2, +length/2].
+        """
+        direction = (p2 - p1) / length  # unit vector
+        midpoint = (p1 + p2) / 2.0
+
+        # Build rotation matrix from Z-axis to 'direction'
+        z_axis = np.array([0.0, 0.0, 1.0])
+        v = np.cross(z_axis, direction)
+        c = float(np.dot(z_axis, direction))
+
+        if abs(c + 1.0) < 1e-6:
+            # Anti-parallel: 180° rotation around X
+            rot = np.diag([-1.0, -1.0, 1.0]).astype(np.float32)
+            rot[2, 2] = -1.0
+            rot[0, 0] = 1.0
+        elif abs(c - 1.0) < 1e-6:
+            # Already aligned
+            rot = np.eye(3, dtype=np.float32)
+        else:
+            # Rodrigues' rotation formula
+            vx = np.array([
+                [0, -v[2], v[1]],
+                [v[2], 0, -v[0]],
+                [-v[1], v[0], 0],
+            ])
+            rot = np.eye(3) + vx + vx @ vx * (1.0 / (1.0 + c))
+            rot = rot.astype(np.float32)
+
+        # Apply rotation and translation
+        result = (rot @ verts.T).T + midpoint.astype(np.float32)
+        return result
 
     # ── Extract: Water Supply ──────────────────────────────────────────────
 
@@ -468,10 +615,16 @@ class View3D(QWidget):
     # ── Extract: Level Floors ──────────────────────────────────────────────
 
     def _extract_level_floors(self):
-        # Remove old floor meshes
+        # Remove old floor meshes, edge lines, and labels
         for m in self._floor_meshes:
             m.parent = None
         self._floor_meshes.clear()
+        for ln in self._floor_edge_lines:
+            ln.parent = None
+        self._floor_edge_lines.clear()
+        for lbl in self._floor_labels:
+            lbl.parent = None
+        self._floor_labels.clear()
 
         # Compute overall XY bounds from all nodes
         nodes = list(self._scene.sprinkler_system.nodes)
@@ -508,6 +661,34 @@ class View3D(QWidget):
                 parent=self._view.scene,
             )
             self._floor_meshes.append(mesh)
+
+            # Edge outline (closed loop around the floor boundary)
+            border_pts = np.array([
+                [x_min, y_min, z],
+                [x_max, y_min, z],
+                [x_max, y_max, z],
+                [x_min, y_max, z],
+                [x_min, y_min, z],  # close loop
+            ], dtype=np.float32)
+            edge_line = visuals.Line(
+                pos=border_pts,
+                color=(col[0], col[1], col[2], 0.6),
+                width=1.5,
+                connect='strip',
+                parent=self._view.scene,
+            )
+            self._floor_edge_lines.append(edge_line)
+
+            # Level name label
+            label = visuals.Text(
+                text=lvl.name,
+                pos=np.array([[x_min + 200, y_min + 200, z + 50]]),
+                color=(1.0, 1.0, 1.0, 0.7),
+                font_size=12,
+                bold=True,
+                parent=self._view.scene,
+            )
+            self._floor_labels.append(label)
 
     # ── Edge extraction helper ──────────────────────────────────────────────
 
@@ -707,6 +888,45 @@ class View3D(QWidget):
         else:
             self._view.camera.fov = 0
             self._proj_btn.setText("Perspective")
+
+    def _create_ground_grid(self, extent: float, step: float):
+        """Create a ground grid in the XY plane at Z=0."""
+        pts = []
+        val = -extent
+        while val <= extent:
+            pts.append([val, -extent, 0])
+            pts.append([val,  extent, 0])
+            pts.append([-extent, val, 0])
+            pts.append([ extent, val, 0])
+            val += step
+        return visuals.Line(
+            pos=np.array(pts, dtype=np.float32),
+            color=(0.3, 0.3, 0.3, 0.2),
+            width=1.0,
+            connect='segments',
+            parent=self._view.scene,
+        )
+
+    def _toggle_3d_grid(self):
+        """Toggle ground grid and axis lines visibility."""
+        self._3d_grid_visible = not self._3d_grid_visible
+        vis = self._3d_grid_visible
+        self._ground_grid.visible = vis
+        self._axis_lines.visible = vis
+        for lbl in self._axis_labels:
+            lbl.visible = vis
+
+    def _set_view_preset(self, elevation: float, azimuth: float):
+        """Set camera to a standard engineering view preset."""
+        self._view.camera.elevation = elevation
+        self._view.camera.azimuth = azimuth
+        # Top view → switch to orthographic for true plan view
+        if elevation == 90:
+            self._view.camera.fov = 0
+            self._proj_btn.setText("Perspective")
+            self._perspective = False
+        self._fit_camera()
+        self._canvas.update()
 
     # ── Section Cuts ───────────────────────────────────────────────────────
 
@@ -947,8 +1167,9 @@ class View3D(QWidget):
             if isinstance(item, Node):
                 positions.append(self._node_to_3d(item))
             elif isinstance(item, Pipe):
-                mid = (self._node_to_3d(item.node1) + self._node_to_3d(item.node2)) / 2
-                positions.append(mid)
+                if item.node1 is not None and item.node2 is not None:
+                    mid = (self._node_to_3d(item.node1) + self._node_to_3d(item.node2)) / 2
+                    positions.append(mid)
             elif isinstance(item, (WallSegment, FloorSlab)):
                 mesh_selected = item
 

@@ -35,19 +35,23 @@ from PyQt6.QtWidgets import (
 SNAP_TOLERANCE_PX = 15      # screen-pixel search radius
 
 SNAP_COLORS: dict[str, str] = {
-    "endpoint":  "#ffff00",   # yellow  – square marker
-    "midpoint":  "#00ff88",   # green   – triangle marker
-    "center":    "#00eeee",   # cyan    – circle marker
-    "quadrant":  "#ff8800",   # orange  – diamond marker
-    "nearest":   "#aaaaaa",   # grey    – cross marker
+    "endpoint":      "#ffff00",   # yellow  – square marker
+    "midpoint":      "#00ff88",   # green   – triangle marker
+    "center":        "#00eeee",   # cyan    – circle marker
+    "quadrant":      "#ff8800",   # orange  – diamond marker
+    "nearest":       "#aaaaaa",   # grey    – cross marker
+    "perpendicular": "#ff00ff",   # magenta – right-angle marker
+    "tangent":       "#88ff00",   # lime    – tangent marker
 }
 
 SNAP_MARKERS: dict[str, str] = {
-    "endpoint":  "square",
-    "midpoint":  "triangle",
-    "center":    "circle",
-    "quadrant":  "diamond",
-    "nearest":   "cross",
+    "endpoint":      "square",
+    "midpoint":      "triangle",
+    "center":        "circle",
+    "quadrant":      "diamond",
+    "nearest":       "cross",
+    "perpendicular": "right_angle",
+    "tangent":       "tangent_circle",
 }
 
 
@@ -79,11 +83,13 @@ class SnapEngine:
     def __init__(self):
         self.enabled:        bool = True
         # Per-type toggles (all on by default)
-        self.snap_endpoint:  bool = True
-        self.snap_midpoint:  bool = True
-        self.snap_center:    bool = True
-        self.snap_quadrant:  bool = True
-        self.snap_nearest:   bool = False
+        self.snap_endpoint:      bool = True
+        self.snap_midpoint:      bool = True
+        self.snap_center:        bool = True
+        self.snap_quadrant:      bool = True
+        self.snap_nearest:       bool = False
+        self.snap_perpendicular: bool = True
+        self.snap_tangent:       bool = True
 
     # ── Public ───────────────────────────────────────────────────────────────
 
@@ -159,6 +165,10 @@ class SnapEngine:
                 continue
 
             for snap_type, pt in self._collect(item):
+                _check(snap_type, pt, item)
+
+            # Perpendicular and tangent snaps (computed from cursor position)
+            for snap_type, pt in self._geometric_snaps(cursor_scene, item):
                 _check(snap_type, pt, item)
 
         return best_result
@@ -258,3 +268,70 @@ class SnapEngine:
         p2  = item.mapToScene(line.p2())
         mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
         return [("endpoint", p1), ("endpoint", p2), ("midpoint", mid)]
+
+    # ── Perpendicular / Tangent snaps ─────────────────────────────────────
+
+    def _geometric_snaps(
+        self, cursor: QPointF, item: QGraphicsItem,
+    ) -> list[tuple[str, QPointF]]:
+        """Perpendicular and tangent snap points that depend on cursor position."""
+        # Lazy imports
+        try:
+            from construction_geometry import LineItem, CircleItem, ConstructionLine
+        except ImportError:
+            LineItem = CircleItem = ConstructionLine = None  # type: ignore
+
+        pts: list[tuple[str, QPointF]] = []
+
+        # Perpendicular to lines
+        if self.snap_perpendicular:
+            if isinstance(item, QGraphicsLineItem):
+                line = item.line()
+                p1 = item.mapToScene(line.p1())
+                p2 = item.mapToScene(line.p2())
+                foot = self._project_to_segment(cursor, p1, p2)
+                if foot is not None:
+                    pts.append(("perpendicular", foot))
+
+        # Tangent to circles
+        if self.snap_tangent:
+            if isinstance(item, QGraphicsEllipseItem):
+                br = item.boundingRect()
+                # Only for circles (width == height)
+                if abs(br.width() - br.height()) < 0.1:
+                    center = item.mapToScene(br.center())
+                    r = br.width() / 2.0
+                    d = math.hypot(cursor.x() - center.x(),
+                                   cursor.y() - center.y())
+                    if d > r + 1e-6:
+                        angle_to_cursor = math.atan2(
+                            cursor.y() - center.y(),
+                            cursor.x() - center.x(),
+                        )
+                        half_angle = math.acos(r / d)
+                        for sign in (+1, -1):
+                            a = angle_to_cursor + sign * half_angle
+                            tp = QPointF(
+                                center.x() + r * math.cos(a),
+                                center.y() + r * math.sin(a),
+                            )
+                            pts.append(("tangent", tp))
+
+        return pts
+
+    @staticmethod
+    def _project_to_segment(
+        pt: QPointF, seg_a: QPointF, seg_b: QPointF,
+    ) -> QPointF | None:
+        """Return the foot-of-perpendicular from *pt* onto segment *seg_a*–*seg_b*.
+
+        Returns None if the segment is degenerate (zero-length).
+        """
+        dx = seg_b.x() - seg_a.x()
+        dy = seg_b.y() - seg_a.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return None
+        t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
+        t = max(0.0, min(1.0, t))
+        return QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy)
