@@ -54,6 +54,17 @@ SNAP_MARKERS: dict[str, str] = {
     "tangent":       "tangent_circle",
 }
 
+# Priority ordering — lower value = higher priority (endpoint wins over nearest)
+SNAP_PRIORITY: dict[str, int] = {
+    "endpoint":      0,
+    "midpoint":      1,
+    "center":        2,
+    "perpendicular": 3,
+    "quadrant":      4,
+    "tangent":       5,
+    "nearest":       6,
+}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # OsnapResult
@@ -133,13 +144,17 @@ class SnapEngine:
             _anno_types = ()
 
         best_dist   = tol
+        best_prio   = 999
         best_result: OsnapResult | None = None
 
         def _check(snap_type: str, pt: QPointF, src_item: QGraphicsItem):
-            nonlocal best_dist, best_result
+            nonlocal best_dist, best_prio, best_result
             d = math.hypot(pt.x() - cursor_scene.x(), pt.y() - cursor_scene.y())
-            if d < best_dist:
+            prio = SNAP_PRIORITY.get(snap_type, 6)
+            # Strictly closer always wins; within tolerance, prefer higher priority
+            if d < best_dist - 1e-3 or (d < best_dist + 1e-3 and prio < best_prio):
                 best_dist   = d
+                best_prio   = prio
                 best_result = OsnapResult(point=pt, snap_type=snap_type, source_item=src_item)
 
         for item in scene.items(search_rect):
@@ -181,11 +196,11 @@ class SnapEngine:
         # Lazy imports to avoid circular dependencies
         try:
             from construction_geometry import (
-                LineItem, RectangleItem, CircleItem,
+                LineItem, RectangleItem, CircleItem, ArcItem,
                 PolylineItem, ConstructionLine,
             )
         except ImportError:
-            LineItem = RectangleItem = CircleItem = PolylineItem = ConstructionLine = None  # type: ignore
+            LineItem = RectangleItem = CircleItem = ArcItem = PolylineItem = ConstructionLine = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
@@ -246,28 +261,88 @@ class SnapEngine:
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top()))))
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom()))))
 
-        # ── PolylineItem / any QGraphicsPathItem ──────────────────────────
+        # ── PolylineItem (must come before generic QGraphicsPathItem) ────
+        elif PolylineItem and isinstance(item, PolylineItem):
+            vertices = item._points
+            # All vertices are real geometric endpoints
+            if self.snap_endpoint:
+                for v in vertices:
+                    pts.append(("endpoint", item.mapToScene(v)))
+            # True midpoints of each segment between consecutive vertices
+            if self.snap_midpoint:
+                for i in range(len(vertices) - 1):
+                    a, b = vertices[i], vertices[i + 1]
+                    mid = QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
+                    pts.append(("midpoint", item.mapToScene(mid)))
+
+        # ── ArcItem ────────────────────────────────────────────────────────
+        elif ArcItem and isinstance(item, ArcItem):
+            cx, cy = item._center.x(), item._center.y()
+            r = item._radius
+            sa = math.radians(item._start_deg)
+            ea = math.radians(item._start_deg + item._span_deg)
+
+            # Arc start/end as endpoints
+            if self.snap_endpoint:
+                start_pt = QPointF(cx + r * math.cos(sa), cy - r * math.sin(sa))
+                end_pt   = QPointF(cx + r * math.cos(ea), cy - r * math.sin(ea))
+                pts.append(("endpoint", start_pt))
+                pts.append(("endpoint", end_pt))
+
+            # Center
+            if self.snap_center:
+                pts.append(("center", QPointF(cx, cy)))
+
+            # Angular midpoint along the arc
+            if self.snap_midpoint:
+                mid_a = math.radians(item._start_deg + item._span_deg / 2)
+                mid_pt = QPointF(cx + r * math.cos(mid_a),
+                                 cy - r * math.sin(mid_a))
+                pts.append(("midpoint", mid_pt))
+
+            # Quadrant points that fall within the arc's angular range
+            if self.snap_quadrant:
+                from geometry_intersect import _angle_in_arc
+                for q_deg in (0.0, 90.0, 180.0, 270.0):
+                    if _angle_in_arc(q_deg, item._start_deg, item._span_deg):
+                        q_rad = math.radians(q_deg)
+                        q_pt = QPointF(cx + r * math.cos(q_rad),
+                                       cy - r * math.sin(q_rad))
+                        pts.append(("quadrant", q_pt))
+
+        # ── Generic QGraphicsPathItem (DXF imports, etc.) ────────────────
         elif isinstance(item, QGraphicsPathItem):
             path = item.path()
             n = path.elementCount()
-            for i in range(min(n, 512)):
-                elem = path.elementAt(i)
-                pt   = item.mapToScene(QPointF(elem.x, elem.y))
-                if self.snap_endpoint and (i == 0 or i == n - 1):
-                    pts.append(("endpoint", pt))
-                elif self.snap_midpoint:
-                    pts.append(("midpoint", pt))
+            # All path vertices are endpoints
+            if self.snap_endpoint:
+                for i in range(min(n, 512)):
+                    elem = path.elementAt(i)
+                    pts.append(("endpoint",
+                                item.mapToScene(QPointF(elem.x, elem.y))))
+            # Segment midpoints between consecutive vertices
+            if self.snap_midpoint:
+                for i in range(min(n - 1, 511)):
+                    e1 = path.elementAt(i)
+                    e2 = path.elementAt(i + 1)
+                    mid = QPointF((e1.x + e2.x) / 2, (e1.y + e2.y) / 2)
+                    pts.append(("midpoint", item.mapToScene(mid)))
 
         return pts
 
-    @staticmethod
-    def _line_snaps(item: QGraphicsLineItem) -> list[tuple[str, QPointF]]:
+    def _line_snaps(self, item: QGraphicsLineItem) -> list[tuple[str, QPointF]]:
         """Endpoint + midpoint snaps for a QGraphicsLineItem."""
         line = item.line()
         p1  = item.mapToScene(line.p1())
         p2  = item.mapToScene(line.p2())
-        mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-        return [("endpoint", p1), ("endpoint", p2), ("midpoint", mid)]
+        pts: list[tuple[str, QPointF]] = []
+        if self.snap_endpoint:
+            pts.append(("endpoint", p1))
+            pts.append(("endpoint", p2))
+        if self.snap_midpoint:
+            mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+            pts.append(("midpoint", mid))
+        return pts
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
 
@@ -277,9 +352,9 @@ class SnapEngine:
         """Perpendicular and tangent snap points that depend on cursor position."""
         # Lazy imports
         try:
-            from construction_geometry import LineItem, CircleItem, ConstructionLine
+            from construction_geometry import LineItem, CircleItem, ArcItem, ConstructionLine
         except ImportError:
-            LineItem = CircleItem = ConstructionLine = None  # type: ignore
+            LineItem = CircleItem = ArcItem = ConstructionLine = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
@@ -292,6 +367,22 @@ class SnapEngine:
                 foot = self._project_to_segment(cursor, p1, p2)
                 if foot is not None:
                     pts.append(("perpendicular", foot))
+
+        # Perpendicular to arcs (closest point on arc circumference)
+        if self.snap_perpendicular:
+            if ArcItem and isinstance(item, ArcItem):
+                cx, cy = item._center.x(), item._center.y()
+                r = item._radius
+                dx = cursor.x() - cx
+                dy = cursor.y() - cy
+                d = math.hypot(dx, dy)
+                if d > 1e-6:
+                    # Angle from center to cursor (math convention, then negate Y for Qt)
+                    foot_angle_deg = math.degrees(math.atan2(-dy, dx))
+                    from geometry_intersect import _angle_in_arc
+                    if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
+                        foot = QPointF(cx + r * dx / d, cy + r * dy / d)
+                        pts.append(("perpendicular", foot))
 
         # Tangent to circles
         if self.snap_tangent:

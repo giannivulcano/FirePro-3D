@@ -5801,9 +5801,10 @@ class Model_Space(QGraphicsScene):
 
             elif isinstance(item, CircleItem):
                 # Convert circle to arc by removing the clicked portion
+                ANG_EPS = 0.01  # degrees — tolerance for angle comparison
                 center = item._center
                 r = item._radius
-                # Compute angle of intersection and click
+                # Compute angle of each intersection point
                 int_angles = []
                 for ipt in intersections:
                     angle = math.degrees(math.atan2(
@@ -5811,20 +5812,56 @@ class Model_Space(QGraphicsScene):
                     int_angles.append(angle % 360)
 
                 if len(int_angles) < 2:
-                    self._show_status("Need two intersections to trim a circle")
+                    self._show_status(
+                        "Need at least two intersections to trim a circle")
                     return
 
                 click_angle = math.degrees(math.atan2(
                     pos.y() - center.y(), pos.x() - center.x())) % 360
 
-                a1, a2 = sorted(int_angles[:2])
+                if len(int_angles) > 2:
+                    # Multiple intersections: find the bracketing pair that
+                    # contains click_angle with the smallest angular span
+                    sorted_angles = sorted(int_angles)
+                    best_pair = None
+                    best_span = 360.0
+                    for i in range(len(sorted_angles)):
+                        aa = sorted_angles[i]
+                        ab = sorted_angles[(i + 1) % len(sorted_angles)]
+                        # Check if click_angle lies between aa and ab (CCW)
+                        if ab > aa:
+                            in_range = aa <= click_angle <= ab
+                            span_test = ab - aa
+                        else:
+                            in_range = click_angle >= aa or click_angle <= ab
+                            span_test = (ab + 360 - aa) % 360
+                        if in_range and span_test < best_span:
+                            best_span = span_test
+                            best_pair = (aa, ab)
+                    if best_pair is None:
+                        # Fallback: two angles closest to click
+                        by_dist = sorted(
+                            int_angles,
+                            key=lambda a: min(abs(a - click_angle),
+                                              360 - abs(a - click_angle)))
+                        best_pair = tuple(sorted(by_dist[:2]))
+                    a1, a2 = best_pair
+                else:
+                    a1, a2 = sorted(int_angles[:2])
+
                 # Determine which arc to keep (the one NOT clicked)
-                if a1 < click_angle < a2:
+                if a1 + ANG_EPS < click_angle < a2 - ANG_EPS:
+                    # Click is in the shorter arc — keep the outer arc
                     start = a2
                     span = (a1 + 360 - a2) % 360
                 else:
                     start = a1
                     span = a2 - a1
+
+                # Validate resulting arc
+                if span < ANG_EPS or span > 360 - ANG_EPS:
+                    self._show_status("Trim would produce degenerate arc")
+                    return
 
                 color = item.pen().color().name()
                 lw = item.pen().widthF()
@@ -5898,10 +5935,14 @@ class Model_Space(QGraphicsScene):
             item, grip_idx, grip_pt = endpoint_hit
             boundary = self._extend_boundary
 
-            if isinstance(item, LineItem):
-                grips = item.grip_points()
-                p1, p2 = grips[0], grips[2]
-                # Extend from the clicked endpoint
+            if isinstance(item, (LineItem, PolylineItem)):
+                # For polylines, only allow extending from first or last vertex
+                if isinstance(item, PolylineItem):
+                    n_verts = len(item._points)
+                    if grip_idx != 0 and grip_idx != n_verts - 1:
+                        self._show_status("Can only extend from first or last vertex")
+                        return
+
                 intersections = self._compute_extend_intersections(
                     item, grip_idx, boundary)
                 if not intersections:
@@ -5911,7 +5952,8 @@ class Model_Space(QGraphicsScene):
                 if hit:
                     item.apply_grip(grip_idx, hit)
                     self.push_undo_state()
-                    self._show_status("Extended line to boundary")
+                    kind = "polyline" if isinstance(item, PolylineItem) else "line"
+                    self._show_status(f"Extended {kind} to boundary")
 
     def _handle_merge_click(self, pos: QPointF):
         """Handle mouse click during merge points mode."""
@@ -6134,37 +6176,96 @@ class Model_Space(QGraphicsScene):
         return results
 
     def _compute_extend_intersections(self, item, grip_idx, boundary):
-        """Compute where item would intersect boundary if extended."""
-        from construction_geometry import LineItem
+        """Compute where *item* would intersect *boundary* if extended.
+
+        Only returns intersections in the forward direction from the
+        extending endpoint (away from the interior of the item).
+        """
+        from construction_geometry import LineItem, PolylineItem
         import geometry_intersect as gi
 
-        results = []
+        raw_results: list[QPointF] = []
+        extend_pt: QPointF | None = None
+        direction: tuple[float, float] | None = None
+
         if isinstance(item, LineItem):
             grips = item.grip_points()
             p1, p2 = grips[0], grips[2]
+            if grip_idx == 0:
+                extend_pt, fixed_pt = p1, p2
+            else:
+                extend_pt, fixed_pt = p2, p1
+            direction = (extend_pt.x() - fixed_pt.x(),
+                         extend_pt.y() - fixed_pt.y())
+
+            boundary_segs = self._get_item_segments(boundary)
+            for bseg in boundary_segs:
+                if bseg[0] == "line":
+                    pt = gi.line_line_intersection_unbounded(p1, p2, bseg[1], bseg[2])
+                    if pt:
+                        raw_results.append(pt)
+                elif bseg[0] == "circle":
+                    raw_results.extend(
+                        gi.line_circle_intersections_unbounded(p1, p2, bseg[1], bseg[2]))
+                elif bseg[0] == "arc":
+                    pts = gi.line_circle_intersections_unbounded(p1, p2, bseg[1], bseg[2])
+                    from geometry_intersect import _angle_in_arc
+                    for pt in pts:
+                        angle = math.degrees(math.atan2(
+                            pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
+                        if _angle_in_arc(angle, bseg[3], bseg[4]):
+                            raw_results.append(pt)
+
+        elif isinstance(item, PolylineItem):
+            vertices = item._points
+            if len(vertices) < 2:
+                return []
+            if grip_idx == 0:
+                extend_pt = vertices[0]
+                neighbor = vertices[1]
+            elif grip_idx == len(vertices) - 1:
+                extend_pt = vertices[-1]
+                neighbor = vertices[-2]
+            else:
+                return []  # cannot extend from interior vertex
+
+            direction = (extend_pt.x() - neighbor.x(),
+                         extend_pt.y() - neighbor.y())
+
             boundary_segs = self._get_item_segments(boundary)
             for bseg in boundary_segs:
                 if bseg[0] == "line":
                     pt = gi.line_line_intersection_unbounded(
-                        p1, p2, bseg[1], bseg[2])
+                        neighbor, extend_pt, bseg[1], bseg[2])
                     if pt:
-                        results.append(pt)
+                        raw_results.append(pt)
                 elif bseg[0] == "circle":
-                    pts = gi.line_circle_intersections_unbounded(
-                        p1, p2, bseg[1], bseg[2])
-                    results.extend(pts)
+                    raw_results.extend(
+                        gi.line_circle_intersections_unbounded(
+                            neighbor, extend_pt, bseg[1], bseg[2]))
                 elif bseg[0] == "arc":
                     pts = gi.line_circle_intersections_unbounded(
-                        p1, p2, bseg[1], bseg[2])
-                    # Filter to only points on the arc
+                        neighbor, extend_pt, bseg[1], bseg[2])
+                    from geometry_intersect import _angle_in_arc
                     for pt in pts:
                         angle = math.degrees(math.atan2(
-                            pt.y() - bseg[1].y(),
-                            pt.x() - bseg[1].x())) % 360
-                        from geometry_intersect import _angle_in_arc
+                            pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
                         if _angle_in_arc(angle, bseg[3], bseg[4]):
-                            results.append(pt)
-        return results
+                            raw_results.append(pt)
+
+        # Filter to forward direction only
+        if extend_pt is not None and direction is not None:
+            dx, dy = direction
+            forward = []
+            for pt in raw_results:
+                vx = pt.x() - extend_pt.x()
+                vy = pt.y() - extend_pt.y()
+                dot = vx * dx + vy * dy
+                if dot > -1e-6:
+                    forward.append(pt)
+            return forward if forward else raw_results
+
+        return raw_results
 
     def _get_item_segments(self, item):
         """Return geometric representation of an item as list of tuples.
