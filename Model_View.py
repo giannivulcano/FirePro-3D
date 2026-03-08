@@ -245,6 +245,15 @@ class Model_View(QGraphicsView):
             elif marker == "cross":
                 painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
                 painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+            elif marker == "right_angle":
+                # ⊥ perpendicular symbol: right-angle corner
+                painter.drawLine(int(x) - s, int(y), int(x), int(y))
+                painter.drawLine(int(x), int(y), int(x), int(y) - s)
+                painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+            elif marker == "tangent_circle":
+                # Tangent: small circle with horizontal line through bottom
+                painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
+                painter.drawLine(int(x) - s - 2, int(y) + s, int(x) + s + 2, int(y) + s)
 
             painter.restore()
 
