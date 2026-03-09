@@ -78,6 +78,18 @@ RibbonButton:checked {
 RibbonButton:disabled {
     color: #aaaaaa;
 }
+RibbonButton::menu-button {
+    width: 0px;
+    border: none;
+    background: transparent;
+}
+RibbonButton::menu-indicator {
+    subcontrol-position: bottom center;
+    subcontrol-origin: padding;
+    width: 12px;
+    height: 8px;
+    bottom: 14px;
+}
 RibbonSmallButton {
     background: transparent;
     border: 1px solid transparent;

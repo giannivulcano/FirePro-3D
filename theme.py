@@ -483,6 +483,20 @@ RibbonButton:checked {{
 RibbonButton:disabled {{
     color: {t.text_disabled};
 }}
+RibbonButton::menu-button {{
+    /* Hide the default right-side dropdown strip */
+    width: 0px;
+    border: none;
+    background: transparent;
+}}
+RibbonButton::menu-indicator {{
+    /* Small arrow at bottom-centre of the button */
+    subcontrol-position: bottom center;
+    subcontrol-origin: padding;
+    width: 12px;
+    height: 8px;
+    bottom: 14px;
+}}
 RibbonSmallButton {{
     background: transparent;
     border: 1px solid transparent;
