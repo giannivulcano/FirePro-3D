@@ -30,8 +30,10 @@ class Model_View(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # Optional: smooth drag
+        # Rubber-band selection — only active in select/stretch modes
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        if hasattr(scene, "modeChanged"):
+            scene.modeChanged.connect(self._on_mode_changed)
 
         # Mode-dependent cursor shapes
         _C = Qt.CursorShape
@@ -475,7 +477,11 @@ class Model_View(QGraphicsView):
         elif event.button() == Qt.MouseButton.LeftButton:
             if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
-                self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+                # Only restore rubber-band in modes that use it
+                sc = self.scene()
+                mode = getattr(sc, "mode", "select") if sc else "select"
+                if mode in ("select", "stretch"):
+                    self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
             # Crossing selection for stretch mode: detect right-to-left drag
             sc = self.scene()
             rb_start = getattr(self, "_rb_start", None)
@@ -497,6 +503,17 @@ class Model_View(QGraphicsView):
             super().mouseReleaseEvent(event)
         else:
             super().mouseReleaseEvent(event)
+
+    # -----------------------------------------
+    # Mode change → toggle rubber-band drag
+    # -----------------------------------------
+
+    def _on_mode_changed(self, mode):
+        """Disable rubber-band selection during drawing / placement modes."""
+        if mode in ("select", "stretch"):
+            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        else:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
 
     # -----------------------------
     # Tab — exact dimension input

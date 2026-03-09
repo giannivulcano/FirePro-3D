@@ -2345,12 +2345,13 @@ class Model_Space(QGraphicsScene):
 
     def _handle_tab_input(self):
         """
-        Open a small dialog to let the user type exact dimensions for the
-        current drawing operation (line length+angle, rect W+H, circle radius).
-        Called by Model_View.keyPressEvent when Tab is pressed.
+        Open a lightweight inline popup to let the user type exact dimensions
+        for the current drawing operation (line length+angle, rect W+H,
+        circle radius).  Called by Model_View.keyPressEvent when Tab is
+        pressed.
 
         In wall mode, Tab cycles alignment (Center → Interior → Exterior)
-        instead of opening the exact-input dialog.
+        instead of opening the exact-input popup.
 
         Defaults are computed from the current cursor position relative to
         the anchor point.  Values are always in mm (1 scene unit = 1 mm
@@ -2370,13 +2371,9 @@ class Model_Space(QGraphicsScene):
                 self.requestPropertyUpdate.emit(self._wall_template)
             return
 
-        from PyQt6.QtWidgets import (
-            QDialog, QVBoxLayout, QFormLayout,
-            QDoubleSpinBox, QDialogButtonBox,
-        )
+        from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QLabel
+        from PyQt6.QtGui import QCursor, QDoubleValidator
 
-        sm = self.scale_manager
-        suf = "  mm"   # always mm — 1 scene unit = 1 mm (uncalibrated default)
         cursor = self._last_scene_pos   # may be None on startup
 
         def _defaults_from(anchor):
@@ -2389,40 +2386,93 @@ class Model_Space(QGraphicsScene):
             angle = math.degrees(math.atan2(-dy, dx))   # Y-up convention
             return max(length, 0.01), angle
 
+        # ── Inline frameless popup for Dynamic Input ──────────────────────
+        class _DynInput(QDialog):
+            """Frameless side-by-side input popup (no spinner, no header,
+            no OK/Cancel).  Enter accepts, Escape cancels, Tab cycles fields."""
+
+            def __init__(self, fields, parent=None):
+                """*fields*: list of (name, default, suffix, decimals)"""
+                super().__init__(parent)
+                self.setWindowFlags(
+                    Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
+                )
+                self.setStyleSheet(
+                    "QDialog   { background: #2d2d2d; border: 1px solid #555;"
+                    "            border-radius: 4px; }"
+                    "QLabel    { color: #aaaaaa; font: 9pt 'Segoe UI';"
+                    "            padding: 0 2px; }"
+                    "QLineEdit { background: #1a1a1a; color: #ffffff;"
+                    "            border: 1px solid #555; border-radius: 3px;"
+                    "            padding: 3px 6px; font: 9pt 'Consolas';"
+                    "            min-width: 72px; max-width: 90px; }"
+                    "QLineEdit:focus { border-color: #4fa3e0; }"
+                )
+                lay = QHBoxLayout(self)
+                lay.setContentsMargins(8, 6, 8, 6)
+                lay.setSpacing(4)
+                self._edits = {}
+                self._order = []
+                first = None
+                for name, default_val, suffix, decimals in fields:
+                    lay.addWidget(QLabel(f"{name}:"))
+                    edit = QLineEdit(f"{default_val:.{decimals}f}")
+                    edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+                    v = QDoubleValidator()
+                    v.setDecimals(decimals)
+                    edit.setValidator(v)
+                    lay.addWidget(edit)
+                    if suffix:
+                        lay.addWidget(QLabel(suffix))
+                    self._edits[name] = edit
+                    self._order.append(edit)
+                    if first is None:
+                        first = edit
+                # Position near mouse cursor
+                gpos = QCursor.pos()
+                self.adjustSize()
+                self.move(gpos.x() + 16, gpos.y() + 16)
+                if first:
+                    first.selectAll()
+                    first.setFocus()
+
+            def keyPressEvent(self, event):
+                key = event.key()
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self.accept()
+                elif key == Qt.Key.Key_Escape:
+                    self.reject()
+                elif key == Qt.Key.Key_Tab:
+                    cur = self.focusWidget()
+                    if cur in self._order:
+                        idx = self._order.index(cur)
+                        nxt = self._order[(idx + 1) % len(self._order)]
+                        nxt.selectAll()
+                        nxt.setFocus()
+                    event.accept()
+                else:
+                    super().keyPressEvent(event)
+
+            def value(self, name):
+                try:
+                    return float(self._edits[name].text())
+                except ValueError:
+                    return 0.0
+
         # ── Line ──────────────────────────────────────────────────────────
         if self.mode == "draw_line" and self._draw_line_anchor is not None:
             anchor = self._draw_line_anchor
             def_len, def_ang = _defaults_from(anchor)
 
-            dlg = QDialog()
-            dlg.setWindowTitle("Exact Length & Angle")
-            form = QFormLayout()
-            l_spin = QDoubleSpinBox()
-            l_spin.setRange(0.01, 1_000_000)
-            l_spin.setDecimals(3)
-            l_spin.setValue(def_len)
-            l_spin.setSuffix(suf)
-            a_spin = QDoubleSpinBox()
-            a_spin.setRange(-360, 360)
-            a_spin.setDecimals(2)
-            a_spin.setValue(def_ang)
-            a_spin.setSuffix("  °")
-            form.addRow("Length:", l_spin)
-            form.addRow("Angle:", a_spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            outer = QVBoxLayout(dlg)
-            outer.addLayout(form)
-            outer.addWidget(buttons)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
+            dlg = _DynInput([
+                ("Length", def_len, "mm", 2),
+                ("Angle",  def_ang, "°",  2),
+            ])
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
-            length = l_spin.value()
-            angle_rad = math.radians(a_spin.value())
+            length = dlg.value("Length")
+            angle_rad = math.radians(dlg.value("Angle"))
             tip = QPointF(
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
@@ -2449,37 +2499,17 @@ class Model_Space(QGraphicsScene):
             def_w = max(def_w, 0.01)
             def_h = max(def_h, 0.01)
 
-            dlg = QDialog()
-            dlg.setWindowTitle("Exact X & Y")
-            form = QFormLayout()
-            w_spin = QDoubleSpinBox()
-            w_spin.setRange(-1_000_000, 1_000_000)
-            w_spin.setDecimals(3)
-            w_spin.setValue(def_w)
-            w_spin.setSuffix(suf)
-            h_spin = QDoubleSpinBox()
-            h_spin.setRange(-1_000_000, 1_000_000)
-            h_spin.setDecimals(3)
-            h_spin.setValue(def_h)
-            h_spin.setSuffix(suf)
-            form.addRow("X:", w_spin)
-            form.addRow("Y:", h_spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            outer = QVBoxLayout(dlg)
-            outer.addLayout(form)
-            outer.addWidget(buttons)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
+            dlg = _DynInput([
+                ("X", def_w, "mm", 2),
+                ("Y", def_h, "mm", 2),
+            ])
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
             if self._draw_rect_from_center:
                 # Center mode: anchor is center, X/Y are half-extents
-                hw = w_spin.value()
-                hh = h_spin.value()
+                hw = dlg.value("X")
+                hh = dlg.value("Y")
                 pt1 = QPointF(self._draw_rect_anchor.x() - hw,
                               self._draw_rect_anchor.y() + hh)  # Y-up → scene Y-down
                 pt2 = QPointF(self._draw_rect_anchor.x() + hw,
@@ -2488,8 +2518,8 @@ class Model_Space(QGraphicsScene):
                 pt1 = QPointF(self._draw_rect_anchor.x(),
                               self._draw_rect_anchor.y())
                 pt2 = QPointF(
-                    self._draw_rect_anchor.x() + w_spin.value(),
-                    self._draw_rect_anchor.y() - h_spin.value(),   # Y-up → scene Y-down
+                    self._draw_rect_anchor.x() + dlg.value("X"),
+                    self._draw_rect_anchor.y() - dlg.value("Y"),   # Y-up → scene Y-down
                 )
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
@@ -2512,35 +2542,15 @@ class Model_Space(QGraphicsScene):
             anchor = self._polyline_active._points[-1]
             def_len, def_ang = _defaults_from(anchor)
 
-            dlg = QDialog()
-            dlg.setWindowTitle("Exact Segment Length & Angle")
-            form = QFormLayout()
-            l_spin = QDoubleSpinBox()
-            l_spin.setRange(0.01, 1_000_000)
-            l_spin.setDecimals(3)
-            l_spin.setValue(def_len)
-            l_spin.setSuffix(suf)
-            a_spin = QDoubleSpinBox()
-            a_spin.setRange(-360, 360)
-            a_spin.setDecimals(2)
-            a_spin.setValue(def_ang)
-            a_spin.setSuffix("  °")
-            form.addRow("Length:", l_spin)
-            form.addRow("Angle:", a_spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            outer = QVBoxLayout(dlg)
-            outer.addLayout(form)
-            outer.addWidget(buttons)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
+            dlg = _DynInput([
+                ("Length", def_len, "mm", 2),
+                ("Angle",  def_ang, "°",  2),
+            ])
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
-            length = l_spin.value()
-            angle_rad = math.radians(a_spin.value())
+            length = dlg.value("Length")
+            angle_rad = math.radians(dlg.value("Angle"))
             tip = QPointF(
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
@@ -2556,28 +2566,13 @@ class Model_Space(QGraphicsScene):
                 def_r = max(math.hypot(cursor.x() - center.x(),
                                        cursor.y() - center.y()), 0.01)
 
-            dlg = QDialog()
-            dlg.setWindowTitle("Exact Radius")
-            form = QFormLayout()
-            r_spin = QDoubleSpinBox()
-            r_spin.setRange(0.01, 1_000_000)
-            r_spin.setDecimals(3)
-            r_spin.setValue(def_r)
-            r_spin.setSuffix(suf)
-            form.addRow("Radius:", r_spin)
-            buttons = QDialogButtonBox(
-                QDialogButtonBox.StandardButton.Ok |
-                QDialogButtonBox.StandardButton.Cancel
-            )
-            outer = QVBoxLayout(dlg)
-            outer.addLayout(form)
-            outer.addWidget(buttons)
-            buttons.accepted.connect(dlg.accept)
-            buttons.rejected.connect(dlg.reject)
+            dlg = _DynInput([
+                ("Radius", def_r, "mm", 2),
+            ])
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
-            r = r_spin.value()
+            r = dlg.value("Radius")
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = CircleItem(self._draw_circle_center, r, _c, _lw)
