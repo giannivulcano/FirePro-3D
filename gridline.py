@@ -1,7 +1,7 @@
 """
 gridline.py
 ===========
-Revit-style gridline system for FireFlow Pro.
+Revit-style gridline system for FirePro 3D.
 
 Classes
 -------

@@ -1,7 +1,7 @@
 """
 sprinkler_db.py
 ===============
-Sprinkler product database for FireFlow Pro.
+Sprinkler product database for FirePro 3D.
 
 Classes
 -------

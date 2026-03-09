@@ -1,7 +1,7 @@
 """
 floor_slab.py
 =============
-FloorSlab entity for FireFlow Pro.
+FloorSlab entity for FirePro 3D.
 
 Click-to-define boundary in 2D (like a polyline that closes),
 rendered as a semi-transparent filled polygon in 2D and a flat

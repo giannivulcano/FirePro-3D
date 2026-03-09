@@ -1,7 +1,7 @@
 """
 constraints.py
 ==============
-Parametric constraint system for FireFlow Pro.
+Parametric constraint system for FirePro 3D.
 
 Provides a base ``Constraint`` class and two concrete implementations:
 

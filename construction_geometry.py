@@ -1,7 +1,7 @@
 """
 construction_geometry.py
 =========================
-Reference-geometry items for FireFlow Pro.
+Reference-geometry items for FirePro 3D.
 
 ConstructionLine  — an "infinite" dashed cyan line placed by two clicks.
 PolylineItem      — a multi-click open polyline on the active user layer.

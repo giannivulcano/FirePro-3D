@@ -63,7 +63,7 @@ class _SplashScreen(QWidget):
         layout.setSpacing(8)
 
         # App title
-        title = QLabel("FireFlow Pro")
+        title = QLabel("FirePro 3D")
         f = QFont("Segoe UI", 22)
         f.setBold(True)
         title.setFont(f)
@@ -126,11 +126,11 @@ class _SplashScreen(QWidget):
 class MainWindow(QMainWindow):
     def __init__(self, splash: _SplashScreen | None = None):
         super().__init__()
-        self.setWindowTitle("FireFlow Pro \u2014 Untitled")
+        self.setWindowTitle("FirePro 3D \u2014 Untitled")
         self._splash = splash
 
         # Settings
-        self.settings = QSettings("GV", "SprinklerAPP")
+        self.settings = QSettings("GV", "FirePro3D")
         self.current_sprinkler_template = Sprinkler(None)
         self.current_pipe_template = Pipe(None, None)
         self._current_file: str | None = None
@@ -1198,7 +1198,7 @@ class MainWindow(QMainWindow):
             self.save_file_as()
 
     def save_file_as(self):
-        file, _ = QFileDialog.getSaveFileName(self, "Save CAD Scene", "", "JSON Files (*.json)")
+        file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.fp3d)")
         if file:
             self._current_file = file
             if self.scene.save_to_file(file):
@@ -1206,7 +1206,7 @@ class MainWindow(QMainWindow):
                 self._update_title()
 
     def open_file(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Load CAD Scene", "", "JSON Files (*.json)")
+        file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.fp3d);;JSON Files (*.json)")
         if file:
             self._current_file = file
             self.scene.load_from_file(file)
@@ -1230,7 +1230,7 @@ class MainWindow(QMainWindow):
     def _update_title(self):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
         star = " *" if self._modified else ""
-        self.setWindowTitle(f"FireFlow Pro \u2014 {name}{star}")
+        self.setWindowTitle(f"FirePro 3D \u2014 {name}{star}")
 
     def _on_scene_modified(self):
         self._modified = True

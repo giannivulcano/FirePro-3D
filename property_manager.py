@@ -1,7 +1,7 @@
 """
 property_manager.py
 ===================
-Properties dock panel for FireFlow Pro.
+Properties dock panel for FirePro 3D.
 
 Displays editable properties for the currently selected entity (or template).
 Supports multi-select: property changes apply to every selected item.

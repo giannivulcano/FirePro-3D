@@ -1,7 +1,7 @@
 """
 view_cube.py
 ============
-Interactive ViewCube widget for FireFlow Pro's 3D viewport.
+Interactive ViewCube widget for FirePro 3D's 3D viewport.
 
 Renders a small wireframe cube (Revit / AutoCAD / SolidWorks style) that
 rotates to match the current camera orientation.  Clicking a face, edge,

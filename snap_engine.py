@@ -1,7 +1,7 @@
 """
 snap_engine.py
 ==============
-Object Snap (OSNAP) engine for FireFlow Pro.
+Object Snap (OSNAP) engine for FirePro 3D.
 
 Provides nearest-snap-point resolution for all geometry types in the scene,
 returning a typed OsnapResult used by the view's foreground renderer to draw

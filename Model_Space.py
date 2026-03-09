@@ -1569,7 +1569,7 @@ class Model_Space(QGraphicsScene):
         import os
         if not os.path.isfile(file_path):
             self._show_status(f"PDF not found: {file_path}")
-            print(f"[FireFlow] PDF not found: {file_path}")
+            print(f"[FirePro3D] PDF not found: {file_path}")
             return
 
         pixmap = None
@@ -1595,7 +1595,7 @@ class Model_Space(QGraphicsScene):
         except ImportError:
             pass  # fitz not installed — fall through to QPdfDocument
         except Exception as e:
-            print(f"[FireFlow] fitz PDF render failed: {e}")
+            print(f"[FirePro3D] fitz PDF render failed: {e}")
 
         # --- Strategy 2: QPdfDocument (Qt built-in) ----------------------
         if pixmap is None:
@@ -1628,7 +1628,7 @@ class Model_Space(QGraphicsScene):
                 pixmap = QPixmap.fromImage(image)
             except Exception as e:
                 self._show_status(f"Error importing PDF: {e}")
-                print(f"[FireFlow] QPdfDocument PDF render failed: {e}")
+                print(f"[FirePro3D] QPdfDocument PDF render failed: {e}")
                 return
 
         if pixmap is None or pixmap.isNull():
@@ -2404,17 +2404,17 @@ class Model_Space(QGraphicsScene):
                 self.setStyleSheet(
                     "QDialog   { background: #2d2d2d; border: 1px solid #555;"
                     "            border-radius: 4px; }"
-                    "QLabel    { color: #aaaaaa; font: 9pt 'Segoe UI';"
-                    "            padding: 0 2px; }"
+                    "QLabel    { color: #aaaaaa; font: 8pt 'Segoe UI';"
+                    "            padding: 0 1px; }"
                     "QLineEdit { background: #1a1a1a; color: #ffffff;"
                     "            border: 1px solid #555; border-radius: 3px;"
-                    "            padding: 3px 6px; font: 9pt 'Consolas';"
-                    "            min-width: 72px; max-width: 90px; }"
+                    "            padding: 2px 4px; font: 8pt 'Consolas';"
+                    "            min-width: 50px; max-width: 68px; }"
                     "QLineEdit:focus { border-color: #4fa3e0; }"
                 )
                 lay = QHBoxLayout(self)
-                lay.setContentsMargins(8, 6, 8, 6)
-                lay.setSpacing(4)
+                lay.setContentsMargins(6, 4, 6, 4)
+                lay.setSpacing(3)
                 self._edits = {}
                 self._order = []
                 first = None

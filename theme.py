@@ -1,7 +1,7 @@
 """
 theme.py
 ========
-Centralized dark / light theme token system for FireFlow Pro.
+Centralized dark / light theme token system for FirePro 3D.
 
 Every UI component — ribbon, docks, dialogs, property panels, canvas,
 status bar — should derive its colors from this module.  This keeps the

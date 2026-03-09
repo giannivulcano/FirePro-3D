@@ -1,7 +1,7 @@
 """
 dxf_preview_dialog.py
 =====================
-Unified underlay import dialog for FireFlow Pro.
+Unified underlay import dialog for FirePro 3D.
 
 Handles both **PDF** and **DXF** files from a single preview-first dialog.
 
@@ -546,7 +546,7 @@ class UnderlayImportDialog(QDialog):
 
     def _restore_saved_settings(self):
         """Restore last-used import settings from QSettings."""
-        s = QSettings("FireFlowPro", self._SETTINGS_KEY)
+        s = QSettings("FirePro3D", self._SETTINGS_KEY)
         # Scale combo
         scale_idx = s.value("scale_idx", 0, type=int)
         if 0 <= scale_idx < self._scale_combo.count():
@@ -578,7 +578,7 @@ class UnderlayImportDialog(QDialog):
 
     def _save_settings(self):
         """Save current import settings to QSettings."""
-        s = QSettings("FireFlowPro", self._SETTINGS_KEY)
+        s = QSettings("FirePro3D", self._SETTINGS_KEY)
         s.setValue("scale_idx", self._scale_combo.currentIndex())
         s.setValue("custom_scale", self._custom_scale_spin.value())
         s.setValue("rotation", self._rotation_spin.value())

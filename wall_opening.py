@@ -1,7 +1,7 @@
 """
 wall_opening.py
 ===============
-Door and Window opening entities for FireFlow Pro.
+Door and Window opening entities for FirePro 3D.
 
 Openings belong to a parent WallSegment and are defined by their
 position along the wall centerline, width, height, and (for windows)

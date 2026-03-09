@@ -1,7 +1,7 @@
 """
 wall.py
 =======
-WallSegment entity for FireFlow Pro.
+WallSegment entity for FirePro 3D.
 
 Drawn as a double-line (centerline +/- half thickness) in 2D plan view.
 Extruded to a 3D mesh between base_level and top_level (or base + height).

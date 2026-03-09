@@ -1,5 +1,5 @@
 """
-block_item.py — BlockItem for FireFlow Pro CAD
+block_item.py — BlockItem for FirePro 3D CAD
 A named group of geometry items that behaves as a single selectable/moveable unit.
 Supports:
   • Anonymous groups (auto-named "Group1", "Group2", …)

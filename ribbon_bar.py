@@ -1,7 +1,7 @@
 """
 ribbon_bar.py
 =============
-Microsoft-style ribbon bar for FireFlow Pro.
+Microsoft-style ribbon bar for FirePro 3D.
 
 Classes
 -------

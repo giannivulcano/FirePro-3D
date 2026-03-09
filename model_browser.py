@@ -1,7 +1,7 @@
 """
 model_browser.py
 ================
-Model Browser dock widget for FireFlow Pro.
+Model Browser dock widget for FirePro 3D.
 
 Displays all model entities (walls, floors, doors, windows) in a
 categorised tree view with auto-generated names.  Click to select
