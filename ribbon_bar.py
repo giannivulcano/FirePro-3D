@@ -79,16 +79,16 @@ RibbonButton:disabled {
     color: #aaaaaa;
 }
 RibbonButton::menu-button {
-    width: 0px;
     border: none;
     background: transparent;
 }
 RibbonButton::menu-indicator {
-    subcontrol-position: bottom center;
+    subcontrol-position: bottom right;
     subcontrol-origin: padding;
-    width: 12px;
+    width: 10px;
     height: 8px;
-    bottom: 14px;
+    bottom: 12px;
+    right: 4px;
 }
 RibbonSmallButton {
     background: transparent;
