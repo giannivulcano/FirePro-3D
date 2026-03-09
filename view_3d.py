@@ -21,7 +21,7 @@ from vispy.scene import visuals
 from vispy.geometry import create_cylinder
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
-from PyQt6.QtCore import pyqtSignal, QTimer
+from PyQt6.QtCore import pyqtSignal, QTimer, Qt
 
 from node import Node
 from pipe import Pipe
@@ -34,6 +34,7 @@ from water_supply import WaterSupply
 from Annotations import DimensionAnnotation, NoteAnnotation
 from wall import WallSegment
 from floor_slab import FloorSlab
+from view_cube import ViewCube
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,22 +164,6 @@ class View3D(QWidget):
         self._grid_btn.clicked.connect(self._toggle_3d_grid)
         tb.addWidget(self._grid_btn)
 
-        # View preset buttons
-        tb.addWidget(QLabel("  "))  # spacer
-        for label, elev, azim, tip in [
-            ("Top",   90, 0,   "Top view (plan)"),
-            ("Front", 0,  0,   "Front elevation"),
-            ("Right", 0,  90,  "Right elevation"),
-            ("Iso",   30, 45,  "Isometric view"),
-        ]:
-            btn = QPushButton(label)
-            btn.setFixedHeight(24)
-            btn.setToolTip(tip)
-            btn.clicked.connect(
-                lambda checked, e=elev, a=azim: self._set_view_preset(e, a)
-            )
-            tb.addWidget(btn)
-
         tb.addStretch()
         self._info_label = QLabel("")
         tb.addWidget(self._info_label)
@@ -193,6 +178,12 @@ class View3D(QWidget):
         )
 
         layout.addWidget(self._canvas.native)
+
+        # ViewCube overlay (top-right corner of the canvas)
+        self._view_cube = ViewCube(self._canvas.native)
+        self._view_cube.viewRequested.connect(self._on_viewcube_request)
+        self._view_cube.raise_()
+        self._position_viewcube()
 
         # Visuals (created once, data updated on rebuild)
         self._node_markers = visuals.Markers(parent=self._view.scene)
@@ -259,6 +250,10 @@ class View3D(QWidget):
         self._rebuild_timer.setSingleShot(True)
         self._rebuild_timer.setInterval(100)
         self._rebuild_timer.timeout.connect(self._do_rebuild)
+
+        # Camera sync → ViewCube (track interactive rotation)
+        self._canvas.events.mouse_release.connect(self._on_canvas_mouse_release)
+        self._canvas.events.mouse_move.connect(self._on_canvas_mouse_move)
 
         # Mouse picking
         self._canvas.events.mouse_press.connect(self._on_mouse_press)
@@ -926,7 +921,41 @@ class View3D(QWidget):
             self._proj_btn.setText("Perspective")
             self._perspective = False
         self._fit_camera()
+        self._sync_viewcube()
         self._canvas.update()
+
+    # ── ViewCube ──────────────────────────────────────────────────────────
+
+    def _position_viewcube(self):
+        """Place the ViewCube in the top-right corner of the canvas."""
+        cw = self._canvas.native.width()
+        vc = self._view_cube
+        margin = 4
+        vc.move(cw - vc.width() - margin, margin)
+
+    def _on_viewcube_request(self, elevation: float, azimuth: float):
+        """Handle a ViewCube click → snap camera to the requested angle."""
+        self._set_view_preset(elevation, azimuth)
+
+    def _sync_viewcube(self):
+        """Push current camera angles to the ViewCube so it rotates."""
+        elev = self._view.camera.elevation
+        azim = self._view.camera.azimuth
+        self._view_cube.set_camera_angles(elev, azim)
+
+    def _on_canvas_mouse_release(self, event):
+        """Sync ViewCube after the user finishes rotating the camera."""
+        self._sync_viewcube()
+
+    def _on_canvas_mouse_move(self, event):
+        """Sync ViewCube during interactive camera rotation."""
+        if event.is_dragging:
+            self._sync_viewcube()
+
+    def resizeEvent(self, event):
+        """Reposition ViewCube when the widget is resized."""
+        super().resizeEvent(event)
+        self._position_viewcube()
 
     # ── Section Cuts ───────────────────────────────────────────────────────
 

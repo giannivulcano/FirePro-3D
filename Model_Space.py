@@ -1564,52 +1564,98 @@ class Model_Space(QGraphicsScene):
 
     def import_pdf(self, file_path, dpi=150, page=0, x=0.0, y=0.0,
                    _record: Underlay = None):
+        import os
+        if not os.path.isfile(file_path):
+            self._show_status(f"PDF not found: {file_path}")
+            print(f"[FireFlow] PDF not found: {file_path}")
+            return
+
+        pixmap = None
+
+        # --- Strategy 1: PyMuPDF (fitz) — fast, synchronous, reliable ----
         try:
-            doc = QPdfDocument(self)
-            doc.load(file_path)
-            page_count = doc.pageCount()
-
-            if page < 0 or page >= page_count:
-                raise IndexError(f"Page {page} out of range (0–{page_count-1})")
-
-            page_size = doc.pagePointSize(page)
-            if not page_size.isValid():
-                raise RuntimeError("Invalid page size returned from PDF")
-
-            width_px  = int(page_size.width()  * dpi / 72.0)
-            height_px = int(page_size.height() * dpi / 72.0)
-
-            options = QPdfDocumentRenderOptions()
-            image   = doc.render(page, QSize(width_px, height_px), options)
-            if image.isNull():
-                raise RuntimeError("Failed to render PDF page to image")
-
-            pixmap = QPixmap.fromImage(image)
-            item   = QGraphicsPixmapItem(pixmap)
-            item.setZValue(-100)
-            item.setFlags(
-                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
-                QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            )
-            item.setPos(x if x != 0.0 else -pixmap.width()  / 2,
-                        y if y != 0.0 else -pixmap.height() / 2)
-            item.setData(0, "PDF Underlay")
-            self.addItem(item)
-
-            record = _record or Underlay(
-                type="pdf", path=file_path,
-                x=item.pos().x(), y=item.pos().y(),
-                dpi=dpi, page=page
-            )
-
-            # Apply saved display settings
-            self._apply_underlay_display(item, record)
-
-            self.underlays.append((record, item))
-            self._show_status(f"Imported PDF '{file_path}' page {page} at {dpi} DPI")
-
+            import fitz
+            doc = fitz.open(file_path)
+            if page < 0 or page >= len(doc):
+                doc.close()
+                self._show_status(
+                    f"Page {page} out of range (0–{len(doc)-1})")
+                return
+            pg = doc[page]
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = pg.get_pixmap(matrix=mat, alpha=False)
+            from PyQt6.QtGui import QImage
+            qimg = QImage(pix.samples, pix.width, pix.height,
+                          pix.stride, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimg.copy())   # .copy() detaches from fitz buffer
+            doc.close()
+        except ImportError:
+            pass  # fitz not installed — fall through to QPdfDocument
         except Exception as e:
-            self._show_status(f"Error importing PDF: {e}")
+            print(f"[FireFlow] fitz PDF render failed: {e}")
+
+        # --- Strategy 2: QPdfDocument (Qt built-in) ----------------------
+        if pixmap is None:
+            try:
+                doc = QPdfDocument(self)
+                err = doc.load(file_path)
+                # Give Qt a chance to finish async loading if needed
+                if doc.pageCount() == 0:
+                    QApplication.processEvents()
+                page_count = doc.pageCount()
+                if page_count == 0:
+                    raise RuntimeError(
+                        f"QPdfDocument loaded 0 pages (load error: {err})")
+                if page < 0 or page >= page_count:
+                    raise IndexError(
+                        f"Page {page} out of range (0–{page_count-1})")
+
+                page_size = doc.pagePointSize(page)
+                if not page_size.isValid():
+                    raise RuntimeError("Invalid page size from PDF")
+
+                width_px = int(page_size.width() * dpi / 72.0)
+                height_px = int(page_size.height() * dpi / 72.0)
+
+                options = QPdfDocumentRenderOptions()
+                image = doc.render(page, QSize(width_px, height_px), options)
+                if image.isNull():
+                    raise RuntimeError("QPdfDocument.render() returned null")
+
+                pixmap = QPixmap.fromImage(image)
+            except Exception as e:
+                self._show_status(f"Error importing PDF: {e}")
+                print(f"[FireFlow] QPdfDocument PDF render failed: {e}")
+                return
+
+        if pixmap is None or pixmap.isNull():
+            self._show_status("Failed to render PDF page")
+            return
+
+        item = QGraphicsPixmapItem(pixmap)
+        item.setZValue(-100)
+        item.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        )
+        item.setPos(x if x != 0.0 else -pixmap.width() / 2,
+                    y if y != 0.0 else -pixmap.height() / 2)
+        item.setData(0, "PDF Underlay")
+        self.addItem(item)
+
+        record = _record or Underlay(
+            type="pdf", path=file_path,
+            x=item.pos().x(), y=item.pos().y(),
+            dpi=dpi, page=page
+        )
+
+        # Apply saved display settings
+        self._apply_underlay_display(item, record)
+
+        self.underlays.append((record, item))
+        self.underlaysChanged.emit()
+        self._show_status(f"Imported PDF '{file_path}' page {page} at {dpi} DPI")
 
     # -------------------------------------------------------------------------
     # UNDERLAYS — MANAGEMENT

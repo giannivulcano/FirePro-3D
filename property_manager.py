@@ -250,6 +250,15 @@ class PropertyManager(QWidget):
         for t in self._targets:
             if hasattr(t, "set_property"):
                 t.set_property(key, value)
+        # Notify the scene so the 3D view rebuilds
+        if self._targets:
+            scene = None
+            for t in self._targets:
+                scene = t.scene() if callable(getattr(t, "scene", None)) else None
+                if scene is not None:
+                    break
+            if scene is not None and hasattr(scene, "sceneModified"):
+                scene.sceneModified.emit()
         # Auto-refresh so dependent fields (e.g. elevation) update immediately
         if not self._refresh_timer.isActive():
             self._refresh_timer.start()
