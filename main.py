@@ -36,7 +36,7 @@ import theme as th
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _SplashScreen(QWidget):
-    """Frameless loading screen with blue progress bar."""
+    """Frameless loading screen with logo and blue progress bar."""
 
     def __init__(self):
         super().__init__(None)
@@ -46,7 +46,7 @@ class _SplashScreen(QWidget):
             | Qt.WindowType.SplashScreen
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(420, 200)
+        self.setFixedSize(480, 260)
 
         # Centre on screen
         from PyQt6.QtGui import QGuiApplication
@@ -54,22 +54,34 @@ class _SplashScreen(QWidget):
         if screen:
             geo = screen.availableGeometry()
             self.move(
-                geo.x() + (geo.width() - 420) // 2,
-                geo.y() + (geo.height() - 200) // 2,
+                geo.x() + (geo.width() - 480) // 2,
+                geo.y() + (geo.height() - 260) // 2,
             )
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 20)
-        layout.setSpacing(8)
+        layout.setContentsMargins(30, 24, 30, 18)
+        layout.setSpacing(6)
 
-        # App title
-        title = QLabel("FirePro 3D")
-        f = QFont("Segoe UI", 22)
-        f.setBold(True)
-        title.setFont(f)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #ffffff;")
-        layout.addWidget(title)
+        # Logo
+        logo_lbl = QLabel()
+        logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "graphics", "Program Icon", "Logo.png",
+        )
+        if os.path.isfile(logo_path):
+            logo_pm = QPixmap(logo_path).scaledToHeight(
+                120, Qt.TransformationMode.SmoothTransformation
+            )
+            logo_lbl.setPixmap(logo_pm)
+        else:
+            # Fallback text if logo file is missing
+            logo_lbl.setText("FirePro 3D")
+            f = QFont("Segoe UI", 22)
+            f.setBold(True)
+            logo_lbl.setFont(f)
+            logo_lbl.setStyleSheet("color: #ffffff;")
+        layout.addWidget(logo_lbl)
 
         # Subtitle
         sub = QLabel("Fire Protection Design Suite")
@@ -127,6 +139,13 @@ class MainWindow(QMainWindow):
     def __init__(self, splash: _SplashScreen | None = None):
         super().__init__()
         self.setWindowTitle("FirePro 3D \u2014 Untitled")
+        # Window icon from logo
+        _logo = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "graphics", "Program Icon", "Logo.png",
+        )
+        if os.path.isfile(_logo):
+            self.setWindowIcon(QIcon(_logo))
         self._splash = splash
 
         # Settings
