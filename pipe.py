@@ -14,6 +14,13 @@ class Pipe(QGraphicsLineItem):
     LINE_WEIGHT_MM       = {"1": 0.35, "2": 0.50, "3": 0.70, "4": 1.00}
     LINE_WEIGHT_PX_FALLBACK = {"1": 10.0,  "2": 12.0,  "3": 14.0,  "4": 16.0}
 
+    # Nominal pipe OD in inches — used to set the 2D line width to the real
+    # pipe size (1 scene unit = 1 mm, so OD_in × 25.4 = pen width in scene units).
+    NOMINAL_OD_IN: dict[str, float] = {
+        '1"Ø': 1.315, '1-½"Ø': 1.900, '2"Ø': 2.375, '3"Ø': 3.500,
+        '4"Ø': 4.500, '5"Ø': 5.563, '6"Ø': 6.625, '8"Ø': 8.625,
+    }
+
     # Inside diameter (inches) by schedule and nominal pipe size.
     # Used by the hydraulic solver (Hazen-Williams requires actual ID, not nominal).
     # Keys match the "Diameter" property option strings.
@@ -69,9 +76,10 @@ class Pipe(QGraphicsLineItem):
             self.update_geometry()
 
     def set_pipe_display(self):
-        colour = QColor(self._properties["Colour"]["value"]) #If you're storing names ("red") or hex codes, QColor handles both.
-        line_weight = float(self._properties["Line Weight"]["value"])+4
+        colour = QColor(self._properties["Colour"]["value"])
+        line_weight = self.get_od_mm()
         pen = QPen(colour, line_weight)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         self.setPen(pen)
 
     # --------------------------------------------
@@ -200,15 +208,24 @@ class Pipe(QGraphicsLineItem):
         if key in self._properties:
             self._properties[key]["value"] = value
 
-            if key in ("Diameter","Show Label"):
+            if key in ("Diameter", "Show Label"):
                 self.update_label()
-            if key in ("Colour", "Line Weight"):
+            if key in ("Colour", "Line Weight", "Diameter"):
                 self.set_pipe_display()
     
     def set_properties(self, template: "Pipe"):
         """Copy property values from a template sprinkler."""
         for key, meta in template.get_properties().items():
             self.set_property(key, meta["value"])
+
+    def get_od_mm(self) -> float:
+        """Return the nominal outside diameter in mm for the current pipe size.
+
+        Used by the 2D paint method to draw pipes at their real physical width.
+        """
+        nominal = self._properties["Diameter"]["value"]
+        od_in = self.NOMINAL_OD_IN.get(nominal, 2.375)   # fallback to 2"
+        return od_in * 25.4  # inches → mm (= scene units)
 
     def get_inner_diameter(self) -> float:
         """Return the actual inside diameter in inches for the current nominal size and schedule.
@@ -222,11 +239,12 @@ class Pipe(QGraphicsLineItem):
 
     def paint(self, painter, option, widget=None):
         colour = QColor(self._properties["Colour"]["value"])
-        lw_key = self._properties["Line Weight"]["value"]
-        # Always use cosmetic (zoom-independent) pen widths
-        line_weight = self.LINE_WEIGHT_PX_FALLBACK.get(lw_key, 6.0)
+
+        # Pen width = real pipe OD in scene units (mm).
+        # Non-cosmetic: the line scales with zoom just like real geometry.
+        line_weight = self.get_od_mm()
         base_pen = QPen(colour, line_weight)
-        base_pen.setCosmetic(True)
+        base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 
         # Velocity color-coding when hydraulic results are available
         scene = self.scene()
@@ -240,7 +258,7 @@ class Pipe(QGraphicsLineItem):
                 else:
                     colour = QColor(0, 200, 80)     # green: OK
                 base_pen = QPen(colour, line_weight)
-                base_pen.setCosmetic(True)
+                base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 
         # normal draw
         painter.setPen(base_pen)
@@ -248,8 +266,8 @@ class Pipe(QGraphicsLineItem):
 
         # highlight if selected
         if self.isSelected():
-            highlight_pen = QPen(colour, line_weight * 1.6)
-            highlight_pen.setCosmetic(True)
+            highlight_pen = QPen(colour, line_weight * 1.3)
+            highlight_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
             painter.setPen(highlight_pen)
             painter.drawLine(self.line())
 

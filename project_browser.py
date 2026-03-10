@@ -116,7 +116,7 @@ class ProjectBrowser(QWidget):
         stub_brush = QBrush(QColor(_t.text_disabled if hasattr(_t, "text_disabled") else "#888888"))
 
         # ── Model Space root ─────────────────────────────────────────────────
-        ms_root = QTreeWidgetItem(self._tree, ["Model Space"])
+        ms_root = QTreeWidgetItem(self._tree, ["2D Model"])
         ms_root.setData(0, _ROLE_TYPE, "model_root")
         f_bold = QFont(); f_bold.setBold(True)
         ms_root.setFont(0, f_bold)

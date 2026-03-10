@@ -80,14 +80,14 @@ class _SplashScreen(QWidget):
             f = QFont("Segoe UI", 22)
             f.setBold(True)
             logo_lbl.setFont(f)
-            logo_lbl.setStyleSheet("color: #ffffff;")
+            logo_lbl.setStyleSheet("color: #333333;")
         layout.addWidget(logo_lbl)
 
         # Subtitle
         sub = QLabel("Fire Protection Design Suite")
         sub.setFont(QFont("Segoe UI", 9))
         sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sub.setStyleSheet("color: #a0c4e8;")
+        sub.setStyleSheet("color: #606060;")
         layout.addWidget(sub)
 
         layout.addStretch()
@@ -96,7 +96,7 @@ class _SplashScreen(QWidget):
         self._status = QLabel("Loading...")
         self._status.setFont(QFont("Segoe UI", 8))
         self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._status.setStyleSheet("color: #c0c0c0;")
+        self._status.setStyleSheet("color: #888888;")
         layout.addWidget(self._status)
 
         # Progress bar
@@ -107,7 +107,7 @@ class _SplashScreen(QWidget):
         self._bar.setTextVisible(False)
         self._bar.setStyleSheet("""
             QProgressBar {
-                background: #3a3a3a;
+                background: #e0e0e0;
                 border: none;
                 border-radius: 3px;
             }
@@ -119,7 +119,7 @@ class _SplashScreen(QWidget):
         layout.addWidget(self._bar)
 
         self.setStyleSheet(
-            "background: #1e1e2e; border: 1px solid #3a3a4a; border-radius: 8px;"
+            "background: #ffffff; border: 1px solid #cccccc; border-radius: 8px;"
         )
 
     # ── Public helpers ─────────────────────────────────────────────────────────
@@ -186,8 +186,8 @@ class MainWindow(QMainWindow):
         self.paper_space_widget = PaperSpaceWidget(self.scene)
         self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs = QTabWidget()
-        self.central_tabs.addTab(self.view, "Model Space")
-        self.central_tabs.addTab(self.view_3d, "3D View")
+        self.central_tabs.addTab(self.view, "2D Model")
+        self.central_tabs.addTab(self.view_3d, "3D Model")
         self.central_tabs.addTab(self.paper_space_widget, "Layout 1")
 
         # Ribbon spans full window width (above docks) via setMenuWidget
