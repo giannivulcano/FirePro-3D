@@ -74,6 +74,9 @@ class Model_View(QGraphicsView):
         self.setAcceptDrops(True)
         self._drop_highlight = False
 
+        # One-time flag for initial zoom on first show
+        self._first_show = True
+
     def _on_mode_changed(self, mode: str):
         """Update viewport cursor to match the active scene mode."""
         if self._panning:
@@ -406,6 +409,23 @@ class Model_View(QGraphicsView):
                     event.acceptProposedAction()
                     return
         event.ignore()
+
+    # -----------------------------
+    # Initial zoom on first show
+    # -----------------------------
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._first_show:
+            self._first_show = False
+            # Default view: ~40 m wide, centred on origin
+            half_w = 20_000  # 20 m in mm (scene units)
+            vp = self.viewport().rect()
+            aspect = vp.height() / max(vp.width(), 1)
+            half_h = half_w * aspect
+            self.fitInView(
+                QRectF(-half_w, -half_h, half_w * 2, half_h * 2),
+                Qt.AspectRatioMode.KeepAspectRatio,
+            )
 
     # -----------------------------
     # Zoom with mouse wheel
