@@ -5065,6 +5065,9 @@ class Model_Space(QGraphicsScene):
         if not items:
             return
 
+        # Only duplicate pipes whose both endpoints are in the selection
+        selected_nodes = {i for i in items if isinstance(i, Node)}
+
         # Serialise selected items
         def _serialise(item):
             if isinstance(item, Node):
@@ -5072,7 +5075,8 @@ class Model_Space(QGraphicsScene):
                 pipes_d = []
                 for p in item.pipes:
                     other = p.node1 if p.node2 == item else p.node2
-                    pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
+                    if other in selected_nodes:
+                        pipes_d.append({"x": other.pos().x(), "y": other.pos().y()})
                 return {"type": "node", "x": item.pos().x(), "y": item.pos().y(),
                         "sprinkler": sprinkler, "pipes": pipes_d}
             elif hasattr(item, "to_dict"):
