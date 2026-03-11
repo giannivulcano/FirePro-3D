@@ -202,6 +202,32 @@ class SprinklerDatabase:
             del self._library[index]
             self._save()
 
+    # ── Cascading query helpers ──────────────────────────────────────────────
+
+    def get_unique_manufacturers(self) -> list[str]:
+        return sorted({r.manufacturer for r in self._library})
+
+    def get_models_for(self, manufacturer: str) -> list[str]:
+        return sorted({r.model for r in self._library if r.manufacturer == manufacturer})
+
+    def get_types_for(self, manufacturer: str, model: str | None = None) -> list[str]:
+        recs = [r for r in self._library if r.manufacturer == manufacturer]
+        if model:
+            recs = [r for r in recs if r.model == model]
+        return sorted({r.type for r in recs})
+
+    def find_records(self, manufacturer: str | None = None,
+                     model: str | None = None,
+                     type_: str | None = None) -> list[SprinklerRecord]:
+        recs = list(self._library)
+        if manufacturer:
+            recs = [r for r in recs if r.manufacturer == manufacturer]
+        if model:
+            recs = [r for r in recs if r.model == model]
+        if type_:
+            recs = [r for r in recs if r.type == type_]
+        return recs
+
     def add_to_templates(self, record: SprinklerRecord):
         """Star a product as a user template (avoid duplicates by id)."""
         if not any(t.id == record.id for t in self._templates):

@@ -164,18 +164,15 @@ class LevelManager:
     # ── Elevation helpers ───────────────────────────────────────────────────
 
     def update_elevations(self, scene):
-        """Recompute z_pos for all nodes: z_pos = level.elevation + z_offset."""
+        """Recompute z_pos for all nodes using ceiling_level + ceiling_offset."""
         from node import Node
         lvl_map = {l.name: l for l in self._levels}
         for node in scene.sprinkler_system.nodes:
-            lvl = lvl_map.get(getattr(node, "level", "Level 1"))
-            level_elev = lvl.elevation if lvl else 0.0
-            node.z_pos = level_elev + node.z_offset
-            node._properties.get("Elevation Offset", {})["value"] = str(node.z_offset)
-            if node.has_sprinkler():
-                sp = node.sprinkler._properties.get("Elevation Offset")
-                if sp:
-                    sp["value"] = str(node.z_offset)
+            # 3D elevation = ceiling level elevation + ceiling offset (inches → feet)
+            ceil_lvl = lvl_map.get(getattr(node, "ceiling_level", "Level 1"))
+            ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
+            ceil_off_ft = getattr(node, "ceiling_offset", -2.0) / 12.0
+            node.z_pos = ceil_elev + ceil_off_ft
 
     # ── Apply to scene ────────────────────────────────────────────────────────
 

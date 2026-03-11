@@ -227,14 +227,16 @@ class Model_Space(QGraphicsScene):
         nodes_data = []
         for node in node_list:
             entry = {
-                "id":         node_id[node],
-                "x":          node.scenePos().x(),
-                "y":          node.scenePos().y(),
-                "elevation":  node.z_pos,
-                "z_offset":   getattr(node, "z_offset", node.z_pos),
-                "user_layer": getattr(node, "user_layer", "0"),
-                "level":      getattr(node, "level", "Level 1"),
-                "sprinkler":  node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "id":             node_id[node],
+                "x":              node.scenePos().x(),
+                "y":              node.scenePos().y(),
+                "elevation":      node.z_pos,
+                "z_offset":       getattr(node, "z_offset", node.z_pos),
+                "user_layer":     getattr(node, "user_layer", "0"),
+                "level":          getattr(node, "level", "Level 1"),
+                "ceiling_level":  getattr(node, "ceiling_level", "Level 1"),
+                "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
+                "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             nodes_data.append(entry)
 
@@ -417,16 +419,20 @@ class Model_Space(QGraphicsScene):
         for entry in payload.get("nodes", []):
             node = self.add_node(entry["x"], entry["y"])
             id_to_node[entry["id"]] = node
-            # Restore node elevation (plain nodes)
-            node.set_property("Elevation", str(entry.get("elevation", 0)))
+            # Restore node properties
             node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
             node.user_layer = entry.get("user_layer", "0")
             node.level = entry.get("level", "Level 1")
-            # Recompute z_pos from level elevation + offset
+            node.ceiling_level = entry.get("ceiling_level", node.level)
+            node.ceiling_offset = entry.get("ceiling_offset", -2.0)
+            node._properties["Level"]["value"] = node.level
+            node._properties["Ceiling Level"]["value"] = node.ceiling_level
+            node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
+            # Recompute z_pos from ceiling level + offset
             if self._level_manager:
-                lvl = self._level_manager.get(node.level)
+                lvl = self._level_manager.get(node.ceiling_level)
                 if lvl:
-                    node.z_pos = lvl.elevation + node.z_offset
+                    node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -1116,11 +1122,14 @@ class Model_Space(QGraphicsScene):
             node = Node(x, y)
             node.user_layer = self.active_user_layer
             node.level = self.active_level
-            # Compute z_pos from level elevation
+            node.ceiling_level = self.active_level
+            node._properties["Level"]["value"] = self.active_level
+            node._properties["Ceiling Level"]["value"] = self.active_level
+            # Compute z_pos from ceiling level elevation + offset
             if self._level_manager:
                 lvl = self._level_manager.get(self.active_level)
                 if lvl:
-                    node.z_pos = lvl.elevation + node.z_offset
+                    node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
             self.addItem(node)
             self.sprinkler_system.add_node(node)
         return node
@@ -1775,14 +1784,16 @@ class Model_Space(QGraphicsScene):
         nodes_data = []
         for node in node_list:
             nodes_data.append({
-                "id":        node_id[node],
-                "x":         node.scenePos().x(),
-                "y":         node.scenePos().y(),
-                "elevation": node.z_pos,
-                "z_offset":  getattr(node, "z_offset", node.z_pos),
-                "sprinkler": node.sprinkler.get_properties() if node.has_sprinkler() else None,
-                "user_layer": getattr(node, "user_layer", "0"),
-                "level":     getattr(node, "level", "Level 1"),
+                "id":             node_id[node],
+                "x":              node.scenePos().x(),
+                "y":              node.scenePos().y(),
+                "elevation":      node.z_pos,
+                "z_offset":       getattr(node, "z_offset", node.z_pos),
+                "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
+                "user_layer":     getattr(node, "user_layer", "0"),
+                "level":          getattr(node, "level", "Level 1"),
+                "ceiling_level":  getattr(node, "ceiling_level", "Level 1"),
+                "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
             })
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
@@ -1890,7 +1901,6 @@ class Model_Space(QGraphicsScene):
                 self.addItem(node)
                 self.sprinkler_system.add_node(node)
                 id_to_node[entry["id"]] = node
-                node.set_property("Elevation", str(entry.get("elevation", 0)))
                 node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
                 if entry.get("sprinkler"):
                     template = Sprinkler(None)
@@ -1902,10 +1912,15 @@ class Model_Space(QGraphicsScene):
                     self.add_sprinkler(node, template)
                 node.user_layer = entry.get("user_layer", "0")
                 node.level = entry.get("level", "Level 1")
+                node.ceiling_level = entry.get("ceiling_level", node.level)
+                node.ceiling_offset = entry.get("ceiling_offset", -2.0)
+                node._properties["Level"]["value"] = node.level
+                node._properties["Ceiling Level"]["value"] = node.ceiling_level
+                node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
                 if self._level_manager:
-                    lvl = self._level_manager.get(node.level)
+                    lvl = self._level_manager.get(node.ceiling_level)
                     if lvl:
-                        node.z_pos = lvl.elevation + node.z_offset
+                        node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -3392,7 +3407,12 @@ class Model_Space(QGraphicsScene):
         snapped   = self.get_effective_position(scene_pos)
 
         items     = self.items(snapped)
-        selection = next((i for i in items if isinstance(i, Node)), None)
+        # Check for Sprinkler first (highest Z) and resolve to parent Node
+        selection = next((i for i in items if isinstance(i, Sprinkler)), None)
+        if selection is not None:
+            selection = selection.node
+        else:
+            selection = next((i for i in items if isinstance(i, Node)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
 
@@ -5102,7 +5122,7 @@ class Model_Space(QGraphicsScene):
                 for c in range(cols):
                     if r == 0 and c == 0:
                         continue  # skip the original position
-                    self.paste_items(QPointF(c * xs, r * ys))
+                    self.paste_items(QPointF(c * xs, -r * ys))
 
         elif mode == "polar":
             cx    = float(params.get("cx", 0))

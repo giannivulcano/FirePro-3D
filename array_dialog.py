@@ -24,21 +24,22 @@ class ArrayDialog(QDialog):
     ----------
     - Rows  (int ≥ 1)
     - Columns  (int ≥ 1)
-    - X Spacing  (float, scene units)
-    - Y Spacing  (float, scene units)
+    - X Spacing  (float, display units)
+    - Y Spacing  (float, display units)
 
     Polar tab
     ---------
-    - Centre X / Y  (float, scene coords)
+    - Centre X / Y  (float, display units)
     - Count  (int ≥ 2)
     - Total angle  (0 < θ ≤ 360 °)
     - Rotate items checkbox
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, scale_manager=None):
         super().__init__(parent)
         self.setWindowTitle("Array")
         self.setMinimumWidth(320)
+        self._sm = scale_manager
         self._build_ui()
 
     # ── Construction ─────────────────────────────────────────────────────────
@@ -74,17 +75,19 @@ class ArrayDialog(QDialog):
         self._lin_cols.setRange(1, 10_000)
         self._lin_cols.setValue(3)
 
+        _suffix = self._sm.display_unit_suffix() if self._sm else "  units"
+
         self._lin_xs = QDoubleSpinBox()
         self._lin_xs.setRange(-1_000_000, 1_000_000)
         self._lin_xs.setValue(100)
         self._lin_xs.setDecimals(2)
-        self._lin_xs.setSuffix("  units")
+        self._lin_xs.setSuffix(_suffix)
 
         self._lin_ys = QDoubleSpinBox()
         self._lin_ys.setRange(-1_000_000, 1_000_000)
         self._lin_ys.setValue(100)
         self._lin_ys.setDecimals(2)
-        self._lin_ys.setSuffix("  units")
+        self._lin_ys.setSuffix(_suffix)
 
         form.addRow("Rows:",      self._lin_rows)
         form.addRow("Columns:",   self._lin_cols)
@@ -137,6 +140,12 @@ class ArrayDialog(QDialog):
 
     # ── Result ────────────────────────────────────────────────────────────────
 
+    def _to_scene(self, val: float) -> float:
+        """Convert display-unit value to scene units."""
+        if self._sm:
+            return self._sm.display_to_scene(val)
+        return val
+
     def get_params(self) -> dict:
         """Return dialog settings as a dict for ``Model_Space.array_items()``."""
         if self._tabs.currentIndex() == 0:
@@ -144,14 +153,14 @@ class ArrayDialog(QDialog):
                 "mode":      "linear",
                 "rows":      self._lin_rows.value(),
                 "cols":      self._lin_cols.value(),
-                "x_spacing": self._lin_xs.value(),
-                "y_spacing": self._lin_ys.value(),
+                "x_spacing": self._to_scene(self._lin_xs.value()),
+                "y_spacing": self._to_scene(self._lin_ys.value()),
             }
         else:
             return {
                 "mode":         "polar",
-                "cx":           self._pol_cx.value(),
-                "cy":           self._pol_cy.value(),
+                "cx":           self._to_scene(self._pol_cx.value()),
+                "cy":           self._to_scene(self._pol_cy.value()),
                 "count":        self._pol_count.value(),
                 "total_angle":  self._pol_angle.value(),
                 "rotate_items": self._pol_rotate.isChecked(),

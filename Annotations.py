@@ -182,13 +182,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(0)
 
-        # Label — 12pt, zoom-independent so it's always readable
+        # Label — model-space sized (12" text height, scales with zoom like pipe labels)
         self.label = QGraphicsTextItem(parent=self)
         self.label.setZValue(100)
-        self.label.setFlag(self.label.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        label_font = QFont("Consolas", 12)
-        self.label.setFont(label_font)
-        self.label.setDefaultTextColor(QColor(self._properties["Colour"]["value"]))
+        # No ItemIgnoresTransformations — label is in model-space units
 
         # Tick marks (45-degree slashes at each end of dimension line)
         self.tick1 = QGraphicsLineItem(self)
@@ -281,20 +278,20 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         if key == "Layer":
             self.user_layer = value
         elif key == "Text Size":
-            font = self.label.font()
-            font.setPointSize(int(value))
-            self.label.setFont(font)
+            # Text size is now fixed in model-space (12"); rebuild label HTML
+            self.update_label()
         elif key == "Colour":
             _color_map = {"Black": "#000000", "Red": "#ff0000", "Blue": "#0000ff", "White": "#ffffff"}
             c = _color_map.get(value, value.lower())
             self._dim_pen = QPen(QColor(c), float(self._properties["Line Weight"]["value"]))
             self._dim_pen.setCosmetic(True)
             self.setPen(self._dim_pen)
-            self.label.setDefaultTextColor(QColor(c))
             self.tick1.setPen(self._dim_pen)
             self.tick2.setPen(self._dim_pen)
             self.witness1.setPen(self._dim_pen)
             self.witness2.setPen(self._dim_pen)
+            # Rebuild label HTML with new colour
+            self.update_label()
         elif key in ("Witness Length", "Offset"):
             if key == "Offset":
                 self._offset_dist = float(value)
@@ -324,9 +321,22 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         scene = self.scene()
         prefix = "R " if self.is_radius else ""
         if scene and hasattr(scene, "scale_manager"):
-            self.label.setPlainText(prefix + scene.scale_manager.scene_to_display(length))
+            text = prefix + scene.scale_manager.scene_to_display(length)
         else:
-            self.label.setPlainText(f"{prefix}{length:.1f} px")
+            text = f"{prefix}{length:.1f} px"
+
+        # Model-space label: 12" text height (304.8 mm), matches pipe labels
+        text_h = 12.0 * 25.4  # 304.8 mm
+        _color_map = {"Black": "#000000", "Red": "#ff0000",
+                      "Blue": "#0000ff", "White": "#ffffff"}
+        color = _color_map.get(self._properties["Colour"]["value"], "#ffffff")
+        html = (f"<div style='text-align:center; font-size:{text_h:.0f}px; "
+                f"font-family:Consolas; color:{color};'>{text}</div>")
+        self.label.setHtml(html)
+        # Lock width so text-align:center works
+        self.label.setTextWidth(-1)
+        ideal = self.label.document().idealWidth()
+        self.label.setTextWidth(ideal)
         self.set_label_position()
 
     def set_label_position(self):
@@ -348,22 +358,15 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         # set transform origin so future rotations work around the center
         self.label.setTransformOriginPoint(center)
 
-        # Because ItemIgnoresTransformations is set, boundingRect() is in
-        # device pixels.  Convert to scene units by dividing by view scale.
-        views = self.scene().views() if self.scene() else []
-        view_scale = abs(views[0].transform().m11()) if views else 1.0
-        scene_center_x = center.x() / view_scale
-        scene_bounds_h = bounds.height() / view_scale
-
-        # Offset label ABOVE the line (perpendicular direction)
-        label_gap = 4.0 / view_scale   # 4 screen-px gap
+        # Label is now in model-space — boundingRect() is in scene units directly
+        label_gap = 25.4  # 1 inch gap above the line
 
         # Use the same perpendicular direction as the witness lines
         perp_dx = math.cos(self._perp_angle)
         perp_dy = math.sin(self._perp_angle)
         # Offset the label so its bottom edge sits above the line
         offset = QPointF(perp_dx * label_gap, perp_dy * label_gap)
-        label_pos = mid_point + offset - QPointF(scene_center_x, scene_bounds_h)
+        label_pos = mid_point + offset - QPointF(center.x(), bounds.height())
         self.label.setPos(label_pos)
         self.label.setRotation(angle)
 

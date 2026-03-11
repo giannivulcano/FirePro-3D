@@ -168,6 +168,37 @@ class ScaleManager:
             return f"{mm:.{p}f} mm"
 
     # -----------------------------------------------------------------
+    # Dialog helpers — numeric display-unit ↔ scene conversion
+    # -----------------------------------------------------------------
+
+    def display_unit_suffix(self) -> str:
+        """Return a short suffix string for the current display unit."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return " in"
+        elif self._display_unit == DisplayUnit.METRIC_M:
+            return " m"
+        return " mm"
+
+    def display_to_scene(self, display_value: float) -> float:
+        """Convert a numeric value in the current display unit to scene units."""
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            mm = display_value * 25.4           # inches → mm
+        elif self._display_unit == DisplayUnit.METRIC_M:
+            mm = display_value * 1000.0         # metres → mm
+        else:
+            mm = display_value                  # already mm
+        return self.mm_to_scene(mm) if self._calibrated else mm
+
+    def scene_to_display_value(self, scene_val: float) -> float:
+        """Convert scene units to a numeric value in the current display unit."""
+        mm = self.scene_to_mm(scene_val) if self._calibrated else scene_val
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return mm / 25.4
+        elif self._display_unit == DisplayUnit.METRIC_M:
+            return mm / 1000.0
+        return mm
+
+    # -----------------------------------------------------------------
     # Unit conversion to canonical mm
     # -----------------------------------------------------------------
     @staticmethod

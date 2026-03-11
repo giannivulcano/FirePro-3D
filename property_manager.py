@@ -26,7 +26,17 @@ from PyQt6.QtCore import Qt, QTimer
 from node import Node
 from pipe import Pipe
 from sprinkler import Sprinkler
+from sprinkler_db import SprinklerDatabase
 import theme as th
+
+# Lazy-loaded singleton sprinkler database
+_sprinkler_db: SprinklerDatabase | None = None
+
+def _get_sprinkler_db() -> SprinklerDatabase:
+    global _sprinkler_db
+    if _sprinkler_db is None:
+        _sprinkler_db = SprinklerDatabase()
+    return _sprinkler_db
 
 
 class PropertyManager(QWidget):
@@ -125,6 +135,10 @@ class PropertyManager(QWidget):
         primary = self._targets[0]
         if not hasattr(primary, "get_properties"):
             return
+
+        # Populate cascading options for sprinklers before rendering
+        if isinstance(primary, Sprinkler):
+            self._cascade_sprinkler_props(primary)
 
         _t = th.detect()
         has_level_ref = False
@@ -271,6 +285,9 @@ class PropertyManager(QWidget):
         for t in self._targets:
             if hasattr(t, "set_property"):
                 t.set_property(key, value)
+            # Cascade sprinkler property updates from database
+            if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
+                self._cascade_sprinkler_props(t)
         # Notify the scene so the 3D view rebuilds
         if self._targets:
             scene = None
@@ -290,6 +307,35 @@ class PropertyManager(QWidget):
             self.show_properties(
                 self._targets if len(self._targets) > 1 else self._targets[0]
             )
+
+    def _cascade_sprinkler_props(self, sprinkler: Sprinkler):
+        """Update sprinkler property options based on database cascading filters."""
+        db = _get_sprinkler_db()
+        props = sprinkler._properties
+        mfr = props["Manufacturer"]["value"]
+
+        # Update Model options filtered by manufacturer
+        models = db.get_models_for(mfr)
+        props["Model"]["options"] = models
+        if props["Model"]["value"] not in models and models:
+            props["Model"]["value"] = models[0]
+
+        # Update Orientation options filtered by manufacturer + model
+        model = props["Model"]["value"]
+        types = db.get_types_for(mfr, model)
+        props["Orientation"]["options"] = types or ["Upright", "Pendent", "Sidewall"]
+        if props["Orientation"]["value"] not in props["Orientation"]["options"]:
+            if props["Orientation"]["options"]:
+                props["Orientation"]["value"] = props["Orientation"]["options"][0]
+
+        # Auto-fill read-only fields from the matched record
+        records = db.find_records(manufacturer=mfr, model=model)
+        if len(records) == 1:
+            rec = records[0]
+            props["K-Factor"]["value"] = str(rec.k_factor)
+            props["Coverage Area"]["value"] = str(int(rec.coverage_area))
+            props["Min Pressure"]["value"] = str(rec.min_pressure)
+            props["Temperature"]["value"] = f"{rec.temp_rating}°F"
 
     def _pick_color(self, key: str, btn: QPushButton):
         """Open a colour dialog, update swatch, and apply to all targets."""

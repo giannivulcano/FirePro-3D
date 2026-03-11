@@ -40,10 +40,11 @@ class GridLinesDialog(QDialog):
     - Spacing  (float, scene units between each V-line, may be negative)
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, scale_manager=None):
         super().__init__(parent)
         self.setWindowTitle("Place Grid Lines")
         self.setMinimumWidth(300)
+        self._sm = scale_manager
         self._build_ui()
 
     # ── Construction ─────────────────────────────────────────────────────────
@@ -59,6 +60,8 @@ class GridLinesDialog(QDialog):
         note.setWordWrap(True)
         outer.addWidget(note)
 
+        _suffix = self._sm.display_unit_suffix() if self._sm else "  units"
+
         # ── Horizontal lines ─────────────────────────────────────────────
         h_group = QGroupBox("Horizontal Lines  (parallel to X-axis)")
         h_form  = QFormLayout(h_group)
@@ -72,13 +75,13 @@ class GridLinesDialog(QDialog):
         self._h_first.setRange(-1_000_000, 1_000_000)
         self._h_first.setValue(0)
         self._h_first.setDecimals(2)
-        self._h_first.setSuffix("  units")
+        self._h_first.setSuffix(_suffix)
 
         self._h_spacing = QDoubleSpinBox()
         self._h_spacing.setRange(-1_000_000, 1_000_000)
         self._h_spacing.setValue(100)
         self._h_spacing.setDecimals(2)
-        self._h_spacing.setSuffix("  units")
+        self._h_spacing.setSuffix(_suffix)
 
         h_form.addRow("Count:",    self._h_count)
         h_form.addRow("First Y:",  self._h_first)
@@ -98,13 +101,13 @@ class GridLinesDialog(QDialog):
         self._v_first.setRange(-1_000_000, 1_000_000)
         self._v_first.setValue(0)
         self._v_first.setDecimals(2)
-        self._v_first.setSuffix("  units")
+        self._v_first.setSuffix(_suffix)
 
         self._v_spacing = QDoubleSpinBox()
         self._v_spacing.setRange(-1_000_000, 1_000_000)
         self._v_spacing.setValue(100)
         self._v_spacing.setDecimals(2)
-        self._v_spacing.setSuffix("  units")
+        self._v_spacing.setSuffix(_suffix)
 
         v_form.addRow("Count:",    self._v_count)
         v_form.addRow("First X:",  self._v_first)
@@ -122,13 +125,19 @@ class GridLinesDialog(QDialog):
 
     # ── Result ────────────────────────────────────────────────────────────────
 
+    def _to_scene(self, val: float) -> float:
+        """Convert display-unit value to scene units."""
+        if self._sm:
+            return self._sm.display_to_scene(val)
+        return val
+
     def get_params(self) -> dict:
         """Return dialog settings as a dict for ``Model_Space.place_grid_lines()``."""
         return {
             "h_count":    self._h_count.value(),
-            "h_first":    self._h_first.value(),
-            "h_spacing":  self._h_spacing.value(),
+            "h_first":    self._to_scene(self._h_first.value()),
+            "h_spacing":  self._to_scene(self._h_spacing.value()),
             "v_count":    self._v_count.value(),
-            "v_first":    self._v_first.value(),
-            "v_spacing":  self._v_spacing.value(),
+            "v_first":    self._to_scene(self._v_first.value()),
+            "v_spacing":  self._to_scene(self._v_spacing.value()),
         }

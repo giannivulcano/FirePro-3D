@@ -33,11 +33,15 @@ class Node(QGraphicsEllipseItem):
         self.fitting = Fitting(self)
         self.pipes = []
         self.user_layer: str = "Default"   # user-defined layer name
-        self.level: str = "Level 1"          # floor level name
+        self.level: str = "Level 1"          # floor level (visibility)
+        self.ceiling_level: str = "Level 1"  # ceiling level (3D elevation)
+        self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {
-            "Elevation Offset": {"type": "string", "value": str(z)},
+            "Level":          {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Level":  {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Offset": {"type": "string", "value": "-2"},
         }
 
     # -------------------------------------------------------------------------
@@ -50,11 +54,17 @@ class Node(QGraphicsEllipseItem):
         # Accept legacy name from old save files
         if key == "Elevation":
             key = "Elevation Offset"
+        if key == "Elevation Offset":
+            key = "Ceiling Offset"
         if key in self._properties:
             self._properties[key]["value"] = str(value)
-        if key == "Elevation Offset":
+        if key == "Level":
+            self.level = str(value)
+        elif key == "Ceiling Level":
+            self.ceiling_level = str(value)
+        elif key == "Ceiling Offset":
             try:
-                self.z_offset = float(value)
+                self.ceiling_offset = float(value)
             except (ValueError, TypeError):
                 pass
 

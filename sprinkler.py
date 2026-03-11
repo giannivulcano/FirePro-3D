@@ -19,16 +19,18 @@ class Sprinkler(QGraphicsSvgItem):
         super().__init__()
         self.node = node
         self._properties = {
-            "K-Factor":        {"type": "enum",   "value": "5.6",        "options": ["5.6", "8.0", "11.2", "14.0", "16.8"]},
-            "Type":            {"type": "enum",   "value": "Wet",        "options": ["Wet", "Dry", "Preaction", "Deluge"]},
-            "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall"]},
-            "Temperature":     {"type": "string", "value": "68°C"},
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
-            "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
-            "Elevation Offset": {"type": "string", "value": "0"},
-            "Coverage Area":   {"type": "string", "value": "130"},
-            "Min Pressure":    {"type": "string", "value": "7"},
+            "Model":           {"type": "enum",   "value": "",           "options": []},
+            "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall"]},
+            "K-Factor":        {"type": "label",  "value": "5.6"},
+            "Coverage Area":   {"type": "label",  "value": "130"},
+            "Min Pressure":    {"type": "label",  "value": "7"},
+            "Temperature":     {"type": "label",  "value": "155°F"},
             "Design Density":  {"type": "string", "value": "0.10"},
+            "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
+            "Level":           {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Level":   {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Offset":  {"type": "string", "value": "-2"},
         }
 
         if node is not None:
@@ -75,9 +77,11 @@ class Sprinkler(QGraphicsSvgItem):
         return self._properties.copy()
 
     def set_property(self, key: str, value):
-        # Accept legacy name from old save files
+        # Accept legacy names from old save files
         if key == "Elevation":
-            key = "Elevation Offset"
+            key = "Ceiling Offset"
+        if key == "Elevation Offset":
+            key = "Ceiling Offset"
         if key not in self._properties:
             return
         self._properties[key]["value"] = value
@@ -86,12 +90,18 @@ class Sprinkler(QGraphicsSvgItem):
             svg_path = self.GRAPHICS.get(value)
             if svg_path:
                 self._load_graphic(svg_path)
-        elif key == "Elevation Offset" and self.node is not None:
-            # Keep node.z_offset in sync (z_pos is recomputed from level)
+        elif key == "Level" and self.node is not None:
+            self.node.level = str(value)
+            self.node._properties["Level"]["value"] = str(value)
+        elif key == "Ceiling Level" and self.node is not None:
+            self.node.ceiling_level = str(value)
+            self.node._properties["Ceiling Level"]["value"] = str(value)
+        elif key == "Ceiling Offset" and self.node is not None:
             try:
-                self.node.z_offset = float(value)
+                self.node.ceiling_offset = float(value)
             except (ValueError, TypeError):
                 pass
+            self.node._properties["Ceiling Offset"]["value"] = str(value)
 
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values from a template Sprinkler."""
