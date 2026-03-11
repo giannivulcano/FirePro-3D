@@ -64,7 +64,7 @@ class Pipe(QGraphicsLineItem):
 
         self.label = QGraphicsTextItem("", self)  # Child of pipe
 
-        #self.set_pipe_display()
+        self.set_pipe_display()
         
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setZValue(-100)

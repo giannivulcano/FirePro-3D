@@ -497,31 +497,152 @@ class WallSegment(QGraphicsPathItem):
 
         corners_2d = [to_mm(p) for p in (p1l, p1r, p2r, p2l)]
 
-        # Build box: 8 vertices, 12 triangles (6 faces × 2 tris)
+        color = (self._color.redF(), self._color.greenF(),
+                 self._color.blueF(), 0.9)
+
+        if not self.openings:
+            # Simple box: 8 vertices, 12 triangles (6 faces × 2 tris)
+            verts = []
+            for x, y in corners_2d:
+                verts.append([x, y, base_z])
+            for x, y in corners_2d:
+                verts.append([x, y, top_z])
+            faces = [
+                [0, 1, 2], [0, 2, 3],       # bottom
+                [4, 6, 5], [4, 7, 6],       # top
+                [0, 1, 5], [0, 5, 4],       # side 1
+                [1, 2, 6], [1, 6, 5],       # side 2
+                [2, 3, 7], [2, 7, 6],       # side 3
+                [3, 0, 4], [3, 4, 7],       # side 4
+            ]
+            return {"vertices": verts, "faces": faces, "color": color}
+
+        # ── Wall with openings ────────────────────────────────────────────
+        # Front face: corners_2d[0]→corners_2d[1] (p1l→p1r)
+        # Back  face: corners_2d[3]→corners_2d[2] (p2l→p2r)
+        # Wall axis runs from pt1 to pt2 (along the "left" and "right" edges).
+        # "side 1" (idx 0→1) is at pt1-end, "side 3" (idx 2→3) is at pt2-end.
+        # The two long faces are "side 2" (idx 1→2, right) and "side 4" (idx 3→0, left).
+
+        # Wall length in scene units (used to normalise offset_along → 0..1)
+        import math as _m
+        wall_len = _m.hypot(self._pt2.x() - self._pt1.x(),
+                            self._pt2.y() - self._pt1.y())
+        if wall_len < 1e-6:
+            wall_len = 1.0
+
+        # Collect normalised opening intervals along wall axis
+        openings_sorted = []
+        for op in self.openings:
+            # offset_along is scene-units from pt1 centre;  width is in mm.
+            # Convert width to scene units for fractional position.
+            if sm and sm.is_calibrated:
+                w_scene = op._width_mm / (sm._pixels_per_mm * sm._drawing_scale) if sm._pixels_per_mm else op._width_mm
+            else:
+                w_scene = op._width_mm   # assume 1 px = 1 mm
+            t_center = op._offset_along / wall_len
+            t_half = (w_scene / 2.0) / wall_len
+            t0 = max(0.0, t_center - t_half)
+            t1 = min(1.0, t_center + t_half)
+            if t1 <= t0:
+                continue
+            ob = base_z + op._sill_mm
+            ot = ob + op._height_mm
+            ob = max(ob, base_z)
+            ot = min(ot, top_z)
+            if ot <= ob:
+                continue
+            openings_sorted.append((t0, t1, ob, ot))
+        openings_sorted.sort(key=lambda x: x[0])
+
+        if not openings_sorted:
+            # All openings were degenerate — fall back to solid box
+            verts = []
+            for x, y in corners_2d:
+                verts.append([x, y, base_z])
+            for x, y in corners_2d:
+                verts.append([x, y, top_z])
+            faces = [
+                [0, 1, 2], [0, 2, 3],
+                [4, 6, 5], [4, 7, 6],
+                [0, 1, 5], [0, 5, 4],
+                [1, 2, 6], [1, 6, 5],
+                [2, 3, 7], [2, 7, 6],
+                [3, 0, 4], [3, 4, 7],
+            ]
+            return {"vertices": verts, "faces": faces, "color": color}
+
+        # Helper: interpolate between two 2D corners at parameter t
+        def lerp_2d(a, b, t):
+            return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+
+        # Left edge: corners_2d[0]→corners_2d[3]  (p1l → p2l)
+        # Right edge: corners_2d[1]→corners_2d[2] (p1r → p2r)
+        c0, c1, c2, c3 = corners_2d  # p1l, p1r, p2r, p2l
+
         verts = []
-        for x, y in corners_2d:
-            verts.append([x, y, base_z])
-        for x, y in corners_2d:
-            verts.append([x, y, top_z])
+        faces = []
 
-        # Faces (indices into verts):
-        # Bottom: 0-1-2, 0-2-3   Top: 4-6-5, 4-7-6
-        # Sides: (0,1,5,4), (1,2,6,5), (2,3,7,6), (3,0,4,7)
-        faces = [
-            [0, 1, 2], [0, 2, 3],       # bottom
-            [4, 6, 5], [4, 7, 6],       # top
-            [0, 1, 5], [0, 5, 4],       # side 1
-            [1, 2, 6], [1, 6, 5],       # side 2
-            [2, 3, 7], [2, 7, 6],       # side 3
-            [3, 0, 4], [3, 4, 7],       # side 4
-        ]
+        def V(x, y, z):
+            idx = len(verts)
+            verts.append([x, y, z])
+            return idx
 
-        return {
-            "vertices": verts,
-            "faces": faces,
-            "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.9),
-        }
+        def quad(a, b, c, d):
+            faces.append([a, b, c])
+            faces.append([a, c, d])
+
+        # Bottom face (solid, no openings cut from floor)
+        i0 = V(*c0, base_z); i1 = V(*c1, base_z)
+        i2 = V(*c2, base_z); i3 = V(*c3, base_z)
+        quad(i0, i1, i2, i3)
+
+        # Top face (solid)
+        i4 = V(*c0, top_z); i5 = V(*c1, top_z)
+        i6 = V(*c2, top_z); i7 = V(*c3, top_z)
+        quad(i4, i6, i5, i4)  # note winding
+        quad(i4, i7, i6, i4)
+
+        # End caps (side 1 at pt1, side 3 at pt2)
+        # Side 1: c0 base→c1 base→c1 top→c0 top
+        quad(V(*c0, base_z), V(*c1, base_z), V(*c1, top_z), V(*c0, top_z))
+        # Side 3: c2 base→c3 base→c3 top→c2 top
+        quad(V(*c2, base_z), V(*c3, base_z), V(*c3, top_z), V(*c2, top_z))
+
+        # Now build the two long faces (left and right) with openings cut out.
+        # Left face runs c3→c0 (p2l→p1l) — but for consistent t=0→1,
+        # left edge goes c0→c3 (t=0 at pt1, t=1 at pt2).
+        # Right edge goes c1→c2 (t=0 at pt1, t=1 at pt2).
+
+        for edge_start, edge_end in [(c0, c3), (c1, c2)]:
+            # Build wall-face strips around each opening
+            t_cursor = 0.0
+            for (t0, t1, ob, ot) in openings_sorted:
+                # Solid strip before this opening (full height)
+                if t0 > t_cursor:
+                    bl = lerp_2d(edge_start, edge_end, t_cursor)
+                    br = lerp_2d(edge_start, edge_end, t0)
+                    quad(V(*bl, base_z), V(*br, base_z), V(*br, top_z), V(*bl, top_z))
+
+                ol = lerp_2d(edge_start, edge_end, t0)
+                orr = lerp_2d(edge_start, edge_end, t1)
+
+                # Below opening (sill region)
+                if ob > base_z:
+                    quad(V(*ol, base_z), V(*orr, base_z), V(*orr, ob), V(*ol, ob))
+                # Above opening (head region)
+                if ot < top_z:
+                    quad(V(*ol, ot), V(*orr, ot), V(*orr, top_z), V(*ol, top_z))
+
+                t_cursor = t1
+
+            # Solid strip after last opening
+            if t_cursor < 1.0:
+                bl = lerp_2d(edge_start, edge_end, t_cursor)
+                br = lerp_2d(edge_start, edge_end, 1.0)
+                quad(V(*bl, base_z), V(*br, base_z), V(*br, top_z), V(*bl, top_z))
+
+        return {"vertices": verts, "faces": faces, "color": color}
 
     # ── Miter join ────────────────────────────────────────────────────────────
 

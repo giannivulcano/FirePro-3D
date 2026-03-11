@@ -428,7 +428,13 @@ class Model_View(QGraphicsView):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
-            self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Restore mode-appropriate cursor after pan
+            sc = self.scene()
+            mode = getattr(sc, "mode", "select") if sc else "select"
+            if mode in ("select", "stretch"):
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+            else:
+                self.setCursor(Qt.CursorShape.CrossCursor)
         elif event.button() == Qt.MouseButton.LeftButton:
             if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
@@ -464,11 +470,14 @@ class Model_View(QGraphicsView):
     # -----------------------------------------
 
     def _on_mode_changed(self, mode):
-        """Disable rubber-band selection during drawing / placement modes."""
+        """Disable rubber-band selection during drawing / placement modes
+        and switch to crosshair cursor for precise drawing."""
         if mode in ("select", "stretch"):
             self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
 
     # -----------------------------
     # Tab — exact dimension input
@@ -501,6 +510,13 @@ class Model_View(QGraphicsView):
             self.fit_to_screen()
             event.accept()
             return
+        if event.key() == Qt.Key.Key_G:
+            sc = self.scene()
+            mode = getattr(sc, "mode", "select") if sc else "select"
+            if mode == "select":
+                self.set_grid(not self._grid_visible)
+                event.accept()
+                return
         super().keyPressEvent(event)
 
     # ── Fit to screen ─────────────────────────────────────────────────────

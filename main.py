@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow,
                               QComboBox, QDoubleSpinBox, QFormLayout,
                               QProgressBar)
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont
-from PyQt6.QtCore import Qt, QSettings, QSize, QPointF
+from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer
 from PyQt6.QtWidgets import QGraphicsTextItem
 from Model_Space import Model_Space
 from Model_View import Model_View
@@ -154,6 +154,14 @@ class MainWindow(QMainWindow):
         self.current_pipe_template = Pipe(None, None)
         self._current_file: str | None = None
         self._modified: bool = False
+        self._MAX_RECENT = 8
+        self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
+
+        # Auto-save every 2 minutes for crash recovery
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(2 * 60 * 1000)
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
 
         # Scene + View
         self._splash_progress(10, "Initialising scene...")
@@ -319,10 +327,20 @@ class MainWindow(QMainWindow):
             self._delete_if_not_editing)
         QShortcut(QKeySequence("Escape"), self).activated.connect(
             lambda: self.scene.set_mode("select"))
+        QShortcut(QKeySequence("Ctrl+C"), self).activated.connect(
+            self.scene.copy_selected_items)
+        QShortcut(QKeySequence("Ctrl+V"), self).activated.connect(
+            lambda: self.scene.set_mode("paste"))
+        QShortcut(QKeySequence("Ctrl+A"), self).activated.connect(
+            self.view._select_all_items)
+        QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
+            lambda: self.scene.set_mode("duplicate"))
 
         # Restore settings
-        self._splash_progress(95, "Restoring settings...")
+        self._splash_progress(90, "Restoring settings...")
         self.restore_settings()
+        self._splash_progress(95, "Checking recovery...")
+        self._check_recovery()
         self._splash_progress(100, "Ready")
 
     def _splash_progress(self, value: int, message: str = ""):
@@ -345,7 +363,7 @@ class MainWindow(QMainWindow):
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)
-            self.model_view.set_grid(self.model_view._grid_visible, grid)
+            self.view.set_grid(self.view._grid_visible, grid)
         if self.settings.contains("snap/angle_deg"):
             self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
         # Restore display unit and precision
@@ -399,6 +417,10 @@ class MainWindow(QMainWindow):
         _btn.setToolTip("Save the current project [Ctrl+S]")
         _btn = g_file.add_large_button("Save As", _I("saveas_icon.svg"), self.save_file_as)
         _btn.setToolTip("Save as a new file")
+        self._recent_menu = QMenu(self)
+        _btn = g_file.add_small_menu_button("Recent", _I("load_icon.svg"), self._recent_menu)
+        _btn.setToolTip("Recently opened files")
+        self._rebuild_recent_menu()
 
         # --- Import ---
         g_imp = manage_page.add_group("Import")
@@ -899,7 +921,7 @@ class MainWindow(QMainWindow):
         grid_spin = QDoubleSpinBox()
         grid_spin.setRange(1, 1000)
         grid_spin.setDecimals(1)
-        grid_spin.setValue(self.model_view._grid_size)
+        grid_spin.setValue(self.view._grid_size)
         grid_spin.setSuffix(" mm")
         layout.addRow("Grid spacing:", grid_spin)
 
@@ -930,7 +952,7 @@ class MainWindow(QMainWindow):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             new_grid = grid_spin.value()
             new_angle = angle_spin.value()
-            self.model_view.set_grid(self.model_view._grid_visible, new_grid)
+            self.view.set_grid(self.view._grid_visible, new_grid)
             self.scene._snap_angle_deg = new_angle
             # Persist
             self.settings.setValue("snap/grid_size", new_grid)
@@ -1230,6 +1252,7 @@ class MainWindow(QMainWindow):
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
                 self._update_title()
+                self._cleanup_autosave()
         else:
             self.save_file_as()
 
@@ -1240,18 +1263,90 @@ class MainWindow(QMainWindow):
             if self.scene.save_to_file(file):
                 self._modified = False
                 self._update_title()
+                self._add_recent_file(file)
 
     def open_file(self):
         file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.fp3d);;JSON Files (*.json)")
         if file:
-            self._current_file = file
-            self.scene.load_from_file(file)
-            self.level_widget.populate()
+            self._load_project(file)
 
+    def _load_project(self, file: str):
+        """Load a project file and update all UI state."""
+        self._current_file = file
+        self.scene.load_from_file(file)
+        self.level_widget.populate()
+        self.user_layer_widget.populate()
+        self.level_label.setText(f"Level: {self.level_mgr.active_level}")
+        self._modified = False
+        self._update_title()
+        self._add_recent_file(file)
+
+    # ── Recent files ──────────────────────────────────────────────────────
+
+    def _add_recent_file(self, path: str):
+        path = os.path.normpath(path)
+        if path in self._recent_files:
+            self._recent_files.remove(path)
+        self._recent_files.insert(0, path)
+        self._recent_files = self._recent_files[:self._MAX_RECENT]
+        self.settings.setValue("recent_files", self._recent_files)
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self):
+        self._recent_menu.clear()
+        for path in self._recent_files:
+            name = os.path.basename(path)
+            self._recent_menu.addAction(name, lambda p=path: self._open_recent(p))
+        if not self._recent_files:
+            self._recent_menu.addAction("(No recent files)").setEnabled(False)
+
+    def _open_recent(self, path: str):
+        if not os.path.isfile(path):
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "File Not Found", f"Cannot find:\n{path}")
+            if path in self._recent_files:
+                self._recent_files.remove(path)
+            self.settings.setValue("recent_files", self._recent_files)
+            self._rebuild_recent_menu()
+            return
+        self._load_project(path)
+
+    # ── Auto-save / crash recovery ────────────────────────────────────────
+
+    @staticmethod
+    def _autosave_path() -> str:
+        return os.path.join(os.path.expanduser("~"), ".firepro3d",
+                            "autosave", "recovery.fp3d")
+
+    def _autosave(self):
+        if not self._modified:
+            return
+        path = self._autosave_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self.scene.save_to_file(path)
+
+    def _check_recovery(self):
+        path = self._autosave_path()
+        if not os.path.isfile(path):
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Recover Unsaved Work",
+            "An auto-save recovery file was found.\n"
+            "Would you like to restore it?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.scene.load_from_file(path)
+            self.level_widget.populate()
             self.user_layer_widget.populate()
-            self.level_label.setText(f"Level: {self.level_mgr.active_level}")
-            self._modified = False
+            self._modified = True
             self._update_title()
+        self._cleanup_autosave()
+
+    def _cleanup_autosave(self):
+        path = self._autosave_path()
+        if os.path.isfile(path):
+            os.remove(path)
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
@@ -1376,6 +1471,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
         self.save_settings()
+        self._cleanup_autosave()
         super().closeEvent(event)
 
     _STATE_VERSION = 3  # bump when dock layout changes between sprints

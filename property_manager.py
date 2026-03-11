@@ -133,6 +133,17 @@ class PropertyManager(QWidget):
             widget = None
             prop_type = meta.get("type", "string")
 
+            # Detect mixed values across multi-selection
+            is_mixed = False
+            if len(self._targets) > 1:
+                primary_val = str(meta.get("value", ""))
+                for other in self._targets[1:]:
+                    other_props = other.get_properties() if hasattr(other, "get_properties") else {}
+                    other_meta = other_props.get(key)
+                    if other_meta and str(other_meta.get("value", "")) != primary_val:
+                        is_mixed = True
+                        break
+
             # ── label (read-only) ─────────────────────────────────────────
             if prop_type == "label":
                 widget = QLabel(str(meta["value"]))
@@ -147,6 +158,7 @@ class PropertyManager(QWidget):
             elif prop_type == "color":
                 btn = QPushButton()
                 btn.setFixedSize(60, 24)
+                btn.setProperty("_color_value", meta["value"])
                 btn.setStyleSheet(
                     f"background: {meta['value']}; "
                     f"border: 1px solid {_t.border_subtle}; "
@@ -207,6 +219,15 @@ class PropertyManager(QWidget):
                     lambda k=key, field=widget: self._apply_property(
                         k, field.text())
                 )
+
+            # Show mixed-value indicator for multi-select with differing values
+            if is_mixed and widget is not None:
+                if isinstance(widget, QLineEdit):
+                    widget.setPlaceholderText("< mixed >")
+                    widget.clear()
+                elif isinstance(widget, QComboBox):
+                    widget.insertItem(0, "< mixed >")
+                    widget.setCurrentIndex(0)
 
             self._form.addRow(QLabel(key), widget)
 
@@ -273,15 +294,12 @@ class PropertyManager(QWidget):
     def _pick_color(self, key: str, btn: QPushButton):
         """Open a colour dialog, update swatch, and apply to all targets."""
         _t = th.detect()
-        # Parse current colour from button stylesheet
-        try:
-            raw = btn.styleSheet().split("background:")[1].split(";")[0].strip()
-            current = QColor(raw)
-        except Exception:
-            current = QColor("#cccccc")
+        stored = btn.property("_color_value")
+        current = QColor(stored) if stored else QColor("#cccccc")
 
         color = QColorDialog.getColor(current, self, "Pick a colour")
         if color.isValid():
+            btn.setProperty("_color_value", color.name())
             btn.setStyleSheet(
                 f"background: {color.name()}; "
                 f"border: 1px solid {_t.border_subtle}; "
