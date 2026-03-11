@@ -1201,26 +1201,20 @@ class Model_Space(QGraphicsScene):
             offset = -2.0
         return lvl.elevation + offset / 12.0
 
-    def _create_vertical_connection(self, start_node, existing_end_node, template):
-        """Insert an intermediate node + vertical pipe + horizontal pipe.
+    def _make_intermediate_node(self, existing_node, template):
+        """Create a node at *existing_node*'s XY but at the template's ceiling level.
 
-        * intermediate_node — same XY as *existing_end_node* but at the
-          template's Ceiling Level / Offset.
-        * vertical pipe — between *existing_end_node* and *intermediate_node*.
-        * horizontal pipe — between *start_node* and *intermediate_node*
-          (carries the full template).
+        Bypasses ``add_node()`` because ``find_nearby_node()`` would return
+        *existing_node* (same XY within SNAP_RADIUS).  Returns the new node.
         """
-        ex = existing_end_node.scenePos().x()
-        ey = existing_end_node.scenePos().y()
+        ex = existing_node.scenePos().x()
+        ey = existing_node.scenePos().y()
 
-        # Create intermediate node manually (bypass add_node because
-        # find_nearby_node would return existing_end_node at the same XY).
         intermediate = Node(ex, ey)
         intermediate.user_layer = self.active_user_layer
         intermediate.level = self.active_level
         intermediate._properties["Level"]["value"] = self.active_level
 
-        # Set ceiling properties from the template
         ceiling_lvl = template._properties["Ceiling Level"]["value"]
         try:
             ceiling_off = float(template._properties["Ceiling Offset (in)"]["value"])
@@ -1237,6 +1231,18 @@ class Model_Space(QGraphicsScene):
 
         self.addItem(intermediate)
         self.sprinkler_system.add_node(intermediate)
+        return intermediate
+
+    def _create_vertical_connection(self, start_node, existing_end_node, template):
+        """Insert an intermediate node + vertical pipe + horizontal pipe.
+
+        * intermediate_node — same XY as *existing_end_node* but at the
+          template's Ceiling Level / Offset.
+        * vertical pipe — between *existing_end_node* and *intermediate_node*.
+        * horizontal pipe — between *start_node* and *intermediate_node*
+          (carries the full template).
+        """
+        intermediate = self._make_intermediate_node(existing_end_node, template)
 
         # Vertical pipe (existing_end_node <-> intermediate) — same XY, different z
         vertical_pipe = Pipe(existing_end_node, intermediate)
@@ -3558,10 +3564,52 @@ class Model_Space(QGraphicsScene):
 
         elif self.mode == "pipe":
             if self.node_start_pos is None:
+                template = getattr(self, "current_template", None)
                 if isinstance(selection, Pipe):
-                    self.node_start_pos = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
+                    start_node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
                 else:
-                    self.node_start_pos = self.find_or_create_node(snapped.x(), snapped.y())
+                    start_node = self.find_or_create_node(snapped.x(), snapped.y())
+
+                # Check elevation mismatch on first-click existing node
+                existing_start = self.find_nearby_node(snapped.x(), snapped.y())
+                if existing_start is start_node and template is not None:
+                    template_z = self._compute_template_z_pos(template)
+                    if template_z is not None and abs(start_node.z_pos - template_z) > 0.01:
+                        from PyQt6.QtWidgets import QMessageBox
+                        reply = QMessageBox.question(
+                            self.views()[0] if self.views() else None,
+                            "Elevation Mismatch",
+                            f"Start node is at elevation {start_node.z_pos:.2f} ft "
+                            f"but the template targets {template_z:.2f} ft.\n\n"
+                            "Create a vertical connection (riser/drop)?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.Yes,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            # Create intermediate node at template elevation
+                            # and vertical pipe from existing → intermediate.
+                            # Use intermediate as the pipe start.
+                            intermediate = self._make_intermediate_node(
+                                start_node, template,
+                            )
+                            vert = Pipe(start_node, intermediate)
+                            vert.user_layer = self.active_user_layer
+                            vert.level = self.active_level
+                            vert._properties["Level"]["value"] = self.active_level
+                            for key in ("Diameter", "Schedule", "C-Factor",
+                                        "Material", "Colour", "Phase"):
+                                if key in template._properties:
+                                    vert.set_property(
+                                        key, template._properties[key]["value"],
+                                    )
+                            self.sprinkler_system.add_pipe(vert)
+                            self.addItem(vert)
+                            vert.update_label()
+                            start_node.fitting.update()
+                            intermediate.fitting.update()
+                            start_node = intermediate  # continue from intermediate
+
+                self.node_start_pos = start_node
                 self.instructionChanged.emit("Pick end node")
             else:
                 start_pos   = self.node_start_pos.scenePos()
@@ -3580,7 +3628,7 @@ class Model_Space(QGraphicsScene):
                 if end_node is self.node_start_pos:
                     return  # wait for valid second click
 
-                # Detect elevation mismatch on an existing node
+                # Detect elevation mismatch on an existing end node
                 if existing_end is not None and template is not None:
                     template_z = self._compute_template_z_pos(template)
                     if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
