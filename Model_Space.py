@@ -427,7 +427,7 @@ class Model_Space(QGraphicsScene):
             node.ceiling_offset = entry.get("ceiling_offset", -2.0)
             node._properties["Level"]["value"] = node.level
             node._properties["Ceiling Level"]["value"] = node.ceiling_level
-            node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
+            node._properties["Ceiling Offset (in)"]["value"] = str(node.ceiling_offset)
             # Recompute z_pos from ceiling level + offset
             if self._level_manager:
                 lvl = self._level_manager.get(node.ceiling_level)
@@ -1916,7 +1916,7 @@ class Model_Space(QGraphicsScene):
                 node.ceiling_offset = entry.get("ceiling_offset", -2.0)
                 node._properties["Level"]["value"] = node.level
                 node._properties["Ceiling Level"]["value"] = node.ceiling_level
-                node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
+                node._properties["Ceiling Offset (in)"]["value"] = str(node.ceiling_offset)
                 if self._level_manager:
                     lvl = self._level_manager.get(node.ceiling_level)
                     if lvl:

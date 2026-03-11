@@ -46,8 +46,9 @@ class Pipe(QGraphicsLineItem):
             "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
             "C-Factor":    {"type": "string", "value": "120"},
             "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC"]},
-            "Elevation 1": {"type": "string", "value": "0"},
-            "Elevation 2": {"type": "string", "value": "0"},
+            "Level":              {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Level":      {"type": "level_ref", "value": "Level 1"},
+            "Ceiling Offset (in)":{"type": "string", "value": "-2"},
             "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
             "Line Weight": {"type": "enum",   "value": "1",              "options": ["1", "2", "3", "4"]},
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
@@ -60,6 +61,8 @@ class Pipe(QGraphicsLineItem):
         self.length = 0.0
         self.user_layer: str = "Default"   # user-defined layer name
         self.level: str = "Level 1"          # floor level name
+        self.ceiling_level: str = "Level 1"  # ceiling level (3D elevation)
+        self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
 
 
         self.label = QGraphicsTextItem("", self)  # Child of pipe
@@ -221,6 +224,11 @@ class Pipe(QGraphicsLineItem):
         return self._properties.copy()
 
     def set_property(self, key, value):
+        # Accept legacy names from old save files
+        if key in ("Elevation 1", "Elevation 2"):
+            return  # discard old elevation properties
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
+            key = "Ceiling Offset (in)"
         if key in self._properties:
             self._properties[key]["value"] = value
 
@@ -228,6 +236,15 @@ class Pipe(QGraphicsLineItem):
                 self.update_label()
             if key in ("Colour", "Line Weight", "Diameter"):
                 self.set_pipe_display()
+            if key == "Level":
+                self.level = str(value)
+            elif key == "Ceiling Level":
+                self.ceiling_level = str(value)
+            elif key == "Ceiling Offset (in)":
+                try:
+                    self.ceiling_offset = float(value)
+                except (ValueError, TypeError):
+                    pass
     
     def set_properties(self, template: "Pipe"):
         """Copy property values from a template sprinkler."""

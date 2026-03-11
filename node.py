@@ -2,7 +2,7 @@ import math
 from CAD_Math import CAD_Math
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
-from PyQt6.QtGui import QBrush, QPen, QColor
+from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from fitting import Fitting
 from sprinkler import Sprinkler
 
@@ -41,7 +41,7 @@ class Node(QGraphicsEllipseItem):
         self._properties: dict = {
             "Level":          {"type": "level_ref", "value": "Level 1"},
             "Ceiling Level":  {"type": "level_ref", "value": "Level 1"},
-            "Ceiling Offset": {"type": "string", "value": "-2"},
+            "Ceiling Offset (in)": {"type": "string", "value": "-2"},
         }
 
     # -------------------------------------------------------------------------
@@ -51,22 +51,40 @@ class Node(QGraphicsEllipseItem):
         return self._properties.copy()
 
     def set_property(self, key: str, value: str):
-        # Accept legacy name from old save files
-        if key == "Elevation":
-            key = "Elevation Offset"
-        if key == "Elevation Offset":
-            key = "Ceiling Offset"
+        # Accept legacy names from old save files
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
+            key = "Ceiling Offset (in)"
         if key in self._properties:
             self._properties[key]["value"] = str(value)
         if key == "Level":
             self.level = str(value)
         elif key == "Ceiling Level":
             self.ceiling_level = str(value)
-        elif key == "Ceiling Offset":
+            self._recompute_z_pos()
+        elif key == "Ceiling Offset (in)":
             try:
                 self.ceiling_offset = float(value)
             except (ValueError, TypeError):
                 pass
+            self._recompute_z_pos()
+
+    def _recompute_z_pos(self):
+        """Recompute z_pos from ceiling_level elevation + ceiling_offset.
+
+        Called when the user changes Ceiling Level or Ceiling Offset via the
+        property panel so that the 3D view stays in sync without requiring a
+        full level_manager.update_elevations() pass.
+        """
+        scene = self.scene()
+        if scene is None:
+            return
+        lm = getattr(scene, "_level_manager", None)
+        if lm is None:
+            return
+        lvl = lm.get(self.ceiling_level)
+        if lvl is None:
+            return
+        self.z_pos = lvl.elevation + self.ceiling_offset / 12.0
 
     # -------------------------------------------------------------------------
     # Sprinkler helpers
@@ -179,6 +197,18 @@ class Node(QGraphicsEllipseItem):
             r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
         r = max(r, self.RADIUS + 4)
         return QRectF(-r, -r, r * 2, r * 2)
+
+    def shape(self) -> QPainterPath:
+        """Expand clickable area to encompass the sprinkler graphic so
+        clicking anywhere on the sprinkler selects the node."""
+        if self.has_sprinkler():
+            r = self.sprinkler.TARGET_MM / 2.0
+        else:
+            r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
+        r = max(r, self.RADIUS)
+        path = QPainterPath()
+        path.addEllipse(QPointF(0, 0), r, r)
+        return path
 
     def paint(self, painter, option, widget=None):
         # invisible by default

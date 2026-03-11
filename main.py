@@ -367,6 +367,8 @@ class MainWindow(QMainWindow):
         # Restore dock visibility (only if settings exist, otherwise keep defaults)
         if self.settings.contains("dock/browser"):
             self.browser_dock.setVisible(self.settings.value("dock/browser", True, type=bool))
+        if self.settings.contains("dock/properties"):
+            self.prop_dock.setVisible(self.settings.value("dock/properties", True, type=bool))
         if self.settings.contains("dock/hydraulics"):
             self.hydro_dock.setVisible(self.settings.value("dock/hydraulics", False, type=bool))
         # Restore snap settings
@@ -490,8 +492,11 @@ class MainWindow(QMainWindow):
         g_pan = manage_page.add_group("Panels")
         prop_btn = g_pan.add_small_button(
             "Properties", _I("info_icon.svg"),
-            lambda: self.prop_dock.show())
+            None, checkable=True)
         prop_btn.setToolTip("Show/hide Properties dock")
+        prop_btn.setChecked(True)  # visible by default
+        prop_btn.toggled.connect(self.prop_dock.setVisible)
+        self.prop_dock.visibilityChanged.connect(prop_btn.setChecked)
 
         browser_btn = g_pan.add_small_button(
             "Browser",
@@ -1101,9 +1106,15 @@ class MainWindow(QMainWindow):
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
+        active_btn = self._mode_buttons.get(mode)
+        seen: set[int] = set()
         for m, btn in self._mode_buttons.items():
+            btn_id = id(btn)
+            if btn_id in seen:
+                continue
+            seen.add(btn_id)
             btn.blockSignals(True)
-            btn.setChecked(m == mode)
+            btn.setChecked(btn is active_btn)
             btn.blockSignals(False)
 
     # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
@@ -1531,6 +1542,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState(self._STATE_VERSION))
         self.settings.setValue("dock/browser", self.browser_dock.isVisible())
+        self.settings.setValue("dock/properties", self.prop_dock.isVisible())
         self.settings.setValue("dock/hydraulics", self.hydro_dock.isVisible())
 
 

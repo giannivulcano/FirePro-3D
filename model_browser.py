@@ -21,6 +21,8 @@ import theme as th
 from wall import WallSegment
 from floor_slab import FloorSlab
 from wall_opening import DoorOpening, WindowOpening
+from pipe import Pipe
+from node import Node
 
 
 _ROLE_ENTITY = Qt.ItemDataRole.UserRole  # stores Python id() of the entity
@@ -156,6 +158,37 @@ class ModelBrowser(QWidget):
             item = QTreeWidgetItem(windows_root, [f"Window {i}"])
             item.setData(0, _ROLE_ENTITY, id(win))
 
+        # -- Pipes --
+        pipes = list(getattr(self._scene, "sprinkler_system", None).pipes) \
+            if getattr(self._scene, "sprinkler_system", None) else []
+        pipes_root = QTreeWidgetItem(self._tree, [f"Pipes ({len(pipes)})"])
+        pipes_root.setFont(0, f_bold)
+        pipes_root.setExpanded(True)
+        for i, pipe in enumerate(pipes, 1):
+            dia = pipe._properties.get("Diameter", {}).get("value", "?")
+            label = f"Pipe {i}  ({dia})"
+            item = QTreeWidgetItem(pipes_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(pipe))
+            item.setToolTip(0, f"Level: {pipe.level}  Layer: {pipe.user_layer}")
+
+        # -- Sprinklers --
+        sprinkler_nodes = [n for n in
+            (getattr(self._scene, "sprinkler_system", None).nodes
+             if getattr(self._scene, "sprinkler_system", None) else [])
+            if n.has_sprinkler()]
+        sprinklers_root = QTreeWidgetItem(
+            self._tree, [f"Sprinklers ({len(sprinkler_nodes)})"])
+        sprinklers_root.setFont(0, f_bold)
+        sprinklers_root.setExpanded(True)
+        for i, node in enumerate(sprinkler_nodes, 1):
+            spr = node.sprinkler
+            mfr = spr._properties.get("Manufacturer", {}).get("value", "")
+            orient = spr._properties.get("Orientation", {}).get("value", "")
+            label = f"Sprinkler {i}  ({mfr} {orient})"
+            item = QTreeWidgetItem(sprinklers_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(node))
+            item.setToolTip(0, f"Level: {node.level}  Layer: {node.user_layer}")
+
     # ── Entity lookup ─────────────────────────────────────────────────────
 
     def _find_entity_by_id(self, entity_id: int):
@@ -171,6 +204,14 @@ class ModelBrowser(QWidget):
         for slab in getattr(self._scene, "_floor_slabs", []):
             if id(slab) == entity_id:
                 return slab
+        ss = getattr(self._scene, "sprinkler_system", None)
+        if ss:
+            for pipe in ss.pipes:
+                if id(pipe) == entity_id:
+                    return pipe
+            for node in ss.nodes:
+                if id(node) == entity_id:
+                    return node
         return None
 
     # ── Click handlers ────────────────────────────────────────────────────

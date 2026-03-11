@@ -30,7 +30,7 @@ class Sprinkler(QGraphicsSvgItem):
             "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
             "Level":           {"type": "level_ref", "value": "Level 1"},
             "Ceiling Level":   {"type": "level_ref", "value": "Level 1"},
-            "Ceiling Offset":  {"type": "string", "value": "-2"},
+            "Ceiling Offset (in)":  {"type": "string", "value": "-2"},
         }
 
         if node is not None:
@@ -85,10 +85,8 @@ class Sprinkler(QGraphicsSvgItem):
 
     def set_property(self, key: str, value):
         # Accept legacy names from old save files
-        if key == "Elevation":
-            key = "Ceiling Offset"
-        if key == "Elevation Offset":
-            key = "Ceiling Offset"
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
+            key = "Ceiling Offset (in)"
         if key not in self._properties:
             return
         self._properties[key]["value"] = value
@@ -103,12 +101,14 @@ class Sprinkler(QGraphicsSvgItem):
         elif key == "Ceiling Level" and self.node is not None:
             self.node.ceiling_level = str(value)
             self.node._properties["Ceiling Level"]["value"] = str(value)
-        elif key == "Ceiling Offset" and self.node is not None:
+            self.node._recompute_z_pos()
+        elif key == "Ceiling Offset (in)" and self.node is not None:
             try:
                 self.node.ceiling_offset = float(value)
             except (ValueError, TypeError):
                 pass
-            self.node._properties["Ceiling Offset"]["value"] = str(value)
+            self.node._properties["Ceiling Offset (in)"]["value"] = str(value)
+            self.node._recompute_z_pos()
 
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values from a template Sprinkler."""
