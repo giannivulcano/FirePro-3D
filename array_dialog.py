@@ -12,6 +12,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QTabWidget, QWidget,
     QLabel, QDoubleSpinBox, QSpinBox, QCheckBox, QDialogButtonBox,
+    QAbstractSpinBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -70,10 +71,12 @@ class ArrayDialog(QDialog):
         self._lin_rows = QSpinBox()
         self._lin_rows.setRange(1, 10_000)
         self._lin_rows.setValue(3)
+        self._lin_rows.setSingleStep(1)
 
         self._lin_cols = QSpinBox()
         self._lin_cols.setRange(1, 10_000)
         self._lin_cols.setValue(3)
+        self._lin_cols.setSingleStep(1)
 
         _suffix = self._sm.display_unit_suffix() if self._sm else "  units"
 
@@ -82,12 +85,14 @@ class ArrayDialog(QDialog):
         self._lin_xs.setValue(100)
         self._lin_xs.setDecimals(2)
         self._lin_xs.setSuffix(_suffix)
+        self._lin_xs.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         self._lin_ys = QDoubleSpinBox()
         self._lin_ys.setRange(-1_000_000, 1_000_000)
         self._lin_ys.setValue(100)
         self._lin_ys.setDecimals(2)
         self._lin_ys.setSuffix(_suffix)
+        self._lin_ys.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
 
         form.addRow("Rows:",      self._lin_rows)
         form.addRow("Columns:",   self._lin_cols)

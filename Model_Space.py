@@ -3560,14 +3560,17 @@ class Model_Space(QGraphicsScene):
         elif self.mode == "pipe":
             if self.node_start_pos is None:
                 template = getattr(self, "current_template", None)
+
+                # Check for existing node BEFORE find_or_create_node
+                existing_start = self.find_nearby_node(snapped.x(), snapped.y())
+
                 if isinstance(selection, Pipe):
                     start_node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
                 else:
                     start_node = self.find_or_create_node(snapped.x(), snapped.y())
 
-                # Check elevation mismatch on first-click existing node
-                existing_start = self.find_nearby_node(snapped.x(), snapped.y())
-                if existing_start is start_node and template is not None:
+                # Check elevation mismatch only on a pre-existing node
+                if existing_start is not None and existing_start is start_node and template is not None:
                     template_z = self._compute_template_z_pos(template)
                     if template_z is not None and abs(start_node.z_pos - template_z) > 0.01:
                         from PyQt6.QtWidgets import QMessageBox
