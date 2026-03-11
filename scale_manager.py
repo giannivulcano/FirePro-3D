@@ -70,7 +70,7 @@ class ScaleManager:
 
     @precision.setter
     def precision(self, value: int):
-        self._precision = max(0, min(6, int(value)))
+        self._precision = max(0, min(5, int(value)))
 
     @property
     def drawing_scale(self) -> float:
@@ -160,7 +160,7 @@ class ScaleManager:
         p = self._precision
         if unit == DisplayUnit.IMPERIAL:
             inches = mm / 25.4
-            return self._format_feet_inches(inches)
+            return self._format_feet_inches(inches, p)
         elif unit == DisplayUnit.METRIC_M:
             m = mm / 1000.0
             return f"{m:.{p}f} m"
@@ -204,34 +204,52 @@ class ScaleManager:
     # Imperial formatting  (moved from Pipe for reuse)
     # -----------------------------------------------------------------
     @staticmethod
-    def _format_feet_inches(total_inches: float) -> str:
+    def _format_feet_inches(total_inches: float, precision: int = 3) -> str:
+        """Format total inches as  feet' inches-fraction".
+
+        *precision* controls the fractional denominator:
+            0 → whole inches  (round)
+            1 → halves   (1/2)
+            2 → quarters (1/4)
+            3 → eighths  (1/8)
+            4 → 16ths    (1/16)
+            5 → 32nds    (1/32)
         """
-        Format total inches as  feet' inches-fraction"
-        Denominators: 2, 4, 8, 16.
-        """
+        if precision <= 0:
+            # Round to nearest whole inch
+            total_inches = round(total_inches)
+            feet = int(total_inches // 12)
+            inches_whole = int(total_inches % 12)
+            parts = []
+            if feet > 0:
+                parts.append(f"{feet}'")
+            parts.append(f'{inches_whole}"')
+            return " ".join(parts)
+
+        denominator = 2 ** precision          # e.g. precision 3 → 8
         feet = int(total_inches // 12)
         inches_decimal = total_inches % 12
         inches_whole = int(floor(inches_decimal))
         frac_decimal = inches_decimal - inches_whole
 
-        denominators = [2, 4, 8, 16]
-        best_num, best_den = 0, 1
-        min_error = 1.0
+        numerator = round(frac_decimal * denominator)
 
-        for d in denominators:
-            n = round(frac_decimal * d)
-            error = abs(frac_decimal - n / d)
-            if error < min_error:
-                min_error = error
-                best_num, best_den = n, d
-
-        if best_num == best_den:
+        # Carry: if fraction rounds up to a full unit
+        if numerator >= denominator:
             inches_whole += 1
-            best_num, best_den = 0, 1
-
-        if inches_whole == 12:
+            numerator = 0
+        if inches_whole >= 12:
             feet += 1
-            inches_whole = 0
+            inches_whole -= 12
+
+        # Reduce the fraction
+        if numerator > 0:
+            from math import gcd
+            g = gcd(numerator, denominator)
+            numerator //= g
+            den = denominator // g
+        else:
+            den = 1
 
         parts = []
         if feet > 0:
@@ -240,11 +258,11 @@ class ScaleManager:
         inch_part = ""
         if inches_whole > 0:
             inch_part += str(inches_whole)
-        if best_num > 0:
+        if numerator > 0:
             if inch_part:
-                inch_part += f" {best_num}/{best_den}"
+                inch_part += f" {numerator}/{den}"
             else:
-                inch_part = f"{best_num}/{best_den}"
+                inch_part = f"{numerator}/{den}"
         if inch_part:
             parts.append(f'{inch_part}"')
 

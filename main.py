@@ -352,6 +352,16 @@ class MainWindow(QMainWindow):
             self.model_view.set_grid(self.model_view._grid_visible, grid)
         if self.settings.contains("snap/angle_deg"):
             self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
+        # Restore display unit and precision
+        if self.settings.contains("display/unit"):
+            unit_str = self.settings.value("display/unit", "mm", type=str)
+            try:
+                self.scene.scale_manager.display_unit = DisplayUnit(unit_str)
+            except ValueError:
+                pass
+        if self.settings.contains("display/precision"):
+            self.scene.scale_manager.precision = self.settings.value(
+                "display/precision", 3, type=int)
 
     def _activate_paper_sheet(self, name: str):
         """Switch the central area to the paper space tab matching *name*."""
@@ -945,18 +955,25 @@ class MainWindow(QMainWindow):
     def _build_units_menu(self) -> QMenu:
         m = QMenu(self)
         m.addAction("Imperial (ft-in)",
-                    lambda: self.scene.set_display_unit(DisplayUnit.IMPERIAL))
+                    lambda: self._set_display_unit(DisplayUnit.IMPERIAL))
         m.addAction("Metric (m)",
-                    lambda: self.scene.set_display_unit(DisplayUnit.METRIC_M))
+                    lambda: self._set_display_unit(DisplayUnit.METRIC_M))
         m.addAction("Metric (mm)",
-                    lambda: self.scene.set_display_unit(DisplayUnit.METRIC_MM))
+                    lambda: self._set_display_unit(DisplayUnit.METRIC_MM))
         return m
+
+    def _set_display_unit(self, unit):
+        self.scene.set_display_unit(unit)
+        self.settings.setValue("display/unit", unit.value)
 
     def _build_precision_menu(self) -> QMenu:
         m = QMenu(self)
-        for p in range(4):
-            label = f"{p} decimal place{'s' if p != 1 else ''}"
-            m.addAction(label, lambda _, p=p: self._set_precision(p))
+        _frac_labels = {0: "Whole inch", 1: '1/2"', 2: '1/4"',
+                        3: '1/8"', 4: '1/16"', 5: '1/32"'}
+        for p in range(6):
+            frac = _frac_labels.get(p, "")
+            label = f"{p} — {frac}" if frac else f"{p} decimal places"
+            m.addAction(label, lambda p=p: self._set_precision(p))
         return m
 
     def _build_paper_size_menu(self) -> QMenu:
@@ -1330,6 +1347,7 @@ class MainWindow(QMainWindow):
     def _set_precision(self, places: int):
         self.scene.scale_manager.precision = places
         self.scene._refresh_all_labels()
+        self.settings.setValue("display/precision", places)
 
     # ─────────────────────────────────────────────────────────────────────────
     # HYDRAULICS HELPERS
