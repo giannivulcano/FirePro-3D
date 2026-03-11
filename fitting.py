@@ -57,7 +57,7 @@ class Fitting():
         },
         "elbow_down": {
             "path": r"graphics/fitting_symbols/elbow_down.svg",
-            "through": QPointF(1, 0)
+            "through": QPointF(-1, 0)   # opening faces toward the horizontal pipe
         },
     }
 

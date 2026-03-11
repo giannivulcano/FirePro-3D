@@ -143,7 +143,7 @@ class HydraulicReportWidget(QWidget):
 
         # Tab 3: Sprinkler Schedule
         self._spr_sched = _make_table([
-            "#", "K-Factor", "Type", "Orientation", "Temp",
+            "#", "K-Factor", "Model", "Orientation", "Temp",
             "Min P (psi)", "Act P (psi)", "Act Q (gpm)", "Coverage (sq ft)",
         ])
         self.tabs.addTab(self._spr_sched, "Sprinkler Schedule")
@@ -260,7 +260,7 @@ class HydraulicReportWidget(QWidget):
         for row, spr in enumerate(sprs):
             props = spr._properties
             k_str    = props["K-Factor"]["value"]
-            spr_type = props["Type"]["value"]
+            spr_model = props["Model"]["value"]
             orient   = props["Orientation"]["value"]
             temp     = props["Temperature"]["value"]
             p_min_s  = props["Min Pressure"]["value"]
@@ -281,7 +281,7 @@ class HydraulicReportWidget(QWidget):
             pcol = _pressure_color(p_act, p_min)
 
             vals = [
-                str(row + 1), k_str, spr_type, orient, temp,
+                str(row + 1), k_str, spr_model, orient, temp,
                 p_min_s, p_act_s, q_act_s, coverage,
             ]
             for col, val in enumerate(vals):
@@ -393,7 +393,7 @@ class HydraulicReportWidget(QWidget):
 
             # ── Sprinkler Schedule ────────────────────────────────────────
             w.writerow(["SPRINKLER SCHEDULE"])
-            w.writerow(["#", "K-Factor", "Type", "Orientation", "Temperature",
+            w.writerow(["#", "K-Factor", "Model", "Orientation", "Temperature",
                         "Min P (psi)", "Act P (psi)", "Act Q (gpm)", "Coverage (sq ft)"])
             for i, spr in enumerate(self._scene.sprinkler_system.sprinklers, 1):
                 p  = spr._properties
@@ -406,7 +406,7 @@ class HydraulicReportWidget(QWidget):
                 q_act = k * (max(p_act, 0.0) ** 0.5) if p_act is not None else None
                 w.writerow([
                     i, k_str,
-                    p["Type"]["value"], p["Orientation"]["value"], p["Temperature"]["value"],
+                    p["Model"]["value"], p["Orientation"]["value"], p["Temperature"]["value"],
                     p["Min Pressure"]["value"],
                     f"{p_act:.1f}" if p_act is not None else "",
                     f"{q_act:.1f}" if q_act is not None else "",
@@ -513,7 +513,7 @@ class HydraulicReportWidget(QWidget):
         # Sprinkler schedule
         html += """<h3>Sprinkler Schedule</h3>
         <table>
-          <tr><th>#</th><th>K-Factor</th><th>Type</th><th>Orientation</th>
+          <tr><th>#</th><th>K-Factor</th><th>Model</th><th>Orientation</th>
               <th>Temperature</th><th>Min P (psi)</th><th>Act P (psi)</th>
               <th>Act Q (gpm)</th><th>Coverage (sq ft)</th></tr>"""
         for i, spr in enumerate(self._scene.sprinkler_system.sprinklers, 1):
@@ -535,7 +535,7 @@ class HydraulicReportWidget(QWidget):
             )
             html += (
                 f"<tr><td>{i}</td><td>{k_str}</td>"
-                f"<td>{p['Type']['value']}</td><td>{p['Orientation']['value']}</td>"
+                f"<td>{p['Model']['value']}</td><td>{p['Orientation']['value']}</td>"
                 f"<td>{p['Temperature']['value']}</td>"
                 f"<td>{p['Min Pressure']['value']}</td>"
                 f"<td class='{pcls}'>{p_act_s}</td>"

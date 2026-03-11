@@ -286,9 +286,8 @@ class Node(QGraphicsEllipseItem):
                 # Real-world radius in mm: r = sqrt(A_mm² / π)
                 # 1 sq ft = 92 903 mm²
                 r_real_mm = math.sqrt(coverage_sqft * 92_903.0 / math.pi)
-                if sm and sm.is_calibrated and sm.drawing_scale > 0:
-                    r_paper_mm = r_real_mm / sm.drawing_scale
-                    r_scene = sm.paper_to_scene(r_paper_mm)
+                if sm and sm.is_calibrated and sm.pixels_per_mm > 0:
+                    r_scene = r_real_mm * sm.pixels_per_mm
                 else:
                     # Fallback when not calibrated — 50 px so it’s at least visible
                     r_scene = 50.0

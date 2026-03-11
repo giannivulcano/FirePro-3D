@@ -81,6 +81,15 @@ class Pipe(QGraphicsLineItem):
 
     # --------------------------------------------
     # PIPE LABEL HELPERS
+    def _is_vertical(self) -> bool:
+        """True when both endpoints share the same XY but differ in z_pos."""
+        if not self.node1 or not self.node2:
+            return False
+        p1, p2 = self.node1.scenePos(), self.node2.scenePos()
+        dx, dy = p1.x() - p2.x(), p1.y() - p2.y()
+        dz = abs(getattr(self.node1, "z_pos", 0) - getattr(self.node2, "z_pos", 0))
+        return (dx * dx + dy * dy) < 100 and dz > 0.01
+
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
             return  # cannot position label yet
@@ -89,6 +98,11 @@ class Pipe(QGraphicsLineItem):
             self.label = QGraphicsTextItem(parent=self)
             self.label.setDefaultTextColor(Qt.GlobalColor.black)
             # No ItemIgnoresTransformations — label is in model-space units
+
+        # Hide label for vertical pipes (same XY, different z) in plan view
+        if self._is_vertical():
+            self.label.setVisible(False)
+            return
 
         visible = True if self._properties["Show Label"]["value"] == "True" else False
         self.label.setVisible(visible)
