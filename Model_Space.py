@@ -1156,14 +1156,29 @@ class Model_Space(QGraphicsScene):
         # Apply template first so non-level properties are copied
         if template:
             pipe.set_properties(template)
-        # Always override level with the active level
+        # Only override the visibility level (Level) with the active level.
+        # Ceiling Level comes from the template — it controls 3D elevation.
         pipe.level = self.active_level
-        pipe.ceiling_level = self.active_level
         pipe._properties["Level"]["value"] = self.active_level
-        pipe._properties["Ceiling Level"]["value"] = self.active_level
         self.sprinkler_system.add_pipe(pipe)
         self.addItem(pipe)
         pipe.update_label()   # re-run now that pipe.scene() is valid
+
+        # Propagate the pipe's ceiling properties to both endpoint nodes
+        # so their 3D elevation matches what the user set on the template.
+        ceiling_lvl = pipe._properties["Ceiling Level"]["value"]
+        try:
+            ceiling_off = float(pipe._properties["Ceiling Offset (in)"]["value"])
+        except (ValueError, TypeError):
+            ceiling_off = -2.0
+        for node in (n1, n2):
+            if node is not None:
+                node.ceiling_level = ceiling_lvl
+                node._properties["Ceiling Level"]["value"] = ceiling_lvl
+                node.ceiling_offset = ceiling_off
+                node._properties["Ceiling Offset (in)"]["value"] = str(ceiling_off)
+                node._recompute_z_pos()
+
         return pipe
 
     def split_pipe(self, pipe, split_point: QPointF):
