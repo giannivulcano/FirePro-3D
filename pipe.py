@@ -87,12 +87,12 @@ class Pipe(QGraphicsLineItem):
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
             return  # cannot position label yet
-        
+
         if not hasattr(self, "label") or self.label is None:
             self.label = QGraphicsTextItem(parent=self)
             self.label.setDefaultTextColor(Qt.GlobalColor.black)
-            self.label.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        
+            # No ItemIgnoresTransformations — label is in model-space units
+
         visible = True if self._properties["Show Label"]["value"] == "True" else False
         self.label.setVisible(visible)
         if not visible:
@@ -106,6 +106,11 @@ class Pipe(QGraphicsLineItem):
         else:
             length = f"{self.length:.1f} px"
 
+        # Text height = 12 inches in model space (1 scene unit = 1 mm)
+        text_h = 12.0 * 25.4   # 304.8 mm
+        # Gap between rows = pipe visual width + 2 inches (clearance each side)
+        gap = self.get_od_mm() + 2.0 * 25.4   # mm
+
         # Include hydraulic results if available
         hr_lines = ""
         if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
@@ -113,12 +118,19 @@ class Pipe(QGraphicsLineItem):
             q = result.pipe_flows.get(self)
             hf = result.pipe_friction_loss.get(self)
             if q is not None:
-                hr_lines += f"<br><span style='color:#00aaff'>{q:.1f} gpm</span>"
+                hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
+                             f"margin-top:{gap:.0f}px; color:#00aaff;'>"
+                             f"{q:.1f} gpm</div>")
             if hf is not None:
-                hr_lines += f"<br><span style='color:#ffaa00'>{hf:.2f} psi</span>"
+                hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
+                             f"margin-top:{gap:.0f}px; color:#ffaa00;'>"
+                             f"{hf:.2f} psi</div>")
 
-        html = (f"<div style='font-size:9pt; line-height:1.2; text-align:center;'>"
-                f"{diameter}<br>{length}{hr_lines}</div>")
+        html = (f"<div style='text-align:center;'>"
+                f"<div style='font-size:{text_h:.0f}px;'>{diameter}</div>"
+                f"<div style='font-size:{text_h:.0f}px; "
+                f"margin-top:{gap:.0f}px;'>{length}</div>"
+                f"{hr_lines}</div>")
         self.label.setHtml(html)
         self.label.setTextWidth(-1)  # no wrapping
 
