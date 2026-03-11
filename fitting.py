@@ -42,7 +42,23 @@ class Fitting():
         "cross": {
             "path": r"graphics/fitting_symbols/double_tee.svg",
             "through": QPointF(0, -1)
-        }
+        },
+        "tee_up": {
+            "path": r"graphics/fitting_symbols/tee_up.svg",
+            "through": (QPointF(1, 0), QPointF(0, -1))
+        },
+        "tee_down": {
+            "path": r"graphics/fitting_symbols/tee_down.svg",
+            "through": (QPointF(1, 0), QPointF(0, -1))
+        },
+        "elbow_up": {
+            "path": r"graphics/fitting_symbols/elbow_up.svg",
+            "through": QPointF(1, 0)
+        },
+        "elbow_down": {
+            "path": r"graphics/fitting_symbols/elbow_down.svg",
+            "through": QPointF(1, 0)
+        },
     }
 
     def __init__(self, node):
@@ -60,15 +76,50 @@ class Fitting():
             visibility = False
         self.symbol.setVisible(visibility)
 
+    # ── Vertical pipe helpers ────────────────────────────────────────────
+
+    @staticmethod
+    def _is_vertical(pipe, node) -> bool:
+        """True if *pipe* is vertical (same XY, different z_pos)."""
+        if pipe.node1 is None or pipe.node2 is None:
+            return False
+        p1 = pipe.node1.scenePos()
+        p2 = pipe.node2.scenePos()
+        dx = p1.x() - p2.x()
+        dy = p1.y() - p2.y()
+        dz = abs(getattr(pipe.node1, "z_pos", 0) - getattr(pipe.node2, "z_pos", 0))
+        return (dx * dx + dy * dy) < 100 and dz > 0.01  # 10 px tol, 0.01 ft z tol
+
+    @staticmethod
+    def _vertical_direction(pipe, node) -> str:
+        """Return ``'up'`` or ``'down'`` relative to *node*."""
+        other = pipe.node2 if pipe.node1 is node else pipe.node1
+        return "up" if getattr(other, "z_pos", 0) > getattr(node, "z_pos", 0) else "down"
+
+    # ── Type determination ─────────────────────────────────────────────
+
     def determine_type(self, pipes) -> str:
         """Decide fitting type based on connected pipes."""
         count = len(pipes)
         if count == 0:
             return "no fitting"
-        elif count == 1:
+
+        node = self.node
+        vertical   = [p for p in pipes if self._is_vertical(p, node)]
+        horizontal = [p for p in pipes if not self._is_vertical(p, node)]
+
+        # ── Vertical pipe present ──────────────────────────────────────
+        if vertical:
+            direction = self._vertical_direction(vertical[0], node)
+            if len(horizontal) <= 1:
+                return f"elbow_{direction}"
+            else:
+                return f"tee_{direction}"
+
+        # ── Pure horizontal logic (unchanged) ──────────────────────────
+        if count == 1:
             return "cap"
         elif count == 2:
-
             v1 = CAD_Math.get_unit_vector(pipes[0].node1.scenePos(),pipes[0].node2.scenePos())
             v2 = CAD_Math.get_unit_vector(pipes[1].node1.scenePos(),pipes[1].node2.scenePos())
             angle = abs(CAD_Math.get_angle_between_vectors(v1, v2, signed=False))
@@ -82,7 +133,6 @@ class Fitting():
             else:
                 return "no fitting"
         elif count == 3:
-            # same tee vs wye logic
             V = [CAD_Math.get_unit_vector(p.node1.scenePos(),p.node2.scenePos()) for p in pipes]
             angles = [
                 round(CAD_Math.get_angle_between_vectors(V[i], V[j], signed=False))
@@ -128,23 +178,51 @@ class Fitting():
     def align_fitting(self):
         pipes = self.node.pipes
         node = self.node
+
+        # Build 2D direction vectors only for horizontal pipes
+        # (vertical pipes have zero-length 2D vectors and would break angle math)
+        horiz_pipes = [p for p in pipes if not self._is_vertical(p, node)]
         pipe_vectors = []
-        for pipe in pipes:
+        for pipe in horiz_pipes:
             p1 = node.scenePos()
             if pipe.node1 is node:
                 p2 = pipe.node2.scenePos()
             elif pipe.node2 is node:
                 p2 = pipe.node1.scenePos()
-            pipe_vectors.append(CAD_Math.get_unit_vector(p1,p2))
-            transform = None
+            pipe_vectors.append(CAD_Math.get_unit_vector(p1, p2))
+        transform = None
 
         if self.type in ("no fitting"):
-            transform = CAD_Math.rotate_unit_vector(QPointF(1,0), QPointF(1,0))
+            transform = CAD_Math.rotate_unit_vector(QPointF(1, 0), QPointF(1, 0))
 
-        if self.type in ("cap", "cross"):
-            V1 = pipe_vectors[0]
+        elif self.type in ("elbow_up", "elbow_down"):
+            # Align the fitting with the horizontal pipe direction (if any)
             V2 = self.SYMBOLS[self.type].get("through")
-            transform = CAD_Math.rotate_unit_vector(V2, V1) #aligns V2 with V1
+            if pipe_vectors:
+                V1 = pipe_vectors[0]
+            else:
+                V1 = QPointF(1, 0)
+            transform = CAD_Math.rotate_unit_vector(V2, V1)
+
+        elif self.type in ("tee_up", "tee_down"):
+            # Use the horizontal pipe vectors for alignment
+            M2_spec = self.SYMBOLS[self.type].get("through")
+            if len(pipe_vectors) >= 2:
+                M1 = pipe_vectors[:2]
+                try:
+                    transform = CAD_Math.make_qtransform_from_qpoints(M2_spec, M1)
+                except Exception:
+                    transform = QTransform()
+            elif pipe_vectors:
+                V2 = M2_spec[0] if isinstance(M2_spec, tuple) else M2_spec
+                transform = CAD_Math.rotate_unit_vector(V2, pipe_vectors[0])
+            else:
+                transform = QTransform()
+
+        elif self.type in ("cap", "cross"):
+            V1 = pipe_vectors[0] if pipe_vectors else QPointF(1, 0)
+            V2 = self.SYMBOLS[self.type].get("through")
+            transform = CAD_Math.rotate_unit_vector(V2, V1)
 
         elif self.type in ("90elbow", "45elbow"):
             M1 = pipe_vectors

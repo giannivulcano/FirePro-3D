@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="20mm"
+   height="20mm"
+   viewBox="0 0 20 20"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   sodipodi:docname="water_supply.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="mm"
+     showguides="true"
+     inkscape:zoom="1"
+     inkscape:cx="-232.99999"
+     inkscape:cy="-58.499998"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="1912"
+     inkscape:window-y="-8"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1">
+    <sodipodi:guide
+       position="190.41321,300.9065"
+       orientation="0,-1"
+       id="guide2"
+       inkscape:locked="false" />
+  </sodipodi:namedview>
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(-0.22619051,-0.22619051)">
+    <g
+       id="g2">
+      <path
+         style="fill:none;stroke:#ffffff;stroke-width:0.173872;stroke-dasharray:none;stroke-opacity:1"
+         d=""
+         id="path29" />
+      <path
+         style="fill:none;stroke:#ffffff;stroke-width:0.173872;stroke-dasharray:none;stroke-opacity:1"
+         d=""
+         id="path30" />
+      <path
+         style="fill:none;stroke:#ffffff;stroke-width:0.173872;stroke-dasharray:none;stroke-opacity:1"
+         d=""
+         id="path31" />
+    </g>
+    <circle
+       style="fill:#2b2b2e;fill-opacity:1;stroke:#ffffff;stroke-width:0.976161;stroke-dasharray:none;stroke-opacity:1"
+       id="path1"
+       cx="10.226191"
+       cy="10.226191"
+       r="9.51192" />
+    <path
+       style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:1.50001;stroke-dasharray:none;stroke-opacity:1"
+       d="M 13.715674,14.4332 C 15.064923,11.965437 13.766964,9.9842309 10.249551,4.8129019 6.6583964,9.9606899 5.3491064,12.160683 6.7834284,14.4332 c 1.434321,2.272518 5.5829956,2.467764 6.9322456,0 z"
+       id="path6"
+       sodipodi:nodetypes="zczz"
+       clip-path="none" />
+  </g>
+</svg>

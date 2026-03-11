@@ -369,7 +369,7 @@ class HydraulicSolver:
         d = pipe.get_inner_diameter()   # inches
         if d <= 0 or c <= 0:
             return 0.0
-        L_ft = self._scene_to_ft(pipe.length)
+        L_ft = pipe.get_length_ft()
         hf = 4.52 * (q_gpm ** 1.852) / ((c ** 1.852) * (d ** 4.87)) * L_ft
         return hf
 

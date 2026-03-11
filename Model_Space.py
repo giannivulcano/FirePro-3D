@@ -1181,6 +1181,86 @@ class Model_Space(QGraphicsScene):
 
         return pipe
 
+    # ── Vertical pipe helpers ─────────────────────────────────────────────
+
+    def _compute_template_z_pos(self, template) -> float | None:
+        """Compute the z_pos (feet) that a template pipe would impose."""
+        ceiling_lvl_name = template._properties.get(
+            "Ceiling Level", {}
+        ).get("value")
+        if not ceiling_lvl_name or not self._level_manager:
+            return None
+        lvl = self._level_manager.get(ceiling_lvl_name)
+        if lvl is None:
+            return None
+        try:
+            offset = float(
+                template._properties.get("Ceiling Offset (in)", {}).get("value", -2)
+            )
+        except (ValueError, TypeError):
+            offset = -2.0
+        return lvl.elevation + offset / 12.0
+
+    def _create_vertical_connection(self, start_node, existing_end_node, template):
+        """Insert an intermediate node + vertical pipe + horizontal pipe.
+
+        * intermediate_node — same XY as *existing_end_node* but at the
+          template's Ceiling Level / Offset.
+        * vertical pipe — between *existing_end_node* and *intermediate_node*.
+        * horizontal pipe — between *start_node* and *intermediate_node*
+          (carries the full template).
+        """
+        ex = existing_end_node.scenePos().x()
+        ey = existing_end_node.scenePos().y()
+
+        # Create intermediate node manually (bypass add_node because
+        # find_nearby_node would return existing_end_node at the same XY).
+        intermediate = Node(ex, ey)
+        intermediate.user_layer = self.active_user_layer
+        intermediate.level = self.active_level
+        intermediate._properties["Level"]["value"] = self.active_level
+
+        # Set ceiling properties from the template
+        ceiling_lvl = template._properties["Ceiling Level"]["value"]
+        try:
+            ceiling_off = float(template._properties["Ceiling Offset (in)"]["value"])
+        except (ValueError, TypeError):
+            ceiling_off = -2.0
+        intermediate.ceiling_level = ceiling_lvl
+        intermediate._properties["Ceiling Level"]["value"] = ceiling_lvl
+        intermediate.ceiling_offset = ceiling_off
+        intermediate._properties["Ceiling Offset (in)"]["value"] = str(ceiling_off)
+        if self._level_manager:
+            lvl = self._level_manager.get(ceiling_lvl)
+            if lvl:
+                intermediate.z_pos = lvl.elevation + ceiling_off / 12.0
+
+        self.addItem(intermediate)
+        self.sprinkler_system.add_node(intermediate)
+
+        # Vertical pipe (existing_end_node <-> intermediate) — same XY, different z
+        vertical_pipe = Pipe(existing_end_node, intermediate)
+        vertical_pipe.user_layer = self.active_user_layer
+        vertical_pipe.level = self.active_level
+        vertical_pipe._properties["Level"]["value"] = self.active_level
+        # Copy physical properties (not ceiling props — endpoints already set)
+        for key in ("Diameter", "Schedule", "C-Factor", "Material", "Colour", "Phase"):
+            if key in template._properties:
+                vertical_pipe.set_property(key, template._properties[key]["value"])
+        self.sprinkler_system.add_pipe(vertical_pipe)
+        self.addItem(vertical_pipe)
+        vertical_pipe.update_label()
+
+        # Horizontal pipe (start_node <-> intermediate) with full template
+        self.add_pipe(start_node, intermediate, template)
+
+        # Refresh fittings on all affected nodes
+        start_node.fitting.update()
+        existing_end_node.fitting.update()
+        intermediate.fitting.update()
+
+    # ── End vertical pipe helpers ─────────────────────────────────────────
+
     def split_pipe(self, pipe, split_point: QPointF):
         # If split point is near an existing endpoint, return that node
         # instead of creating a tiny degenerate split.
@@ -3486,11 +3566,46 @@ class Model_Space(QGraphicsScene):
             else:
                 start_pos   = self.node_start_pos.scenePos()
                 snapped_end = self.node_start_pos.snap_point_45(start_pos, snapped)
+                template = getattr(self, "current_template", None)
+
+                # Check for existing node BEFORE find_or_create_node
+                existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+
                 if isinstance(selection, Pipe):
                     end_node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped_end, selection))
                 else:
                     end_node = self.find_or_create_node(snapped_end.x(), snapped_end.y())
-                self.add_pipe(self.node_start_pos, end_node, getattr(self, "current_template", None))
+
+                # Block zero-length same-node pipe
+                if end_node is self.node_start_pos:
+                    return  # wait for valid second click
+
+                # Detect elevation mismatch on an existing node
+                if existing_end is not None and template is not None:
+                    template_z = self._compute_template_z_pos(template)
+                    if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
+                        from PyQt6.QtWidgets import QMessageBox
+                        reply = QMessageBox.question(
+                            self.views()[0] if self.views() else None,
+                            "Elevation Mismatch",
+                            f"The target node is at elevation {end_node.z_pos:.2f} ft "
+                            f"but the template targets {template_z:.2f} ft.\n\n"
+                            "Create a vertical connection (riser/drop)?",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.Yes,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            self._create_vertical_connection(
+                                self.node_start_pos, end_node, template,
+                            )
+                            self.node_start_pos = None
+                            self.preview_pipe.hide()
+                            self.preview_node.hide()
+                            self.push_undo_state()
+                            self.instructionChanged.emit("Pick start node")
+                            return
+
+                self.add_pipe(self.node_start_pos, end_node, template)
                 self.node_start_pos.fitting.update()
                 end_node.fitting.update()
                 self.node_start_pos = None
@@ -3739,10 +3854,24 @@ class Model_Space(QGraphicsScene):
             return
 
         elif self.mode == "water_supply":
-            # Place (or replace) the water supply node at the clicked position
+            # Require placement on a node or pipe (split to create node)
+            if isinstance(selection, Node):
+                target_node = selection
+            elif isinstance(selection, Pipe):
+                target_node = self.split_pipe(
+                    selection,
+                    self.project_click_onto_pipe_segment(snapped, selection),
+                )
+            else:
+                target_node = self.find_nearby_node(snapped.x(), snapped.y())
+
+            if target_node is None:
+                self._show_status("Click on a node or pipe to place water supply")
+                return
+
             if self.water_supply_node is not None:
                 self.removeItem(self.water_supply_node)
-            ws = WaterSupply(snapped.x(), snapped.y())
+            ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
             self.addItem(ws)
             self.water_supply_node = ws
             self.sprinkler_system.supply_node = ws
