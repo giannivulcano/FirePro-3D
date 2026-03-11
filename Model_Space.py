@@ -243,6 +243,8 @@ class Model_Space(QGraphicsScene):
         for pipe in self.sprinkler_system.pipes:
             if pipe.node1 is None or pipe.node2 is None:
                 continue
+            if pipe.node1 not in node_id or pipe.node2 not in node_id:
+                continue
             pipes_data.append({
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
@@ -1150,6 +1152,14 @@ class Model_Space(QGraphicsScene):
         return pipe
 
     def split_pipe(self, pipe, split_point: QPointF):
+        # If split point is near an existing endpoint, return that node
+        # instead of creating a tiny degenerate split.
+        for end_node in (pipe.node1, pipe.node2):
+            if end_node is not None:
+                dx = end_node.scenePos().x() - split_point.x()
+                dy = end_node.scenePos().y() - split_point.y()
+                if (dx * dx + dy * dy) < self.SNAP_RADIUS * self.SNAP_RADIUS:
+                    return end_node
         new_node = self.add_node(split_point.x(), split_point.y())
         template = pipe
         node_a = pipe.node1
@@ -1782,6 +1792,8 @@ class Model_Space(QGraphicsScene):
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
             if pipe.node1 is None or pipe.node2 is None:
+                continue
+            if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
             pipes_data.append({
                 "node1_id":   node_id[pipe.node1],

@@ -201,10 +201,10 @@ class Fitting():
         center = bounds.center()
         self.symbol.setTransformOriginPoint(center)
 
-        # Scale fitting to 3× the largest connected pipe OD (real-world mm)
+        # Scale fitting to 5× the largest connected pipe OD (real-world mm)
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
-            target_mm = self._max_connected_od_mm() * 3
+            target_mm = self._max_connected_od_mm() * 5
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0
