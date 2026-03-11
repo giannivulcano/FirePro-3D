@@ -132,7 +132,10 @@ class Pipe(QGraphicsLineItem):
                 f"margin-top:{gap:.0f}px;'>{length}</div>"
                 f"{hr_lines}</div>")
         self.label.setHtml(html)
-        self.label.setTextWidth(-1)  # no wrapping
+        # Measure natural width then lock it so text-align:center works
+        self.label.setTextWidth(-1)
+        ideal = self.label.document().idealWidth()
+        self.label.setTextWidth(ideal)
 
         self.set_label_position()
 
