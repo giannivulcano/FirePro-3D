@@ -303,6 +303,14 @@ class MainWindow(QMainWindow):
         self.coord_label = QLabel("X: —   Y: —")
         self.coord_label.setMinimumWidth(280)
         status_bar.addPermanentWidget(self.coord_label)
+        # Mode name badge — prominent indicator of active mode
+        self.mode_name_label = QLabel("NONE")
+        self.mode_name_label.setStyleSheet(
+            "font-weight: bold; color: #44aaff; padding: 2px 8px; "
+            "border: 1px solid #44aaff; border-radius: 3px;"
+        )
+        self.mode_name_label.setMinimumWidth(80)
+        status_bar.addWidget(self.mode_name_label)
         self.mode_label = QLabel("Mode: —")
         status_bar.addWidget(self.mode_label)
         self.level_label = QLabel("Level: Level 1")
@@ -1087,6 +1095,9 @@ class MainWindow(QMainWindow):
     def _update_mode_label(self, mode: str):
         text = self._MODE_INSTRUCTIONS.get(mode, mode.replace("_", " ").title())
         self.mode_label.setText(text)
+        # Update prominent mode name badge
+        display_name = mode.replace("_", " ").upper() if mode else "NONE"
+        self.mode_name_label.setText(display_name)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""

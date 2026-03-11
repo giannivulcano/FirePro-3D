@@ -253,9 +253,11 @@ class SnapEngine:
         elif isinstance(item, QGraphicsEllipseItem):
             br  = item.boundingRect()
             cen = br.center()
+            _is_node = hasattr(item, "pipes")  # Node has .pipes; circles don't
             if self.snap_center:
                 pts.append(("center", item.mapToScene(cen)))
-            if self.snap_quadrant:
+            # Quadrant snaps only for real circles, not Nodes
+            if self.snap_quadrant and not _is_node:
                 pts.append(("quadrant", item.mapToScene(QPointF(br.right(), cen.y()))))
                 pts.append(("quadrant", item.mapToScene(QPointF(br.left(),  cen.y()))))
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top()))))
@@ -384,9 +386,9 @@ class SnapEngine:
                         foot = QPointF(cx + r * dx / d, cy + r * dy / d)
                         pts.append(("perpendicular", foot))
 
-        # Tangent to circles
+        # Tangent to circles (skip Nodes — only center snap for Nodes)
         if self.snap_tangent:
-            if isinstance(item, QGraphicsEllipseItem):
+            if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
                 br = item.boundingRect()
                 # Only for circles (width == height)
                 if abs(br.width() - br.height()) < 0.1:

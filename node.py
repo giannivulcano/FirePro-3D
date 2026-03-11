@@ -170,17 +170,29 @@ class Node(QGraphicsEllipseItem):
         return super().itemChange(change, value)
 
     
+    def boundingRect(self) -> QRectF:
+        """Expand bounding rect to encompass zoom-dependent selection highlight
+        and coverage overlay so Qt doesn't clip the painted graphics."""
+        if self.has_sprinkler():
+            r = self.sprinkler.TARGET_MM / 2.0 * 1.15
+        else:
+            r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
+        r = max(r, self.RADIUS + 4)
+        return QRectF(-r, -r, r * 2, r * 2)
+
     def paint(self, painter, option, widget=None):
         # invisible by default
         painter.setPen(QPen(Qt.PenStyle.NoPen))
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
         if self.isSelected():
-            # Zoom-independent selection highlight
-            views = self.scene().views() if self.scene() else []
-            view_scale = abs(views[0].transform().m11()) if views else 1.0
-            screen_radius = 13.0 if self.has_sprinkler() else 8.0
-            radius = screen_radius / max(view_scale, 1e-6)
+            # Zoom-dependent selection highlight (scales with scene geometry)
+            if self.has_sprinkler():
+                # Slightly larger than sprinkler SVG (15% bigger)
+                radius = self.sprinkler.TARGET_MM / 2.0 * 1.15
+            else:
+                # Plain node: 14-inch diameter highlight
+                radius = 14.0 * 25.4 / 2.0  # 177.8 mm
 
             highlight_pen = QPen(QColor("red"), 2)
             highlight_pen.setCosmetic(True)

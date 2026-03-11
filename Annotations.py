@@ -374,13 +374,13 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
         # Scale-aware sizes
         sm = getattr(self.scene(), "scale_manager", None) if self.scene() else None
         if sm and sm.is_calibrated:
-            tick_size = sm.paper_to_scene(1.5)    # 1.5mm tick on paper
+            tick_size = sm.paper_to_scene(6.0)    # 6mm tick on paper (4× original)
             offset_gap = sm.paper_to_scene(1.0)   # 1mm gap at measurement point
-            default_ext = sm.paper_to_scene(2.0)  # 2mm extension past dimension line
+            default_ext = sm.paper_to_scene(4.0)  # 4mm extension past dimension line
         else:
-            tick_size = 6
+            tick_size = 24                         # 4× fallback (was 6)
             offset_gap = 3
-            default_ext = 6  # extend witness lines past dimension line
+            default_ext = 12                       # 2× fallback (was 6)
         # Use per-dimension override if set, otherwise use default
         witness_ext = self._witness_ext_override if self._witness_ext_override is not None else default_ext
 

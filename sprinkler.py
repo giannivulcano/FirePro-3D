@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QTransform
+from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -69,6 +69,13 @@ class Sprinkler(QGraphicsSvgItem):
         t = QTransform(s, 0, 0, s, -s * center.x(), -s * center.y())
         self.setTransform(t)
         self.setPos(0, 0)
+
+    def shape(self) -> QPainterPath:
+        """Return full bounding rect as shape so clicking anywhere on the
+        sprinkler graphic selects it (not just the SVG path outlines)."""
+        path = QPainterPath()
+        path.addRect(self.boundingRect())
+        return path
 
     # -------------------------------------------------------------------------
     # Public property API
