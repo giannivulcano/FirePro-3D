@@ -247,9 +247,12 @@ class LevelManager:
         for item in getattr(scene, "_draw_arcs", []):
             _set_level_vis(item)
 
-        # ── Gridlines ─────────────────────────────────────────────────────
+        # ── Gridlines (always visible on all levels) ─────────────────────
         for item in getattr(scene, "_gridlines", []):
-            _set_level_vis(item)
+            item.setVisible(True)
+            item.setOpacity(1.0)
+            item.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         # ── Annotations ───────────────────────────────────────────────────
         annotations = getattr(scene, "annotations", None)

@@ -504,20 +504,9 @@ class Model_View(QGraphicsView):
     # -----------------------------
 
     def focusNextPrevChild(self, next_child: bool) -> bool:
-        """Block Qt's built-in Tab focus-traversal when a draw mode is active.
-
-        Without this override Qt consumes Tab for widget focus cycling and it
-        never reaches keyPressEvent, so _handle_tab_input() would never fire.
-        """
-        sc = self.scene()
-        if sc is not None and getattr(sc, "mode", None) in (
-            "draw_line", "draw_rectangle", "draw_circle",
-            "construction_line", "polyline", "offset_side",
-            "rotate", "scale", "fillet", "chamfer",
-            "wall",
-        ):
-            return False   # let Tab fall through to keyPressEvent
-        return super().focusNextPrevChild(next_child)
+        """Always block Qt's built-in Tab focus-traversal so Tab reaches
+        keyPressEvent → _handle_tab_input() for all modes (select, draw, wall…)."""
+        return False
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Tab:

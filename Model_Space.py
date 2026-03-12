@@ -105,7 +105,6 @@ class Model_Space(QGraphicsScene):
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
-        self._osnap_saved_for_design_area: bool | None = None  # saved state while in design_area mode
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self._level_manager = None                             # set by main.py
         # Grip editing (Sprint I)
@@ -901,17 +900,11 @@ class Model_Space(QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
         self._cal_point1 = None
-        # Disable OSNAP while in design_area mode (sprinkler-click only)
+        # In design_area mode, OSNAP stays on but filters out pipes
         if mode == "design_area":
-            self._osnap_saved_for_design_area = self._osnap_enabled
-            self._osnap_enabled = False
-            self._snap_engine.enabled = False
-            self._snap_result = None
-        elif self._osnap_saved_for_design_area is not None:
-            # Restore OSNAP when leaving design_area mode
-            self._osnap_enabled = self._osnap_saved_for_design_area
-            self._snap_engine.enabled = self._osnap_enabled
-            self._osnap_saved_for_design_area = None
+            self._snap_engine.skip_pipes = True
+        else:
+            self._snap_engine.skip_pipes = False
         # Clean up design_area preview if leaving that mode mid-draw
         if mode != "design_area":
             self._design_area_corner1 = None
@@ -3041,7 +3034,7 @@ class Model_Space(QGraphicsScene):
         # Compute bubble overshoot in scene units (screen-fixed size → need view scale)
         views = self.views()
         vscale = views[0].transform().m11() if views else 1.0
-        bubble_overshoot = (BUBBLE_RADIUS + 4) / max(vscale, 1e-6)
+        bubble_overshoot = 2.0 * (BUBBLE_RADIUS + 4) / max(vscale, 1e-6)
 
         for spec in specs:
             label    = spec.get("label", "?")
@@ -3354,7 +3347,25 @@ class Model_Space(QGraphicsScene):
                 if len(grips) >= 2 and self._grip_index != 1:
                     opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
                     pos = self._constrain_angle(grips[opp], snapped)
-            self._grip_item.apply_grip(self._grip_index, pos)
+            # For gridlines: compute delta and move all selected gridlines in unison
+            if isinstance(self._grip_item, GridlineItem):
+                old_grips = self._grip_item.grip_points()
+                old_pt = old_grips[self._grip_index]
+                self._grip_item.apply_grip(self._grip_index, pos)
+                new_grips = self._grip_item.grip_points()
+                new_pt = new_grips[self._grip_index]
+                delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
+                # Move all other selected gridlines by the same delta
+                for sel in self.selectedItems():
+                    if sel is self._grip_item or not isinstance(sel, GridlineItem):
+                        continue
+                    sl = sel.line()
+                    sel.setLine(sl.p1().x() + delta.x(), sl.p1().y() + delta.y(),
+                                sl.p2().x() + delta.x(), sl.p2().y() + delta.y())
+                    sel._update_bubble_positions()
+                    sel.update()
+            else:
+                self._grip_item.apply_grip(self._grip_index, pos)
             self._solve_constraints(self._grip_item)
             # Real-time hatch rebuild during grip drag
             for h in self._hatch_items:
@@ -5159,6 +5170,8 @@ class Model_Space(QGraphicsScene):
     def _auto_join_wall(self, wall: WallSegment, tolerance: float = 20.0):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)
         and to mid-wall faces (tee join)."""
+        TEE_TOLERANCE = 40.0  # larger search radius for tee intersections
+
         # Track which endpoints have already been snapped (0=pt1, 1=pt2)
         snapped = set()
 
@@ -5179,7 +5192,10 @@ class Model_Space(QGraphicsScene):
                     other._rebuild_path()
                     other.update()
 
-        # Pass 2: tee join — snap unsnapped endpoints to mid-wall faces
+        # Pass 2: tee join — snap unsnapped endpoints to mid-wall faces.
+        # The reference_point is the wall's OTHER endpoint so the new wall
+        # terminates on the face of the existing wall that is nearest to
+        # the start (or end) of the new wall.
         for other in self._walls:
             if other is wall:
                 continue
@@ -5187,8 +5203,11 @@ class Model_Space(QGraphicsScene):
                 if my_idx in snapped:
                     continue
                 my_pt = wall.pt1 if my_idx == 0 else wall.pt2
+                # Reference = the other end of the new wall
+                ref_pt = wall.pt2 if my_idx == 0 else wall.pt1
                 face_pt = other.nearest_face_point(
-                    my_pt, tolerance, self.scale_manager)
+                    my_pt, TEE_TOLERANCE, self.scale_manager,
+                    reference_point=ref_pt)
                 if face_pt is not None:
                     wall.snap_endpoint_to(my_idx, face_pt)
                     snapped.add(my_idx)
