@@ -3020,21 +3020,15 @@ class Model_Space(QGraphicsScene):
         keys: label, offset (scene px), length (scene px), angle_deg.
 
         Gridlines originate at p1 (the bubble end) and extend to p2.
-        A small bubble overshoot is added so the bubble circle extends
-        slightly beyond p1.  Positive offset follows architectural
-        convention (right for vertical, up for horizontal).
+        The bubble overshoot is a fixed 2% of the gridline length so
+        it is consistent regardless of zoom level.  Positive offset
+        follows architectural convention (right for V, up for H).
         """
-        from gridline import BUBBLE_RADIUS
         specs = params.get("gridlines", [])
         if not specs:
             return
 
         self.push_undo_state()
-
-        # Compute bubble overshoot in scene units (screen-fixed size → need view scale)
-        views = self.views()
-        vscale = views[0].transform().m11() if views else 1.0
-        bubble_overshoot = 2.0 * (BUBBLE_RADIUS + 4) / max(vscale, 1e-6)
 
         for spec in specs:
             label    = spec.get("label", "?")
@@ -3053,6 +3047,9 @@ class Model_Space(QGraphicsScene):
             # Positive offset: right for vertical, up for horizontal
             ox = offset * px
             oy = -offset * py
+
+            # Zoom-independent bubble overshoot: 2% of gridline length
+            bubble_overshoot = length * 0.02
 
             # p1 = bubble end (slightly past origin), p2 = far end
             p1 = QPointF(ox - bubble_overshoot * dx,

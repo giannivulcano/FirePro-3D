@@ -343,6 +343,13 @@ class MainWindow(QMainWindow):
         self._splash_progress(90, "Restoring settings...")
         self.restore_settings()
         self._splash_progress(100, "Ready")
+
+        # New-project setup: place default gridlines and fit view
+        self._place_default_gridlines()
+        self._modified = False
+        self._update_title()
+        QTimer.singleShot(100, self.view.fit_to_screen)
+
         # Defer recovery check until after the window is fully shown
         QTimer.singleShot(500, self._check_recovery)
 
@@ -1485,6 +1492,7 @@ class MainWindow(QMainWindow):
 
         self._modified = False
         self._update_title()
+        QTimer.singleShot(100, self.view.fit_to_screen)
 
     def _update_title(self):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
