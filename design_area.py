@@ -402,11 +402,13 @@ class DesignArea(QGraphicsRectItem):
             return
 
         # Try to obtain scene context
+        # Model space is always 1 px ≈ 1 mm (default), even before formal
+        # calibration, so we use pixels_per_mm unconditionally.
         scene = self.scene() if callable(getattr(self, "scene", None)) else None
         sm = getattr(scene, "scale_manager", None) if scene else None
-        ppm = sm.pixels_per_mm if sm and sm.is_calibrated else 0.0
+        ppm = sm.pixels_per_mm if sm else 1.0  # default 1 px = 1 mm
 
-        if scene is None or ppm <= 0:
+        if scene is None:
             # Fallback: fixed margin (pre-scene or uncalibrated)
             xs = [s.node.scenePos().x() for s in valid]
             ys = [s.node.scenePos().y() for s in valid]
@@ -488,11 +490,11 @@ class DesignArea(QGraphicsRectItem):
         """Recompute the design-area rect (S × L) and area property."""
         self._update_rect()
 
-        if not scale_manager or not scale_manager.is_calibrated:
+        if not scale_manager:
             return
         ppm = scale_manager.pixels_per_mm
         if ppm <= 0:
-            return
+            ppm = 1.0  # default 1 px = 1 mm
 
         # Sum individual S × L areas from sprinkler properties
         total_area = 0.0

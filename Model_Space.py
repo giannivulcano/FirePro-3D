@@ -314,8 +314,8 @@ class Model_Space(QGraphicsScene):
         ws_data = None
         if ws is not None:
             ws_data = {
-                "x":          ws.scenePos().x(),
-                "y":          ws.scenePos().y(),
+                "x":          ws.pos().x(),
+                "y":          ws.pos().y(),
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
 
@@ -2000,8 +2000,8 @@ class Model_Space(QGraphicsScene):
         ws_data = None
         if ws is not None:
             ws_data = {
-                "x":          ws.scenePos().x(),
-                "y":          ws.scenePos().y(),
+                "x":          ws.pos().x(),
+                "y":          ws.pos().y(),
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
         # Design areas

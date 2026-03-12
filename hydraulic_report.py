@@ -154,7 +154,7 @@ class _HydraulicGraphWidget(QWidget):
         """
         q_hi = max(self._q_test, self._q_demand)
         p_hi = max(self._p_static, self._p_demand)
-        self._q_max = max(math.ceil(q_hi / 100) * 100, 100)
+        self._q_max = max(math.ceil(q_hi / 100) * 100, 100) + 100
         self._p_max = max(math.ceil(p_hi / 10) * 10, 10) + 10
 
     # ── Coordinate mapping ──────────────────────────────────────────────
