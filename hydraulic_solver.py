@@ -51,7 +51,8 @@ class HydraulicResult:
     supply_pressure:    float  # psi available from supply curve at total_demand
     passed:             bool
     messages:           list   # list[str]  warnings / errors / summary
-    node_numbers:       dict   # Node  → int (BFS order, starting from 1)
+    node_numbers:       dict   # Node  → int (BFS order, major nodes only)
+    node_labels:        dict   # Node  → str ("1", "2", "3a", "3b", etc.)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -276,7 +277,44 @@ class HydraulicSolver:
                 calc_nodes.add(n)
                 n = parent_node.get(n)
         calc_bfs = [n for n in bfs_order if n in calc_nodes]
-        node_numbers = {node: idx + 1 for idx, node in enumerate(calc_bfs)}
+
+        # ── Classify nodes: major vs minor ──
+        # Major: branch/tee (!=2 calc-path pipes), sprinkler, or diameter change
+        # Minor: exactly 2 calc-path pipes of same diameter, no sprinkler
+        def _is_major(nd):
+            pipes_on_path = [p for p in nd.pipes
+                             if p.node1 in calc_nodes and p.node2 in calc_nodes]
+            if len(pipes_on_path) != 2:
+                return True
+            if nd.has_sprinkler():
+                return True
+            d1 = pipes_on_path[0]._properties["Diameter"]["value"]
+            d2 = pipes_on_path[1]._properties["Diameter"]["value"]
+            return d1 != d2
+
+        major_set = {n for n in calc_bfs if _is_major(n)}
+        node_numbers = {nd: idx + 1
+                        for idx, nd in enumerate(n for n in calc_bfs if n in major_set)}
+
+        # Label all nodes — majors get "1","2",... minors get "1a","1b",...
+        node_labels = {}
+        for nd in calc_bfs:
+            if nd in major_set:
+                node_labels[nd] = str(node_numbers[nd])
+
+        # Minor nodes: walk toward supply to find nearest major ancestor
+        minor_counts: dict[int, int] = {}   # major_num → letter counter
+        for nd in calc_bfs:
+            if nd not in major_set:
+                ancestor = parent_node.get(nd)
+                while ancestor and ancestor not in major_set:
+                    ancestor = parent_node.get(ancestor)
+                if ancestor and ancestor in major_set:
+                    maj_num = node_numbers[ancestor]
+                    idx = minor_counts.get(maj_num, 0)
+                    letter = chr(ord('a') + idx) if idx < 26 else f"_{idx}"
+                    node_labels[nd] = f"{maj_num}{letter}"
+                    minor_counts[maj_num] = idx + 1
 
         return HydraulicResult(
             node_pressures     = node_pressure,
@@ -289,6 +327,7 @@ class HydraulicSolver:
             passed             = passed,
             messages           = messages,
             node_numbers       = node_numbers,
+            node_labels        = node_labels,
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -299,7 +338,7 @@ class HydraulicSolver:
     def _fail(msg: str, extra_messages: list | None = None) -> HydraulicResult:
         msgs = list(extra_messages or [])
         msgs.append(f"❌ {msg}")
-        return HydraulicResult({}, {}, {}, {}, 0.0, 0.0, 0.0, False, msgs, {})
+        return HydraulicResult({}, {}, {}, {}, 0.0, 0.0, 0.0, False, msgs, {}, {})
 
     @staticmethod
     def _safe_float(value, default: float) -> float:

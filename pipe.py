@@ -310,19 +310,23 @@ class Pipe(QGraphicsLineItem):
         base_pen = QPen(colour, line_weight)
         base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 
-        # Velocity color-coding when hydraulic results are available
+        # Velocity color-coding — only for pipes on the hydraulic calculation path
         scene = self.scene()
         if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
-            v = scene.hydraulic_result.pipe_velocity.get(self, -1)
-            if v >= 0:
-                if v > 20:
-                    colour = QColor(220, 0, 0)      # red: high velocity
-                elif v > 12:
-                    colour = QColor(220, 140, 0)    # orange: elevated velocity
-                else:
-                    colour = QColor(0, 200, 80)     # green: OK
-                base_pen = QPen(colour, line_weight)
-                base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            nn = scene.hydraulic_result.node_numbers
+            on_calc_path = (nn.get(self.node1) is not None
+                            and nn.get(self.node2) is not None)
+            if on_calc_path:
+                v = scene.hydraulic_result.pipe_velocity.get(self, -1)
+                if v >= 0:
+                    if v > 20:
+                        colour = QColor(220, 0, 0)      # red: high velocity
+                    elif v > 12:
+                        colour = QColor(220, 140, 0)    # orange: elevated velocity
+                    else:
+                        colour = QColor(0, 200, 80)     # green: OK
+                    base_pen = QPen(colour, line_weight)
+                    base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 
         # normal draw
         painter.setPen(base_pen)

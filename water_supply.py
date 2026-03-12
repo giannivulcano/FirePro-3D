@@ -14,6 +14,8 @@ Usage
     scene.water_supply_node = ws
 """
 
+import os
+
 from PyQt6.QtWidgets import QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QTransform, QPainterPath
@@ -24,7 +26,10 @@ from PyQt6.QtSvg import QSvgRenderer
 class WaterSupply(QGraphicsSvgItem):
     """Water supply / connection node -- placed once per drawing on a pipe node."""
 
-    SVG_PATH = r"graphics/sprinkler_graphics/water_supply.svg"
+    SVG_PATH = os.path.join(
+        os.path.dirname(__file__),
+        "graphics", "sprinkler_graphics", "water_supply.svg",
+    )
     SVG_NATURAL_PX = 30.0               # natural SVG bounding-box width (px)
     TARGET_MM      = 24.0 * 25.4        # desired symbol diameter in mm (24 inches)
     SCALE          = TARGET_MM / SVG_NATURAL_PX
