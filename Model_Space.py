@@ -3352,23 +3352,24 @@ class Model_Space(QGraphicsScene):
                 if len(grips) >= 2 and self._grip_index != 1:
                     opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
                     pos = self._constrain_angle(grips[opp], snapped)
-            # For gridlines: compute delta and move all selected gridlines in unison
+            # For gridlines: move the same grip on all selected gridlines
+            # while keeping the opposite end fixed (length adjusts).
             if isinstance(self._grip_item, GridlineItem):
                 old_grips = self._grip_item.grip_points()
                 old_pt = old_grips[self._grip_index]
                 self._grip_item.apply_grip(self._grip_index, pos)
                 new_grips = self._grip_item.grip_points()
                 new_pt = new_grips[self._grip_index]
-                delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
-                # Move all other selected gridlines by the same delta
+                delta = QPointF(new_pt.x() - old_pt.x(),
+                                new_pt.y() - old_pt.y())
+                # Apply same grip-index movement to other selected gridlines
                 for sel in self.selectedItems():
                     if sel is self._grip_item or not isinstance(sel, GridlineItem):
                         continue
-                    sl = sel.line()
-                    sel.setLine(sl.p1().x() + delta.x(), sl.p1().y() + delta.y(),
-                                sl.p2().x() + delta.x(), sl.p2().y() + delta.y())
-                    sel._update_bubble_positions()
-                    sel.update()
+                    sg = sel.grip_points()
+                    target = QPointF(sg[self._grip_index].x() + delta.x(),
+                                     sg[self._grip_index].y() + delta.y())
+                    sel.apply_grip(self._grip_index, target)
             else:
                 self._grip_item.apply_grip(self._grip_index, pos)
             self._solve_constraints(self._grip_item)

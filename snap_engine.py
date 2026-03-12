@@ -196,22 +196,24 @@ class SnapEngine:
                 _check(snap_type, pt, item)
 
         # ── Gridline-to-gridline intersection snaps ─────────────────────
+        # Use ALL gridlines in the scene (not just those in search_rect)
+        # because gridline shapes may be too thin for the small search rect.
         if self.snap_endpoint:
             try:
                 from gridline import GridlineItem as _GL
             except ImportError:
                 _GL = None
             if _GL is not None:
-                gl_items = [
-                    it for it in scene.items(search_rect)
-                    if isinstance(it, _GL)
-                ]
+                gl_items = list(getattr(scene, "_gridlines", []))
                 for i, g1 in enumerate(gl_items):
                     l1 = g1.line()
+                    a1 = g1.mapToScene(l1.p1())
+                    a2 = g1.mapToScene(l1.p2())
                     for g2 in gl_items[i + 1:]:
                         l2 = g2.line()
-                        ix = self._line_line_intersect(
-                            l1.p1(), l1.p2(), l2.p1(), l2.p2())
+                        b1 = g2.mapToScene(l2.p1())
+                        b2 = g2.mapToScene(l2.p2())
+                        ix = self._line_line_intersect(a1, a2, b1, b2)
                         if ix is not None:
                             _check("endpoint", ix, g1)
 
@@ -234,6 +236,10 @@ class SnapEngine:
             from gridline import GridlineItem
         except ImportError:
             GridlineItem = None  # type: ignore
+        try:
+            from wall import WallSegment as _WallSeg
+        except ImportError:
+            _WallSeg = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
@@ -299,6 +305,39 @@ class SnapEngine:
                 pts.append(("quadrant", item.mapToScene(QPointF(br.left(),  cen.y()))))
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top()))))
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom()))))
+
+        # ── WallSegment (must come before generic QGraphicsPathItem) ─────
+        elif _WallSeg and isinstance(item, _WallSeg):
+            p1, p2 = item.pt1, item.pt2
+            # Centerline endpoints
+            if self.snap_endpoint:
+                pts.append(("endpoint", p1))
+                pts.append(("endpoint", p2))
+            # Centerline midpoint
+            if self.snap_midpoint:
+                mid = QPointF((p1.x() + p2.x()) / 2,
+                              (p1.y() + p2.y()) / 2)
+                pts.append(("midpoint", mid))
+            # Quad corner points (wall faces)
+            if self.snap_endpoint:
+                try:
+                    p1l, p1r, p2r, p2l = item.quad_points()
+                    pts.append(("endpoint", p1l))
+                    pts.append(("endpoint", p1r))
+                    pts.append(("endpoint", p2r))
+                    pts.append(("endpoint", p2l))
+                except Exception:
+                    pass
+            # Edge midpoints (face mid-lengths)
+            if self.snap_midpoint:
+                try:
+                    p1l, p1r, p2r, p2l = item.quad_points()
+                    pts.append(("midpoint", QPointF(
+                        (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2)))
+                    pts.append(("midpoint", QPointF(
+                        (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2)))
+                except Exception:
+                    pass
 
         # ── PolylineItem (must come before generic QGraphicsPathItem) ────
         elif PolylineItem and isinstance(item, PolylineItem):

@@ -1265,6 +1265,36 @@ class MainWindow(QMainWindow):
             self.scene._gridlines.clear()
             self.scene.place_grid_lines(dlg.get_params())
 
+    def _place_default_gridlines(self):
+        """Place a default 3 V × 3 H grid for a new project."""
+        sm = self.scene.scale_manager
+        # Convert a sensible display-unit spacing to scene units
+        if sm:
+            spacing = sm.display_to_scene(3000)   # 3000 mm  / ~10 ft
+            length  = sm.display_to_scene(10000)  # 10000 mm / ~33 ft
+        else:
+            spacing = 3000.0
+            length  = 10000.0
+
+        specs: list[dict] = []
+        # 3 vertical gridlines: labels 1, 2, 3
+        for i, lbl in enumerate(["1", "2", "3"]):
+            specs.append({
+                "label": lbl,
+                "offset": i * spacing,
+                "length": length,
+                "angle_deg": 90.0,
+            })
+        # 3 horizontal gridlines: labels A, B, C
+        for i, lbl in enumerate(["A", "B", "C"]):
+            specs.append({
+                "label": lbl,
+                "offset": i * spacing,
+                "length": length,
+                "angle_deg": 0.0,
+            })
+        self.scene.place_grid_lines({"gridlines": specs})
+
     def toggle_coverage_overlay(self, checked: bool):
         """Show/hide translucent sprinkler coverage circles."""
         self.scene.set_coverage_overlay(checked)
@@ -1464,6 +1494,10 @@ class MainWindow(QMainWindow):
         self.level_widget.populate()
         self.user_layer_widget.populate()
         self.level_label.setText("Level: Level 1")
+
+        # Place a default 3 × 3 grid (3 vertical + 3 horizontal)
+        self._place_default_gridlines()
+
         self._modified = False
         self._update_title()
 
