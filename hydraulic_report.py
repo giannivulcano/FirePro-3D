@@ -15,14 +15,15 @@ Export:
 """
 
 import csv
+import math
 
 from PyQt6.QtWidgets import (
     QWidget, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser,
     QHeaderView, QFileDialog, QMessageBox,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QTextDocument
+from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtGui import QColor, QTextDocument, QPainter, QPen, QFont, QBrush, QPainterPath
 
 try:
     from PyQt6.QtPrintSupport import QPrinter
@@ -103,6 +104,207 @@ def _make_table(headers: list[str]) -> QTableWidget:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Hydraulic Graph (Pressure vs Flow with semi-exponential X axis)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _HydraulicGraphWidget(QWidget):
+    """Custom painted graph: Pressure (Y) vs Flow (X, Q^1.85 scale).
+
+    The X-axis is *semi-exponential*: screen position is proportional to
+    Q^1.85.  This makes the NFPA supply curve a straight line.
+    """
+
+    _MARGIN_L = 60
+    _MARGIN_R = 20
+    _MARGIN_T = 20
+    _MARGIN_B = 50
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._p_static = 0.0       # psi at 0 gpm
+        self._p_residual = 0.0     # psi at test flow
+        self._q_test = 0.0         # gpm at residual
+        self._q_max = 1000.0       # x-axis upper bound (gpm)
+        self._p_max = 100.0        # y-axis upper bound (psi)
+        self.setMinimumHeight(300)
+
+    def set_supply_data(self, p_static: float, p_residual: float, q_test: float):
+        """Set the two-point supply curve data."""
+        self._p_static = max(p_static, 0.0)
+        self._p_residual = max(p_residual, 0.0)
+        self._q_test = max(q_test, 0.0)
+        # Determine axis ranges (round up to nearest increment)
+        self._q_max = max(math.ceil((q_test * 1.5) / 100) * 100, 500)
+        self._p_max = max(math.ceil((p_static * 1.2) / 10) * 10, 50)
+        self.update()
+
+    # ── Coordinate mapping ──────────────────────────────────────────────
+
+    def _plot_rect(self) -> QRectF:
+        w, h = self.width(), self.height()
+        return QRectF(self._MARGIN_L, self._MARGIN_T,
+                      w - self._MARGIN_L - self._MARGIN_R,
+                      h - self._MARGIN_T - self._MARGIN_B)
+
+    def _q_to_x(self, q: float, rect: QRectF) -> float:
+        """Map flow (gpm) to pixel X using Q^1.85 scale."""
+        q = max(q, 0.0)
+        q_norm = (q / self._q_max) ** 1.85 if self._q_max > 0 else 0.0
+        return rect.left() + q_norm * rect.width()
+
+    def _p_to_y(self, p: float, rect: QRectF) -> float:
+        """Map pressure (psi) to pixel Y (linear, 0 at bottom)."""
+        p = max(p, 0.0)
+        p_norm = p / self._p_max if self._p_max > 0 else 0.0
+        return rect.bottom() - p_norm * rect.height()
+
+    # ── Supply curve evaluation ─────────────────────────────────────────
+
+    def _supply_pressure_at(self, q: float) -> float:
+        """NFPA supply curve: P = Ps - (Ps - Pr) * (Q/Qt)^1.85."""
+        if self._q_test <= 0 or q <= 0:
+            return self._p_static
+        ratio = (q / self._q_test) ** 1.85
+        return max(self._p_static - (self._p_static - self._p_residual) * ratio, 0.0)
+
+    # ── Painting ────────────────────────────────────────────────────────
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self._plot_rect()
+
+        # Background
+        p.fillRect(self.rect(), QColor(255, 255, 255))
+
+        # Grid & axes
+        self._draw_grid(p, rect)
+        self._draw_axes(p, rect)
+
+        # Supply curve (straight line on Q^1.85 scale)
+        if self._q_test > 0 and self._p_static > 0:
+            self._draw_supply_curve(p, rect)
+
+        p.end()
+
+    def _draw_grid(self, p: QPainter, rect: QRectF):
+        grid_pen = QPen(QColor(220, 220, 220), 1, Qt.PenStyle.DotLine)
+        p.setPen(grid_pen)
+
+        # Horizontal grid (pressure, every 10 psi)
+        step_p = 10
+        pv = step_p
+        while pv < self._p_max:
+            y = self._p_to_y(pv, rect)
+            p.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            pv += step_p
+
+        # Vertical grid (flow, every 100 gpm) — mapped through Q^1.85
+        step_q = 100
+        qv = step_q
+        while qv < self._q_max:
+            x = self._q_to_x(qv, rect)
+            p.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            qv += step_q
+
+    def _draw_axes(self, p: QPainter, rect: QRectF):
+        axis_pen = QPen(QColor(0, 0, 0), 2)
+        p.setPen(axis_pen)
+
+        # X axis (bottom)
+        p.drawLine(QPointF(rect.left(), rect.bottom()),
+                   QPointF(rect.right(), rect.bottom()))
+        # Y axis (left)
+        p.drawLine(QPointF(rect.left(), rect.top()),
+                   QPointF(rect.left(), rect.bottom()))
+
+        # Tick labels
+        label_font = QFont("Arial", 8)
+        p.setFont(label_font)
+        p.setPen(QPen(QColor(0, 0, 0)))
+
+        # X tick labels (flow, every 100 gpm)
+        qv = 0
+        while qv <= self._q_max:
+            x = self._q_to_x(qv, rect)
+            # Tick mark
+            p.drawLine(QPointF(x, rect.bottom()), QPointF(x, rect.bottom() + 5))
+            # Label
+            label_rect = QRectF(x - 25, rect.bottom() + 6, 50, 20)
+            p.drawText(label_rect, Qt.AlignmentFlag.AlignCenter, str(int(qv)))
+            qv += 100
+
+        # Y tick labels (pressure, every 10 psi)
+        pv = 0
+        while pv <= self._p_max:
+            y = self._p_to_y(pv, rect)
+            # Tick mark
+            p.drawLine(QPointF(rect.left() - 5, y), QPointF(rect.left(), y))
+            # Label
+            label_rect = QRectF(rect.left() - 55, y - 10, 50, 20)
+            p.drawText(label_rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                       str(int(pv)))
+            pv += 10
+
+        # Axis titles
+        title_font = QFont("Arial", 9, QFont.Weight.Bold)
+        p.setFont(title_font)
+        # X title
+        x_title_rect = QRectF(rect.left(), rect.bottom() + 28,
+                               rect.width(), 20)
+        p.drawText(x_title_rect, Qt.AlignmentFlag.AlignCenter, "Flow (GPM)")
+        # Y title (rotated)
+        p.save()
+        p.translate(14, rect.center().y())
+        p.rotate(-90)
+        p.drawText(QRectF(-60, -10, 120, 20), Qt.AlignmentFlag.AlignCenter,
+                   "Pressure (PSI)")
+        p.restore()
+
+    def _draw_supply_curve(self, p: QPainter, rect: QRectF):
+        """Draw the supply curve — straight line on Q^1.85 X-axis."""
+        supply_pen = QPen(QColor(0, 100, 200), 3)
+        p.setPen(supply_pen)
+
+        # Two known points: (0, P_static) and (Q_test, P_residual)
+        x1 = self._q_to_x(0, rect)
+        y1 = self._p_to_y(self._p_static, rect)
+        x2 = self._q_to_x(self._q_test, rect)
+        y2 = self._p_to_y(self._p_residual, rect)
+
+        # Extend line to right edge of graph
+        # On Q^1.85 scale this IS a straight line, so just extend
+        if abs(x2 - x1) > 0.1:
+            slope = (y2 - y1) / (x2 - x1)
+            x_end = rect.right()
+            y_end = y1 + slope * (x_end - x1)
+            # Clip to plot area bottom
+            if y_end > rect.bottom():
+                x_end = x1 + (rect.bottom() - y1) / slope if slope != 0 else x_end
+                y_end = rect.bottom()
+            p.drawLine(QPointF(x1, y1), QPointF(x_end, y_end))
+        else:
+            # Horizontal line at static pressure
+            p.drawLine(QPointF(x1, y1), QPointF(rect.right(), y1))
+
+        # Plot the two data points
+        point_pen = QPen(QColor(0, 100, 200), 2)
+        p.setPen(point_pen)
+        p.setBrush(QBrush(QColor(0, 100, 200)))
+        p.drawEllipse(QPointF(x1, y1), 5, 5)
+        p.drawEllipse(QPointF(x2, y2), 5, 5)
+
+        # Labels
+        label_font = QFont("Arial", 8)
+        p.setFont(label_font)
+        p.setPen(QPen(QColor(0, 70, 160)))
+        p.drawText(QPointF(x1 + 8, y1 - 8),
+                   f"0 GPM @ {self._p_static:.0f} PSI")
+        p.drawText(QPointF(x2 + 8, y2 - 8),
+                   f"{self._q_test:.0f} GPM @ {self._p_residual:.0f} PSI")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main widget
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -169,6 +371,10 @@ class HydraulicReportWidget(QWidget):
         ])
         self.tabs.addTab(self._pipe_sched, "Pipe Schedule")
 
+        # Tab 5: Hydraulic Graph
+        self._graph = _HydraulicGraphWidget()
+        self.tabs.addTab(self._graph, "Hydraulic Graph")
+
     # ------------------------------------------------------------------
     # Public API
 
@@ -182,6 +388,7 @@ class HydraulicReportWidget(QWidget):
         self._fill_pipe_results()
         self._fill_sprinkler_schedule()
         self._fill_pipe_schedule()
+        self._fill_graph()
 
         self._pdf_btn.setEnabled(_PRINTER_AVAILABLE)
         self._csv_btn.setEnabled(True)
@@ -336,6 +543,15 @@ class HydraulicReportWidget(QWidget):
                 t.setItem(row, col, _item(val))
 
         t.setSortingEnabled(True)
+
+    def _fill_graph(self):
+        """Populate the hydraulic graph with supply curve data."""
+        ws = getattr(self._scene, "supply_node", None)
+        if ws is None:
+            return
+        self._graph.set_supply_data(
+            ws.static_pressure, ws.residual_pressure, ws.test_flow
+        )
 
     # ------------------------------------------------------------------
     # Export — PDF

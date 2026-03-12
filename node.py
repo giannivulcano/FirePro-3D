@@ -192,12 +192,14 @@ class Node(QGraphicsEllipseItem):
     # -------------------------------------------------------------------------
     # Hydraulic badge management
 
-    def create_hydraulic_badge(self, node_number, pressure, flow_out, total_flow):
+    def create_hydraulic_badge(self, node_number, pressure, flow_out, total_flow,
+                               position="Right", stack_index=0):
         """Create a selectable hydraulic node badge as a child item."""
         from hydraulic_node_badge import HydraulicNodeBadge
         self.remove_hydraulic_badge()
         self._hydraulic_badge = HydraulicNodeBadge(
-            self, node_number, pressure, flow_out, total_flow
+            self, node_number, pressure, flow_out, total_flow,
+            position=position, stack_index=stack_index,
         )
 
     def remove_hydraulic_badge(self):
@@ -209,8 +211,7 @@ class Node(QGraphicsEllipseItem):
             self._hydraulic_badge = None
 
     def boundingRect(self) -> QRectF:
-        """Expand bounding rect to encompass selection highlight, coverage
-        overlay, pressure badge, and node-number hexagon."""
+        """Expand bounding rect to encompass selection highlight and coverage overlay."""
         if self.has_sprinkler():
             r = self.sprinkler.TARGET_MM / 2.0 * 1.15
         else:
@@ -229,14 +230,7 @@ class Node(QGraphicsEllipseItem):
                     r = max(r, math.sqrt(cov * 92_903.0 / math.pi) * sm.pixels_per_mm + 10)
                 else:
                     r = max(r, 50.0)
-        # Pressure badge (above) when results exist
-        top = r
-        bottom = r
-        scene = self.scene()
-        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
-            badge_r = 15.0 * 25.4  # 15 in radius
-            top = max(top, badge_r * 2.2 + badge_r)     # pressure badge above
-        return QRectF(-r, -top, r * 2, top + bottom)
+        return QRectF(-r, -r, r * 2, r * 2)
 
     def shape(self) -> QPainterPath:
         """Expand clickable area to encompass the sprinkler graphic so
@@ -270,50 +264,8 @@ class Node(QGraphicsEllipseItem):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(0, 0), radius, radius)
 
-        # Pressure badge when hydraulic results are available
-        scene = self.scene()
-        if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
-            p = scene.hydraulic_result.node_pressures.get(self)
-            if p is not None:
-                # 30-inch diameter model-space badge (scales with zoom like pipes)
-                badge_r = 15.0 * 25.4          # 15 in radius → mm
-                text_h  = 12.0 * 25.4          # 12 in text height (matches pipe labels)
-
-                # Pick badge color based on pressure vs. minimum
-                p_min = 7.0
-                if self.has_sprinkler():
-                    try:
-                        p_min = float(self.sprinkler._properties["Min Pressure"]["value"])
-                    except (KeyError, ValueError, TypeError):
-                        pass
-                if p < p_min:
-                    bg = QColor(220, 0, 0, 200)      # red – below minimum
-                elif p < p_min * 1.5:
-                    bg = QColor(220, 140, 0, 200)    # orange – marginal
-                else:
-                    bg = QColor(0, 160, 60, 200)     # green – comfortable
-
-                # Draw badge circle centred above the node
-                badge_cy = -badge_r * 2.2
-                painter.setBrush(QBrush(bg))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(QPointF(0, badge_cy), badge_r, badge_r)
-
-                # Draw pressure text centred in the badge
-                font = painter.font()
-                font.setPixelSize(int(text_h))
-                font.setBold(True)
-                painter.setFont(font)
-                painter.setPen(QPen(Qt.GlobalColor.white, 1))
-                text_rect = QRectF(-badge_r, badge_cy - badge_r,
-                                   badge_r * 2, badge_r * 2)
-                painter.drawText(
-                    text_rect,
-                    Qt.AlignmentFlag.AlignCenter,
-                    f"{p:.0f}"
-                )
-
-            # Node-number badge is now a separate child item (HydraulicNodeBadge)
+        # Pressure and node-number badges are now separate child items
+        # (HydraulicNodeBadge) — no in-paint badge drawing needed.
 
         # Coverage overlay — translucent green circle sized from sprinkler’s
         # Coverage Area property (sq ft).  Drawn only when the class-level

@@ -2304,12 +2304,24 @@ class Model_Space(QGraphicsScene):
         for pipe in self.sprinkler_system.pipes:
             pipe.update_label()
             pipe.update()
+        from hydraulic_node_badge import best_position_for_node
+
+        # Group nodes by 2D scene position to detect overlaps (vertical drops)
+        pos_groups: dict[tuple, list] = {}
         for node in self.sprinkler_system.nodes:
             node.remove_hydraulic_badge()
             nn = result.node_numbers.get(node)
             if nn is not None:
+                sp = node.scenePos()
+                key = (round(sp.x(), 0), round(sp.y(), 0))
+                pos_groups.setdefault(key, []).append(node)
+
+        for nodes_at_pos in pos_groups.values():
+            # All nodes at this 2D position share auto-position, stack vertically
+            pos_label = best_position_for_node(nodes_at_pos[0])
+            for stack_idx, node in enumerate(nodes_at_pos):
+                nn = result.node_numbers[node]
                 p = result.node_pressures.get(node, 0.0)
-                # Flow out (q): sprinkler demand at this node
                 q_out = 0.0
                 if node.has_sprinkler():
                     try:
@@ -2318,13 +2330,16 @@ class Model_Space(QGraphicsScene):
                     except (ValueError, TypeError):
                         k = 5.6
                     q_out = k * math.sqrt(max(p, 0.0))
-                # Total flow (Q): max pipe flow at this node
                 q_total = 0.0
                 for pipe in node.pipes:
                     pf = abs(result.pipe_flows.get(pipe, 0.0))
                     if pf > q_total:
                         q_total = pf
-                node.create_hydraulic_badge(nn, p, q_out, q_total)
+                node.create_hydraulic_badge(nn, p, q_out, q_total,
+                                            position=pos_label,
+                                            stack_index=stack_idx)
+
+        for node in self.sprinkler_system.nodes:
             node.update()
         return result
 

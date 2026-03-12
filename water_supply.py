@@ -38,6 +38,8 @@ class WaterSupply(QGraphicsSvgItem):
             "Residual Pressure": {"type": "string", "value": "60"},   # psi at test flow
             "Test Flow":         {"type": "string", "value": "500"},  # gpm at residual pressure
             "Elevation":         {"type": "string", "value": "0"},    # ft at supply gauge
+            "Hose Stream Allowance": {"type": "enum", "value": "250 GPM",
+                                      "options": ["100 GPM", "250 GPM", "500 GPM"]},
         }
 
         self.setFlags(
@@ -116,3 +118,12 @@ class WaterSupply(QGraphicsSvgItem):
             return float(self._properties["Elevation"]["value"])
         except (ValueError, TypeError):
             return 0.0
+
+    @property
+    def hose_stream_allowance(self) -> float:
+        """Return hose stream allowance in gpm (parsed from '250 GPM' etc.)."""
+        raw = self._properties.get("Hose Stream Allowance", {}).get("value", "250 GPM")
+        try:
+            return float(raw.split()[0])
+        except (ValueError, IndexError):
+            return 250.0
