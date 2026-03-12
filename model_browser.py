@@ -189,6 +189,34 @@ class ModelBrowser(QWidget):
             item.setData(0, _ROLE_ENTITY, id(node))
             item.setToolTip(0, f"Level: {node.level}  Layer: {node.user_layer}")
 
+        # -- Gridlines --
+        gridlines = getattr(self._scene, "_gridlines", [])
+        if gridlines:
+            gl_root = QTreeWidgetItem(self._tree, [f"Gridlines ({len(gridlines)})"])
+            gl_root.setFont(0, f_bold)
+            for gl in gridlines:
+                lbl = getattr(gl, "_label_text", "?")
+                item = QTreeWidgetItem(gl_root, [f"Grid {lbl}"])
+                item.setData(0, _ROLE_ENTITY, id(gl))
+
+        # -- Design Areas --
+        design_areas = getattr(self._scene, "design_areas", [])
+        if design_areas:
+            da_root = QTreeWidgetItem(self._tree, [f"Design Areas ({len(design_areas)})"])
+            da_root.setFont(0, f_bold)
+            for i, da in enumerate(design_areas, 1):
+                name = da._properties.get("System Name", {}).get("value", f"Area {i}")
+                item = QTreeWidgetItem(da_root, [name])
+                item.setData(0, _ROLE_ENTITY, id(da))
+
+        # -- Water Supply --
+        ws = getattr(self._scene, "water_supply_node", None)
+        if ws is not None:
+            ws_root = QTreeWidgetItem(self._tree, ["Water Supply (1)"])
+            ws_root.setFont(0, f_bold)
+            item = QTreeWidgetItem(ws_root, ["Water Supply"])
+            item.setData(0, _ROLE_ENTITY, id(ws))
+
     # ── Entity lookup ─────────────────────────────────────────────────────
 
     def _find_entity_by_id(self, entity_id: int):
@@ -212,6 +240,15 @@ class ModelBrowser(QWidget):
             for node in ss.nodes:
                 if id(node) == entity_id:
                     return node
+        for gl in getattr(self._scene, "_gridlines", []):
+            if id(gl) == entity_id:
+                return gl
+        for da in getattr(self._scene, "design_areas", []):
+            if id(da) == entity_id:
+                return da
+        ws = getattr(self._scene, "water_supply_node", None)
+        if ws and id(ws) == entity_id:
+            return ws
         return None
 
     # ── Click handlers ────────────────────────────────────────────────────

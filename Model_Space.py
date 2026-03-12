@@ -2657,6 +2657,24 @@ class Model_Space(QGraphicsScene):
             if self._wall_template is not None:
                 self._wall_template._alignment = self._wall_alignment
                 self.requestPropertyUpdate.emit(self._wall_template)
+            # Force preview rect to update without requiring mouse movement
+            if (self._wall_anchor is not None
+                    and self._last_scene_pos is not None
+                    and self._wall_preview_rect is not None):
+                _wtmpl = self._get_wall_template()
+                p1l, p1r, p2r, p2l = compute_wall_quad(
+                    self._wall_anchor, self._last_scene_pos,
+                    _wtmpl._thickness_in, _wtmpl._alignment,
+                    self.scale_manager)
+                _pp = QPainterPath()
+                _pp.moveTo(p1l)
+                _pp.lineTo(p2l)
+                _pp.lineTo(p2r)
+                _pp.lineTo(p1r)
+                _pp.closeSubpath()
+                self._wall_preview_rect.setPath(_pp)
+                for v in self.views():
+                    v.viewport().update()
             return
 
         from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QLabel
@@ -2882,42 +2900,50 @@ class Model_Space(QGraphicsScene):
     # ─────────────────────────────────────────────────────────────────────────
 
     def place_grid_lines(self, params: dict):
+        """Place gridlines from the GridLinesDialog.
+
+        *params* contains key ``"gridlines"`` — a list of dicts with
+        keys: label, offset (scene px), length (scene px), angle_deg.
+
+        Each gridline is placed at the scene origin (0, 0).  The
+        *offset* shifts the line perpendicular to its direction, and
+        *length* sets how long it is along its direction.
         """
-        Place a rectangular grid of construction lines from *params*.
+        specs = params.get("gridlines", [])
+        if not specs:
+            return
 
-        Parameters (keys in *params*)
-        ------------------------------
-        h_count   : int   — number of horizontal lines (0 = none)
-        h_first   : float — Y-coordinate of the first horizontal line
-        h_spacing : float — Y-increment between successive horizontal lines
-        v_count   : int   — number of vertical lines (0 = none)
-        v_first   : float — X-coordinate of the first vertical line
-        v_spacing : float — X-increment between successive vertical lines
-        """
-        h_count   = int(params.get("h_count",   0))
-        h_first   = float(params.get("h_first",   0))
-        h_spacing = float(params.get("h_spacing", 100))
-        v_count   = int(params.get("v_count",   0))
-        v_first   = float(params.get("v_first",   0))
-        v_spacing = float(params.get("v_spacing", 100))
+        self.push_undo_state()
 
-        # Horizontal lines: run parallel to the X-axis (constant Y)
-        # Two anchor points differ only in X so the line extends left↔right.
-        for i in range(h_count):
-            y = h_first + i * h_spacing
-            cl = ConstructionLine(QPointF(-1, y), QPointF(1, y))
-            self.addItem(cl)
-            self._construction_lines.append(cl)
+        for spec in specs:
+            label    = spec.get("label", "?")
+            offset   = spec.get("offset", 0.0)
+            length   = spec.get("length", 1000.0)
+            angle    = spec.get("angle_deg", 90.0)
 
-        # Vertical lines: run parallel to the Y-axis (constant X)
-        for i in range(v_count):
-            x = v_first + i * v_spacing
-            cl = ConstructionLine(QPointF(x, -1), QPointF(x, 1))
-            self.addItem(cl)
-            self._construction_lines.append(cl)
+            rad = math.radians(angle)
+            # Direction vector (along gridline)
+            dx = math.cos(rad)
+            dy = -math.sin(rad)   # Qt y-axis is inverted
+            # Perpendicular vector (for offset)
+            px = -dy
+            py = dx
 
-        if h_count > 0 or v_count > 0:
-            self.push_undo_state()
+            # Origin of this gridline (offset perpendicular from scene origin)
+            ox = offset * px
+            oy = offset * py
+
+            half = length / 2.0
+            p1 = QPointF(ox - half * dx, oy - half * dy)
+            p2 = QPointF(ox + half * dx, oy + half * dy)
+
+            gl = GridlineItem(p1, p2, label=label)
+            gl.level = self.active_level
+            gl.user_layer = self.active_user_layer
+            self.addItem(gl)
+            self._gridlines.append(gl)
+
+        self.sceneModified.emit()
 
     # ─────────────────────────────────────────────────────────────────────────
     # OFFSET COMMAND helpers
@@ -4086,7 +4112,7 @@ class Model_Space(QGraphicsScene):
                     rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
                     rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
                     rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
-                    rect_item.setZValue(200)
+                    rect_item.setZValue(2)
                     self.addItem(rect_item)
                     self._design_area_rect_item = rect_item
                     self._show_status("Shift+click second corner to complete rectangle.")
@@ -5001,19 +5027,41 @@ class Model_Space(QGraphicsScene):
         self._next_floor_num = (max(floor_nums) + 1) if floor_nums else 1
 
     def _auto_join_wall(self, wall: WallSegment, tolerance: float = 20.0):
-        """Snap wall endpoints to nearby existing wall endpoints (miter join)."""
+        """Snap wall endpoints to nearby existing wall endpoints (miter join)
+        and to mid-wall faces (tee join)."""
+        # Track which endpoints have already been snapped (0=pt1, 1=pt2)
+        snapped = set()
+
+        # Pass 1: endpoint-to-endpoint (miter / corner join)
         for other in self._walls:
             if other is wall:
                 continue
             for my_idx in (0, 1):
+                if my_idx in snapped:
+                    continue
                 my_pt = wall.pt1 if my_idx == 0 else wall.pt2
                 hit = other.endpoint_near(my_pt, tolerance)
                 if hit is not None:
                     target = other.pt1 if hit == 0 else other.pt2
                     wall.snap_endpoint_to(my_idx, target)
+                    snapped.add(my_idx)
                     # Rebuild connected wall so its miter updates too
                     other._rebuild_path()
                     other.update()
+
+        # Pass 2: tee join — snap unsnapped endpoints to mid-wall faces
+        for other in self._walls:
+            if other is wall:
+                continue
+            for my_idx in (0, 1):
+                if my_idx in snapped:
+                    continue
+                my_pt = wall.pt1 if my_idx == 0 else wall.pt2
+                face_pt = other.nearest_face_point(
+                    my_pt, tolerance, self.scale_manager)
+                if face_pt is not None:
+                    wall.snap_endpoint_to(my_idx, face_pt)
+                    snapped.add(my_idx)
 
     def _find_wall_at(self, pos: QPointF) -> "WallSegment | None":
         """Return the first wall whose shape contains pos."""
@@ -5097,6 +5145,33 @@ class Model_Space(QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() == Qt.Key.Key_Tab:
+            # --- Tab: cycle through similar elements in select mode ---
+            if self.mode in ("select", None, ""):
+                selected = self.selectedItems()
+                if len(selected) == 1:
+                    item = selected[0]
+                    # Build collection of same-type items
+                    from node import Node
+                    _type_map = {
+                        Pipe: lambda: list(self.sprinkler_system.pipes),
+                        WallSegment: lambda: list(self._walls),
+                        Node: lambda: [n for n in self.sprinkler_system.nodes
+                                       if n.has_sprinkler()],
+                        GridlineItem: lambda: list(self._gridlines),
+                        FloorSlab: lambda: list(self._floor_slabs),
+                    }
+                    collection = None
+                    for cls, getter in _type_map.items():
+                        if isinstance(item, cls):
+                            collection = getter()
+                            break
+                    if collection and item in collection:
+                        idx = collection.index(item)
+                        nxt = collection[(idx + 1) % len(collection)]
+                        self.clearSelection()
+                        nxt.setSelected(True)
+                        self.requestPropertyUpdate.emit(nxt)
+                        return
             if self.mode == "wall":
                 # Cycle alignment: Center -> Interior -> Exterior -> Center
                 _cycle = {"Center": "Interior", "Interior": "Exterior", "Exterior": "Center"}
@@ -5109,6 +5184,24 @@ class Model_Space(QGraphicsScene):
                 if self._wall_template is not None:
                     self._wall_template._alignment = self._wall_alignment
                     self.requestPropertyUpdate.emit(self._wall_template)
+                # Force preview rect to update without requiring mouse movement
+                if (self._wall_anchor is not None
+                        and self._last_scene_pos is not None
+                        and self._wall_preview_rect is not None):
+                    _wtmpl = self._get_wall_template()
+                    p1l, p1r, p2r, p2l = compute_wall_quad(
+                        self._wall_anchor, self._last_scene_pos,
+                        _wtmpl._thickness_in, _wtmpl._alignment,
+                        self.scale_manager)
+                    _pp = QPainterPath()
+                    _pp.moveTo(p1l)
+                    _pp.lineTo(p2l)
+                    _pp.lineTo(p2r)
+                    _pp.lineTo(p1r)
+                    _pp.closeSubpath()
+                    self._wall_preview_rect.setPath(_pp)
+                    for v in self.views():
+                        v.viewport().update()
                 return
             elif self.mode == "offset_side":
                 from PyQt6.QtWidgets import QInputDialog

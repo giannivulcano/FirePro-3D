@@ -552,7 +552,9 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
-        _mode_btn(g_geom, "Gridlines", _I("gridline_icon.svg"), "gridline").setToolTip("Place construction gridlines")
+        _gl_btn = g_geom.add_large_button(
+            "Gridlines", _I("gridline_icon.svg"), self._place_grid_lines)
+        _gl_btn.setToolTip("Open gridline placement dialog")
         self._single_place_btn = g_geom.add_small_button(
             "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
         self._single_place_btn.setToolTip("Return to Select mode after placing one item")
@@ -1520,7 +1522,7 @@ class MainWindow(QMainWindow):
     def update_property_manager(self):
         # Don't override template properties during placement modes
         if self.scene.mode in ("pipe", "sprinkler", "wall", "floor",
-                                "floor_rect", "set_scale"):
+                                "floor_rect", "set_scale", "design_area"):
             return
         items = self.scene.selectedItems()
         if items:
