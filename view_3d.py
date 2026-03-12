@@ -461,7 +461,7 @@ class View3D(QWidget):
                     continue
                 try:
                     md = create_cylinder(
-                        rows=2, cols=8,
+                        rows=2, cols=16,
                         radius=[radius, radius],
                         length=length,
                     )
@@ -473,6 +473,7 @@ class View3D(QWidget):
                     mesh = visuals.Mesh(
                         vertices=verts, faces=faces,
                         color=color,
+                        shading='smooth',
                         parent=self._view.scene,
                     )
                     self._pipe_cylinder_meshes.append(mesh)
@@ -796,6 +797,7 @@ class View3D(QWidget):
             mesh = visuals.Mesh(
                 vertices=verts, faces=faces,
                 color=col,
+                shading='smooth',
                 parent=self._view.scene,
             )
             self._wall_meshes.append(mesh)

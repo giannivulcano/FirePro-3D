@@ -2305,6 +2305,26 @@ class Model_Space(QGraphicsScene):
             pipe.update_label()
             pipe.update()
         for node in self.sprinkler_system.nodes:
+            node.remove_hydraulic_badge()
+            nn = result.node_numbers.get(node)
+            if nn is not None:
+                p = result.node_pressures.get(node, 0.0)
+                # Flow out (q): sprinkler demand at this node
+                q_out = 0.0
+                if node.has_sprinkler():
+                    try:
+                        k = float(node.sprinkler._properties.get(
+                            "K-Factor", {}).get("value", 5.6))
+                    except (ValueError, TypeError):
+                        k = 5.6
+                    q_out = k * math.sqrt(max(p, 0.0))
+                # Total flow (Q): max pipe flow at this node
+                q_total = 0.0
+                for pipe in node.pipes:
+                    pf = abs(result.pipe_flows.get(pipe, 0.0))
+                    if pf > q_total:
+                        q_total = pf
+                node.create_hydraulic_badge(nn, p, q_out, q_total)
             node.update()
         return result
 
@@ -2315,6 +2335,7 @@ class Model_Space(QGraphicsScene):
             pipe.update_label()
             pipe.update()
         for node in self.sprinkler_system.nodes:
+            node.remove_hydraulic_badge()
             node.update()
 
     def set_coverage_overlay(self, visible: bool):
@@ -4567,6 +4588,7 @@ class Model_Space(QGraphicsScene):
                         dv = math.hypot(snapped.x() - vpt.x(), snapped.y() - vpt.y())
                         if dv <= vtx_tol:
                             it.remove_point(vi)
+                            it.setSelected(True)
                             it.update()
                             for v in self.views(): v.viewport().update()
                             self.push_undo_state()
@@ -4576,6 +4598,7 @@ class Model_Space(QGraphicsScene):
                     edge_tol = 12.0 / max(scale, 1e-6)
                     if edge_dist <= edge_tol:
                         it.insert_point(edge_idx + 1, proj_pt)
+                        it.setSelected(True)
                         it.update()
                         for v in self.views(): v.viewport().update()
                         self.push_undo_state()

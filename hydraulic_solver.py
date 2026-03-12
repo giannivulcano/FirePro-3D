@@ -266,8 +266,17 @@ class HydraulicSolver:
                 )
                 passed = False
 
-        # Build node numbering (BFS order, 1-based)
-        node_numbers = {node: idx + 1 for idx, node in enumerate(bfs_order)}
+        # Build node numbering — only nodes on paths from supply to design sprinklers
+        calc_nodes = set()
+        for spr in active_sprinklers:
+            n = spr.node
+            while n is not None:
+                if n in calc_nodes:
+                    break                       # already traced this segment
+                calc_nodes.add(n)
+                n = parent_node.get(n)
+        calc_bfs = [n for n in bfs_order if n in calc_nodes]
+        node_numbers = {node: idx + 1 for idx, node in enumerate(calc_bfs)}
 
         return HydraulicResult(
             node_pressures     = node_pressure,

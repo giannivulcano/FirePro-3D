@@ -64,7 +64,7 @@ class Pipe(QGraphicsLineItem):
         self.set_pipe_display()
         
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-        self.setZValue(-100)
+        self.setZValue(5)    # above walls (-50) and floors (-80), below nodes (10)
         
         # track node movement
         if node1 and node2:
@@ -205,8 +205,8 @@ class Pipe(QGraphicsLineItem):
         sc = self.scene()
         views = sc.views() if sc else []
         scale = views[0].transform().m11() if views else 1.0
-        # Take max of actual pen width and 10 screen-pixel equivalent
-        hit_w = max(self.pen().widthF(), 10.0 / max(scale, 1e-6))
+        # Take max of actual pen width and 16 screen-pixel equivalent
+        hit_w = max(self.pen().widthF(), 16.0 / max(scale, 1e-6))
         stroker.setWidth(hit_w)
         return stroker.createStroke(path)
 
