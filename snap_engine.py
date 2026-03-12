@@ -37,6 +37,7 @@ SNAP_TOLERANCE_PX = 15      # screen-pixel search radius
 SNAP_COLORS: dict[str, str] = {
     "endpoint":      "#ffff00",   # yellow  – square marker
     "midpoint":      "#00ff88",   # green   – triangle marker
+    "intersection":  "#ffff00",   # yellow  – X marker (gridline crossings)
     "center":        "#00eeee",   # cyan    – circle marker
     "quadrant":      "#ff8800",   # orange  – diamond marker
     "nearest":       "#aaaaaa",   # grey    – cross marker
@@ -47,6 +48,7 @@ SNAP_COLORS: dict[str, str] = {
 SNAP_MARKERS: dict[str, str] = {
     "endpoint":      "square",
     "midpoint":      "triangle",
+    "intersection":  "x_cross",
     "center":        "circle",
     "quadrant":      "diamond",
     "nearest":       "cross",
@@ -57,6 +59,7 @@ SNAP_MARKERS: dict[str, str] = {
 # Priority ordering — lower value = higher priority (endpoint wins over nearest)
 SNAP_PRIORITY: dict[str, int] = {
     "endpoint":      0,
+    "intersection":  0,       # same priority as endpoint
     "midpoint":      1,
     "center":        2,
     "perpendicular": 3,
@@ -99,7 +102,7 @@ class SnapEngine:
         self.snap_midpoint:      bool = True
         self.snap_center:        bool = True
         self.snap_quadrant:      bool = True
-        self.snap_nearest:       bool = False
+        self.snap_nearest:       bool = True
         self.snap_perpendicular: bool = True
         self.snap_tangent:       bool = True
 
@@ -198,6 +201,7 @@ class SnapEngine:
         # ── Gridline-to-gridline intersection snaps ─────────────────────
         # Use ALL gridlines in the scene (not just those in search_rect)
         # because gridline shapes may be too thin for the small search rect.
+        # Intersection snaps override perpendicular/nearest when within tol.
         if self.snap_endpoint:
             try:
                 from gridline import GridlineItem as _GL
@@ -215,7 +219,18 @@ class SnapEngine:
                         b2 = g2.mapToScene(l2.p2())
                         ix = self._line_line_intersect(a1, a2, b1, b2)
                         if ix is not None:
-                            _check("endpoint", ix, g1)
+                            d = math.hypot(ix.x() - cursor_scene.x(),
+                                           ix.y() - cursor_scene.y())
+                            if d <= tol:
+                                # Force intersection to win over
+                                # perpendicular/nearest that may be closer
+                                best_dist = d
+                                best_prio = 0
+                                best_result = OsnapResult(
+                                    point=ix,
+                                    snap_type="intersection",
+                                    source_item=g1,
+                                )
 
         return best_result
 
@@ -445,64 +460,124 @@ class SnapEngine:
     def _geometric_snaps(
         self, cursor: QPointF, item: QGraphicsItem,
     ) -> list[tuple[str, QPointF]]:
-        """Perpendicular and tangent snap points that depend on cursor position."""
+        """Perpendicular, nearest, and tangent snap points (cursor-dependent)."""
         # Lazy imports
         try:
-            from construction_geometry import LineItem, CircleItem, ArcItem, ConstructionLine
+            from construction_geometry import (
+                LineItem, CircleItem, ArcItem, ConstructionLine,
+                RectangleItem, PolylineItem,
+            )
         except ImportError:
             LineItem = CircleItem = ArcItem = ConstructionLine = None  # type: ignore
+            RectangleItem = PolylineItem = None  # type: ignore
+        try:
+            from wall import WallSegment as _WallSeg
+        except ImportError:
+            _WallSeg = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
-        # Perpendicular to lines
-        if self.snap_perpendicular:
-            if isinstance(item, QGraphicsLineItem):
-                line = item.line()
-                p1 = item.mapToScene(line.p1())
-                p2 = item.mapToScene(line.p2())
-                foot = self._project_to_segment(cursor, p1, p2)
-                if foot is not None:
+        # Helper: project cursor onto a segment for perpendicular + nearest
+        def _seg_snap(p1: QPointF, p2: QPointF):
+            foot = self._project_to_segment(cursor, p1, p2)
+            if foot is not None:
+                if self.snap_perpendicular:
                     pts.append(("perpendicular", foot))
+                elif self.snap_nearest:
+                    pts.append(("nearest", foot))
 
-        # Perpendicular to arcs (closest point on arc circumference)
-        if self.snap_perpendicular:
-            if ArcItem and isinstance(item, ArcItem):
-                cx, cy = item._center.x(), item._center.y()
-                r = item._radius
-                dx = cursor.x() - cx
-                dy = cursor.y() - cy
-                d = math.hypot(dx, dy)
-                if d > 1e-6:
-                    # Angle from center to cursor (math convention, then negate Y for Qt)
-                    foot_angle_deg = math.degrees(math.atan2(-dy, dx))
-                    from geometry_intersect import _angle_in_arc
-                    if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
-                        foot = QPointF(cx + r * dx / d, cy + r * dy / d)
+        # ── Line-based items (QGraphicsLineItem: pipes, gridlines, etc.) ──
+        if isinstance(item, QGraphicsLineItem):
+            line = item.line()
+            _seg_snap(item.mapToScene(line.p1()),
+                      item.mapToScene(line.p2()))
+
+        # ── WallSegment — project onto centerline ─────────────────────────
+        elif _WallSeg and isinstance(item, _WallSeg):
+            _seg_snap(item.pt1, item.pt2)
+
+        # ── RectangleItem — project onto each of the 4 edges ─────────────
+        elif RectangleItem and isinstance(item, RectangleItem):
+            r = item.rect()
+            corners = [
+                item.mapToScene(QPointF(r.left(),  r.top())),
+                item.mapToScene(QPointF(r.right(), r.top())),
+                item.mapToScene(QPointF(r.right(), r.bottom())),
+                item.mapToScene(QPointF(r.left(),  r.bottom())),
+            ]
+            for i in range(4):
+                _seg_snap(corners[i], corners[(i + 1) % 4])
+
+        # ── PolylineItem — project onto each segment ─────────────────────
+        elif PolylineItem and isinstance(item, PolylineItem):
+            vertices = item._points
+            for i in range(len(vertices) - 1):
+                _seg_snap(item.mapToScene(vertices[i]),
+                          item.mapToScene(vertices[i + 1]))
+
+        # ── ArcItem — closest point on arc circumference ─────────────────
+        if ArcItem and isinstance(item, ArcItem):
+            cx, cy = item._center.x(), item._center.y()
+            r = item._radius
+            dx = cursor.x() - cx
+            dy = cursor.y() - cy
+            d = math.hypot(dx, dy)
+            if d > 1e-6:
+                foot_angle_deg = math.degrees(math.atan2(-dy, dx))
+                from geometry_intersect import _angle_in_arc
+                if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
+                    foot = QPointF(cx + r * dx / d, cy + r * dy / d)
+                    if self.snap_perpendicular:
                         pts.append(("perpendicular", foot))
+                    elif self.snap_nearest:
+                        pts.append(("nearest", foot))
 
-        # Tangent to circles (skip Nodes — only center snap for Nodes)
-        if self.snap_tangent:
-            if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
-                br = item.boundingRect()
-                # Only for circles (width == height)
-                if abs(br.width() - br.height()) < 0.1:
-                    center = item.mapToScene(br.center())
-                    r = br.width() / 2.0
-                    d = math.hypot(cursor.x() - center.x(),
-                                   cursor.y() - center.y())
-                    if d > r + 1e-6:
-                        angle_to_cursor = math.atan2(
-                            cursor.y() - center.y(),
-                            cursor.x() - center.x(),
+        # ── Full circle (QGraphicsEllipseItem) — closest point on circle ─
+        if isinstance(item, QGraphicsEllipseItem) and not hasattr(item, "pipes"):
+            br = item.boundingRect()
+            if abs(br.width() - br.height()) < 0.1:
+                center = item.mapToScene(br.center())
+                r = br.width() / 2.0
+                d = math.hypot(cursor.x() - center.x(),
+                               cursor.y() - center.y())
+                # Perpendicular / nearest to circle circumference
+                if (self.snap_perpendicular or self.snap_nearest) and d > 1e-6:
+                    foot = QPointF(
+                        center.x() + r * (cursor.x() - center.x()) / d,
+                        center.y() + r * (cursor.y() - center.y()) / d,
+                    )
+                    snap_t = "perpendicular" if self.snap_perpendicular else "nearest"
+                    pts.append((snap_t, foot))
+
+                # Tangent
+                if self.snap_tangent and d > r + 1e-6:
+                    angle_to_cursor = math.atan2(
+                        cursor.y() - center.y(),
+                        cursor.x() - center.x(),
+                    )
+                    half_angle = math.acos(r / d)
+                    for sign in (+1, -1):
+                        a = angle_to_cursor + sign * half_angle
+                        tp = QPointF(
+                            center.x() + r * math.cos(a),
+                            center.y() + r * math.sin(a),
                         )
-                        half_angle = math.acos(r / d)
-                        for sign in (+1, -1):
-                            a = angle_to_cursor + sign * half_angle
-                            tp = QPointF(
-                                center.x() + r * math.cos(a),
-                                center.y() + r * math.sin(a),
-                            )
-                            pts.append(("tangent", tp))
+                        pts.append(("tangent", tp))
+
+        # ── Generic QGraphicsPathItem (DXF imports) — project onto segments
+        elif isinstance(item, QGraphicsPathItem):
+            # Skip if already handled as WallSegment or PolylineItem
+            if not (_WallSeg and isinstance(item, _WallSeg)):
+                if not (PolylineItem and isinstance(item, PolylineItem)):
+                    path = item.path()
+                    n = path.elementCount()
+                    for i in range(min(n - 1, 511)):
+                        e1 = path.elementAt(i)
+                        e2 = path.elementAt(i + 1)
+                        _seg_snap(
+                            item.mapToScene(QPointF(e1.x, e1.y)),
+                            item.mapToScene(QPointF(e2.x, e2.y)),
+                        )
 
         return pts
 

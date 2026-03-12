@@ -217,6 +217,11 @@ class Model_View(QGraphicsView):
                 # Tangent: small circle with horizontal line through bottom
                 painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
                 painter.drawLine(int(x) - s - 2, int(y) + s, int(x) + s + 2, int(y) + s)
+            elif marker == "x_cross":
+                # Intersection: X inside a square
+                painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+                painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
+                painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
 
             painter.restore()
 
