@@ -427,6 +427,8 @@ class MainWindow(QMainWindow):
 
         # --- File ---
         g_file = manage_page.add_group("File")
+        _btn = g_file.add_large_button("New", _I("placeholder_icon.svg"), self.new_file)
+        _btn.setToolTip("Start a new project [Ctrl+N]")
         _btn = g_file.add_large_button("Open", _I("load_icon.svg"), self.open_file)
         _btn.setToolTip("Open a saved project [Ctrl+O]")
         _btn = g_file.add_large_button("Save", _I("save_icon.svg"), self.save_file)
@@ -1233,9 +1235,19 @@ class MainWindow(QMainWindow):
     # ── Grid Lines ───────────────────────────────────────────────────────────
 
     def _place_grid_lines(self):
-        """Open the Grid Lines dialog and place construction lines on the canvas."""
-        dlg = GridLinesDialog(self, scale_manager=self.scene.scale_manager)
+        """Open the Grid Lines dialog, populated with current gridlines."""
+        dlg = GridLinesDialog(
+            self,
+            scale_manager=self.scene.scale_manager,
+            existing_gridlines=list(self.scene._gridlines),
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
+            # Remove existing gridlines before placing the updated set
+            self.scene.push_undo_state()
+            for gl in list(self.scene._gridlines):
+                if gl.scene() is self.scene:
+                    self.scene.removeItem(gl)
+            self.scene._gridlines.clear()
             self.scene.place_grid_lines(dlg.get_params())
 
     def toggle_coverage_overlay(self, checked: bool):

@@ -184,6 +184,38 @@ class GridlineItem(QGraphicsLineItem):
         else:
             self.bubble2.setVisible(visible)
 
+    # ── Grip drag (constrained to gridline direction) ────────────────────
+
+    def grip_points(self) -> list[QPointF]:
+        """Return the two endpoint positions as scene-space grip handles."""
+        line = self.line()
+        return [line.p1(), line.p2()]
+
+    def apply_grip(self, index: int, new_pos: QPointF):
+        """Move grip *index* to *new_pos*, constrained along the gridline
+        direction so the line stays co-linear."""
+        line = self.line()
+        p1, p2 = line.p1(), line.p2()
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+        length_sq = dx * dx + dy * dy
+        if length_sq < 1e-12:
+            return
+
+        if index == 0:
+            # Project new_pos onto the line direction relative to p2
+            t = ((new_pos.x() - p2.x()) * dx + (new_pos.y() - p2.y()) * dy) / length_sq
+            proj = QPointF(p2.x() + t * dx, p2.y() + t * dy)
+            self.setLine(proj.x(), proj.y(), p2.x(), p2.y())
+        elif index == 1:
+            # Project new_pos onto the line direction relative to p1
+            t = ((new_pos.x() - p1.x()) * dx + (new_pos.y() - p1.y()) * dy) / length_sq
+            proj = QPointF(p1.x() + t * dx, p1.y() + t * dy)
+            self.setLine(p1.x(), p1.y(), proj.x(), proj.y())
+
+        self._update_bubble_positions()
+        self.update()
+
     # ── Serialisation ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:

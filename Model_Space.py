@@ -105,6 +105,7 @@ class Model_Space(QGraphicsScene):
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
+        self._osnap_saved_for_design_area: bool | None = None  # saved state while in design_area mode
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self._level_manager = None                             # set by main.py
         # Grip editing (Sprint I)
@@ -900,6 +901,17 @@ class Model_Space(QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
         self._cal_point1 = None
+        # Disable OSNAP while in design_area mode (sprinkler-click only)
+        if mode == "design_area":
+            self._osnap_saved_for_design_area = self._osnap_enabled
+            self._osnap_enabled = False
+            self._snap_engine.enabled = False
+            self._snap_result = None
+        elif self._osnap_saved_for_design_area is not None:
+            # Restore OSNAP when leaving design_area mode
+            self._osnap_enabled = self._osnap_saved_for_design_area
+            self._snap_engine.enabled = self._osnap_enabled
+            self._osnap_saved_for_design_area = None
         # Clean up design_area preview if leaving that mode mid-draw
         if mode != "design_area":
             self._design_area_corner1 = None
@@ -2645,6 +2657,34 @@ class Model_Space(QGraphicsScene):
         the anchor point.  Values are always in mm (1 scene unit = 1 mm
         when uncalibrated).  Angles follow Y-up convention (0°=right, 90°=up).
         """
+        # ── Select mode: cycle through similar elements ──
+        if self.mode in ("select", None, ""):
+            selected = self.selectedItems()
+            if len(selected) == 1:
+                item = selected[0]
+                from node import Node
+                _type_map = {
+                    Pipe: lambda: list(self.sprinkler_system.pipes),
+                    WallSegment: lambda: list(self._walls),
+                    Node: lambda: [n for n in self.sprinkler_system.nodes
+                                   if n.has_sprinkler()],
+                    GridlineItem: lambda: list(self._gridlines),
+                    FloorSlab: lambda: list(self._floor_slabs),
+                }
+                collection = None
+                for cls, getter in _type_map.items():
+                    if isinstance(item, cls):
+                        collection = getter()
+                        break
+                if collection and item in collection:
+                    idx = collection.index(item)
+                    nxt = collection[(idx + 1) % len(collection)]
+                    self.clearSelection()
+                    nxt.setSelected(True)
+                    self.requestPropertyUpdate.emit(nxt)
+                    return
+            return  # in select mode but nothing to cycle — do nothing
+
         # ── Wall mode: cycle alignment instead of opening dialog ──
         if self.mode == "wall":
             _cycle = {"Center": "Interior", "Interior": "Exterior", "Exterior": "Center"}
@@ -2675,6 +2715,87 @@ class Model_Space(QGraphicsScene):
                 self._wall_preview_rect.setPath(_pp)
                 for v in self.views():
                     v.viewport().update()
+            return
+
+        # ── Offset / Rotate / Scale / Fillet / Chamfer: Tab opens value input ──
+        if self.mode == "offset_side":
+            from PyQt6.QtWidgets import QInputDialog
+            val, ok = QInputDialog.getDouble(
+                None, "Offset Distance", "Distance:",
+                self._offset_dist if self._offset_dist > 0 else 10.0,
+                0.01, 1_000_000, 3)
+            if ok:
+                self._offset_dist = val
+                self._offset_manual = True
+                self._show_status(
+                    f"Offset: {val:.1f} mm (fixed)  "
+                    f"Click to pick side and commit.", timeout=0)
+            return
+        if self.mode == "rotate" and self._rotate_pivot is not None:
+            from PyQt6.QtWidgets import QInputDialog
+            val, ok = QInputDialog.getDouble(
+                None, "Rotate Angle", "Angle (degrees):", 90.0, -360, 360, 2)
+            if ok:
+                self._apply_rotate(self._rotate_pivot, val)
+                self.push_undo_state()
+                self._selected_items = []
+                self.set_mode(None)
+            return
+        if self.mode == "scale" and self._scale_base is not None:
+            from PyQt6.QtWidgets import QInputDialog
+            val, ok = QInputDialog.getDouble(
+                None, "Scale Factor", "Factor:", 2.0, 0.001, 10000, 4)
+            if ok:
+                self._apply_scale(self._scale_base, val)
+                self.push_undo_state()
+                self._selected_items = []
+                self.set_mode(None)
+            return
+        if self.mode == "fillet" and self._fillet_item2 is not None:
+            from PyQt6.QtWidgets import QInputDialog
+            val, ok = QInputDialog.getDouble(
+                None, "Fillet Radius", "Radius:",
+                self._fillet_radius, 0.01, 1_000_000, 3)
+            if ok:
+                self._fillet_radius = val
+                if self._fillet_preview is not None:
+                    if self._fillet_preview.scene() is self:
+                        self.removeItem(self._fillet_preview)
+                    self._fillet_preview = None
+                data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                                            self._fillet_radius)
+                if data is not None:
+                    from PyQt6.QtGui import QPainterPath as _PP
+                    pp = _PP()
+                    pp.addEllipse(data["center"], data["radius"], data["radius"])
+                    self._fillet_preview = self.addPath(
+                        pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                self._show_status(
+                    f"Fillet radius: {val:.1f}  Press Enter to commit", timeout=0)
+            return
+        if self.mode == "chamfer" and self._chamfer_item2 is not None:
+            from PyQt6.QtWidgets import QInputDialog
+            val, ok = QInputDialog.getDouble(
+                None, "Chamfer Distance", "Distance:",
+                self._chamfer_dist, 0.01, 1_000_000, 3)
+            if ok:
+                self._chamfer_dist = val
+                if self._chamfer_preview is not None:
+                    if self._chamfer_preview.scene() is self:
+                        self.removeItem(self._chamfer_preview)
+                    self._chamfer_preview = None
+                data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                                              self._chamfer_dist)
+                if data is not None:
+                    self._chamfer_preview = QGraphicsLineItem(
+                        data["cp1"].x(), data["cp1"].y(),
+                        data["cp2"].x(), data["cp2"].y())
+                    p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
+                    p.setCosmetic(True)
+                    self._chamfer_preview.setPen(p)
+                    self.addItem(self._chamfer_preview)
+                self._show_status(
+                    f"Chamfer distance: {val:.1f}  Press Enter to commit", timeout=0)
             return
 
         from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QLabel
@@ -2905,15 +3026,22 @@ class Model_Space(QGraphicsScene):
         *params* contains key ``"gridlines"`` — a list of dicts with
         keys: label, offset (scene px), length (scene px), angle_deg.
 
-        Each gridline is placed at the scene origin (0, 0).  The
-        *offset* shifts the line perpendicular to its direction, and
-        *length* sets how long it is along its direction.
+        Gridlines originate at p1 (the bubble end) and extend to p2.
+        A small bubble overshoot is added so the bubble circle extends
+        slightly beyond p1.  Positive offset follows architectural
+        convention (right for vertical, up for horizontal).
         """
+        from gridline import BUBBLE_RADIUS
         specs = params.get("gridlines", [])
         if not specs:
             return
 
         self.push_undo_state()
+
+        # Compute bubble overshoot in scene units (screen-fixed size → need view scale)
+        views = self.views()
+        vscale = views[0].transform().m11() if views else 1.0
+        bubble_overshoot = (BUBBLE_RADIUS + 4) / max(vscale, 1e-6)
 
         for spec in specs:
             label    = spec.get("label", "?")
@@ -2929,13 +3057,15 @@ class Model_Space(QGraphicsScene):
             px = -dy
             py = dx
 
-            # Origin of this gridline (offset perpendicular from scene origin)
+            # Positive offset: right for vertical, up for horizontal
             ox = offset * px
-            oy = offset * py
+            oy = -offset * py
 
-            half = length / 2.0
-            p1 = QPointF(ox - half * dx, oy - half * dy)
-            p2 = QPointF(ox + half * dx, oy + half * dy)
+            # p1 = bubble end (slightly past origin), p2 = far end
+            p1 = QPointF(ox - bubble_overshoot * dx,
+                         oy - bubble_overshoot * dy)
+            p2 = QPointF(ox + length * dx,
+                         oy + length * dy)
 
             gl = GridlineItem(p1, p2, label=label)
             gl.level = self.active_level
@@ -5144,147 +5274,6 @@ class Model_Space(QGraphicsScene):
         elif event.key() == Qt.Key.Key_V and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             if self.clipboard_data():
                 self.set_mode("paste")
-        elif event.key() == Qt.Key.Key_Tab:
-            # --- Tab: cycle through similar elements in select mode ---
-            if self.mode in ("select", None, ""):
-                selected = self.selectedItems()
-                if len(selected) == 1:
-                    item = selected[0]
-                    # Build collection of same-type items
-                    from node import Node
-                    _type_map = {
-                        Pipe: lambda: list(self.sprinkler_system.pipes),
-                        WallSegment: lambda: list(self._walls),
-                        Node: lambda: [n for n in self.sprinkler_system.nodes
-                                       if n.has_sprinkler()],
-                        GridlineItem: lambda: list(self._gridlines),
-                        FloorSlab: lambda: list(self._floor_slabs),
-                    }
-                    collection = None
-                    for cls, getter in _type_map.items():
-                        if isinstance(item, cls):
-                            collection = getter()
-                            break
-                    if collection and item in collection:
-                        idx = collection.index(item)
-                        nxt = collection[(idx + 1) % len(collection)]
-                        self.clearSelection()
-                        nxt.setSelected(True)
-                        self.requestPropertyUpdate.emit(nxt)
-                        return
-            if self.mode == "wall":
-                # Cycle alignment: Center -> Interior -> Exterior -> Center
-                _cycle = {"Center": "Interior", "Interior": "Exterior", "Exterior": "Center"}
-                self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
-                if self._wall_anchor is None:
-                    self.instructionChanged.emit(f"Pick wall start point [{self._wall_alignment}]")
-                else:
-                    self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]")
-                # Sync template alignment and update Properties dock live
-                if self._wall_template is not None:
-                    self._wall_template._alignment = self._wall_alignment
-                    self.requestPropertyUpdate.emit(self._wall_template)
-                # Force preview rect to update without requiring mouse movement
-                if (self._wall_anchor is not None
-                        and self._last_scene_pos is not None
-                        and self._wall_preview_rect is not None):
-                    _wtmpl = self._get_wall_template()
-                    p1l, p1r, p2r, p2l = compute_wall_quad(
-                        self._wall_anchor, self._last_scene_pos,
-                        _wtmpl._thickness_in, _wtmpl._alignment,
-                        self.scale_manager)
-                    _pp = QPainterPath()
-                    _pp.moveTo(p1l)
-                    _pp.lineTo(p2l)
-                    _pp.lineTo(p2r)
-                    _pp.lineTo(p1r)
-                    _pp.closeSubpath()
-                    self._wall_preview_rect.setPath(_pp)
-                    for v in self.views():
-                        v.viewport().update()
-                return
-            elif self.mode == "offset_side":
-                from PyQt6.QtWidgets import QInputDialog
-                val, ok = QInputDialog.getDouble(
-                    None, "Offset Distance", "Distance:",
-                    self._offset_dist if self._offset_dist > 0 else 10.0,
-                    0.01, 1_000_000, 3)
-                if ok:
-                    self._offset_dist = val
-                    self._offset_manual = True
-                    self._show_status(
-                        f"Offset: {val:.1f} mm (fixed)  "
-                        f"Click to pick side and commit.", timeout=0)
-                return
-            elif self.mode == "rotate" and self._rotate_pivot is not None:
-                from PyQt6.QtWidgets import QInputDialog
-                val, ok = QInputDialog.getDouble(
-                    None, "Rotate Angle", "Angle (degrees):", 90.0, -360, 360, 2)
-                if ok:
-                    self._apply_rotate(self._rotate_pivot, val)
-                    self.push_undo_state()
-                    self._selected_items = []
-                    self.set_mode(None)
-                return
-            elif self.mode == "scale" and self._scale_base is not None:
-                from PyQt6.QtWidgets import QInputDialog
-                val, ok = QInputDialog.getDouble(
-                    None, "Scale Factor", "Factor:", 2.0, 0.001, 10000, 4)
-                if ok:
-                    self._apply_scale(self._scale_base, val)
-                    self.push_undo_state()
-                    self._selected_items = []
-                    self.set_mode(None)
-                return
-            elif self.mode == "fillet" and self._fillet_item2 is not None:
-                from PyQt6.QtWidgets import QInputDialog
-                val, ok = QInputDialog.getDouble(
-                    None, "Fillet Radius", "Radius:",
-                    self._fillet_radius, 0.01, 1_000_000, 3)
-                if ok:
-                    self._fillet_radius = val
-                    # Update preview
-                    if self._fillet_preview is not None:
-                        if self._fillet_preview.scene() is self:
-                            self.removeItem(self._fillet_preview)
-                        self._fillet_preview = None
-                    data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                               self._fillet_radius)
-                    if data is not None:
-                        from PyQt6.QtGui import QPainterPath as _PP
-                        pp = _PP()
-                        pp.addEllipse(data["center"], data["radius"], data["radius"])
-                        self._fillet_preview = self.addPath(
-                            pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                    self._show_status(
-                        f"Fillet radius: {val:.1f}  Press Enter to commit", timeout=0)
-                return
-            elif self.mode == "chamfer" and self._chamfer_item2 is not None:
-                from PyQt6.QtWidgets import QInputDialog
-                val, ok = QInputDialog.getDouble(
-                    None, "Chamfer Distance", "Distance:",
-                    self._chamfer_dist, 0.01, 1_000_000, 3)
-                if ok:
-                    self._chamfer_dist = val
-                    # Update preview
-                    if self._chamfer_preview is not None:
-                        if self._chamfer_preview.scene() is self:
-                            self.removeItem(self._chamfer_preview)
-                        self._chamfer_preview = None
-                    data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
-                                                 self._chamfer_dist)
-                    if data is not None:
-                        self._chamfer_preview = QGraphicsLineItem(
-                            data["cp1"].x(), data["cp1"].y(),
-                            data["cp2"].x(), data["cp2"].y())
-                        p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
-                        p.setCosmetic(True)
-                        self._chamfer_preview.setPen(p)
-                        self.addItem(self._chamfer_preview)
-                    self._show_status(
-                        f"Chamfer distance: {val:.1f}  Press Enter to commit", timeout=0)
-                return
-
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             # Commit offset on Enter (same logic as click)
             if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
