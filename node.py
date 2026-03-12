@@ -37,6 +37,7 @@ class Node(QGraphicsEllipseItem):
         self.level: str = "Level 1"          # floor level (visibility)
         self.ceiling_level: str = "Level 1"  # ceiling level (3D elevation)
         self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
+        self._hydraulic_badge = None         # HydraulicNodeBadge child (transient)
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {
@@ -188,7 +189,25 @@ class Node(QGraphicsEllipseItem):
                     
         return super().itemChange(change, value)
 
-    
+    # -------------------------------------------------------------------------
+    # Hydraulic badge management
+
+    def create_hydraulic_badge(self, node_number, pressure, flow_out, total_flow):
+        """Create a selectable hydraulic node badge as a child item."""
+        from hydraulic_node_badge import HydraulicNodeBadge
+        self.remove_hydraulic_badge()
+        self._hydraulic_badge = HydraulicNodeBadge(
+            self, node_number, pressure, flow_out, total_flow
+        )
+
+    def remove_hydraulic_badge(self):
+        """Remove the hydraulic badge if present."""
+        if self._hydraulic_badge is not None:
+            scene = self.scene()
+            if scene and self._hydraulic_badge.scene() is scene:
+                scene.removeItem(self._hydraulic_badge)
+            self._hydraulic_badge = None
+
     def boundingRect(self) -> QRectF:
         """Expand bounding rect to encompass selection highlight, coverage
         overlay, pressure badge, and node-number hexagon."""
@@ -210,14 +229,13 @@ class Node(QGraphicsEllipseItem):
                     r = max(r, math.sqrt(cov * 92_903.0 / math.pi) * sm.pixels_per_mm + 10)
                 else:
                     r = max(r, 50.0)
-        # Pressure badge (above) and hex badge (below) when results exist
+        # Pressure badge (above) when results exist
         top = r
         bottom = r
         scene = self.scene()
         if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
             badge_r = 15.0 * 25.4  # 15 in radius
             top = max(top, badge_r * 2.2 + badge_r)     # pressure badge above
-            bottom = max(bottom, badge_r * 2.2 + badge_r)  # hex badge below
         return QRectF(-r, -top, r * 2, top + bottom)
 
     def shape(self) -> QPainterPath:
@@ -295,42 +313,7 @@ class Node(QGraphicsEllipseItem):
                     f"{p:.0f}"
                 )
 
-            # Node-number hexagon badge below the node
-            nn = scene.hydraulic_result.node_numbers.get(self)
-            if nn is not None:
-                hex_r = 15.0 * 25.4          # 15 in radius → mm (same as pressure badge)
-                hex_cy = badge_r * 2.2       # below the node (mirror of pressure badge)
-                text_h_hex = 12.0 * 25.4     # 12 in text height
-
-                # Build hexagonal path (6 vertices, flat-top orientation)
-                hex_path = QPainterPath()
-                for vi in range(6):
-                    angle = math.radians(60 * vi)
-                    hx = hex_r * math.cos(angle)
-                    hy = hex_cy + hex_r * math.sin(angle)
-                    if vi == 0:
-                        hex_path.moveTo(hx, hy)
-                    else:
-                        hex_path.lineTo(hx, hy)
-                hex_path.closeSubpath()
-
-                painter.setBrush(QBrush(QColor(70, 130, 180, 200)))   # steel blue
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawPath(hex_path)
-
-                # Number text centred in the hexagon
-                font = painter.font()
-                font.setPixelSize(int(text_h_hex))
-                font.setBold(True)
-                painter.setFont(font)
-                painter.setPen(QPen(Qt.GlobalColor.white, 1))
-                hex_rect = QRectF(-hex_r, hex_cy - hex_r,
-                                  hex_r * 2, hex_r * 2)
-                painter.drawText(
-                    hex_rect,
-                    Qt.AlignmentFlag.AlignCenter,
-                    str(nn),
-                )
+            # Node-number badge is now a separate child item (HydraulicNodeBadge)
 
         # Coverage overlay — translucent green circle sized from sprinkler’s
         # Coverage Area property (sq ft).  Drawn only when the class-level
