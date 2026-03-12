@@ -90,9 +90,9 @@ class _DirectionTab(QWidget):
 
         self._scheme_combo = QComboBox()
         if self._direction == "V":
-            self._scheme_combo.addItems(["Letters (A, B, C…)", "Numbers (1, 2, 3…)", "Custom"])
-        else:
             self._scheme_combo.addItems(["Numbers (1, 2, 3…)", "Letters (A, B, C…)", "Custom"])
+        else:
+            self._scheme_combo.addItems(["Letters (A, B, C…)", "Numbers (1, 2, 3…)", "Custom"])
         lbl_form.addRow("Scheme:", self._scheme_combo)
 
         self._start_label = QLineEdit()
@@ -135,11 +135,13 @@ class _DirectionTab(QWidget):
         outer.addWidget(qf_group)
 
         # ── Table ─────────────────────────────────────────────────────────
-        self._table = QTableWidget(0, 3)
+        self._default_angle = 90.0 if self._direction == "V" else 0.0
+        self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels([
             "Label",
             "Offset" + self._suffix,
             "Length" + self._suffix,
+            "Angle°",
         ])
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
@@ -205,6 +207,7 @@ class _DirectionTab(QWidget):
         self._table.setItem(row, 0, QTableWidgetItem(label))
         self._table.setItem(row, 1, QTableWidgetItem(f"{offset:.2f}"))
         self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
+        self._table.setItem(row, 3, QTableWidgetItem(f"{self._default_angle:.1f}"))
 
     def _remove_row(self):
         rows = sorted(set(idx.row() for idx in self._table.selectedIndexes()),
@@ -230,30 +233,33 @@ class _DirectionTab(QWidget):
             self._table.setItem(row, 0, QTableWidgetItem(label))
             self._table.setItem(row, 1, QTableWidgetItem(f"{i * spacing:.2f}"))
             self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
+            self._table.setItem(row, 3, QTableWidgetItem(f"{self._default_angle:.1f}"))
             label = _increment_label(label, scheme)
 
     # ── Populate from existing gridlines ──────────────────────────────────
 
-    def populate(self, rows: list[tuple[str, float, float]]):
-        """Fill table with existing gridlines: list of (label, offset, length)
-        where offset and length are in **display units**."""
+    def populate(self, rows: list[tuple[str, float, float, float]]):
+        """Fill table with existing gridlines: list of (label, offset, length, angle)
+        where offset and length are in **display units**, angle in degrees."""
         self._table.setRowCount(0)
-        for label, offset, length in rows:
+        for label, offset, length, angle in rows:
             row = self._table.rowCount()
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(label))
             self._table.setItem(row, 1, QTableWidgetItem(f"{offset:.2f}"))
             self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
+            self._table.setItem(row, 3, QTableWidgetItem(f"{angle:.1f}"))
 
     # ── Read table ────────────────────────────────────────────────────────
 
-    def read_rows(self) -> list[tuple[str, float, float]]:
-        """Return (label, offset_display, length_display) for each row."""
+    def read_rows(self) -> list[tuple[str, float, float, float]]:
+        """Return (label, offset_display, length_display, angle_deg) for each row."""
         result = []
         for row in range(self._table.rowCount()):
             lbl_item = self._table.item(row, 0)
             off_item = self._table.item(row, 1)
             len_item = self._table.item(row, 2)
+            ang_item = self._table.item(row, 3)
             label = lbl_item.text() if lbl_item else "?"
             try:
                 offset = float(off_item.text()) if off_item else 0.0
@@ -263,7 +269,11 @@ class _DirectionTab(QWidget):
                 length = float(len_item.text()) if len_item else 100.0
             except ValueError:
                 length = 100.0
-            result.append((label, offset, length))
+            try:
+                angle = float(ang_item.text()) if ang_item else self._default_angle
+            except ValueError:
+                angle = self._default_angle
+            result.append((label, offset, length, angle))
         return result
 
 
@@ -320,28 +330,32 @@ class GridLinesDialog(QDialog):
 
     def _populate_from_scene(self, gridlines):
         """Read existing GridlineItem list and fill H/V tables."""
-        h_rows: list[tuple[str, float, float]] = []
-        v_rows: list[tuple[str, float, float]] = []
+        h_rows: list[tuple[str, float, float, float]] = []
+        v_rows: list[tuple[str, float, float, float]] = []
 
         for gl in gridlines:
             line = gl.line()
             p1, p2 = line.p1(), line.p2()
             label = gl.grid_label
             length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+            # Compute angle from endpoints
+            angle_rad = math.atan2(-(p2.y() - p1.y()), p2.x() - p1.x())
+            angle_deg = math.degrees(angle_rad)
             kind = _classify_gridline(p1, p2)
 
             if kind == "V":
-                # Vertical gridline: offset = x position
                 offset = (p1.x() + p2.x()) / 2.0
                 v_rows.append((label,
                                self._scene_to_display(offset),
-                               self._scene_to_display(length)))
+                               self._scene_to_display(length),
+                               angle_deg))
             else:
-                # Horizontal gridline: offset = -y position (architectural convention)
+                # Horizontal: offset = -y position (architectural convention)
                 offset = -((p1.y() + p2.y()) / 2.0)
                 h_rows.append((label,
                                self._scene_to_display(offset),
-                               self._scene_to_display(length)))
+                               self._scene_to_display(length),
+                               angle_deg))
 
         if v_rows:
             self._v_tab.populate(v_rows)
@@ -362,22 +376,22 @@ class GridLinesDialog(QDialog):
         """
         result = []
 
-        # Vertical gridlines (angle 90°)
-        for label, offset, length in self._v_tab.read_rows():
+        # Vertical gridlines
+        for label, offset, length, angle in self._v_tab.read_rows():
             result.append({
                 "label": label,
                 "offset": self._to_scene(offset),
                 "length": self._to_scene(length),
-                "angle_deg": 90.0,
+                "angle_deg": angle,
             })
 
-        # Horizontal gridlines (angle 0°)
-        for label, offset, length in self._h_tab.read_rows():
+        # Horizontal gridlines
+        for label, offset, length, angle in self._h_tab.read_rows():
             result.append({
                 "label": label,
                 "offset": self._to_scene(offset),
                 "length": self._to_scene(length),
-                "angle_deg": 0.0,
+                "angle_deg": angle,
             })
 
         return result

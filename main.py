@@ -1446,6 +1446,19 @@ class MainWindow(QMainWindow):
 
     def new_file(self):
         """Clear the scene and start a fresh project."""
+        if self._modified:
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, "Unsaved Changes",
+                "You have unsaved changes. Save before starting a new project?",
+                QMessageBox.StandardButton.Save |
+                QMessageBox.StandardButton.Discard |
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply == QMessageBox.StandardButton.Save:
+                self.save_file()
+            elif reply == QMessageBox.StandardButton.Cancel:
+                return
         self._current_file = None
         self.scene._clear_scene()
         self.level_widget.populate()

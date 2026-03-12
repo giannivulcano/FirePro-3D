@@ -735,14 +735,18 @@ class WallSegment(QGraphicsPathItem):
         self._rebuild_path()
 
     def nearest_face_point(self, pos: QPointF, tolerance: float,
-                           scale_manager=None) -> QPointF | None:
-        """Return the point on the nearest wall face if *pos* is near the
-        mid-section of this wall's centerline (not near endpoints).
+                           scale_manager=None,
+                           reference_point: QPointF | None = None) -> QPointF | None:
+        """Return the point on the wall face nearest to *reference_point*
+        if *pos* is near the mid-section of this wall's centerline.
 
         Used for tee-intersection snapping: the joining wall's endpoint
-        is trimmed to the closest face of the existing wall.
+        is trimmed to the face of the existing wall that is closest to the
+        new wall's *other* endpoint (``reference_point``).  If no
+        ``reference_point`` is given, the face closest to *pos* is returned
+        (legacy behaviour).
 
-        Returns None if *pos* is near an endpoint or too far from the
+        Returns ``None`` if *pos* is near an endpoint or too far from the
         centerline.
         """
         # Project pos onto the centerline parametrically
@@ -777,7 +781,9 @@ class WallSegment(QGraphicsPathItem):
         face_r = QPointF(p1r.x() + t * (p2r.x() - p1r.x()),
                          p1r.y() + t * (p2r.y() - p1r.y()))
 
-        # Return whichever face is closer to pos
-        d_l = math.hypot(pos.x() - face_l.x(), pos.y() - face_l.y())
-        d_r = math.hypot(pos.x() - face_r.x(), pos.y() - face_r.y())
+        # Choose the face nearest to reference_point (the new wall's
+        # other endpoint) so the new wall terminates on the correct side.
+        ref = reference_point if reference_point is not None else pos
+        d_l = math.hypot(ref.x() - face_l.x(), ref.y() - face_l.y())
+        d_r = math.hypot(ref.x() - face_r.x(), ref.y() - face_r.y())
         return face_l if d_l <= d_r else face_r

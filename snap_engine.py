@@ -93,6 +93,7 @@ class SnapEngine:
 
     def __init__(self):
         self.enabled:        bool = True
+        self.skip_pipes:     bool = False   # True in design_area mode
         # Per-type toggles (all on by default)
         self.snap_endpoint:      bool = True
         self.snap_midpoint:      bool = True
@@ -170,6 +171,14 @@ class SnapEngine:
                 continue
             if item.data(0) == "origin":
                 continue
+            # In design_area mode, skip pipe items
+            if self.skip_pipes:
+                try:
+                    from pipe import Pipe
+                    if isinstance(item, Pipe):
+                        continue
+                except ImportError:
+                    pass
 
             # DXF underlay groups — descend into children for snap
             if isinstance(item, QGraphicsItemGroup) and item.data(0) == "DXF Underlay":
@@ -186,6 +195,26 @@ class SnapEngine:
             for snap_type, pt in self._geometric_snaps(cursor_scene, item):
                 _check(snap_type, pt, item)
 
+        # ── Gridline-to-gridline intersection snaps ─────────────────────
+        if self.snap_endpoint:
+            try:
+                from gridline import GridlineItem as _GL
+            except ImportError:
+                _GL = None
+            if _GL is not None:
+                gl_items = [
+                    it for it in scene.items(search_rect)
+                    if isinstance(it, _GL)
+                ]
+                for i, g1 in enumerate(gl_items):
+                    l1 = g1.line()
+                    for g2 in gl_items[i + 1:]:
+                        l2 = g2.line()
+                        ix = self._line_line_intersect(
+                            l1.p1(), l1.p2(), l2.p1(), l2.p2())
+                        if ix is not None:
+                            _check("endpoint", ix, g1)
+
         return best_result
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -201,6 +230,10 @@ class SnapEngine:
             )
         except ImportError:
             LineItem = RectangleItem = CircleItem = ArcItem = PolylineItem = ConstructionLine = None  # type: ignore
+        try:
+            from gridline import GridlineItem
+        except ImportError:
+            GridlineItem = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
@@ -220,6 +253,10 @@ class SnapEngine:
                     (item.pt1.y() + item.pt2.y()) / 2,
                 )
                 pts.append(("midpoint", mid))
+
+        # ── GridlineItem (endpoints, midpoint) ───────────────────────────
+        elif GridlineItem and isinstance(item, GridlineItem):
+            pts.extend(self._line_snaps(item))
 
         # ── Generic QGraphicsLineItem (Pipe, origin axes) ─────────────────
         elif isinstance(item, QGraphicsLineItem):
@@ -345,6 +382,24 @@ class SnapEngine:
             mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
             pts.append(("midpoint", mid))
         return pts
+
+    # ── Line–line intersection ──────────────────────────────────────────
+
+    @staticmethod
+    def _line_line_intersect(
+        a1: QPointF, a2: QPointF, b1: QPointF, b2: QPointF,
+    ) -> QPointF | None:
+        """Return intersection of two finite line segments, or None."""
+        dx1 = a2.x() - a1.x();  dy1 = a2.y() - a1.y()
+        dx2 = b2.x() - b1.x();  dy2 = b2.y() - b1.y()
+        denom = dx1 * dy2 - dy1 * dx2
+        if abs(denom) < 1e-10:
+            return None  # parallel
+        t = ((b1.x() - a1.x()) * dy2 - (b1.y() - a1.y()) * dx2) / denom
+        s = ((b1.x() - a1.x()) * dy1 - (b1.y() - a1.y()) * dx1) / denom
+        if 0.0 <= t <= 1.0 and 0.0 <= s <= 1.0:
+            return QPointF(a1.x() + t * dx1, a1.y() + t * dy1)
+        return None
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
 
