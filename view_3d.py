@@ -165,7 +165,7 @@ class View3D(QWidget):
         self._grid_btn = QPushButton("Grid")
         self._grid_btn.setStyleSheet(_btn_style)
         self._grid_btn.setCheckable(True)
-        self._grid_btn.setChecked(True)
+        self._grid_btn.setChecked(False)
         self._grid_btn.setToolTip("Toggle ground grid")
         self._grid_btn.clicked.connect(self._toggle_3d_grid)
         tb.addWidget(self._grid_btn)
@@ -173,7 +173,7 @@ class View3D(QWidget):
         self._floors_btn = QPushButton("Floors")
         self._floors_btn.setStyleSheet(_btn_style)
         self._floors_btn.setCheckable(True)
-        self._floors_btn.setChecked(True)
+        self._floors_btn.setChecked(False)
         self._floors_btn.setToolTip("Toggle level floor planes")
         self._floors_btn.clicked.connect(self._toggle_level_floors)
         tb.addWidget(self._floors_btn)
@@ -254,8 +254,9 @@ class View3D(QWidget):
 
         # Ground grid in XY plane at Z=0
         self._ground_grid = self._create_ground_grid(5000, 1000)
-        self._3d_grid_visible = True
-        self._level_floors_visible = True
+        self._ground_grid.visible = False
+        self._3d_grid_visible = False
+        self._level_floors_visible = False
 
         # Pan state for middle-mouse-button pan
         self._pan_active = False

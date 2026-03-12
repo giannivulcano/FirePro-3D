@@ -733,3 +733,51 @@ class WallSegment(QGraphicsPathItem):
         else:
             self._pt2 = QPointF(target)
         self._rebuild_path()
+
+    def nearest_face_point(self, pos: QPointF, tolerance: float,
+                           scale_manager=None) -> QPointF | None:
+        """Return the point on the nearest wall face if *pos* is near the
+        mid-section of this wall's centerline (not near endpoints).
+
+        Used for tee-intersection snapping: the joining wall's endpoint
+        is trimmed to the closest face of the existing wall.
+
+        Returns None if *pos* is near an endpoint or too far from the
+        centerline.
+        """
+        # Project pos onto the centerline parametrically
+        ax, ay = self._pt1.x(), self._pt1.y()
+        bx, by = self._pt2.x(), self._pt2.y()
+        dx, dy = bx - ax, by - ay
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return None
+        t = ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq
+
+        # Must be in the mid-section (not near endpoints)
+        margin = 0.05
+        if t < margin or t > 1.0 - margin:
+            return None
+
+        # Perpendicular distance to centerline
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        perp_dist = math.hypot(pos.x() - proj_x, pos.y() - proj_y)
+        if perp_dist > tolerance:
+            return None
+
+        # Get the wall quad to determine face positions
+        p1l, p1r, p2r, p2l = compute_wall_quad(
+            self._pt1, self._pt2, self._thickness_in,
+            self._alignment, scale_manager)
+
+        # Interpolate left and right face at parameter t
+        face_l = QPointF(p1l.x() + t * (p2l.x() - p1l.x()),
+                         p1l.y() + t * (p2l.y() - p1l.y()))
+        face_r = QPointF(p1r.x() + t * (p2r.x() - p1r.x()),
+                         p1r.y() + t * (p2r.y() - p1r.y()))
+
+        # Return whichever face is closer to pos
+        d_l = math.hypot(pos.x() - face_l.x(), pos.y() - face_l.y())
+        d_r = math.hypot(pos.x() - face_r.x(), pos.y() - face_r.y())
+        return face_l if d_l <= d_r else face_r

@@ -341,7 +341,7 @@ class DesignArea(QGraphicsRectItem):
         }
         self.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
         self.setBrush(QBrush(QColor(255, 200, 0, 40)))
-        self.setZValue(200)
+        self.setZValue(2)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.level: str = "Level 1"
         self.user_layer: str = "Default"
