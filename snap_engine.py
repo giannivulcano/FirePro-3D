@@ -78,7 +78,8 @@ class OsnapResult:
     """A single snap point found by the engine."""
     point:       QPointF
     snap_type:   str                               # key from SNAP_COLORS
-    source_item: QGraphicsItem | None = field(default=None, repr=False)
+    source_item:  QGraphicsItem | None = field(default=None, repr=False)
+    source_item2: QGraphicsItem | None = field(default=None, repr=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,6 +231,7 @@ class SnapEngine:
                                     point=ix,
                                     snap_type="intersection",
                                     source_item=g1,
+                                    source_item2=g2,
                                 )
 
         return best_result

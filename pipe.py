@@ -46,7 +46,9 @@ class Pipe(QGraphicsLineItem):
             "Ceiling Offset (in)":{"type": "string", "value": "-2"},
             "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
+            "── Label ──": {"type": "label",  "value": ""},
             "Show Label":  {"type": "enum",   "value": "True",           "options": ["True", "False"]},
+            "Label Size (in)": {"type": "string", "value": "12"},
         }
 
         self.node1 = node1
@@ -117,8 +119,13 @@ class Pipe(QGraphicsLineItem):
         else:
             length = f"{self.length:.1f} px"
 
-        # Text height = 12 inches in model space (1 scene unit = 1 mm)
-        text_h = 12.0 * 25.4   # 304.8 mm
+        # Text height from Label Size property (inches → mm for scene units)
+        try:
+            _label_in = float(self._properties.get(
+                "Label Size (in)", {}).get("value", "12"))
+        except (ValueError, TypeError):
+            _label_in = 12.0
+        text_h = _label_in * 25.4   # inches → mm
         # Gap between rows = pipe visual width + 2 inches (clearance each side)
         gap = self.get_od_mm() + 2.0 * 25.4   # mm
 
@@ -240,7 +247,7 @@ class Pipe(QGraphicsLineItem):
         if key in self._properties:
             self._properties[key]["value"] = value
 
-            if key in ("Diameter", "Show Label"):
+            if key in ("Diameter", "Show Label", "Label Size (in)"):
                 self.update_label()
             if key in ("Colour", "Diameter"):
                 self.set_pipe_display()

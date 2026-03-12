@@ -150,7 +150,6 @@ class Model_View(QGraphicsView):
 
         # ── 1. Snap trace (scene coordinates — no resetTransform) ─────────────
         if snap_result is not None and snap_result.source_item is not None:
-            src = snap_result.source_item
             color = QColor(SNAP_COLORS.get(snap_result.snap_type, "#aaaaaa"))
             trace_pen = QPen(color, 1)
             trace_pen.setStyle(Qt.PenStyle.DashLine)
@@ -160,17 +159,23 @@ class Model_View(QGraphicsView):
             painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
-            if isinstance(src, QGraphicsLineItem):
-                ln = src.line()
-                p1 = src.mapToScene(ln.p1())
-                p2 = src.mapToScene(ln.p2())
-                painter.drawLine(QLineF(p1, p2))
-            elif isinstance(src, QGraphicsEllipseItem):
-                painter.drawEllipse(src.mapRectToScene(src.rect()))
-            elif isinstance(src, QGraphicsPathItem):
-                painter.drawPath(src.mapToScene(src.path()))
-            elif isinstance(src, QGraphicsRectItem):
-                painter.drawRect(src.mapRectToScene(src.rect()))
+            # Draw all source items (source_item + optional source_item2)
+            _sources = [snap_result.source_item]
+            _src2 = getattr(snap_result, "source_item2", None)
+            if _src2 is not None:
+                _sources.append(_src2)
+            for src in _sources:
+                if isinstance(src, QGraphicsLineItem):
+                    ln = src.line()
+                    p1 = src.mapToScene(ln.p1())
+                    p2 = src.mapToScene(ln.p2())
+                    painter.drawLine(QLineF(p1, p2))
+                elif isinstance(src, QGraphicsEllipseItem):
+                    painter.drawEllipse(src.mapRectToScene(src.rect()))
+                elif isinstance(src, QGraphicsPathItem):
+                    painter.drawPath(src.mapToScene(src.path()))
+                elif isinstance(src, QGraphicsRectItem):
+                    painter.drawRect(src.mapRectToScene(src.rect()))
 
             painter.restore()
 
