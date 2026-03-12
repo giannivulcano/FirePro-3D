@@ -3048,8 +3048,8 @@ class Model_Space(QGraphicsScene):
             ox = offset * px
             oy = -offset * py
 
-            # Zoom-independent bubble overshoot: 2% of gridline length
-            bubble_overshoot = length * 0.02
+            # Zoom-independent bubble overshoot: 6% of gridline length
+            bubble_overshoot = length * 0.06
 
             # p1 = bubble end (slightly past origin), p2 = far end
             p1 = QPointF(ox - bubble_overshoot * dx,

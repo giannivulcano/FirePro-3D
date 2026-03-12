@@ -48,7 +48,7 @@ class Pipe(QGraphicsLineItem):
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
             "── Label ──": {"type": "label",  "value": ""},
             "Show Label":  {"type": "enum",   "value": "True",           "options": ["True", "False"]},
-            "Label Size (in)": {"type": "string", "value": "12"},
+            "Label Size": {"type": "string", "value": "12"},
         }
 
         self.node1 = node1
@@ -122,7 +122,7 @@ class Pipe(QGraphicsLineItem):
         # Text height from Label Size property (inches → mm for scene units)
         try:
             _label_in = float(self._properties.get(
-                "Label Size (in)", {}).get("value", "12"))
+                "Label Size", {}).get("value", "12"))
         except (ValueError, TypeError):
             _label_in = 12.0
         text_h = _label_in * 25.4   # inches → mm
@@ -247,7 +247,7 @@ class Pipe(QGraphicsLineItem):
         if key in self._properties:
             self._properties[key]["value"] = value
 
-            if key in ("Diameter", "Show Label", "Label Size (in)"):
+            if key in ("Diameter", "Show Label", "Label Size"):
                 self.update_label()
             if key in ("Colour", "Diameter"):
                 self.set_pipe_display()
