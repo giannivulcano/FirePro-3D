@@ -18,6 +18,7 @@ from calibrate_dialog import CalibrateDialog
 from underlay_context_menu import UnderlayContextMenu
 from dxf_import_worker import DxfImportWorker
 from water_supply import WaterSupply
+from design_area import DesignArea
 from construction_geometry import (
     ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
@@ -61,7 +62,8 @@ class Model_Space(QGraphicsScene):
         self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
-        self.design_area_sprinklers: list = []                # Sprint 2C design area
+        self.design_areas: list = []                          # list[DesignArea]
+        self.active_design_area = None                        # DesignArea | None
         self.active_user_layer: str = "Default"                  # Sprint 4A active layer
         self.active_level: str = "Level 1"                     # floor level
         self._design_area_corner1: "QPointF | None" = None
@@ -317,6 +319,19 @@ class Model_Space(QGraphicsScene):
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
 
+        # --- Design areas ---
+        design_areas_data = []
+        for da in self.design_areas:
+            spr_node_ids = []
+            for spr in da.sprinklers:
+                if spr.node and spr.node in node_id:
+                    spr_node_ids.append(node_id[spr.node])
+            design_areas_data.append({
+                "sprinkler_node_ids": spr_node_ids,
+                "properties": {k: v["value"] for k, v in da.get_properties().items()},
+                "is_active": da is self.active_design_area,
+            })
+
         # --- User layers ---
         layers_data = (
             self._user_layer_manager.to_list()
@@ -354,6 +369,7 @@ class Model_Space(QGraphicsScene):
             "annotations":         annotations_data,
             "underlays":           underlays_data,
             "water_supply":        ws_data,
+            "design_areas":        design_areas_data,
             "construction_lines":  clines_data,
             "polylines":           polylines_data,
             "draw_lines":          draw_lines_data,
@@ -434,6 +450,10 @@ class Model_Space(QGraphicsScene):
                 lvl = self._level_manager.get(node.ceiling_level)
                 if lvl:
                     node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
+                else:
+                    node.z_pos = entry.get("elevation", 0)
+            else:
+                node.z_pos = entry.get("elevation", 0)
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -508,6 +528,23 @@ class Model_Space(QGraphicsScene):
             self.sprinkler_system.supply_node = ws
             for key, value in ws_data.get("properties", {}).items():
                 ws.set_property(key, value)
+
+        # --- Design areas ---
+        for da_entry in payload.get("design_areas", []):
+            spr_node_ids = da_entry.get("sprinkler_node_ids", [])
+            sprs = []
+            for nid in spr_node_ids:
+                node = id_to_node.get(nid)
+                if node and node.has_sprinkler():
+                    sprs.append(node.sprinkler)
+            da = DesignArea(sprs)
+            for key, value in da_entry.get("properties", {}).items():
+                da.set_property(key, value)
+            self.addItem(da)
+            self.design_areas.append(da)
+            if da_entry.get("is_active", False):
+                self.active_design_area = da
+            da.compute_area(self.scale_manager)
 
         # --- Construction lines ---
         for entry in payload.get("construction_lines", []):
@@ -611,7 +648,12 @@ class Model_Space(QGraphicsScene):
         self.scale_manager = ScaleManager()
         self.water_supply_node = None
         self.hydraulic_result = None
-        self.design_area_sprinklers = []
+        # Remove design area rectangles from scene
+        for da in self.design_areas:
+            if da.scene() is self:
+                self.removeItem(da)
+        self.design_areas = []
+        self.active_design_area = None
         self._construction_lines = []
         self._polylines = []
         self._cline_anchor = None
@@ -768,6 +810,12 @@ class Model_Space(QGraphicsScene):
                 if self.water_supply_node is item:
                     self.water_supply_node = None
                     self.sprinkler_system.supply_node = None
+            elif isinstance(item, DesignArea):
+                if item in self.design_areas:
+                    self.design_areas.remove(item)
+                if self.active_design_area is item:
+                    self.active_design_area = None
+                self.removeItem(item)
             elif isinstance(item, ConstructionLine):
                 if item in self._construction_lines:
                     self._construction_lines.remove(item)
@@ -1076,7 +1124,7 @@ class Model_Space(QGraphicsScene):
             "set_scale":      "Pick first calibration point",
             "move":           "Pick base point",
             "offset":         "Click geometry to offset",
-            "design_area":    "Pick first corner",
+            "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
             "gridline":       "Pick start point",
@@ -1961,11 +2009,22 @@ class Model_Space(QGraphicsScene):
                 "y":          ws.scenePos().y(),
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
+        # Design areas
+        da_data = []
+        for da in self.design_areas:
+            spr_nids = [node_id[s.node] for s in da.sprinklers
+                        if s.node and s.node in node_id]
+            da_data.append({
+                "sprinkler_node_ids": spr_nids,
+                "properties": {k: v["value"] for k, v in da.get_properties().items()},
+                "is_active": da is self.active_design_area,
+            })
         return {
             "nodes":              nodes_data,
             "pipes":              pipes_data,
             "annotations":        annotations_data,
             "water_supply":       ws_data,
+            "design_areas":       da_data,
             # ── Draw geometry ──────────────────────────────────────────────
             "construction_lines": [cl.to_dict() for cl in self._construction_lines],
             "polylines":          [pl.to_dict() for pl in self._polylines],
@@ -2015,6 +2074,12 @@ class Model_Space(QGraphicsScene):
             if self.water_supply_node and self.water_supply_node.scene() is self:
                 self.removeItem(self.water_supply_node)
             self.water_supply_node = None
+            # Remove old design areas
+            for da in self.design_areas:
+                if da.scene() is self:
+                    self.removeItem(da)
+            self.design_areas = []
+            self.active_design_area = None
             self.sprinkler_system = SprinklerSystem()
             self.annotations = Annotation()
 
@@ -2044,6 +2109,10 @@ class Model_Space(QGraphicsScene):
                     lvl = self._level_manager.get(node.ceiling_level)
                     if lvl:
                         node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
+                    else:
+                        node.z_pos = entry.get("elevation", 0)
+                else:
+                    node.z_pos = entry.get("elevation", 0)
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])
@@ -2094,6 +2163,20 @@ class Model_Space(QGraphicsScene):
                 self.sprinkler_system.supply_node = ws
                 for key, value in ws_data.get("properties", {}).items():
                     ws.set_property(key, value)
+
+            # Restore design areas
+            for da_entry in state.get("design_areas", []):
+                spr_nids = da_entry.get("sprinkler_node_ids", [])
+                sprs = [id_to_node[nid].sprinkler for nid in spr_nids
+                        if nid in id_to_node and id_to_node[nid].has_sprinkler()]
+                da = DesignArea(sprs)
+                for key, value in da_entry.get("properties", {}).items():
+                    da.set_property(key, value)
+                self.addItem(da)
+                self.design_areas.append(da)
+                if da_entry.get("is_active", False):
+                    self.active_design_area = da
+                da.compute_area(self.scale_manager)
 
             # ── Draw geometry ──────────────────────────────────────────────
             # Remove existing items from scene and lists
@@ -2292,6 +2375,16 @@ class Model_Space(QGraphicsScene):
         self._refresh_all_labels()
 
     # -------------------------------------------------------------------------
+    # Design area backward-compat property
+
+    @property
+    def design_area_sprinklers(self) -> list:
+        """Return sprinklers from the active design area (backward compat)."""
+        if self.active_design_area:
+            return list(self.active_design_area.sprinklers)
+        return []
+
+    # -------------------------------------------------------------------------
     # HYDRAULICS
 
     def run_hydraulics(self, design_sprinklers=None):
@@ -2306,12 +2399,13 @@ class Model_Space(QGraphicsScene):
             pipe.update()
         from hydraulic_node_badge import best_position_for_node
 
-        # Group nodes by 2D scene position to detect overlaps (vertical drops)
+        # Group major nodes by 2D scene position to detect overlaps (vertical drops)
         pos_groups: dict[tuple, list] = {}
         for node in self.sprinkler_system.nodes:
             node.remove_hydraulic_badge()
-            nn = result.node_numbers.get(node)
-            if nn is not None:
+            label = result.node_labels.get(node) if hasattr(result, 'node_labels') else None
+            # Only create badges for major nodes (purely numeric labels)
+            if label is not None and label.isdigit():
                 sp = node.scenePos()
                 key = (round(sp.x(), 0), round(sp.y(), 0))
                 pos_groups.setdefault(key, []).append(node)
@@ -2335,9 +2429,12 @@ class Model_Space(QGraphicsScene):
                     pf = abs(result.pipe_flows.get(pipe, 0.0))
                     if pf > q_total:
                         q_total = pf
+                label = result.node_labels.get(node, str(nn)) if hasattr(result, 'node_labels') else str(nn)
                 node.create_hydraulic_badge(nn, p, q_out, q_total,
                                             position=pos_label,
-                                            stack_index=stack_idx)
+                                            stack_index=stack_idx,
+                                            stack_total=len(nodes_at_pos),
+                                            node_label=label)
 
         for node in self.sprinkler_system.nodes:
             node.update()
@@ -3984,29 +4081,65 @@ class Model_Space(QGraphicsScene):
             return
 
         elif self.mode == "design_area":
-            if self._design_area_corner1 is None:
-                # First click: set corner1 and create preview rect
-                self._design_area_corner1 = snapped
-                rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
-                rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
-                rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
-                rect_item.setZValue(200)
-                self.addItem(rect_item)
-                self._design_area_rect_item = rect_item
+            modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
+            shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+            if shift:
+                # Shift+click: rectangle selection mode
+                if self._design_area_corner1 is None:
+                    self._design_area_corner1 = snapped
+                    rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
+                    rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
+                    rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
+                    rect_item.setZValue(200)
+                    self.addItem(rect_item)
+                    self._design_area_rect_item = rect_item
+                    self._show_status("Shift+click second corner to complete rectangle.")
+                else:
+                    c1 = self._design_area_corner1
+                    selection_rect = QRectF(c1, snapped).normalized()
+                    selected_sprs = [
+                        s for s in self.sprinkler_system.sprinklers
+                        if s.node and selection_rect.contains(s.node.scenePos())
+                    ]
+                    # Remove the temporary preview rect
+                    if self._design_area_rect_item and self._design_area_rect_item.scene() is self:
+                        self.removeItem(self._design_area_rect_item)
+                    self._design_area_rect_item = None
+                    self._design_area_corner1 = None
+                    # Create/update design area with selected sprinklers
+                    if not self.active_design_area:
+                        da = DesignArea(selected_sprs)
+                        self.addItem(da)
+                        self.design_areas.append(da)
+                        self.active_design_area = da
+                    else:
+                        for s in selected_sprs:
+                            self.active_design_area.add_sprinkler(s)
+                    if self.active_design_area:
+                        self.active_design_area.compute_area(self.scale_manager)
+                    count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
+                    self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
             else:
-                # Second click: commit the rectangle
-                c1 = self._design_area_corner1
-                selection_rect = QRectF(c1, snapped).normalized()
-                # Find sprinklers inside the rectangle
-                self.design_area_sprinklers = [
-                    s for s in self.sprinkler_system.sprinklers
-                    if s.node and selection_rect.contains(s.node.scenePos())
-                ]
-                # Reset corner for next use
-                self._design_area_corner1 = None
-                # Keep the rect visible as a reminder (user can clear it)
-                self.set_mode(None)
-                self._show_status(f"Design area: {len(self.design_area_sprinklers)} sprinkler(s) selected.")
+                # Normal click: toggle individual sprinkler
+                # Find sprinkler node near click
+                target_spr = None
+                for spr in self.sprinkler_system.sprinklers:
+                    if spr.node and spr.node.distance_to(snapped.x(), snapped.y()) < 40:
+                        target_spr = spr
+                        break
+                if target_spr:
+                    if not self.active_design_area:
+                        da = DesignArea()
+                        self.addItem(da)
+                        self.design_areas.append(da)
+                        self.active_design_area = da
+                    self.active_design_area.toggle_sprinkler(target_spr)
+                    self.active_design_area.compute_area(self.scale_manager)
+                    count = len(self.active_design_area.sprinklers)
+                    self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+                else:
+                    self._show_status("No sprinkler found. Click on a sprinkler to add/remove it.")
             return
 
         elif self.mode in ("paste", "move"):
@@ -4689,6 +4822,16 @@ class Model_Space(QGraphicsScene):
 
     def contextMenuEvent(self, event):
         """Show context menu on right-click for underlays or scene entities."""
+        # Right-click confirms design area selection
+        if self.mode == "design_area":
+            if self.active_design_area and self.active_design_area.sprinklers:
+                self.active_design_area.compute_area(self.scale_manager)
+                count = len(self.active_design_area.sprinklers)
+                self._show_status(f"Design area confirmed: {count} sprinkler(s).")
+                self.requestPropertyUpdate.emit(self.active_design_area)
+            self.set_mode(None)
+            event.accept()
+            return
         hit_items = self.items(event.scenePos())
 
         # 1. Check underlays first

@@ -20,7 +20,7 @@ import math
 from PyQt6.QtWidgets import (
     QWidget, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser,
-    QHeaderView, QFileDialog, QMessageBox,
+    QHeaderView, QFileDialog, QMessageBox, QCheckBox,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QColor, QTextDocument, QPainter, QPen, QFont, QBrush, QPainterPath
@@ -124,6 +124,8 @@ class _HydraulicGraphWidget(QWidget):
         self._p_static = 0.0       # psi at 0 gpm
         self._p_residual = 0.0     # psi at test flow
         self._q_test = 0.0         # gpm at residual
+        self._q_demand = 0.0       # system demand flow (gpm)
+        self._p_demand = 0.0       # system required pressure (psi)
         self._q_max = 1000.0       # x-axis upper bound (gpm)
         self._p_max = 100.0        # y-axis upper bound (psi)
         self.setMinimumHeight(300)
@@ -133,10 +135,22 @@ class _HydraulicGraphWidget(QWidget):
         self._p_static = max(p_static, 0.0)
         self._p_residual = max(p_residual, 0.0)
         self._q_test = max(q_test, 0.0)
-        # Determine axis ranges (round up to nearest increment)
-        self._q_max = max(math.ceil((q_test * 1.5) / 100) * 100, 500)
-        self._p_max = max(math.ceil((p_static * 1.2) / 10) * 10, 50)
+        self._recalc_axes()
         self.update()
+
+    def set_demand_point(self, q_demand: float, p_required: float):
+        """Set the system demand operating point for plotting."""
+        self._q_demand = max(q_demand, 0.0)
+        self._p_demand = max(p_required, 0.0)
+        self._recalc_axes()
+        self.update()
+
+    def _recalc_axes(self):
+        """Recompute axis ranges to encompass supply curve and demand point."""
+        q_hi = max(self._q_test, self._q_demand)
+        p_hi = max(self._p_static, self._p_demand)
+        self._q_max = max(math.ceil((q_hi * 1.5) / 100) * 100, 500)
+        self._p_max = max(math.ceil((p_hi * 1.2) / 10) * 10, 50)
 
     # ── Coordinate mapping ──────────────────────────────────────────────
 
@@ -184,6 +198,10 @@ class _HydraulicGraphWidget(QWidget):
         # Supply curve (straight line on Q^1.85 scale)
         if self._q_test > 0 and self._p_static > 0:
             self._draw_supply_curve(p, rect)
+
+        # System demand point
+        if self._q_demand > 0 and self._p_demand > 0:
+            self._draw_demand_point(p, rect)
 
         p.end()
 
@@ -303,6 +321,21 @@ class _HydraulicGraphWidget(QWidget):
         p.drawText(QPointF(x2 + 8, y2 - 8),
                    f"{self._q_test:.0f} GPM @ {self._p_residual:.0f} PSI")
 
+    def _draw_demand_point(self, p: QPainter, rect: QRectF):
+        """Plot the system demand operating point as a red marker."""
+        x = self._q_to_x(self._q_demand, rect)
+        y = self._p_to_y(self._p_demand, rect)
+        # Red dot
+        p.setPen(QPen(QColor(200, 0, 0), 2))
+        p.setBrush(QBrush(QColor(200, 0, 0)))
+        p.drawEllipse(QPointF(x, y), 6, 6)
+        # Label
+        label_font = QFont("Arial", 8, QFont.Weight.Bold)
+        p.setFont(label_font)
+        p.setPen(QPen(QColor(180, 0, 0)))
+        p.drawText(QPointF(x + 10, y - 10),
+                   f"Demand: {self._q_demand:.0f} GPM @ {self._p_demand:.1f} PSI")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main widget
@@ -356,7 +389,15 @@ class HydraulicReportWidget(QWidget):
             "#", "From", "To", "Diameter", "Schedule", "C-Factor",
             "Length", "Flow (gpm)", "Velocity (fps)", "hf (psi)", "Status",
         ])
-        self.tabs.addTab(self._pipe_res, "Pipe Results")
+        pipe_res_container = QWidget()
+        pipe_res_layout = QVBoxLayout(pipe_res_container)
+        pipe_res_layout.setContentsMargins(0, 0, 0, 0)
+        self._show_minor_cb = QCheckBox("Show minor nodes")
+        self._show_minor_cb.setChecked(False)
+        self._show_minor_cb.toggled.connect(self._on_minor_toggle)
+        pipe_res_layout.addWidget(self._show_minor_cb)
+        pipe_res_layout.addWidget(self._pipe_res)
+        self.tabs.addTab(pipe_res_container, "Pipe Results")
 
         # Tab 3: Sprinkler Schedule
         self._spr_sched = _make_table([
@@ -433,17 +474,40 @@ class HydraulicReportWidget(QWidget):
             html += "</ul>"
         self._summary.setHtml(html)
 
+    def _on_minor_toggle(self, checked: bool):
+        """Re-fill the pipe results table when minor-node visibility changes."""
+        if self._result:
+            self._fill_pipe_results()
+
     def _fill_pipe_results(self):
         r = self._result
         sm = self._sm
-        nn = r.node_numbers if hasattr(r, 'node_numbers') else {}
+        nn = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
+        show_minor = self._show_minor_cb.isChecked()
+
         pipes = sorted(r.pipe_flows.keys(),
                        key=lambda p: r.pipe_flows[p], reverse=True)
+
+        # Filter to calc-path pipes only; optionally hide minor-node pipes
+        filtered = []
+        for pipe in pipes:
+            l1 = nn.get(pipe.node1) if pipe.node1 else None
+            l2 = nn.get(pipe.node2) if pipe.node2 else None
+            if l1 is None and l2 is None:
+                continue  # not on calc path
+            if not show_minor:
+                # Hide pipes where BOTH nodes are minor (non-digit label)
+                l1_major = l1 is not None and str(l1).isdigit()
+                l2_major = l2 is not None and str(l2).isdigit()
+                if not l1_major and not l2_major:
+                    continue
+            filtered.append(pipe)
+
         t = self._pipe_res
         t.setSortingEnabled(False)
-        t.setRowCount(len(pipes))
+        t.setRowCount(len(filtered))
 
-        for row, pipe in enumerate(pipes):
+        for row, pipe in enumerate(filtered):
             q  = r.pipe_flows.get(pipe, 0.0)
             v  = r.pipe_velocity.get(pipe, 0.0)
             hf = r.pipe_friction_loss.get(pipe, 0.0)
@@ -456,7 +520,7 @@ class HydraulicReportWidget(QWidget):
                 else f"{pipe.length:.0f} px"
             )
 
-            # Node numbers for From / To columns
+            # Node labels for From / To columns
             n1_num = str(nn.get(pipe.node1, "—")) if pipe.node1 else "—"
             n2_num = str(nn.get(pipe.node2, "—")) if pipe.node2 else "—"
 
@@ -479,7 +543,7 @@ class HydraulicReportWidget(QWidget):
 
     def _fill_sprinkler_schedule(self):
         r   = self._result
-        nn  = r.node_numbers if hasattr(r, 'node_numbers') else {}
+        nn  = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
         sprs = list(self._scene.sprinkler_system.sprinklers)
         t = self._spr_sched
         t.setSortingEnabled(False)
@@ -545,13 +609,16 @@ class HydraulicReportWidget(QWidget):
         t.setSortingEnabled(True)
 
     def _fill_graph(self):
-        """Populate the hydraulic graph with supply curve data."""
-        ws = getattr(self._scene, "supply_node", None)
-        if ws is None:
-            return
-        self._graph.set_supply_data(
-            ws.static_pressure, ws.residual_pressure, ws.test_flow
-        )
+        """Populate the hydraulic graph with supply curve and demand data."""
+        ws = getattr(self._scene, "water_supply_node", None)
+        if ws is not None:
+            self._graph.set_supply_data(
+                ws.static_pressure, ws.residual_pressure, ws.test_flow
+            )
+        if self._result and self._result.total_demand > 0:
+            self._graph.set_demand_point(
+                self._result.total_demand, self._result.required_pressure
+            )
 
     # ------------------------------------------------------------------
     # Export — PDF
@@ -610,7 +677,7 @@ class HydraulicReportWidget(QWidget):
                 w.writerow([])
 
             # ── Pipe Results ──────────────────────────────────────────────
-            nn = r.node_numbers if hasattr(r, 'node_numbers') else {}
+            nn = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
             w.writerow(["PIPE RESULTS"])
             w.writerow(["#", "From", "To", "Diameter", "Schedule", "C-Factor",
                         "Length", "Flow (gpm)", "Velocity (fps)", "hf (psi)"])

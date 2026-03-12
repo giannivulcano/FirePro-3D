@@ -94,15 +94,18 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
 
     def __init__(self, parent_node, node_number: int,
                  pressure: float, flow_out: float, total_flow: float,
-                 position: str = "Right", stack_index: int = 0):
+                 position: str = "Right", stack_index: int = 0,
+                 stack_total: int = 1, node_label: str = ""):
         super().__init__(_SVG_PATH, parent_node)
         self._parent_node = parent_node
         self._node_number = node_number
+        self._node_label = node_label or str(node_number)
         self._pressure = pressure
         self._flow_out = flow_out
         self._total_flow = total_flow
         self._badge_position = position
-        self._stack_index = stack_index      # 0-based vertical stack offset
+        self._stack_index = stack_index      # 0-based stack offset
+        self._stack_total = stack_total      # total badges at this position
 
         self.setZValue(200)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -112,7 +115,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
 
         # Properties for PropertyManager
         self._properties = {
-            "Node Number":          {"type": "label", "value": str(node_number)},
+            "Node Number":          {"type": "label", "value": self._node_label},
             "Pressure P (psi)":     {"type": "label", "value": f"{pressure:.1f}"},
             "Flow Out q (gpm)":     {"type": "label", "value": f"{flow_out:.1f}"},
             "Total Flow Q (gpm)":   {"type": "label", "value": f"{total_flow:.1f}"},
@@ -131,9 +134,18 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
         s = _BADGE_DIAMETER_MM / svg_natural if svg_natural > 0 else 1.0
         t = QTransform(s, 0, 0, s, -s * center.x(), -s * center.y())
         self.setTransform(t)
+
         offset = QPointF(_POSITION_OFFSETS.get(self._badge_position, QPointF(0, 0)))
-        # Vertical stacking: shift down by badge diameter per stack index
-        offset += QPointF(0, self._stack_index * _BADGE_DIAMETER_MM * 1.1)
+
+        # Center-aligned stacking: midpoint of stack aligns with the node
+        center_shift = self._stack_index - (self._stack_total - 1) / 2.0
+        if self._badge_position in ("Above", "Below"):
+            # Horizontal stacking for Above/Below
+            offset += QPointF(center_shift * _BADGE_DIAMETER_MM, 0)
+        else:
+            # Vertical stacking for Right/Left
+            offset += QPointF(0, center_shift * _BADGE_DIAMETER_MM)
+
         self.setPos(offset)
 
     # ------------------------------------------------------------------
@@ -162,7 +174,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
         font.setBold(True)
         painter.setFont(font)
         painter.setPen(QPen(Qt.GlobalColor.white, 0))
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(self._node_number))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._node_label)
 
         # Selection highlight
         if self.isSelected():
