@@ -35,8 +35,10 @@ class _SafeColorizeEffect(QGraphicsColorizeEffect):
     when zooming makes SVG items momentarily sub-pixel sized."""
 
     def draw(self, painter):
-        br = self.sourceBoundingRect()
-        if br.width() < 1.0 or br.height() < 1.0:
+        # Map source rect through painter transform to get device-pixel size
+        device_rect = painter.worldTransform().mapRect(
+            self.sourceBoundingRect())
+        if device_rect.width() < 1.0 or device_rect.height() < 1.0:
             self.drawSource(painter)
             return
         super().draw(painter)
@@ -240,6 +242,14 @@ def apply_category_defaults(item):
         return
 
     settings = QSettings()
+
+    # Only apply display overrides when the user has explicitly saved
+    # settings (via the Display Manager dialog).  Without this guard,
+    # every new SVG item would get a QGraphicsColorizeEffect with the
+    # default category colour, mangling its natural appearance.
+    if not settings.contains(f"display/{key}/color"):
+        return
+
     color = settings.value(f"display/{key}/color", cat_def["color"])
     scale = float(settings.value(f"display/{key}/scale", cat_def["scale"]))
     opacity = int(float(settings.value(
