@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QTransform, QPainterPath
+from PyQt6.QtWidgets import QGraphicsItem, QStyle
+from PyQt6.QtGui import QTransform, QPainterPath, QPen, QColor
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtSvg import QSvgRenderer
+from PyQt6.QtCore import Qt
 
 
 class Sprinkler(QGraphicsSvgItem):
@@ -81,6 +82,24 @@ class Sprinkler(QGraphicsSvgItem):
         path = QPainterPath()
         path.addRect(self.boundingRect())
         return path
+
+    def paint(self, painter, option, widget=None):
+        """Draw the SVG, then overlay a red circle when the parent node
+        is selected.  The circle scales with zoom (non-cosmetic pen)."""
+        # Suppress default selection dashes
+        option.state &= ~QStyle.StateFlag.State_Selected
+        super().paint(painter, option, widget)
+
+        parent = self.parentItem()
+        if parent is not None and parent.isSelected():
+            br = self.boundingRect()
+            cx, cy = br.center().x(), br.center().y()
+            radius = max(br.width(), br.height()) / 2
+            pen = QPen(QColor("#ff0000"), 2)
+            pen.setCosmetic(False)  # zoom-dependent
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(br.center(), radius, radius)
 
     # -------------------------------------------------------------------------
     # Public property API

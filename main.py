@@ -220,9 +220,7 @@ class MainWindow(QMainWindow):
         self.user_layer_widget.layersChanged.connect(
             self._refresh_modify_layer_combo
         )
-        self.user_layer_widget.layersChanged.connect(
-            self._refresh_draw_layer_combo
-        )
+        # (Layer group removed — layer assignment is via item properties panel)
 
         # Level widget (floor levels)
         self.level_widget = LevelWidget(self.level_mgr, scene=self.scene)
@@ -574,16 +572,12 @@ class MainWindow(QMainWindow):
         self._single_place_btn.toggled.connect(
             lambda on: setattr(self.scene, 'single_place_mode', on))
 
-        # --- Layer (assigns new geometry to selected layer) ---
-        g_draw_layer = draw_page.add_group("Layer")
-        self._draw_layer_combo = QComboBox()
-        self._draw_layer_combo.setMinimumWidth(130)
-        self._draw_layer_combo.addItems([l.name for l in self.user_layer_mgr.layers])
-        idx = self._draw_layer_combo.findText(self.scene.active_user_layer)
-        if idx >= 0:
-            self._draw_layer_combo.setCurrentIndex(idx)
-        self._draw_layer_combo.currentTextChanged.connect(self._set_active_draw_layer)
-        g_draw_layer._btn_row.addWidget(self._draw_layer_combo)
+        # --- Blocks ---
+        g_blocks = draw_page.add_group("Blocks")
+        g_blocks.add_small_button(
+            "Insert\nBlock", _I("placeholder_icon.svg"), self._insert_block)
+        g_blocks.add_small_button(
+            "Create\nBlock", _I("placeholder_icon.svg"), self._create_block)
 
         # --- Snap ---
         g_snap = draw_page.add_group("Snap")
@@ -1040,23 +1034,94 @@ class MainWindow(QMainWindow):
 
     # ── Draw tool helpers ─────────────────────────────────────────────────────
 
-    def _set_active_draw_layer(self, layer_name: str):
-        """Set the active layer for new geometry from the Draw tab combo."""
-        self.scene.active_user_layer = layer_name
+    # ── Block helpers ──────────────────────────────────────────────────────────
 
-    def _refresh_draw_layer_combo(self):
-        """Re-populate the Draw ribbon's layer dropdown after layers change."""
-        combo = self._draw_layer_combo
-        combo.blockSignals(True)
-        current = combo.currentText()
-        combo.clear()
-        combo.addItems([l.name for l in self.user_layer_mgr.layers])
-        idx = combo.findText(current)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        else:
-            combo.setCurrentIndex(0)
-        combo.blockSignals(False)
+    def _insert_block(self):
+        """Open a file dialog to select a saved block JSON, then place it."""
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from block_item import BlockItem
+        from construction_geometry import (
+            LineItem, RectangleItem, CircleItem, PolylineItem, ArcItem,
+            ConstructionLine,
+        )
+        import json
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Insert Block", "", "Block Files (*.json)")
+        if not path:
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Insert Block", f"Failed to load block:\n{e}")
+            return
+
+        def _factory(d):
+            t = d.get("type", "")
+            if t == "draw_line":
+                return LineItem.from_dict(d)
+            elif t == "draw_rectangle":
+                return RectangleItem.from_dict(d)
+            elif t == "draw_circle":
+                return CircleItem.from_dict(d)
+            elif t == "polyline":
+                return PolylineItem.from_dict(d)
+            elif t == "arc":
+                return ArcItem.from_dict(d)
+            elif t == "construction_line":
+                return ConstructionLine.from_dict(d)
+            elif t == "block_item":
+                return BlockItem.from_dict(d, _factory)
+            return None
+
+        blk = BlockItem.from_dict(data, _factory)
+        self.scene.addItem(blk)
+        blk.setSelected(True)
+        self.scene.sceneModified.emit()
+
+    def _create_block(self):
+        """Group selected items into a BlockItem and optionally save to file."""
+        from PyQt6.QtWidgets import QInputDialog, QFileDialog, QMessageBox
+        from block_item import BlockItem
+        import json
+
+        selected = list(self.scene.selectedItems())
+        if not selected:
+            QMessageBox.information(self, "Create Block",
+                                    "Select items first, then click Create Block.")
+            return
+
+        name, ok = QInputDialog.getText(self, "Create Block", "Block name:")
+        if not ok or not name.strip():
+            return
+        name = name.strip()
+
+        # Remove items from scene, wrap in BlockItem, re-add
+        for item in selected:
+            self.scene.removeItem(item)
+        blk = BlockItem(selected, block_name=name)
+        blk.user_layer = self.scene.active_user_layer
+        self.scene.addItem(blk)
+        blk.setSelected(True)
+
+        # Offer to save to file
+        reply = QMessageBox.question(
+            self, "Save Block",
+            f"Save block '{name}' to file for reuse?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save Block", f"{name}.json", "Block Files (*.json)")
+            if path:
+                try:
+                    with open(path, "w") as f:
+                        json.dump(blk.to_dict(), f, indent=2)
+                except Exception as e:
+                    QMessageBox.warning(self, "Save Block",
+                                        f"Failed to save block:\n{e}")
+
+        self.scene.sceneModified.emit()
 
     # ── Level helpers ──────────────────────────────────────────────────────────
 
@@ -1465,6 +1530,10 @@ class MainWindow(QMainWindow):
 
         # Place a default 3 × 3 grid (3 vertical + 3 horizontal)
         self._place_default_gridlines()
+
+        # Apply saved display defaults to the new project
+        from display_manager import apply_default_display_settings
+        apply_default_display_settings(self.scene)
 
         self._modified = False
         self._update_title()

@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
     QGraphicsItem, QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QFont, QBrush
+from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
 from PyQt6.QtCore import Qt, QPointF
 
 
@@ -106,6 +106,31 @@ class GridBubble(QGraphicsEllipseItem):
         br = self._label.boundingRect()
         self._label.setPos(-br.width() / 2, -br.height() / 2)
 
+    # ── Selection: bubble click selects parent gridline ────────────────────
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        parent = self.parentItem()
+        if parent is not None and parent.isSelected():
+            r = BUBBLE_RADIUS
+            highlight = QPen(QColor("#ff8800"), 3)
+            highlight.setCosmetic(True)
+            painter.setPen(highlight)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(-r, -r, 2 * r, 2 * r)
+
+    def mousePressEvent(self, event):
+        parent = self.parentItem()
+        if parent is not None:
+            scene = parent.scene()
+            if scene is not None:
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    parent.setSelected(not parent.isSelected())
+                else:
+                    scene.clearSelection()
+                    parent.setSelected(True)
+        event.accept()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GridlineItem — finite line with two bubbles
@@ -144,6 +169,20 @@ class GridlineItem(QGraphicsLineItem):
         # User layer
         self.user_layer: str = "Default"
         self.level: str = "Level 1"
+
+    # ── Shape: only bubbles are clickable ────────────────────────────────
+
+    def shape(self) -> QPainterPath:
+        """Return empty path so the line itself is not hit-testable.
+        Selection is handled by GridBubble.mousePressEvent instead."""
+        return QPainterPath()
+
+    def itemChange(self, change, value):
+        """Refresh bubble paint when selection state changes."""
+        if change == self.GraphicsItemChange.ItemSelectedHasChanged:
+            self.bubble1.update()
+            self.bubble2.update()
+        return super().itemChange(change, value)
 
     # ── Bubble positioning ────────────────────────────────────────────────
 
