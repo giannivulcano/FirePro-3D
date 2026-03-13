@@ -312,10 +312,10 @@ class Fitting():
         """Re-apply colour effect and opacity after symbol recreation."""
         if self.symbol is None:
             return
-        from PyQt6.QtWidgets import QGraphicsColorizeEffect
+        from display_manager import _SafeColorizeEffect
         from PyQt6.QtGui import QColor
         if self._display_color:
-            effect = QGraphicsColorizeEffect(self.symbol)
+            effect = _SafeColorizeEffect(self.symbol)
             effect.setColor(QColor(self._display_color))
             effect.setStrength(1.0)
             self.symbol.setGraphicsEffect(effect)

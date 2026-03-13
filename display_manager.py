@@ -23,6 +23,25 @@ from PyQt6.QtCore import Qt, QSettings
 
 import theme as th
 
+
+# ---------------------------------------------------------------------------
+# Safe colorize effect — guards against zero-size pixmap during zoom
+# ---------------------------------------------------------------------------
+
+class _SafeColorizeEffect(QGraphicsColorizeEffect):
+    """QGraphicsColorizeEffect that skips the internal pixmap render when the
+    source bounding rect rounds to zero device pixels.  This prevents the
+    'QPainter::begin: Paint device returned engine == 0' warnings that occur
+    when zooming makes SVG items momentarily sub-pixel sized."""
+
+    def draw(self, painter):
+        br = self.sourceBoundingRect()
+        if br.width() < 1.0 or br.height() < 1.0:
+            self.drawSource(painter)
+            return
+        super().draw(painter)
+
+
 # ---------------------------------------------------------------------------
 # Category definitions — order matches the tree from top to bottom
 # ---------------------------------------------------------------------------
@@ -118,8 +137,8 @@ def _apply_svg_item(item, color, scale, opacity, visible):
     """Apply colour effect + opacity to a QGraphicsSvgItem (Sprinkler or WaterSupply)."""
     if color:
         effect = item.graphicsEffect()
-        if not isinstance(effect, QGraphicsColorizeEffect):
-            effect = QGraphicsColorizeEffect()
+        if not isinstance(effect, _SafeColorizeEffect):
+            effect = _SafeColorizeEffect()
             item.setGraphicsEffect(effect)
         effect.setColor(QColor(color))
         effect.setStrength(1.0)
@@ -140,8 +159,8 @@ def _apply_fitting(fitting, color, scale, opacity, visible):
         return
     if color:
         effect = sym.graphicsEffect()
-        if not isinstance(effect, QGraphicsColorizeEffect):
-            effect = QGraphicsColorizeEffect(sym)
+        if not isinstance(effect, _SafeColorizeEffect):
+            effect = _SafeColorizeEffect(sym)
             sym.setGraphicsEffect(effect)
         effect.setColor(QColor(color))
         effect.setStrength(1.0)
@@ -280,7 +299,7 @@ class DisplayManager(QDialog):
                 "overrides": dict(getattr(item, "_display_overrides", {})),
             }
             eff = item.graphicsEffect()
-            if isinstance(eff, QGraphicsColorizeEffect):
+            if isinstance(eff, (_SafeColorizeEffect, QGraphicsColorizeEffect)):
                 entry["effect_color"] = eff.color().name()
             self._snapshot[id(item)] = entry
 
@@ -355,8 +374,8 @@ class DisplayManager(QDialog):
             item.setOpacity(snap["opacity"])
             if snap.get("effect_color"):
                 eff = item.graphicsEffect()
-                if not isinstance(eff, QGraphicsColorizeEffect):
-                    eff = QGraphicsColorizeEffect()
+                if not isinstance(eff, _SafeColorizeEffect):
+                    eff = _SafeColorizeEffect()
                     item.setGraphicsEffect(eff)
                 eff.setColor(QColor(snap["effect_color"]))
             else:
@@ -392,8 +411,8 @@ class DisplayManager(QDialog):
                 f.symbol.setOpacity(snap["opacity"])
                 if snap.get("effect_color"):
                     eff = f.symbol.graphicsEffect()
-                    if not isinstance(eff, QGraphicsColorizeEffect):
-                        eff = QGraphicsColorizeEffect(f.symbol)
+                    if not isinstance(eff, _SafeColorizeEffect):
+                        eff = _SafeColorizeEffect(f.symbol)
                         f.symbol.setGraphicsEffect(eff)
                     eff.setColor(QColor(snap["effect_color"]))
                 else:
