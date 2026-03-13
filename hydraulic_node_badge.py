@@ -97,6 +97,9 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
                  position: str = "Right", stack_index: int = 0,
                  stack_total: int = 1, node_label: str = ""):
         super().__init__(_SVG_PATH, parent_node)
+        self._svg_source_path = os.path.abspath(_SVG_PATH)
+        self._display_overrides: dict = {}  # per-instance display overrides
+        self._display_scale: float = 1.0
         self._parent_node = parent_node
         self._node_number = node_number
         self._node_label = node_label or str(node_number)

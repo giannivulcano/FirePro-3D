@@ -341,10 +341,15 @@ class MainWindow(QMainWindow):
         self.restore_settings()
         self._splash_progress(100, "Ready")
 
-        # New-project setup: place default gridlines and apply display settings
+        # New-project setup — mirrors new_file() without the save prompt
+        self.scene._clear_scene()
+        self.level_widget.populate()
+        self.user_layer_widget.populate()
+        self.level_label.setText("Level: Level 1")
         self._place_default_gridlines()
         from display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        self._current_file = None
         self._modified = False
         self._update_title()
         QTimer.singleShot(100, self.view.fit_to_screen)

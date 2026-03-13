@@ -146,9 +146,12 @@ class GridlineItem(QGraphicsLineItem):
     def __init__(self, p1: QPointF, p2: QPointF, label: str | None = None):
         super().__init__(p1.x(), p1.y(), p2.x(), p2.y())
 
-        # Cosmetic pen for the gridline itself
-        pen = QPen(QColor(GRID_COLOR), GRID_WIDTH, Qt.PenStyle.DashDotLine)
-        pen.setCosmetic(True)
+        # Store the desired colour; drawing is handled entirely in paint()
+        # using a non-cosmetic pen with width calculated from the view
+        # transform.  This avoids Qt's cosmetic-pen rasteriser which
+        # fails silently after a few zoom steps on some platforms.
+        self._grid_color = QColor(GRID_COLOR)
+        pen = QPen(Qt.PenStyle.NoPen)       # suppress default drawing
         self.setPen(pen)
 
         # Flags
@@ -175,11 +178,10 @@ class GridlineItem(QGraphicsLineItem):
     # ── Geometry overrides ────────────────────────────────────────────────
 
     def boundingRect(self):
-        """Expand bounding rect so the cosmetic-pen line isn't culled by
-        Qt's view frustum at high zoom.  Cosmetic pens have zero scene-unit
-        width, giving the default rect no margin for viewport intersection."""
+        """Expand bounding rect to include the bubbles and a margin for
+        the manually-drawn gridline pen."""
         br = super().boundingRect()
-        m = BUBBLE_RADIUS_MM  # generous margin matching bubble size
+        m = BUBBLE_RADIUS_MM
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
@@ -204,13 +206,25 @@ class GridlineItem(QGraphicsLineItem):
     # ── Selection highlight (suppress dashed box) ─────────────────────────
 
     def paint(self, painter, option, widget=None):
+        """Draw the gridline with a non-cosmetic pen whose width is
+        calculated from the current view transform so it appears as a
+        constant-width screen line.  This replaces Qt's cosmetic pen
+        rendering which vanishes after a few zoom steps."""
         option.state &= ~QStyle.StateFlag.State_Selected
-        super().paint(painter, option, widget)
+
+        # Calculate pen width to maintain ~GRID_WIDTH screen pixels
+        vt = painter.deviceTransform()
+        sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
+        pen_w = GRID_WIDTH / sx
+
+        pen = QPen(self._grid_color, pen_w, Qt.PenStyle.DashDotLine)
+        painter.setPen(pen)
+        painter.drawLine(self.line())
+
         if self.isSelected():
-            highlight = QPen(QColor(GRID_COLOR).lighter(150), GRID_WIDTH + 1.5)
-            highlight.setCosmetic(True)
-            highlight.setStyle(Qt.PenStyle.DashDotLine)
-            painter.setPen(highlight)
+            sel_pen = QPen(self._grid_color.lighter(150),
+                           pen_w * 2, Qt.PenStyle.DashDotLine)
+            painter.setPen(sel_pen)
             painter.drawLine(self.line())
 
     # ── Label management ──────────────────────────────────────────────────
