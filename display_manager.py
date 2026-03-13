@@ -313,7 +313,7 @@ class DisplayManager(QDialog):
                     "bubble_pen": item.bubble1.pen().color().name(),
                     "bubble_brush": item.bubble1.brush().color().name(),
                     "label_color": item.bubble1._label.defaultTextColor().name(),
-                    "bubble_font_size": item.bubble1._label.font().pointSize(),
+                    "bubble_font_px": item.bubble1._label.font().pixelSize(),
                     "overrides": dict(getattr(item, "_display_overrides", {})),
                 }
 
@@ -337,16 +337,19 @@ class DisplayManager(QDialog):
                 pen = item.pen()
                 pen.setColor(QColor(snap["pen_color"]))
                 item.setPen(pen)
-                item.bubble1.setPen(QPen(QColor(snap["bubble_pen"]), 2))
-                item.bubble2.setPen(QPen(QColor(snap["bubble_pen"]), 2))
+                # Preserve original pen width — just change the colour
+                for bubble in (item.bubble1, item.bubble2):
+                    bp = bubble.pen()
+                    bp.setColor(QColor(snap["bubble_pen"]))
+                    bubble.setPen(bp)
                 item.bubble1.setBrush(QBrush(QColor(snap["bubble_brush"])))
                 item.bubble2.setBrush(QBrush(QColor(snap["bubble_brush"])))
                 item.bubble1._label.setDefaultTextColor(QColor(snap["label_color"]))
                 item.bubble2._label.setDefaultTextColor(QColor(snap["label_color"]))
-                if "bubble_font_size" in snap:
+                if "bubble_font_px" in snap and snap["bubble_font_px"] > 0:
                     for bubble in (item.bubble1, item.bubble2):
                         f = bubble._label.font()
-                        f.setPointSize(snap["bubble_font_size"])
+                        f.setPixelSize(snap["bubble_font_px"])
                         bubble._label.setFont(f)
                         bubble._center_label()
                 item._display_overrides = snap.get("overrides", {})

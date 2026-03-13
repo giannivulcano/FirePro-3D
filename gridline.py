@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,6 +140,40 @@ GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
 
+def _clip_line_to_rect(line: QLineF, rect: QRectF) -> QLineF | None:
+    """Liang-Barsky clip of *line* against *rect*.
+
+    Returns the clipped QLineF, or None if the line is entirely outside.
+    This prevents int32 overflow in Qt's rasteriser when very long lines
+    are drawn at high zoom (device coordinates exceed ±2³¹).
+    """
+    x1, y1 = line.x1(), line.y1()
+    dx = line.dx()
+    dy = line.dy()
+    t0, t1 = 0.0, 1.0
+
+    for p, q in (
+        (-dx, x1 - rect.left()),
+        ( dx, rect.right() - x1),
+        (-dy, y1 - rect.top()),
+        ( dy, rect.bottom() - y1),
+    ):
+        if abs(p) < 1e-12:
+            if q < 0:
+                return None          # parallel & outside
+        else:
+            t = q / p
+            if p < 0:
+                t0 = max(t0, t)
+            else:
+                t1 = min(t1, t)
+            if t0 > t1:
+                return None          # fully clipped away
+
+    return QLineF(x1 + t0 * dx, y1 + t0 * dy,
+                  x1 + t1 * dx, y1 + t1 * dy)
+
+
 class GridlineItem(QGraphicsLineItem):
     """A finite gridline with auto-numbered bubble labels at each end."""
 
@@ -201,18 +235,26 @@ class GridlineItem(QGraphicsLineItem):
         self.bubble1.setPos(line.p1())
         self.bubble2.setPos(line.p2())
 
-    # ── Selection highlight (suppress dashed box) ─────────────────────────
+    # ── Paint (with viewport clipping for high-zoom safety) ────────────
 
     def paint(self, painter, option, widget=None):
+        # Clip the infinite-looking line to the exposed rect so Qt's
+        # rasteriser never receives device coordinates > int32 range.
+        clip = option.exposedRect.adjusted(-50, -50, 50, 50)
+        vis = _clip_line_to_rect(self.line(), clip)
+        if vis is None:
+            return  # entirely outside viewport
+
         option.state &= ~QStyle.StateFlag.State_Selected
-        super().paint(painter, option, widget)
+        painter.setPen(self.pen())
+        painter.drawLine(vis)
+
         if self.isSelected():
             highlight = QPen(QColor(GRID_COLOR).lighter(150), GRID_WIDTH + 1.5)
             highlight.setCosmetic(True)
             highlight.setStyle(Qt.PenStyle.DashDotLine)
             painter.setPen(highlight)
-            line = self.line()
-            painter.drawLine(line)
+            painter.drawLine(vis)
 
     # ── Label management ──────────────────────────────────────────────────
 
