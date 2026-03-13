@@ -241,6 +241,17 @@ class Model_Space(QGraphicsScene):
                 "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
                 "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
+            # Per-instance display overrides (Display Manager)
+            node_ovr = getattr(node, "_display_overrides", {})
+            if node_ovr:
+                entry["display_overrides"] = node_ovr
+            if node.has_sprinkler():
+                spr_ovr = getattr(node.sprinkler, "_display_overrides", {})
+                if spr_ovr:
+                    entry["sprinkler_display_overrides"] = spr_ovr
+            fit_ovr = getattr(node.fitting, "_display_overrides", {}) if node.has_fitting() else {}
+            if fit_ovr:
+                entry["fitting_display_overrides"] = fit_ovr
             nodes_data.append(entry)
 
         # --- Pipes ---
@@ -250,13 +261,17 @@ class Model_Space(QGraphicsScene):
                 continue
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
-            pipes_data.append({
+            pipe_entry = {
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":      getattr(pipe, "level", "Level 1"),
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
-            })
+            }
+            pipe_ovr = getattr(pipe, "_display_overrides", {})
+            if pipe_ovr:
+                pipe_entry["display_overrides"] = pipe_ovr
+            pipes_data.append(pipe_entry)
 
         # --- Annotations ---
         annotations_data = []
@@ -318,6 +333,9 @@ class Model_Space(QGraphicsScene):
                 "y":          ws.pos().y(),
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
+            ws_ovr = getattr(ws, "_display_overrides", {})
+            if ws_ovr:
+                ws_data["display_overrides"] = ws_ovr
 
         # --- Design areas ---
         design_areas_data = []
@@ -454,6 +472,8 @@ class Model_Space(QGraphicsScene):
                     node.z_pos = entry.get("elevation", 0)
             else:
                 node.z_pos = entry.get("elevation", 0)
+            # Display overrides (Display Manager)
+            node._display_overrides = entry.get("display_overrides", {})
             if entry.get("sprinkler"):
                 template = Sprinkler(None)
                 for key, value in entry["sprinkler"].items():
@@ -463,6 +483,11 @@ class Model_Space(QGraphicsScene):
                         template.set_property(key, value)
                 self.add_sprinkler(node, template)
                 # Sprinkler's set_property("Elevation", ...) also syncs node.z_pos
+                node.sprinkler._display_overrides = entry.get(
+                    "sprinkler_display_overrides", {})
+            # Fitting display overrides are applied after fitting.update() below
+            node._fitting_display_overrides_pending = entry.get(
+                "fitting_display_overrides", {})
 
         # --- Pipes ---
         for entry in payload.get("pipes", []):
@@ -474,10 +499,16 @@ class Model_Space(QGraphicsScene):
                 pipe.level = entry.get("level", "Level 1")
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
+                pipe._display_overrides = entry.get("display_overrides", {})
 
         # --- Fittings (update after all pipes are connected) ---
         for node in id_to_node.values():
             node.fitting.update()
+            # Apply pending fitting display overrides
+            pending = getattr(node, "_fitting_display_overrides_pending", {})
+            if pending:
+                node.fitting._display_overrides = pending
+                del node._fitting_display_overrides_pending
 
         # --- Annotations ---
         for entry in payload.get("annotations", []):
@@ -528,6 +559,7 @@ class Model_Space(QGraphicsScene):
             self.sprinkler_system.supply_node = ws
             for key, value in ws_data.get("properties", {}).items():
                 ws.set_property(key, value)
+            ws._display_overrides = ws_data.get("display_overrides", {})
 
         # --- Design areas ---
         for da_entry in payload.get("design_areas", []):
@@ -1954,7 +1986,7 @@ class Model_Space(QGraphicsScene):
         node_id = {n: i for i, n in enumerate(node_list)}
         nodes_data = []
         for node in node_list:
-            nodes_data.append({
+            undo_node = {
                 "id":             node_id[node],
                 "x":              node.scenePos().x(),
                 "y":              node.scenePos().y(),
@@ -1965,20 +1997,35 @@ class Model_Space(QGraphicsScene):
                 "level":          getattr(node, "level", "Level 1"),
                 "ceiling_level":  getattr(node, "ceiling_level", "Level 1"),
                 "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
-            })
+            }
+            node_ovr = getattr(node, "_display_overrides", {})
+            if node_ovr:
+                undo_node["display_overrides"] = node_ovr
+            if node.has_sprinkler():
+                spr_ovr = getattr(node.sprinkler, "_display_overrides", {})
+                if spr_ovr:
+                    undo_node["sprinkler_display_overrides"] = spr_ovr
+            fit_ovr = getattr(node.fitting, "_display_overrides", {}) if node.has_fitting() else {}
+            if fit_ovr:
+                undo_node["fitting_display_overrides"] = fit_ovr
+            nodes_data.append(undo_node)
         pipes_data = []
         for pipe in self.sprinkler_system.pipes:
             if pipe.node1 is None or pipe.node2 is None:
                 continue
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
-            pipes_data.append({
+            undo_pipe = {
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
                 "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":     getattr(pipe, "level", "Level 1"),
-            })
+            }
+            pipe_ovr = getattr(pipe, "_display_overrides", {})
+            if pipe_ovr:
+                undo_pipe["display_overrides"] = pipe_ovr
+            pipes_data.append(undo_pipe)
         annotations_data = []
         for dim in self.annotations.dimensions:
             annotations_data.append({
@@ -2009,6 +2056,9 @@ class Model_Space(QGraphicsScene):
                 "y":          ws.pos().y(),
                 "properties": {k: v["value"] for k, v in ws.get_properties().items()},
             }
+            ws_ovr = getattr(ws, "_display_overrides", {})
+            if ws_ovr:
+                ws_data["display_overrides"] = ws_ovr
         # Design areas
         da_data = []
         for da in self.design_areas:
@@ -2090,6 +2140,7 @@ class Model_Space(QGraphicsScene):
                 self.sprinkler_system.add_node(node)
                 id_to_node[entry["id"]] = node
                 node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
+                node._display_overrides = entry.get("display_overrides", {})
                 if entry.get("sprinkler"):
                     template = Sprinkler(None)
                     for key, value in entry["sprinkler"].items():
@@ -2098,6 +2149,10 @@ class Model_Space(QGraphicsScene):
                         else:
                             template.set_property(key, value)
                     self.add_sprinkler(node, template)
+                    node.sprinkler._display_overrides = entry.get(
+                        "sprinkler_display_overrides", {})
+                node._fitting_display_overrides_pending = entry.get(
+                    "fitting_display_overrides", {})
                 node.user_layer = entry.get("user_layer", "0")
                 node.level = entry.get("level", "Level 1")
                 node.ceiling_level = entry.get("ceiling_level", node.level)
@@ -2126,9 +2181,14 @@ class Model_Space(QGraphicsScene):
                         pipe.set_property(key, value)
                     pipe.user_layer = entry.get("user_layer", "0")
                     pipe.level = entry.get("level", "Level 1")
+                    pipe._display_overrides = entry.get("display_overrides", {})
 
             for node in id_to_node.values():
                 node.fitting.update()
+                pending = getattr(node, "_fitting_display_overrides_pending", {})
+                if pending:
+                    node.fitting._display_overrides = pending
+                    del node._fitting_display_overrides_pending
 
             for entry in state.get("annotations", []):
                 ann_type = entry.get("type")
@@ -2163,6 +2223,7 @@ class Model_Space(QGraphicsScene):
                 self.sprinkler_system.supply_node = ws
                 for key, value in ws_data.get("properties", {}).items():
                     ws.set_property(key, value)
+                ws._display_overrides = ws_data.get("display_overrides", {})
 
             # Restore design areas
             for da_entry in state.get("design_areas", []):

@@ -37,6 +37,8 @@ class WaterSupply(QGraphicsSvgItem):
     def __init__(self, x: float = 0, y: float = 0):
         super().__init__()
         self.setPos(x, y)
+        self._display_overrides: dict = {}  # per-instance display overrides
+        self._display_scale: float = 1.0    # display scale multiplier
 
         self._properties: dict = {
             "Static Pressure":   {"type": "string", "value": "80"},   # psi
@@ -69,6 +71,7 @@ class WaterSupply(QGraphicsSvgItem):
         center = bounds.center()
         svg_natural = max(bounds.width(), bounds.height())
         s = self.TARGET_MM / svg_natural if svg_natural > 0 else self.SCALE
+        s *= self._display_scale  # apply display manager scale override
         t = QTransform(s, 0, 0, s, -s * center.x(), -s * center.y())
         self.setTransform(t)
 

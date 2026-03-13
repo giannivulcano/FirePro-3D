@@ -61,6 +61,10 @@ class Pipe(QGraphicsLineItem):
         self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
 
 
+        self._display_overrides: dict = {}       # per-instance display overrides
+        self._display_scale: float = 1.0        # display scale multiplier
+        self._display_color: str | None = None  # display colour override (hex)
+
         self.label = QGraphicsTextItem("", self)  # Child of pipe
 
         self.set_pipe_display()
@@ -75,8 +79,8 @@ class Pipe(QGraphicsLineItem):
             self.update_geometry()
 
     def set_pipe_display(self):
-        colour = QColor(self._properties["Colour"]["value"])
-        line_weight = self.get_od_mm()
+        colour = QColor(self._display_color or self._properties["Colour"]["value"])
+        line_weight = self.get_od_mm() * self._display_scale
         pen = QPen(colour, line_weight)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         self.setPen(pen)
@@ -309,11 +313,11 @@ class Pipe(QGraphicsLineItem):
         return math.sqrt(horiz_ft ** 2 + z_diff_ft ** 2)
 
     def paint(self, painter, option, widget=None):
-        colour = QColor(self._properties["Colour"]["value"])
+        colour = QColor(self._display_color or self._properties["Colour"]["value"])
 
         # Pen width = real pipe OD in scene units (mm).
         # Non-cosmetic: the line scales with zoom just like real geometry.
-        line_weight = self.get_od_mm()
+        line_weight = self.get_od_mm() * self._display_scale
         base_pen = QPen(colour, line_weight)
         base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 

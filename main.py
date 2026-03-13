@@ -25,7 +25,6 @@ from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
 from view_3d import View3D
 from array_dialog import ArrayDialog
-from fs_visibility_dialog import FSVisibilityDialog
 from project_browser import ProjectBrowser
 from model_browser import ModelBrowser
 from grid_lines_dialog import GridLinesDialog
@@ -474,6 +473,10 @@ class MainWindow(QMainWindow):
 
         # --- Settings ---
         g_set = manage_page.add_group("Settings")
+        _btn = g_set.add_large_button(
+            "Display\nManager", _I("placeholder_icon.svg"),
+            self._open_display_manager)
+        _btn.setToolTip("Configure visibility, colour, scale and opacity for model items")
         _btn = g_set.add_small_menu_button(
             "Units", _I("info_icon.svg"), self._build_units_menu())
         _btn.setToolTip("Set display units (Imperial/Metric)")
@@ -679,8 +682,8 @@ class MainWindow(QMainWindow):
             self.toggle_coverage_overlay, checkable=True)
         self._coverage_btn.setToolTip("Show/hide sprinkler coverage circles")
         g_sys.add_small_button(
-            "Visibility", _I("placeholder_icon.svg"),
-            self._open_fs_visibility_dialog)
+            "Display", _I("placeholder_icon.svg"),
+            self._open_display_manager)
 
         # --- Library ---
         g_lib = build_page.add_group("Library")
@@ -1291,41 +1294,11 @@ class MainWindow(QMainWindow):
         """Show/hide translucent sprinkler coverage circles."""
         self.scene.set_coverage_overlay(checked)
 
-    def _open_fs_visibility_dialog(self):
-        """Open fire-suppression visibility settings dialog."""
-        dlg = FSVisibilityDialog(self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            dlg.save_settings()
-            self._apply_fs_visibility(dlg.get_settings())
-
-    def _apply_fs_visibility(self, settings: dict):
-        """Apply fire-suppression visibility settings to scene items."""
-        from pipe import Pipe
-        from sprinkler import Sprinkler
-        from fitting import Fitting
-        from water_supply import WaterSupply
-        from node import Node
-        from PyQt6.QtGui import QPen, QColor, QBrush
-
-        for pipe in self.scene.sprinkler_system.pipes:
-            s = settings.get("Pipe", {})
-            if s.get("color"):
-                pipe._properties["Colour"] = {"type": "color", "value": s["color"]}
-                pipe.set_pipe_display()
-
-        for node in self.scene.sprinkler_system.nodes:
-            if node.has_sprinkler():
-                s = settings.get("Sprinkler", {})
-                # Scale is applied via sprinkler TARGET_MM
-            if node.has_fitting():
-                node.fitting.update()
-
-        ws = self.scene.water_supply_node
-        if ws is not None:
-            s = settings.get("Water Supply", {})
-            if s.get("color"):
-                ws._color = QColor(s["color"])
-                ws.update()
+    def _open_display_manager(self):
+        """Open the Display Manager dialog (replaces FSVisibilityDialog)."""
+        from display_manager import DisplayManager
+        dlg = DisplayManager(self.scene, parent=self)
+        dlg.exec()  # live preview handles apply/revert internally
 
     def open_sprinkler_manager(self):
         """Open the Sprinkler Manager database dialog."""
@@ -1398,6 +1371,9 @@ class MainWindow(QMainWindow):
         self._modified = False
         self._update_title()
         self._add_recent_file(file)
+        # Apply saved display settings (QSettings + per-item overrides)
+        from display_manager import apply_saved_display_settings
+        apply_saved_display_settings(self.scene)
 
     # ── Recent files ──────────────────────────────────────────────────────
 

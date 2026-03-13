@@ -66,6 +66,11 @@ class Fitting():
         self.symbol = None
         self.symbol_scale = 0.5
         self.type = "no fitting"
+        self._display_overrides: dict = {}    # per-instance display overrides
+        self._display_scale: float = 1.0      # display scale multiplier
+        self._display_color: str | None = None # display color override
+        self._display_opacity: float = 100    # display opacity (0-100)
+        self._display_visible: bool = True    # display visibility
 
     def update(self,visibility=True):
         pipes = self.node.pipes
@@ -172,6 +177,9 @@ class Fitting():
 
         # Rotation origin at the center of its bounding box
         self.symbol.setTransformOriginPoint(self.symbol.boundingRect().center())
+
+        # Re-apply display overrides after symbol recreation
+        self._reapply_display_effects()
 
 
 
@@ -282,7 +290,7 @@ class Fitting():
         # Scale fitting to 5× the largest connected pipe OD (real-world mm)
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
-            target_mm = self._max_connected_od_mm() * 5
+            target_mm = self._max_connected_od_mm() * 5 * self._display_scale
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0
@@ -299,6 +307,22 @@ class Fitting():
                            transform.dx() - mc_x, transform.dy() - mc_y)
         self.symbol.setTransform(final)
         self.symbol.setPos(0, 0)
+
+    def _reapply_display_effects(self):
+        """Re-apply colour effect and opacity after symbol recreation."""
+        if self.symbol is None:
+            return
+        from PyQt6.QtWidgets import QGraphicsColorizeEffect
+        from PyQt6.QtGui import QColor
+        if self._display_color:
+            effect = QGraphicsColorizeEffect(self.symbol)
+            effect.setColor(QColor(self._display_color))
+            effect.setStrength(1.0)
+            self.symbol.setGraphicsEffect(effect)
+        op = self._display_opacity
+        self.symbol.setOpacity(op / 100.0 if op > 1 else op)
+        if not self._display_visible:
+            self.symbol.setVisible(False)
 
     def rescale(self, sm=None) -> None:
         """Re-draw fitting at real-world scale (sized to largest connected pipe)."""

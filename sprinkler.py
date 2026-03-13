@@ -18,6 +18,8 @@ class Sprinkler(QGraphicsSvgItem):
     def __init__(self, node):
         super().__init__()
         self.node = node
+        self._display_overrides: dict = {}  # per-instance display overrides
+        self._display_scale: float = 1.0    # display scale multiplier
         self._properties = {
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
             "Model":           {"type": "enum",   "value": "",           "options": []},
@@ -67,6 +69,7 @@ class Sprinkler(QGraphicsSvgItem):
         center = bounds.center()
         svg_natural = max(bounds.width(), bounds.height())
         s = self.TARGET_MM / svg_natural if svg_natural > 0 else self.SCALE
+        s *= self._display_scale  # apply display manager scale override
         # Build affine: scale about origin, then translate so centre → (0,0)
         t = QTransform(s, 0, 0, s, -s * center.x(), -s * center.y())
         self.setTransform(t)

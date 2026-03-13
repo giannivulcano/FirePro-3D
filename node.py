@@ -38,6 +38,7 @@ class Node(QGraphicsEllipseItem):
         self.ceiling_level: str = "Level 1"  # ceiling level (3D elevation)
         self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
         self._hydraulic_badge = None         # HydraulicNodeBadge child (transient)
+        self._display_overrides: dict = {}  # per-instance display overrides
 
         # Property panel support — shown for plain (non-sprinkler) nodes
         self._properties: dict = {
