@@ -30,32 +30,45 @@ import theme as th
 # SVG recolouring — modify stroke/fill directly in the SVG source
 # ---------------------------------------------------------------------------
 
-_svg_color_cache: dict[tuple[str, str], QByteArray] = {}
+_svg_color_cache: dict[tuple, QByteArray] = {}
+
+# Regex patterns for SVG recolouring
+_FOREGROUND_RE = re.compile(r'#[fF]{6}\b')                       # white (#ffffff)
+_BACKGROUND_RE = re.compile(r'#(?:000000|2b2b2b|2b2b2e)\b', re.IGNORECASE)  # dark fills
 
 
-def _recolor_svg_bytes(svg_path: str, color: str) -> QByteArray:
-    """Read an SVG file and replace white (#ffffff) strokes/fills
-    with *color*.  Results are cached by (path, color)."""
-    key = (svg_path, color)
+def _recolor_svg_bytes(svg_path: str, color: str | None = None,
+                       fill_color: str | None = None) -> QByteArray:
+    """Read an SVG file and replace foreground/background colours.
+
+    *color* replaces white (#ffffff) strokes/fills (the "outline" colour).
+    *fill_color* replaces dark background fills (#000000, #2b2b2b, #2b2b2e).
+    Results are cached by (path, color, fill_color).
+    """
+    key = (svg_path, color, fill_color)
     if key in _svg_color_cache:
         return _svg_color_cache[key]
     with open(svg_path, "r", encoding="utf-8") as f:
         svg = f.read()
-    # Replace all white (#ffffff / #FFFFFF) with the target colour
-    svg = re.sub(r"#[fF]{6}\b", color, svg)
+    if color and color.lower() != "#ffffff":
+        svg = _FOREGROUND_RE.sub(color, svg)
+    if fill_color:
+        svg = _BACKGROUND_RE.sub(fill_color, svg)
     data = QByteArray(svg.encode("utf-8"))
     _svg_color_cache[key] = data
     return data
 
 
-def _set_svg_tint(item, color: str | None):
+def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     """Apply colour tint by recolouring the SVG source file directly.
 
-    Replaces white (#ffffff) strokes and fills with *color*.  Falls back
-    to the original SVG when *color* is None.  Requires the item to have
-    ``_svg_source_path`` pointing to its SVG file on disk.
+    *color* replaces white (#ffffff) strokes/fills — the outline colour.
+    *fill_color* replaces dark background fills (#000000, #2b2b2b, #2b2b2e).
+    Falls back to the original SVG when both are None/default.
+    Requires ``_svg_source_path`` on the item.
     """
     item._display_color = color
+    item._display_fill_color = fill_color
     # Remove any leftover QGraphicsColorizeEffect from older sessions
     if item.graphicsEffect() is not None:
         item.setGraphicsEffect(None)
@@ -64,8 +77,10 @@ def _set_svg_tint(item, color: str | None):
     if src is None or not os.path.isfile(src):
         return  # can't recolour without the source path
 
-    if color and color.lower() != "#ffffff":
-        data = _recolor_svg_bytes(src, color)
+    needs_recolor = ((color and color.lower() != "#ffffff") or
+                     (fill_color is not None))
+    if needs_recolor:
+        data = _recolor_svg_bytes(src, color, fill_color)
         renderer = QSvgRenderer(data)
     else:
         renderer = QSvgRenderer(src)
@@ -86,11 +101,11 @@ def _set_svg_tint(item, color: str | None):
 
 _CATEGORIES: list[dict] = [
     {"key": "Pipe",             "color": "#4488ff", "fill": None,      "font": 12,   "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Sprinkler",        "color": "#ff4444", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Sprinkler",        "color": "#ff4444", "fill": "#000000",  "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Fitting",          "color": "#44cc44", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Water Supply",     "color": "#00cccc", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Water Supply",     "color": "#00cccc", "fill": "#2b2b2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Node",             "color": "#888888", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
@@ -143,17 +158,17 @@ def apply_display_to_item(item, color: str | None, scale: float,
     if isinstance(item, Pipe):
         _apply_pipe(item, color, scale, opacity, visible, font_size)
     elif isinstance(item, Sprinkler):
-        _apply_svg_item(item, color, scale, opacity, visible)
+        _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
         item._centre_on_node()
     elif isinstance(item, Fitting):
-        _apply_fitting(item, color, scale, opacity, visible)
+        _apply_fitting(item, color, scale, opacity, visible, fill_color)
     elif isinstance(item, WaterSupply):
-        _apply_svg_item(item, color, scale, opacity, visible)
+        _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
         item._centre_on_origin()
     elif isinstance(item, HydraulicNodeBadge):
-        _apply_svg_item(item, color, scale, opacity, visible)
+        _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
         item._centre_on_offset()
     elif isinstance(item, GridlineItem):
@@ -177,23 +192,24 @@ def _apply_pipe(pipe, color, scale, opacity, visible, font_size=None):
         pipe.update_label()
 
 
-def _apply_svg_item(item, color, scale, opacity, visible):
-    """Apply colour tint + opacity to a QGraphicsSvgItem (Sprinkler or WaterSupply)."""
-    _set_svg_tint(item, color)
+def _apply_svg_item(item, color, scale, opacity, visible, fill_color=None):
+    """Apply colour tint + opacity to a QGraphicsSvgItem (Sprinkler, WaterSupply, Badge)."""
+    _set_svg_tint(item, color, fill_color)
     item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     item.setVisible(visible)
 
 
-def _apply_fitting(fitting, color, scale, opacity, visible):
+def _apply_fitting(fitting, color, scale, opacity, visible, fill_color=None):
     """Apply to a Fitting (non-QGraphicsItem wrapper)."""
     fitting._display_color = color
+    fitting._display_fill_color = fill_color
     fitting._display_scale = scale
     fitting._display_opacity = opacity
     fitting._display_visible = visible
     sym = fitting.symbol
     if sym is None:
         return
-    _set_svg_tint(sym, color)
+    _set_svg_tint(sym, color, fill_color)
     sym.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     # Visibility: fittings are hidden when sprinkler is present (handled by
     # Fitting.update()), so only override when we explicitly hide.
@@ -334,12 +350,13 @@ class DisplayManager(QDialog):
             entry: dict = {
                 "visible": item.isVisible(),
                 "opacity": item.opacity(),
-                "effect_color": None,
+                "effect_color": getattr(item, "_display_color", None),
+                "effect_fill": getattr(item, "_display_fill_color", None),
                 "display_color": getattr(item, "_display_color", None),
+                "display_fill_color": getattr(item, "_display_fill_color", None),
                 "display_scale": getattr(item, "_display_scale", 1.0),
                 "overrides": dict(getattr(item, "_display_overrides", {})),
             }
-            entry["effect_color"] = getattr(item, "_display_color", None)
             self._snapshot[id(item)] = entry
 
         # Also snapshot Fitting wrappers (not QGraphicsItems themselves)
@@ -351,8 +368,10 @@ class DisplayManager(QDialog):
                     "visible": f.symbol.isVisible(),
                     "opacity": f.symbol.opacity(),
                     "effect_color": getattr(f, "_display_color", None),
+                    "effect_fill": getattr(f, "_display_fill_color", None),
                     "overrides": dict(getattr(f, "_display_overrides", {})),
                     "display_color": getattr(f, "_display_color", None),
+                    "display_fill_color": getattr(f, "_display_fill_color", None),
                     "display_scale": getattr(f, "_display_scale", 1.0),
                     "display_opacity": getattr(f, "_display_opacity", 100),
                     "display_visible": getattr(f, "_display_visible", True),
@@ -381,6 +400,7 @@ class DisplayManager(QDialog):
         from sprinkler import Sprinkler
         from water_supply import WaterSupply
         from gridline import GridlineItem
+        from hydraulic_node_badge import HydraulicNodeBadge
 
         for item in self._iter_all_items():
             snap = self._snapshot.get(id(item))
@@ -421,12 +441,18 @@ class DisplayManager(QDialog):
                 item._display_scale = snap.get("display_scale", 1.0)
                 item.set_pipe_display()
             elif isinstance(item, (Sprinkler, WaterSupply)):
-                _set_svg_tint(item, snap.get("effect_color"))
+                _set_svg_tint(item, snap.get("effect_color"),
+                              snap.get("effect_fill"))
                 item._display_scale = snap.get("display_scale", 1.0)
                 if isinstance(item, Sprinkler):
                     item._centre_on_node()
                 else:
                     item._centre_on_origin()
+            elif isinstance(item, HydraulicNodeBadge):
+                _set_svg_tint(item, snap.get("effect_color"),
+                              snap.get("effect_fill"))
+                item._display_scale = snap.get("display_scale", 1.0)
+                item._centre_on_offset()
 
         # Restore fittings
         for node in self._scene.sprinkler_system.nodes:
@@ -437,6 +463,7 @@ class DisplayManager(QDialog):
             if snap is None:
                 continue
             f._display_color = snap.get("display_color")
+            f._display_fill_color = snap.get("display_fill_color")
             f._display_scale = snap.get("display_scale", 1.0)
             f._display_opacity = snap.get("display_opacity", 100)
             f._display_visible = snap.get("display_visible", True)
@@ -444,7 +471,8 @@ class DisplayManager(QDialog):
             if f.symbol:
                 f.symbol.setVisible(snap["visible"])
                 f.symbol.setOpacity(snap["opacity"])
-                _set_svg_tint(f.symbol, snap.get("effect_color"))
+                _set_svg_tint(f.symbol, snap.get("effect_color"),
+                              snap.get("effect_fill"))
                 f.align_fitting()
 
         # Force scene repaint
@@ -457,6 +485,7 @@ class DisplayManager(QDialog):
     def _iter_all_items(self):
         """Yield every fire-suppression QGraphicsItem in the scene."""
         from gridline import GridlineItem
+        from hydraulic_node_badge import HydraulicNodeBadge
         ss = self._scene.sprinkler_system
         yield from ss.pipes
         for node in ss.nodes:
@@ -467,7 +496,7 @@ class DisplayManager(QDialog):
         if ws is not None:
             yield ws
         for item in self._scene.items():
-            if isinstance(item, GridlineItem):
+            if isinstance(item, (GridlineItem, HydraulicNodeBadge)):
                 yield item
 
     def _items_for_category(self, key: str) -> list:
@@ -528,6 +557,7 @@ class DisplayManager(QDialog):
         from fitting import Fitting
         from sprinkler import Sprinkler
         from water_supply import WaterSupply
+        from hydraulic_node_badge import HydraulicNodeBadge
 
         cat_def = next(c for c in _CATEGORIES if c["key"] == category_key)
 
@@ -566,12 +596,14 @@ class DisplayManager(QDialog):
         elif isinstance(item, Fitting):
             color = (getattr(item, "_display_color", None)
                      or cat_def["color"])
-            fill = None
+            fill = (getattr(item, "_display_fill_color", None)
+                    or cat_def.get("fill"))
             font = None
-        elif isinstance(item, (Sprinkler, WaterSupply)):
+        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             color = (getattr(item, "_display_color", None)
                      or cat_def["color"])
-            fill = None
+            fill = (getattr(item, "_display_fill_color", None)
+                    or cat_def.get("fill"))
             font = None
         else:
             # Node or unknown
