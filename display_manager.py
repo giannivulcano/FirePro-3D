@@ -145,7 +145,7 @@ def _apply_gridline(gl, color, scale, opacity, visible):
     if color:
         effect = gl.graphicsEffect()
         if not isinstance(effect, QGraphicsColorizeEffect):
-            effect = QGraphicsColorizeEffect(gl)
+            effect = QGraphicsColorizeEffect()
             gl.setGraphicsEffect(effect)
         effect.setColor(QColor(color))
         effect.setStrength(1.0)
