@@ -15,7 +15,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QHeaderView, QColorDialog, QGraphicsColorizeEffect, QWidget, QLabel,
+    QHeaderView, QColorDialog, QWidget, QLabel,
     QAbstractItemView,
 )
 from PyQt6.QtGui import QColor, QFont, QBrush, QPen
@@ -28,20 +28,15 @@ import theme as th
 # Safe colorize effect — guards against zero-size pixmap during zoom
 # ---------------------------------------------------------------------------
 
-class _SafeColorizeEffect(QGraphicsColorizeEffect):
-    """QGraphicsColorizeEffect that skips the internal pixmap render when the
-    source bounding rect rounds to zero device pixels.  This prevents the
-    'QPainter::begin: Paint device returned engine == 0' warnings that occur
-    when zooming makes SVG items momentarily sub-pixel sized."""
-
-    def draw(self, painter):
-        # Map source rect through painter transform to get device-pixel size
-        device_rect = painter.worldTransform().mapRect(
-            self.sourceBoundingRect())
-        if device_rect.width() < 1.0 or device_rect.height() < 1.0:
-            self.drawSource(painter)
-            return
-        super().draw(painter)
+def _set_svg_tint(item, color: str | None):
+    """Store a display tint colour on an SVG item without using
+    QGraphicsColorizeEffect (which causes QPainter zero-size pixmap
+    warnings during zoom).  The tint is applied in the item's paint()
+    via ``_display_color``."""
+    item._display_color = color
+    # Remove any leftover QGraphicsColorizeEffect from older sessions
+    if item.graphicsEffect() is not None:
+        item.setGraphicsEffect(None)
 
 
 # ---------------------------------------------------------------------------
@@ -136,16 +131,8 @@ def _apply_pipe(pipe, color, scale, opacity, visible, font_size=None):
 
 
 def _apply_svg_item(item, color, scale, opacity, visible):
-    """Apply colour effect + opacity to a QGraphicsSvgItem (Sprinkler or WaterSupply)."""
-    if color:
-        effect = item.graphicsEffect()
-        if not isinstance(effect, _SafeColorizeEffect):
-            effect = _SafeColorizeEffect()
-            item.setGraphicsEffect(effect)
-        effect.setColor(QColor(color))
-        effect.setStrength(1.0)
-    else:
-        item.setGraphicsEffect(None)
+    """Apply colour tint + opacity to a QGraphicsSvgItem (Sprinkler or WaterSupply)."""
+    _set_svg_tint(item, color)
     item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     item.setVisible(visible)
 
@@ -159,15 +146,7 @@ def _apply_fitting(fitting, color, scale, opacity, visible):
     sym = fitting.symbol
     if sym is None:
         return
-    if color:
-        effect = sym.graphicsEffect()
-        if not isinstance(effect, _SafeColorizeEffect):
-            effect = _SafeColorizeEffect(sym)
-            sym.setGraphicsEffect(effect)
-        effect.setColor(QColor(color))
-        effect.setStrength(1.0)
-    else:
-        sym.setGraphicsEffect(None)
+    _set_svg_tint(sym, color)
     sym.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     # Visibility: fittings are hidden when sprinkler is present (handled by
     # Fitting.update()), so only override when we explicitly hide.
@@ -308,9 +287,7 @@ class DisplayManager(QDialog):
                 "display_scale": getattr(item, "_display_scale", 1.0),
                 "overrides": dict(getattr(item, "_display_overrides", {})),
             }
-            eff = item.graphicsEffect()
-            if isinstance(eff, (_SafeColorizeEffect, QGraphicsColorizeEffect)):
-                entry["effect_color"] = eff.color().name()
+            entry["effect_color"] = getattr(item, "_display_color", None)
             self._snapshot[id(item)] = entry
 
         # Also snapshot Fitting wrappers (not QGraphicsItems themselves)
@@ -318,11 +295,10 @@ class DisplayManager(QDialog):
             f = node.fitting
             if f and f.symbol:
                 fid = id(f)
-                eff = f.symbol.graphicsEffect()
                 self._snapshot[fid] = {
                     "visible": f.symbol.isVisible(),
                     "opacity": f.symbol.opacity(),
-                    "effect_color": eff.color().name() if isinstance(eff, QGraphicsColorizeEffect) else None,
+                    "effect_color": getattr(f, "_display_color", None),
                     "overrides": dict(getattr(f, "_display_overrides", {})),
                     "display_color": getattr(f, "_display_color", None),
                     "display_scale": getattr(f, "_display_scale", 1.0),
@@ -382,14 +358,6 @@ class DisplayManager(QDialog):
 
             item.setVisible(snap["visible"])
             item.setOpacity(snap["opacity"])
-            if snap.get("effect_color"):
-                eff = item.graphicsEffect()
-                if not isinstance(eff, _SafeColorizeEffect):
-                    eff = _SafeColorizeEffect()
-                    item.setGraphicsEffect(eff)
-                eff.setColor(QColor(snap["effect_color"]))
-            else:
-                item.setGraphicsEffect(None)
             item._display_overrides = snap.get("overrides", {})
             # Restore per-type display attributes
             if isinstance(item, Pipe):
@@ -397,6 +365,7 @@ class DisplayManager(QDialog):
                 item._display_scale = snap.get("display_scale", 1.0)
                 item.set_pipe_display()
             elif isinstance(item, (Sprinkler, WaterSupply)):
+                _set_svg_tint(item, snap.get("effect_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
                 if isinstance(item, Sprinkler):
                     item._centre_on_node()
@@ -419,14 +388,7 @@ class DisplayManager(QDialog):
             if f.symbol:
                 f.symbol.setVisible(snap["visible"])
                 f.symbol.setOpacity(snap["opacity"])
-                if snap.get("effect_color"):
-                    eff = f.symbol.graphicsEffect()
-                    if not isinstance(eff, _SafeColorizeEffect):
-                        eff = _SafeColorizeEffect(f.symbol)
-                        f.symbol.setGraphicsEffect(eff)
-                    eff.setColor(QColor(snap["effect_color"]))
-                else:
-                    f.symbol.setGraphicsEffect(None)
+                _set_svg_tint(f.symbol, snap.get("effect_color"))
                 f.align_fitting()
 
         # Force scene repaint

@@ -312,13 +312,8 @@ class Fitting():
         """Re-apply colour effect and opacity after symbol recreation."""
         if self.symbol is None:
             return
-        from display_manager import _SafeColorizeEffect
-        from PyQt6.QtGui import QColor
-        if self._display_color:
-            effect = _SafeColorizeEffect(self.symbol)
-            effect.setColor(QColor(self._display_color))
-            effect.setStrength(1.0)
-            self.symbol.setGraphicsEffect(effect)
+        from display_manager import _set_svg_tint
+        _set_svg_tint(self.symbol, self._display_color)
         op = self._display_opacity
         self.symbol.setOpacity(op / 100.0 if op > 1 else op)
         if not self._display_visible:
