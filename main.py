@@ -1414,11 +1414,11 @@ class MainWindow(QMainWindow):
         sm = self.scene.scale_manager
         # Convert a sensible display-unit spacing to scene units
         if sm:
-            spacing = sm.display_to_scene(3000)   # 3000 mm  / ~10 ft
-            length  = sm.display_to_scene(10000)  # 10000 mm / ~33 ft
+            spacing = sm.display_to_scene(7315.2)  # 288 in / 24 ft
+            length  = sm.display_to_scene(21945.6) # 864 in / 72 ft
         else:
-            spacing = 3000.0
-            length  = 10000.0
+            spacing = 7315.2
+            length  = 21945.6
 
         specs: list[dict] = []
         # 3 vertical gridlines: labels 1, 2, 3
