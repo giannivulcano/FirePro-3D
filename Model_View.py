@@ -16,6 +16,11 @@ class Model_View(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHints(self.renderHints() | QPainter.RenderHint.Antialiasing)
+        # FullViewportUpdate prevents cosmetic-pen items (gridlines) from
+        # being culled at high zoom — Qt can't compute update regions for
+        # items with zero scene-unit pen width.
+        self.setViewportUpdateMode(
+            QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
 
         # Pan variables
         self._panning = False

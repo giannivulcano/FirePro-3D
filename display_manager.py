@@ -451,6 +451,81 @@ class DisplayManager(QDialog):
         return f"{category} {index}"
 
     # ------------------------------------------------------------------
+    # Read current display state from a live scene item
+    # ------------------------------------------------------------------
+
+    def _read_item_display_state(self, item, category_key: str) -> dict:
+        """Read the *current* display properties directly from a scene item.
+
+        Returns a dict with keys: color, fill, scale, opacity, visible, font.
+        This ensures the dialog always reflects what is actually on screen.
+        """
+        from gridline import GridlineItem
+        from pipe import Pipe
+        from fitting import Fitting
+        from sprinkler import Sprinkler
+        from water_supply import WaterSupply
+
+        cat_def = next(c for c in _CATEGORIES if c["key"] == category_key)
+
+        # --- visibility & opacity ---
+        if isinstance(item, Fitting):
+            sym = item.symbol
+            vis = sym.isVisible() if sym else True
+            raw_opa = sym.opacity() if sym else 1.0
+        elif hasattr(item, "isVisible"):
+            vis = item.isVisible()
+            raw_opa = item.opacity()
+        else:
+            vis = True
+            raw_opa = 1.0
+
+        opa = int(round(raw_opa * 100))
+
+        # --- scale ---
+        scale = float(getattr(item, "_display_scale", cat_def["scale"]))
+
+        # --- color, fill, font (type-specific) ---
+        if isinstance(item, GridlineItem):
+            color = item.pen().color().name()
+            fill = item.bubble1.brush().color().name()
+            font = None
+        elif isinstance(item, Pipe):
+            color = (getattr(item, "_display_color", None)
+                     or item.pen().color().name())
+            fill = None
+            font_val = item._properties.get(
+                "Label Size", {}).get("value", 12)
+            try:
+                font = int(font_val)
+            except (ValueError, TypeError):
+                font = 12
+        elif isinstance(item, Fitting):
+            color = (getattr(item, "_display_color", None)
+                     or cat_def["color"])
+            fill = None
+            font = None
+        elif isinstance(item, (Sprinkler, WaterSupply)):
+            color = (getattr(item, "_display_color", None)
+                     or cat_def["color"])
+            fill = None
+            font = None
+        else:
+            # Node or unknown
+            color = cat_def["color"]
+            fill = cat_def.get("fill")
+            font = cat_def.get("font")
+
+        return {
+            "color": color,
+            "fill": fill,
+            "scale": scale,
+            "opacity": opa,
+            "visible": vis,
+            "font": font,
+        }
+
+    # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
@@ -485,10 +560,8 @@ class DisplayManager(QDialog):
         self._tree.setColumnWidth(_COL_FONT, 70)
         self._tree.setColumnWidth(_COL_RESET, 40)
 
-        # Capture the current scene state BEFORE populating widgets.
-        # Suppress preview signals during init so the scene isn't
-        # changed to match QSettings defaults when the dialog opens.
-        self._take_snapshot()
+        # Suppress preview signals during init so scene isn't changed.
+        # Snapshot was already taken in __init__ before _build_ui().
         self._suppress = True
         self._populate_tree()
         self._suppress = False
@@ -527,23 +600,34 @@ class DisplayManager(QDialog):
             key = cat_def["key"]
             items = self._items_for_category(key)
 
-            # Read saved category settings from QSettings (or defaults)
-            saved_color = self._settings.value(
-                f"display/{key}/color", cat_def["color"])
-            saved_fill = self._settings.value(
-                f"display/{key}/fill", cat_def.get("fill"))
-            saved_scale = float(self._settings.value(
-                f"display/{key}/scale", cat_def["scale"]))
-            saved_opacity = int(float(self._settings.value(
-                f"display/{key}/opacity", cat_def["opacity"])))
-            saved_visible = self._settings.value(
-                f"display/{key}/visible", cat_def["visible"])
-            if isinstance(saved_visible, str):
-                saved_visible = saved_visible.lower() not in ("false", "0")
-            saved_font = cat_def.get("font")
-            if saved_font is not None:
-                saved_font = int(float(self._settings.value(
-                    f"display/{key}/font", saved_font)))
+            # Read display values from the FIRST scene item so the dialog
+            # always reflects the actual current scene state.  Fall back to
+            # QSettings / factory defaults only when no items exist.
+            if items:
+                _first = self._read_item_display_state(items[0], key)
+                saved_color   = _first["color"]
+                saved_fill    = _first["fill"]
+                saved_scale   = _first["scale"]
+                saved_opacity = _first["opacity"]
+                saved_visible = _first["visible"]
+                saved_font    = _first["font"]
+            else:
+                saved_color = self._settings.value(
+                    f"display/{key}/color", cat_def["color"])
+                saved_fill = self._settings.value(
+                    f"display/{key}/fill", cat_def.get("fill"))
+                saved_scale = float(self._settings.value(
+                    f"display/{key}/scale", cat_def["scale"]))
+                saved_opacity = int(float(self._settings.value(
+                    f"display/{key}/opacity", cat_def["opacity"])))
+                saved_visible = self._settings.value(
+                    f"display/{key}/visible", cat_def["visible"])
+                if isinstance(saved_visible, str):
+                    saved_visible = saved_visible.lower() not in ("false", "0")
+                saved_font = cat_def.get("font")
+                if saved_font is not None:
+                    saved_font = int(float(self._settings.value(
+                        f"display/{key}/font", saved_font)))
 
             # ── Category row ─────────────────────────────────────────
             cat_item = QTreeWidgetItem(self._tree)
@@ -564,13 +648,14 @@ class DisplayManager(QDialog):
 
             # ── Instance sub-rows ────────────────────────────────────
             for i, obj in enumerate(items, 1):
-                overrides = getattr(obj, "_display_overrides", {})
-                inst_color = overrides.get("color", saved_color)
-                inst_fill = overrides.get("fill", saved_fill)
-                inst_scale = overrides.get("scale", saved_scale)
-                inst_opacity = overrides.get("opacity", saved_opacity)
-                inst_visible = overrides.get("visible", saved_visible)
-                inst_font = overrides.get("font", saved_font)
+                # Read each instance's actual scene state
+                _ist = self._read_item_display_state(obj, key)
+                inst_color   = _ist["color"]
+                inst_fill    = _ist["fill"]
+                inst_scale   = _ist["scale"]
+                inst_opacity = _ist["opacity"]
+                inst_visible = _ist["visible"]
+                inst_font    = _ist["font"]
 
                 child = QTreeWidgetItem(cat_item)
                 child.setText(_COL_NAME, self._label_for_item(obj, i, key))
