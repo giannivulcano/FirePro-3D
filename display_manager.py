@@ -639,7 +639,7 @@ class DisplayManager(QDialog):
         else:
             fill_btn.setProperty("_color", "")
             fill_btn.setStyleSheet(
-                f"background: {_t.bg_secondary}; border: 1px solid {_t.border_subtle}; "
+                f"background: {_t.bg_sunken}; border: 1px solid {_t.border_subtle}; "
                 f"border-radius: 2px;")
             fill_btn.setEnabled(False)
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
