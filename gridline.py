@@ -72,25 +72,25 @@ def auto_label(p1: QPointF, p2: QPointF) -> str:
 # GridBubble — circle + text, fixed screen size
 # ─────────────────────────────────────────────────────────────────────────────
 
-BUBBLE_RADIUS = 14  # screen pixels
+BUBBLE_RADIUS_MM = 8.0 * 25.4   # 8-inch radius in mm (zoom-dependent scene units)
 
 
 class GridBubble(QGraphicsEllipseItem):
-    """Screen-fixed circle with a centred label."""
+    """Zoom-dependent circle with a centred label (scales with scene geometry)."""
 
     def __init__(self, label: str, parent: QGraphicsItem | None = None):
-        r = BUBBLE_RADIUS
+        r = BUBBLE_RADIUS_MM
         super().__init__(-r, -r, 2 * r, 2 * r, parent)
-        self.setFlag(self.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        pen = QPen(QColor("#4488cc"), 2)
-        pen.setCosmetic(True)
+        # No ItemIgnoresTransformations — bubble scales with zoom
+        pen = QPen(QColor("#4488cc"), max(1, r * 0.04))
         self.setPen(pen)
         self.setBrush(QBrush(QColor("#1a1a2e")))
         self.setZValue(500)
 
         self._label = QGraphicsTextItem(label, self)
         self._label.setDefaultTextColor(QColor("#88ccff"))
-        font = QFont("Consolas", 10)
+        font = QFont("Consolas")
+        font.setPixelSize(max(1, int(r * 1.0)))
         font.setBold(True)
         self._label.setFont(font)
         self._center_label()
@@ -144,6 +144,8 @@ class GridlineItem(QGraphicsLineItem):
         # User layer
         self.user_layer: str = "Default"
         self.level: str = "Level 1"
+        self._display_overrides: dict = {}  # per-instance display overrides
+        self._display_scale: float = 1.0    # display scale for bubbles
 
     # ── Bubble positioning ────────────────────────────────────────────────
 
@@ -220,7 +222,7 @@ class GridlineItem(QGraphicsLineItem):
 
     def to_dict(self) -> dict:
         line = self.line()
-        return {
+        d = {
             "p1": [line.p1().x(), line.p1().y()],
             "p2": [line.p2().x(), line.p2().y()],
             "label": self._label_text,
@@ -229,6 +231,9 @@ class GridlineItem(QGraphicsLineItem):
             "user_layer": self.user_layer,
             "level":      self.level,
         }
+        if self._display_overrides:
+            d["display_overrides"] = self._display_overrides
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
@@ -239,6 +244,7 @@ class GridlineItem(QGraphicsLineItem):
         item.bubble2.setVisible(d.get("bubble2_vis", True))
         item.user_layer = d.get("user_layer", "0")
         item.level = d.get("level", "Level 1")
+        item._display_overrides = d.get("display_overrides", {})
         return item
 
     # ── Properties for property panel ─────────────────────────────────────

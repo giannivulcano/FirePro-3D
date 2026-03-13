@@ -33,6 +33,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Fitting",      "color": "#44cc44", "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Water Supply", "color": "#00cccc", "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Node",         "color": "#888888", "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Grid Line",    "color": "#4488cc", "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
 # Tree-column indices
@@ -50,13 +51,15 @@ _COL_RESET   = 5
 
 def apply_display_to_item(item, color: str | None, scale: float,
                           opacity: float, visible: bool):
-    """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node, or
-    WaterSupply).  Called both by the live-preview loop and at project load."""
+    """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node,
+    WaterSupply, or GridlineItem).  Called both by the live-preview loop
+    and at project load."""
     from pipe import Pipe
     from sprinkler import Sprinkler
     from fitting import Fitting
     from water_supply import WaterSupply
     from node import Node
+    from gridline import GridlineItem
 
     if isinstance(item, Pipe):
         _apply_pipe(item, color, scale, opacity, visible)
@@ -72,6 +75,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         item._centre_on_origin()
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
+    elif isinstance(item, GridlineItem):
+        _apply_gridline(item, color, scale, opacity, visible)
 
 
 def _apply_pipe(pipe, color, scale, opacity, visible):
@@ -132,6 +137,24 @@ def _apply_node(node, color, scale, opacity, visible):
     node.setVisible(visible)
 
 
+def _apply_gridline(gl, color, scale, opacity, visible):
+    """Apply display settings to a GridlineItem."""
+    gl._display_scale = scale
+    gl.bubble1.setScale(scale)
+    gl.bubble2.setScale(scale)
+    if color:
+        effect = gl.graphicsEffect()
+        if not isinstance(effect, QGraphicsColorizeEffect):
+            effect = QGraphicsColorizeEffect(gl)
+            gl.setGraphicsEffect(effect)
+        effect.setColor(QColor(color))
+        effect.setStrength(1.0)
+    else:
+        gl.setGraphicsEffect(None)
+    gl.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
+    gl.setVisible(visible)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # DisplayManager dialog
 # ──────────────────────────────────────────────────────────────────────────────
@@ -145,7 +168,7 @@ class DisplayManager(QDialog):
         self.setWindowTitle("Display Manager")
         self.setMinimumSize(700, 420)
         self._scene = scene
-        self._settings = QSettings()
+        self._settings = QSettings("GV", "FirePro3D")
         self._suppress = False  # guard against recursive signal loops
 
         # {id(item): {visible, opacity, color, scale, effect}} — for revert
@@ -202,6 +225,7 @@ class DisplayManager(QDialog):
         from pipe import Pipe
         from sprinkler import Sprinkler
         from water_supply import WaterSupply
+        from gridline import GridlineItem
 
         for item in self._iter_all_items():
             snap = self._snapshot.get(id(item))
@@ -229,6 +253,10 @@ class DisplayManager(QDialog):
                     item._centre_on_node()
                 else:
                     item._centre_on_origin()
+            elif isinstance(item, GridlineItem):
+                item._display_scale = snap.get("display_scale", 1.0)
+                item.bubble1.setScale(item._display_scale)
+                item.bubble2.setScale(item._display_scale)
 
         # Restore fittings
         for node in self._scene.sprinkler_system.nodes:
@@ -264,7 +292,7 @@ class DisplayManager(QDialog):
     # ------------------------------------------------------------------
 
     def _iter_all_items(self):
-        """Yield every fire-suppression QGraphicsItem in the scene."""
+        """Yield every display-manageable QGraphicsItem in the scene."""
         ss = self._scene.sprinkler_system
         yield from ss.pipes
         for node in ss.nodes:
@@ -274,6 +302,7 @@ class DisplayManager(QDialog):
         ws = getattr(self._scene, "water_supply_node", None)
         if ws is not None:
             yield ws
+        yield from getattr(self._scene, "_gridlines", [])
 
     def _items_for_category(self, key: str) -> list:
         """Return the list of items (or Fitting wrappers) for a category."""
@@ -289,6 +318,8 @@ class DisplayManager(QDialog):
             return [ws] if ws else []
         elif key == "Node":
             return list(ss.nodes)
+        elif key == "Grid Line":
+            return list(getattr(self._scene, "_gridlines", []))
         return []
 
     def _label_for_item(self, item, index: int, category: str) -> str:
@@ -307,6 +338,9 @@ class DisplayManager(QDialog):
         elif category == "Node":
             n_pipes = len(item.pipes)
             return f"Node {index}  ({n_pipes} conn.)"
+        elif category == "Grid Line":
+            lbl = getattr(item, "_label_text", "?")
+            return f"Grid {lbl}"
         return f"{category} {index}"
 
     # ------------------------------------------------------------------
@@ -698,7 +732,7 @@ def apply_saved_display_settings(scene):
     from water_supply import WaterSupply
     from node import Node
 
-    settings = QSettings()
+    settings = QSettings("GV", "FirePro3D")
     cat_defaults = {c["key"]: c for c in _CATEGORIES}
 
     for cat_def in _CATEGORIES:
@@ -736,4 +770,6 @@ def _items_for_category_static(scene, key: str) -> list:
         return [ws] if ws else []
     elif key == "Node":
         return list(ss.nodes)
+    elif key == "Grid Line":
+        return list(getattr(scene, "_gridlines", []))
     return []

@@ -546,7 +546,21 @@ class MainWindow(QMainWindow):
                 btn = group.add_small_button(label, icon, cb, checkable=True)
             self._mode_buttons[mode_name] = btn
             return btn
-        _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip("Draw a line segment")
+        # Line split-menu: main click → draw_line, dropdown → Line / Construction Line
+        _line_btn = g_geom.add_large_button(
+            "Line", _I("line_icon.svg"),
+            lambda: self.scene.set_mode("draw_line"), checkable=True)
+        _line_btn.setToolTip("Draw a line or construction line")
+        _line_menu = QMenu(_line_btn)
+        _line_menu.addAction("Line").triggered.connect(
+            lambda: self.scene.set_mode("draw_line"))
+        _line_menu.addAction("Construction Line").triggered.connect(
+            lambda: self.scene.set_mode("construction_line"))
+        _line_btn.setMenu(_line_menu)
+        from PyQt6.QtWidgets import QToolButton as _QTB
+        _line_btn.setPopupMode(_QTB.ToolButtonPopupMode.MenuButtonPopup)
+        self._mode_buttons["draw_line"] = _line_btn
+        self._mode_buttons["construction_line"] = _line_btn
         # Rectangle split-menu: main click → draw_rectangle, dropdown → Corner/Center mode
         _rect_btn = g_geom.add_large_button(
             "Rectangle", _I("rectangle_icon.svg"),
@@ -918,41 +932,95 @@ class MainWindow(QMainWindow):
     # ── Project Information dialog ────────────────────────────────────────────
 
     def _open_project_info(self):
-        """Open a dialog to view/edit project metadata."""
+        """Open a tabular dialog to view/edit project metadata with custom rows."""
+        from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
         info = getattr(self.scene, "_project_info", {})
         dlg = QDialog(self)
         dlg.setWindowTitle("Project Information")
-        dlg.setMinimumWidth(400)
-        form = QVBoxLayout(dlg)
+        dlg.setMinimumSize(480, 420)
+        layout = QVBoxLayout(dlg)
 
-        fields = [
-            ("Project Name", "name"),
-            ("Project Number", "number"),
-            ("Address", "address"),
-            ("City", "city"),
-            ("State / Province", "state"),
-            ("Client", "client"),
-            ("Designer", "designer"),
-            ("Description", "description"),
+        _STANDARD_FIELDS = [
+            ("Project Name",      "name"),
+            ("Project Number",    "number"),
+            ("Address",           "address"),
+            ("City",              "city"),
+            ("State / Province",  "state"),
+            ("Client",            "client"),
+            ("Designer",          "designer"),
+            ("Description",       "description"),
         ]
-        editors = {}
-        for label, key in fields:
-            row = QHBoxLayout()
-            row.addWidget(QLabel(f"{label}:"))
-            le = QLineEdit(info.get(key, ""))
-            editors[key] = le
-            row.addWidget(le)
-            form.addLayout(row)
+        custom = info.get("custom", [])  # [{"key": ..., "value": ...}, ...]
+
+        table = QTableWidget(len(_STANDARD_FIELDS) + len(custom), 2)
+        table.setHorizontalHeaderLabels(["Property", "Value"])
+        table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+
+        # Populate standard fields (property name is read-only)
+        for row, (label, key) in enumerate(_STANDARD_FIELDS):
+            prop_item = QTableWidgetItem(label)
+            prop_item.setFlags(prop_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row, 0, prop_item)
+            table.setItem(row, 1, QTableWidgetItem(info.get(key, "")))
+
+        # Populate custom fields (both columns editable)
+        for i, entry in enumerate(custom):
+            row = len(_STANDARD_FIELDS) + i
+            table.setItem(row, 0, QTableWidgetItem(entry.get("key", "")))
+            table.setItem(row, 1, QTableWidgetItem(entry.get("value", "")))
+
+        layout.addWidget(table)
+
+        # Add / Remove row buttons
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("+ Add Property")
+        remove_btn = QPushButton("- Remove Property")
+
+        def _add_row():
+            r = table.rowCount()
+            table.insertRow(r)
+            table.setItem(r, 0, QTableWidgetItem(""))
+            table.setItem(r, 1, QTableWidgetItem(""))
+            table.editItem(table.item(r, 0))
+
+        def _remove_row():
+            row = table.currentRow()
+            if row >= len(_STANDARD_FIELDS):
+                table.removeRow(row)
+
+        add_btn.clicked.connect(_add_row)
+        remove_btn.clicked.connect(_remove_row)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(remove_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
-        form.addWidget(buttons)
+        layout.addWidget(buttons)
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            new_info = {k: le.text() for k, le in editors.items()}
+            new_info = {}
+            for row, (_, key) in enumerate(_STANDARD_FIELDS):
+                item = table.item(row, 1)
+                new_info[key] = item.text() if item else ""
+            new_custom = []
+            for row in range(len(_STANDARD_FIELDS), table.rowCount()):
+                k_item = table.item(row, 0)
+                v_item = table.item(row, 1)
+                k = k_item.text().strip() if k_item else ""
+                v = v_item.text().strip() if v_item else ""
+                if k:
+                    new_custom.append({"key": k, "value": v})
+            if new_custom:
+                new_info["custom"] = new_custom
             self.scene._project_info = new_info
 
     # ── Snap Settings ────────────────────────────────────────────────────────
@@ -1093,8 +1161,8 @@ class MainWindow(QMainWindow):
         elif mode in ("floor", "floor_rect"):
             template = self.scene._get_floor_template()
             self.prop_manager.show_properties(template)
-        elif mode in ("draw_line", "draw_rectangle", "draw_circle", "draw_arc",
-                       "polyline"):
+        elif mode in ("draw_line", "construction_line", "draw_rectangle",
+                       "draw_circle", "draw_arc", "polyline"):
             template = self.scene._get_geometry_template()
             self.prop_manager.show_properties(template)
 
@@ -1148,7 +1216,8 @@ class MainWindow(QMainWindow):
 
     # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
 
-    _DRAW_MODES = {"draw_line", "draw_rectangle", "draw_circle", "draw_arc",
+    _DRAW_MODES = {"draw_line", "construction_line", "draw_rectangle",
+                    "draw_circle", "draw_arc",
                     "polyline", "dimension", "text", "pipe", "sprinkler",
                     "water_supply", "design_area", "set_scale", "offset",
                     "offset_side", "wall", "floor", "floor_rect", "door", "window"}

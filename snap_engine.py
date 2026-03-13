@@ -234,6 +234,53 @@ class SnapEngine:
                                     source_item2=g2,
                                 )
 
+        # ── Geometry-to-geometry intersection snaps ─────────────────────
+        # Check line-based items near the cursor for pairwise intersections.
+        if self.snap_endpoint:
+            try:
+                from construction_geometry import (
+                    LineItem as _LI, PolylineItem as _PLI,
+                    ConstructionLine as _CL,
+                )
+            except ImportError:
+                _LI = _PLI = _CL = None
+            try:
+                from wall import WallSegment as _WS2
+            except ImportError:
+                _WS2 = None
+
+            _segments: list[tuple[QPointF, QPointF, QGraphicsItem]] = []
+            for item in scene.items(search_rect):
+                if item.parentItem() is not None:
+                    continue
+                if isinstance(item, QGraphicsLineItem):
+                    line = item.line()
+                    _segments.append((item.mapToScene(line.p1()),
+                                     item.mapToScene(line.p2()), item))
+                elif _PLI and isinstance(item, _PLI):
+                    verts = item._points
+                    for j in range(len(verts) - 1):
+                        _segments.append((item.mapToScene(verts[j]),
+                                         item.mapToScene(verts[j + 1]), item))
+                elif _WS2 and isinstance(item, _WS2):
+                    try:
+                        p1l, p1r, p2r, p2l = item.quad_points()
+                        _segments.append((p1l, p2l, item))
+                        _segments.append((p1r, p2r, item))
+                    except Exception:
+                        pass
+
+            for i, (sa1, sa2, src1) in enumerate(_segments):
+                for sb1, sb2, src2 in _segments[i + 1:]:
+                    if src1 is src2:
+                        continue
+                    ix = self._line_line_intersect(sa1, sa2, sb1, sb2)
+                    if ix is not None:
+                        d = math.hypot(ix.x() - cursor_scene.x(),
+                                       ix.y() - cursor_scene.y())
+                        if d <= tol:
+                            _check("intersection", ix, src1)
+
         return best_result
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -494,9 +541,17 @@ class SnapEngine:
             _seg_snap(item.mapToScene(line.p1()),
                       item.mapToScene(line.p2()))
 
-        # ── WallSegment — project onto centerline ─────────────────────────
+        # ── WallSegment — project onto centerline and face edges ──────────
         elif _WallSeg and isinstance(item, _WallSeg):
-            _seg_snap(item.pt1, item.pt2)
+            _seg_snap(item.pt1, item.pt2)  # centerline
+            try:
+                p1l, p1r, p2r, p2l = item.quad_points()
+                _seg_snap(p1l, p2l)  # left face edge
+                _seg_snap(p1r, p2r)  # right face edge
+                _seg_snap(p1l, p1r)  # start cap
+                _seg_snap(p2l, p2r)  # end cap
+            except Exception:
+                pass
 
         # ── RectangleItem — project onto each of the 4 edges ─────────────
         elif RectangleItem and isinstance(item, RectangleItem):

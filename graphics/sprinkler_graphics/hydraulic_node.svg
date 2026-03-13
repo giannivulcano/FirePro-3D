@@ -25,7 +25,7 @@
      inkscape:document-units="mm"
      showguides="true"
      inkscape:zoom="5.6568542"
-     inkscape:cx="-9.1923882"
+     inkscape:cx="-9.0156115"
      inkscape:cy="29.256543"
      inkscape:window-width="1920"
      inkscape:window-height="1009"
@@ -77,18 +77,5 @@
        inkscape:randomized="0"
        d="m -3.3195767,-7.4912171 -3.5591438,6.1646178 -7.1182875,0 -3.559144,-6.1646178 3.559144,-6.1646179 7.1182875,0 z"
        transform="matrix(1.3237242,0,0,1.3237242,24.043044,20.142496)" />
-    <text
-       xml:space="preserve"
-       style="font-size:11.8696px;writing-mode:lr-tb;direction:ltr;fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:0;stroke-dasharray:none;stroke-opacity:1"
-       x="4.0210652"
-       y="14.051424"
-       id="text2"
-       transform="scale(0.96401813,1.0373249)"
-       inkscape:label="node_id"><tspan
-         sodipodi:role="line"
-         id="tspan2"
-         style="font-style:normal;font-variant:normal;font-weight:normal;font-stretch:normal;font-family:Arial;-inkscape-font-specification:Arial;fill:#ffffff;fill-opacity:1;stroke-width:0;stroke-dasharray:none"
-         x="4.0210652"
-         y="14.051424">99</tspan></text>
   </g>
 </svg>

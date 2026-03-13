@@ -958,7 +958,8 @@ class Model_Space(QGraphicsScene):
             self.node_start_pos = None
         self._pipe_node_was_new = False
         # Cancel in-progress construction geometry
-        self._cline_anchor = None
+        if mode != "construction_line":
+            self._cline_anchor = None
         if mode != "polyline" and self._polyline_active is not None:
             # Cancel: always discard the in-progress polyline
             # (Enter commits via finalize() and sets _polyline_active=None
@@ -1164,6 +1165,7 @@ class Model_Space(QGraphicsScene):
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
+            "construction_line": "Pick first point",
             "gridline":       "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
@@ -2977,6 +2979,35 @@ class Model_Space(QGraphicsScene):
             if self.single_place_mode:
                 self.set_mode("select")
 
+        # ── Construction Line ─────────────────────────────────────────────
+        elif self.mode == "construction_line" and self._cline_anchor is not None:
+            anchor = self._cline_anchor
+            def_len, def_ang = _defaults_from(anchor)
+
+            dlg = _DynInput([
+                ("Length", def_len, "mm", 2),
+                ("Angle",  def_ang, "°",  2),
+            ])
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            length = dlg.value("Length")
+            angle_rad = math.radians(dlg.value("Angle"))
+            tip = QPointF(
+                anchor.x() + length * math.cos(angle_rad),
+                anchor.y() - length * math.sin(angle_rad),
+            )
+            item = ConstructionLine(anchor, tip)
+            item.level = self.active_level
+            self.addItem(item)
+            self._construction_lines.append(item)
+            item.setSelected(True)
+            self._cline_anchor = None
+            self.preview_pipe.hide()
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+
         # ── Rectangle ────────────────────────────────────────────────────
         elif self.mode == "draw_rectangle" and self._draw_rect_anchor is not None:
             anc = self._draw_rect_anchor
@@ -3494,20 +3525,21 @@ class Model_Space(QGraphicsScene):
                     f"L: {_len:.0f}mm  A: {_ang:.1f}°"
                 )
 
-        elif self.mode == "draw_line":
-            if self._draw_line_anchor is None:
+        elif self.mode in ("draw_line", "construction_line"):
+            _anchor = self._draw_line_anchor if self.mode == "draw_line" else self._cline_anchor
+            if _anchor is None:
                 self.update_preview_node(snapped)   # cursor preview before first click
-            if self._draw_line_anchor is not None:
+            if _anchor is not None:
                 tip = snapped
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(self._draw_line_anchor, snapped)
+                    tip = self._constrain_angle(_anchor, snapped)
                 self.preview_pipe.setLine(
-                    self._draw_line_anchor.x(), self._draw_line_anchor.y(),
+                    _anchor.x(), _anchor.y(),
                     tip.x(), tip.y()
                 )
                 self.preview_pipe.show()
-                _dx = tip.x() - self._draw_line_anchor.x()
-                _dy = tip.y() - self._draw_line_anchor.y()
+                _dx = tip.x() - _anchor.x()
+                _dy = tip.y() - _anchor.y()
                 _len = math.hypot(_dx, _dy)
                 _ang = math.degrees(math.atan2(-_dy, _dx))
                 self._draw_dim_hint = (
@@ -3904,9 +3936,9 @@ class Model_Space(QGraphicsScene):
         # ── Grip hit takes priority over mode handlers ──────────────────
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "floor", "floor_rect", "pipe", "sprinkler",
-                            "draw_line", "draw_rectangle", "draw_circle",
-                            "draw_arc", "polyline", "gridline", "dimension",
-                            "text", "door", "window", "set_scale")
+                            "draw_line", "construction_line", "draw_rectangle",
+                            "draw_circle", "draw_arc", "polyline", "gridline",
+                            "dimension", "text", "door", "window", "set_scale")
         if (self.mode not in _skip_grip_modes
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
             grip_hit = self._find_grip_hit(snapped)
@@ -4659,6 +4691,34 @@ class Model_Space(QGraphicsScene):
                 item.setSelected(True)
                 for v in self.views(): v.viewport().update()
                 self._draw_line_anchor = None
+                self.preview_pipe.hide()
+                self.push_undo_state()
+                if self.single_place_mode:
+                    self.set_mode("select")
+                else:
+                    self.instructionChanged.emit("Pick first point")
+            return
+
+        elif self.mode == "construction_line":
+            if self._cline_anchor is None:
+                self._cline_anchor = snapped
+                self.update_preview_node(snapped)
+                self.instructionChanged.emit("Pick second point")
+            else:
+                tip = snapped
+                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    tip = self._constrain_angle(self._cline_anchor, snapped)
+                if math.hypot(tip.x() - self._cline_anchor.x(),
+                              tip.y() - self._cline_anchor.y()) < 0.5:
+                    self._show_status("Construction line too short — skipped", timeout=2000)
+                    return
+                item = ConstructionLine(self._cline_anchor, tip)
+                item.level = self.active_level
+                self.addItem(item)
+                self._construction_lines.append(item)
+                item.setSelected(True)
+                for v in self.views(): v.viewport().update()
+                self._cline_anchor = None
                 self.preview_pipe.hide()
                 self.push_undo_state()
                 if self.single_place_mode:
