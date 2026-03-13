@@ -2,8 +2,23 @@ import math
 from CAD_Math import CAD_Math
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsItem
-from PyQt6.QtGui import QTransform
+from PyQt6.QtGui import QTransform, QPainter, QColor
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
+
+
+class _TintedSvg(QGraphicsSvgItem):
+    """QGraphicsSvgItem subclass that supports _display_color tinting."""
+
+    def paint(self, painter, option, widget=None):
+        super().paint(painter, option, widget)
+        color = getattr(self, '_display_color', None)
+        if color:
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceAtop)
+            painter.fillRect(self.boundingRect(), QColor(color))
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver)
+
 
 class Fitting():
     SIZE = 1
@@ -172,7 +187,7 @@ class Fitting():
 
         # Build new symbol as child of node
         path = self.SYMBOLS[self.type]["path"]
-        self.symbol = QGraphicsSvgItem(path, self.node)
+        self.symbol = _TintedSvg(path, self.node)
         # No ItemIgnoresTransformations — symbol scales with zoom (real-world size)
 
         # Rotation origin at the center of its bounding box

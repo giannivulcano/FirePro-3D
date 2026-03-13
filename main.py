@@ -341,8 +341,10 @@ class MainWindow(QMainWindow):
         self.restore_settings()
         self._splash_progress(100, "Ready")
 
-        # New-project setup: place default gridlines and fit view
+        # New-project setup: place default gridlines and apply display settings
         self._place_default_gridlines()
+        from display_manager import apply_default_display_settings
+        apply_default_display_settings(self.scene)
         self._modified = False
         self._update_title()
         QTimer.singleShot(100, self.view.fit_to_screen)

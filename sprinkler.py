@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QGraphicsItem, QStyle
-from PyQt6.QtGui import QTransform, QPainterPath, QPen, QColor
+from PyQt6.QtGui import QTransform, QPainterPath, QPen, QColor, QPainter
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt
@@ -84,11 +84,20 @@ class Sprinkler(QGraphicsSvgItem):
         return path
 
     def paint(self, painter, option, widget=None):
-        """Draw the SVG, then overlay a red circle when the parent node
-        is selected.  The circle scales with zoom (non-cosmetic pen)."""
+        """Draw the SVG, apply display colour tint, then overlay a red
+        circle when the parent node is selected."""
         # Suppress default selection dashes
         option.state &= ~QStyle.StateFlag.State_Selected
         super().paint(painter, option, widget)
+
+        # Apply display colour tint via composition mode
+        color = getattr(self, '_display_color', None)
+        if color:
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceAtop)
+            painter.fillRect(self.boundingRect(), QColor(color))
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver)
 
         parent = self.parentItem()
         if parent is not None and parent.isSelected():
