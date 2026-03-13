@@ -185,9 +185,17 @@ class GridlineItem(QGraphicsLineItem):
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        """Return empty path so the line itself is not hit-testable.
-        Selection is handled by GridBubble.mousePressEvent instead."""
-        return QPainterPath()
+        """Return bubble areas as the selectable shape.
+
+        This allows rubber-band (marquee) selection to work when the
+        selection rectangle covers a bubble.  Direct clicks on bubbles
+        are still handled by GridBubble.mousePressEvent.
+        """
+        path = QPainterPath()
+        r = BUBBLE_RADIUS_MM
+        path.addEllipse(self.bubble1.pos(), r, r)
+        path.addEllipse(self.bubble2.pos(), r, r)
+        return path
 
     def itemChange(self, change, value):
         """Refresh bubble paint when selection state changes."""

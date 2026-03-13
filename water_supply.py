@@ -39,6 +39,7 @@ class WaterSupply(QGraphicsSvgItem):
         self.setPos(x, y)
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale multiplier
+        self._display_fill_color: str | None = None
 
         self._properties: dict = {
             "Static Pressure":   {"type": "string", "value": "80"},   # psi

@@ -352,7 +352,7 @@ class MainWindow(QMainWindow):
         self._current_file = None
         self._modified = False
         self._update_title()
-        QTimer.singleShot(100, self.view.fit_to_screen)
+        self._initial_fit_done = False  # fit_to_screen deferred to showEvent
 
         # Defer recovery check until after the window is fully shown
         QTimer.singleShot(500, self._check_recovery)
@@ -403,6 +403,13 @@ class MainWindow(QMainWindow):
             if isinstance(spr_props, dict):
                 for k, v in spr_props.items():
                     self.current_sprinkler_template.set_property(k, v)
+
+    def showEvent(self, event):
+        """Fit the view after the window is fully shown for the first time."""
+        super().showEvent(event)
+        if not self._initial_fit_done:
+            self._initial_fit_done = True
+            QTimer.singleShot(0, self.view.fit_to_screen)
 
     def _activate_paper_sheet(self, name: str):
         """Switch the central area to the paper space tab matching *name*."""

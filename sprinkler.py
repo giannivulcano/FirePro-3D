@@ -21,6 +21,7 @@ class Sprinkler(QGraphicsSvgItem):
         self.node = node
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale multiplier
+        self._display_fill_color: str | None = None
         self._properties = {
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
             "Model":           {"type": "enum",   "value": "",           "options": []},

@@ -76,6 +76,7 @@ class Fitting():
         self._display_overrides: dict = {}    # per-instance display overrides
         self._display_scale: float = 1.0      # display scale multiplier
         self._display_color: str | None = None # display color override
+        self._display_fill_color: str | None = None  # display fill override
         self._display_opacity: float = 100    # display opacity (0-100)
         self._display_visible: bool = True    # display visibility
 
@@ -322,7 +323,8 @@ class Fitting():
         if self.symbol is None:
             return
         from display_manager import _set_svg_tint
-        _set_svg_tint(self.symbol, self._display_color)
+        _set_svg_tint(self.symbol, self._display_color,
+                      self._display_fill_color)
         op = self._display_opacity
         self.symbol.setOpacity(op / 100.0 if op > 1 else op)
         if not self._display_visible:
