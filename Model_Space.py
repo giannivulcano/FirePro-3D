@@ -23,6 +23,7 @@ from construction_geometry import (
     ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from snap_engine import SnapEngine, OsnapResult
+from display_manager import apply_category_defaults
 from gridline import GridlineItem, reset_grid_counters
 from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_IN
 from floor_slab import FloorSlab
@@ -1235,6 +1236,7 @@ class Model_Space(QGraphicsScene):
                 if lvl:
                     node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
             self.addItem(node)
+            apply_category_defaults(node)
             self.sprinkler_system.add_node(node)
         return node
 
@@ -1260,6 +1262,7 @@ class Model_Space(QGraphicsScene):
         pipe._properties["Level"]["value"] = self.active_level
         self.sprinkler_system.add_pipe(pipe)
         self.addItem(pipe)
+        apply_category_defaults(pipe)
         pipe.update_label()   # re-run now that pipe.scene() is valid
 
         # Propagate the pipe's ceiling properties to both endpoint nodes
@@ -1353,6 +1356,7 @@ class Model_Space(QGraphicsScene):
                 vertical_pipe.set_property(key, template._properties[key]["value"])
         self.sprinkler_system.add_pipe(vertical_pipe)
         self.addItem(vertical_pipe)
+        apply_category_defaults(vertical_pipe)
         vertical_pipe.update_label()
 
         # Horizontal pipe (start_node <-> intermediate) with full template
@@ -1409,6 +1413,7 @@ class Model_Space(QGraphicsScene):
         self.sprinkler_system.add_sprinkler(sprinkler)
         if template:
             sprinkler.set_properties(template)
+        apply_category_defaults(sprinkler)
         if n.has_fitting():
             n.fitting.update()
         return sprinkler
@@ -3161,6 +3166,7 @@ class Model_Space(QGraphicsScene):
             gl.level = self.active_level
             gl.user_layer = self.active_user_layer
             self.addItem(gl)
+            apply_category_defaults(gl)
             self._gridlines.append(gl)
 
         self.sceneModified.emit()
@@ -4016,6 +4022,7 @@ class Model_Space(QGraphicsScene):
                                     )
                             self.sprinkler_system.add_pipe(vert)
                             self.addItem(vert)
+                            apply_category_defaults(vert)
                             vert.update_label()
                             start_node.fitting.update()
                             intermediate.fitting.update()
@@ -4301,6 +4308,7 @@ class Model_Space(QGraphicsScene):
                 gl.user_layer = self.active_user_layer
                 gl.level = self.active_level
                 self.addItem(gl)
+                apply_category_defaults(gl)
                 self._gridlines.append(gl)
                 self.requestPropertyUpdate.emit(gl)
                 gl.setSelected(True)
@@ -5206,6 +5214,20 @@ class Model_Space(QGraphicsScene):
         act_copy = menu.addAction("Copy")
         act_copy.triggered.connect(self.copy_selected_items)
 
+        # ── Hide actions ──
+        act_hide = menu.addAction("Hide")
+        act_hide.triggered.connect(
+            lambda: self._hide_items([target] + [i for i in selected if i is not target])
+        )
+
+        type_name = type(target).__name__
+        act_hide_all = menu.addAction(f"Hide All ({type_name})")
+        act_hide_all.triggered.connect(
+            lambda t=type(target): self._hide_all_of_type(t)
+        )
+
+        menu.addSeparator()
+
         act_delete = menu.addAction("Delete")
         act_delete.triggered.connect(self.delete_selected_items)
 
@@ -5213,6 +5235,17 @@ class Model_Space(QGraphicsScene):
         act_props.triggered.connect(lambda: self.requestPropertyUpdate.emit(target))
 
         menu.exec(screen_pos)
+
+    def _hide_items(self, items):
+        """Hide the given items (set them invisible)."""
+        for item in items:
+            item.setVisible(False)
+
+    def _hide_all_of_type(self, item_type):
+        """Hide all scene items that are instances of *item_type*."""
+        for item in self.items():
+            if type(item) is item_type:
+                item.setVisible(False)
 
     def _move_selection_to_level(self, target_level: str):
         """Move all selected items to the target level, updating elevations."""

@@ -155,12 +155,14 @@ class SnapEngine:
         best_prio   = 999
         best_result: OsnapResult | None = None
 
+        priority_band = tol * 0.3  # 30% of snap tolerance for priority influence
+
         def _check(snap_type: str, pt: QPointF, src_item: QGraphicsItem):
             nonlocal best_dist, best_prio, best_result
             d = math.hypot(pt.x() - cursor_scene.x(), pt.y() - cursor_scene.y())
             prio = SNAP_PRIORITY.get(snap_type, 6)
-            # Strictly closer always wins; within tolerance, prefer higher priority
-            if d < best_dist - 1e-3 or (d < best_dist + 1e-3 and prio < best_prio):
+            # Strictly closer always wins; within priority band, prefer higher priority
+            if d < best_dist - priority_band or (d < best_dist + priority_band and prio < best_prio):
                 best_dist   = d
                 best_prio   = prio
                 best_result = OsnapResult(point=pt, snap_type=snap_type, source_item=src_item)
