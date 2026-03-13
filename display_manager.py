@@ -216,7 +216,7 @@ def apply_category_defaults(item):
     if cat_def is None:
         return
 
-    settings = QSettings()
+    settings = QSettings("GV", "FirePro3D")
 
     # Only apply display overrides when the user has explicitly saved
     # settings (via the Display Manager dialog).  Without this guard,
@@ -254,7 +254,7 @@ class DisplayManager(QDialog):
         self.setWindowTitle("Display Manager")
         self.setMinimumSize(850, 420)
         self._scene = scene
-        self._settings = QSettings()
+        self._settings = QSettings("GV", "FirePro3D")
         self._suppress = False  # guard against recursive signal loops
 
         # {id(item): {visible, opacity, color, scale, effect}} — for revert
@@ -1090,7 +1090,7 @@ def apply_saved_display_settings(scene):
     from water_supply import WaterSupply
     from node import Node
 
-    settings = QSettings()
+    settings = QSettings("GV", "FirePro3D")
     cat_defaults = {c["key"]: c for c in _CATEGORIES}
 
     for cat_def in _CATEGORIES:
@@ -1127,7 +1127,7 @@ def apply_default_display_settings(scene):
 
     Called when creating a new project to apply the user's preferred defaults.
     """
-    settings = QSettings()
+    settings = QSettings("GV", "FirePro3D")
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
