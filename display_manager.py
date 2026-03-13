@@ -485,7 +485,13 @@ class DisplayManager(QDialog):
         self._tree.setColumnWidth(_COL_FONT, 70)
         self._tree.setColumnWidth(_COL_RESET, 40)
 
+        # Capture the current scene state BEFORE populating widgets.
+        # Suppress preview signals during init so the scene isn't
+        # changed to match QSettings defaults when the dialog opens.
+        self._take_snapshot()
+        self._suppress = True
         self._populate_tree()
+        self._suppress = False
         outer.addWidget(self._tree)
 
         # ── Button box ───────────────────────────────────────────────

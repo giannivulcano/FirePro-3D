@@ -172,7 +172,15 @@ class GridlineItem(QGraphicsLineItem):
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
 
-    # ── Shape: only bubbles are clickable ────────────────────────────────
+    # ── Geometry overrides ────────────────────────────────────────────────
+
+    def boundingRect(self):
+        """Expand bounding rect so the cosmetic-pen line isn't culled by
+        Qt's view frustum at high zoom.  Cosmetic pens have zero scene-unit
+        width, giving the default rect no margin for viewport intersection."""
+        br = super().boundingRect()
+        m = BUBBLE_RADIUS_MM  # generous margin matching bubble size
+        return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
         """Return empty path so the line itself is not hit-testable.
