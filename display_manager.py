@@ -19,24 +19,65 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
 )
 from PyQt6.QtGui import QColor, QFont, QBrush, QPen
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, QByteArray
+from PyQt6.QtSvg import QSvgRenderer
 
+import os, re
 import theme as th
 
 
 # ---------------------------------------------------------------------------
-# Safe colorize effect — guards against zero-size pixmap during zoom
+# SVG recolouring — modify stroke/fill directly in the SVG source
 # ---------------------------------------------------------------------------
 
+_svg_color_cache: dict[tuple[str, str], QByteArray] = {}
+
+
+def _recolor_svg_bytes(svg_path: str, color: str) -> QByteArray:
+    """Read an SVG file and replace white (#ffffff) strokes/fills
+    with *color*.  Results are cached by (path, color)."""
+    key = (svg_path, color)
+    if key in _svg_color_cache:
+        return _svg_color_cache[key]
+    with open(svg_path, "r", encoding="utf-8") as f:
+        svg = f.read()
+    # Replace all white (#ffffff / #FFFFFF) with the target colour
+    svg = re.sub(r"#[fF]{6}\b", color, svg)
+    data = QByteArray(svg.encode("utf-8"))
+    _svg_color_cache[key] = data
+    return data
+
+
 def _set_svg_tint(item, color: str | None):
-    """Store a display tint colour on an SVG item without using
-    QGraphicsColorizeEffect (which causes QPainter zero-size pixmap
-    warnings during zoom).  The tint is applied in the item's paint()
-    via ``_display_color``."""
+    """Apply colour tint by recolouring the SVG source file directly.
+
+    Replaces white (#ffffff) strokes and fills with *color*.  Falls back
+    to the original SVG when *color* is None.  Requires the item to have
+    ``_svg_source_path`` pointing to its SVG file on disk.
+    """
     item._display_color = color
     # Remove any leftover QGraphicsColorizeEffect from older sessions
     if item.graphicsEffect() is not None:
         item.setGraphicsEffect(None)
+
+    src = getattr(item, "_svg_source_path", None)
+    if src is None or not os.path.isfile(src):
+        return  # can't recolour without the source path
+
+    if color and color.lower() != "#ffffff":
+        data = _recolor_svg_bytes(src, color)
+        renderer = QSvgRenderer(data)
+    else:
+        renderer = QSvgRenderer(src)
+
+    item.setSharedRenderer(renderer)
+    item._renderer = renderer  # prevent garbage collection
+
+    # Re-centre after renderer change
+    if hasattr(item, "_centre_on_node"):
+        item._centre_on_node()
+    elif hasattr(item, "_centre_on_origin"):
+        item._centre_on_origin()
 
 
 # ---------------------------------------------------------------------------
@@ -44,12 +85,13 @@ def _set_svg_tint(item, color: str | None):
 # ---------------------------------------------------------------------------
 
 _CATEGORIES: list[dict] = [
-    {"key": "Pipe",         "color": "#4488ff", "fill": None,      "font": 12,   "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Sprinkler",    "color": "#ff4444", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Fitting",      "color": "#44cc44", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Water Supply", "color": "#00cccc", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Node",         "color": "#888888", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Grid Line",    "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Pipe",             "color": "#4488ff", "fill": None,      "font": 12,   "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Sprinkler",        "color": "#ff4444", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Fitting",          "color": "#44cc44", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Water Supply",     "color": "#00cccc", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Node",             "color": "#888888", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
 # Tree-column indices
@@ -88,14 +130,15 @@ def apply_display_to_item(item, color: str | None, scale: float,
                           fill_color: str | None = None,
                           font_size: int | None = None):
     """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node,
-    WaterSupply, or GridlineItem).  Called both by the live-preview loop
-    and at project load."""
+    WaterSupply, GridlineItem, or HydraulicNodeBadge).  Called both by the
+    live-preview loop and at project load."""
     from pipe import Pipe
     from sprinkler import Sprinkler
     from fitting import Fitting
     from water_supply import WaterSupply
     from node import Node
     from gridline import GridlineItem
+    from hydraulic_node_badge import HydraulicNodeBadge
 
     if isinstance(item, Pipe):
         _apply_pipe(item, color, scale, opacity, visible, font_size)
@@ -109,6 +152,10 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_svg_item(item, color, scale, opacity, visible)
         item._display_scale = scale
         item._centre_on_origin()
+    elif isinstance(item, HydraulicNodeBadge):
+        _apply_svg_item(item, color, scale, opacity, visible)
+        item._display_scale = scale
+        item._centre_on_offset()
     elif isinstance(item, GridlineItem):
         _apply_gridline(item, color, scale, opacity, visible, fill_color, font_size)
     elif isinstance(item, Node):
@@ -164,9 +211,7 @@ def _apply_node(node, color, scale, opacity, visible):
 def _apply_gridline(gl, color, scale, opacity, visible, fill_color, font_size=None):
     """Apply display settings to a GridlineItem."""
     if color:
-        pen = gl.pen()
-        pen.setColor(QColor(color))
-        gl.setPen(pen)
+        gl._grid_color = QColor(color)
         # Preserve the bubble's original pen width, just change color
         for bubble in (gl.bubble1, gl.bubble2):
             bp = bubble.pen()
@@ -204,6 +249,7 @@ def apply_category_defaults(item):
     from water_supply import WaterSupply
     from node import Node
     from gridline import GridlineItem
+    from hydraulic_node_badge import HydraulicNodeBadge
 
     if isinstance(item, Pipe):
         key = "Pipe"
@@ -213,6 +259,8 @@ def apply_category_defaults(item):
         key = "Fitting"
     elif isinstance(item, WaterSupply):
         key = "Water Supply"
+    elif isinstance(item, HydraulicNodeBadge):
+        key = "Hydraulic Badge"
     elif isinstance(item, GridlineItem):
         key = "Grid Line"
     elif isinstance(item, Node):
@@ -317,7 +365,7 @@ class DisplayManager(QDialog):
                 self._snapshot[id(item)] = {
                     "visible": item.isVisible(),
                     "opacity": item.opacity(),
-                    "pen_color": item.pen().color().name(),
+                    "grid_color": item._grid_color.name(),
                     "bubble_pen": item.bubble1.pen().color().name(),
                     "bubble_brush": item.bubble1.brush().color().name(),
                     "label_color": item.bubble1._label.defaultTextColor().name(),
@@ -343,10 +391,7 @@ class DisplayManager(QDialog):
             if isinstance(item, GridlineItem):
                 item.setVisible(snap["visible"])
                 item.setOpacity(snap["opacity"])
-                pen = item.pen()
-                pen.setColor(QColor(snap["pen_color"]))
-                item.setPen(pen)
-                # Preserve original pen width — just change the colour
+                item._grid_color = QColor(snap["grid_color"])
                 for bubble in (item.bubble1, item.bubble2):
                     bp = bubble.pen()
                     bp.setColor(QColor(snap["bubble_pen"]))
@@ -428,6 +473,7 @@ class DisplayManager(QDialog):
     def _items_for_category(self, key: str) -> list:
         """Return the list of items (or Fitting wrappers) for a category."""
         from gridline import GridlineItem
+        from hydraulic_node_badge import HydraulicNodeBadge
         ss = self._scene.sprinkler_system
         if key == "Pipe":
             return list(ss.pipes)
@@ -440,6 +486,8 @@ class DisplayManager(QDialog):
             return [ws] if ws else []
         elif key == "Node":
             return list(ss.nodes)
+        elif key == "Hydraulic Badge":
+            return [i for i in self._scene.items() if isinstance(i, HydraulicNodeBadge)]
         elif key == "Grid Line":
             return [i for i in self._scene.items() if isinstance(i, GridlineItem)]
         return []
@@ -502,7 +550,7 @@ class DisplayManager(QDialog):
 
         # --- color, fill, font (type-specific) ---
         if isinstance(item, GridlineItem):
-            color = item.pen().color().name()
+            color = item._grid_color.name()
             fill = item.bubble1.brush().color().name()
             font = None
         elif isinstance(item, Pipe):
@@ -1274,6 +1322,7 @@ def apply_project_display_settings(scene, display_dict: dict):
 def _items_for_category_static(scene, key: str) -> list:
     """Same as DisplayManager._items_for_category but as a free function."""
     from gridline import GridlineItem
+    from hydraulic_node_badge import HydraulicNodeBadge
     ss = scene.sprinkler_system
     if key == "Pipe":
         return list(ss.pipes)
@@ -1286,6 +1335,8 @@ def _items_for_category_static(scene, key: str) -> list:
         return [ws] if ws else []
     elif key == "Node":
         return list(ss.nodes)
+    elif key == "Hydraulic Badge":
+        return [i for i in scene.items() if isinstance(i, HydraulicNodeBadge)]
     elif key == "Grid Line":
         return [i for i in scene.items() if isinstance(i, GridlineItem)]
     return []

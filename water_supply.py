@@ -18,7 +18,7 @@ import os
 
 from PyQt6.QtWidgets import QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QRectF
-from PyQt6.QtGui import QTransform, QPainterPath, QPainter, QColor
+from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -57,6 +57,7 @@ class WaterSupply(QGraphicsSvgItem):
         self.level: str = "Level 1"
 
         # Load SVG
+        self._svg_source_path = os.path.abspath(self.SVG_PATH)
         renderer = QSvgRenderer(self.SVG_PATH)
         self.setSharedRenderer(renderer)
         self._renderer = renderer          # prevent garbage collection
@@ -78,18 +79,6 @@ class WaterSupply(QGraphicsSvgItem):
     def rescale(self, sm=None):
         """Called after scale calibration -- just re-centre."""
         self._centre_on_origin()
-
-    def paint(self, painter, option, widget=None):
-        """Draw the SVG with optional display colour tint."""
-        option.state &= ~QStyle.StateFlag.State_Selected
-        super().paint(painter, option, widget)
-        color = getattr(self, '_display_color', None)
-        if color:
-            painter.setCompositionMode(
-                QPainter.CompositionMode.CompositionMode_SourceAtop)
-            painter.fillRect(self.boundingRect(), QColor(color))
-            painter.setCompositionMode(
-                QPainter.CompositionMode.CompositionMode_SourceOver)
 
     def shape(self) -> QPainterPath:
         """Return full bounding rect as shape so clicking anywhere on the

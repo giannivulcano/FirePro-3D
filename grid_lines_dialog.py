@@ -65,6 +65,14 @@ def _classify_gridline(p1: QPointF, p2: QPointF) -> str:
     return "H" if dx >= dy else "V"
 
 
+def _normalize_angle(angle: float) -> float:
+    """Clamp angle to the range 0–90 (always positive)."""
+    a = abs(angle) % 180.0
+    if a > 90.0:
+        a = 180.0 - a
+    return round(a, 1)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-direction tab widget
 # ─────────────────────────────────────────────────────────────────────────────
@@ -136,13 +144,16 @@ class _DirectionTab(QWidget):
 
         # ── Table ─────────────────────────────────────────────────────────
         self._default_angle = 90.0 if self._direction == "V" else 0.0
-        self._table = QTableWidget(0, 4)
+        self._table = QTableWidget(0, 5)
         self._table.setHorizontalHeaderLabels([
             "Label",
             "Offset" + self._suffix,
+            "Spacing" + self._suffix,
             "Length" + self._suffix,
             "Angle°",
         ])
+        self._syncing = False  # guard against recursive cellChanged loops
+        self._table.cellChanged.connect(self._on_cell_changed)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionBehavior(
@@ -196,18 +207,66 @@ class _DirectionTab(QWidget):
         except ValueError:
             return 0.0
 
+    def _row_offset(self, row: int) -> float:
+        if row < 0 or row >= self._table.rowCount():
+            return 0.0
+        item = self._table.item(row, 1)
+        try:
+            return float(item.text()) if item else 0.0
+        except ValueError:
+            return 0.0
+
+    def _on_cell_changed(self, row: int, col: int):
+        """Keep Offset (col 1) and Spacing (col 2) in sync."""
+        if self._syncing:
+            return
+        self._syncing = True
+        if col == 1:
+            # Offset changed → recalculate Spacing
+            offset = self._row_offset(row)
+            prev = self._row_offset(row - 1) if row > 0 else 0.0
+            spacing = offset - prev
+            sp_item = self._table.item(row, 2)
+            if sp_item:
+                sp_item.setText(f"{spacing:.2f}")
+            # Also update next row's spacing if it exists
+            if row + 1 < self._table.rowCount():
+                next_off = self._row_offset(row + 1)
+                next_sp = next_off - offset
+                nsp_item = self._table.item(row + 1, 2)
+                if nsp_item:
+                    nsp_item.setText(f"{next_sp:.2f}")
+        elif col == 2:
+            # Spacing changed → recalculate Offset
+            sp_item = self._table.item(row, 2)
+            try:
+                spacing = float(sp_item.text()) if sp_item else 0.0
+            except ValueError:
+                spacing = 0.0
+            prev = self._row_offset(row - 1) if row > 0 else 0.0
+            new_offset = prev + spacing
+            off_item = self._table.item(row, 1)
+            if off_item:
+                off_item.setText(f"{new_offset:.2f}")
+        self._syncing = False
+
     # ── Row management ────────────────────────────────────────────────────
 
     def _add_row(self):
+        self._syncing = True
         row = self._table.rowCount()
         self._table.insertRow(row)
         label = self._next_table_label() if row > 0 else (self._start_label.text() or "A")
         offset = self._last_offset()
+        prev = self._row_offset(row - 1) if row > 0 else 0.0
+        spacing = offset - prev
         length = self._length_spin.value()
         self._table.setItem(row, 0, QTableWidgetItem(label))
         self._table.setItem(row, 1, QTableWidgetItem(f"{offset:.2f}"))
-        self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
-        self._table.setItem(row, 3, QTableWidgetItem(f"{self._default_angle:.1f}"))
+        self._table.setItem(row, 2, QTableWidgetItem(f"{spacing:.2f}"))
+        self._table.setItem(row, 3, QTableWidgetItem(f"{length:.2f}"))
+        self._table.setItem(row, 4, QTableWidgetItem(f"{self._default_angle:.1f}"))
+        self._syncing = False
 
     def _remove_row(self):
         rows = sorted(set(idx.row() for idx in self._table.selectedIndexes()),
@@ -221,6 +280,7 @@ class _DirectionTab(QWidget):
     # ── Quick-fill ────────────────────────────────────────────────────────
 
     def _generate_array(self):
+        self._syncing = True
         self._table.setRowCount(0)
         count = self._qf_count.value()
         spacing = self._qf_spacing.value()
@@ -232,23 +292,32 @@ class _DirectionTab(QWidget):
             self._table.insertRow(row)
             self._table.setItem(row, 0, QTableWidgetItem(label))
             self._table.setItem(row, 1, QTableWidgetItem(f"{i * spacing:.2f}"))
-            self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
-            self._table.setItem(row, 3, QTableWidgetItem(f"{self._default_angle:.1f}"))
+            self._table.setItem(row, 2, QTableWidgetItem(f"{spacing:.2f}"))
+            self._table.setItem(row, 3, QTableWidgetItem(f"{length:.2f}"))
+            self._table.setItem(row, 4, QTableWidgetItem(f"{self._default_angle:.1f}"))
             label = _increment_label(label, scheme)
+        self._syncing = False
 
     # ── Populate from existing gridlines ──────────────────────────────────
 
     def populate(self, rows: list[tuple[str, float, float, float]]):
         """Fill table with existing gridlines: list of (label, offset, length, angle)
         where offset and length are in **display units**, angle in degrees."""
+        self._syncing = True
         self._table.setRowCount(0)
+        prev_offset = 0.0
         for label, offset, length, angle in rows:
             row = self._table.rowCount()
             self._table.insertRow(row)
+            spacing = offset - prev_offset
+            angle = _normalize_angle(angle)
             self._table.setItem(row, 0, QTableWidgetItem(label))
             self._table.setItem(row, 1, QTableWidgetItem(f"{offset:.2f}"))
-            self._table.setItem(row, 2, QTableWidgetItem(f"{length:.2f}"))
-            self._table.setItem(row, 3, QTableWidgetItem(f"{angle:.1f}"))
+            self._table.setItem(row, 2, QTableWidgetItem(f"{spacing:.2f}"))
+            self._table.setItem(row, 3, QTableWidgetItem(f"{length:.2f}"))
+            self._table.setItem(row, 4, QTableWidgetItem(f"{angle:.1f}"))
+            prev_offset = offset
+        self._syncing = False
 
     # ── Read table ────────────────────────────────────────────────────────
 
@@ -258,8 +327,9 @@ class _DirectionTab(QWidget):
         for row in range(self._table.rowCount()):
             lbl_item = self._table.item(row, 0)
             off_item = self._table.item(row, 1)
-            len_item = self._table.item(row, 2)
-            ang_item = self._table.item(row, 3)
+            # column 2 = spacing (derived), skip
+            len_item = self._table.item(row, 3)
+            ang_item = self._table.item(row, 4)
             label = lbl_item.text() if lbl_item else "?"
             try:
                 offset = float(off_item.text()) if off_item else 0.0
@@ -273,6 +343,7 @@ class _DirectionTab(QWidget):
                 angle = float(ang_item.text()) if ang_item else self._default_angle
             except ValueError:
                 angle = self._default_angle
+            angle = _normalize_angle(angle)
             result.append((label, offset, length, angle))
         return result
 
@@ -340,7 +411,7 @@ class GridLinesDialog(QDialog):
             length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
             # Compute angle from endpoints
             angle_rad = math.atan2(-(p2.y() - p1.y()), p2.x() - p1.x())
-            angle_deg = math.degrees(angle_rad)
+            angle_deg = _normalize_angle(math.degrees(angle_rad))
             kind = _classify_gridline(p1, p2)
 
             if kind == "V":
