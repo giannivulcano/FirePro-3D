@@ -443,6 +443,33 @@ class MainWindow(QMainWindow):
         """
         _I = lambda name: QIcon(f"graphics/Ribbon/{name}")
 
+        # Draw-mode buttons are checkable so the active tool stays highlighted
+        self._mode_buttons = {}  # mode_name → QToolButton
+
+        def _mode_btn(group, label, icon, mode_name, large=True):
+            """Create a checkable draw-mode button."""
+            cb = lambda: self.scene.set_mode(mode_name)
+            if large:
+                btn = group.add_large_button(label, icon, cb, checkable=True)
+            else:
+                btn = group.add_small_button(label, icon, cb, checkable=True)
+            self._mode_buttons[mode_name] = btn
+            return btn
+
+        self._init_manage_tab(_I)
+        self._init_draw_tab(_I, _mode_btn)
+        self._init_build_tab(_I, _mode_btn)
+        self._init_modify_tab(_I, _mode_btn)
+        self._init_analyze_tab(_I)
+        self._init_draft_tab(_I)
+
+        # Auto-switch to Modify tab when items are selected
+        self.scene.selectionChanged.connect(self._on_selection_changed_modify)
+
+    # ── Per-tab ribbon helpers ───────────────────────────────────────────────
+
+    def _init_manage_tab(self, _I):
+        """Build Tab 1: Manage — file I/O, import, settings, grid, undo/redo, panels."""
         # ── Tab 1: Manage ────────────────────────────────────────────────────
         manage_page = self.ribbon.add_page("Manage")
 
@@ -545,22 +572,13 @@ class MainWindow(QMainWindow):
             lambda on: self.hydro_dock.show() if on else self.hydro_dock.hide())
         self.hydro_dock.visibilityChanged.connect(report_btn.setChecked)
 
+    def _init_draw_tab(self, _I, _mode_btn):
+        """Build Tab 2: Draw — geometry tools, style, snap, annotations."""
         # ── Tab 2: Draw ──────────────────────────────────────────────────────
         draw_page = self.ribbon.add_page("Draw")
 
         # --- Geometry ---
         g_geom = draw_page.add_group("Geometry")
-        # Draw-mode buttons are checkable so the active tool stays highlighted
-        self._mode_buttons = {}  # mode_name → QToolButton
-        def _mode_btn(group, label, icon, mode_name, large=True):
-            """Create a checkable draw-mode button."""
-            cb = lambda: self.scene.set_mode(mode_name)
-            if large:
-                btn = group.add_large_button(label, icon, cb, checkable=True)
-            else:
-                btn = group.add_small_button(label, icon, cb, checkable=True)
-            self._mode_buttons[mode_name] = btn
-            return btn
         # Line split-menu: main click → draw_line, dropdown → Line / Construction Line
         _line_btn = g_geom.add_large_button(
             "Line", _I("line_icon.svg"),
@@ -637,6 +655,8 @@ class MainWindow(QMainWindow):
         _mode_btn(g_ann, "Hatch", _I("placeholder_icon.svg"), "hatch").setToolTip(
             "Add hatching to a closed object")
 
+    def _init_build_tab(self, _I, _mode_btn):
+        """Build Tab 3: Build — pipe/sprinkler placement, system, library."""
         # ── Tab 3: Build ─────────────────────────────────────────────────────
         build_page = self.ribbon.add_page("Build")
 
@@ -717,6 +737,8 @@ class MainWindow(QMainWindow):
             self.open_sprinkler_manager)
         _btn.setToolTip("Open sprinkler database manager")
 
+    def _init_modify_tab(self, _I, _mode_btn):
+        """Build Tab 4: Modify — edit/transform/scale tools (auto-switches on selection)."""
         # ── Tab 4: Modify (always visible, auto-switches on selection) ────────
         modify_page = self.ribbon.add_page("Modify")
         self._modify_tab_idx = self.ribbon._tab_bar.count() - 1
@@ -883,9 +905,8 @@ class MainWindow(QMainWindow):
             btn.setEnabled(False)
         self._btn_paste.setEnabled(False)
 
-        # Auto-switch to Modify tab when items are selected
-        self.scene.selectionChanged.connect(self._on_selection_changed_modify)
-
+    def _init_analyze_tab(self, _I):
+        """Build Tab 5: Analyze — hydraulics, export."""
         # ── Tab 5: Analyze ───────────────────────────────────────────────────
         analyze_page = self.ribbon.add_page("Analyze")
 
@@ -911,6 +932,8 @@ class MainWindow(QMainWindow):
             self.hydro_report._export_csv)
         _btn.setToolTip("Export hydraulic results to CSV")
 
+    def _init_draft_tab(self, _I):
+        """Build Tab 6: Draft — workspace switching, page setup."""
         # ── Tab 6: Draft ─────────────────────────────────────────────────────
         draft_page = self.ribbon.add_page("Draft")
 

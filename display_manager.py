@@ -428,8 +428,6 @@ class DisplayManager(QDialog):
             entry: dict = {
                 "visible": item.isVisible(),
                 "opacity": item.opacity(),
-                "effect_color": getattr(item, "_display_color", None),
-                "effect_fill": getattr(item, "_display_fill_color", None),
                 "display_color": getattr(item, "_display_color", None),
                 "display_fill_color": getattr(item, "_display_fill_color", None),
                 "display_scale": getattr(item, "_display_scale", 1.0),
@@ -445,14 +443,12 @@ class DisplayManager(QDialog):
                 self._snapshot[fid] = {
                     "visible": f.symbol.isVisible(),
                     "opacity": f.symbol.opacity(),
-                    "effect_color": getattr(f, "_display_color", None),
-                    "effect_fill": getattr(f, "_display_fill_color", None),
-                    "overrides": dict(getattr(f, "_display_overrides", {})),
                     "display_color": getattr(f, "_display_color", None),
                     "display_fill_color": getattr(f, "_display_fill_color", None),
                     "display_scale": getattr(f, "_display_scale", 1.0),
                     "display_opacity": getattr(f, "_display_opacity", 100),
                     "display_visible": getattr(f, "_display_visible", True),
+                    "overrides": dict(getattr(f, "_display_overrides", {})),
                 }
 
         # Snapshot gridline pen/brush colours
@@ -519,16 +515,16 @@ class DisplayManager(QDialog):
                 item._display_scale = snap.get("display_scale", 1.0)
                 item.set_pipe_display()
             elif isinstance(item, (Sprinkler, WaterSupply)):
-                _set_svg_tint(item, snap.get("effect_color"),
-                              snap.get("effect_fill"))
+                _set_svg_tint(item, snap.get("display_color"),
+                              snap.get("display_fill_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
                 if isinstance(item, Sprinkler):
                     item._centre_on_node()
                 else:
                     item._centre_on_origin()
             elif isinstance(item, HydraulicNodeBadge):
-                _set_svg_tint(item, snap.get("effect_color"),
-                              snap.get("effect_fill"))
+                _set_svg_tint(item, snap.get("display_color"),
+                              snap.get("display_fill_color"))
                 item._display_scale = snap.get("display_scale", 1.0)
                 item._centre_on_offset()
 
@@ -549,8 +545,8 @@ class DisplayManager(QDialog):
             if f.symbol:
                 f.symbol.setVisible(snap["visible"])
                 f.symbol.setOpacity(snap["opacity"])
-                _set_svg_tint(f.symbol, snap.get("effect_color"),
-                              snap.get("effect_fill"))
+                _set_svg_tint(f.symbol, snap.get("display_color"),
+                              snap.get("display_fill_color"))
                 f.align_fitting()
 
         # Force scene repaint

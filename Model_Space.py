@@ -2,16 +2,19 @@ import sys, json, math, shutil
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
                               QGraphicsItem, QGraphicsItemGroup, QGraphicsPixmapItem,
                               QGraphicsTextItem, QGraphicsPathItem, QGraphicsRectItem,
-                              QApplication, QProgressDialog, QMenu)
+                              QApplication, QProgressDialog, QMenu,
+                              QInputDialog, QMessageBox, QDialog,
+                              QHBoxLayout, QVBoxLayout, QLabel, QLineEdit)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QPixmap, QPainterPath, QFont
+from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
+                          QCursor, QDoubleValidator, QImage)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from node import Node
 from pipe import Pipe
 from sprinkler import Sprinkler
 from sprinkler_system import SprinklerSystem
 from CAD_Math import CAD_Math
-from Annotations import Annotation, DimensionAnnotation, NoteAnnotation
+from Annotations import Annotation, DimensionAnnotation, NoteAnnotation, HatchItem
 from underlay import Underlay
 from scale_manager import ScaleManager
 from calibrate_dialog import CalibrateDialog
@@ -28,6 +31,9 @@ from gridline import GridlineItem, reset_grid_counters
 from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_IN
 from floor_slab import FloorSlab
 from wall_opening import WallOpening, DoorOpening, WindowOpening
+from constraints import Constraint as ConstraintBase
+from user_layer_manager import lw_mm_to_cosmetic_px
+import geometry_intersect as gi
 import os
 
 
@@ -653,7 +659,6 @@ class Model_Space(QGraphicsScene):
         self._recalc_name_counters()
 
         # --- Hatches ---
-        from Annotations import HatchItem
         for entry in payload.get("hatches", []):
             try:
                 h = HatchItem.from_dict(entry)
@@ -663,7 +668,6 @@ class Model_Space(QGraphicsScene):
                 pass  # skip malformed hatch data
 
         # --- Constraints ---
-        from constraints import Constraint as ConstraintBase
         all_geom = self._all_geometry_items()
         id_to_geom = {i: item for i, item in enumerate(all_geom)}
         for entry in payload.get("constraints", []):
@@ -792,64 +796,46 @@ class Model_Space(QGraphicsScene):
     # -------------------------------------------------------------------------
     # DELETE
 
+    def _remove_item_from_lists(self, item) -> bool:
+        """Remove *item* from its tracking list and the scene.
+
+        Returns True if the item was handled, False otherwise.
+        """
+        # Map each geometry type to the list that tracks it
+        type_to_list = {
+            DimensionAnnotation: self.annotations.dimensions,
+            NoteAnnotation:      self.annotations.notes,
+            ConstructionLine:    self._construction_lines,
+            PolylineItem:        self._polylines,
+            LineItem:            self._draw_lines,
+            RectangleItem:       self._draw_rects,
+            CircleItem:          self._draw_circles,
+            ArcItem:             self._draw_arcs,
+            GridlineItem:        self._gridlines,
+            HatchItem:           self._hatch_items,
+        }
+        for cls, lst in type_to_list.items():
+            if isinstance(item, cls):
+                if item in lst:
+                    lst.remove(item)
+                self.removeItem(item)
+                return True
+        return False
+
     def _delete_single_item(self, item):
         """Remove a single geometry/annotation item from the scene and its tracking list."""
-        from Annotations import HatchItem
-        if isinstance(item, DimensionAnnotation):
-            if item in self.annotations.dimensions:
-                self.annotations.dimensions.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, NoteAnnotation):
-            if item in self.annotations.notes:
-                self.annotations.notes.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, ConstructionLine):
-            if item in self._construction_lines:
-                self._construction_lines.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, PolylineItem):
-            if item in self._polylines:
-                self._polylines.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, LineItem):
-            if item in self._draw_lines:
-                self._draw_lines.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, RectangleItem):
-            if item in self._draw_rects:
-                self._draw_rects.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, CircleItem):
-            if item in self._draw_circles:
-                self._draw_circles.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, ArcItem):
-            if item in self._draw_arcs:
-                self._draw_arcs.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, GridlineItem):
-            if item in self._gridlines:
-                self._gridlines.remove(item)
-            self.removeItem(item)
-        elif isinstance(item, HatchItem):
-            if item in self._hatch_items:
-                self._hatch_items.remove(item)
-            self.removeItem(item)
+        self._remove_item_from_lists(item)
 
     def delete_selected_items(self):
         if not self.selectedItems():
             return
         selected = list(self.selectedItems())
         for item in selected:
-            if isinstance(item, DimensionAnnotation):
-                if item in self.annotations.dimensions:
-                    self.annotations.dimensions.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, NoteAnnotation):
-                if item in self.annotations.notes:
-                    self.annotations.notes.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, WaterSupply):
+            # Try the shared geometry/annotation removal first
+            if self._remove_item_from_lists(item):
+                continue
+            # Special-case types that need extra cleanup
+            if isinstance(item, WaterSupply):
                 self.removeItem(item)
                 if self.water_supply_node is item:
                     self.water_supply_node = None
@@ -859,34 +845,6 @@ class Model_Space(QGraphicsScene):
                     self.design_areas.remove(item)
                 if self.active_design_area is item:
                     self.active_design_area = None
-                self.removeItem(item)
-            elif isinstance(item, ConstructionLine):
-                if item in self._construction_lines:
-                    self._construction_lines.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, PolylineItem):
-                if item in self._polylines:
-                    self._polylines.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, LineItem):
-                if item in self._draw_lines:
-                    self._draw_lines.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, RectangleItem):
-                if item in self._draw_rects:
-                    self._draw_rects.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, CircleItem):
-                if item in self._draw_circles:
-                    self._draw_circles.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, ArcItem):
-                if item in self._draw_arcs:
-                    self._draw_arcs.remove(item)
-                self.removeItem(item)
-            elif isinstance(item, GridlineItem):
-                if item in self._gridlines:
-                    self._gridlines.remove(item)
                 self.removeItem(item)
             elif isinstance(item, WallSegment):
                 # Also remove openings belonging to this wall
@@ -906,13 +864,6 @@ class Model_Space(QGraphicsScene):
                 if item.wall is not None and item in item.wall.openings:
                     item.wall.openings.remove(item)
                 self.removeItem(item)
-            else:
-                # Handle HatchItem and any other selectable items
-                from Annotations import HatchItem
-                if isinstance(item, HatchItem):
-                    if item in self._hatch_items:
-                        self._hatch_items.remove(item)
-                    self.removeItem(item)
         for item in selected:
             if isinstance(item, Pipe):
                 self.delete_pipe(item)
@@ -1212,8 +1163,7 @@ class Model_Space(QGraphicsScene):
     # NODE / PIPE / SPRINKLER MANAGEMENT
 
     def find_nearby_node(self, x, y):
-        from PyQt6.QtCore import QPointF as _QP
-        pt = _QP(x, y)
+        pt = QPointF(x, y)
         # Priority 1: cursor inside any sprinkler's bounding box → snap to node
         for node in self.sprinkler_system.nodes:
             if node.has_sprinkler():
@@ -1786,8 +1736,7 @@ class Model_Space(QGraphicsScene):
             item.setPos(geom["x"], geom["y"])
             item.setDefaultTextColor(color)
             if "size" in geom:
-                from PyQt6.QtGui import QFont as _QF
-                f = _QF()
+                f = QFont()
                 f.setPointSizeF(geom["size"])
                 item.setFont(f)
             item.setZValue(-100)
@@ -1835,7 +1784,6 @@ class Model_Space(QGraphicsScene):
             zoom = dpi / 72.0
             mat = fitz.Matrix(zoom, zoom)
             pix = pg.get_pixmap(matrix=mat, alpha=False)
-            from PyQt6.QtGui import QImage
             qimg = QImage(pix.samples, pix.width, pix.height,
                           pix.stride, QImage.Format.Format_RGB888)
             pixmap = QPixmap.fromImage(qimg.copy())   # .copy() detaches from fitz buffer
@@ -2371,7 +2319,6 @@ class Model_Space(QGraphicsScene):
                 self._floor_slabs.append(slab)
 
             # ── Hatches ───────────────────────────────────────────────────
-            from Annotations import HatchItem
             for d in state.get("hatches", []):
                 try:
                     h = HatchItem.from_dict(d)
@@ -2381,7 +2328,6 @@ class Model_Space(QGraphicsScene):
                     pass  # skip malformed hatch data
 
             # ── Constraints ───────────────────────────────────────────────
-            from constraints import Constraint as ConstraintBase
             all_geom = self._all_geometry_items()
             id_to_geom = {i: item for i, item in enumerate(all_geom)}
             for d in state.get("constraints", []):
@@ -2552,7 +2498,6 @@ class Model_Space(QGraphicsScene):
     def _get_draw_lineweight(self) -> float:
         """Return the active layer's lineweight as cosmetic screen px."""
         if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            from user_layer_manager import lw_mm_to_cosmetic_px
             ldef = self._user_layer_manager.get(self.active_user_layer)
             if ldef:
                 return lw_mm_to_cosmetic_px(ldef.lineweight)
@@ -2708,7 +2653,6 @@ class Model_Space(QGraphicsScene):
         if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
             ldef = self._user_layer_manager.get(tmpl.user_layer)
             if ldef:
-                from user_layer_manager import lw_mm_to_cosmetic_px
                 return ldef.color, lw_mm_to_cosmetic_px(ldef.lineweight)
         return "#ffffff", 2.0
 
@@ -2717,7 +2661,6 @@ class Model_Space(QGraphicsScene):
         if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
             ldef = self._user_layer_manager.get(user_layer)
             if ldef:
-                from user_layer_manager import lw_mm_to_cosmetic_px
                 return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
         return QColor("#ffffff"), 1.5
 
@@ -2742,7 +2685,6 @@ class Model_Space(QGraphicsScene):
             selected = self.selectedItems()
             if len(selected) == 1:
                 item = selected[0]
-                from node import Node
                 _type_map = {
                     Pipe: lambda: list(self.sprinkler_system.pipes),
                     WallSegment: lambda: list(self._walls),
@@ -2799,7 +2741,6 @@ class Model_Space(QGraphicsScene):
 
         # ── Offset / Rotate / Scale / Fillet / Chamfer: Tab opens value input ──
         if self.mode == "offset_side":
-            from PyQt6.QtWidgets import QInputDialog
             val, ok = QInputDialog.getDouble(
                 None, "Offset Distance", "Distance:",
                 self._offset_dist if self._offset_dist > 0 else 10.0,
@@ -2812,7 +2753,6 @@ class Model_Space(QGraphicsScene):
                     f"Click to pick side and commit.", timeout=0)
             return
         if self.mode == "rotate" and self._rotate_pivot is not None:
-            from PyQt6.QtWidgets import QInputDialog
             val, ok = QInputDialog.getDouble(
                 None, "Rotate Angle", "Angle (degrees):", 90.0, -360, 360, 2)
             if ok:
@@ -2822,7 +2762,6 @@ class Model_Space(QGraphicsScene):
                 self.set_mode(None)
             return
         if self.mode == "scale" and self._scale_base is not None:
-            from PyQt6.QtWidgets import QInputDialog
             val, ok = QInputDialog.getDouble(
                 None, "Scale Factor", "Factor:", 2.0, 0.001, 10000, 4)
             if ok:
@@ -2832,7 +2771,6 @@ class Model_Space(QGraphicsScene):
                 self.set_mode(None)
             return
         if self.mode == "fillet" and self._fillet_item2 is not None:
-            from PyQt6.QtWidgets import QInputDialog
             val, ok = QInputDialog.getDouble(
                 None, "Fillet Radius", "Radius:",
                 self._fillet_radius, 0.01, 1_000_000, 3)
@@ -2845,8 +2783,7 @@ class Model_Space(QGraphicsScene):
                 data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
                                             self._fillet_radius)
                 if data is not None:
-                    from PyQt6.QtGui import QPainterPath as _PP
-                    pp = _PP()
+                    pp = QPainterPath()
                     pp.addEllipse(data["center"], data["radius"], data["radius"])
                     self._fillet_preview = self.addPath(
                         pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
@@ -2854,7 +2791,6 @@ class Model_Space(QGraphicsScene):
                     f"Fillet radius: {val:.1f}  Press Enter to commit", timeout=0)
             return
         if self.mode == "chamfer" and self._chamfer_item2 is not None:
-            from PyQt6.QtWidgets import QInputDialog
             val, ok = QInputDialog.getDouble(
                 None, "Chamfer Distance", "Distance:",
                 self._chamfer_dist, 0.01, 1_000_000, 3)
@@ -2877,9 +2813,6 @@ class Model_Space(QGraphicsScene):
                 self._show_status(
                     f"Chamfer distance: {val:.1f}  Press Enter to commit", timeout=0)
             return
-
-        from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLineEdit, QLabel
-        from PyQt6.QtGui import QCursor, QDoubleValidator
 
         cursor = self._last_scene_pos   # may be None on startup
 
@@ -3490,442 +3423,12 @@ class Model_Space(QGraphicsScene):
                 v.viewport().update()
             return
 
-        if self.mode == "pipe":
-            if self.node_start_pos:
-                start = self.node_start_pos.scenePos()
-                snapped_end = self.node_start_pos.snap_point_45(start, snapped)
-                self.update_preview_node(snapped_end)
-                self.preview_pipe.setLine(start.x(), start.y(), snapped_end.x(), snapped_end.y())
-                self.preview_pipe.show()
-            else:
-                self.update_preview_node(snapped)
-                self.preview_pipe.hide()
-
-        elif self.mode == "set_scale":
-            self.update_preview_node(snapped)
-            if self._cal_point1 is not None:
-                self.preview_pipe.setLine(
-                    self._cal_point1.x(), self._cal_point1.y(),
-                    snapped.x(), snapped.y()
-                )
-                self.preview_pipe.show()
-            else:
-                self.preview_pipe.hide()
-
-        elif self.mode == "design_area":
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._design_area_corner1 is not None and self._design_area_rect_item is not None:
-                c1 = self._design_area_corner1
-                rect = QRectF(c1, snapped).normalized()
-                self._design_area_rect_item.setRect(rect)
-
-        elif self.mode == "polyline":
-            if self._polyline_active is None:
-                self.update_preview_node(snapped)   # cursor preview before first click
-            else:
-                self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._polyline_active is not None:
-                tip = snapped
-                if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                        and len(self._polyline_active._points) >= 1):
-                    tip = self._constrain_angle(
-                        self._polyline_active._points[-1], snapped
-                    )
-                self._polyline_active.update_preview(tip)
-                _last = self._polyline_active._points[-1]
-                _dx = tip.x() - _last.x()
-                _dy = tip.y() - _last.y()
-                _len = math.hypot(_dx, _dy)
-                _ang = math.degrees(math.atan2(-_dy, _dx))
-                self._draw_dim_hint = (
-                    f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-                    if sm.is_calibrated else
-                    f"L: {_len:.0f}mm  A: {_ang:.1f}°"
-                )
-
-        elif self.mode in ("draw_line", "construction_line"):
-            _anchor = self._draw_line_anchor if self.mode == "draw_line" else self._cline_anchor
-            if _anchor is None:
-                self.update_preview_node(snapped)   # cursor preview before first click
-            if _anchor is not None:
-                tip = snapped
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(_anchor, snapped)
-                self.preview_pipe.setLine(
-                    _anchor.x(), _anchor.y(),
-                    tip.x(), tip.y()
-                )
-                self.preview_pipe.show()
-                _dx = tip.x() - _anchor.x()
-                _dy = tip.y() - _anchor.y()
-                _len = math.hypot(_dx, _dy)
-                _ang = math.degrees(math.atan2(-_dy, _dx))
-                self._draw_dim_hint = (
-                    f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-                    if sm.is_calibrated else
-                    f"L: {_len:.0f}mm  A: {_ang:.1f}°"
-                )
-            else:
-                self.preview_pipe.hide()
-
-        elif self.mode == "draw_rectangle":
-            if self._draw_rect_anchor is None:
-                self.update_preview_node(snapped)   # cursor preview before first click
-            else:
-                self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._draw_rect_anchor is not None and self._draw_rect_preview is not None:
-                if self._draw_rect_from_center:
-                    # Center mode: anchor is center, rect extends symmetrically
-                    hw = abs(snapped.x() - self._draw_rect_anchor.x())
-                    hh = abs(snapped.y() - self._draw_rect_anchor.y())
-                    rect = QRectF(
-                        self._draw_rect_anchor.x() - hw,
-                        self._draw_rect_anchor.y() - hh,
-                        2 * hw, 2 * hh,
-                    )
-                else:
-                    rect = QRectF(self._draw_rect_anchor, snapped).normalized()
-                self._draw_rect_preview.setRect(rect)
-                self._draw_dim_hint = (
-                    f"W: {sm.scene_to_display(rect.width())}  H: {sm.scene_to_display(rect.height())}"
-                    if sm.is_calibrated else
-                    f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
-                )
-
-        elif self.mode == "draw_circle":
-            if self._draw_circle_center is None:
-                self.update_preview_node(snapped)   # cursor preview before first click
-            else:
-                self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._draw_circle_center is not None and self._draw_circle_preview is not None:
-                r = math.hypot(snapped.x() - self._draw_circle_center.x(),
-                               snapped.y() - self._draw_circle_center.y())
-                cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
-                self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
-                self._draw_dim_hint = (
-                    f"R: {sm.scene_to_display(r)}"
-                    if sm.is_calibrated else
-                    f"R: {r:.0f}mm"
-                )
-
-        elif self.mode == "draw_arc":
-            self.preview_pipe.hide()
-            if self._draw_arc_step == 0:
-                # Before first click — show cursor preview
-                self.update_preview_node(snapped)
-            elif self._draw_arc_step == 1:
-                # After centre click — update radius line to cursor
-                self.preview_node.hide()
-                if self._draw_arc_radius_line is not None:
-                    cx = self._draw_arc_center.x()
-                    cy = self._draw_arc_center.y()
-                    self._draw_arc_radius_line.setLine(cx, cy,
-                                                        snapped.x(), snapped.y())
-                    r = math.hypot(snapped.x() - cx, snapped.y() - cy)
-                    self._draw_dim_hint = (
-                        f"R: {sm.scene_to_display(r)}"
-                        if sm.is_calibrated else
-                        f"R: {r:.0f}mm"
-                    )
-            elif self._draw_arc_step == 2:
-                # After start click — update arc preview to cursor angle
-                self.preview_node.hide()
-                if self._draw_arc_preview is not None:
-                    cx = self._draw_arc_center.x()
-                    cy = self._draw_arc_center.y()
-                    r = self._draw_arc_radius
-                    end_deg = math.degrees(
-                        math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-                    )
-                    span = end_deg - self._draw_arc_start_deg
-                    if span <= 0:
-                        span += 360.0
-                    path = QPainterPath()
-                    rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
-                    path.arcMoveTo(rect, self._draw_arc_start_deg)
-                    path.arcTo(rect, self._draw_arc_start_deg, span)
-                    self._draw_arc_preview.setPath(path)
-                    self._draw_dim_hint = f"Span: {span:.1f}\u00b0"
-
-        elif self.mode == "dimension":
-            self.preview_pipe.hide()
-            if self._dim_pending is not None:
-                # Offset sub-mode: project cursor onto perpendicular of the base line
-                dim = self._dim_pending
-                p1 = dim._p1
-                p2 = dim._p2
-                mid_base = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-                line_angle = math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
-                perp = line_angle + math.pi / 2
-                dx = snapped.x() - mid_base.x()
-                dy = snapped.y() - mid_base.y()
-                projected = dx * math.cos(perp) + dy * math.sin(perp)
-                dim._offset_dist = projected
-                dim.update_geometry()
-                self.preview_node.hide()
-            elif self.dimension_start is None:
-                self.update_preview_node(snapped)
-            else:
-                self.preview_node.hide()
-                # Show live preview line from first point to cursor
-                p1 = self.dimension_start
-                p2 = snapped
-                if self._dim_preview_line is None:
-                    preview_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
-                    preview_pen.setCosmetic(True)
-                    self._dim_preview_line = QGraphicsLineItem()
-                    self._dim_preview_line.setPen(preview_pen)
-                    self._dim_preview_line.setZValue(200)
-                    self.addItem(self._dim_preview_line)
-                self._dim_preview_line.setLine(p1.x(), p1.y(), p2.x(), p2.y())
-                # Show live distance label
-                dist = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
-                dist_text = (sm.scene_to_display(dist) if sm.is_calibrated
-                             else f"{dist:.0f} mm")
-                if self._dim_preview_label is None:
-                    self._dim_preview_label = QGraphicsTextItem()
-                    self._dim_preview_label.setDefaultTextColor(QColor("#ffffff"))
-                    f = QFont("Consolas", 10)
-                    self._dim_preview_label.setFont(f)
-                    self._dim_preview_label.setFlag(
-                        self._dim_preview_label.GraphicsItemFlag.ItemIgnoresTransformations, True)
-                    self._dim_preview_label.setZValue(201)
-                    self.addItem(self._dim_preview_label)
-                self._dim_preview_label.setPlainText(dist_text)
-                mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-                self._dim_preview_label.setPos(mid)
-
-        elif self.mode == "text":
-            self.preview_pipe.hide()
-            if self._text_anchor is None:
-                self.update_preview_node(snapped)
-            else:
-                self.preview_node.hide()
-                if self._text_preview is not None:
-                    rect = QRectF(self._text_anchor, snapped).normalized()
-                    self._text_preview.setRect(rect)
-                    self._draw_dim_hint = (
-                        f"W: {sm.scene_to_display(rect.width())}  "
-                        f"H: {sm.scene_to_display(rect.height())}"
-                        if sm.is_calibrated else
-                        f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
-                    )
-
-        elif self.mode == "gridline":
-            if self._gridline_anchor is None:
-                self.update_preview_node(snapped)
-            else:
-                self.preview_node.hide()
-                self.preview_pipe.setLine(
-                    self._gridline_anchor.x(), self._gridline_anchor.y(),
-                    snapped.x(), snapped.y()
-                )
-                self.preview_pipe.show()
-
-        elif self.mode == "place_import":
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            self._update_place_import_ghost(snapped)
-
-        elif self.mode == "offset":
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-
-        elif self.mode == "offset_side":
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._offset_source is not None:
-                # Compute distance from cursor to source entity
-                if not getattr(self, '_offset_manual', False):
-                    self._offset_dist = self._perpendicular_distance(
-                        self._offset_source, snapped)
-                if self._offset_dist > 0:
-                    sd = self._offset_signed_dist(
-                        self._offset_source, self._offset_dist, snapped)
-                    self._clear_offset_preview()
-                    preview = self._make_offset_item(self._offset_source, sd)
-                    if preview is not None:
-                        pen = preview.pen()
-                        pen.setStyle(Qt.PenStyle.DashLine)
-                        preview.setPen(pen)
-                        preview.setZValue(200)
-                        self.addItem(preview)
-                        self._offset_preview = preview
-                    self._show_status(
-                        f"Offset: {self._offset_dist:.1f} mm  "
-                        f"(Tab = type distance, click to commit)", timeout=0)
-
-        elif self.mode == "move":
-            self.update_preview_node(snapped)
-            self.preview_pipe.hide()
-            if self.node_start_pos is not None:
-                # Show rubber-band line from base point to cursor
-                if self._move_preview_line is None:
-                    self._move_preview_line = QGraphicsLineItem()
-                    pen = QPen(QColor("#00aaff"), 0)
-                    pen.setCosmetic(True)
-                    pen.setStyle(Qt.PenStyle.DashLine)
-                    self._move_preview_line.setPen(pen)
-                    self._move_preview_line.setZValue(200)
-                    self.addItem(self._move_preview_line)
-                self._move_preview_line.setLine(
-                    self.node_start_pos.x(), self.node_start_pos.y(),
-                    snapped.x(), snapped.y())
-                self._move_preview_line.show()
-                # Show displacement in status bar
-                dx = snapped.x() - self.node_start_pos.x()
-                dy = snapped.y() - self.node_start_pos.y()
-                self._show_status(
-                    f"Move: dx={dx:.1f}  dy={dy:.1f}  "
-                    f"dist={math.hypot(dx, dy):.1f}", timeout=0)
-
-        elif self.mode in ("sprinkler", "dimension", "paste", "water_supply"):
-            self.update_preview_node(snapped)
-            self.preview_pipe.hide()
-
-        elif self.mode == "rotate" and self._rotate_pivot is not None:
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._rotate_preview_line is None:
-                self._rotate_preview_line = QGraphicsLineItem()
-                p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
-                p.setStyle(Qt.PenStyle.DashLine)
-                self._rotate_preview_line.setPen(p)
-                self._rotate_preview_line.setZValue(200)
-                self.addItem(self._rotate_preview_line)
-            self._rotate_preview_line.setLine(
-                self._rotate_pivot.x(), self._rotate_pivot.y(),
-                snapped.x(), snapped.y())
-            self._rotate_preview_line.show()
-            dx = snapped.x() - self._rotate_pivot.x()
-            dy = snapped.y() - self._rotate_pivot.y()
-            angle = math.degrees(math.atan2(-dy, dx))
-            self._show_status(f"Rotate: {angle:.1f}°", timeout=0)
-
-        elif self.mode == "mirror" and self._mirror_p1 is not None:
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._mirror_preview_line is None:
-                self._mirror_preview_line = QGraphicsLineItem()
-                p = QPen(QColor("#ff00ff"), 0); p.setCosmetic(True)
-                p.setStyle(Qt.PenStyle.DashDotLine)
-                self._mirror_preview_line.setPen(p)
-                self._mirror_preview_line.setZValue(200)
-                self.addItem(self._mirror_preview_line)
-            self._mirror_preview_line.setLine(
-                self._mirror_p1.x(), self._mirror_p1.y(),
-                snapped.x(), snapped.y())
-            self._mirror_preview_line.show()
-
-        elif self.mode == "stretch" and self._stretch_base is not None:
-            self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._stretch_preview_line is None:
-                self._stretch_preview_line = QGraphicsLineItem()
-                p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
-                p.setStyle(Qt.PenStyle.DashLine)
-                self._stretch_preview_line.setPen(p)
-                self._stretch_preview_line.setZValue(200)
-                self.addItem(self._stretch_preview_line)
-            self._stretch_preview_line.setLine(
-                self._stretch_base.x(), self._stretch_base.y(),
-                snapped.x(), snapped.y())
-            self._stretch_preview_line.show()
-            dx = snapped.x() - self._stretch_base.x()
-            dy = snapped.y() - self._stretch_base.y()
-            self._show_status(f"Stretch: dx={dx:.1f}  dy={dy:.1f}", timeout=0)
-
-        elif self.mode == "wall":
-            if self._wall_anchor is None:
-                self.update_preview_node(snapped)
-                if self._wall_preview_rect is not None:
-                    self._wall_preview_rect.hide()
-            else:
-                tip = snapped
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(self._wall_anchor, snapped)
-                self.preview_pipe.setLine(
-                    self._wall_anchor.x(), self._wall_anchor.y(),
-                    tip.x(), tip.y()
-                )
-                self.preview_pipe.show()
-                self.preview_node.hide()
-                _dx = tip.x() - self._wall_anchor.x()
-                _dy = tip.y() - self._wall_anchor.y()
-                _len = math.hypot(_dx, _dy)
-                self._draw_dim_hint = (
-                    f"L: {sm.scene_to_display(_len)}"
-                    if sm.is_calibrated else
-                    f"L: {_len:.0f}mm"
-                )
-                # -- Wall thickness preview rectangle --
-                if _len > 1.0:  # avoid degenerate preview
-                    if self._wall_preview_rect is None:
-                        self._wall_preview_rect = QGraphicsPathItem()
-                        _ppn = QPen(QColor("#aaaaaa"), 1, Qt.PenStyle.DashLine)
-                        _ppn.setCosmetic(True)
-                        self._wall_preview_rect.setPen(_ppn)
-                        _fill = QColor("#cccccc")
-                        _fill.setAlpha(30)
-                        self._wall_preview_rect.setBrush(QBrush(_fill))
-                        self._wall_preview_rect.setZValue(199)
-                        self.addItem(self._wall_preview_rect)
-                    _wtmpl = self._get_wall_template()
-                    p1l, p1r, p2r, p2l = compute_wall_quad(
-                        self._wall_anchor, tip, _wtmpl._thickness_in,
-                        _wtmpl._alignment, self.scale_manager)
-                    _pp = QPainterPath()
-                    _pp.moveTo(p1l)
-                    _pp.lineTo(p2l)
-                    _pp.lineTo(p2r)
-                    _pp.lineTo(p1r)
-                    _pp.closeSubpath()
-                    self._wall_preview_rect.setPath(_pp)
-                    self._wall_preview_rect.show()
-
-        elif self.mode == "floor":
-            if self._floor_active is None:
-                self.update_preview_node(snapped)
-                self.preview_pipe.hide()
-            else:
-                self.preview_node.hide()
-                # Rubber-band line from last vertex to cursor
-                last_pt = self._floor_active._points[-1]
-                self.preview_pipe.setLine(
-                    last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
-                pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
-                pen.setCosmetic(True)
-                self.preview_pipe.setPen(pen)
-                self.preview_pipe.show()
-                _dx = snapped.x() - last_pt.x()
-                _dy = snapped.y() - last_pt.y()
-                _len = math.hypot(_dx, _dy)
-                _ang = math.degrees(math.atan2(-_dy, _dx))
-                self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-
-        elif self.mode == "floor_rect":
-            if self._floor_rect_anchor is None:
-                self.update_preview_node(snapped)
-            else:
-                self.preview_node.hide()
-            self.preview_pipe.hide()
-            if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
-                rect = QRectF(self._floor_rect_anchor, snapped).normalized()
-                self._floor_rect_preview.setRect(rect)
-                self._draw_dim_hint = (
-                    f"W: {sm.scene_to_display(rect.width())}  "
-                    f"H: {sm.scene_to_display(rect.height())}"
-                )
-
-        elif self.mode in ("door", "window"):
-            self.update_preview_node(snapped)
-
+        # ── Dispatch to per-mode handler ────────────────────────────────
+        handler_name = self._MOVE_DISPATCH.get(self.mode)
+        if handler_name is not None:
+            getattr(self, handler_name)(event, snapped)
         else:
-            # (Grip drag was moved above the mode chain — always takes priority)
+            # No mode matched — hide previews
             self.preview_node.hide()
             self.preview_pipe.hide()
 
@@ -3934,6 +3437,533 @@ class Model_Space(QGraphicsScene):
             v.viewport().update()
 
         super().mouseMoveEvent(event)
+
+    # ── Dispatch table: mode string → move-handler method name ─────────
+    _MOVE_DISPATCH = {
+        "pipe":                     "_move_pipe",
+        "set_scale":                "_move_set_scale",
+        "design_area":              "_move_design_area",
+        "polyline":                 "_move_polyline",
+        "draw_line":                "_move_draw_line",
+        "construction_line":        "_move_draw_line",
+        "draw_rectangle":           "_move_draw_rectangle",
+        "draw_circle":              "_move_draw_circle",
+        "draw_arc":                 "_move_draw_arc",
+        "dimension":                "_move_dimension",
+        "text":                     "_move_text",
+        "gridline":                 "_move_gridline",
+        "place_import":             "_move_place_import",
+        "offset":                   "_move_offset",
+        "offset_side":              "_move_offset_side",
+        "move":                     "_move_move",
+        "sprinkler":                "_move_preview_node",
+        "paste":                    "_move_preview_node",
+        "water_supply":             "_move_preview_node",
+        "rotate":                   "_move_rotate",
+        "mirror":                   "_move_mirror",
+        "stretch":                  "_move_stretch",
+        "wall":                     "_move_wall",
+        "floor":                    "_move_floor",
+        "floor_rect":               "_move_floor_rect",
+        "door":                     "_move_door_window",
+        "window":                   "_move_door_window",
+    }
+
+    # ── Per-mode move handlers ──────────────────────────────────────────
+
+    def _move_pipe(self, event, snapped):
+        if self.node_start_pos:
+            start = self.node_start_pos.scenePos()
+            snapped_end = self.node_start_pos.snap_point_45(start, snapped)
+            self.update_preview_node(snapped_end)
+            self.preview_pipe.setLine(start.x(), start.y(), snapped_end.x(), snapped_end.y())
+            self.preview_pipe.show()
+        else:
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+
+    def _move_set_scale(self, event, snapped):
+        self.update_preview_node(snapped)
+        if self._cal_point1 is not None:
+            self.preview_pipe.setLine(
+                self._cal_point1.x(), self._cal_point1.y(),
+                snapped.x(), snapped.y()
+            )
+            self.preview_pipe.show()
+        else:
+            self.preview_pipe.hide()
+
+    def _move_design_area(self, event, snapped):
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._design_area_corner1 is not None and self._design_area_rect_item is not None:
+            c1 = self._design_area_corner1
+            rect = QRectF(c1, snapped).normalized()
+            self._design_area_rect_item.setRect(rect)
+
+    def _move_polyline(self, event, snapped):
+        sm = self.scale_manager
+        if self._polyline_active is None:
+            self.update_preview_node(snapped)   # cursor preview before first click
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._polyline_active is not None:
+            tip = snapped
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and len(self._polyline_active._points) >= 1):
+                tip = self._constrain_angle(
+                    self._polyline_active._points[-1], snapped
+                )
+            self._polyline_active.update_preview(tip)
+            _last = self._polyline_active._points[-1]
+            _dx = tip.x() - _last.x()
+            _dy = tip.y() - _last.y()
+            _len = math.hypot(_dx, _dy)
+            _ang = math.degrees(math.atan2(-_dy, _dx))
+            self._draw_dim_hint = (
+                f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+                if sm.is_calibrated else
+                f"L: {_len:.0f}mm  A: {_ang:.1f}°"
+            )
+
+    def _move_draw_line(self, event, snapped):
+        sm = self.scale_manager
+        _anchor = self._draw_line_anchor if self.mode == "draw_line" else self._cline_anchor
+        if _anchor is None:
+            self.update_preview_node(snapped)   # cursor preview before first click
+        if _anchor is not None:
+            tip = snapped
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                tip = self._constrain_angle(_anchor, snapped)
+            self.preview_pipe.setLine(
+                _anchor.x(), _anchor.y(),
+                tip.x(), tip.y()
+            )
+            self.preview_pipe.show()
+            _dx = tip.x() - _anchor.x()
+            _dy = tip.y() - _anchor.y()
+            _len = math.hypot(_dx, _dy)
+            _ang = math.degrees(math.atan2(-_dy, _dx))
+            self._draw_dim_hint = (
+                f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+                if sm.is_calibrated else
+                f"L: {_len:.0f}mm  A: {_ang:.1f}°"
+            )
+        else:
+            self.preview_pipe.hide()
+
+    def _move_draw_rectangle(self, event, snapped):
+        sm = self.scale_manager
+        if self._draw_rect_anchor is None:
+            self.update_preview_node(snapped)   # cursor preview before first click
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._draw_rect_anchor is not None and self._draw_rect_preview is not None:
+            if self._draw_rect_from_center:
+                # Center mode: anchor is center, rect extends symmetrically
+                hw = abs(snapped.x() - self._draw_rect_anchor.x())
+                hh = abs(snapped.y() - self._draw_rect_anchor.y())
+                rect = QRectF(
+                    self._draw_rect_anchor.x() - hw,
+                    self._draw_rect_anchor.y() - hh,
+                    2 * hw, 2 * hh,
+                )
+            else:
+                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
+            self._draw_rect_preview.setRect(rect)
+            self._draw_dim_hint = (
+                f"W: {sm.scene_to_display(rect.width())}  H: {sm.scene_to_display(rect.height())}"
+                if sm.is_calibrated else
+                f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
+            )
+
+    def _move_draw_circle(self, event, snapped):
+        sm = self.scale_manager
+        if self._draw_circle_center is None:
+            self.update_preview_node(snapped)   # cursor preview before first click
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._draw_circle_center is not None and self._draw_circle_preview is not None:
+            r = math.hypot(snapped.x() - self._draw_circle_center.x(),
+                           snapped.y() - self._draw_circle_center.y())
+            cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
+            self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
+            self._draw_dim_hint = (
+                f"R: {sm.scene_to_display(r)}"
+                if sm.is_calibrated else
+                f"R: {r:.0f}mm"
+            )
+
+    def _move_draw_arc(self, event, snapped):
+        sm = self.scale_manager
+        self.preview_pipe.hide()
+        if self._draw_arc_step == 0:
+            # Before first click — show cursor preview
+            self.update_preview_node(snapped)
+        elif self._draw_arc_step == 1:
+            # After centre click — update radius line to cursor
+            self.preview_node.hide()
+            if self._draw_arc_radius_line is not None:
+                cx = self._draw_arc_center.x()
+                cy = self._draw_arc_center.y()
+                self._draw_arc_radius_line.setLine(cx, cy,
+                                                    snapped.x(), snapped.y())
+                r = math.hypot(snapped.x() - cx, snapped.y() - cy)
+                self._draw_dim_hint = (
+                    f"R: {sm.scene_to_display(r)}"
+                    if sm.is_calibrated else
+                    f"R: {r:.0f}mm"
+                )
+        elif self._draw_arc_step == 2:
+            # After start click — update arc preview to cursor angle
+            self.preview_node.hide()
+            if self._draw_arc_preview is not None:
+                cx = self._draw_arc_center.x()
+                cy = self._draw_arc_center.y()
+                r = self._draw_arc_radius
+                end_deg = math.degrees(
+                    math.atan2(-(snapped.y() - cy), snapped.x() - cx)
+                )
+                span = end_deg - self._draw_arc_start_deg
+                if span <= 0:
+                    span += 360.0
+                path = QPainterPath()
+                rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+                path.arcMoveTo(rect, self._draw_arc_start_deg)
+                path.arcTo(rect, self._draw_arc_start_deg, span)
+                self._draw_arc_preview.setPath(path)
+                self._draw_dim_hint = f"Span: {span:.1f}\u00b0"
+
+    def _move_dimension(self, event, snapped):
+        sm = self.scale_manager
+        self.preview_pipe.hide()
+        if self._dim_pending is not None:
+            # Offset sub-mode: project cursor onto perpendicular of the base line
+            dim = self._dim_pending
+            p1 = dim._p1
+            p2 = dim._p2
+            mid_base = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+            line_angle = math.atan2(p2.y() - p1.y(), p2.x() - p1.x())
+            perp = line_angle + math.pi / 2
+            dx = snapped.x() - mid_base.x()
+            dy = snapped.y() - mid_base.y()
+            projected = dx * math.cos(perp) + dy * math.sin(perp)
+            dim._offset_dist = projected
+            dim.update_geometry()
+            self.preview_node.hide()
+        elif self.dimension_start is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+            # Show live preview line from first point to cursor
+            p1 = self.dimension_start
+            p2 = snapped
+            if self._dim_preview_line is None:
+                preview_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
+                preview_pen.setCosmetic(True)
+                self._dim_preview_line = QGraphicsLineItem()
+                self._dim_preview_line.setPen(preview_pen)
+                self._dim_preview_line.setZValue(200)
+                self.addItem(self._dim_preview_line)
+            self._dim_preview_line.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+            # Show live distance label
+            dist = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+            dist_text = (sm.scene_to_display(dist) if sm.is_calibrated
+                         else f"{dist:.0f} mm")
+            if self._dim_preview_label is None:
+                self._dim_preview_label = QGraphicsTextItem()
+                self._dim_preview_label.setDefaultTextColor(QColor("#ffffff"))
+                f = QFont("Consolas", 10)
+                self._dim_preview_label.setFont(f)
+                self._dim_preview_label.setFlag(
+                    self._dim_preview_label.GraphicsItemFlag.ItemIgnoresTransformations, True)
+                self._dim_preview_label.setZValue(201)
+                self.addItem(self._dim_preview_label)
+            self._dim_preview_label.setPlainText(dist_text)
+            mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+            self._dim_preview_label.setPos(mid)
+
+    def _move_text(self, event, snapped):
+        sm = self.scale_manager
+        self.preview_pipe.hide()
+        if self._text_anchor is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+            if self._text_preview is not None:
+                rect = QRectF(self._text_anchor, snapped).normalized()
+                self._text_preview.setRect(rect)
+                self._draw_dim_hint = (
+                    f"W: {sm.scene_to_display(rect.width())}  "
+                    f"H: {sm.scene_to_display(rect.height())}"
+                    if sm.is_calibrated else
+                    f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
+                )
+
+    def _move_gridline(self, event, snapped):
+        if self._gridline_anchor is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+            self.preview_pipe.setLine(
+                self._gridline_anchor.x(), self._gridline_anchor.y(),
+                snapped.x(), snapped.y()
+            )
+            self.preview_pipe.show()
+
+    def _move_place_import(self, event, snapped):
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        self._update_place_import_ghost(snapped)
+
+    def _move_offset(self, event, snapped):
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+
+    def _move_offset_side(self, event, snapped):
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._offset_source is not None:
+            # Compute distance from cursor to source entity
+            if not getattr(self, '_offset_manual', False):
+                self._offset_dist = self._perpendicular_distance(
+                    self._offset_source, snapped)
+            if self._offset_dist > 0:
+                sd = self._offset_signed_dist(
+                    self._offset_source, self._offset_dist, snapped)
+                self._clear_offset_preview()
+                preview = self._make_offset_item(self._offset_source, sd)
+                if preview is not None:
+                    pen = preview.pen()
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    preview.setPen(pen)
+                    preview.setZValue(200)
+                    self.addItem(preview)
+                    self._offset_preview = preview
+                self._show_status(
+                    f"Offset: {self._offset_dist:.1f} mm  "
+                    f"(Tab = type distance, click to commit)", timeout=0)
+
+    def _move_move(self, event, snapped):
+        self.update_preview_node(snapped)
+        self.preview_pipe.hide()
+        if self.node_start_pos is not None:
+            # Show rubber-band line from base point to cursor
+            if self._move_preview_line is None:
+                self._move_preview_line = QGraphicsLineItem()
+                pen = QPen(QColor("#00aaff"), 0)
+                pen.setCosmetic(True)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                self._move_preview_line.setPen(pen)
+                self._move_preview_line.setZValue(200)
+                self.addItem(self._move_preview_line)
+            self._move_preview_line.setLine(
+                self.node_start_pos.x(), self.node_start_pos.y(),
+                snapped.x(), snapped.y())
+            self._move_preview_line.show()
+            # Show displacement in status bar
+            dx = snapped.x() - self.node_start_pos.x()
+            dy = snapped.y() - self.node_start_pos.y()
+            self._show_status(
+                f"Move: dx={dx:.1f}  dy={dy:.1f}  "
+                f"dist={math.hypot(dx, dy):.1f}", timeout=0)
+
+    def _move_preview_node(self, event, snapped):
+        self.update_preview_node(snapped)
+        self.preview_pipe.hide()
+
+    def _move_rotate(self, event, snapped):
+        if self._rotate_pivot is None:
+            return
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._rotate_preview_line is None:
+            self._rotate_preview_line = QGraphicsLineItem()
+            p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
+            p.setStyle(Qt.PenStyle.DashLine)
+            self._rotate_preview_line.setPen(p)
+            self._rotate_preview_line.setZValue(200)
+            self.addItem(self._rotate_preview_line)
+        self._rotate_preview_line.setLine(
+            self._rotate_pivot.x(), self._rotate_pivot.y(),
+            snapped.x(), snapped.y())
+        self._rotate_preview_line.show()
+        dx = snapped.x() - self._rotate_pivot.x()
+        dy = snapped.y() - self._rotate_pivot.y()
+        angle = math.degrees(math.atan2(-dy, dx))
+        self._show_status(f"Rotate: {angle:.1f}°", timeout=0)
+
+    def _move_mirror(self, event, snapped):
+        if self._mirror_p1 is None:
+            return
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._mirror_preview_line is None:
+            self._mirror_preview_line = QGraphicsLineItem()
+            p = QPen(QColor("#ff00ff"), 0); p.setCosmetic(True)
+            p.setStyle(Qt.PenStyle.DashDotLine)
+            self._mirror_preview_line.setPen(p)
+            self._mirror_preview_line.setZValue(200)
+            self.addItem(self._mirror_preview_line)
+        self._mirror_preview_line.setLine(
+            self._mirror_p1.x(), self._mirror_p1.y(),
+            snapped.x(), snapped.y())
+        self._mirror_preview_line.show()
+
+    def _move_stretch(self, event, snapped):
+        if self._stretch_base is None:
+            return
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._stretch_preview_line is None:
+            self._stretch_preview_line = QGraphicsLineItem()
+            p = QPen(QColor("#00aaff"), 0); p.setCosmetic(True)
+            p.setStyle(Qt.PenStyle.DashLine)
+            self._stretch_preview_line.setPen(p)
+            self._stretch_preview_line.setZValue(200)
+            self.addItem(self._stretch_preview_line)
+        self._stretch_preview_line.setLine(
+            self._stretch_base.x(), self._stretch_base.y(),
+            snapped.x(), snapped.y())
+        self._stretch_preview_line.show()
+        dx = snapped.x() - self._stretch_base.x()
+        dy = snapped.y() - self._stretch_base.y()
+        self._show_status(f"Stretch: dx={dx:.1f}  dy={dy:.1f}", timeout=0)
+
+    def _move_wall(self, event, snapped):
+        sm = self.scale_manager
+        if self._wall_anchor is None:
+            self.update_preview_node(snapped)
+            if self._wall_preview_rect is not None:
+                self._wall_preview_rect.hide()
+        else:
+            tip = snapped
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                tip = self._constrain_angle(self._wall_anchor, snapped)
+            self.preview_pipe.setLine(
+                self._wall_anchor.x(), self._wall_anchor.y(),
+                tip.x(), tip.y()
+            )
+            self.preview_pipe.show()
+            self.preview_node.hide()
+            _dx = tip.x() - self._wall_anchor.x()
+            _dy = tip.y() - self._wall_anchor.y()
+            _len = math.hypot(_dx, _dy)
+            self._draw_dim_hint = (
+                f"L: {sm.scene_to_display(_len)}"
+                if sm.is_calibrated else
+                f"L: {_len:.0f}mm"
+            )
+            # -- Wall thickness preview rectangle --
+            if _len > 1.0:  # avoid degenerate preview
+                if self._wall_preview_rect is None:
+                    self._wall_preview_rect = QGraphicsPathItem()
+                    _ppn = QPen(QColor("#aaaaaa"), 1, Qt.PenStyle.DashLine)
+                    _ppn.setCosmetic(True)
+                    self._wall_preview_rect.setPen(_ppn)
+                    _fill = QColor("#cccccc")
+                    _fill.setAlpha(30)
+                    self._wall_preview_rect.setBrush(QBrush(_fill))
+                    self._wall_preview_rect.setZValue(199)
+                    self.addItem(self._wall_preview_rect)
+                _wtmpl = self._get_wall_template()
+                p1l, p1r, p2r, p2l = compute_wall_quad(
+                    self._wall_anchor, tip, _wtmpl._thickness_in,
+                    _wtmpl._alignment, self.scale_manager)
+                _pp = QPainterPath()
+                _pp.moveTo(p1l)
+                _pp.lineTo(p2l)
+                _pp.lineTo(p2r)
+                _pp.lineTo(p1r)
+                _pp.closeSubpath()
+                self._wall_preview_rect.setPath(_pp)
+                self._wall_preview_rect.show()
+
+    def _move_floor(self, event, snapped):
+        sm = self.scale_manager
+        if self._floor_active is None:
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+        else:
+            self.preview_node.hide()
+            # Rubber-band line from last vertex to cursor
+            last_pt = self._floor_active._points[-1]
+            self.preview_pipe.setLine(
+                last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
+            pen = QPen(QColor(self._floor_active._color), 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            self.preview_pipe.setPen(pen)
+            self.preview_pipe.show()
+            _dx = snapped.x() - last_pt.x()
+            _dy = snapped.y() - last_pt.y()
+            _len = math.hypot(_dx, _dy)
+            _ang = math.degrees(math.atan2(-_dy, _dx))
+            self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+
+    def _move_floor_rect(self, event, snapped):
+        sm = self.scale_manager
+        if self._floor_rect_anchor is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
+            rect = QRectF(self._floor_rect_anchor, snapped).normalized()
+            self._floor_rect_preview.setRect(rect)
+            self._draw_dim_hint = (
+                f"W: {sm.scene_to_display(rect.width())}  "
+                f"H: {sm.scene_to_display(rect.height())}"
+            )
+
+    def _move_door_window(self, event, snapped):
+        self.update_preview_node(snapped)
+
+    # ── Dispatch table: mode string → press-handler method name ──────
+    _PRESS_DISPATCH = {
+        "sprinkler":                "_press_sprinkler",
+        "pipe":                     "_press_pipe",
+        "set_scale":                "_press_set_scale",
+        "dimension":                "_press_dimension",
+        "text":                     "_press_text",
+        "draw_arc":                 "_press_draw_arc",
+        "gridline":                 "_press_gridline",
+        "water_supply":             "_press_water_supply",
+        "design_area":              "_press_design_area",
+        "paste":                    "_press_paste_move",
+        "move":                     "_press_paste_move",
+        "place_import":             "_press_place_import",
+        "offset":                   "_press_offset",
+        "offset_side":              "_press_offset_side",
+        "rotate":                   "_press_rotate",
+        "scale":                    "_press_scale",
+        "mirror":                   "_press_mirror",
+        "break":                    "_press_break",
+        "break_at_point":           "_press_break_at_point",
+        "fillet":                   "_press_fillet",
+        "chamfer":                  "_press_chamfer",
+        "stretch":                  "_press_stretch",
+        "trim":                     "_press_trim",
+        "trim_pick":                "_press_trim",
+        "extend":                   "_press_extend",
+        "extend_pick":              "_press_extend",
+        "merge_points":             "_press_merge_hatch",
+        "hatch":                    "_press_merge_hatch",
+        "constraint_concentric":    "_press_constraint",
+        "constraint_dimensional":   "_press_constraint",
+        "polyline":                 "_press_polyline",
+        "draw_line":                "_press_draw_line",
+        "construction_line":        "_press_construction_line",
+        "draw_rectangle":           "_press_draw_rectangle",
+        "draw_circle":              "_press_draw_circle",
+        "wall":                     "_press_wall",
+        "floor":                    "_press_floor",
+        "floor_rect":               "_press_floor_rect",
+        "door":                     "_press_door",
+        "window":                   "_press_window",
+    }
 
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
@@ -3952,6 +3982,10 @@ class Model_Space(QGraphicsScene):
             selection = next((i for i in items if isinstance(i, Node)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
+
+        # Derive typed references for handler signature
+        node_under = selection if isinstance(selection, Node) else None
+        pipe_under = selection if isinstance(selection, Pipe) else None
 
         # ── Grip hit takes priority over mode handlers ──────────────────
         # Skip grip detection in drawing modes so clicks reach the draw handler
@@ -3973,221 +4007,189 @@ class Model_Space(QGraphicsScene):
                 self._grip_dragging = True
                 return  # consumed by grip system
 
-        if self.mode == "sprinkler":
-            if selection is None:
-                node = self.add_node(snapped.x(), snapped.y())
-            elif isinstance(selection, Pipe):
-                node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
-            elif isinstance(selection, Node):
-                node = selection
-                if node.has_sprinkler():
-                    return
-            self.add_sprinkler(node, getattr(self, "current_template", None))
-            node.fitting.update()
+        # ── Dispatch to per-mode handler ────────────────────────────────
+        handler_name = self._PRESS_DISPATCH.get(self.mode)
+        if handler_name is not None:
+            getattr(self, handler_name)(event, scene_pos, snapped,
+                                        selection, node_under, pipe_under)
+            return
+
+        # ── Shift-click floor vertex editing (select mode) ────────────────
+        if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                and self.mode in (None, "select")):
+            if self._press_select_shift_floor(event, scene_pos, snapped,
+                                               selection, node_under, pipe_under):
+                return
+
+        # (Grip check was moved above the mode chain — always takes priority)
+
+        super().mousePressEvent(event)
+
+    # ── Per-mode press handlers ──────────────────────────────────────────
+
+    def _press_sprinkler(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if item_under is None:
+            node = self.add_node(snapped.x(), snapped.y())
+        elif isinstance(item_under, Pipe):
+            node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped, item_under))
+        elif isinstance(item_under, Node):
+            node = item_under
+            if node.has_sprinkler():
+                return
+        self.add_sprinkler(node, getattr(self, "current_template", None))
+        node.fitting.update()
+        self.push_undo_state()
+
+    def _press_pipe(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self.node_start_pos is None:
+            template = getattr(self, "current_template", None)
+
+            # Check for existing node BEFORE find_or_create_node
+            existing_start = self.find_nearby_node(snapped.x(), snapped.y())
+
+            if isinstance(item_under, Pipe):
+                start_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped, item_under))
+                self._pipe_node_was_new = True  # split created new node
+            else:
+                start_node = self.find_or_create_node(snapped.x(), snapped.y())
+                self._pipe_node_was_new = (existing_start is None)
+
+            # Check elevation mismatch only on a pre-existing node
+            if existing_start is not None and existing_start is start_node and template is not None:
+                template_z = self._compute_template_z_pos(template)
+                if template_z is not None and abs(start_node.z_pos - template_z) > 0.01:
+                    reply = QMessageBox.question(
+                        self.views()[0] if self.views() else None,
+                        "Elevation Mismatch",
+                        f"Start node is at elevation {start_node.z_pos:.2f} ft "
+                        f"but the template targets {template_z:.2f} ft.\n\n"
+                        "Create a vertical connection (riser/drop)?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        # Create intermediate node at template elevation
+                        # and vertical pipe from existing → intermediate.
+                        # Use intermediate as the pipe start.
+                        intermediate = self._make_intermediate_node(
+                            start_node, template,
+                        )
+                        vert = Pipe(start_node, intermediate)
+                        vert.user_layer = self.active_user_layer
+                        vert.level = self.active_level
+                        vert._properties["Level"]["value"] = self.active_level
+                        for key in ("Diameter", "Schedule", "C-Factor",
+                                    "Material", "Colour", "Phase"):
+                            if key in template._properties:
+                                vert.set_property(
+                                    key, template._properties[key]["value"],
+                                )
+                        self.sprinkler_system.add_pipe(vert)
+                        self.addItem(vert)
+                        apply_category_defaults(vert)
+                        vert.update_label()
+                        start_node.fitting.update()
+                        intermediate.fitting.update()
+                        start_node = intermediate  # continue from intermediate
+
+            self.node_start_pos = start_node
+            self.instructionChanged.emit("Pick end node")
+        else:
+            start_pos   = self.node_start_pos.scenePos()
+            snapped_end = self.node_start_pos.snap_point_45(start_pos, snapped)
+            template = getattr(self, "current_template", None)
+
+            # Check for existing node BEFORE find_or_create_node
+            existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+
+            if isinstance(item_under, Pipe):
+                end_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped_end, item_under))
+            else:
+                end_node = self.find_or_create_node(snapped_end.x(), snapped_end.y())
+
+            # Block zero-length same-node pipe
+            if end_node is self.node_start_pos:
+                return  # wait for valid second click
+
+            # Detect elevation mismatch on an existing end node
+            if existing_end is not None and template is not None:
+                template_z = self._compute_template_z_pos(template)
+                if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
+                    reply = QMessageBox.question(
+                        self.views()[0] if self.views() else None,
+                        "Elevation Mismatch",
+                        f"The target node is at elevation {end_node.z_pos:.2f} ft "
+                        f"but the template targets {template_z:.2f} ft.\n\n"
+                        "Create a vertical connection (riser/drop)?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self._create_vertical_connection(
+                            self.node_start_pos, end_node, template,
+                        )
+                        self.node_start_pos = None
+                        self.preview_pipe.hide()
+                        self.preview_node.hide()
+                        self.push_undo_state()
+                        self.instructionChanged.emit("Pick start node")
+                        return
+
+            self.add_pipe(self.node_start_pos, end_node, template)
+            self.node_start_pos.fitting.update()
+            end_node.fitting.update()
+            self.node_start_pos = None
+            self._pipe_node_was_new = False
+            self.preview_pipe.hide()
+            self.preview_node.hide()
             self.push_undo_state()
+            self.instructionChanged.emit("Pick start node")
 
-        elif self.mode == "pipe":
-            if self.node_start_pos is None:
-                template = getattr(self, "current_template", None)
+    def _press_set_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._cal_point1 is None:
+            self._cal_point1 = snapped
+            self.instructionChanged.emit("Pick second calibration point")
+        else:
+            dialog = CalibrateDialog(self.views()[0] if self.views() else None)
+            if dialog.exec():
+                distance = dialog.get_distance()
+                unit = dialog.get_unit_code()
+                try:
+                    self.scale_manager.calibrate(
+                        self._cal_point1, snapped, distance, unit
+                    )
+                    self._show_status(f"Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm")
+                    self._refresh_all_scales()
+                except ValueError as e:
+                    self._show_status(f"Calibration failed: {e}")
+            self._cal_point1 = None
+            self.set_mode(None)
 
-                # Check for existing node BEFORE find_or_create_node
-                existing_start = self.find_nearby_node(snapped.x(), snapped.y())
-
-                if isinstance(selection, Pipe):
-                    start_node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped, selection))
-                    self._pipe_node_was_new = True  # split created new node
-                else:
-                    start_node = self.find_or_create_node(snapped.x(), snapped.y())
-                    self._pipe_node_was_new = (existing_start is None)
-
-                # Check elevation mismatch only on a pre-existing node
-                if existing_start is not None and existing_start is start_node and template is not None:
-                    template_z = self._compute_template_z_pos(template)
-                    if template_z is not None and abs(start_node.z_pos - template_z) > 0.01:
-                        from PyQt6.QtWidgets import QMessageBox
-                        reply = QMessageBox.question(
-                            self.views()[0] if self.views() else None,
-                            "Elevation Mismatch",
-                            f"Start node is at elevation {start_node.z_pos:.2f} ft "
-                            f"but the template targets {template_z:.2f} ft.\n\n"
-                            "Create a vertical connection (riser/drop)?",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                            QMessageBox.StandardButton.Yes,
-                        )
-                        if reply == QMessageBox.StandardButton.Yes:
-                            # Create intermediate node at template elevation
-                            # and vertical pipe from existing → intermediate.
-                            # Use intermediate as the pipe start.
-                            intermediate = self._make_intermediate_node(
-                                start_node, template,
-                            )
-                            vert = Pipe(start_node, intermediate)
-                            vert.user_layer = self.active_user_layer
-                            vert.level = self.active_level
-                            vert._properties["Level"]["value"] = self.active_level
-                            for key in ("Diameter", "Schedule", "C-Factor",
-                                        "Material", "Colour", "Phase"):
-                                if key in template._properties:
-                                    vert.set_property(
-                                        key, template._properties[key]["value"],
-                                    )
-                            self.sprinkler_system.add_pipe(vert)
-                            self.addItem(vert)
-                            apply_category_defaults(vert)
-                            vert.update_label()
-                            start_node.fitting.update()
-                            intermediate.fitting.update()
-                            start_node = intermediate  # continue from intermediate
-
-                self.node_start_pos = start_node
-                self.instructionChanged.emit("Pick end node")
-            else:
-                start_pos   = self.node_start_pos.scenePos()
-                snapped_end = self.node_start_pos.snap_point_45(start_pos, snapped)
-                template = getattr(self, "current_template", None)
-
-                # Check for existing node BEFORE find_or_create_node
-                existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
-
-                if isinstance(selection, Pipe):
-                    end_node = self.split_pipe(selection, self.project_click_onto_pipe_segment(snapped_end, selection))
-                else:
-                    end_node = self.find_or_create_node(snapped_end.x(), snapped_end.y())
-
-                # Block zero-length same-node pipe
-                if end_node is self.node_start_pos:
-                    return  # wait for valid second click
-
-                # Detect elevation mismatch on an existing end node
-                if existing_end is not None and template is not None:
-                    template_z = self._compute_template_z_pos(template)
-                    if template_z is not None and abs(end_node.z_pos - template_z) > 0.01:
-                        from PyQt6.QtWidgets import QMessageBox
-                        reply = QMessageBox.question(
-                            self.views()[0] if self.views() else None,
-                            "Elevation Mismatch",
-                            f"The target node is at elevation {end_node.z_pos:.2f} ft "
-                            f"but the template targets {template_z:.2f} ft.\n\n"
-                            "Create a vertical connection (riser/drop)?",
-                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                            QMessageBox.StandardButton.Yes,
-                        )
-                        if reply == QMessageBox.StandardButton.Yes:
-                            self._create_vertical_connection(
-                                self.node_start_pos, end_node, template,
-                            )
-                            self.node_start_pos = None
-                            self.preview_pipe.hide()
-                            self.preview_node.hide()
-                            self.push_undo_state()
-                            self.instructionChanged.emit("Pick start node")
-                            return
-
-                self.add_pipe(self.node_start_pos, end_node, template)
-                self.node_start_pos.fitting.update()
-                end_node.fitting.update()
-                self.node_start_pos = None
-                self._pipe_node_was_new = False
-                self.preview_pipe.hide()
-                self.preview_node.hide()
-                self.push_undo_state()
-                self.instructionChanged.emit("Pick start node")
-
-        elif self.mode == "set_scale":
-            if self._cal_point1 is None:
-                self._cal_point1 = snapped
-                self.instructionChanged.emit("Pick second calibration point")
-            else:
-                dialog = CalibrateDialog(self.views()[0] if self.views() else None)
-                if dialog.exec():
-                    distance = dialog.get_distance()
-                    unit = dialog.get_unit_code()
-                    try:
-                        self.scale_manager.calibrate(
-                            self._cal_point1, snapped, distance, unit
-                        )
-                        self._show_status(f"Scale set: {self.scale_manager.pixels_per_mm:.4f} px/mm")
-                        self._refresh_all_scales()
-                    except ValueError as e:
-                        self._show_status(f"Calibration failed: {e}")
-                self._cal_point1 = None
-                self.set_mode(None)
-                return
-
-        elif self.mode == "dimension":
-            if self._dim_pending is not None:
-                # Click 3 — finalize offset
-                self._dim_pending = None
-                self.dimension_start = None
-                self.push_undo_state()
-                self.instructionChanged.emit("Pick first point")
-                return
-            elif self.dimension_start is None:
-                # Click 1 — check if clicking on a circle or arc for radius dim
-                hit_items = self.items(event.scenePos())
-                _radius_target = None
-                for hit in hit_items:
-                    if isinstance(hit, CircleItem):
-                        _radius_target = (hit._center, snapped)
-                        break
-                    elif isinstance(hit, ArcItem):
-                        _radius_target = (hit._center, snapped)
-                        break
-                if _radius_target is not None:
-                    # Create radius dimension immediately (center → click point)
-                    center_pt, edge_pt = _radius_target
-                    self._remove_dim_preview()
-                    dim = DimensionAnnotation(center_pt, edge_pt)
-                    dim.is_radius = True
-                    dim.user_layer = "Annotations"
-                    self.addItem(dim)
-                    self.annotations.add_dimension(dim)
-                    self.requestPropertyUpdate.emit(dim)
-                    self._dim_pending = dim
-                    self.instructionChanged.emit("Click to set offset position")
-                    return
-                # Normal Click 1 — set start point; detect if on a LineItem
-                self.dimension_start = snapped
-                self._dim_line1 = None
-                for hit in hit_items:
-                    if isinstance(hit, LineItem):
-                        self._dim_line1 = hit
-                        break
-                self.instructionChanged.emit("Pick second point")
-            else:
-                # Click 2 — check for parallel lines, then create dimension
-                p1 = self.dimension_start
-                p2 = snapped
-
-                # Detect if click 2 is on a LineItem and lines are parallel
-                hit2_items = self.items(event.scenePos())
-                _line2 = None
-                for hit in hit2_items:
-                    if isinstance(hit, LineItem) and hit is not self._dim_line1:
-                        _line2 = hit
-                        break
-
-                if self._dim_line1 is not None and _line2 is not None:
-                    # Both clicks on lines — check parallelism
-                    l1 = self._dim_line1.line()
-                    l2 = _line2.line()
-                    a1 = math.atan2(l1.dy(), l1.dx())
-                    a2 = math.atan2(l2.dy(), l2.dx())
-                    angle_diff = abs(a1 - a2) % math.pi
-                    if angle_diff < math.radians(5) or angle_diff > math.radians(175):
-                        # Parallel — compute perpendicular foot points
-                        # Project p2 onto the perpendicular from p1
-                        perp_angle = a1 + math.pi / 2
-                        nx, ny = math.cos(perp_angle), math.sin(perp_angle)
-                        # p2_foot = p1 + t * n where t = (p2 - p1) · n
-                        dx = p2.x() - p1.x()
-                        dy = p2.y() - p1.y()
-                        t = dx * nx + dy * ny
-                        p2 = QPointF(p1.x() + t * nx, p1.y() + t * ny)
-
-                self._dim_line1 = None  # reset
+    def _press_dimension(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._dim_pending is not None:
+            # Click 3 — finalize offset
+            self._dim_pending = None
+            self.dimension_start = None
+            self.push_undo_state()
+            self.instructionChanged.emit("Pick first point")
+            return
+        elif self.dimension_start is None:
+            # Click 1 — check if clicking on a circle or arc for radius dim
+            hit_items = self.items(event.scenePos())
+            _radius_target = None
+            for hit in hit_items:
+                if isinstance(hit, CircleItem):
+                    _radius_target = (hit._center, snapped)
+                    break
+                elif isinstance(hit, ArcItem):
+                    _radius_target = (hit._center, snapped)
+                    break
+            if _radius_target is not None:
+                # Create radius dimension immediately (center → click point)
+                center_pt, edge_pt = _radius_target
                 self._remove_dim_preview()
-                dim = DimensionAnnotation(p1, p2)
+                dim = DimensionAnnotation(center_pt, edge_pt)
+                dim.is_radius = True
                 dim.user_layer = "Annotations"
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
@@ -4195,875 +4197,888 @@ class Model_Space(QGraphicsScene):
                 self._dim_pending = dim
                 self.instructionChanged.emit("Click to set offset position")
                 return
+            # Normal Click 1 — set start point; detect if on a LineItem
+            self.dimension_start = snapped
+            self._dim_line1 = None
+            for hit in hit_items:
+                if isinstance(hit, LineItem):
+                    self._dim_line1 = hit
+                    break
+            self.instructionChanged.emit("Pick second point")
+        else:
+            # Click 2 — check for parallel lines, then create dimension
+            p1 = self.dimension_start
+            p2 = snapped
 
-        elif self.mode == "text":
-            if self._text_anchor is None:
-                # First click — set anchor, create dashed preview rectangle
-                self._text_anchor = snapped
-                self.update_preview_node(snapped)
-                preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                _prev_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
-                _prev_pen.setCosmetic(True)
-                preview.setPen(_prev_pen)
-                preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                preview.setZValue(200)
-                self.addItem(preview)
-                self._text_preview = preview
-            else:
-                # Second click — commit text box
-                rect = QRectF(self._text_anchor, snapped).normalized()
-                text_width = max(rect.width(), 20)  # minimum 20px width
-                note = NoteAnnotation(
-                    text="Text", x=rect.x(), y=rect.y(),
-                    text_width=text_width)
-                note.user_layer = "Annotations"
-                note.setTextInteractionFlags(
-                    Qt.TextInteractionFlag.TextEditorInteraction)
-                self.addItem(note)
-                self.annotations.notes.append(note)
-                self.requestPropertyUpdate.emit(note)
-                # Remove preview
-                if self._text_preview is not None:
-                    self.removeItem(self._text_preview)
-                    self._text_preview = None
-                self._text_anchor = None
-                self.push_undo_state()
-            return
+            # Detect if click 2 is on a LineItem and lines are parallel
+            hit2_items = self.items(event.scenePos())
+            _line2 = None
+            for hit in hit2_items:
+                if isinstance(hit, LineItem) and hit is not self._dim_line1:
+                    _line2 = hit
+                    break
 
-        elif self.mode == "draw_arc":
-            if self._draw_arc_step == 0:
-                # Click 1 — set centre
-                self._draw_arc_center = snapped
-                self._draw_arc_step = 1
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick start angle point")
-                # Create radius preview line (centre → cursor)
-                line = QGraphicsLineItem(snapped.x(), snapped.y(),
-                                         snapped.x(), snapped.y())
-                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-                _prev_pen.setCosmetic(True)
-                line.setPen(_prev_pen)
-                line.setZValue(200)
-                self.addItem(line)
-                self._draw_arc_radius_line = line
-            elif self._draw_arc_step == 1:
-                # Click 2 — set start point (defines radius + start angle)
-                cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
-                r = math.hypot(snapped.x() - cx, snapped.y() - cy)
-                if r < 0.01:
-                    return
-                self._draw_arc_radius = r
-                self._draw_arc_start_deg = math.degrees(
-                    math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-                )
-                self._draw_arc_step = 2
-                self.instructionChanged.emit("Pick end angle point")
-                # Remove radius line, create arc preview path
-                if self._draw_arc_radius_line is not None:
-                    self.removeItem(self._draw_arc_radius_line)
-                    self._draw_arc_radius_line = None
-                preview = QGraphicsPathItem()
-                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-                _prev_pen.setCosmetic(True)
-                preview.setPen(_prev_pen)
-                preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                preview.setZValue(200)
-                self.addItem(preview)
-                self._draw_arc_preview = preview
-            elif self._draw_arc_step == 2:
-                # Click 3 — set end point → commit arc
-                cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
-                end_deg = math.degrees(
-                    math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-                )
-                span = end_deg - self._draw_arc_start_deg
-                # Normalise span to positive CCW direction
-                if span <= 0:
-                    span += 360.0
-                # Reject near-zero arcs
-                if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
-                    self._show_status("Arc span too small — skipped", timeout=2000)
-                    return
-                tmpl = self._get_geometry_template()
-                _c, _lw = self._geom_color_lw()
-                item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
-                               self._draw_arc_start_deg, span, _c, _lw)
-                item.user_layer = tmpl.user_layer
-                item.level = tmpl.level
-                self.addItem(item)
-                self._draw_arcs.append(item)
-                item.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                # Clean up previews
-                if self._draw_arc_preview is not None:
-                    self.removeItem(self._draw_arc_preview)
-                    self._draw_arc_preview = None
-                self._draw_arc_center = None
-                self._draw_arc_radius = 0.0
-                self._draw_arc_start_deg = 0.0
-                self._draw_arc_step = 0
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick center point")
-            return
+            if self._dim_line1 is not None and _line2 is not None:
+                # Both clicks on lines — check parallelism
+                l1 = self._dim_line1.line()
+                l2 = _line2.line()
+                a1 = math.atan2(l1.dy(), l1.dx())
+                a2 = math.atan2(l2.dy(), l2.dx())
+                angle_diff = abs(a1 - a2) % math.pi
+                if angle_diff < math.radians(5) or angle_diff > math.radians(175):
+                    # Parallel — compute perpendicular foot points
+                    # Project p2 onto the perpendicular from p1
+                    perp_angle = a1 + math.pi / 2
+                    nx, ny = math.cos(perp_angle), math.sin(perp_angle)
+                    # p2_foot = p1 + t * n where t = (p2 - p1) · n
+                    dx = p2.x() - p1.x()
+                    dy = p2.y() - p1.y()
+                    t = dx * nx + dy * ny
+                    p2 = QPointF(p1.x() + t * nx, p1.y() + t * ny)
 
-        elif self.mode == "gridline":
-            if self._gridline_anchor is None:
-                self._gridline_anchor = snapped
-                self.instructionChanged.emit("Pick end point")
-            else:
-                # Create gridline from anchor to snapped
-                gl = GridlineItem(self._gridline_anchor, snapped)
-                gl.user_layer = self.active_user_layer
-                gl.level = self.active_level
-                self.addItem(gl)
-                apply_category_defaults(gl)
-                self._gridlines.append(gl)
-                self.requestPropertyUpdate.emit(gl)
-                gl.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self._gridline_anchor = None
-                self.preview_pipe.hide()
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick start point")
-            return
+            self._dim_line1 = None  # reset
+            self._remove_dim_preview()
+            dim = DimensionAnnotation(p1, p2)
+            dim.user_layer = "Annotations"
+            self.addItem(dim)
+            self.annotations.add_dimension(dim)
+            self.requestPropertyUpdate.emit(dim)
+            self._dim_pending = dim
+            self.instructionChanged.emit("Click to set offset position")
 
-        elif self.mode == "water_supply":
-            # Require placement on a node or pipe (split to create node)
-            if isinstance(selection, Node):
-                target_node = selection
-            elif isinstance(selection, Pipe):
-                target_node = self.split_pipe(
-                    selection,
-                    self.project_click_onto_pipe_segment(snapped, selection),
-                )
-            else:
-                target_node = self.find_nearby_node(snapped.x(), snapped.y())
-
-            if target_node is None:
-                self._show_status("Click on a node or pipe to place water supply")
-                return
-
-            if self.water_supply_node is not None:
-                self.removeItem(self.water_supply_node)
-            ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
-            self.addItem(ws)
-            self.water_supply_node = ws
-            self.sprinkler_system.supply_node = ws
-            self.requestPropertyUpdate.emit(ws)
+    def _press_text(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._text_anchor is None:
+            # First click — set anchor, create dashed preview rectangle
+            self._text_anchor = snapped
+            self.update_preview_node(snapped)
+            preview = QGraphicsRectItem(QRectF(snapped, snapped))
+            _prev_pen = QPen(QColor("#ffffff"), 2, Qt.PenStyle.DashLine)
+            _prev_pen.setCosmetic(True)
+            preview.setPen(_prev_pen)
+            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._text_preview = preview
+        else:
+            # Second click — commit text box
+            rect = QRectF(self._text_anchor, snapped).normalized()
+            text_width = max(rect.width(), 20)  # minimum 20px width
+            note = NoteAnnotation(
+                text="Text", x=rect.x(), y=rect.y(),
+                text_width=text_width)
+            note.user_layer = "Annotations"
+            note.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextEditorInteraction)
+            self.addItem(note)
+            self.annotations.notes.append(note)
+            self.requestPropertyUpdate.emit(note)
+            # Remove preview
+            if self._text_preview is not None:
+                self.removeItem(self._text_preview)
+                self._text_preview = None
+            self._text_anchor = None
             self.push_undo_state()
-            self.set_mode(None)
+
+    def _press_draw_arc(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._draw_arc_step == 0:
+            # Click 1 — set centre
+            self._draw_arc_center = snapped
+            self._draw_arc_step = 1
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick start angle point")
+            # Create radius preview line (centre → cursor)
+            line = QGraphicsLineItem(snapped.x(), snapped.y(),
+                                     snapped.x(), snapped.y())
+            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen.setCosmetic(True)
+            line.setPen(_prev_pen)
+            line.setZValue(200)
+            self.addItem(line)
+            self._draw_arc_radius_line = line
+        elif self._draw_arc_step == 1:
+            # Click 2 — set start point (defines radius + start angle)
+            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+            r = math.hypot(snapped.x() - cx, snapped.y() - cy)
+            if r < 0.01:
+                return
+            self._draw_arc_radius = r
+            self._draw_arc_start_deg = math.degrees(
+                math.atan2(-(snapped.y() - cy), snapped.x() - cx)
+            )
+            self._draw_arc_step = 2
+            self.instructionChanged.emit("Pick end angle point")
+            # Remove radius line, create arc preview path
+            if self._draw_arc_radius_line is not None:
+                self.removeItem(self._draw_arc_radius_line)
+                self._draw_arc_radius_line = None
+            preview = QGraphicsPathItem()
+            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen.setCosmetic(True)
+            preview.setPen(_prev_pen)
+            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._draw_arc_preview = preview
+        elif self._draw_arc_step == 2:
+            # Click 3 — set end point → commit arc
+            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+            end_deg = math.degrees(
+                math.atan2(-(snapped.y() - cy), snapped.x() - cx)
+            )
+            span = end_deg - self._draw_arc_start_deg
+            # Normalise span to positive CCW direction
+            if span <= 0:
+                span += 360.0
+            # Reject near-zero arcs
+            if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
+                self._show_status("Arc span too small — skipped", timeout=2000)
+                return
+            tmpl = self._get_geometry_template()
+            _c, _lw = self._geom_color_lw()
+            item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
+                           self._draw_arc_start_deg, span, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
+            self.addItem(item)
+            self._draw_arcs.append(item)
+            item.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            # Clean up previews
+            if self._draw_arc_preview is not None:
+                self.removeItem(self._draw_arc_preview)
+                self._draw_arc_preview = None
+            self._draw_arc_center = None
+            self._draw_arc_radius = 0.0
+            self._draw_arc_start_deg = 0.0
+            self._draw_arc_step = 0
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+            else:
+                self.instructionChanged.emit("Pick center point")
+
+    def _press_gridline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._gridline_anchor is None:
+            self._gridline_anchor = snapped
+            self.instructionChanged.emit("Pick end point")
+        else:
+            # Create gridline from anchor to snapped
+            gl = GridlineItem(self._gridline_anchor, snapped)
+            gl.user_layer = self.active_user_layer
+            gl.level = self.active_level
+            self.addItem(gl)
+            apply_category_defaults(gl)
+            self._gridlines.append(gl)
+            self.requestPropertyUpdate.emit(gl)
+            gl.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            self._gridline_anchor = None
+            self.preview_pipe.hide()
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+            else:
+                self.instructionChanged.emit("Pick start point")
+
+    def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
+        # Require placement on a node or pipe (split to create node)
+        if isinstance(item_under, Node):
+            target_node = item_under
+        elif isinstance(item_under, Pipe):
+            target_node = self.split_pipe(
+                item_under,
+                self.project_click_onto_pipe_segment(snapped, item_under),
+            )
+        else:
+            target_node = self.find_nearby_node(snapped.x(), snapped.y())
+
+        if target_node is None:
+            self._show_status("Click on a node or pipe to place water supply")
             return
 
-        elif self.mode == "design_area":
-            modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
-            shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        if self.water_supply_node is not None:
+            self.removeItem(self.water_supply_node)
+        ws = WaterSupply(target_node.scenePos().x(), target_node.scenePos().y())
+        self.addItem(ws)
+        self.water_supply_node = ws
+        self.sprinkler_system.supply_node = ws
+        self.requestPropertyUpdate.emit(ws)
+        self.push_undo_state()
+        self.set_mode(None)
 
-            if shift:
-                # Shift+click: rectangle selection mode
-                if self._design_area_corner1 is None:
-                    self._design_area_corner1 = snapped
-                    rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
-                    rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
-                    rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
-                    rect_item.setZValue(2)
-                    self.addItem(rect_item)
-                    self._design_area_rect_item = rect_item
-                    self._show_status("Shift+click second corner to complete rectangle.")
-                else:
-                    c1 = self._design_area_corner1
-                    selection_rect = QRectF(c1, snapped).normalized()
-                    selected_sprs = [
-                        s for s in self.sprinkler_system.sprinklers
-                        if s.node and selection_rect.contains(s.node.scenePos())
-                    ]
-                    # Remove the temporary preview rect
-                    if self._design_area_rect_item and self._design_area_rect_item.scene() is self:
-                        self.removeItem(self._design_area_rect_item)
-                    self._design_area_rect_item = None
-                    self._design_area_corner1 = None
-                    # Create/update design area with selected sprinklers
-                    if not self.active_design_area:
-                        da = DesignArea(selected_sprs)
-                        self.addItem(da)
-                        self.design_areas.append(da)
-                        self.active_design_area = da
-                    else:
-                        for s in selected_sprs:
-                            self.active_design_area.add_sprinkler(s)
-                    if self.active_design_area:
-                        self.active_design_area.compute_area(self.scale_manager)
-                    count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
-                    self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+    def _press_design_area(self, event, pos, snapped, item_under, node_under, pipe_under):
+        modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+
+        if shift:
+            # Shift+click: rectangle selection mode
+            if self._design_area_corner1 is None:
+                self._design_area_corner1 = snapped
+                rect_item = QGraphicsRectItem(QRectF(snapped, snapped))
+                rect_item.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
+                rect_item.setBrush(QBrush(QColor(255, 200, 0, 40)))
+                rect_item.setZValue(2)
+                self.addItem(rect_item)
+                self._design_area_rect_item = rect_item
+                self._show_status("Shift+click second corner to complete rectangle.")
             else:
-                # Normal click: toggle individual sprinkler
-                # Find sprinkler node near click
-                target_spr = None
-                for spr in self.sprinkler_system.sprinklers:
-                    if spr.node and spr.node.distance_to(snapped.x(), snapped.y()) < 40:
-                        target_spr = spr
-                        break
-                if target_spr:
-                    if not self.active_design_area:
-                        da = DesignArea()
-                        self.addItem(da)
-                        self.design_areas.append(da)
-                        self.active_design_area = da
-                    self.active_design_area.toggle_sprinkler(target_spr)
+                c1 = self._design_area_corner1
+                selection_rect = QRectF(c1, snapped).normalized()
+                selected_sprs = [
+                    s for s in self.sprinkler_system.sprinklers
+                    if s.node and selection_rect.contains(s.node.scenePos())
+                ]
+                # Remove the temporary preview rect
+                if self._design_area_rect_item and self._design_area_rect_item.scene() is self:
+                    self.removeItem(self._design_area_rect_item)
+                self._design_area_rect_item = None
+                self._design_area_corner1 = None
+                # Create/update design area with selected sprinklers
+                if not self.active_design_area:
+                    da = DesignArea(selected_sprs)
+                    self.addItem(da)
+                    self.design_areas.append(da)
+                    self.active_design_area = da
+                else:
+                    for s in selected_sprs:
+                        self.active_design_area.add_sprinkler(s)
+                if self.active_design_area:
                     self.active_design_area.compute_area(self.scale_manager)
-                    count = len(self.active_design_area.sprinklers)
-                    self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+                count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
+                self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+        else:
+            # Normal click: toggle individual sprinkler
+            # Find sprinkler node near click
+            target_spr = None
+            for spr in self.sprinkler_system.sprinklers:
+                if spr.node and spr.node.distance_to(snapped.x(), snapped.y()) < 40:
+                    target_spr = spr
+                    break
+            if target_spr:
+                if not self.active_design_area:
+                    da = DesignArea()
+                    self.addItem(da)
+                    self.design_areas.append(da)
+                    self.active_design_area = da
+                self.active_design_area.toggle_sprinkler(target_spr)
+                self.active_design_area.compute_area(self.scale_manager)
+                count = len(self.active_design_area.sprinklers)
+                self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+            else:
+                self._show_status("No sprinkler found. Click on a sprinkler to add/remove it.")
+
+    def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self.node_start_pos is None:
+            self.node_start_pos = snapped
+        else:
+            offset = CAD_Math.get_vector(self.node_start_pos, snapped)
+            if self.mode == "paste":
+                self.paste_items(offset)
+            elif self.mode == "move":
+                self.move_items(offset)
+            self.push_undo_state()
+            self.node_start_pos = None
+            self.set_mode(None)
+
+    def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
+        self._commit_place_import(snapped)
+
+    def _press_offset(self, event, pos, snapped, item_under, node_under, pipe_under):
+        # Select entity to offset — go straight to live preview (no dialog)
+        hit = [i for i in self.items(pos)
+               if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem))]
+        if not hit:
+            return
+        self._offset_source = hit[0]
+        self._offset_highlight = self._highlight_item(hit[0])
+        self._offset_dist = 0  # will be computed from cursor distance
+        self._offset_manual = False  # cursor-driven distance
+        self.set_mode("offset_side")
+        self._show_status(
+            "Move cursor to set offset distance and side, "
+            "click to commit. Tab = type distance.")
+
+    def _press_offset_side(self, event, pos, snapped, item_under, node_under, pipe_under):
+        # Click determines which side — commit the offset
+        if self._offset_source is not None and self._offset_dist > 0:
+            sd = self._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
+            self._clear_offset_preview()
+            new_item = self._make_offset_item(self._offset_source, sd)
+            if new_item is not None:
+                if isinstance(new_item, LineItem):
+                    self.addItem(new_item)
+                    self._draw_lines.append(new_item)
+                elif isinstance(new_item, PolylineItem):
+                    self.addItem(new_item)
+                    self._polylines.append(new_item)
+                elif isinstance(new_item, CircleItem):
+                    self.addItem(new_item)
+                    self._draw_circles.append(new_item)
+                elif isinstance(new_item, RectangleItem):
+                    self.addItem(new_item)
+                    self._draw_rects.append(new_item)
+                elif isinstance(new_item, ArcItem):
+                    self.addItem(new_item)
+                    self._draw_arcs.append(new_item)
+                self.push_undo_state()
+        # Stay in offset mode ready for next entity
+        self._offset_source = None
+        if self._offset_highlight is not None:
+            if self._offset_highlight.scene() is self:
+                self.removeItem(self._offset_highlight)
+            self._offset_highlight = None
+        self.set_mode("offset")
+
+    # ── Interactive Rotate ────────────────────────────────────────────
+    def _press_rotate(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._rotate_pivot is None:
+            self._rotate_pivot = snapped
+            self.instructionChanged.emit("Click to set angle, or Tab for exact angle")
+        else:
+            dx = snapped.x() - self._rotate_pivot.x()
+            dy = snapped.y() - self._rotate_pivot.y()
+            angle = math.degrees(math.atan2(-dy, dx))
+            self._apply_rotate(self._rotate_pivot, angle)
+            self.push_undo_state()
+            self._selected_items = []
+            self.set_mode(None)
+
+    # ── Interactive Scale ─────────────────────────────────────────────
+    def _press_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._scale_base is None:
+            self._scale_base = snapped
+            self.instructionChanged.emit("Tab = enter scale factor")
+
+    # ── Mirror ────────────────────────────────────────────────────────
+    def _press_mirror(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._mirror_p1 is None:
+            self._mirror_p1 = snapped
+            self.instructionChanged.emit("Pick second axis point")
+        else:
+            self._apply_mirror(self._mirror_p1, snapped)
+            reply = QMessageBox.question(
+                None, "Mirror", "Delete original objects?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                for item in list(self._selected_items or self.selectedItems()):
+                    self._delete_single_item(item)
+            self.push_undo_state()
+            self._selected_items = []
+            self.set_mode(None)
+
+    # ── Break (2-point) ──────────────────────────────────────────────
+    def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._break_target is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None:
+                self._break_target = hit
+                self._break_highlight = self._highlight_item(hit)
+                self.instructionChanged.emit("Pick first break point on object")
+        elif self._break_p1 is None:
+            self._break_p1 = snapped
+            self.instructionChanged.emit("Pick second break point")
+        else:
+            self._break_item(self._break_target, self._break_p1, snapped)
+            self.push_undo_state()
+            self.set_mode("break")
+
+    # ── Break at Point ───────────────────────────────────────────────
+    def _press_break_at_point(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._break_at_target is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None:
+                self._break_at_target = hit
+                self._break_at_highlight = self._highlight_item(hit)
+                self.instructionChanged.emit("Pick break point on object")
+        else:
+            self._break_at_point(self._break_at_target, snapped)
+            self.push_undo_state()
+            self.set_mode("break_at_point")
+
+    # ── Fillet ───────────────────────────────────────────────────────
+    def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._fillet_item1 is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None and isinstance(hit, LineItem):
+                self._fillet_item1 = hit
+                self._fillet_highlight1 = self._highlight_item(hit)
+                self.instructionChanged.emit("Click second line (Tab = set radius)")
+        elif self._fillet_item2 is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
+                self._fillet_item2 = hit
+                self._fillet_highlight2 = self._highlight_item(hit)
+                data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                                           self._fillet_radius)
+                if data is None:
+                    self._show_status("Cannot fillet these lines (parallel?)")
+                    self.set_mode("fillet")
                 else:
-                    self._show_status("No sprinkler found. Click on a sprinkler to add/remove it.")
-            return
+                    # Show preview
+                    pp = QPainterPath()
+                    r = data["radius"]
+                    c = data["center"]
+                    pp.addEllipse(c, r, r)
+                    self._fillet_preview = self.addPath(
+                        pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                    self._fillet_preview.setPen(
+                        QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
+                    self._fillet_preview.pen().setCosmetic(True)
+                    self.instructionChanged.emit(
+                        f"Radius: {self._fillet_radius:.1f}  Press Enter to commit, Tab to change")
 
-        elif self.mode in ("paste", "move"):
-            if self.node_start_pos is None:
-                self.node_start_pos = snapped
-            else:
-                offset = CAD_Math.get_vector(self.node_start_pos, snapped)
-                if self.mode == "paste":
-                    self.paste_items(offset)
-                elif self.mode == "move":
-                    self.move_items(offset)
-                self.push_undo_state()
-                self.node_start_pos = None
-                self.set_mode(None)
-                return
-
-        elif self.mode == "place_import":
-            self._commit_place_import(snapped)
-            return
-
-        elif self.mode == "offset":
-            # Select entity to offset — go straight to live preview (no dialog)
-            hit = [i for i in self.items(scene_pos)
-                   if isinstance(i, (LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem))]
-            if not hit:
-                return
-            self._offset_source = hit[0]
-            self._offset_highlight = self._highlight_item(hit[0])
-            self._offset_dist = 0  # will be computed from cursor distance
-            self._offset_manual = False  # cursor-driven distance
-            self.set_mode("offset_side")
-            self._show_status(
-                "Move cursor to set offset distance and side, "
-                "click to commit. Tab = type distance.")
-            return
-
-        elif self.mode == "offset_side":
-            # Click determines which side — commit the offset
-            if self._offset_source is not None and self._offset_dist > 0:
-                sd = self._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
-                self._clear_offset_preview()
-                new_item = self._make_offset_item(self._offset_source, sd)
-                if new_item is not None:
-                    if isinstance(new_item, LineItem):
-                        self.addItem(new_item)
-                        self._draw_lines.append(new_item)
-                    elif isinstance(new_item, PolylineItem):
-                        self.addItem(new_item)
-                        self._polylines.append(new_item)
-                    elif isinstance(new_item, CircleItem):
-                        self.addItem(new_item)
-                        self._draw_circles.append(new_item)
-                    elif isinstance(new_item, RectangleItem):
-                        self.addItem(new_item)
-                        self._draw_rects.append(new_item)
-                    elif isinstance(new_item, ArcItem):
-                        self.addItem(new_item)
-                        self._draw_arcs.append(new_item)
-                    self.push_undo_state()
-            # Stay in offset mode ready for next entity
-            self._offset_source = None
-            if self._offset_highlight is not None:
-                if self._offset_highlight.scene() is self:
-                    self.removeItem(self._offset_highlight)
-                self._offset_highlight = None
-            self.set_mode("offset")
-            return
-
-        # ── Interactive Rotate ────────────────────────────────────────────
-        elif self.mode == "rotate":
-            if self._rotate_pivot is None:
-                self._rotate_pivot = snapped
-                self.instructionChanged.emit("Click to set angle, or Tab for exact angle")
-            else:
-                dx = snapped.x() - self._rotate_pivot.x()
-                dy = snapped.y() - self._rotate_pivot.y()
-                angle = math.degrees(math.atan2(-dy, dx))
-                self._apply_rotate(self._rotate_pivot, angle)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
-            return
-
-        # ── Interactive Scale ─────────────────────────────────────────────
-        elif self.mode == "scale":
-            if self._scale_base is None:
-                self._scale_base = snapped
-                self.instructionChanged.emit("Tab = enter scale factor")
-            return
-
-        # ── Mirror ────────────────────────────────────────────────────────
-        elif self.mode == "mirror":
-            if self._mirror_p1 is None:
-                self._mirror_p1 = snapped
-                self.instructionChanged.emit("Pick second axis point")
-            else:
-                self._apply_mirror(self._mirror_p1, snapped)
-                from PyQt6.QtWidgets import QMessageBox
-                reply = QMessageBox.question(
-                    None, "Mirror", "Delete original objects?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.No)
-                if reply == QMessageBox.StandardButton.Yes:
-                    for item in list(self._selected_items or self.selectedItems()):
-                        self._delete_single_item(item)
-                self.push_undo_state()
-                self._selected_items = []
-                self.set_mode(None)
-            return
-
-        # ── Break (2-point) ──────────────────────────────────────────────
-        elif self.mode == "break":
-            if self._break_target is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None:
-                    self._break_target = hit
-                    self._break_highlight = self._highlight_item(hit)
-                    self.instructionChanged.emit("Pick first break point on object")
-            elif self._break_p1 is None:
-                self._break_p1 = snapped
-                self.instructionChanged.emit("Pick second break point")
-            else:
-                self._break_item(self._break_target, self._break_p1, snapped)
-                self.push_undo_state()
-                self.set_mode("break")
-            return
-
-        # ── Break at Point ───────────────────────────────────────────────
-        elif self.mode == "break_at_point":
-            if self._break_at_target is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None:
-                    self._break_at_target = hit
-                    self._break_at_highlight = self._highlight_item(hit)
-                    self.instructionChanged.emit("Pick break point on object")
-            else:
-                self._break_at_point(self._break_at_target, snapped)
-                self.push_undo_state()
-                self.set_mode("break_at_point")
-            return
-
-        # ── Fillet ───────────────────────────────────────────────────────
-        elif self.mode == "fillet":
-            if self._fillet_item1 is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None and isinstance(hit, LineItem):
-                    self._fillet_item1 = hit
-                    self._fillet_highlight1 = self._highlight_item(hit)
-                    self.instructionChanged.emit("Click second line (Tab = set radius)")
-            elif self._fillet_item2 is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
-                    self._fillet_item2 = hit
-                    self._fillet_highlight2 = self._highlight_item(hit)
-                    data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
-                                               self._fillet_radius)
-                    if data is None:
-                        self._show_status("Cannot fillet these lines (parallel?)")
-                        self.set_mode("fillet")
-                    else:
-                        # Show preview
-                        from PyQt6.QtGui import QPainterPath as _PP
-                        pp = _PP()
-                        r = data["radius"]
-                        c = data["center"]
-                        pp.addEllipse(c, r, r)
-                        self._fillet_preview = self.addPath(
-                            pp, QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                        self._fillet_preview.setPen(
-                            QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine))
-                        self._fillet_preview.pen().setCosmetic(True)
-                        self.instructionChanged.emit(
-                            f"Radius: {self._fillet_radius:.1f}  Press Enter to commit, Tab to change")
-            return
-
-        # ── Chamfer ──────────────────────────────────────────────────────
-        elif self.mode == "chamfer":
-            if self._chamfer_item1 is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None and isinstance(hit, LineItem):
-                    self._chamfer_item1 = hit
-                    self._chamfer_highlight1 = self._highlight_item(hit)
-                    self.instructionChanged.emit("Click second line (Tab = set distance)")
-            elif self._chamfer_item2 is None:
-                hit = self._find_geometry_at(scene_pos)
-                if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
-                    self._chamfer_item2 = hit
-                    self._chamfer_highlight2 = self._highlight_item(hit)
-                    data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
-                                                 self._chamfer_dist)
-                    if data is None:
-                        self._show_status("Cannot chamfer these lines (parallel?)")
-                        self.set_mode("chamfer")
-                    else:
-                        self._chamfer_preview = QGraphicsLineItem(
-                            data["cp1"].x(), data["cp1"].y(),
-                            data["cp2"].x(), data["cp2"].y())
-                        p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
-                        p.setCosmetic(True)
-                        self._chamfer_preview.setPen(p)
-                        self.addItem(self._chamfer_preview)
-                        self.instructionChanged.emit(
-                            f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit, Tab to change")
-            return
-
-        # ── Stretch (base/destination pick after crossing window) ────────
-        elif self.mode == "stretch":
-            if self._stretch_vertices or self._stretch_full_items:
-                if self._stretch_base is None:
-                    self._stretch_base = snapped
-                    self.instructionChanged.emit("Pick destination point")
+    # ── Chamfer ──────────────────────────────────────────────────────
+    def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._chamfer_item1 is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None and isinstance(hit, LineItem):
+                self._chamfer_item1 = hit
+                self._chamfer_highlight1 = self._highlight_item(hit)
+                self.instructionChanged.emit("Click second line (Tab = set distance)")
+        elif self._chamfer_item2 is None:
+            hit = self._find_geometry_at(pos)
+            if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
+                self._chamfer_item2 = hit
+                self._chamfer_highlight2 = self._highlight_item(hit)
+                data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                                             self._chamfer_dist)
+                if data is None:
+                    self._show_status("Cannot chamfer these lines (parallel?)")
+                    self.set_mode("chamfer")
                 else:
-                    delta = QPointF(snapped.x() - self._stretch_base.x(),
-                                    snapped.y() - self._stretch_base.y())
-                    self._commit_stretch(delta)
-                    self.push_undo_state()
-                    self.set_mode(None)
-            return
+                    self._chamfer_preview = QGraphicsLineItem(
+                        data["cp1"].x(), data["cp1"].y(),
+                        data["cp2"].x(), data["cp2"].y())
+                    p = QPen(QColor("#00ff00"), 1, Qt.PenStyle.DashLine)
+                    p.setCosmetic(True)
+                    self._chamfer_preview.setPen(p)
+                    self.addItem(self._chamfer_preview)
+                    self.instructionChanged.emit(
+                        f"Distance: {self._chamfer_dist:.1f}  Press Enter to commit, Tab to change")
 
-        # ── Trim / Extend / Merge / Hatch / Constraints (Sprint Y) ────────
-        elif self.mode in ("trim", "trim_pick"):
-            self._handle_trim_click(snapped)
-            return
+    # ── Stretch (base/destination pick after crossing window) ────────
+    def _press_stretch(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._stretch_vertices or self._stretch_full_items:
+            if self._stretch_base is None:
+                self._stretch_base = snapped
+                self.instructionChanged.emit("Pick destination point")
+            else:
+                delta = QPointF(snapped.x() - self._stretch_base.x(),
+                                snapped.y() - self._stretch_base.y())
+                self._commit_stretch(delta)
+                self.push_undo_state()
+                self.set_mode(None)
 
-        elif self.mode in ("extend", "extend_pick"):
-            self._handle_extend_click(snapped)
-            return
+    # ── Trim / Extend (Sprint Y) ─────────────────────────────────────
+    def _press_trim(self, event, pos, snapped, item_under, node_under, pipe_under):
+        self._handle_trim_click(snapped)
 
-        elif self.mode == "merge_points":
+    def _press_extend(self, event, pos, snapped, item_under, node_under, pipe_under):
+        self._handle_extend_click(snapped)
+
+    # ── Merge / Hatch ────────────────────────────────────────────────
+    def _press_merge_hatch(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self.mode == "merge_points":
             self._handle_merge_click(snapped)
-            return
-
         elif self.mode == "hatch":
             self._handle_hatch_click(snapped)
-            return
 
-        elif self.mode == "constraint_concentric":
+    # ── Constraints ──────────────────────────────────────────────────
+    def _press_constraint(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self.mode == "constraint_concentric":
             self._handle_constraint_concentric_click(snapped)
-            return
-
         elif self.mode == "constraint_dimensional":
             self._handle_constraint_dimensional_click(snapped)
-            return
 
-        elif self.mode == "polyline":
-            if self._polyline_active is None:
-                # First click — create the polyline item
-                tmpl = self._get_geometry_template()
-                _c, _lw = self._geom_color_lw()
-                pl = PolylineItem(snapped, _c, _lw)
-                pl.user_layer = tmpl.user_layer
-                pl.level = tmpl.level
-                self.addItem(pl)
-                self._polylines.append(pl)
-                self._polyline_active = pl
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick next point (Enter to finish)")
+    def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._polyline_active is None:
+            # First click — create the polyline item
+            tmpl = self._get_geometry_template()
+            _c, _lw = self._geom_color_lw()
+            pl = PolylineItem(snapped, _c, _lw)
+            pl.user_layer = tmpl.user_layer
+            pl.level = tmpl.level
+            self.addItem(pl)
+            self._polylines.append(pl)
+            self._polyline_active = pl
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick next point (Enter to finish)")
+        else:
+            # Subsequent clicks — append vertex (apply Ctrl constraint if held)
+            tip = snapped
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and len(self._polyline_active._points) >= 1):
+                tip = self._constrain_angle(
+                    self._polyline_active._points[-1], snapped
+                )
+            self._polyline_active.append_point(tip)
+        # don't let super() deselect items mid-draw
+
+    def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._draw_line_anchor is None:
+            self._draw_line_anchor = snapped
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick second point")
+        else:
+            # Place the line (apply Ctrl constraint if held)
+            tip = snapped
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                tip = self._constrain_angle(self._draw_line_anchor, snapped)
+            # Reject zero-length lines
+            if math.hypot(tip.x() - self._draw_line_anchor.x(),
+                          tip.y() - self._draw_line_anchor.y()) < 0.5:
+                self._show_status("Line too short — skipped", timeout=2000)
+                return
+            tmpl = self._get_geometry_template()
+            _c, _lw = self._geom_color_lw()
+            item = LineItem(self._draw_line_anchor, tip, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
+            self.addItem(item)
+            self._draw_lines.append(item)
+            item.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            self._draw_line_anchor = None
+            self.preview_pipe.hide()
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
             else:
-                # Subsequent clicks — append vertex (apply Ctrl constraint if held)
-                tip = snapped
-                if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                        and len(self._polyline_active._points) >= 1):
-                    tip = self._constrain_angle(
-                        self._polyline_active._points[-1], snapped
-                    )
-                self._polyline_active.append_point(tip)
-            return  # don't let super() deselect items mid-draw
+                self.instructionChanged.emit("Pick first point")
 
-        elif self.mode == "draw_line":
-            if self._draw_line_anchor is None:
-                self._draw_line_anchor = snapped
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick second point")
+    def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._cline_anchor is None:
+            self._cline_anchor = snapped
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick second point")
+        else:
+            tip = snapped
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                tip = self._constrain_angle(self._cline_anchor, snapped)
+            if math.hypot(tip.x() - self._cline_anchor.x(),
+                          tip.y() - self._cline_anchor.y()) < 0.5:
+                self._show_status("Construction line too short — skipped", timeout=2000)
+                return
+            item = ConstructionLine(self._cline_anchor, tip)
+            item.level = self.active_level
+            self.addItem(item)
+            self._construction_lines.append(item)
+            item.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            self._cline_anchor = None
+            self.preview_pipe.hide()
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
             else:
-                # Place the line (apply Ctrl constraint if held)
-                tip = snapped
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(self._draw_line_anchor, snapped)
-                # Reject zero-length lines
-                if math.hypot(tip.x() - self._draw_line_anchor.x(),
-                              tip.y() - self._draw_line_anchor.y()) < 0.5:
-                    self._show_status("Line too short — skipped", timeout=2000)
-                    return
-                tmpl = self._get_geometry_template()
-                _c, _lw = self._geom_color_lw()
-                item = LineItem(self._draw_line_anchor, tip, _c, _lw)
-                item.user_layer = tmpl.user_layer
-                item.level = tmpl.level
-                self.addItem(item)
-                self._draw_lines.append(item)
-                item.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self._draw_line_anchor = None
-                self.preview_pipe.hide()
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick first point")
-            return
+                self.instructionChanged.emit("Pick first point")
 
-        elif self.mode == "construction_line":
-            if self._cline_anchor is None:
-                self._cline_anchor = snapped
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick second point")
+    def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._draw_rect_anchor is None:
+            self._draw_rect_anchor = snapped
+            self.update_preview_node(snapped)
+            _instr = "Pick opposite corner" if not self._draw_rect_from_center else "Pick corner (from center)"
+            self.instructionChanged.emit(_instr)
+            # Create preview rect
+            preview = QGraphicsRectItem(QRectF(snapped, snapped))
+            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen.setCosmetic(True)
+            preview.setPen(_prev_pen)
+            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._draw_rect_preview = preview
+        else:
+            # Commit rectangle
+            if self._draw_rect_from_center:
+                hw = abs(snapped.x() - self._draw_rect_anchor.x())
+                hh = abs(snapped.y() - self._draw_rect_anchor.y())
+                pt1 = QPointF(self._draw_rect_anchor.x() - hw, self._draw_rect_anchor.y() - hh)
+                pt2 = QPointF(self._draw_rect_anchor.x() + hw, self._draw_rect_anchor.y() + hh)
             else:
-                tip = snapped
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(self._cline_anchor, snapped)
-                if math.hypot(tip.x() - self._cline_anchor.x(),
-                              tip.y() - self._cline_anchor.y()) < 0.5:
-                    self._show_status("Construction line too short — skipped", timeout=2000)
-                    return
-                item = ConstructionLine(self._cline_anchor, tip)
-                item.level = self.active_level
-                self.addItem(item)
-                self._construction_lines.append(item)
-                item.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self._cline_anchor = None
-                self.preview_pipe.hide()
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick first point")
-            return
-
-        elif self.mode == "draw_rectangle":
-            if self._draw_rect_anchor is None:
-                self._draw_rect_anchor = snapped
-                self.update_preview_node(snapped)
-                _instr = "Pick opposite corner" if not self._draw_rect_from_center else "Pick corner (from center)"
+                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
+                pt1 = QPointF(rect.x(), rect.y())
+                pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
+            # Reject zero-size rectangles
+            if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
+                self._show_status("Rectangle too small — skipped", timeout=2000)
+                return
+            tmpl = self._get_geometry_template()
+            _c, _lw = self._geom_color_lw()
+            item = RectangleItem(pt1, pt2, _c, _lw)
+            item.user_layer = tmpl.user_layer
+            item.level = tmpl.level
+            self.addItem(item)
+            self._draw_rects.append(item)
+            item.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            # Remove preview
+            if self._draw_rect_preview is not None:
+                self.removeItem(self._draw_rect_preview)
+                self._draw_rect_preview = None
+            self._draw_rect_anchor = None
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+            else:
+                _instr = "Pick center point" if self._draw_rect_from_center else "Pick first corner"
                 self.instructionChanged.emit(_instr)
-                # Create preview rect
-                preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-                _prev_pen.setCosmetic(True)
-                preview.setPen(_prev_pen)
-                preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                preview.setZValue(200)
-                self.addItem(preview)
-                self._draw_rect_preview = preview
-            else:
-                # Commit rectangle
-                if self._draw_rect_from_center:
-                    hw = abs(snapped.x() - self._draw_rect_anchor.x())
-                    hh = abs(snapped.y() - self._draw_rect_anchor.y())
-                    pt1 = QPointF(self._draw_rect_anchor.x() - hw, self._draw_rect_anchor.y() - hh)
-                    pt2 = QPointF(self._draw_rect_anchor.x() + hw, self._draw_rect_anchor.y() + hh)
-                else:
-                    rect = QRectF(self._draw_rect_anchor, snapped).normalized()
-                    pt1 = QPointF(rect.x(), rect.y())
-                    pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
-                # Reject zero-size rectangles
-                if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
-                    self._show_status("Rectangle too small — skipped", timeout=2000)
-                    return
+
+    def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._draw_circle_center is None:
+            self._draw_circle_center = snapped
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick radius point")
+            # Create preview circle
+            preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
+            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+            _prev_pen.setCosmetic(True)
+            preview.setPen(_prev_pen)
+            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._draw_circle_preview = preview
+        else:
+            # Commit circle
+            r = math.hypot(snapped.x() - self._draw_circle_center.x(),
+                           snapped.y() - self._draw_circle_center.y())
+            if r < 0.5:
+                self._show_status("Circle radius too small — skipped", timeout=2000)
+            if r >= 0.5:
                 tmpl = self._get_geometry_template()
                 _c, _lw = self._geom_color_lw()
-                item = RectangleItem(pt1, pt2, _c, _lw)
+                item = CircleItem(self._draw_circle_center, r, _c, _lw)
                 item.user_layer = tmpl.user_layer
                 item.level = tmpl.level
                 self.addItem(item)
-                self._draw_rects.append(item)
+                self._draw_circles.append(item)
                 item.setSelected(True)
                 for v in self.views(): v.viewport().update()
-                # Remove preview
-                if self._draw_rect_preview is not None:
-                    self.removeItem(self._draw_rect_preview)
-                    self._draw_rect_preview = None
-                self._draw_rect_anchor = None
-                self.push_undo_state()
+            # Remove preview
+            if self._draw_circle_preview is not None:
+                self.removeItem(self._draw_circle_preview)
+                self._draw_circle_preview = None
+            self._draw_circle_center = None
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+            else:
+                self.instructionChanged.emit("Pick center point")
+
+    # ── Wall drawing ──────────────────────────────────────────────────
+    def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._wall_anchor is None:
+            self._wall_anchor = snapped
+            self._wall_chain_start = QPointF(snapped)
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Tab=cycle")
+        else:
+            tip = snapped
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                tip = self._constrain_angle(self._wall_anchor, snapped)
+            # Close wall loop: if clicking near chain start → snap tip to start
+            _close_loop = False
+            if self._wall_chain_start is not None:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 15.0 / max(scale, 1e-6)
+                d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
+                                     tip.y() - self._wall_chain_start.y())
+                if d_start <= tol:
+                    tip = QPointF(self._wall_chain_start)
+                    _close_loop = True
+            _tmpl = self._get_wall_template()
+            wall = WallSegment(self._wall_anchor, tip,
+                               thickness_in=_tmpl._thickness_in,
+                               color=_tmpl._color.name())
+            wall.name = f"Wall {self._next_wall_num}"
+            self._next_wall_num += 1
+            wall._alignment = _tmpl._alignment
+            wall._fill_mode = _tmpl._fill_mode
+            wall.level = _tmpl.level if _tmpl.level else self.active_level
+            wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
+            wall._top_level = getattr(_tmpl, "_top_level", "")
+            wall._height_ft = getattr(_tmpl, "_height_ft", 10.0)
+            wall.user_layer = self.active_user_layer
+            # Keep scene alignment in sync with template
+            self._wall_alignment = _tmpl._alignment
+            self.addItem(wall)
+            self._walls.append(wall)
+            # Auto-join: snap endpoints to nearby walls
+            self._auto_join_wall(wall)
+            wall.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            self.preview_pipe.hide()
+            if self._wall_preview_rect is not None:
+                self._wall_preview_rect.hide()
+            self.push_undo_state()
+            if _close_loop:
+                # Loop closed — stop wall chain
+                self._wall_anchor = None
+                self._wall_chain_start = None
                 if self.single_place_mode:
                     self.set_mode("select")
                 else:
-                    _instr = "Pick center point" if self._draw_rect_from_center else "Pick first corner"
-                    self.instructionChanged.emit(_instr)
-            return
-
-        elif self.mode == "draw_circle":
-            if self._draw_circle_center is None:
-                self._draw_circle_center = snapped
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick radius point")
-                # Create preview circle
-                preview = QGraphicsEllipseItem(snapped.x(), snapped.y(), 0, 0)
-                _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-                _prev_pen.setCosmetic(True)
-                preview.setPen(_prev_pen)
-                preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-                preview.setZValue(200)
-                self.addItem(preview)
-                self._draw_circle_preview = preview
+                    self.instructionChanged.emit(
+                        f"Pick wall start point [{self._wall_alignment}]")
             else:
-                # Commit circle
-                r = math.hypot(snapped.x() - self._draw_circle_center.x(),
-                               snapped.y() - self._draw_circle_center.y())
-                if r < 0.5:
-                    self._show_status("Circle radius too small — skipped", timeout=2000)
-                if r >= 0.5:
-                    tmpl = self._get_geometry_template()
-                    _c, _lw = self._geom_color_lw()
-                    item = CircleItem(self._draw_circle_center, r, _c, _lw)
-                    item.user_layer = tmpl.user_layer
-                    item.level = tmpl.level
-                    self.addItem(item)
-                    self._draw_circles.append(item)
-                    item.setSelected(True)
+                # Chain: end of this wall becomes start of next
+                self._wall_anchor = QPointF(tip)
+                self.instructionChanged.emit(
+                    f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
+
+    # ── Floor drawing ─────────────────────────────────────────────────
+    def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._floor_active is None:
+            _ftmpl = self._get_floor_template()
+            slab = FloorSlab(color=_ftmpl._color.name())
+            slab.name = f"Floor {self._next_floor_num}"
+            self._next_floor_num += 1
+            slab._thickness_ft = _ftmpl._thickness_ft
+            slab.level = _ftmpl.level if _ftmpl.level else self.active_level
+            slab.user_layer = self.active_user_layer
+            slab.add_point(snapped)
+            self.addItem(slab)
+            self._floor_slabs.append(slab)
+            self._floor_active = slab
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick next point (click near first to close)")
+        else:
+            pts = self._floor_active._points
+            # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
+            if len(pts) >= 3:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
+                if d0 <= tol:
+                    self._floor_active.close_polygon()
+                    self._floor_active.setSelected(True)
+                    self._floor_active = None
+                    self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
-                # Remove preview
-                if self._draw_circle_preview is not None:
-                    self.removeItem(self._draw_circle_preview)
-                    self._draw_circle_preview = None
-                self._draw_circle_center = None
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick center point")
-            return
-
-        # ── Wall drawing ──────────────────────────────────────────────────
-        elif self.mode == "wall":
-            if self._wall_anchor is None:
-                self._wall_anchor = snapped
-                self._wall_chain_start = QPointF(snapped)
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Tab=cycle")
-            else:
-                tip = snapped
-                if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                    tip = self._constrain_angle(self._wall_anchor, snapped)
-                # Close wall loop: if clicking near chain start → snap tip to start
-                _close_loop = False
-                if self._wall_chain_start is not None:
-                    scale = self.views()[0].transform().m11() if self.views() else 1.0
-                    tol = 15.0 / max(scale, 1e-6)
-                    d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
-                                         tip.y() - self._wall_chain_start.y())
-                    if d_start <= tol:
-                        tip = QPointF(self._wall_chain_start)
-                        _close_loop = True
-                _tmpl = self._get_wall_template()
-                wall = WallSegment(self._wall_anchor, tip,
-                                   thickness_in=_tmpl._thickness_in,
-                                   color=_tmpl._color.name())
-                wall.name = f"Wall {self._next_wall_num}"
-                self._next_wall_num += 1
-                wall._alignment = _tmpl._alignment
-                wall._fill_mode = _tmpl._fill_mode
-                wall.level = _tmpl.level if _tmpl.level else self.active_level
-                wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
-                wall._top_level = getattr(_tmpl, "_top_level", "")
-                wall._height_ft = getattr(_tmpl, "_height_ft", 10.0)
-                wall.user_layer = self.active_user_layer
-                # Keep scene alignment in sync with template
-                self._wall_alignment = _tmpl._alignment
-                self.addItem(wall)
-                self._walls.append(wall)
-                # Auto-join: snap endpoints to nearby walls
-                self._auto_join_wall(wall)
-                wall.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                self.preview_pipe.hide()
-                if self._wall_preview_rect is not None:
-                    self._wall_preview_rect.hide()
-                self.push_undo_state()
-                if _close_loop:
-                    # Loop closed — stop wall chain
-                    self._wall_anchor = None
-                    self._wall_chain_start = None
+                    self.push_undo_state()
                     if self.single_place_mode:
                         self.set_mode("select")
                     else:
-                        self.instructionChanged.emit(
-                            f"Pick wall start point [{self._wall_alignment}]")
-                else:
-                    # Chain: end of this wall becomes start of next
-                    self._wall_anchor = QPointF(tip)
-                    self.instructionChanged.emit(
-                        f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
-            return
-
-        # ── Floor drawing ─────────────────────────────────────────────────
-        elif self.mode == "floor":
-            if self._floor_active is None:
-                _ftmpl = self._get_floor_template()
-                slab = FloorSlab(color=_ftmpl._color.name())
-                slab.name = f"Floor {self._next_floor_num}"
-                self._next_floor_num += 1
-                slab._thickness_ft = _ftmpl._thickness_ft
-                slab.level = _ftmpl.level if _ftmpl.level else self.active_level
-                slab.user_layer = self.active_user_layer
-                slab.add_point(snapped)
-                self.addItem(slab)
-                self._floor_slabs.append(slab)
-                self._floor_active = slab
-                self.update_preview_node(snapped)
-                self.instructionChanged.emit("Pick next point (click near first to close)")
-            else:
-                pts = self._floor_active._points
-                # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
-                if len(pts) >= 3:
-                    scale = self.views()[0].transform().m11() if self.views() else 1.0
-                    tol = 8.0 / max(scale, 1e-6)
-                    d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
-                    if d0 <= tol:
-                        self._floor_active.close_polygon()
-                        self._floor_active.setSelected(True)
-                        self._floor_active = None
-                        self.preview_pipe.hide()
+                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    return
+            # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
+            if len(pts) >= 2:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                for vi in range(len(pts)):
+                    dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
+                    if dv <= tol:
+                        pts.pop(vi)
+                        self._floor_active._rebuild_path()
                         for v in self.views(): v.viewport().update()
-                        self.push_undo_state()
-                        if self.single_place_mode:
-                            self.set_mode("select")
-                        else:
-                            self.instructionChanged.emit("Pick first boundary point (click near first to close)")
                         return
-                # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
-                if len(pts) >= 2:
-                    scale = self.views()[0].transform().m11() if self.views() else 1.0
-                    tol = 8.0 / max(scale, 1e-6)
-                    for vi in range(len(pts)):
-                        dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
-                        if dv <= tol:
-                            pts.pop(vi)
-                            self._floor_active._rebuild_path()
-                            for v in self.views(): v.viewport().update()
-                            return
-                self._floor_active.add_point(snapped)
-            return
+            self._floor_active.add_point(snapped)
 
-        # ── Floor rectangle (2-click) ─────────────────────────────────────
-        elif self.mode == "floor_rect":
-            if self._floor_rect_anchor is None:
-                self._floor_rect_anchor = snapped
-                self.instructionChanged.emit("Pick opposite corner for rectangular floor")
-                # Create preview rect
-                preview = QGraphicsRectItem(QRectF(snapped, snapped))
-                _ftmpl = self._get_floor_template()
-                _fc = QColor(_ftmpl._color)
-                pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
-                pen.setCosmetic(True)
-                preview.setPen(pen)
-                _fc.setAlpha(30)
-                preview.setBrush(QBrush(_fc))
-                preview.setZValue(200)
-                self.addItem(preview)
-                self._floor_rect_preview = preview
+    # ── Floor rectangle (2-click) ─────────────────────────────────────
+    def _press_floor_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._floor_rect_anchor is None:
+            self._floor_rect_anchor = snapped
+            self.instructionChanged.emit("Pick opposite corner for rectangular floor")
+            # Create preview rect
+            preview = QGraphicsRectItem(QRectF(snapped, snapped))
+            _ftmpl = self._get_floor_template()
+            _fc = QColor(_ftmpl._color)
+            pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            preview.setPen(pen)
+            _fc.setAlpha(30)
+            preview.setBrush(QBrush(_fc))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._floor_rect_preview = preview
+        else:
+            # Commit rectangular floor
+            rect = QRectF(self._floor_rect_anchor, snapped).normalized()
+            corners = [
+                QPointF(rect.x(), rect.y()),
+                QPointF(rect.x() + rect.width(), rect.y()),
+                QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
+                QPointF(rect.x(), rect.y() + rect.height()),
+            ]
+            _ftmpl = self._get_floor_template()
+            slab = FloorSlab(points=corners, color=_ftmpl._color.name())
+            slab.name = f"Floor {self._next_floor_num}"
+            self._next_floor_num += 1
+            slab._thickness_ft = _ftmpl._thickness_ft
+            slab.level = _ftmpl.level if _ftmpl.level else self.active_level
+            slab.user_layer = self.active_user_layer
+            self.addItem(slab)
+            self._floor_slabs.append(slab)
+            slab.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            # Clean up preview
+            if self._floor_rect_preview is not None:
+                self.removeItem(self._floor_rect_preview)
+                self._floor_rect_preview = None
+            self._floor_rect_anchor = None
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
             else:
-                # Commit rectangular floor
-                rect = QRectF(self._floor_rect_anchor, snapped).normalized()
-                corners = [
-                    QPointF(rect.x(), rect.y()),
-                    QPointF(rect.x() + rect.width(), rect.y()),
-                    QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
-                    QPointF(rect.x(), rect.y() + rect.height()),
-                ]
-                _ftmpl = self._get_floor_template()
-                slab = FloorSlab(points=corners, color=_ftmpl._color.name())
-                slab.name = f"Floor {self._next_floor_num}"
-                self._next_floor_num += 1
-                slab._thickness_ft = _ftmpl._thickness_ft
-                slab.level = _ftmpl.level if _ftmpl.level else self.active_level
-                slab.user_layer = self.active_user_layer
-                self.addItem(slab)
-                self._floor_slabs.append(slab)
-                slab.setSelected(True)
-                for v in self.views(): v.viewport().update()
-                # Clean up preview
-                if self._floor_rect_preview is not None:
-                    self.removeItem(self._floor_rect_preview)
-                    self._floor_rect_preview = None
-                self._floor_rect_anchor = None
-                self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick first corner for rectangular floor")
-            return
+                self.instructionChanged.emit("Pick first corner for rectangular floor")
 
-        # ── Door placement ────────────────────────────────────────────────
-        elif self.mode == "door":
-            wall = self._find_wall_at(snapped)
-            if wall is not None:
-                offset = self._offset_along_wall(wall, snapped)
-                door = DoorOpening(wall=wall, offset_along=offset)
-                door.level = wall.level
-                door.user_layer = wall.user_layer
-                wall.openings.append(door)
-                self.addItem(door)
-                self.push_undo_state()
-                self.instructionChanged.emit("Click on a wall to place another door")
-            return
+    # ── Door placement ────────────────────────────────────────────────
+    def _press_door(self, event, pos, snapped, item_under, node_under, pipe_under):
+        wall = self._find_wall_at(snapped)
+        if wall is not None:
+            offset = self._offset_along_wall(wall, snapped)
+            door = DoorOpening(wall=wall, offset_along=offset)
+            door.level = wall.level
+            door.user_layer = wall.user_layer
+            wall.openings.append(door)
+            self.addItem(door)
+            self.push_undo_state()
+            self.instructionChanged.emit("Click on a wall to place another door")
 
-        # ── Window placement ──────────────────────────────────────────────
-        elif self.mode == "window":
-            wall = self._find_wall_at(snapped)
-            if wall is not None:
-                offset = self._offset_along_wall(wall, snapped)
-                win = WindowOpening(wall=wall, offset_along=offset)
-                win.level = wall.level
-                win.user_layer = wall.user_layer
-                wall.openings.append(win)
-                self.addItem(win)
-                self.push_undo_state()
-                self.instructionChanged.emit("Click on a wall to place another window")
-            return
+    # ── Window placement ──────────────────────────────────────────────
+    def _press_window(self, event, pos, snapped, item_under, node_under, pipe_under):
+        wall = self._find_wall_at(snapped)
+        if wall is not None:
+            offset = self._offset_along_wall(wall, snapped)
+            win = WindowOpening(wall=wall, offset_along=offset)
+            win.level = wall.level
+            win.user_layer = wall.user_layer
+            wall.openings.append(win)
+            self.addItem(win)
+            self.push_undo_state()
+            self.instructionChanged.emit("Click on a wall to place another window")
 
-        # ── Shift-click floor vertex editing (select mode) ────────────────
-        if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-                and self.mode in (None, "select")):
-            # Find FloorSlab under cursor
-            for it in self.items(snapped):
-                if isinstance(it, FloorSlab) and len(it._points) >= 3:
-                    scale = self.views()[0].transform().m11() if self.views() else 1.0
-                    vtx_tol = 8.0 / max(scale, 1e-6)
-                    # Check if near an existing vertex → delete it (min 3)
-                    for vi, vpt in enumerate(it._points):
-                        dv = math.hypot(snapped.x() - vpt.x(), snapped.y() - vpt.y())
-                        if dv <= vtx_tol:
-                            it.remove_point(vi)
-                            it.setSelected(True)
-                            it.update()
-                            for v in self.views(): v.viewport().update()
-                            self.push_undo_state()
-                            return
-                    # Check if near an edge → insert vertex at projection
-                    edge_idx, edge_dist, proj_pt = it.nearest_edge(snapped)
-                    edge_tol = 12.0 / max(scale, 1e-6)
-                    if edge_dist <= edge_tol:
-                        it.insert_point(edge_idx + 1, proj_pt)
+    # ── Shift-click floor vertex editing (select mode) ────────────────
+    def _press_select_shift_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Handle shift-click vertex editing on FloorSlabs. Returns True if consumed."""
+        # Find FloorSlab under cursor
+        for it in self.items(snapped):
+            if isinstance(it, FloorSlab) and len(it._points) >= 3:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                vtx_tol = 8.0 / max(scale, 1e-6)
+                # Check if near an existing vertex → delete it (min 3)
+                for vi, vpt in enumerate(it._points):
+                    dv = math.hypot(snapped.x() - vpt.x(), snapped.y() - vpt.y())
+                    if dv <= vtx_tol:
+                        it.remove_point(vi)
                         it.setSelected(True)
                         it.update()
                         for v in self.views(): v.viewport().update()
                         self.push_undo_state()
-                        return
-                    break  # only edit the topmost floor
-
-        # (Grip check was moved above the mode chain — always takes priority)
-
-        super().mousePressEvent(event)
+                        return True
+                # Check if near an edge → insert vertex at projection
+                edge_idx, edge_dist, proj_pt = it.nearest_edge(snapped)
+                edge_tol = 12.0 / max(scale, 1e-6)
+                if edge_dist <= edge_tol:
+                    it.insert_point(edge_idx + 1, proj_pt)
+                    it.setSelected(True)
+                    it.update()
+                    for v in self.views(): v.viewport().update()
+                    self.push_undo_state()
+                    return True
+                break  # only edit the topmost floor
+        return False
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
@@ -5172,7 +5187,6 @@ class Model_Space(QGraphicsScene):
 
     def _find_entity_at(self, pos):
         """Find the first selectable scene entity at the given position."""
-        from Annotations import HatchItem
         ENTITY_TYPES = (
             Node, Pipe, DimensionAnnotation, NoteAnnotation,
             ConstructionLine, PolylineItem, LineItem, RectangleItem,
@@ -6153,10 +6167,9 @@ class Model_Space(QGraphicsScene):
 
     def _break_item(self, item, bp1: QPointF, bp2: QPointF):
         """Break *item* between two points, removing the segment between them."""
-        from geometry_intersect import point_on_segment_param
         if isinstance(item, LineItem):
-            t1 = point_on_segment_param(bp1, item._pt1, item._pt2)
-            t2 = point_on_segment_param(bp2, item._pt1, item._pt2)
+            t1 = gi.point_on_segment_param(bp1, item._pt1, item._pt2)
+            t2 = gi.point_on_segment_param(bp2, item._pt1, item._pt2)
             if t1 > t2:
                 t1, t2 = t2, t1
                 bp1, bp2 = bp2, bp1
@@ -6196,9 +6209,8 @@ class Model_Space(QGraphicsScene):
 
     def _break_at_point(self, item, bp: QPointF):
         """Split *item* into two at *bp*."""
-        from geometry_intersect import point_on_segment_param
         if isinstance(item, LineItem):
-            t = point_on_segment_param(bp, item._pt1, item._pt2)
+            t = gi.point_on_segment_param(bp, item._pt1, item._pt2)
             proj = QPointF(item._pt1.x() + t*(item._pt2.x()-item._pt1.x()),
                            item._pt1.y() + t*(item._pt2.y()-item._pt1.y()))
             color = item.pen().color().name()
@@ -6262,9 +6274,8 @@ class Model_Space(QGraphicsScene):
         """Compute fillet arc data between two line items. Returns dict or None."""
         if not isinstance(item1, LineItem) or not isinstance(item2, LineItem):
             return None
-        from geometry_intersect import line_line_intersection_unbounded
-        ix = line_line_intersection_unbounded(item1._pt1, item1._pt2,
-                                              item2._pt1, item2._pt2)
+        ix = gi.line_line_intersection_unbounded(item1._pt1, item1._pt2,
+                                                 item2._pt1, item2._pt2)
         if ix is None:
             return None  # parallel lines
         # Determine which ends are near intersection
@@ -6330,9 +6341,8 @@ class Model_Space(QGraphicsScene):
         """Compute chamfer data between two line items. Returns dict or None."""
         if not isinstance(item1, LineItem) or not isinstance(item2, LineItem):
             return None
-        from geometry_intersect import line_line_intersection_unbounded
-        ix = line_line_intersection_unbounded(item1._pt1, item1._pt2,
-                                              item2._pt1, item2._pt2)
+        ix = gi.line_line_intersection_unbounded(item1._pt1, item1._pt2,
+                                                 item2._pt1, item2._pt2)
         if ix is None:
             return None
         def _near_end(item, ix):
@@ -6465,7 +6475,6 @@ class Model_Space(QGraphicsScene):
             if hasattr(item, 'shape'):
                 path = item.shape()
                 # Check if point is near the item's shape
-                from PyQt6.QtCore import QPointF as QP
                 item_pos = item.mapFromScene(pos)
                 if path.contains(item_pos):
                     return item
@@ -6532,7 +6541,6 @@ class Model_Space(QGraphicsScene):
             self.addItem(h)
             return h
         elif hasattr(item, 'rect'):
-            from PyQt6.QtWidgets import QGraphicsRectItem
             h = QGraphicsRectItem(item.rect())
             h.setPen(highlight_pen)
             h.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -6540,7 +6548,6 @@ class Model_Space(QGraphicsScene):
             self.addItem(h)
             return h
         elif hasattr(item, 'path'):
-            from PyQt6.QtWidgets import QGraphicsPathItem
             h = QGraphicsPathItem(item.path())
             h.setPen(highlight_pen)
             h.setBrush(QBrush(Qt.BrushStyle.NoBrush))
@@ -6554,7 +6561,6 @@ class Model_Space(QGraphicsScene):
         from construction_geometry import (
             LineItem, CircleItem, ArcItem, PolylineItem,
         )
-        import geometry_intersect as gi
 
         if self.mode == "trim":
             # Phase 1: select cutting edge
@@ -6714,7 +6720,6 @@ class Model_Space(QGraphicsScene):
     def _handle_extend_click(self, pos: QPointF):
         """Handle mouse click during extend mode."""
         from construction_geometry import LineItem, ArcItem, PolylineItem
-        import geometry_intersect as gi
 
         if self.mode == "extend":
             item = self._find_geometry_at(pos)
@@ -6768,7 +6773,6 @@ class Model_Space(QGraphicsScene):
             self._merge_point1 = (item, grip_idx, grip_pt)
             self.instructionChanged.emit("Click second endpoint to merge")
             # Create visual indicator
-            from PyQt6.QtWidgets import QGraphicsEllipseItem
             marker = QGraphicsEllipseItem(-4, -4, 8, 8)
             marker.setPos(grip_pt)
             marker.setBrush(QBrush(QColor("#ff4400")))
@@ -6801,7 +6805,6 @@ class Model_Space(QGraphicsScene):
             self._show_status("Object is not closed — cannot hatch")
             return
 
-        from Annotations import HatchItem
         closed_path = item.get_closed_path()
         if closed_path is None:
             self._show_status("Cannot get closed path for hatching")
@@ -6858,8 +6861,7 @@ class Model_Space(QGraphicsScene):
                 grip_pt.x() - pt_a.x(), grip_pt.y() - pt_a.y())
 
             # Show dialog for distance
-            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel,
-                                          QDoubleSpinBox, QDialogButtonBox)
+            from PyQt6.QtWidgets import QDoubleSpinBox, QDialogButtonBox
             dlg = QDialog()
             dlg.setWindowTitle("Dimensional Constraint")
             layout = QVBoxLayout(dlg)
@@ -6939,7 +6941,6 @@ class Model_Space(QGraphicsScene):
         from construction_geometry import (
             LineItem, CircleItem, ArcItem, RectangleItem, PolylineItem,
         )
-        import geometry_intersect as gi
 
         results = []
 
@@ -6981,7 +6982,6 @@ class Model_Space(QGraphicsScene):
         extending endpoint (away from the interior of the item).
         """
         from construction_geometry import LineItem, PolylineItem
-        import geometry_intersect as gi
 
         raw_results: list[QPointF] = []
         extend_pt: QPointF | None = None
@@ -7008,11 +7008,10 @@ class Model_Space(QGraphicsScene):
                         gi.line_circle_intersections_unbounded(p1, p2, bseg[1], bseg[2]))
                 elif bseg[0] == "arc":
                     pts = gi.line_circle_intersections_unbounded(p1, p2, bseg[1], bseg[2])
-                    from geometry_intersect import _angle_in_arc
                     for pt in pts:
                         angle = math.degrees(math.atan2(
                             pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
-                        if _angle_in_arc(angle, bseg[3], bseg[4]):
+                        if gi._angle_in_arc(angle, bseg[3], bseg[4]):
                             raw_results.append(pt)
 
         elif isinstance(item, PolylineItem):
@@ -7045,11 +7044,10 @@ class Model_Space(QGraphicsScene):
                 elif bseg[0] == "arc":
                     pts = gi.line_circle_intersections_unbounded(
                         neighbor, extend_pt, bseg[1], bseg[2])
-                    from geometry_intersect import _angle_in_arc
                     for pt in pts:
                         angle = math.degrees(math.atan2(
                             pt.y() - bseg[1].y(), pt.x() - bseg[1].x())) % 360
-                        if _angle_in_arc(angle, bseg[3], bseg[4]):
+                        if gi._angle_in_arc(angle, bseg[3], bseg[4]):
                             raw_results.append(pt)
 
         # Filter to forward direction only

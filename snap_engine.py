@@ -28,6 +28,16 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
 )
 
+from Annotations import DimensionAnnotation, NoteAnnotation
+from construction_geometry import (
+    LineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, ConstructionLine,
+)
+from geometry_intersect import _angle_in_arc
+from gridline import GridlineItem
+from pipe import Pipe
+from wall import WallSegment
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,12 +154,7 @@ class SnapEngine:
             tol * 2, tol * 2,
         )
 
-        # Lazy-import annotation types so snap engine never snaps to them
-        try:
-            from Annotations import DimensionAnnotation, NoteAnnotation
-            _anno_types = (DimensionAnnotation, NoteAnnotation)
-        except ImportError:
-            _anno_types = ()
+        _anno_types = (DimensionAnnotation, NoteAnnotation)
 
         best_dist   = tol
         best_prio   = 999
@@ -184,13 +189,8 @@ class SnapEngine:
             if item.data(0) == "origin":
                 continue
             # In design_area mode, skip pipe items
-            if self.skip_pipes:
-                try:
-                    from pipe import Pipe
-                    if isinstance(item, Pipe):
-                        continue
-                except ImportError:
-                    pass
+            if self.skip_pipes and isinstance(item, Pipe):
+                continue
 
             # DXF underlay groups — descend into children for snap
             if isinstance(item, QGraphicsItemGroup) and item.data(0) == "DXF Underlay":
@@ -212,51 +212,34 @@ class SnapEngine:
         # because gridline shapes may be too thin for the small search rect.
         # Intersection snaps override perpendicular/nearest when within tol.
         if self.snap_endpoint:
-            try:
-                from gridline import GridlineItem as _GL
-            except ImportError:
-                _GL = None
-            if _GL is not None:
-                gl_items = list(getattr(scene, "_gridlines", []))
-                for i, g1 in enumerate(gl_items):
-                    l1 = g1.line()
-                    a1 = g1.mapToScene(l1.p1())
-                    a2 = g1.mapToScene(l1.p2())
-                    for g2 in gl_items[i + 1:]:
-                        l2 = g2.line()
-                        b1 = g2.mapToScene(l2.p1())
-                        b2 = g2.mapToScene(l2.p2())
-                        ix = self._line_line_intersect(a1, a2, b1, b2)
-                        if ix is not None:
-                            d = math.hypot(ix.x() - cursor_scene.x(),
-                                           ix.y() - cursor_scene.y())
-                            if d <= tol:
-                                # Force intersection to win over
-                                # perpendicular/nearest that may be closer
-                                best_dist = d
-                                best_prio = 0
-                                best_result = OsnapResult(
-                                    point=ix,
-                                    snap_type="intersection",
-                                    source_item=g1,
-                                    source_item2=g2,
-                                )
+            gl_items = list(getattr(scene, "_gridlines", []))
+            for i, g1 in enumerate(gl_items):
+                l1 = g1.line()
+                a1 = g1.mapToScene(l1.p1())
+                a2 = g1.mapToScene(l1.p2())
+                for g2 in gl_items[i + 1:]:
+                    l2 = g2.line()
+                    b1 = g2.mapToScene(l2.p1())
+                    b2 = g2.mapToScene(l2.p2())
+                    ix = self._line_line_intersect(a1, a2, b1, b2)
+                    if ix is not None:
+                        d = math.hypot(ix.x() - cursor_scene.x(),
+                                       ix.y() - cursor_scene.y())
+                        if d <= tol:
+                            # Force intersection to win over
+                            # perpendicular/nearest that may be closer
+                            best_dist = d
+                            best_prio = 0
+                            best_result = OsnapResult(
+                                point=ix,
+                                snap_type="intersection",
+                                source_item=g1,
+                                source_item2=g2,
+                            )
 
         # ── Geometry-to-geometry intersection snaps ─────────────────────
         # Check line-based items near the cursor for pairwise intersections.
         if self.snap_endpoint or self.snap_midpoint:
-            try:
-                from construction_geometry import (
-                    LineItem as _LI, PolylineItem as _PLI,
-                    ConstructionLine as _CL,
-                    RectangleItem as _RI, CircleItem as _CI2,
-                )
-            except ImportError:
-                _LI = _PLI = _CL = _RI = _CI2 = None
-            try:
-                from wall import WallSegment as _WS2
-            except ImportError:
-                _WS2 = None
 
             _segments: list[tuple[QPointF, QPointF, QGraphicsItem]] = []
             _circles: list[tuple[QPointF, float, QGraphicsItem]] = []
@@ -266,18 +249,18 @@ class SnapEngine:
                 if item.parentItem() is not None:
                     continue
                 # ConstructionLine: use anchor points, not extended line
-                if _CL and isinstance(item, _CL):
+                if isinstance(item, ConstructionLine):
                     _segments.append((item.pt1, item.pt2, item))
                 elif isinstance(item, QGraphicsLineItem):
                     line = item.line()
                     _segments.append((item.mapToScene(line.p1()),
                                      item.mapToScene(line.p2()), item))
-                elif _PLI and isinstance(item, _PLI):
+                elif isinstance(item, PolylineItem):
                     verts = item._points
                     for j in range(len(verts) - 1):
                         _segments.append((item.mapToScene(verts[j]),
                                          item.mapToScene(verts[j + 1]), item))
-                elif _RI and isinstance(item, _RI):
+                elif isinstance(item, RectangleItem):
                     r = item.rect()
                     corners = [
                         item.mapToScene(QPointF(r.left(),  r.top())),
@@ -287,14 +270,14 @@ class SnapEngine:
                     ]
                     for j in range(4):
                         _segments.append((corners[j], corners[(j + 1) % 4], item))
-                elif _WS2 and isinstance(item, _WS2):
+                elif isinstance(item, WallSegment):
                     try:
                         p1l, p1r, p2r, p2l = item.quad_points()
                         _segments.append((p1l, p2l, item))
                         _segments.append((p1r, p2r, item))
-                    except Exception:
+                    except (ValueError, AttributeError):
                         pass
-                elif _CI2 and isinstance(item, _CI2):
+                elif isinstance(item, CircleItem):
                     _circles.append((item._center, item._radius, item))
 
             # Segment–segment intersections
@@ -326,31 +309,14 @@ class SnapEngine:
     def _collect(self, item: QGraphicsItem) -> list[tuple[str, QPointF]]:
         """Return (snap_type, scene_pos) pairs for one item."""
 
-        # Lazy imports to avoid circular dependencies
-        try:
-            from construction_geometry import (
-                LineItem, RectangleItem, CircleItem, ArcItem,
-                PolylineItem, ConstructionLine,
-            )
-        except ImportError:
-            LineItem = RectangleItem = CircleItem = ArcItem = PolylineItem = ConstructionLine = None  # type: ignore
-        try:
-            from gridline import GridlineItem
-        except ImportError:
-            GridlineItem = None  # type: ignore
-        try:
-            from wall import WallSegment as _WallSeg
-        except ImportError:
-            _WallSeg = None  # type: ignore
-
         pts: list[tuple[str, QPointF]] = []
 
         # ── LineItem (finite draw line) ───────────────────────────────────
-        if LineItem and isinstance(item, LineItem):
+        if isinstance(item, LineItem):
             pts.extend(self._line_snaps(item))
 
         # ── ConstructionLine (extends to infinity) ────────────────────────
-        elif ConstructionLine and isinstance(item, ConstructionLine):
+        elif isinstance(item, ConstructionLine):
             # Snap to the two anchor points only
             if self.snap_endpoint:
                 pts.append(("endpoint", item.pt1))
@@ -363,7 +329,7 @@ class SnapEngine:
                 pts.append(("midpoint", mid))
 
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
-        elif GridlineItem and isinstance(item, GridlineItem):
+        elif isinstance(item, GridlineItem):
             pts.extend(self._line_snaps(item))
 
         # ── Generic QGraphicsLineItem (Pipe, origin axes) ─────────────────
@@ -371,7 +337,7 @@ class SnapEngine:
             pts.extend(self._line_snaps(item))
 
         # ── RectangleItem ─────────────────────────────────────────────────
-        elif RectangleItem and isinstance(item, RectangleItem):
+        elif isinstance(item, RectangleItem):
             r = item.rect()
             corners = [
                 QPointF(r.left(),  r.top()),
@@ -409,7 +375,7 @@ class SnapEngine:
                 pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom()))))
 
         # ── WallSegment (must come before generic QGraphicsPathItem) ─────
-        elif _WallSeg and isinstance(item, _WallSeg):
+        elif isinstance(item, WallSegment):
             p1, p2 = item.pt1, item.pt2
             # Centerline endpoints
             if self.snap_endpoint:
@@ -442,7 +408,7 @@ class SnapEngine:
                     pass
 
         # ── PolylineItem (must come before generic QGraphicsPathItem) ────
-        elif PolylineItem and isinstance(item, PolylineItem):
+        elif isinstance(item, PolylineItem):
             vertices = item._points
             # All vertices are real geometric endpoints
             if self.snap_endpoint:
@@ -456,7 +422,7 @@ class SnapEngine:
                     pts.append(("midpoint", item.mapToScene(mid)))
 
         # ── ArcItem ────────────────────────────────────────────────────────
-        elif ArcItem and isinstance(item, ArcItem):
+        elif isinstance(item, ArcItem):
             cx, cy = item._center.x(), item._center.y()
             r = item._radius
             sa = math.radians(item._start_deg)
@@ -482,7 +448,6 @@ class SnapEngine:
 
             # Quadrant points that fall within the arc's angular range
             if self.snap_quadrant:
-                from geometry_intersect import _angle_in_arc
                 for q_deg in (0.0, 90.0, 180.0, 270.0):
                     if _angle_in_arc(q_deg, item._start_deg, item._span_deg):
                         q_rad = math.radians(q_deg)
@@ -574,19 +539,6 @@ class SnapEngine:
         self, cursor: QPointF, item: QGraphicsItem,
     ) -> list[tuple[str, QPointF]]:
         """Perpendicular, nearest, and tangent snap points (cursor-dependent)."""
-        # Lazy imports
-        try:
-            from construction_geometry import (
-                LineItem, CircleItem, ArcItem, ConstructionLine,
-                RectangleItem, PolylineItem,
-            )
-        except ImportError:
-            LineItem = CircleItem = ArcItem = ConstructionLine = None  # type: ignore
-            RectangleItem = PolylineItem = None  # type: ignore
-        try:
-            from wall import WallSegment as _WallSeg
-        except ImportError:
-            _WallSeg = None  # type: ignore
 
         pts: list[tuple[str, QPointF]] = []
 
@@ -606,7 +558,7 @@ class SnapEngine:
                       item.mapToScene(line.p2()))
 
         # ── WallSegment — project onto centerline and face edges ──────────
-        elif _WallSeg and isinstance(item, _WallSeg):
+        elif isinstance(item, WallSegment):
             _seg_snap(item.pt1, item.pt2)  # centerline
             try:
                 p1l, p1r, p2r, p2l = item.quad_points()
@@ -618,7 +570,7 @@ class SnapEngine:
                 pass
 
         # ── RectangleItem — project onto each of the 4 edges ─────────────
-        elif RectangleItem and isinstance(item, RectangleItem):
+        elif isinstance(item, RectangleItem):
             r = item.rect()
             corners = [
                 item.mapToScene(QPointF(r.left(),  r.top())),
@@ -630,14 +582,14 @@ class SnapEngine:
                 _seg_snap(corners[i], corners[(i + 1) % 4])
 
         # ── PolylineItem — project onto each segment ─────────────────────
-        elif PolylineItem and isinstance(item, PolylineItem):
+        elif isinstance(item, PolylineItem):
             vertices = item._points
             for i in range(len(vertices) - 1):
                 _seg_snap(item.mapToScene(vertices[i]),
                           item.mapToScene(vertices[i + 1]))
 
         # ── ArcItem — closest point on arc circumference ─────────────────
-        if ArcItem and isinstance(item, ArcItem):
+        if isinstance(item, ArcItem):
             cx, cy = item._center.x(), item._center.y()
             r = item._radius
             dx = cursor.x() - cx
@@ -645,7 +597,6 @@ class SnapEngine:
             d = math.hypot(dx, dy)
             if d > 1e-6:
                 foot_angle_deg = math.degrees(math.atan2(-dy, dx))
-                from geometry_intersect import _angle_in_arc
                 if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
                     foot = QPointF(cx + r * dx / d, cy + r * dy / d)
                     if self.snap_perpendicular:
@@ -688,8 +639,8 @@ class SnapEngine:
         # ── Generic QGraphicsPathItem (DXF imports) — project onto segments
         elif isinstance(item, QGraphicsPathItem):
             # Skip if already handled as WallSegment or PolylineItem
-            if not (_WallSeg and isinstance(item, _WallSeg)):
-                if not (PolylineItem and isinstance(item, PolylineItem)):
+            if not (isinstance(item, WallSegment)):
+                if not (isinstance(item, PolylineItem)):
                     path = item.path()
                     n = path.elementCount()
                     for i in range(min(n - 1, 511)):
