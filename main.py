@@ -409,7 +409,10 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if not self._initial_fit_done:
             self._initial_fit_done = True
-            QTimer.singleShot(0, self.view.fit_to_screen)
+            # Ensure 2D tab is active so the viewport has its final geometry
+            self.central_tabs.setCurrentIndex(0)
+            self.view.setFocus()
+            QTimer.singleShot(200, self.view.fit_to_screen)
 
     def _activate_paper_sheet(self, name: str):
         """Switch the central area to the paper space tab matching *name*."""

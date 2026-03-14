@@ -218,8 +218,8 @@ class GridlineItem(QGraphicsLineItem):
     def paint(self, painter, option, widget=None):
         """Draw the gridline with a non-cosmetic pen whose width is
         calculated from the current view transform so it appears as a
-        constant-width screen line.  This replaces Qt's cosmetic pen
-        rendering which vanishes after a few zoom steps."""
+        constant-width screen line.  The line is shortened at each end
+        so it meets the bubble at the closest edge rather than its centre."""
         option.state &= ~QStyle.StateFlag.State_Selected
 
         # Calculate pen width to maintain ~GRID_WIDTH screen pixels
@@ -227,15 +227,29 @@ class GridlineItem(QGraphicsLineItem):
         sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
         pen_w = GRID_WIDTH / sx
 
+        # Shorten line to meet visible bubbles at their edge
+        line = self.line()
+        p1, p2 = line.p1(), line.p2()
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+        length = math.sqrt(dx * dx + dy * dy)
+        if length > 1e-9:
+            ux, uy = dx / length, dy / length
+            r = BUBBLE_RADIUS_MM
+            draw_p1 = QPointF(p1.x() + ux * r, p1.y() + uy * r) if self.bubble1.isVisible() else p1
+            draw_p2 = QPointF(p2.x() - ux * r, p2.y() - uy * r) if self.bubble2.isVisible() else p2
+        else:
+            draw_p1, draw_p2 = p1, p2
+
         pen = QPen(self._grid_color, pen_w, Qt.PenStyle.DashDotLine)
         painter.setPen(pen)
-        painter.drawLine(self.line())
+        painter.drawLine(draw_p1, draw_p2)
 
         if self.isSelected():
             sel_pen = QPen(self._grid_color.lighter(150),
                            pen_w * 2, Qt.PenStyle.DashDotLine)
             painter.setPen(sel_pen)
-            painter.drawLine(self.line())
+            painter.drawLine(draw_p1, draw_p2)
 
     # ── Label management ──────────────────────────────────────────────────
 
