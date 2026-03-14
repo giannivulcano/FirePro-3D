@@ -113,7 +113,9 @@ class GridBubble(QGraphicsEllipseItem):
         parent = self.parentItem()
         if parent is not None and parent.isSelected():
             r = BUBBLE_RADIUS_MM
-            highlight = QPen(QColor("#ff8800"), max(1, r * 0.04))
+            # Use the gridline's assigned colour for the highlight ring
+            base_color = getattr(parent, "_grid_color", QColor(GRID_COLOR))
+            highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
             painter.setPen(highlight)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             from PyQt6.QtCore import QRectF

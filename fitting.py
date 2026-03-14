@@ -179,9 +179,12 @@ class Fitting():
             self.symbol = None
 
         # Build new symbol as child of node
-        path = self.SYMBOLS[self.type]["path"]
-        self.symbol = _TintedSvg(path, self.node)
         import os
+        path = self.SYMBOLS[self.type]["path"]
+        # Resolve relative to this module's directory (not CWD)
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(__file__), path)
+        self.symbol = _TintedSvg(path, self.node)
         self.symbol._svg_source_path = os.path.abspath(path)
         # No ItemIgnoresTransformations — symbol scales with zoom (real-world size)
 

@@ -85,6 +85,7 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     else:
         renderer = QSvgRenderer(src)
 
+    item.prepareGeometryChange()
     item.setSharedRenderer(renderer)
     item._renderer = renderer  # prevent garbage collection
 
@@ -93,6 +94,7 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
         item._centre_on_node()
     elif hasattr(item, "_centre_on_origin"):
         item._centre_on_origin()
+    item.update()
 
 
 # ---------------------------------------------------------------------------

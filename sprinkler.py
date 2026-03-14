@@ -51,6 +51,9 @@ class Sprinkler(QGraphicsSvgItem):
     def _load_graphic(self, svg_path: str):
         """Load an SVG file into this item and re-centre it on the node."""
         import os
+        # Resolve relative to this module's directory (not CWD)
+        if not os.path.isabs(svg_path):
+            svg_path = os.path.join(os.path.dirname(__file__), svg_path)
         self._svg_source_path = os.path.abspath(svg_path)
         renderer = QSvgRenderer(svg_path)
         self.setSharedRenderer(renderer)
