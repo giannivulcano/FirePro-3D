@@ -36,7 +36,7 @@ class FSVisibilityDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Fire Suppression Visibility")
         self.setMinimumWidth(340)
-        self._settings = QSettings()
+        self._settings = QSettings("GV", "FirePro3D")
         self._rows: dict[str, dict] = {}
         self._build_ui()
 

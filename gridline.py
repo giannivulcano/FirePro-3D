@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -118,7 +118,6 @@ class GridBubble(QGraphicsEllipseItem):
             highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
             painter.setPen(highlight)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            from PyQt6.QtCore import QRectF
             painter.drawEllipse(QRectF(-r, -r, 2 * r, 2 * r))
 
     def mousePressEvent(self, event):

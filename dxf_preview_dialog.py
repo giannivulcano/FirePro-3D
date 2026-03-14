@@ -546,25 +546,26 @@ class UnderlayImportDialog(QDialog):
 
     def _restore_saved_settings(self):
         """Restore last-used import settings from QSettings."""
-        s = QSettings("FirePro3D", self._SETTINGS_KEY)
+        pfx = f"{self._SETTINGS_KEY}/"
+        s = QSettings("GV", "FirePro3D")
         # Scale combo
-        scale_idx = s.value("scale_idx", 0, type=int)
+        scale_idx = s.value(f"{pfx}scale_idx", 0, type=int)
         if 0 <= scale_idx < self._scale_combo.count():
             self._scale_combo.blockSignals(True)
             self._scale_combo.setCurrentIndex(scale_idx)
             self._scale_combo.blockSignals(False)
             self._on_scale_combo_changed(scale_idx)
-        custom_scale = s.value("custom_scale", 1.0, type=float)
+        custom_scale = s.value(f"{pfx}custom_scale", 1.0, type=float)
         self._custom_scale_spin.blockSignals(True)
         self._custom_scale_spin.setValue(custom_scale)
         self._custom_scale_spin.blockSignals(False)
         # Rotation
-        rotation = s.value("rotation", 0.0, type=float)
+        rotation = s.value(f"{pfx}rotation", 0.0, type=float)
         self._rotation_spin.blockSignals(True)
         self._rotation_spin.setValue(rotation)
         self._rotation_spin.blockSignals(False)
         # Destination layer
-        layer = s.value("dest_layer", "", type=str)
+        layer = s.value(f"{pfx}dest_layer", "", type=str)
         if layer:
             idx = self._dest_layer_combo.findText(layer)
             if idx >= 0:
@@ -573,17 +574,18 @@ class UnderlayImportDialog(QDialog):
                 self._dest_layer_combo.blockSignals(False)
                 self._on_dest_layer_changed()
         # Insert at origin
-        origin = s.value("insert_at_origin", True, type=bool)
+        origin = s.value(f"{pfx}insert_at_origin", True, type=bool)
         self._origin_cb.setChecked(origin)
 
     def _save_settings(self):
         """Save current import settings to QSettings."""
-        s = QSettings("FirePro3D", self._SETTINGS_KEY)
-        s.setValue("scale_idx", self._scale_combo.currentIndex())
-        s.setValue("custom_scale", self._custom_scale_spin.value())
-        s.setValue("rotation", self._rotation_spin.value())
-        s.setValue("dest_layer", self._dest_layer_combo.currentText())
-        s.setValue("insert_at_origin", self._origin_cb.isChecked())
+        pfx = f"{self._SETTINGS_KEY}/"
+        s = QSettings("GV", "FirePro3D")
+        s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
+        s.setValue(f"{pfx}custom_scale", self._custom_scale_spin.value())
+        s.setValue(f"{pfx}rotation", self._rotation_spin.value())
+        s.setValue(f"{pfx}dest_layer", self._dest_layer_combo.currentText())
+        s.setValue(f"{pfx}insert_at_origin", self._origin_cb.isChecked())
 
     # ── File loading ──────────────────────────────────────────────────────────
 

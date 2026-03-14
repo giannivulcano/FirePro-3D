@@ -1,0 +1,13 @@
+# FirePro 3D - Python dependencies
+# Install with: pip install -r requirements.txt
+
+ezdxf>=1.4
+fonttools>=4.50
+freetype-py>=2.5
+numpy>=2.0
+PyMuPDF>=1.27
+PyQt6>=6.8
+PyQt6-Qt6>=6.8
+PyQt6_sip>=13.8
+requests>=2.32
+vispy>=0.16

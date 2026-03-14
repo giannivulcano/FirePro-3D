@@ -659,7 +659,7 @@ class Model_Space(QGraphicsScene):
                 h = HatchItem.from_dict(entry)
                 self.addItem(h)
                 self._hatch_items.append(h)
-            except Exception:
+            except (ValueError, KeyError, TypeError):
                 pass  # skip malformed hatch data
 
         # --- Constraints ---
@@ -671,7 +671,7 @@ class Model_Space(QGraphicsScene):
                 c = ConstraintBase.from_dict(entry, id_to_geom)
                 if c is not None:
                     self._constraints.append(c)
-            except Exception:
+            except (ValueError, KeyError, TypeError):
                 pass  # skip malformed constraint data
 
         # Apply level visibility
@@ -1411,8 +1411,8 @@ class Model_Space(QGraphicsScene):
         pipe.node2 = None
         try:
             self.removeItem(pipe)
-        except Exception:
-            pass
+        except (RuntimeError, ValueError):
+            pass  # item may already be removed from scene
         if pipe in self.sprinkler_system.pipes:
             self.sprinkler_system.remove_pipe(pipe)
 
@@ -2377,8 +2377,8 @@ class Model_Space(QGraphicsScene):
                     h = HatchItem.from_dict(d)
                     self.addItem(h)
                     self._hatch_items.append(h)
-                except Exception:
-                    pass
+                except (ValueError, KeyError, TypeError):
+                    pass  # skip malformed hatch data
 
             # ── Constraints ───────────────────────────────────────────────
             from constraints import Constraint as ConstraintBase
@@ -2389,8 +2389,8 @@ class Model_Space(QGraphicsScene):
                     c = ConstraintBase.from_dict(d, id_to_geom)
                     if c is not None:
                         self._constraints.append(c)
-                except Exception:
-                    pass
+                except (ValueError, KeyError, TypeError):
+                    pass  # skip malformed constraint data
 
             # Re-apply level visibility
             if self._level_manager:

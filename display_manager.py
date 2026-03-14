@@ -22,7 +22,7 @@ from PyQt6.QtGui import QColor, QFont, QBrush, QPen
 from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
-import os, re
+import os
 import xml.etree.ElementTree as ET
 import theme as th
 
@@ -579,25 +579,7 @@ class DisplayManager(QDialog):
 
     def _items_for_category(self, key: str) -> list:
         """Return the list of items (or Fitting wrappers) for a category."""
-        from gridline import GridlineItem
-        from hydraulic_node_badge import HydraulicNodeBadge
-        ss = self._scene.sprinkler_system
-        if key == "Pipe":
-            return list(ss.pipes)
-        elif key == "Sprinkler":
-            return [n.sprinkler for n in ss.nodes if n.has_sprinkler()]
-        elif key == "Fitting":
-            return [n.fitting for n in ss.nodes if n.has_fitting() and n.fitting.symbol]
-        elif key == "Water Supply":
-            ws = getattr(self._scene, "water_supply_node", None)
-            return [ws] if ws else []
-        elif key == "Node":
-            return list(ss.nodes)
-        elif key == "Hydraulic Badge":
-            return [i for i in self._scene.items() if isinstance(i, HydraulicNodeBadge)]
-        elif key == "Grid Line":
-            return [i for i in self._scene.items() if isinstance(i, GridlineItem)]
-        return []
+        return _items_for_category_static(self._scene, key)
 
     def _label_for_item(self, item, index: int, category: str) -> str:
         """Human-readable label for an instance row."""

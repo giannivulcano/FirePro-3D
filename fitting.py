@@ -232,7 +232,7 @@ class Fitting():
                 M1 = pipe_vectors[:2]
                 try:
                     transform = CAD_Math.make_qtransform_from_qpoints(M2_spec, M1)
-                except Exception:
+                except (ValueError, TypeError, ZeroDivisionError):
                     transform = QTransform()
             elif pipe_vectors:
                 V2 = M2_spec[0] if isinstance(M2_spec, tuple) else M2_spec
@@ -289,8 +289,8 @@ class Fitting():
             M3 = self.SYMBOLS[self.type].get("through")
             try:
                 transform = CAD_Math.make_qtransform_from_qpoints(M3, M2)
-            except Exception:
-                pass
+            except (ValueError, TypeError, ZeroDivisionError):
+                pass  # fallback to identity transform below
             
         # Fallback: if no condition produced a transform, use identity
         if transform is None:
