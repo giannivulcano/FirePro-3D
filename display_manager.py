@@ -23,47 +23,121 @@ from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
 import os, re
+import xml.etree.ElementTree as ET
 import theme as th
 
 
 # ---------------------------------------------------------------------------
-# SVG recolouring — modify stroke/fill directly in the SVG source
+# SVG recolouring — set fill/stroke on the top-level layer group
 # ---------------------------------------------------------------------------
 
 _svg_color_cache: dict[tuple, QByteArray] = {}
 
-# Regex patterns for SVG recolouring
-_FOREGROUND_RE = re.compile(r'#[fF]{6}\b')                       # white (#ffffff)
-_BACKGROUND_RE = re.compile(r'#(?:000000|2b2b2b|2b2b2e)\b', re.IGNORECASE)  # dark fills
+# SVG namespace constants
+_SVG_NS = "http://www.w3.org/2000/svg"
+_INK_NS = "http://www.inkscape.org/namespaces/inkscape"
+_SODI_NS = "http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+
+# Register so ET.tostring preserves prefixes
+ET.register_namespace("", _SVG_NS)
+ET.register_namespace("inkscape", _INK_NS)
+ET.register_namespace("sodipodi", _SODI_NS)
+ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
+ET.register_namespace("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#")
+ET.register_namespace("cc", "http://creativecommons.org/ns#")
+ET.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
+
+
+def _parse_css(style_str: str) -> dict[str, str]:
+    """Parse inline CSS ``'prop:val;prop2:val2'`` into an ordered dict."""
+    result: dict[str, str] = {}
+    for part in style_str.split(";"):
+        part = part.strip()
+        if ":" in part:
+            k, v = part.split(":", 1)
+            result[k.strip()] = v.strip()
+    return result
+
+
+def _build_css(d: dict[str, str]) -> str:
+    return ";".join(f"{k}:{v}" for k, v in d.items())
 
 
 def _recolor_svg_bytes(svg_path: str, color: str | None = None,
                        fill_color: str | None = None) -> QByteArray:
-    """Read an SVG file and replace foreground/background colours.
+    """Recolour an SVG by setting fill/stroke on the top-level layer group.
 
-    *color* replaces white (#ffffff) strokes/fills (the "outline" colour).
-    *fill_color* replaces dark background fills (#000000, #2b2b2b, #2b2b2e).
-    Results are cached by (path, color, fill_color).
+    *color*      → applied as ``stroke`` on the layer ``<g>`` element.
+    *fill_color* → applied as ``fill``   on the layer ``<g>`` element.
+    Descendant elements have their explicit stroke/fill replaced with
+    ``inherit`` so they pick up the group values.  ``fill:none`` and
+    ``stroke:none`` are preserved (transparent elements stay transparent).
+    Results are cached by *(path, color, fill_color)*.
     """
     key = (svg_path, color, fill_color)
     if key in _svg_color_cache:
         return _svg_color_cache[key]
+
     with open(svg_path, "r", encoding="utf-8") as f:
-        svg = f.read()
-    if color and color.lower() != "#ffffff":
-        svg = _FOREGROUND_RE.sub(color, svg)
-    if fill_color:
-        svg = _BACKGROUND_RE.sub(fill_color, svg)
-    data = QByteArray(svg.encode("utf-8"))
+        raw = f.read()
+
+    change_stroke = color is not None and color.lower() != "#ffffff"
+    change_fill = fill_color is not None
+
+    if not change_stroke and not change_fill:
+        data = QByteArray(raw.encode("utf-8"))
+        _svg_color_cache[key] = data
+        return data
+
+    root = ET.fromstring(raw)
+
+    # Find the inkscape layer group (<g inkscape:groupmode="layer">)
+    layer = None
+    for g in root.iter(f"{{{_SVG_NS}}}g"):
+        if g.get(f"{{{_INK_NS}}}groupmode") == "layer":
+            layer = g
+            break
+
+    if layer is not None:
+        # ── Set fill / stroke on the layer group's style ──────────────
+        style = _parse_css(layer.get("style", ""))
+        if change_stroke:
+            style["stroke"] = color
+        if change_fill:
+            style["fill"] = fill_color
+        layer.set("style", _build_css(style))
+
+        # ── Make descendants inherit (skip fill:none / stroke:none) ───
+        for elem in layer.iter():
+            if elem is layer:
+                continue
+            s = elem.get("style")
+            if not s:
+                continue
+            props = _parse_css(s)
+            changed = False
+            if change_stroke and "stroke" in props:
+                if props["stroke"].lower() not in ("none", "inherit"):
+                    props["stroke"] = "inherit"
+                    changed = True
+            if change_fill and "fill" in props:
+                if props["fill"].lower() not in ("none", "inherit"):
+                    props["fill"] = "inherit"
+                    changed = True
+            if changed:
+                elem.set("style", _build_css(props))
+
+    out = ET.tostring(root, encoding="unicode", xml_declaration=True)
+    data = QByteArray(out.encode("utf-8"))
     _svg_color_cache[key] = data
     return data
 
 
 def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
-    """Apply colour tint by recolouring the SVG source file directly.
+    """Apply colour tint by setting fill/stroke on the SVG layer group.
 
-    *color* replaces white (#ffffff) strokes/fills — the outline colour.
-    *fill_color* replaces dark background fills (#000000, #2b2b2b, #2b2b2e).
+    *color*      → ``stroke`` on the top-level ``<g>`` element.
+    *fill_color* → ``fill``   on the top-level ``<g>`` element.
     Falls back to the original SVG when both are None/default.
     Requires ``_svg_source_path`` on the item.
     """
@@ -92,6 +166,8 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     # Re-centre after renderer change
     if hasattr(item, "_centre_on_node"):
         item._centre_on_node()
+    elif hasattr(item, "_centre_on_offset"):
+        item._centre_on_offset()
     elif hasattr(item, "_centre_on_origin"):
         item._centre_on_origin()
     item.update()
