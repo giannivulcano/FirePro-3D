@@ -274,6 +274,10 @@ class LevelManager:
         for item in getattr(scene, "_floor_slabs", []):
             _set_level_vis(item)
 
+        # ── Roofs ────────────────────────────────────────────────────────
+        for item in getattr(scene, "_roofs", []):
+            _set_level_vis(item)
+
         # ── Hatches ───────────────────────────────────────────────────────
         for item in getattr(scene, "_hatch_items", []):
             _set_level_vis(item)
@@ -696,6 +700,7 @@ class LevelWidget(QWidget):
         items += getattr(self.scene, "_draw_arcs", [])
         items += getattr(self.scene, "_gridlines", [])
         items += getattr(self.scene, "_hatch_items", [])
+        items += getattr(self.scene, "_roofs", [])
         ann = getattr(self.scene, "annotations", None)
         if ann:
             items += getattr(ann, "dimensions", [])

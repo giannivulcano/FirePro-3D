@@ -31,6 +31,7 @@ from gridline import GridlineItem, reset_grid_counters
 from constants import Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER
 from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_IN
 from floor_slab import FloorSlab
+from roof import RoofItem
 from wall_opening import WallOpening, DoorOpening, WindowOpening
 from constraints import Constraint as ConstraintBase
 from user_layer_manager import lw_mm_to_cosmetic_px
@@ -189,6 +190,12 @@ class Model_Space(QGraphicsScene):
         self._wall_alignment: str = "Center"                  # alignment mode for new walls
         self._wall_template: "WallSegment | None" = None      # pre-placement property template
         self._floor_template: "FloorSlab | None" = None       # pre-placement property template
+        self._roofs: list[RoofItem] = []
+        self._next_roof_num: int = 1
+        self._roof_template: "RoofItem | None" = None         # pre-placement property template
+        self._roof_active: "RoofItem | None" = None           # in-progress roof boundary
+        self._roof_rect_anchor: "QPointF | None" = None       # first click for rect roof
+        self._roof_rect_preview: "QGraphicsRectItem | None" = None
         self._wall_anchor: "QPointF | None" = None          # first click for wall drawing
         self._wall_chain_start: "QPointF | None" = None    # very first anchor for wall-close
         self._wall_preview_rect: "QGraphicsPathItem | None" = None  # thickness preview
@@ -385,6 +392,7 @@ class Model_Space(QGraphicsScene):
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
         floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]
+        roofs_data = [r.to_dict() for r in self._roofs]
 
         # --- Display settings (per-project) ---
         from display_manager import get_display_settings_for_save
@@ -413,6 +421,7 @@ class Model_Space(QGraphicsScene):
             "gridlines":           gridlines_data,
             "walls":               walls_data,
             "floor_slabs":         floor_slabs_data,
+            "roofs":               roofs_data,
             "hatches":             hatch_data,
             "constraints":         constraints_data,
         }
@@ -656,6 +665,12 @@ class Model_Space(QGraphicsScene):
             self.addItem(slab)
             self._floor_slabs.append(slab)
 
+        # --- Roofs ---
+        for entry in payload.get("roofs", []):
+            roof = RoofItem.from_dict(entry)
+            self.addItem(roof)
+            self._roofs.append(roof)
+
         # --- Recalculate auto-name counters ---
         self._recalc_name_counters()
 
@@ -728,9 +743,11 @@ class Model_Space(QGraphicsScene):
         self._gridline_anchor = None
         self._walls = []
         self._floor_slabs = []
+        self._roofs = []
         self._wall_anchor = None
         self._wall_chain_start = None
         self._floor_active = None
+        self._roof_active = None
         self._hatch_items = []
         self._constraints = []
         reset_grid_counters()
@@ -859,6 +876,10 @@ class Model_Space(QGraphicsScene):
             elif isinstance(item, FloorSlab):
                 if item in self._floor_slabs:
                     self._floor_slabs.remove(item)
+                self.removeItem(item)
+            elif isinstance(item, RoofItem):
+                if item in self._roofs:
+                    self._roofs.remove(item)
                 self.removeItem(item)
             elif isinstance(item, (DoorOpening, WindowOpening)):
                 # Remove opening from parent wall
@@ -1050,6 +1071,21 @@ class Model_Space(QGraphicsScene):
                 if self._floor_rect_preview.scene() is self:
                     self.removeItem(self._floor_rect_preview)
                 self._floor_rect_preview = None
+        # Clean up roof drawing state
+        if mode != "roof":
+            if self._roof_active is not None:
+                if len(self._roof_active._points) < 3:
+                    if self._roof_active.scene() is self:
+                        self.removeItem(self._roof_active)
+                    if self._roof_active in self._roofs:
+                        self._roofs.remove(self._roof_active)
+                self._roof_active = None
+        if mode != "roof_rect":
+            self._roof_rect_anchor = None
+            if self._roof_rect_preview is not None:
+                if self._roof_rect_preview.scene() is self:
+                    self.removeItem(self._roof_rect_preview)
+                self._roof_rect_preview = None
 
         # Clean up place_import ghost and params
         if mode != "place_import":
@@ -2058,6 +2094,7 @@ class Model_Space(QGraphicsScene):
             # ── Walls & Floors ────────────────────────────────────────────
             "walls":              [w.to_dict()  for w in self._walls],
             "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],
+            "roofs":              [r.to_dict()  for r in self._roofs],
             # ── Hatches & Constraints ─────────────────────────────────────
             "hatches":            [h.to_dict() for h in self._hatch_items
                                   if hasattr(h, 'to_dict')],
@@ -2261,6 +2298,11 @@ class Model_Space(QGraphicsScene):
                     self.removeItem(fs)
             self._floor_slabs.clear()
 
+            for r in list(self._roofs):
+                if r.scene() is self:
+                    self.removeItem(r)
+            self._roofs.clear()
+
             for h in list(self._hatch_items):
                 if h.scene() is self:
                     self.removeItem(h)
@@ -2318,6 +2360,11 @@ class Model_Space(QGraphicsScene):
                 slab = FloorSlab.from_dict(d)
                 self.addItem(slab)
                 self._floor_slabs.append(slab)
+
+            for d in state.get("roofs", []):
+                roof = RoofItem.from_dict(d)
+                self.addItem(roof)
+                self._roofs.append(roof)
 
             # ── Hatches ───────────────────────────────────────────────────
             for d in state.get("hatches", []):
@@ -2638,6 +2685,14 @@ class Model_Space(QGraphicsScene):
         self._floor_template.level = self.active_level
         return self._floor_template
 
+    def _get_roof_template(self) -> "RoofItem":
+        """Return (lazily-created) roof template for pre-placement editing."""
+        if self._roof_template is None:
+            self._roof_template = RoofItem(color="#D2B48C")
+            self._roof_template.name = "(Template)"
+        self._roof_template.level = self.active_level
+        return self._roof_template
+
     def _get_geometry_template(self):
         """Return (lazily-created) geometry template for line/rect/circle/polyline."""
         from construction_geometry import GeometryTemplate
@@ -2693,6 +2748,7 @@ class Model_Space(QGraphicsScene):
                                    if n.has_sprinkler()],
                     GridlineItem: lambda: list(self._gridlines),
                     FloorSlab: lambda: list(self._floor_slabs),
+                    RoofItem: lambda: list(self._roofs),
                 }
                 collection = None
                 for cls, getter in _type_map.items():
@@ -3466,6 +3522,8 @@ class Model_Space(QGraphicsScene):
         "wall":                     "_move_wall",
         "floor":                    "_move_floor",
         "floor_rect":               "_move_floor_rect",
+        "roof":                     "_move_roof",
+        "roof_rect":                "_move_roof_rect",
         "door":                     "_move_door_window",
         "window":                   "_move_door_window",
     }
@@ -3919,6 +3977,41 @@ class Model_Space(QGraphicsScene):
                 f"H: {sm.scene_to_display(rect.height())}"
             )
 
+    def _move_roof(self, event, snapped):
+        sm = self.scale_manager
+        if self._roof_active is None:
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+        else:
+            self.preview_node.hide()
+            last_pt = self._roof_active._points[-1]
+            self.preview_pipe.setLine(
+                last_pt.x(), last_pt.y(), snapped.x(), snapped.y())
+            pen = QPen(QColor(self._roof_active._color), 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            self.preview_pipe.setPen(pen)
+            self.preview_pipe.show()
+            _dx = snapped.x() - last_pt.x()
+            _dy = snapped.y() - last_pt.y()
+            _len = math.hypot(_dx, _dy)
+            _ang = math.degrees(math.atan2(-_dy, _dx))
+            self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+
+    def _move_roof_rect(self, event, snapped):
+        sm = self.scale_manager
+        if self._roof_rect_anchor is None:
+            self.update_preview_node(snapped)
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._roof_rect_anchor is not None and self._roof_rect_preview is not None:
+            rect = QRectF(self._roof_rect_anchor, snapped).normalized()
+            self._roof_rect_preview.setRect(rect)
+            self._draw_dim_hint = (
+                f"W: {sm.scene_to_display(rect.width())}  "
+                f"H: {sm.scene_to_display(rect.height())}"
+            )
+
     def _move_door_window(self, event, snapped):
         self.update_preview_node(snapped)
 
@@ -3962,6 +4055,8 @@ class Model_Space(QGraphicsScene):
         "wall":                     "_press_wall",
         "floor":                    "_press_floor",
         "floor_rect":               "_press_floor_rect",
+        "roof":                     "_press_roof",
+        "roof_rect":                "_press_roof_rect",
         "door":                     "_press_door",
         "window":                   "_press_window",
     }
@@ -5024,6 +5119,105 @@ class Model_Space(QGraphicsScene):
             else:
                 self.instructionChanged.emit("Pick first corner for rectangular floor")
 
+    # ── Roof placement ────────────────────────────────────────────────
+
+    def _press_roof(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._roof_active is None:
+            _rtmpl = self._get_roof_template()
+            roof = RoofItem(color=_rtmpl._color.name())
+            roof.name = f"Roof {self._next_roof_num}"
+            self._next_roof_num += 1
+            roof._thickness_ft = _rtmpl._thickness_ft
+            roof._roof_type = _rtmpl._roof_type
+            roof._pitch_deg = _rtmpl._pitch_deg
+            roof._eave_height_ft = _rtmpl._eave_height_ft
+            roof._overhang_ft = _rtmpl._overhang_ft
+            roof.level = _rtmpl.level if _rtmpl.level else self.active_level
+            roof.user_layer = self.active_user_layer
+            roof.add_point(snapped)
+            self.addItem(roof)
+            self._roofs.append(roof)
+            self._roof_active = roof
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit("Pick next point (click near first to close)")
+        else:
+            pts = self._roof_active._points
+            if len(pts) >= 3:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
+                if d0 <= tol:
+                    self._roof_active.close_polygon()
+                    self._roof_active.setSelected(True)
+                    self._roof_active = None
+                    self.preview_pipe.hide()
+                    for v in self.views(): v.viewport().update()
+                    self.push_undo_state()
+                    if self.single_place_mode:
+                        self.set_mode("select")
+                    else:
+                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    return
+            if len(pts) >= 2:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                for vi in range(len(pts)):
+                    dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
+                    if dv <= tol:
+                        pts.pop(vi)
+                        self._roof_active._rebuild_path()
+                        for v in self.views(): v.viewport().update()
+                        return
+            self._roof_active.add_point(snapped)
+
+    def _press_roof_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._roof_rect_anchor is None:
+            self._roof_rect_anchor = snapped
+            self.instructionChanged.emit("Pick opposite corner for rectangular roof")
+            preview = QGraphicsRectItem(QRectF(snapped, snapped))
+            _rtmpl = self._get_roof_template()
+            _rc = QColor(_rtmpl._color)
+            pen = QPen(_rc, 1, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            preview.setPen(pen)
+            _rc.setAlpha(30)
+            preview.setBrush(QBrush(_rc))
+            preview.setZValue(200)
+            self.addItem(preview)
+            self._roof_rect_preview = preview
+        else:
+            rect = QRectF(self._roof_rect_anchor, snapped).normalized()
+            corners = [
+                QPointF(rect.x(), rect.y()),
+                QPointF(rect.x() + rect.width(), rect.y()),
+                QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
+                QPointF(rect.x(), rect.y() + rect.height()),
+            ]
+            _rtmpl = self._get_roof_template()
+            roof = RoofItem(points=corners, color=_rtmpl._color.name())
+            roof.name = f"Roof {self._next_roof_num}"
+            self._next_roof_num += 1
+            roof._thickness_ft = _rtmpl._thickness_ft
+            roof._roof_type = _rtmpl._roof_type
+            roof._pitch_deg = _rtmpl._pitch_deg
+            roof._eave_height_ft = _rtmpl._eave_height_ft
+            roof._overhang_ft = _rtmpl._overhang_ft
+            roof.level = _rtmpl.level if _rtmpl.level else self.active_level
+            roof.user_layer = self.active_user_layer
+            self.addItem(roof)
+            self._roofs.append(roof)
+            roof.setSelected(True)
+            for v in self.views(): v.viewport().update()
+            if self._roof_rect_preview is not None:
+                self.removeItem(self._roof_rect_preview)
+                self._roof_rect_preview = None
+            self._roof_rect_anchor = None
+            self.push_undo_state()
+            if self.single_place_mode:
+                self.set_mode("select")
+            else:
+                self.instructionChanged.emit("Pick first corner for rectangular roof")
+
     # ── Door placement ────────────────────────────────────────────────
     def _press_door(self, event, pos, snapped, item_under, node_under, pipe_under):
         wall = self._find_wall_at(snapped)
@@ -5317,7 +5511,7 @@ class Model_Space(QGraphicsScene):
         for lst in [self._construction_lines, self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._gridlines, self._hatch_items,
-                    self._walls, self._floor_slabs]:
+                    self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:
                     result.append(item)
@@ -5355,6 +5549,15 @@ class Model_Space(QGraphicsScene):
                 except (ValueError, IndexError):
                     pass
         self._next_floor_num = (max(floor_nums) + 1) if floor_nums else 1
+
+        roof_nums = []
+        for r in self._roofs:
+            if r.name.startswith("Roof "):
+                try:
+                    roof_nums.append(int(r.name.split(" ", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+        self._next_roof_num = (max(roof_nums) + 1) if roof_nums else 1
 
     def _auto_join_wall(self, wall: WallSegment, tolerance: float = 20.0):
         """Snap wall endpoints to nearby existing wall endpoints (miter join)

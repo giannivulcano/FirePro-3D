@@ -134,6 +134,18 @@ class ModelBrowser(QWidget):
             pts = len(slab.points) if hasattr(slab, "points") else 0
             item.setToolTip(0, f"Level: {slab.level}  Points: {pts}")
 
+        # -- Roofs --
+        roofs = getattr(self._scene, "_roofs", [])
+        roofs_root = QTreeWidgetItem(self._tree, [f"Roofs ({len(roofs)})"])
+        roofs_root.setFont(0, f_bold)
+        roofs_root.setExpanded(True)
+        for roof in roofs:
+            label = roof.name if roof.name else "Roof"
+            item = QTreeWidgetItem(roofs_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(roof))
+            pts = len(roof.points) if hasattr(roof, "points") else 0
+            item.setToolTip(0, f"Level: {roof.level}  Type: {getattr(roof, '_roof_type', 'flat')}  Points: {pts}")
+
         # -- Doors --
         doors: list = []
         for wall in walls:
@@ -232,6 +244,9 @@ class ModelBrowser(QWidget):
         for slab in getattr(self._scene, "_floor_slabs", []):
             if id(slab) == entity_id:
                 return slab
+        for roof in getattr(self._scene, "_roofs", []):
+            if id(roof) == entity_id:
+                return roof
         ss = getattr(self._scene, "sprinkler_system", None)
         if ss:
             for pipe in ss.pipes:

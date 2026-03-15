@@ -110,13 +110,16 @@ class View3D(QWidget):
         self._node_positions_3d: np.ndarray | None = None
         self._pipe_midpoints_3d: np.ndarray | None = None
 
-        # Wall / slab pick maps
+        # Wall / slab / roof pick maps
         self._wall_refs: list[WallSegment] = []
         self._slab_refs: list[FloorSlab] = []
+        self._roof_refs: list = []
         self._wall_centroids_3d: np.ndarray | None = None
         self._slab_centroids_3d: np.ndarray | None = None
+        self._roof_centroids_3d: np.ndarray | None = None
         self._original_wall_colors: list[tuple] = []
         self._original_slab_colors: list[tuple] = []
+        self._original_roof_colors: list[tuple] = []
 
         # Ortho / perspective state
         self._perspective = True
@@ -223,6 +226,9 @@ class View3D(QWidget):
         # Edge wireframe lines for walls and slabs
         self._wall_edge_lines: list[visuals.Line] = []
         self._slab_edge_lines: list[visuals.Line] = []
+        # Roof meshes
+        self._roof_meshes: list[visuals.Mesh] = []
+        self._roof_edge_lines: list[visuals.Line] = []
 
         # XYZ axis lines at world origin
         axis_len = 500.0  # mm
@@ -337,6 +343,7 @@ class View3D(QWidget):
         self._extract_level_floors()
         self._extract_walls()
         self._extract_floor_slabs()
+        self._extract_roofs()
         self._on_2d_selection_changed()
 
         # Always keep rotation center at the geometry bounding box centre
@@ -873,6 +880,54 @@ class View3D(QWidget):
                 self._slab_edge_lines.append(None)
         self._slab_centroids_3d = np.array(centroids) if centroids else None
 
+    def _extract_roofs(self):
+        """Render roof entities as solid 3D meshes with edge lines."""
+        for m in self._roof_meshes:
+            m.parent = None
+        self._roof_meshes.clear()
+        for ln in self._roof_edge_lines:
+            if ln is not None:
+                ln.parent = None
+        self._roof_edge_lines.clear()
+        self._roof_refs.clear()
+        self._original_roof_colors.clear()
+
+        scene_obj = self._scene
+        if scene_obj is None:
+            self._roof_centroids_3d = None
+            return
+        lm = self._lm
+        centroids = []
+        for roof in getattr(scene_obj, "_roofs", []):
+            mesh_data = roof.get_3d_mesh(level_manager=lm)
+            if mesh_data is None:
+                continue
+            verts = np.array(mesh_data["vertices"], dtype=np.float32)
+            faces = np.array(mesh_data["faces"], dtype=np.uint32)
+            col = mesh_data.get("color", (0.8, 0.7, 0.5, 0.5))
+            mesh = visuals.Mesh(
+                vertices=verts, faces=faces,
+                color=col,
+                parent=self._view.scene,
+            )
+            self._roof_meshes.append(mesh)
+            self._roof_refs.append(roof)
+            self._original_roof_colors.append((col, (0.15, 0.15, 0.15, 0.7)))
+            centroids.append(verts.mean(axis=0))
+            edge_segs = self._edges_from_faces(verts, faces)
+            if len(edge_segs) > 0:
+                edge_line = visuals.Line(
+                    pos=edge_segs,
+                    color=(0.15, 0.15, 0.15, 0.7),
+                    width=1.0,
+                    connect='segments',
+                    parent=self._view.scene,
+                )
+                self._roof_edge_lines.append(edge_line)
+            else:
+                self._roof_edge_lines.append(None)
+        self._roof_centroids_3d = np.array(centroids) if centroids else None
+
     # ── Camera ─────────────────────────────────────────────────────────────
 
     def _compute_scene_bounds(self):
@@ -889,6 +944,8 @@ class View3D(QWidget):
             all_pts.append(self._wall_centroids_3d)
         if self._slab_centroids_3d is not None and len(self._slab_centroids_3d) > 0:
             all_pts.append(self._slab_centroids_3d)
+        if self._roof_centroids_3d is not None and len(self._roof_centroids_3d) > 0:
+            all_pts.append(self._roof_centroids_3d)
         if not all_pts:
             return None
         combined = np.vstack(all_pts)
@@ -1068,7 +1125,7 @@ class View3D(QWidget):
     def _apply_horizontal_cut(self):
         """Hide all meshes whose geometry is entirely above the cut plane."""
         cut_z = self._h_cut_height_mm
-        for mesh_list in (self._wall_meshes, self._slab_meshes, self._floor_meshes):
+        for mesh_list in (self._wall_meshes, self._slab_meshes, self._roof_meshes, self._floor_meshes):
             for m in mesh_list:
                 md = getattr(m, '_meshdata', None)
                 if md is not None:
@@ -1088,6 +1145,9 @@ class View3D(QWidget):
         for i, ln in enumerate(self._slab_edge_lines):
             if ln is not None:
                 ln.visible = self._slab_meshes[i].visible if i < len(self._slab_meshes) else True
+        for i, ln in enumerate(self._roof_edge_lines):
+            if ln is not None:
+                ln.visible = self._roof_meshes[i].visible if i < len(self._roof_meshes) else True
 
         # Clip nodes/sprinklers above cut
         if self._node_positions_3d is not None and len(self._node_positions_3d) > 0:
@@ -1104,7 +1164,7 @@ class View3D(QWidget):
 
     def _remove_horizontal_cut(self):
         """Restore all meshes to visible (respecting floors toggle)."""
-        for mesh_list in (self._wall_meshes, self._slab_meshes):
+        for mesh_list in (self._wall_meshes, self._slab_meshes, self._roof_meshes):
             for m in mesh_list:
                 m.visible = True
         # Restore floor meshes only if floors are toggled on
@@ -1117,7 +1177,7 @@ class View3D(QWidget):
         for lbl in self._floor_labels:
             lbl.visible = floors_vis
         # Restore edge lines
-        for ln in self._wall_edge_lines + self._slab_edge_lines:
+        for ln in self._wall_edge_lines + self._slab_edge_lines + self._roof_edge_lines:
             if ln is not None:
                 ln.visible = True
         # Restore node markers
@@ -1198,6 +1258,17 @@ class View3D(QWidget):
                     best_dist = dist
                     best_item = self._slab_refs[i]
 
+        # Check roof centroids
+        if self._roof_centroids_3d is not None:
+            for i, pos3d in enumerate(self._roof_centroids_3d):
+                screen = self._project_to_screen(pos3d)
+                if screen is None:
+                    continue
+                dist = np.linalg.norm(screen - screen_pos)
+                if dist < mesh_tol and dist < best_dist:
+                    best_dist = dist
+                    best_item = self._roof_refs[i]
+
         return best_item
 
     def _project_to_screen(self, world_pos: np.ndarray):
@@ -1241,6 +1312,13 @@ class View3D(QWidget):
                 if i < len(self._slab_edge_lines) and self._slab_edge_lines[i] is not None:
                     self._slab_edge_lines[i].set_data(color=orig_edge, width=1.0)
 
+        for i, mesh in enumerate(self._roof_meshes):
+            if i < len(self._original_roof_colors):
+                orig_col, orig_edge = self._original_roof_colors[i]
+                mesh.color = orig_col
+                if i < len(self._roof_edge_lines) and self._roof_edge_lines[i] is not None:
+                    self._roof_edge_lines[i].set_data(color=orig_edge, width=1.0)
+
         if not selected_items:
             self._canvas.update()
             return
@@ -1248,6 +1326,7 @@ class View3D(QWidget):
         # Build sets of selected wall and slab indices
         sel_wall_idxs = set()
         sel_slab_idxs = set()
+        sel_roof_idxs = set()
         for sel in selected_items:
             for i, ref in enumerate(self._wall_refs):
                 if ref is sel:
@@ -1255,8 +1334,11 @@ class View3D(QWidget):
             for i, ref in enumerate(self._slab_refs):
                 if ref is sel:
                     sel_slab_idxs.add(i)
+            for i, ref in enumerate(self._roof_refs):
+                if ref is sel:
+                    sel_roof_idxs.add(i)
 
-        if not sel_wall_idxs and not sel_slab_idxs:
+        if not sel_wall_idxs and not sel_slab_idxs and not sel_roof_idxs:
             self._canvas.update()
             return
 
@@ -1279,6 +1361,16 @@ class View3D(QWidget):
             else:
                 if i < len(self._original_slab_colors):
                     r, g, b, _a = self._original_slab_colors[i][0]
+                    mesh.color = (r, g, b, DESELECT_ALPHA)
+
+        for i, mesh in enumerate(self._roof_meshes):
+            if i in sel_roof_idxs:
+                mesh.color = COL_SEL_MESH
+                if i < len(self._roof_edge_lines) and self._roof_edge_lines[i] is not None:
+                    self._roof_edge_lines[i].set_data(color=COL_SEL_EDGE, width=2.5)
+            else:
+                if i < len(self._original_roof_colors):
+                    r, g, b, _a = self._original_roof_colors[i][0]
                     mesh.color = (r, g, b, DESELECT_ALPHA)
 
         self._canvas.update()
@@ -1307,6 +1399,8 @@ class View3D(QWidget):
                     mid = (self._node_to_3d(item.node1) + self._node_to_3d(item.node2)) / 2
                     positions.append(mid)
             elif isinstance(item, (WallSegment, FloorSlab)):
+                mesh_selected.append(item)
+            elif hasattr(item, '_roof_type'):  # RoofItem
                 mesh_selected.append(item)
 
         if positions:

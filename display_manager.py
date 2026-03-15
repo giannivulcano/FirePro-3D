@@ -185,6 +185,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Node",             "color": "#888888", "fill": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
 # Tree-column indices
@@ -252,6 +253,15 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_gridline(item, color, scale, opacity, visible, fill_color, font_size)
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
+    else:
+        # Generic items with _display_color/_display_fill_color (e.g. RoofItem)
+        if hasattr(item, '_display_color'):
+            item._display_color = color
+        if hasattr(item, '_display_fill_color') and fill_color is not None:
+            item._display_fill_color = fill_color
+        item.setVisible(visible)
+        item.setOpacity(opacity / 100.0)
+        item.update()
 
 
 def _apply_pipe(pipe, color, scale, opacity, visible, font_size=None):
@@ -1426,4 +1436,6 @@ def _items_for_category_static(scene, key: str) -> list:
         return [i for i in scene.items() if isinstance(i, HydraulicNodeBadge)]
     elif key == "Grid Line":
         return [i for i in scene.items() if isinstance(i, GridlineItem)]
+    elif key == "Roof":
+        return list(getattr(scene, "_roofs", []))
     return []

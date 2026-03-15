@@ -681,6 +681,20 @@ class MainWindow(QMainWindow):
         _floor_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
         self._mode_buttons["floor"] = _floor_btn
         self._mode_buttons["floor_rect"] = _floor_btn  # same button shows checked for both
+        _roof_btn = g_3d.add_large_button(
+            "Roof", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("roof"),
+            checkable=True)
+        _roof_btn.setToolTip("Draw a roof boundary")
+        _roof_menu = QMenu(_roof_btn)
+        _roof_poly_act = _roof_menu.addAction("Roof (Polygon)")
+        _roof_rect_act = _roof_menu.addAction("Roof (Rectangle)")
+        _roof_poly_act.triggered.connect(lambda: self.scene.set_mode("roof"))
+        _roof_rect_act.triggered.connect(lambda: self.scene.set_mode("roof_rect"))
+        _roof_btn.setMenu(_roof_menu)
+        _roof_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        self._mode_buttons["roof"] = _roof_btn
+        self._mode_buttons["roof_rect"] = _roof_btn
         _door_btn = g_3d.add_small_button(
             "Door", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("door"),
@@ -1263,6 +1277,9 @@ class MainWindow(QMainWindow):
             self.prop_manager.show_properties(template)
         elif mode in ("floor", "floor_rect"):
             template = self.scene._get_floor_template()
+            self.prop_manager.show_properties(template)
+        elif mode in ("roof", "roof_rect"):
+            template = self.scene._get_roof_template()
             self.prop_manager.show_properties(template)
         elif mode in ("draw_line", "construction_line", "draw_rectangle",
                        "draw_circle", "draw_arc", "polyline"):
