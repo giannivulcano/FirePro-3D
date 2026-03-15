@@ -10,8 +10,10 @@ Property types recognised from ``get_properties()`` dict:
     label      — read-only informational text
     string     — editable QLineEdit (auto-detects numeric fields)
     enum       — QComboBox with fixed options list
+    combo      — alias for enum
     color      — colour swatch + QColorDialog picker
     level_ref  — QComboBox populated from LevelManager
+    button     — QPushButton that calls meta["callback"] when clicked
 """
 
 from __future__ import annotations
@@ -217,6 +219,25 @@ class PropertyManager(QWidget):
                     lambda val, k=key: self._apply_property(k, val)
                 )
 
+            # ── button (opens a callback) ───────────────────────────────
+            elif prop_type == "button":
+                btn = QPushButton(str(meta.get("value", "Edit…")))
+                callback = meta.get("callback")
+                if callback:
+                    btn.clicked.connect(
+                        lambda _, cb=callback: self._on_button_callback(cb)
+                    )
+                widget = btn
+
+            # ── combo (alias for enum) ──────────────────────────────────
+            elif prop_type == "combo":
+                widget = QComboBox()
+                widget.addItems(meta.get("options", []))
+                widget.setCurrentText(str(meta["value"]))
+                widget.currentTextChanged.connect(
+                    lambda val, k=key: self._apply_property(k, val)
+                )
+
             # ── string / fallback (editable line edit) ────────────────────
             else:
                 widget = QLineEdit(str(meta["value"]))
@@ -277,6 +298,16 @@ class PropertyManager(QWidget):
         self._refreshing = False
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _on_button_callback(self, callback):
+        """Execute a property button callback and refresh the panel."""
+        try:
+            callback()
+        except Exception:
+            pass
+        # Refresh properties to reflect any changes
+        if not self._refresh_timer.isActive():
+            self._refresh_timer.start()
 
     def _apply_property(self, key: str, value):
         """Apply a property change to ALL selected targets, then refresh."""

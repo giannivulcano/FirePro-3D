@@ -18,6 +18,7 @@ from Annotations import Annotation, DimensionAnnotation, NoteAnnotation, HatchIt
 from underlay import Underlay
 from scale_manager import ScaleManager
 from calibrate_dialog import CalibrateDialog
+from roof_dialog import RoofDialog
 from underlay_context_menu import UnderlayContextMenu
 from dxf_import_worker import DxfImportWorker
 from water_supply import WaterSupply
@@ -5038,7 +5039,7 @@ class Model_Space(QGraphicsScene):
             self._floor_slabs.append(slab)
             self._floor_active = slab
             self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick next point (click near first to close)")
+            self.instructionChanged.emit("Pick next point (click near first or Enter to close)")
         else:
             pts = self._floor_active._points
             # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
@@ -5139,7 +5140,7 @@ class Model_Space(QGraphicsScene):
             self._roofs.append(roof)
             self._roof_active = roof
             self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick next point (click near first to close)")
+            self.instructionChanged.emit("Pick next point (click near first or Enter to close)")
         else:
             pts = self._roof_active._points
             if len(pts) >= 3:
@@ -5148,9 +5149,44 @@ class Model_Space(QGraphicsScene):
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
                     self._roof_active.close_polygon()
-                    self._roof_active.setSelected(True)
-                    self._roof_active = None
                     self.preview_pipe.hide()
+
+                    # Show roof-properties dialog
+                    roof = self._roof_active
+                    self._roof_active = None
+                    _levels = self._level_manager.levels if self._level_manager else []
+                    dlg = RoofDialog(
+                        self.views()[0] if self.views() else None,
+                        defaults={
+                            "name":           roof.name,
+                            "roof_type":      roof._roof_type,
+                            "pitch_deg":      roof._pitch_deg,
+                            "eave_height_ft": roof._eave_height_ft,
+                            "thickness_ft":   roof._thickness_ft,
+                            "overhang_ft":    roof._overhang_ft,
+                            "color":          roof._color.name(),
+                        },
+                        levels=_levels,
+                    )
+                    if dlg.exec() == QDialog.DialogCode.Accepted:
+                        p = dlg.get_params()
+                        roof.name           = p["name"] or roof.name
+                        roof._roof_type     = p["roof_type"]
+                        roof._pitch_deg     = p["pitch_deg"]
+                        roof._eave_height_ft = p["eave_height_ft"]
+                        roof._thickness_ft  = p["thickness_ft"]
+                        roof._overhang_ft   = p["overhang_ft"]
+                        roof._color         = QColor(p["color"])
+                        if p.get("eave_level"):
+                            roof.level = p["eave_level"]
+                        roof._rebuild_path()
+                        roof.update()
+                    else:
+                        # User cancelled — remove the roof
+                        self.removeItem(roof)
+                        self._roofs.remove(roof)
+
+                    roof.setSelected(True)
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
                     if self.single_place_mode:
@@ -5206,12 +5242,48 @@ class Model_Space(QGraphicsScene):
             roof.user_layer = self.active_user_layer
             self.addItem(roof)
             self._roofs.append(roof)
-            roof.setSelected(True)
-            for v in self.views(): v.viewport().update()
+
+            # Clean up preview
             if self._roof_rect_preview is not None:
                 self.removeItem(self._roof_rect_preview)
                 self._roof_rect_preview = None
             self._roof_rect_anchor = None
+
+            # Show roof-properties dialog
+            _levels = self._level_manager.levels if self._level_manager else []
+            dlg = RoofDialog(
+                self.views()[0] if self.views() else None,
+                defaults={
+                    "name":           roof.name,
+                    "roof_type":      roof._roof_type,
+                    "pitch_deg":      roof._pitch_deg,
+                    "eave_height_ft": roof._eave_height_ft,
+                    "thickness_ft":   roof._thickness_ft,
+                    "overhang_ft":    roof._overhang_ft,
+                    "color":          roof._color.name(),
+                },
+                levels=_levels,
+            )
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                p = dlg.get_params()
+                roof.name           = p["name"] or roof.name
+                roof._roof_type     = p["roof_type"]
+                roof._pitch_deg     = p["pitch_deg"]
+                roof._eave_height_ft = p["eave_height_ft"]
+                roof._thickness_ft  = p["thickness_ft"]
+                roof._overhang_ft   = p["overhang_ft"]
+                roof._color         = QColor(p["color"])
+                if p.get("eave_level"):
+                    roof.level = p["eave_level"]
+                roof._rebuild_path()
+                roof.update()
+            else:
+                # User cancelled — remove the roof
+                self.removeItem(roof)
+                self._roofs.remove(roof)
+
+            roof.setSelected(True)
+            for v in self.views(): v.viewport().update()
             self.push_undo_state()
             if self.single_place_mode:
                 self.set_mode("select")
@@ -5746,6 +5818,53 @@ class Model_Space(QGraphicsScene):
                         self.set_mode("select")
                     else:
                         self.instructionChanged.emit("Pick first boundary point (double-click or Enter to close)")
+            # Close an in-progress roof polygon
+            elif self.mode == "roof" and self._roof_active is not None:
+                if len(self._roof_active._points) >= 3:
+                    self._roof_active.close_polygon()
+                    self.preview_pipe.hide()
+
+                    # Show roof-properties dialog
+                    roof = self._roof_active
+                    self._roof_active = None
+                    _levels = self._level_manager.levels if self._level_manager else []
+                    dlg = RoofDialog(
+                        self.views()[0] if self.views() else None,
+                        defaults={
+                            "name":           roof.name,
+                            "roof_type":      roof._roof_type,
+                            "pitch_deg":      roof._pitch_deg,
+                            "eave_height_ft": roof._eave_height_ft,
+                            "thickness_ft":   roof._thickness_ft,
+                            "overhang_ft":    roof._overhang_ft,
+                            "color":          roof._color.name(),
+                        },
+                        levels=_levels,
+                    )
+                    if dlg.exec() == QDialog.DialogCode.Accepted:
+                        p = dlg.get_params()
+                        roof.name           = p["name"] or roof.name
+                        roof._roof_type     = p["roof_type"]
+                        roof._pitch_deg     = p["pitch_deg"]
+                        roof._eave_height_ft = p["eave_height_ft"]
+                        roof._thickness_ft  = p["thickness_ft"]
+                        roof._overhang_ft   = p["overhang_ft"]
+                        roof._color         = QColor(p["color"])
+                        if p.get("eave_level"):
+                            roof.level = p["eave_level"]
+                        roof._rebuild_path()
+                        roof.update()
+                    else:
+                        self.removeItem(roof)
+                        self._roofs.remove(roof)
+
+                    roof.setSelected(True)
+                    for v in self.views(): v.viewport().update()
+                    self.push_undo_state()
+                    if self.single_place_mode:
+                        self.set_mode("select")
+                    else:
+                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
             # Commit fillet
             elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
                 data = self._compute_fillet(self._fillet_item1, self._fillet_item2,

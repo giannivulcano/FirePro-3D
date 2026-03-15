@@ -15,10 +15,10 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QHeaderView, QColorDialog, QWidget, QLabel,
+    QHeaderView, QColorDialog, QWidget, QLabel, QComboBox, QFormLayout,
     QAbstractItemView,
 )
-from PyQt6.QtGui import QColor, QFont, QBrush, QPen
+from PyQt6.QtGui import QColor, QFont, QBrush, QPen, QPainter, QPixmap, QIcon
 from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -174,6 +174,100 @@ def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
 
 
 # ---------------------------------------------------------------------------
+# Fill-value helpers  (plain "#rrggbb" = solid, "hatch:#rrggbb" = hatch)
+# ---------------------------------------------------------------------------
+
+def _parse_fill_value(val: str | None) -> tuple[str, str]:
+    """Return (mode, hex_color).  mode is 'solid' or 'hatch'."""
+    if not val:
+        return ("solid", "#000000")
+    if val.startswith("hatch:"):
+        return ("hatch", val[6:])
+    return ("solid", val)
+
+
+def _compose_fill_value(mode: str, hex_color: str) -> str:
+    """Encode mode + colour into the single string stored on the button."""
+    if mode == "hatch":
+        return f"hatch:{hex_color}"
+    return hex_color
+
+
+def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20) -> QPixmap:
+    """Return a small pixmap showing solid or hatch swatch."""
+    pix = QPixmap(w, h)
+    pix.fill(QColor("transparent"))
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    col = QColor(hex_color)
+    if mode == "hatch":
+        p.fillRect(0, 0, w, h, QColor("#2b2b2b"))
+        pen = QPen(col, 1)
+        p.setPen(pen)
+        spacing = 4
+        for x in range(-h, w + h, spacing):
+            p.drawLine(x, h, x + h, 0)
+    else:
+        p.fillRect(0, 0, w, h, col)
+    p.end()
+    return pix
+
+
+class FillPickerDialog(QDialog):
+    """Small modal that lets the user choose Solid or Hatch fill + colour."""
+
+    def __init__(self, parent=None, current_value: str = "#000000"):
+        super().__init__(parent)
+        self.setWindowTitle("Fill Style")
+        self.setFixedWidth(260)
+        mode, hex_col = _parse_fill_value(current_value)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["Solid", "Hatch"])
+        self._mode_combo.setCurrentIndex(1 if mode == "hatch" else 0)
+        form.addRow("Style:", self._mode_combo)
+
+        self._color_btn = QPushButton()
+        self._color_btn.setFixedSize(60, 24)
+        self._hex = hex_col
+        self._update_preview()
+        self._color_btn.clicked.connect(self._pick_color)
+        self._mode_combo.currentIndexChanged.connect(
+            lambda _: self._update_preview())
+        form.addRow("Colour:", self._color_btn)
+
+        layout.addLayout(form)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _pick_color(self):
+        color = QColorDialog.getColor(QColor(self._hex), self, "Fill colour")
+        if color.isValid():
+            self._hex = color.name()
+            self._update_preview()
+
+    def _update_preview(self):
+        mode = "hatch" if self._mode_combo.currentIndex() == 1 else "solid"
+        pix = _make_fill_icon(mode, self._hex, 60, 24)
+        self._color_btn.setIcon(QIcon(pix))
+        self._color_btn.setIconSize(pix.size())
+        self._color_btn.setStyleSheet(
+            "border: 1px solid #555; border-radius: 2px; background: transparent;")
+
+    def get_value(self) -> str:
+        mode = "hatch" if self._mode_combo.currentIndex() == 1 else "solid"
+        return _compose_fill_value(mode, self._hex)
+
+
+# ---------------------------------------------------------------------------
 # Category definitions — order matches the tree from top to bottom
 # ---------------------------------------------------------------------------
 
@@ -186,6 +280,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Wall",             "color": "#666666", "fill": "#999999", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
 # Tree-column indices
@@ -232,9 +327,22 @@ def apply_display_to_item(item, color: str | None, scale: float,
     from node import Node
     from gridline import GridlineItem
     from hydraulic_node_badge import HydraulicNodeBadge
+    from wall import WallSegment
 
     if isinstance(item, Pipe):
         _apply_pipe(item, color, scale, opacity, visible, font_size)
+    elif isinstance(item, WallSegment):
+        item._display_color = color
+        if fill_color:
+            mode, hex_col = _parse_fill_value(fill_color)
+            item._display_fill_color = hex_col
+            if mode == "hatch":
+                item._fill_mode = "Hatch"
+            else:
+                item._fill_mode = "Solid"
+        item.setVisible(visible)
+        item.setOpacity(opacity / 100.0)
+        item.update()
     elif isinstance(item, Sprinkler):
         _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
@@ -258,7 +366,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         if hasattr(item, '_display_color'):
             item._display_color = color
         if hasattr(item, '_display_fill_color') and fill_color is not None:
-            item._display_fill_color = fill_color
+            _mode, _hex = _parse_fill_value(fill_color)
+            item._display_fill_color = _hex
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -353,6 +462,7 @@ def apply_category_defaults(item):
     from node import Node
     from gridline import GridlineItem
     from hydraulic_node_badge import HydraulicNodeBadge
+    from wall import WallSegment
 
     if isinstance(item, Pipe):
         key = "Pipe"
@@ -368,6 +478,8 @@ def apply_category_defaults(item):
         key = "Grid Line"
     elif isinstance(item, Node):
         key = "Node"
+    elif isinstance(item, WallSegment):
+        key = "Wall"
     else:
         return
 
@@ -605,6 +717,9 @@ class DisplayManager(QDialog):
         elif category == "Grid Line":
             lbl = getattr(item, "_label_text", "?")
             return f"Grid Line {index}  ({lbl})"
+        elif category == "Wall":
+            name = getattr(item, "name", "")
+            return f"Wall {index}  ({name})" if name else f"Wall {index}"
         return f"{category} {index}"
 
     # ------------------------------------------------------------------
@@ -623,6 +738,7 @@ class DisplayManager(QDialog):
         from sprinkler import Sprinkler
         from water_supply import WaterSupply
         from hydraulic_node_badge import HydraulicNodeBadge
+        from wall import WallSegment
 
         cat_def = next(c for c in _CATEGORIES if c["key"] == category_key)
 
@@ -667,6 +783,12 @@ class DisplayManager(QDialog):
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             color = (getattr(item, "_display_color", None)
                      or cat_def["color"])
+            fill = (getattr(item, "_display_fill_color", None)
+                    or cat_def.get("fill"))
+            font = None
+        elif isinstance(item, WallSegment):
+            color = (getattr(item, "_display_color", None)
+                     or item._color.name())
             fill = (getattr(item, "_display_fill_color", None)
                     or cat_def.get("fill"))
             font = None
@@ -871,9 +993,13 @@ class DisplayManager(QDialog):
         fill_btn.setFixedSize(40, 20)
         if has_fill and fill:
             fill_btn.setProperty("_color", fill)
+            mode, hex_col = _parse_fill_value(fill)
+            pix = _make_fill_icon(mode, hex_col, 40, 20)
+            fill_btn.setIcon(QIcon(pix))
+            fill_btn.setIconSize(pix.size())
             fill_btn.setStyleSheet(
-                f"background: {fill}; border: 1px solid {_t.border_subtle}; "
-                f"border-radius: 2px;")
+                f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
+                f"background: transparent;")
         else:
             fill_btn.setProperty("_color", "")
             fill_btn.setStyleSheet(
@@ -992,22 +1118,24 @@ class DisplayManager(QDialog):
 
     def _pick_category_fill(self, category_key: str):
         widgets = self._cat_data[category_key]["widgets"]
-        cur = QColor(widgets["fill_btn"].property("_color") or "#000000")
-        color = QColorDialog.getColor(cur, self, f"{category_key} fill colour")
-        if color.isValid():
-            self._update_color_btn(widgets["fill_btn"], color.name())
-            self._on_category_changed(category_key, "fill", color.name())
+        cur_val = widgets["fill_btn"].property("_color") or "#000000"
+        dlg = FillPickerDialog(self, cur_val)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            val = dlg.get_value()
+            self._update_fill_btn(widgets["fill_btn"], val)
+            self._on_category_changed(category_key, "fill", val)
 
     def _pick_instance_fill(self, item_ref):
         data = self._inst_data.get(id(item_ref))
         if data is None:
             return
         widgets = data["widgets"]
-        cur = QColor(widgets["fill_btn"].property("_color") or "#000000")
-        color = QColorDialog.getColor(cur, self, "Instance fill colour")
-        if color.isValid():
-            self._update_color_btn(widgets["fill_btn"], color.name())
-            self._on_instance_changed(item_ref, "fill", color.name())
+        cur_val = widgets["fill_btn"].property("_color") or "#000000"
+        dlg = FillPickerDialog(self, cur_val)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            val = dlg.get_value()
+            self._update_fill_btn(widgets["fill_btn"], val)
+            self._on_instance_changed(item_ref, "fill", val)
 
     def _update_color_btn(self, btn: QPushButton, hex_color: str):
         _t = th.detect()
@@ -1015,6 +1143,19 @@ class DisplayManager(QDialog):
         btn.setStyleSheet(
             f"background: {hex_color}; border: 1px solid {_t.border_subtle}; "
             f"border-radius: 2px;")
+
+    def _update_fill_btn(self, btn: QPushButton, fill_value: str):
+        """Update a fill button to show solid colour or hatch icon."""
+        _t = th.detect()
+        btn.setProperty("_color", fill_value)
+        mode, hex_col = _parse_fill_value(fill_value)
+        pix = _make_fill_icon(mode, hex_col, 40, 20)
+        btn.setIcon(QIcon(pix))
+        btn.setIconSize(pix.size())
+        btn.setText("")
+        btn.setStyleSheet(
+            f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
+            f"background: transparent;")
 
     # ------------------------------------------------------------------
     # Change handlers
@@ -1069,7 +1210,7 @@ class DisplayManager(QDialog):
             if _category_has_fill(cat_key):
                 fill_val = cat_widgets["fill_btn"].property("_color")
                 if fill_val:
-                    self._update_color_btn(w["fill_btn"], fill_val)
+                    self._update_fill_btn(w["fill_btn"], fill_val)
             w["scale"].setValue(cat_widgets["scale"].value())
             w["opacity"].setValue(cat_widgets["opacity"].value())
             if _category_has_font(cat_key):
@@ -1088,7 +1229,7 @@ class DisplayManager(QDialog):
                 cw["vis"].setChecked(cat_def["visible"])
                 self._update_color_btn(cw["color_btn"], cat_def["color"])
                 if _category_has_fill(key) and cat_def["fill"]:
-                    self._update_color_btn(cw["fill_btn"], cat_def["fill"])
+                    self._update_fill_btn(cw["fill_btn"], cat_def["fill"])
                 cw["scale"].setValue(cat_def["scale"])
                 cw["opacity"].setValue(cat_def["opacity"])
                 if _category_has_font(key) and cat_def["font"] is not None:
@@ -1103,7 +1244,7 @@ class DisplayManager(QDialog):
                         iw["vis"].setChecked(cat_def["visible"])
                         self._update_color_btn(iw["color_btn"], cat_def["color"])
                         if _category_has_fill(key) and cat_def["fill"]:
-                            self._update_color_btn(iw["fill_btn"], cat_def["fill"])
+                            self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
                         iw["scale"].setValue(cat_def["scale"])
                         iw["opacity"].setValue(cat_def["opacity"])
                         if _category_has_font(key) and cat_def["font"] is not None:
@@ -1153,7 +1294,7 @@ class DisplayManager(QDialog):
             self._update_color_btn(widgets["color_btn"], value)
         elif prop == "fill":
             if widgets["fill_btn"].isEnabled() and value:
-                self._update_color_btn(widgets["fill_btn"], value)
+                self._update_fill_btn(widgets["fill_btn"], value)
         elif prop == "scale":
             widgets["scale"].setValue(value)
         elif prop == "opacity":
@@ -1438,4 +1579,6 @@ def _items_for_category_static(scene, key: str) -> list:
         return [i for i in scene.items() if isinstance(i, GridlineItem)]
     elif key == "Roof":
         return list(getattr(scene, "_roofs", []))
+    elif key == "Wall":
+        return list(getattr(scene, "_walls", []))
     return []

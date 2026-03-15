@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
@@ -30,6 +30,73 @@ _FILL_ALPHA = 40                # semi-transparent fill in 2D
 _SELECTION_COLOR = QColor("red")
 
 ROOF_TYPES = ("flat", "gable", "hip", "shed")
+
+
+def _offset_polygon(points: list[QPointF], dist: float) -> list[QPointF]:
+    """Expand a closed polygon outward by *dist* scene units.
+
+    Uses the perpendicular-offset-of-each-edge approach and finds
+    intersections of adjacent offset edges.  Falls back to the original
+    polygon on degenerate cases.
+    """
+    n = len(points)
+    if n < 3 or dist <= 0:
+        return list(points)
+
+    # Ensure CCW winding (positive area = CCW in screen coords where Y↓)
+    area = sum(
+        points[i].x() * points[(i + 1) % n].y()
+        - points[(i + 1) % n].x() * points[i].y()
+        for i in range(n)
+    )
+    # In Qt screen coords (Y down), positive area means CW visually,
+    # but mathematically CW.  We want outward offset, so negate if needed.
+    sign = 1.0 if area > 0 else -1.0
+
+    # Compute offset edges (each edge moved outward by dist)
+    offset_edges = []
+    for i in range(n):
+        j = (i + 1) % n
+        dx = points[j].x() - points[i].x()
+        dy = points[j].y() - points[i].y()
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            offset_edges.append((points[i], points[j]))
+            continue
+        # Outward normal
+        nx = -dy / length * dist * sign
+        ny = dx / length * dist * sign
+        p1 = QPointF(points[i].x() + nx, points[i].y() + ny)
+        p2 = QPointF(points[j].x() + nx, points[j].y() + ny)
+        offset_edges.append((p1, p2))
+
+    # Intersect consecutive offset edges
+    result = []
+    for i in range(n):
+        j = (i + 1) % n
+        a1, a2 = offset_edges[i]
+        b1, b2 = offset_edges[j]
+        pt = _line_intersect(a1, a2, b1, b2)
+        if pt is not None:
+            result.append(pt)
+        else:
+            result.append(offset_edges[j][0])
+
+    return result if len(result) >= 3 else list(points)
+
+
+def _line_intersect(p1: QPointF, p2: QPointF,
+                    p3: QPointF, p4: QPointF) -> QPointF | None:
+    """Return intersection of lines (p1-p2) and (p3-p4), or None."""
+    d1x = p2.x() - p1.x()
+    d1y = p2.y() - p1.y()
+    d2x = p4.x() - p3.x()
+    d2y = p4.y() - p3.y()
+    denom = d1x * d2y - d1y * d2x
+    if abs(denom) < 1e-12:
+        return None
+    t = ((p3.x() - p1.x()) * d2y - (p3.y() - p1.y()) * d2x) / denom
+    return QPointF(p1.x() + t * d1x, p1.y() + t * d1y)
 
 
 def _scene_hit_width(item) -> float:
@@ -91,6 +158,22 @@ class RoofItem(QGraphicsPathItem):
     @property
     def points(self) -> list[QPointF]:
         return self._points
+
+    def _overhang_points(self) -> list[QPointF]:
+        """Return boundary expanded outward by overhang distance (scene units).
+
+        The overhang is stored in feet; we convert to scene units using the
+        scene's scale_manager if available.
+        """
+        if self._overhang_ft <= 0 or len(self._points) < 3:
+            return self._points
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm and sm.is_calibrated and sm.drawing_scale > 0:
+            dist = sm.real_to_scene(self._overhang_ft * 304.8)  # ft → mm → scene
+        else:
+            dist = self._overhang_ft  # fallback: treat as scene units
+        return _offset_polygon(self._points, dist)
 
     # ── Path rebuild (2D) ────────────────────────────────────────────────
 
@@ -184,8 +267,21 @@ class RoofItem(QGraphicsPathItem):
         painter.setBrush(QBrush(fill_color))
 
         if len(self._points) >= 3:
-            poly = QPolygonF(self._points)
-            painter.drawPolygon(poly)
+            # Draw overhang outline (expanded polygon)
+            oh_pts = self._overhang_points()
+            if oh_pts is not self._points and len(oh_pts) >= 3:
+                # Fill the full overhang area
+                painter.drawPolygon(QPolygonF(oh_pts))
+                # Draw the inner wall boundary as a thinner line
+                inner_pen = QPen(line_col, 1, Qt.PenStyle.DotLine)
+                inner_pen.setCosmetic(True)
+                painter.setPen(inner_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawPolygon(QPolygonF(self._points))
+                # Restore pen
+                painter.setPen(pen)
+            else:
+                painter.drawPolygon(QPolygonF(self._points))
         elif len(self._points) == 2:
             painter.drawLine(self._points[0], self._points[1])
 
@@ -199,19 +295,38 @@ class RoofItem(QGraphicsPathItem):
             for p1, p2 in ridge_lines:
                 painter.drawLine(p1, p2)
 
-        # Selection highlight
+        # Selection highlight (shows overhang boundary if present)
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             if len(self._points) >= 3:
-                painter.drawPolygon(QPolygonF(self._points))
+                oh = self._overhang_points()
+                painter.drawPolygon(QPolygonF(oh))
 
     # ── Shape / hit-test ─────────────────────────────────────────────────
 
+    def boundingRect(self):
+        """Expand bounding rect to include overhang area."""
+        base = super().boundingRect()
+        oh_pts = self._overhang_points()
+        if oh_pts is self._points:
+            return base
+        for pt in oh_pts:
+            base = base.united(QRectF(pt.x() - 1, pt.y() - 1, 2, 2))
+        return base
+
     def shape(self) -> QPainterPath:
-        path = self.path()
+        oh_pts = self._overhang_points()
+        if oh_pts is not self._points and len(oh_pts) >= 3:
+            path = QPainterPath()
+            path.moveTo(oh_pts[0])
+            for p in oh_pts[1:]:
+                path.lineTo(p)
+            path.closeSubpath()
+        else:
+            path = self.path()
         if path.isEmpty():
             return path
         stroker = QPainterPathStroker()
@@ -271,14 +386,59 @@ class RoofItem(QGraphicsPathItem):
             "Type":             {"type": "label",  "value": "Roof"},
             "Name":             {"type": "string", "value": self.name},
             "Colour":           {"type": "color",  "value": self._color.name()},
-            "Roof Type":        {"type": "combo",  "value": self._roof_type,
-                                 "options": list(ROOF_TYPES)},
-            "Pitch (deg)":      {"type": "string", "value": str(self._pitch_deg)},
-            "Eave Height (ft)": {"type": "string", "value": str(self._eave_height_ft)},
-            "Overhang (ft)":    {"type": "string", "value": str(self._overhang_ft)},
-            "Thickness (ft)":   {"type": "string", "value": str(self._thickness_ft)},
+            "Roof Type":        {"type": "label",  "value": self._roof_type.capitalize()},
+            "Pitch (deg)":      {"type": "label",  "value": str(self._pitch_deg)},
+            "Eave Level":       {"type": "label",  "value": self.level},
+            "Eave Height (ft)": {"type": "label",  "value": str(self._eave_height_ft)},
+            "Overhang (ft)":    {"type": "label",  "value": str(self._overhang_ft)},
+            "Thickness (ft)":   {"type": "label",  "value": str(self._thickness_ft)},
             "Points":           {"type": "label",  "value": str(len(self._points))},
+            "":                 {"type": "button", "value": "Edit Roof…",
+                                 "callback": self._open_edit_dialog},
         }
+
+    def _open_edit_dialog(self):
+        """Open the RoofDialog to edit this roof's properties in-place."""
+        from roof_dialog import RoofDialog
+        sc = self.scene()
+        if sc is None:
+            return
+
+        lm = getattr(sc, "_level_manager", None)
+        levels = lm.levels if lm else []
+
+        parent = sc.views()[0] if sc.views() else None
+        dlg = RoofDialog(
+            parent,
+            defaults={
+                "name":           self.name,
+                "roof_type":      self._roof_type,
+                "pitch_deg":      self._pitch_deg,
+                "eave_height_ft": self._eave_height_ft,
+                "thickness_ft":   self._thickness_ft,
+                "overhang_ft":    self._overhang_ft,
+                "color":          self._color.name(),
+            },
+            levels=levels,
+        )
+        from PyQt6.QtWidgets import QDialog
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            p = dlg.get_params()
+            self.name           = p["name"] or self.name
+            self._roof_type     = p["roof_type"]
+            self._pitch_deg     = p["pitch_deg"]
+            self._eave_height_ft = p["eave_height_ft"]
+            self._thickness_ft  = p["thickness_ft"]
+            self._overhang_ft   = p["overhang_ft"]
+            self._color         = QColor(p["color"])
+            if p.get("eave_level"):
+                self.level = p["eave_level"]
+            self._rebuild_path()
+            self.update()
+            if sc and hasattr(sc, "sceneModified"):
+                sc.sceneModified.emit()
+            if sc and hasattr(sc, "push_undo_state"):
+                sc.push_undo_state()
 
     def set_property(self, key: str, value):
         if key == "Name":
@@ -372,7 +532,9 @@ class RoofItem(QGraphicsPathItem):
                 return (sm.scene_to_real(pt.x()), -sm.scene_to_real(pt.y()))
             return (pt.x(), -pt.y())
 
-        pts_2d = [to_mm(p) for p in self._points]
+        # Use overhang-expanded polygon for 3D eave edges
+        eave_pts = self._overhang_points()
+        pts_2d = [to_mm(p) for p in eave_pts]
         n = len(pts_2d)
 
         if self._roof_type == "flat" or self._pitch_deg == 0:

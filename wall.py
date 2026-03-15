@@ -357,65 +357,90 @@ class WallSegment(QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────────
 
+    def _computed_height_ft(self) -> float:
+        """Auto-calculate wall height from level elevations and offsets."""
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return self._height_ft  # fallback
+
+        base_lvl = lm.get(self._base_level)
+        top_lvl = lm.get(self._top_level)
+        base_elev = base_lvl.elevation if base_lvl else 0.0
+        top_elev = top_lvl.elevation if top_lvl else 0.0
+        return (top_elev + self._top_offset_ft) - (base_elev + self._base_offset_ft)
+
     def get_properties(self) -> dict:
+        height = self._computed_height_ft()
         return {
-            "Type":             {"type": "label",     "value": "Wall"},
-            "Name":             {"type": "string",    "value": self.name},
-            "Thickness (in)":   {"type": "string",    "value": str(self._thickness_in)},
-            "Colour":           {"type": "color",     "value": self._color.name()},
-            "Fill Mode":        {"type": "enum",      "value": self._fill_mode,
-                                 "options": [FILL_NONE, FILL_SOLID, FILL_HATCH]},
-            "Alignment":        {"type": "enum",      "value": self._alignment,
-                                 "options": [ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR]},
-            "Base Level":       {"type": "level_ref", "value": self._base_level},
-            "Base Offset (ft)": {"type": "string",    "value": str(self._base_offset_ft)},
-            "Top Level":        {"type": "level_ref", "value": self._top_level},
-            "Top Offset (ft)":  {"type": "string",    "value": str(self._top_offset_ft)},
-            "Height (ft)":      {"type": "string",    "value": str(self._height_ft)},
+            "Type":             {"type": "label",  "value": "Wall"},
+            "Name":             {"type": "string", "value": self.name},
+            "Colour":           {"type": "color",  "value": self._color.name()},
+            "Thickness (in)":   {"type": "label",  "value": str(self._thickness_in)},
+            "Fill Mode":        {"type": "label",  "value": self._fill_mode},
+            "Alignment":        {"type": "label",  "value": self._alignment},
+            "Base Level":       {"type": "label",  "value": self._base_level},
+            "Base Offset (ft)": {"type": "label",  "value": str(self._base_offset_ft)},
+            "Top Level":        {"type": "label",  "value": self._top_level},
+            "Top Offset (ft)":  {"type": "label",  "value": str(self._top_offset_ft)},
+            "Height (ft)":      {"type": "label",  "value": f"{height:.2f}"},
+            "":                 {"type": "button", "value": "Edit Wall\u2026",
+                                 "callback": self._open_edit_dialog},
         }
+
+    def _open_edit_dialog(self):
+        """Open the WallDialog to edit this wall's properties in-place."""
+        from wall_dialog import WallDialog
+        sc = self.scene()
+        if sc is None:
+            return
+
+        lm = getattr(sc, "_level_manager", None)
+        levels = lm.levels if lm else []
+
+        parent = sc.views()[0] if sc.views() else None
+        dlg = WallDialog(
+            parent,
+            defaults={
+                "name":           self.name,
+                "thickness_in":   self._thickness_in,
+                "color":          self._color.name(),
+                "fill_mode":      self._fill_mode,
+                "alignment":      self._alignment,
+                "base_level":     self._base_level,
+                "base_offset_ft": self._base_offset_ft,
+                "top_level":      self._top_level,
+                "top_offset_ft":  self._top_offset_ft,
+            },
+            levels=levels,
+        )
+        from PyQt6.QtWidgets import QDialog
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            p = dlg.get_params()
+            self.name            = p["name"] or self.name
+            self._thickness_in   = p["thickness_in"]
+            self._color          = QColor(p["color"])
+            self._fill_mode      = p["fill_mode"]
+            self._alignment      = p["alignment"]
+            self._base_level     = p["base_level"]
+            self._base_offset_ft = p["base_offset_ft"]
+            self._top_level      = p["top_level"]
+            self._top_offset_ft  = p["top_offset_ft"]
+            self._height_ft      = p["height_ft"]
+            self.level           = p["base_level"]
+            self._rebuild_path()
+            self.update()
+            if sc and hasattr(sc, "sceneModified"):
+                sc.sceneModified.emit()
+            if sc and hasattr(sc, "push_undo_state"):
+                sc.push_undo_state()
 
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
-        elif key == "Thickness (in)":
-            try:
-                self._thickness_in = float(value)
-            except (ValueError, TypeError):
-                return
-            self._rebuild_path()
-            self.update()
         elif key == "Colour":
             self._color = QColor(value)
             self.update()
-        elif key == "Fill Mode":
-            if value in (FILL_NONE, FILL_SOLID, FILL_HATCH):
-                self._fill_mode = value
-                self._rebuild_path()
-                self.update()
-        elif key == "Alignment":
-            if value in (ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR):
-                self._alignment = value
-                self._rebuild_path()
-                self.update()
-        elif key == "Base Level":
-            self._base_level = str(value)
-        elif key == "Top Level":
-            self._top_level = str(value)
-        elif key == "Base Offset (ft)":
-            try:
-                self._base_offset_ft = float(value)
-            except (ValueError, TypeError):
-                pass
-        elif key == "Top Offset (ft)":
-            try:
-                self._top_offset_ft = float(value)
-            except (ValueError, TypeError):
-                pass
-        elif key == "Height (ft)":
-            try:
-                self._height_ft = float(value)
-            except (ValueError, TypeError):
-                pass
 
     # ── Serialisation ────────────────────────────────────────────────────────
 

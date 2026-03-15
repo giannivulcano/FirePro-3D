@@ -1442,7 +1442,9 @@ class MainWindow(QMainWindow):
         """Open the Array dialog and execute the array on the current selection."""
         if not self.scene.selectedItems():
             return
-        dlg = ArrayDialog(self, scale_manager=self.scene.scale_manager)
+        dlg = ArrayDialog(self, scale_manager=self.scene.scale_manager,
+                          scene=self.scene,
+                          selected_items=self.scene.selectedItems())
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.scene.array_items(dlg.get_params())
 
@@ -1682,6 +1684,11 @@ class MainWindow(QMainWindow):
         # Apply saved display defaults to the new project
         from display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+
+        # Reset undo stack so the template gridlines cannot be undone
+        self.scene._undo_stack = []
+        self.scene._undo_pos = -1
+        self.scene.push_undo_state()
 
         self._modified = False
         self._update_title()
