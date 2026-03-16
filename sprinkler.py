@@ -37,7 +37,7 @@ class Sprinkler(QGraphicsSvgItem):
             "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
             "Level":           {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":   {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset (in)":  {"type": "string", "value": "-2"},
+            "Ceiling Offset":  {"type": "string", "value": "-50.8"},
         }
 
         if node is not None:
@@ -112,13 +112,25 @@ class Sprinkler(QGraphicsSvgItem):
     # -------------------------------------------------------------------------
     # Public property API
 
+    def _fmt(self, mm: float) -> str:
+        if self.node is None:
+            return f"{mm:.1f} mm"
+        sc = self.node.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
-        return self._properties.copy()
+        props = self._properties.copy()
+        # Format ceiling offset for display using project units
+        if self.node is not None:
+            props["Ceiling Offset"] = dict(props["Ceiling Offset"])
+            props["Ceiling Offset"]["value"] = self._fmt(self.node.ceiling_offset)
+        return props
 
     def set_property(self, key: str, value):
         # Accept legacy names from old save files
-        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
-            key = "Ceiling Offset (in)"
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)"):
+            key = "Ceiling Offset"
         if key not in self._properties:
             return
         self._properties[key]["value"] = value
@@ -134,12 +146,19 @@ class Sprinkler(QGraphicsSvgItem):
             self.node.ceiling_level = str(value)
             self.node._properties["Ceiling Level"]["value"] = str(value)
             self.node._recompute_z_pos()
-        elif key == "Ceiling Offset (in)" and self.node is not None:
-            try:
-                self.node.ceiling_offset = float(value)
-            except (ValueError, TypeError):
-                pass
-            self.node._properties["Ceiling Offset (in)"]["value"] = str(value)
+        elif key == "Ceiling Offset" and self.node is not None:
+            sc = self.node.scene()
+            sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+            if sm:
+                parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
+                if parsed is not None:
+                    self.node.ceiling_offset = parsed
+            else:
+                try:
+                    self.node.ceiling_offset = float(value)
+                except (ValueError, TypeError):
+                    pass
+            self.node._properties["Ceiling Offset"]["value"] = str(self.node.ceiling_offset)
             self.node._recompute_z_pos()
 
     def set_properties(self, template: "Sprinkler"):

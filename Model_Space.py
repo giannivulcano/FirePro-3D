@@ -30,7 +30,7 @@ from snap_engine import SnapEngine, OsnapResult
 from display_manager import apply_category_defaults
 from gridline import GridlineItem, reset_grid_counters
 from constants import Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER
-from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_IN
+from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from floor_slab import FloorSlab
 from roof import RoofItem
 from wall_opening import WallOpening, DoorOpening, WindowOpening
@@ -42,7 +42,7 @@ import os
 
 class Model_Space(QGraphicsScene):
     SNAP_RADIUS = 10
-    SAVE_VERSION = 8
+    SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
     UNDO_MAX = 50
     requestPropertyUpdate = pyqtSignal(object)
     cursorMoved = pyqtSignal(str)      # emits formatted "X: …  Y: …" string
@@ -257,7 +257,7 @@ class Model_Space(QGraphicsScene):
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
+                "ceiling_offset_mm": getattr(node, "ceiling_offset", -50.8),
                 "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             # Per-instance display overrides (Display Manager)
@@ -488,15 +488,18 @@ class Model_Space(QGraphicsScene):
             node.user_layer = entry.get("user_layer", "0")
             node.level = entry.get("level", DEFAULT_LEVEL)
             node.ceiling_level = entry.get("ceiling_level", node.level)
-            node.ceiling_offset = entry.get("ceiling_offset", -2.0)
+            if "ceiling_offset_mm" in entry:
+                node.ceiling_offset = entry["ceiling_offset_mm"]
+            else:
+                node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # old inches → mm
             node._properties["Level"]["value"] = node.level
             node._properties["Ceiling Level"]["value"] = node.ceiling_level
-            node._properties["Ceiling Offset (in)"]["value"] = str(node.ceiling_offset)
+            node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
             # Recompute z_pos from ceiling level + offset
             if self._level_manager:
                 lvl = self._level_manager.get(node.ceiling_level)
                 if lvl:
-                    node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
+                    node.z_pos = lvl.elevation + node.ceiling_offset
                 else:
                     node.z_pos = entry.get("elevation", 0)
             else:
@@ -528,6 +531,14 @@ class Model_Space(QGraphicsScene):
                 pipe.level = entry.get("level", DEFAULT_LEVEL)
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
+                # Old files without Line Type: auto-assign based on diameter
+                props = entry.get("properties", {})
+                if "Line Type" not in props:
+                    dia = props.get("Diameter", "1\"Ø")
+                    pipe._properties["Line Type"]["value"] = (
+                        "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
+                    )
+                    pipe.set_pipe_display()
                 pipe._display_overrides = entry.get("display_overrides", {})
 
         # --- Fittings (update after all pipes are connected) ---
@@ -669,6 +680,7 @@ class Model_Space(QGraphicsScene):
         # --- Roofs ---
         for entry in payload.get("roofs", []):
             roof = RoofItem.from_dict(entry)
+            roof._scale_manager_ref = self.scale_manager
             self.addItem(roof)
             self._roofs.append(roof)
 
@@ -1233,7 +1245,7 @@ class Model_Space(QGraphicsScene):
             if self._level_manager:
                 lvl = self._level_manager.get(self.active_level)
                 if lvl:
-                    node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
+                    node.z_pos = lvl.elevation + node.ceiling_offset
             self.addItem(node)
             apply_category_defaults(node)
             self.sprinkler_system.add_node(node)
@@ -1268,7 +1280,7 @@ class Model_Space(QGraphicsScene):
         # so their 3D elevation matches what the user set on the template.
         ceiling_lvl = pipe._properties["Ceiling Level"]["value"]
         try:
-            ceiling_off = float(pipe._properties["Ceiling Offset (in)"]["value"])
+            ceiling_off = float(pipe._properties["Ceiling Offset"]["value"])
         except (ValueError, TypeError):
             ceiling_off = -2.0
         for node in (n1, n2):
@@ -1276,7 +1288,7 @@ class Model_Space(QGraphicsScene):
                 node.ceiling_level = ceiling_lvl
                 node._properties["Ceiling Level"]["value"] = ceiling_lvl
                 node.ceiling_offset = ceiling_off
-                node._properties["Ceiling Offset (in)"]["value"] = str(ceiling_off)
+                node._properties["Ceiling Offset"]["value"] = str(ceiling_off)
                 node._recompute_z_pos()
 
         return pipe
@@ -1284,7 +1296,7 @@ class Model_Space(QGraphicsScene):
     # ── Vertical pipe helpers ─────────────────────────────────────────────
 
     def _compute_template_z_pos(self, template) -> float | None:
-        """Compute the z_pos (feet) that a template pipe would impose."""
+        """Compute the z_pos (mm) that a template pipe would impose."""
         ceiling_lvl_name = template._properties.get(
             "Ceiling Level", {}
         ).get("value")
@@ -1295,11 +1307,11 @@ class Model_Space(QGraphicsScene):
             return None
         try:
             offset = float(
-                template._properties.get("Ceiling Offset (in)", {}).get("value", -2)
+                template._properties.get("Ceiling Offset", {}).get("value", -50.8)
             )
         except (ValueError, TypeError):
-            offset = -2.0
-        return lvl.elevation + offset / 12.0
+            offset = -50.8
+        return lvl.elevation + offset
 
     def _make_intermediate_node(self, existing_node, template):
         """Create a node at *existing_node*'s XY but at the template's ceiling level.
@@ -1317,17 +1329,17 @@ class Model_Space(QGraphicsScene):
 
         ceiling_lvl = template._properties["Ceiling Level"]["value"]
         try:
-            ceiling_off = float(template._properties["Ceiling Offset (in)"]["value"])
+            ceiling_off = float(template._properties["Ceiling Offset"]["value"])
         except (ValueError, TypeError):
-            ceiling_off = -2.0
+            ceiling_off = -50.8
         intermediate.ceiling_level = ceiling_lvl
         intermediate._properties["Ceiling Level"]["value"] = ceiling_lvl
         intermediate.ceiling_offset = ceiling_off
-        intermediate._properties["Ceiling Offset (in)"]["value"] = str(ceiling_off)
+        intermediate._properties["Ceiling Offset"]["value"] = str(ceiling_off)
         if self._level_manager:
             lvl = self._level_manager.get(ceiling_lvl)
             if lvl:
-                intermediate.z_pos = lvl.elevation + ceiling_off / 12.0
+                intermediate.z_pos = lvl.elevation + ceiling_off
 
         self.addItem(intermediate)
         self.sprinkler_system.add_node(intermediate)
@@ -2005,7 +2017,7 @@ class Model_Space(QGraphicsScene):
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset": getattr(node, "ceiling_offset", -2.0),
+                "ceiling_offset_mm": getattr(node, "ceiling_offset", -50.8),
             }
             node_ovr = getattr(node, "_display_overrides", {})
             if node_ovr:
@@ -2166,14 +2178,17 @@ class Model_Space(QGraphicsScene):
                 node.user_layer = entry.get("user_layer", "0")
                 node.level = entry.get("level", DEFAULT_LEVEL)
                 node.ceiling_level = entry.get("ceiling_level", node.level)
-                node.ceiling_offset = entry.get("ceiling_offset", -2.0)
+                if "ceiling_offset_mm" in entry:
+                    node.ceiling_offset = entry["ceiling_offset_mm"]
+                else:
+                    node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # old inches → mm
                 node._properties["Level"]["value"] = node.level
                 node._properties["Ceiling Level"]["value"] = node.ceiling_level
-                node._properties["Ceiling Offset (in)"]["value"] = str(node.ceiling_offset)
+                node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
                 if self._level_manager:
                     lvl = self._level_manager.get(node.ceiling_level)
                     if lvl:
-                        node.z_pos = lvl.elevation + node.ceiling_offset / 12.0
+                        node.z_pos = lvl.elevation + node.ceiling_offset
                     else:
                         node.z_pos = entry.get("elevation", 0)
                 else:
@@ -2189,6 +2204,14 @@ class Model_Space(QGraphicsScene):
                     pipe.update_label()
                     for key, value in entry.get("properties", {}).items():
                         pipe.set_property(key, value)
+                    # Old files without Line Type: auto-assign based on diameter
+                    props = entry.get("properties", {})
+                    if "Line Type" not in props:
+                        dia = props.get("Diameter", "1\"Ø")
+                        pipe._properties["Line Type"]["value"] = (
+                            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
+                        )
+                        pipe.set_pipe_display()
                     pipe.user_layer = entry.get("user_layer", "0")
                     pipe.level = entry.get("level", DEFAULT_LEVEL)
                     pipe._display_overrides = entry.get("display_overrides", {})
@@ -2665,6 +2688,7 @@ class Model_Space(QGraphicsScene):
             self._wall_template = WallSegment(QPointF(0, 0), QPointF(100, 0))
             self._wall_template.name = "(Template)"
             self._wall_template._alignment = self._wall_alignment
+            self._wall_template._scale_manager_ref = self.scale_manager
         # Always sync levels with current active level
         self._wall_template.level = self.active_level
         self._wall_template._base_level = self.active_level
@@ -2682,6 +2706,7 @@ class Model_Space(QGraphicsScene):
         if self._floor_template is None:
             self._floor_template = FloorSlab(color="#8888cc")
             self._floor_template.name = "(Template)"
+            self._floor_template._scale_manager_ref = self.scale_manager
         # Always sync level with current active level
         self._floor_template.level = self.active_level
         return self._floor_template
@@ -2691,6 +2716,7 @@ class Model_Space(QGraphicsScene):
         if self._roof_template is None:
             self._roof_template = RoofItem(color="#D2B48C")
             self._roof_template.name = "(Template)"
+            self._roof_template._scale_manager_ref = self.scale_manager
         self._roof_template.level = self.active_level
         return self._roof_template
 
@@ -2784,7 +2810,7 @@ class Model_Space(QGraphicsScene):
                 _wtmpl = self._get_wall_template()
                 p1l, p1r, p2r, p2l = compute_wall_quad(
                     self._wall_anchor, self._last_scene_pos,
-                    _wtmpl._thickness_in, _wtmpl._alignment,
+                    _wtmpl._thickness_mm, _wtmpl._alignment,
                     self.scale_manager)
                 _pp = QPainterPath()
                 _pp.moveTo(p1l)
@@ -3432,11 +3458,8 @@ class Model_Space(QGraphicsScene):
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
         sm = self.scale_manager
-        if sm.is_calibrated:
-            coord_str = (f"X: {sm.scene_to_display(scene_pos.x())}  "
-                         f"Y: {sm.scene_to_display(-scene_pos.y())}")
-        else:
-            coord_str = f"X: {scene_pos.x():.0f} mm  Y: {-scene_pos.y():.0f} mm"
+        coord_str = (f"X: {sm.scene_to_display(scene_pos.x())}  "
+                     f"Y: {sm.scene_to_display(-scene_pos.y())}")
         self.cursorMoved.emit(coord_str)
 
         snapped = self.get_effective_position(scene_pos)
@@ -3931,7 +3954,7 @@ class Model_Space(QGraphicsScene):
                     self.addItem(self._wall_preview_rect)
                 _wtmpl = self._get_wall_template()
                 p1l, p1r, p2r, p2l = compute_wall_quad(
-                    self._wall_anchor, tip, _wtmpl._thickness_in,
+                    self._wall_anchor, tip, _wtmpl._thickness_mm,
                     _wtmpl._alignment, self.scale_manager)
                 _pp = QPainterPath()
                 _pp.moveTo(p1l)
@@ -4158,8 +4181,8 @@ class Model_Space(QGraphicsScene):
                     reply = QMessageBox.question(
                         self.views()[0] if self.views() else None,
                         "Elevation Mismatch",
-                        f"Start node is at elevation {start_node.z_pos:.2f} ft "
-                        f"but the template targets {template_z:.2f} ft.\n\n"
+                        f"Start node is at elevation {start_node.z_pos:.1f} mm "
+                        f"but the template targets {template_z:.1f} mm.\n\n"
                         "Create a vertical connection (riser/drop)?",
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.Yes,
@@ -4215,8 +4238,8 @@ class Model_Space(QGraphicsScene):
                     reply = QMessageBox.question(
                         self.views()[0] if self.views() else None,
                         "Elevation Mismatch",
-                        f"The target node is at elevation {end_node.z_pos:.2f} ft "
-                        f"but the template targets {template_z:.2f} ft.\n\n"
+                        f"The target node is at elevation {end_node.z_pos:.1f} mm "
+                        f"but the template targets {template_z:.1f} mm.\n\n"
                         "Create a vertical connection (riser/drop)?",
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                         QMessageBox.StandardButton.Yes,
@@ -4986,7 +5009,7 @@ class Model_Space(QGraphicsScene):
                     _close_loop = True
             _tmpl = self._get_wall_template()
             wall = WallSegment(self._wall_anchor, tip,
-                               thickness_in=_tmpl._thickness_in,
+                               thickness_mm=_tmpl._thickness_mm,
                                color=_tmpl._color.name())
             wall.name = f"Wall {self._next_wall_num}"
             self._next_wall_num += 1
@@ -4995,7 +5018,7 @@ class Model_Space(QGraphicsScene):
             wall.level = _tmpl.level if _tmpl.level else self.active_level
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")
-            wall._height_ft = getattr(_tmpl, "_height_ft", 10.0)
+            wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
             wall.user_layer = self.active_user_layer
             # Keep scene alignment in sync with template
             self._wall_alignment = _tmpl._alignment
@@ -5031,7 +5054,7 @@ class Model_Space(QGraphicsScene):
             slab = FloorSlab(color=_ftmpl._color.name())
             slab.name = f"Floor {self._next_floor_num}"
             self._next_floor_num += 1
-            slab._thickness_ft = _ftmpl._thickness_ft
+            slab._thickness_mm = _ftmpl._thickness_mm
             slab.level = _ftmpl.level if _ftmpl.level else self.active_level
             slab.user_layer = self.active_user_layer
             slab.add_point(snapped)
@@ -5102,7 +5125,7 @@ class Model_Space(QGraphicsScene):
             slab = FloorSlab(points=corners, color=_ftmpl._color.name())
             slab.name = f"Floor {self._next_floor_num}"
             self._next_floor_num += 1
-            slab._thickness_ft = _ftmpl._thickness_ft
+            slab._thickness_mm = _ftmpl._thickness_mm
             slab.level = _ftmpl.level if _ftmpl.level else self.active_level
             slab.user_layer = self.active_user_layer
             self.addItem(slab)
@@ -5128,11 +5151,11 @@ class Model_Space(QGraphicsScene):
             roof = RoofItem(color=_rtmpl._color.name())
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
-            roof._thickness_ft = _rtmpl._thickness_ft
+            roof._thickness_mm = _rtmpl._thickness_mm
             roof._roof_type = _rtmpl._roof_type
             roof._pitch_deg = _rtmpl._pitch_deg
-            roof._eave_height_ft = _rtmpl._eave_height_ft
-            roof._overhang_ft = _rtmpl._overhang_ft
+            roof._eave_height_mm = _rtmpl._eave_height_mm
+            roof._overhang_mm = _rtmpl._overhang_mm
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
             roof.user_layer = self.active_user_layer
             roof.add_point(snapped)
@@ -5155,28 +5178,32 @@ class Model_Space(QGraphicsScene):
                     roof = self._roof_active
                     self._roof_active = None
                     _levels = self._level_manager.levels if self._level_manager else []
+                    roof._scale_manager_ref = self.scale_manager
                     dlg = RoofDialog(
                         self.views()[0] if self.views() else None,
                         defaults={
-                            "name":           roof.name,
-                            "roof_type":      roof._roof_type,
-                            "pitch_deg":      roof._pitch_deg,
-                            "eave_height_ft": roof._eave_height_ft,
-                            "level":          roof.level,
-                            "overhang_ft":    roof._overhang_ft,
-                            "color":          roof._color.name(),
+                            "name":            roof.name,
+                            "roof_type":       roof._roof_type,
+                            "pitch_deg":       roof._pitch_deg,
+                            "eave_height_mm":  roof._eave_height_mm,
+                            "level":           roof.level,
+                            "overhang_mm":     roof._overhang_mm,
+                            "color":           roof._color.name(),
+                            "ridge_direction": roof._ridge_direction,
+                            "half_span_mm":    roof.half_span_mm(),
                         },
                         levels=_levels,
                         scale_manager=self.scale_manager,
                     )
                     if dlg.exec() == QDialog.DialogCode.Accepted:
                         p = dlg.get_params()
-                        roof.name           = p["name"] or roof.name
-                        roof._roof_type     = p["roof_type"]
-                        roof._pitch_deg     = p["pitch_deg"]
-                        roof._eave_height_ft = p["eave_height_ft"]
-                        roof._overhang_ft   = p["overhang_ft"]
-                        roof._color         = QColor(p["color"])
+                        roof.name            = p["name"] or roof.name
+                        roof._roof_type      = p["roof_type"]
+                        roof._pitch_deg      = p["pitch_deg"]
+                        roof._eave_height_mm = p["eave_height_mm"]
+                        roof._overhang_mm    = p["overhang_mm"]
+                        roof._ridge_direction = p.get("ridge_direction", "auto")
+                        roof._color          = QColor(p["color"])
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
@@ -5233,11 +5260,11 @@ class Model_Space(QGraphicsScene):
             roof = RoofItem(points=corners, color=_rtmpl._color.name())
             roof.name = f"Roof {self._next_roof_num}"
             self._next_roof_num += 1
-            roof._thickness_ft = _rtmpl._thickness_ft
+            roof._thickness_mm = _rtmpl._thickness_mm
             roof._roof_type = _rtmpl._roof_type
             roof._pitch_deg = _rtmpl._pitch_deg
-            roof._eave_height_ft = _rtmpl._eave_height_ft
-            roof._overhang_ft = _rtmpl._overhang_ft
+            roof._eave_height_mm = _rtmpl._eave_height_mm
+            roof._overhang_mm = _rtmpl._overhang_mm
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
             roof.user_layer = self.active_user_layer
             self.addItem(roof)
@@ -5257,9 +5284,9 @@ class Model_Space(QGraphicsScene):
                     "name":           roof.name,
                     "roof_type":      roof._roof_type,
                     "pitch_deg":      roof._pitch_deg,
-                    "eave_height_ft": roof._eave_height_ft,
+                    "eave_height_mm": roof._eave_height_mm,
                     "level":          roof.level,
-                    "overhang_ft":    roof._overhang_ft,
+                    "overhang_mm":    roof._overhang_mm,
                     "color":          roof._color.name(),
                 },
                 levels=_levels,
@@ -5270,8 +5297,8 @@ class Model_Space(QGraphicsScene):
                 roof.name           = p["name"] or roof.name
                 roof._roof_type     = p["roof_type"]
                 roof._pitch_deg     = p["pitch_deg"]
-                roof._eave_height_ft = p["eave_height_ft"]
-                roof._overhang_ft   = p["overhang_ft"]
+                roof._eave_height_mm = p["eave_height_mm"]
+                roof._overhang_mm   = p["overhang_mm"]
                 roof._color         = QColor(p["color"])
                 if p.get("eave_level"):
                     roof.level = p["eave_level"]
@@ -5552,7 +5579,7 @@ class Model_Space(QGraphicsScene):
                     if self._level_manager:
                         lvl = self._level_manager.get(target_level)
                         if lvl:
-                            item.z_pos = lvl.elevation + item.z_offset
+                            item.z_pos = lvl.elevation + item.z_offset  # z_offset is legacy (may be ft from old saves)
 
         # Move pipes whose both endpoints moved
         for item in items:
@@ -5742,6 +5769,8 @@ class Model_Space(QGraphicsScene):
             self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             for item in self.items():
+                if isinstance(item, GridlineItem):
+                    continue
                 if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
                     item.setSelected(True)
         elif event.key() == Qt.Key.Key_Z and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -5828,28 +5857,32 @@ class Model_Space(QGraphicsScene):
                     roof = self._roof_active
                     self._roof_active = None
                     _levels = self._level_manager.levels if self._level_manager else []
+                    roof._scale_manager_ref = self.scale_manager
                     dlg = RoofDialog(
                         self.views()[0] if self.views() else None,
                         defaults={
-                            "name":           roof.name,
-                            "roof_type":      roof._roof_type,
-                            "pitch_deg":      roof._pitch_deg,
-                            "eave_height_ft": roof._eave_height_ft,
-                            "level":          roof.level,
-                            "overhang_ft":    roof._overhang_ft,
-                            "color":          roof._color.name(),
+                            "name":            roof.name,
+                            "roof_type":       roof._roof_type,
+                            "pitch_deg":       roof._pitch_deg,
+                            "eave_height_mm":  roof._eave_height_mm,
+                            "level":           roof.level,
+                            "overhang_mm":     roof._overhang_mm,
+                            "color":           roof._color.name(),
+                            "ridge_direction": roof._ridge_direction,
+                            "half_span_mm":    roof.half_span_mm(),
                         },
                         levels=_levels,
                         scale_manager=self.scale_manager,
                     )
                     if dlg.exec() == QDialog.DialogCode.Accepted:
                         p = dlg.get_params()
-                        roof.name           = p["name"] or roof.name
-                        roof._roof_type     = p["roof_type"]
-                        roof._pitch_deg     = p["pitch_deg"]
-                        roof._eave_height_ft = p["eave_height_ft"]
-                        roof._overhang_ft   = p["overhang_ft"]
-                        roof._color         = QColor(p["color"])
+                        roof.name            = p["name"] or roof.name
+                        roof._roof_type      = p["roof_type"]
+                        roof._pitch_deg      = p["pitch_deg"]
+                        roof._eave_height_mm = p["eave_height_mm"]
+                        roof._overhang_mm    = p["overhang_mm"]
+                        roof._ridge_direction = p.get("ridge_direction", "auto")
+                        roof._color          = QColor(p["color"])
                         if p.get("eave_level"):
                             roof.level = p["eave_level"]
                         roof._rebuild_path()
@@ -5941,7 +5974,7 @@ class Model_Space(QGraphicsScene):
                 if self._level_manager:
                     lvl = self._level_manager.get(node1.level)
                     if lvl:
-                        node1.z_pos = lvl.elevation + node1.z_offset
+                        node1.z_pos = lvl.elevation + node1.z_offset  # z_offset is legacy (may be ft from old saves)
 
                 if obj.get("sprinkler"):
                     template = Sprinkler(None)

@@ -64,9 +64,10 @@ class ProjectBrowser(QWidget):
     # Pre-defined elevation view names
     _ELEVATIONS = ["North", "South", "East", "West"]
 
-    def __init__(self, level_manager=None, parent=None):
+    def __init__(self, level_manager=None, scale_manager=None, parent=None):
         super().__init__(parent)
         self._level_manager = level_manager
+        self._scale_manager = scale_manager
 
         _t = th.detect()
 
@@ -108,6 +109,15 @@ class ProjectBrowser(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def set_scale_manager(self, sm):
+        self._scale_manager = sm
+
+    def _fmt_elev(self, elev_mm: float) -> str:
+        """Format a level elevation using the ScaleManager."""
+        if self._scale_manager:
+            return self._scale_manager.format_length(elev_mm)
+        return f"{elev_mm:.1f} mm"
+
     def set_sheets(self, sheet_names: list[str]):
         """
         Refresh the Paper Space children with the given sheet names.
@@ -135,7 +145,7 @@ class ProjectBrowser(QWidget):
                 item = QTreeWidgetItem(self._plans_root, [lvl.name])
                 item.setData(0, _ROLE_TYPE, "plan")
                 item.setData(0, _ROLE_NAME, lvl.name)
-                item.setToolTip(0, f"Plan view — {lvl.name}  (elev {lvl.elevation} ft)")
+                item.setToolTip(0, f"Plan view — {lvl.name}  (elev {self._fmt_elev(lvl.elevation)})")
         self._plans_root.setExpanded(True)
 
     # ── Private ───────────────────────────────────────────────────────────────

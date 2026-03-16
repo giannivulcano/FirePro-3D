@@ -297,10 +297,10 @@ class View3D(QWidget):
 
     # ── Coordinate mapping ─────────────────────────────────────────────────
 
-    def _scene_to_3d(self, sx: float, sy: float, z_ft: float = 0.0):
-        """Convert 2D scene coords + elevation (ft) to 3D world (mm)."""
+    def _scene_to_3d(self, sx: float, sy: float, z_mm: float = 0.0):
+        """Convert 2D scene coords + elevation (mm) to 3D world (mm)."""
         ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
-        return np.array([sx / ppm, -sy / ppm, z_ft * FT_TO_MM])
+        return np.array([sx / ppm, -sy / ppm, z_mm])
 
     def _node_to_3d(self, node: Node):
         if node is None:
@@ -311,7 +311,7 @@ class View3D(QWidget):
 
     def _level_z_mm(self, level_name: str) -> float:
         lvl = self._lm.get(level_name)
-        return (lvl.elevation if lvl else 0.0) * FT_TO_MM
+        return lvl.elevation if lvl else 0.0
 
     # ── Rebuild ────────────────────────────────────────────────────────────
 
@@ -674,7 +674,7 @@ class View3D(QWidget):
         y_max += pad
 
         for i, lvl in enumerate(self._lm.levels):
-            z = lvl.elevation * FT_TO_MM
+            z = lvl.elevation
             col = _FLOOR_COLORS[i % len(_FLOOR_COLORS)]
 
             verts = np.array([
@@ -1116,7 +1116,7 @@ class View3D(QWidget):
             if self._lm is not None:
                 levels = self._lm.levels
                 if len(levels) >= 2:
-                    self._h_cut_height_mm = levels[1].elevation * FT_TO_MM
+                    self._h_cut_height_mm = levels[1].elevation
             self._apply_horizontal_cut()
         else:
             self._remove_horizontal_cut()

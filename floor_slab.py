@@ -22,7 +22,7 @@ from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-DEFAULT_THICKNESS_FT = 0.5     # 6 inches
+DEFAULT_THICKNESS_MM = 152.4   # 6 inches
 _FILL_ALPHA = 50               # semi-transparent fill in 2D
 _SELECTION_COLOR = QColor("red")
 
@@ -43,7 +43,7 @@ class FloorSlab(QGraphicsPathItem):
     """A floor slab defined by a closed boundary polygon.
 
     2D rendering: semi-transparent filled polygon with outline.
-    3D mesh: flat polygon extruded downward by ``thickness_ft``.
+    3D mesh: flat polygon extruded downward by ``thickness_mm``.
     """
 
     def __init__(self, points: list[QPointF] | None = None,
@@ -51,11 +51,14 @@ class FloorSlab(QGraphicsPathItem):
         super().__init__()
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
-        self._thickness_ft: float = DEFAULT_THICKNESS_FT
+        self._thickness_mm: float = DEFAULT_THICKNESS_MM
 
         self.level: str = DEFAULT_LEVEL
         self.user_layer: str = DEFAULT_USER_LAYER
         self.name: str = ""
+
+        # Scale manager reference for formatting before scene attachment
+        self._scale_manager_ref = None
 
         # Display Manager overrides
         self._display_color: str | None = None       # line/pen override
@@ -189,13 +192,20 @@ class FloorSlab(QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────────
 
+    def _fmt(self, mm: float) -> str:
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
         return {
-            "Type":          {"type": "label",  "value": "Floor Slab"},
-            "Name":          {"type": "string", "value": self.name},
-            "Colour":        {"type": "color",  "value": self._color.name()},
-            "Thickness (ft)":{"type": "string", "value": str(self._thickness_ft)},
-            "Points":        {"type": "label",  "value": str(len(self._points))},
+            "Type":       {"type": "label",  "value": "Floor Slab"},
+            "Name":       {"type": "string", "value": self.name},
+            "Colour":     {"type": "color",  "value": self._color.name()},
+            "Thickness":  {"type": "string", "value": self._fmt(self._thickness_mm)},
+            "Points":     {"type": "label",  "value": str(len(self._points))},
         }
 
     def set_property(self, key: str, value):
@@ -204,9 +214,9 @@ class FloorSlab(QGraphicsPathItem):
         elif key == "Colour":
             self._color = QColor(value)
             self.update()
-        elif key == "Thickness (ft)":
+        elif key == "Thickness":
             try:
-                self._thickness_ft = float(value)
+                self._thickness_mm = float(value)
             except (ValueError, TypeError):
                 pass
 
@@ -214,20 +224,24 @@ class FloorSlab(QGraphicsPathItem):
 
     def to_dict(self) -> dict:
         return {
-            "type":         "floor_slab",
-            "points":       [[p.x(), p.y()] for p in self._points],
-            "color":        self._color.name(),
-            "thickness_ft": self._thickness_ft,
-            "level":        self.level,
-            "user_layer":   self.user_layer,
-            "name":         self.name,
+            "type":          "floor_slab",
+            "points":        [[p.x(), p.y()] for p in self._points],
+            "color":         self._color.name(),
+            "thickness_mm":  self._thickness_mm,
+            "level":         self.level,
+            "user_layer":    self.user_layer,
+            "name":          self.name,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "FloorSlab":
         points = [QPointF(p[0], p[1]) for p in data.get("points", [])]
         slab = cls(points=points, color=data.get("color", "#8888cc"))
-        slab._thickness_ft = data.get("thickness_ft", DEFAULT_THICKNESS_FT)
+        # New mm key; fall back to old ft key with conversion
+        if "thickness_mm" in data:
+            slab._thickness_mm = data["thickness_mm"]
+        else:
+            slab._thickness_mm = data.get("thickness_ft", DEFAULT_THICKNESS_MM / 304.8) * 304.8
         slab.level = data.get("level", DEFAULT_LEVEL)
         slab.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         slab.name = data.get("name", "")
@@ -244,16 +258,13 @@ class FloorSlab(QGraphicsPathItem):
         if len(self._points) < 3:
             return None
 
-        FT_TO_MM = 304.8
-
-        # Level elevation
-        elev_ft = 0.0
+        # Level elevation (mm)
+        top_z = 0.0
         if level_manager is not None:
             lvl = level_manager.get(self.level)
             if lvl:
-                elev_ft = lvl.elevation
-        top_z = elev_ft * FT_TO_MM
-        bot_z = top_z - self._thickness_ft * FT_TO_MM
+                top_z = lvl.elevation
+        bot_z = top_z - self._thickness_mm
 
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None

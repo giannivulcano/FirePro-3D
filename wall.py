@@ -26,8 +26,9 @@ from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-THICKNESS_PRESETS_IN = [4, 6, 8, 12]           # inches
-DEFAULT_THICKNESS_IN = 6
+THICKNESS_PRESETS_IN = [4, 6, 8, 12]           # inches (used by dialog combo)
+DEFAULT_THICKNESS_IN = 6                        # inches (used by dialog combo)
+DEFAULT_THICKNESS_MM = DEFAULT_THICKNESS_IN * 25.4  # 152.4 mm
 
 # Fill modes
 FILL_NONE  = "None"
@@ -55,7 +56,7 @@ def _scene_hit_width(item) -> float:
 
 def compute_wall_quad(
     pt1: QPointF, pt2: QPointF,
-    thickness_in: float,
+    thickness_mm: float,
     alignment: str,
     scale_manager=None,
 ) -> tuple[QPointF, QPointF, QPointF, QPointF]:
@@ -70,7 +71,7 @@ def compute_wall_quad(
     nx, ny = -math.sin(angle), math.cos(angle)
 
     # Half-thickness in scene units
-    half_mm = (thickness_in * 25.4) / 2.0
+    half_mm = thickness_mm / 2.0
     if (scale_manager is not None
             and scale_manager.drawing_scale > 0):
         paper_mm = half_mm / scale_manager.drawing_scale
@@ -104,26 +105,26 @@ class WallSegment(QGraphicsPathItem):
     with optional solid fill or diagonal hatch between them.
 
     Properties exposed via ``get_properties()`` / ``set_property()``:
-        Thickness (in), Colour, Fill Mode, Base Level, Top Level, Height (ft)
+        Thickness, Colour, Fill Mode, Base Level, Top Level, Height
     """
 
     def __init__(self, pt1: QPointF, pt2: QPointF,
-                 thickness_in: float = DEFAULT_THICKNESS_IN,
+                 thickness_mm: float = DEFAULT_THICKNESS_MM,
                  color: str | QColor = "#cccccc"):
         super().__init__()
         self._pt1 = QPointF(pt1)
         self._pt2 = QPointF(pt2)
-        self._thickness_in: float = float(thickness_in)
+        self._thickness_mm: float = float(thickness_mm)
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
         self._fill_mode: str = FILL_NONE
 
-        # Level / height
+        # Level / height (all in mm)
         self.level: str = DEFAULT_LEVEL               # also the base level
         self._base_level: str = DEFAULT_LEVEL
         self._top_level: str = "Level 2"
-        self._height_ft: float = 10.0              # fallback when top_level is "Custom"
-        self._base_offset_ft: float = 0.0          # offset from base level elevation
-        self._top_offset_ft: float = 0.0           # offset from top level elevation
+        self._height_mm: float = 3048.0            # 10 ft fallback
+        self._base_offset_mm: float = 0.0          # offset from base level elevation
+        self._top_offset_mm: float = 0.0           # offset from top level elevation
 
         # Alignment mode (centerline / interior / exterior)
         self._alignment: str = ALIGN_CENTER
@@ -135,6 +136,9 @@ class WallSegment(QGraphicsPathItem):
         self._display_color: str | None = None       # line/pen override
         self._display_fill_color: str | None = None  # fill/brush override
         self._display_overrides: dict = {}
+
+        # Scale manager reference for formatting before scene attachment
+        self._scale_manager_ref = None
 
         # Cosmetic / user layer
         self.user_layer: str = DEFAULT_USER_LAYER
@@ -157,7 +161,12 @@ class WallSegment(QGraphicsPathItem):
 
     @property
     def thickness_in(self) -> float:
-        return self._thickness_in
+        """Backward compat — returns thickness in inches."""
+        return self._thickness_mm / 25.4
+
+    @property
+    def thickness_mm(self) -> float:
+        return self._thickness_mm
 
     def centerline_length(self) -> float:
         dx = self._pt2.x() - self._pt1.x()
@@ -175,13 +184,12 @@ class WallSegment(QGraphicsPathItem):
         return (-math.sin(a), math.cos(a))
 
     def half_thickness_scene(self) -> float:
-        """Half-thickness converted from inches to scene units.
+        """Half-thickness converted from mm to scene units.
 
         Uses the scene's ScaleManager (which always has valid defaults
         even before calibration: 1 px/mm, 1:100 scale).
         """
-        # inches → mm: 1 in = 25.4 mm
-        half_mm = (self._thickness_in * 25.4) / 2.0
+        half_mm = self._thickness_mm / 2.0
         sc = self.scene()
         if sc and hasattr(sc, "scale_manager"):
             sm = sc.scale_manager
@@ -357,35 +365,43 @@ class WallSegment(QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────────
 
-    def _computed_height_ft(self) -> float:
-        """Auto-calculate wall height from level elevations and offsets."""
+    def _computed_height_mm(self) -> float:
+        """Auto-calculate wall height in mm from level elevations and offsets."""
         sc = self.scene()
         lm = getattr(sc, "_level_manager", None) if sc else None
         if lm is None:
-            return self._height_ft  # fallback
+            return self._height_mm  # fallback
 
         base_lvl = lm.get(self._base_level)
         top_lvl = lm.get(self._top_level)
-        base_elev = base_lvl.elevation if base_lvl else 0.0
-        top_elev = top_lvl.elevation if top_lvl else 0.0
-        return (top_elev + self._top_offset_ft) - (base_elev + self._base_offset_ft)
+        base_elev_mm = (base_lvl.elevation if base_lvl else 0.0)
+        top_elev_mm = (top_lvl.elevation if top_lvl else 0.0)
+        return (top_elev_mm + self._top_offset_mm) - (base_elev_mm + self._base_offset_mm)
+
+    def _fmt(self, mm: float) -> str:
+        """Format mm using scene's scale_manager."""
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
 
     def get_properties(self) -> dict:
-        height = self._computed_height_ft()
+        height_mm = self._computed_height_mm()
         return {
-            "Type":             {"type": "label",  "value": "Wall"},
-            "Name":             {"type": "string", "value": self.name},
-            "Colour":           {"type": "color",  "value": self._color.name()},
-            "Thickness (in)":   {"type": "label",  "value": str(self._thickness_in)},
-            "Fill Mode":        {"type": "label",  "value": self._fill_mode},
-            "Alignment":        {"type": "label",  "value": self._alignment},
-            "Base Level":       {"type": "label",  "value": self._base_level},
-            "Base Offset (ft)": {"type": "label",  "value": str(self._base_offset_ft)},
-            "Top Level":        {"type": "label",  "value": self._top_level},
-            "Top Offset (ft)":  {"type": "label",  "value": str(self._top_offset_ft)},
-            "Height (ft)":      {"type": "label",  "value": f"{height:.2f}"},
-            "":                 {"type": "button", "value": "Edit Wall\u2026",
-                                 "callback": self._open_edit_dialog},
+            "Type":         {"type": "label",  "value": "Wall"},
+            "Name":         {"type": "string", "value": self.name},
+            "Colour":       {"type": "color",  "value": self._color.name()},
+            "Thickness":    {"type": "label",  "value": self._fmt(self._thickness_mm)},
+            "Fill Mode":    {"type": "label",  "value": self._fill_mode},
+            "Alignment":    {"type": "label",  "value": self._alignment},
+            "Base Level":   {"type": "label",  "value": self._base_level},
+            "Base Offset":  {"type": "label",  "value": self._fmt(self._base_offset_mm)},
+            "Top Level":    {"type": "label",  "value": self._top_level},
+            "Top Offset":   {"type": "label",  "value": self._fmt(self._top_offset_mm)},
+            "Height":       {"type": "label",  "value": self._fmt(height_mm)},
+            "":             {"type": "button", "value": "Edit Wall\u2026",
+                             "callback": self._open_edit_dialog},
         }
 
     def _open_edit_dialog(self):
@@ -399,34 +415,36 @@ class WallSegment(QGraphicsPathItem):
         levels = lm.levels if lm else []
 
         parent = sc.views()[0] if sc.views() else None
+        sm = getattr(sc, "scale_manager", None)
         dlg = WallDialog(
             parent,
             defaults={
                 "name":           self.name,
-                "thickness_in":   self._thickness_in,
+                "thickness_mm":   self._thickness_mm,
                 "color":          self._color.name(),
                 "fill_mode":      self._fill_mode,
                 "alignment":      self._alignment,
                 "base_level":     self._base_level,
-                "base_offset_ft": self._base_offset_ft,
+                "base_offset_mm": self._base_offset_mm,
                 "top_level":      self._top_level,
-                "top_offset_ft":  self._top_offset_ft,
+                "top_offset_mm":  self._top_offset_mm,
             },
             levels=levels,
+            scale_manager=sm,
         )
         from PyQt6.QtWidgets import QDialog
         if dlg.exec() == QDialog.DialogCode.Accepted:
             p = dlg.get_params()
             self.name            = p["name"] or self.name
-            self._thickness_in   = p["thickness_in"]
+            self._thickness_mm   = p["thickness_mm"]
             self._color          = QColor(p["color"])
             self._fill_mode      = p["fill_mode"]
             self._alignment      = p["alignment"]
             self._base_level     = p["base_level"]
-            self._base_offset_ft = p["base_offset_ft"]
+            self._base_offset_mm = p["base_offset_mm"]
             self._top_level      = p["top_level"]
-            self._top_offset_ft  = p["top_offset_ft"]
-            self._height_ft      = p["height_ft"]
+            self._top_offset_mm  = p["top_offset_mm"]
+            self._height_mm      = p["height_mm"]
             self.level           = p["base_level"]
             self._rebuild_path()
             self.update()
@@ -452,15 +470,15 @@ class WallSegment(QGraphicsPathItem):
             "type":          "wall",
             "pt1":           [self._pt1.x(), self._pt1.y()],
             "pt2":           [self._pt2.x(), self._pt2.y()],
-            "thickness_in":  self._thickness_in,
+            "thickness_mm":  self._thickness_mm,
             "color":         self._color.name(),
             "fill_mode":     self._fill_mode,
             "alignment":     self._alignment,
             "base_level":    self._base_level,
             "top_level":     self._top_level,
-            "height_ft":     self._height_ft,
-            "base_offset_ft": self._base_offset_ft,
-            "top_offset_ft":  self._top_offset_ft,
+            "height_mm":     self._height_mm,
+            "base_offset_mm": self._base_offset_mm,
+            "top_offset_mm":  self._top_offset_mm,
             "level":         self.level,
             "user_layer":    self.user_layer,
             "name":          self.name,
@@ -469,18 +487,40 @@ class WallSegment(QGraphicsPathItem):
 
     @classmethod
     def from_dict(cls, data: dict) -> "WallSegment":
+        FT = 304.8
         pt1 = QPointF(data["pt1"][0], data["pt1"][1])
         pt2 = QPointF(data["pt2"][0], data["pt2"][1])
-        wall = cls(pt1, pt2,
-                   thickness_in=data.get("thickness_in", DEFAULT_THICKNESS_IN),
+        # Accept new mm key; fall back to old in key with conversion
+        if "thickness_mm" in data:
+            thick_mm = data["thickness_mm"]
+        elif "thickness_in" in data:
+            thick_mm = data["thickness_in"] * 25.4
+        else:
+            thick_mm = DEFAULT_THICKNESS_MM
+        wall = cls(pt1, pt2, thickness_mm=thick_mm,
                    color=data.get("color", "#cccccc"))
         wall._fill_mode = data.get("fill_mode", FILL_NONE)
         wall._alignment = data.get("alignment", ALIGN_CENTER)
         wall._base_level = data.get("base_level", DEFAULT_LEVEL)
         wall._top_level = data.get("top_level", "Level 2")
-        wall._height_ft = data.get("height_ft", 10.0)
-        wall._base_offset_ft = data.get("base_offset_ft", 0.0)
-        wall._top_offset_ft = data.get("top_offset_ft", 0.0)
+        if "height_mm" in data:
+            wall._height_mm = data["height_mm"]
+        elif "height_ft" in data:
+            wall._height_mm = data["height_ft"] * FT
+        else:
+            wall._height_mm = 3048.0
+        if "base_offset_mm" in data:
+            wall._base_offset_mm = data["base_offset_mm"]
+        elif "base_offset_ft" in data:
+            wall._base_offset_mm = data["base_offset_ft"] * FT
+        else:
+            wall._base_offset_mm = 0.0
+        if "top_offset_mm" in data:
+            wall._top_offset_mm = data["top_offset_mm"]
+        elif "top_offset_ft" in data:
+            wall._top_offset_mm = data["top_offset_ft"] * FT
+        else:
+            wall._top_offset_mm = 0.0
         wall.level = data.get("level", DEFAULT_LEVEL)
         wall.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         wall.name = data.get("name", "")
@@ -498,23 +538,18 @@ class WallSegment(QGraphicsPathItem):
         The wall is extruded from base_z to top_z (in mm, for vispy).
         Openings are subtracted as rectangular holes.
         """
-        FT_TO_MM = 304.8
-
-        # Determine base and top elevations in feet
-        base_z_ft = 0.0
-        top_z_ft = self._height_ft
+        # Determine base and top elevations in mm
+        base_z = 0.0
+        top_z = self._height_mm
         if level_manager is not None:
             base_lvl = level_manager.get(self._base_level)
             if base_lvl:
-                base_z_ft = base_lvl.elevation + self._base_offset_ft
+                base_z = base_lvl.elevation + self._base_offset_mm
             top_lvl = level_manager.get(self._top_level)
             if top_lvl:
-                top_z_ft = top_lvl.elevation + self._top_offset_ft
+                top_z = top_lvl.elevation + self._top_offset_mm
             else:
-                top_z_ft = base_z_ft + self._height_ft
-
-        base_z = base_z_ft * FT_TO_MM
-        top_z = top_z_ft * FT_TO_MM
+                top_z = base_z + self._height_mm
         if abs(top_z - base_z) < 1.0:
             return None
 
@@ -809,7 +844,7 @@ class WallSegment(QGraphicsPathItem):
 
         # Get the wall quad to determine face positions
         p1l, p1r, p2r, p2l = compute_wall_quad(
-            self._pt1, self._pt2, self._thickness_in,
+            self._pt1, self._pt2, self._thickness_mm,
             self._alignment, scale_manager)
 
         # Interpolate left and right face at parameter t

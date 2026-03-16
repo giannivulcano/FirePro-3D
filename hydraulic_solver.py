@@ -183,8 +183,8 @@ class HydraulicSolver:
             par  = parent_node[node]
             q    = pipe_flow.get(pipe, 0.0)
             hf   = self._friction_loss_psi(pipe, q)
-            dz   = node.z_pos - par.z_pos   # ft; +ve = child higher
-            h_e  = 0.433 * dz               # psi; +ve = pressure lost going up
+            dz_ft = (node.z_pos - par.z_pos) / 304.8  # mm → ft
+            h_e   = 0.433 * dz_ft           # psi; +ve = pressure lost going up
 
             p_at_node = required_node_pressure.get(node, 0.0)
             p_required_at_parent = p_at_node + hf + h_e
@@ -237,8 +237,8 @@ class HydraulicSolver:
             par  = parent_node[node]
             q    = pipe_flow.get(pipe, 0.0)
             hf   = self._friction_loss_psi(pipe, q)
-            dz   = node.z_pos - par.z_pos
-            h_e  = 0.433 * dz
+            dz_ft = (node.z_pos - par.z_pos) / 304.8  # mm → ft
+            h_e   = 0.433 * dz_ft
 
             node_pressure[node]      = node_pressure.get(par, 0.0) - hf - h_e
             pipe_friction_loss[pipe] = hf

@@ -10,6 +10,28 @@ from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
 class Pipe(QGraphicsLineItem):
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
 
+    # Line Type display widths (mm, real-world, scales with zoom)
+    BRANCH_WIDTH_MM = 75.0
+    MAIN_WIDTH_MM = 150.0
+
+    # Diameters that auto-assign as "Main" (≥ 3")
+    _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
+
+    # Internal diameter keys (stored in _properties and serialization)
+    _INTERNAL_DIAMETERS = ["1\"Ø", "1-½\"Ø", "2\"Ø", "3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"]
+
+    # Imperial display strings (Ø sign first, space before value)
+    _IMPERIAL_DIAMETERS = ["Ø 1\"", "Ø 1-½\"", "Ø 2\"", "Ø 3\"", "Ø 4\"", "Ø 5\"", "Ø 6\"", "Ø 8\""]
+
+    # Metric nominal diameter display strings (DN / nominal mm)
+    _METRIC_DIAMETERS = ["Ø 25 mm", "Ø 40 mm", "Ø 50 mm", "Ø 80 mm", "Ø 100 mm", "Ø 125 mm", "Ø 150 mm", "Ø 200 mm"]
+
+    # Mappings: internal key ↔ display strings
+    _INT_TO_IMPERIAL = dict(zip(_INTERNAL_DIAMETERS, _IMPERIAL_DIAMETERS))
+    _INT_TO_METRIC = dict(zip(_INTERNAL_DIAMETERS, _METRIC_DIAMETERS))
+    _DISPLAY_TO_INT = {**dict(zip(_IMPERIAL_DIAMETERS, _INTERNAL_DIAMETERS)),
+                       **dict(zip(_METRIC_DIAMETERS, _INTERNAL_DIAMETERS))}
+
     # Nominal pipe OD in inches — used to set the 2D line width to the real
     # pipe size (1 scene unit = 1 mm, so OD_in × 25.4 = pen width in scene units).
     NOMINAL_OD_IN: dict[str, float] = {
@@ -44,7 +66,8 @@ class Pipe(QGraphicsLineItem):
             "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC"]},
             "Level":              {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":      {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset (in)":{"type": "string", "value": "-2"},
+            "Ceiling Offset":{"type": "string", "value": "-50.8"},
+            "Line Type":   {"type": "enum",   "value": "Branch",         "options": ["Branch", "Main"]},
             "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
             "── Label ──": {"type": "label",  "value": ""},
@@ -59,7 +82,7 @@ class Pipe(QGraphicsLineItem):
         self.user_layer: str = DEFAULT_USER_LAYER   # user-defined layer name
         self.level: str = DEFAULT_LEVEL          # floor level name
         self.ceiling_level: str = DEFAULT_LEVEL  # ceiling level (3D elevation)
-        self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
+        self.ceiling_offset: float = -50.8    # mm below ceiling (default -2" = -50.8mm)
 
 
         self._display_overrides: dict = {}       # per-instance display overrides
@@ -81,7 +104,7 @@ class Pipe(QGraphicsLineItem):
 
     def set_pipe_display(self):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
-        line_weight = self.get_od_mm() * self._display_scale
+        line_weight = self.display_width_mm() * self._display_scale
         pen = QPen(colour, line_weight)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         self.setPen(pen)
@@ -116,8 +139,12 @@ class Pipe(QGraphicsLineItem):
         if not visible:
             return  # skip extra work if hidden
 
-        # Format text
+        # Format text — show display diameter (Ø prefix, metric when metric)
         diameter = self._properties.get('Diameter', {}).get('value', 'N/A')
+        if self._is_metric_display():
+            diameter = self._INT_TO_METRIC.get(diameter, diameter)
+        else:
+            diameter = self._INT_TO_IMPERIAL.get(diameter, diameter)
         scene = self.scene()
         if scene and hasattr(scene, "scale_manager"):
             length = scene.scale_manager.scene_to_display(getattr(self, "length", 0.0))
@@ -132,7 +159,7 @@ class Pipe(QGraphicsLineItem):
             _label_in = 12.0
         text_h = _label_in * 25.4   # inches → mm
         # Gap between rows = pipe visual width + 2 inches (clearance each side)
-        gap = self.get_od_mm() + 2.0 * 25.4   # mm
+        gap = self.display_width_mm() + 2.0 * 25.4   # mm
 
         # Include hydraulic results if available
         hr_lines = ""
@@ -240,46 +267,92 @@ class Pipe(QGraphicsLineItem):
         else:
             return end
         
+    def _fmt(self, mm: float) -> str:
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
+    def _is_metric_display(self) -> bool:
+        """True when the current display unit is metric (mm or m)."""
+        sc = self.scene()
+        if sc and hasattr(sc, "scale_manager"):
+            from scale_manager import DisplayUnit
+            return sc.scale_manager.display_unit in (DisplayUnit.METRIC_MM, DisplayUnit.METRIC_M)
+        return True  # default to metric when no scene
+
     def get_properties(self):
-        return self._properties.copy()
+        props = self._properties.copy()
+        # Format ceiling offset for display using project units
+        props["Ceiling Offset"] = dict(props["Ceiling Offset"])
+        props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
+        # Show diameter with Ø prefix; metric nominal sizes when metric display
+        props["Diameter"] = dict(props["Diameter"])
+        int_val = props["Diameter"]["value"]
+        if self._is_metric_display():
+            props["Diameter"]["options"] = list(self._METRIC_DIAMETERS)
+            props["Diameter"]["value"] = self._INT_TO_METRIC.get(int_val, int_val)
+        else:
+            props["Diameter"]["options"] = list(self._IMPERIAL_DIAMETERS)
+            props["Diameter"]["value"] = self._INT_TO_IMPERIAL.get(int_val, int_val)
+        return props
 
     def set_property(self, key, value):
         # Accept legacy names from old save files
         if key in ("Elevation 1", "Elevation 2", "Line Weight"):
             return  # discard old/removed properties
-        if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
-            key = "Ceiling Offset (in)"
-        if key in self._properties:
+        if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)"):
+            key = "Ceiling Offset"
+        if key == "Ceiling Offset":
+            # Parse dimension input and store canonical mm value
+            sc = self.scene()
+            sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+            if sm:
+                parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
+                if parsed is not None:
+                    self.ceiling_offset = parsed
+            else:
+                try:
+                    self.ceiling_offset = float(value)
+                except (ValueError, TypeError):
+                    pass
+            self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
+        elif key in self._properties:
+            # Convert display diameter string back to internal key
+            if key == "Diameter" and value in self._DISPLAY_TO_INT:
+                value = self._DISPLAY_TO_INT[value]
             self._properties[key]["value"] = value
 
+            if key == "Diameter":
+                # Auto-assign Line Type based on diameter threshold
+                if value in self._MAIN_DIAMETERS:
+                    self._properties["Line Type"]["value"] = "Main"
+                else:
+                    self._properties["Line Type"]["value"] = "Branch"
             if key in ("Diameter", "Show Label", "Label Size"):
                 self.update_label()
-            if key in ("Colour", "Diameter"):
+            if key in ("Colour", "Diameter", "Line Type"):
                 self.set_pipe_display()
             if key == "Level":
                 self.level = str(value)
             elif key == "Ceiling Level":
                 self.ceiling_level = str(value)
-            elif key == "Ceiling Offset (in)":
-                try:
-                    self.ceiling_offset = float(value)
-                except (ValueError, TypeError):
-                    pass
     
     def set_properties(self, template: "Pipe"):
         """Copy property values from a template sprinkler."""
         for key, meta in template.get_properties().items():
             self.set_property(key, meta["value"])
 
-    def get_od_mm(self) -> float:
-        """Return the visual outside diameter in mm for the current pipe size.
+    def display_width_mm(self) -> float:
+        """Return display line width in mm based on Line Type (Main/Branch)."""
+        return self.MAIN_WIDTH_MM if self._properties["Line Type"]["value"] == "Main" else self.BRANCH_WIDTH_MM
 
-        Returns 1.5× the nominal OD so pipes are easier to see on screen.
-        Used by the 2D paint method to draw pipes at their real physical width.
+    def get_od_mm(self) -> float:
+        """Return the display width in mm.
+
+        Now delegates to display_width_mm() (Main/Branch system).
+        Kept for backward compatibility with display_manager.py and label gap calc.
         """
-        nominal = self._properties["Diameter"]["value"]
-        od_in = self.NOMINAL_OD_IN.get(nominal, 1.315)   # fallback to 1"
-        return od_in * 25.4 * 1.5  # inches → mm (= scene units), 1.5x for visibility
+        return self.display_width_mm()
 
     def get_inner_diameter(self) -> float:
         """Return the actual inside diameter in inches for the current nominal size and schedule.
@@ -307,18 +380,18 @@ class Pipe(QGraphicsLineItem):
         # 2D horizontal distance in real-world mm, then feet
         horiz_mm = self.length / sm.pixels_per_mm
         horiz_ft = horiz_mm / 304.8
-        # Vertical distance in feet (z_pos is already in feet)
+        # Vertical distance (z_pos is in mm, convert to ft)
         z1 = self.node1.z_pos if self.node1 else 0.0
         z2 = self.node2.z_pos if self.node2 else 0.0
-        z_diff_ft = abs(z2 - z1)
+        z_diff_ft = abs(z2 - z1) / 304.8
         return math.sqrt(horiz_ft ** 2 + z_diff_ft ** 2)
 
     def paint(self, painter, option, widget=None):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
 
-        # Pen width = real pipe OD in scene units (mm).
+        # Pen width = Main/Branch display width in scene units (mm).
         # Non-cosmetic: the line scales with zoom just like real geometry.
-        line_weight = self.get_od_mm() * self._display_scale
+        line_weight = self.display_width_mm() * self._display_scale
         base_pen = QPen(colour, line_weight)
         base_pen.setCapStyle(Qt.PenCapStyle.FlatCap)
 

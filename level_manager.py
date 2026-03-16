@@ -41,7 +41,7 @@ DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
 @dataclass
 class Level:
     name:         str
-    elevation:    float = 0.0       # ft, relative to project datum
+    elevation:    float = 0.0       # mm, relative to project datum
     view_top:     float = 2000.0    # mm above elevation (future use)
     view_bottom:  float = -1000.0   # mm below elevation (future use)
     display_mode: str   = "Auto"    # Auto | Hidden | Faded | Visible
@@ -49,7 +49,7 @@ class Level:
     def to_dict(self) -> dict:
         return {
             "name":         self.name,
-            "elevation":    self.elevation,
+            "elevation_mm": self.elevation,
             "view_top":     self.view_top,
             "view_bottom":  self.view_bottom,
             "display_mode": self.display_mode,
@@ -57,9 +57,14 @@ class Level:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Level":
+        # Prefer new mm key; fall back to legacy ft key converted to mm
+        if "elevation_mm" in d:
+            elev = d["elevation_mm"]
+        else:
+            elev = d.get("elevation", 0.0) * 304.8
         return cls(
             name         = d["name"],
-            elevation    = d.get("elevation",    0.0),
+            elevation    = elev,
             view_top     = d.get("view_top",     2000.0),
             view_bottom  = d.get("view_bottom",  -1000.0),
             display_mode = d.get("display_mode", "Auto"),
@@ -69,8 +74,8 @@ class Level:
 # Defaults shipped with every new document
 DEFAULT_LEVELS: list[Level] = [
     Level(DEFAULT_LEVEL, elevation=0.0),
-    Level("Level 2", elevation=10.0),
-    Level("Level 3", elevation=20.0),
+    Level("Level 2", elevation=3048.0),
+    Level("Level 3", elevation=6096.0),
 ]
 
 
@@ -169,11 +174,10 @@ class LevelManager:
         from node import Node
         lvl_map = {l.name: l for l in self._levels}
         for node in scene.sprinkler_system.nodes:
-            # 3D elevation = ceiling level elevation + ceiling offset (inches → feet)
+            # 3D elevation = ceiling level elevation (mm) + ceiling offset (mm)
             ceil_lvl = lvl_map.get(getattr(node, "ceiling_level", DEFAULT_LEVEL))
             ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
-            ceil_off_ft = getattr(node, "ceiling_offset", -2.0) / 12.0
-            node.z_pos = ceil_elev + ceil_off_ft
+            node.z_pos = ceil_elev + getattr(node, "ceiling_offset", -50.8)
 
     # ── Apply to scene ────────────────────────────────────────────────────────
 
@@ -433,7 +437,7 @@ class LevelWidget(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(
-            ["Name", "Elevation (ft)", "Display"]
+            ["Name", "Elevation", "Display"]
         )
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch
@@ -484,6 +488,13 @@ class LevelWidget(QWidget):
         self._building = False
         self._highlight_active()
 
+    def _fmt_elev(self, elev_mm: float) -> str:
+        """Format a level elevation using the scene's ScaleManager."""
+        sm = getattr(self.scene, "scale_manager", None) if self.scene else None
+        if sm:
+            return sm.format_length(elev_mm)
+        return f"{elev_mm:.2f}"
+
     def _append_row(self, lvl: Level):
         row = self.table.rowCount()
         self.table.insertRow(row)
@@ -493,7 +504,7 @@ class LevelWidget(QWidget):
         self.table.setItem(row, _COL_NAME, name_it)
 
         # Elevation
-        elev_it = QTableWidgetItem(str(lvl.elevation))
+        elev_it = QTableWidgetItem(self._fmt_elev(lvl.elevation))
         self.table.setItem(row, _COL_ELEV, elev_it)
 
         # Display mode combo
@@ -567,14 +578,30 @@ class LevelWidget(QWidget):
                         self.activeLevelChanged.emit(new_name)
 
         elif col == _COL_ELEV:
-            try:
-                new_elev = float(item.text())
-            except (ValueError, TypeError):
-                self._building = True
-                item.setText(str(lvl.elevation))
-                self._building = False
-                return
+            # Try to parse dimension text (e.g. "10' 0\"", "3048mm", or bare number)
+            sm = getattr(self.scene, "scale_manager", None) if self.scene else None
+            text = item.text().strip()
+            parsed_mm = None
+            if sm:
+                from scale_manager import ScaleManager
+                fallback = sm.bare_number_unit()
+                parsed_mm = ScaleManager.parse_dimension(text, fallback)
+            if parsed_mm is not None:
+                new_elev = parsed_mm  # already mm
+            else:
+                # Fallback: try plain float (legacy behaviour, assumes mm)
+                try:
+                    new_elev = float(text)
+                except (ValueError, TypeError):
+                    self._building = True
+                    item.setText(self._fmt_elev(lvl.elevation))
+                    self._building = False
+                    return
             lvl.elevation = new_elev
+            # Reformat the cell to the canonical display
+            self._building = True
+            item.setText(self._fmt_elev(new_elev))
+            self._building = False
             if self.scene:
                 self.manager.update_elevations(self.scene)
             self.levelsChanged.emit()

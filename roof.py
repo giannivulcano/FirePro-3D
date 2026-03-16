@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
-from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
@@ -22,10 +22,10 @@ from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_ROOF
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-DEFAULT_THICKNESS_FT = 0.5      # 6 inches
-DEFAULT_PITCH_DEG = 0.0         # flat by default
-DEFAULT_EAVE_HEIGHT_FT = 10.0   # eave above level datum
-DEFAULT_OVERHANG_FT = 0.0       # no overhang by default
+DEFAULT_THICKNESS_MM = 152.4     # 6 inches (0.5 ft × 304.8)
+DEFAULT_PITCH_DEG = 20.0        # default slope for gable/hip
+DEFAULT_EAVE_HEIGHT_MM = 0.0    # offset above level datum (mm)
+DEFAULT_OVERHANG_MM = 0.0       # no overhang by default
 _FILL_ALPHA = 40                # semi-transparent fill in 2D
 _SELECTION_COLOR = QColor("red")
 
@@ -49,9 +49,11 @@ def _offset_polygon(points: list[QPointF], dist: float) -> list[QPointF]:
         - points[(i + 1) % n].x() * points[i].y()
         for i in range(n)
     )
-    # In Qt screen coords (Y down), positive area means CW visually,
-    # but mathematically CW.  We want outward offset, so negate if needed.
-    sign = 1.0 if area > 0 else -1.0
+    # In Qt screen coords (Y down), the perpendicular (-dy, dx) points
+    # to the *left* of the edge direction.  For a visually-CW polygon
+    # (negative signed area) that is outward; for visually-CCW (positive
+    # signed area) we must negate to keep the offset outward.
+    sign = -1.0 if area > 0 else 1.0
 
     # Compute offset edges (each edge moved outward by dist)
     offset_edges = []
@@ -123,15 +125,20 @@ class RoofItem(QGraphicsPathItem):
         super().__init__()
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
-        self._thickness_ft: float = DEFAULT_THICKNESS_FT
+        self._thickness_mm: float = DEFAULT_THICKNESS_MM
         self._roof_type: str = "flat"
         self._pitch_deg: float = DEFAULT_PITCH_DEG
-        self._eave_height_ft: float = DEFAULT_EAVE_HEIGHT_FT
-        self._overhang_ft: float = DEFAULT_OVERHANG_FT
+        self._eave_height_mm: float = DEFAULT_EAVE_HEIGHT_MM
+        self._overhang_mm: float = DEFAULT_OVERHANG_MM
+        self._ridge_direction: str = "auto"   # "auto", "horizontal", "vertical"
+        self._ridge_position: float = 0.5     # reserved for future offset
 
         self.level: str = DEFAULT_LEVEL
         self.user_layer: str = DEFAULT_USER_LAYER
         self.name: str = ""
+
+        # Scale manager reference for overhang calc before scene attachment
+        self._scale_manager_ref = None
 
         # Display Manager overrides
         self._display_color: str | None = None
@@ -162,17 +169,19 @@ class RoofItem(QGraphicsPathItem):
     def _overhang_points(self) -> list[QPointF]:
         """Return boundary expanded outward by overhang distance (scene units).
 
-        The overhang is stored in feet; we convert to scene units using the
-        scene's scale_manager if available.
+        The overhang is stored in mm; we convert to scene units using the
+        scene's scale_manager if available, falling back to a stored reference.
         """
-        if self._overhang_ft <= 0 or len(self._points) < 3:
+        if self._overhang_mm <= 0 or len(self._points) < 3:
             return self._points
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
         if sm and sm.is_calibrated and sm.drawing_scale > 0:
-            dist = sm.real_to_scene(self._overhang_ft * 304.8)  # ft → mm → scene
+            dist = sm.real_to_scene(self._overhang_mm)  # mm → scene
         else:
-            dist = self._overhang_ft  # fallback: treat as scene units
+            dist = self._overhang_mm  # fallback: treat as scene units
         return _offset_polygon(self._points, dist)
 
     # ── Path rebuild (2D) ────────────────────────────────────────────────
@@ -182,29 +191,15 @@ class RoofItem(QGraphicsPathItem):
         if len(self._points) < 2:
             self.setPath(path)
             return
-        path.moveTo(self._points[0])
-        for p in self._points[1:]:
+        # Use overhang-expanded boundary as the actual path so the
+        # bounding rect and hit-testing automatically include the overhang.
+        pts = self._overhang_points()
+        path.moveTo(pts[0])
+        for p in pts[1:]:
             path.lineTo(p)
-        if len(self._points) >= 3:
+        if len(pts) >= 3:
             path.closeSubpath()
         self.setPath(path)
-
-    def boundingRect(self):
-        """Expand bounding rect to include overhang area."""
-        br = super().boundingRect()
-        if self._overhang_ft > 0 and len(self._points) >= 3:
-            oh_pts = self._overhang_points()
-            if oh_pts is not self._points:
-                for p in oh_pts:
-                    if p.x() < br.left():
-                        br.setLeft(p.x())
-                    if p.x() > br.right():
-                        br.setRight(p.x())
-                    if p.y() < br.top():
-                        br.setTop(p.y())
-                    if p.y() > br.bottom():
-                        br.setBottom(p.y())
-        return br.adjusted(-2, -2, 2, 2)
 
     # ── Ridge line helpers (for 2D rendering) ────────────────────────────
 
@@ -237,33 +232,89 @@ class RoofItem(QGraphicsPathItem):
             return []
         return []
 
+    def _gable_ridge_endpoints(self, pts=None):
+        """Compute gable ridge endpoints based on ridge direction setting.
+
+        Returns ((x1, y1), (x2, y2)) in the coordinate system of *pts*.
+        If *pts* is None, uses self._points (QPointF).
+        Also returns (eave_edge_indices, gable_edge_indices) for mesh building.
+        """
+        if pts is None:
+            pts = self._points
+            get_xy = lambda p: (p.x(), p.y())
+        else:
+            get_xy = lambda p: (p[0], p[1])
+
+        n = len(pts)
+        if n < 3:
+            return None
+
+        # Compute bounding box
+        xs = [get_xy(p)[0] for p in pts]
+        ys = [get_xy(p)[1] for p in pts]
+        cx = sum(xs) / n
+        cy = sum(ys) / n
+
+        direction = self._ridge_direction
+
+        if direction == "auto":
+            # Find two longest edges; ridge runs between their midpoints
+            edges = []
+            for i in range(n):
+                j = (i + 1) % n
+                x1, y1 = get_xy(pts[i])
+                x2, y2 = get_xy(pts[j])
+                length = math.hypot(x2 - x1, y2 - y1)
+                mx = (x1 + x2) / 2
+                my = (y1 + y2) / 2
+                edges.append((length, mx, my, i))
+            edges.sort(key=lambda e: e[0], reverse=True)
+            if len(edges) < 2:
+                return None
+            ridge_p1 = (edges[0][1], edges[0][2])
+            ridge_p2 = (edges[1][1], edges[1][2])
+            eave_indices = {edges[0][3], edges[1][3]}
+        elif direction == "horizontal":
+            # Ridge runs left-right (along X axis)
+            # Find edges that are most horizontal (eave edges)
+            ridge_p1 = (min(xs), cy)
+            ridge_p2 = (max(xs), cy)
+            eave_indices = set()
+            for i in range(n):
+                j = (i + 1) % n
+                x1, y1 = get_xy(pts[i])
+                x2, y2 = get_xy(pts[j])
+                dx = abs(x2 - x1)
+                dy = abs(y2 - y1)
+                if dx > dy:  # more horizontal than vertical = eave
+                    eave_indices.add(i)
+        elif direction == "vertical":
+            # Ridge runs top-bottom (along Y axis)
+            ridge_p1 = (cx, min(ys))
+            ridge_p2 = (cx, max(ys))
+            eave_indices = set()
+            for i in range(n):
+                j = (i + 1) % n
+                x1, y1 = get_xy(pts[i])
+                x2, y2 = get_xy(pts[j])
+                dx = abs(x2 - x1)
+                dy = abs(y2 - y1)
+                if dy > dx:  # more vertical than horizontal = eave
+                    eave_indices.add(i)
+        else:
+            return None
+
+        gable_indices = set(range(n)) - eave_indices
+        return ridge_p1, ridge_p2, eave_indices, gable_indices
+
     def _gable_ridge(self) -> list[tuple[QPointF, QPointF]]:
-        """Compute gable ridge line along the longest axis."""
-        if len(self._points) < 4:
-            # For triangles, draw from midpoint of longest edge to opposite vertex
-            cx = sum(p.x() for p in self._points) / len(self._points)
-            cy = sum(p.y() for p in self._points) / len(self._points)
-            return [(QPointF(cx, cy), QPointF(cx, cy))]
-
-        # Find the two longest parallel-ish edges and draw ridge between midpoints
-        n = len(self._points)
-        edges = []
-        for i in range(n):
-            j = (i + 1) % n
-            dx = self._points[j].x() - self._points[i].x()
-            dy = self._points[j].y() - self._points[i].y()
-            length = math.hypot(dx, dy)
-            mid = QPointF(
-                (self._points[i].x() + self._points[j].x()) / 2,
-                (self._points[i].y() + self._points[j].y()) / 2,
-            )
-            edges.append((length, mid, i))
-
-        # Sort by length descending, take midpoints of two longest edges
-        edges.sort(key=lambda e: e[0], reverse=True)
-        if len(edges) >= 2:
-            return [(edges[0][1], edges[1][1])]
-        return []
+        """Compute gable ridge line for 2D rendering."""
+        result = self._gable_ridge_endpoints()
+        if result is None:
+            return []
+        ridge_p1, ridge_p2, _, _ = result
+        return [(QPointF(ridge_p1[0], ridge_p1[1]),
+                 QPointF(ridge_p2[0], ridge_p2[1]))]
 
     # ── Paint ────────────────────────────────────────────────────────────
 
@@ -284,21 +335,17 @@ class RoofItem(QGraphicsPathItem):
         painter.setBrush(QBrush(fill_color))
 
         if len(self._points) >= 3:
-            # Draw overhang outline (expanded polygon)
+            # Draw the full roof boundary (includes overhang if any)
             oh_pts = self._overhang_points()
-            if oh_pts is not self._points and len(oh_pts) >= 3:
-                # Fill the full overhang area
-                painter.drawPolygon(QPolygonF(oh_pts))
-                # Draw the inner wall boundary as a thinner line
+            painter.drawPolygon(QPolygonF(oh_pts))
+            # If overhang is active, draw inner wall boundary as dotted line
+            if oh_pts is not self._points:
                 inner_pen = QPen(line_col, 1, Qt.PenStyle.DotLine)
                 inner_pen.setCosmetic(True)
                 painter.setPen(inner_pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawPolygon(QPolygonF(self._points))
-                # Restore pen
                 painter.setPen(pen)
-            else:
-                painter.drawPolygon(QPolygonF(self._points))
         elif len(self._points) == 2:
             painter.drawLine(self._points[0], self._points[1])
 
@@ -312,38 +359,18 @@ class RoofItem(QGraphicsPathItem):
             for p1, p2 in ridge_lines:
                 painter.drawLine(p1, p2)
 
-        # Selection highlight (shows overhang boundary if present)
+        # Selection highlight
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            if len(self._points) >= 3:
-                oh = self._overhang_points()
-                painter.drawPolygon(QPolygonF(oh))
+            painter.drawPath(self.path())
 
     # ── Shape / hit-test ─────────────────────────────────────────────────
 
-    def boundingRect(self):
-        """Expand bounding rect to include overhang area."""
-        base = super().boundingRect()
-        oh_pts = self._overhang_points()
-        if oh_pts is self._points:
-            return base
-        for pt in oh_pts:
-            base = base.united(QRectF(pt.x() - 1, pt.y() - 1, 2, 2))
-        return base
-
     def shape(self) -> QPainterPath:
-        oh_pts = self._overhang_points()
-        if oh_pts is not self._points and len(oh_pts) >= 3:
-            path = QPainterPath()
-            path.moveTo(oh_pts[0])
-            for p in oh_pts[1:]:
-                path.lineTo(p)
-            path.closeSubpath()
-        else:
-            path = self.path()
+        path = self.path()
         if path.isEmpty():
             return path
         stroker = QPainterPathStroker()
@@ -398,20 +425,28 @@ class RoofItem(QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────
 
+    def _fmt(self, mm: float) -> str:
+        """Format mm using scene's scale_manager, fallback to raw mm."""
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
         return {
-            "Type":             {"type": "label",  "value": "Roof"},
-            "Name":             {"type": "string", "value": self.name},
-            "Colour":           {"type": "color",  "value": self._color.name()},
-            "Roof Type":        {"type": "label",  "value": self._roof_type.capitalize()},
-            "Pitch (deg)":      {"type": "label",  "value": str(self._pitch_deg)},
-            "Eave Level":       {"type": "label",  "value": self.level},
-            "Eave Height (ft)": {"type": "label",  "value": str(self._eave_height_ft)},
-            "Overhang (ft)":    {"type": "label",  "value": str(self._overhang_ft)},
-            "Thickness (ft)":   {"type": "label",  "value": str(self._thickness_ft)},
-            "Points":           {"type": "label",  "value": str(len(self._points))},
-            "":                 {"type": "button", "value": "Edit Roof…",
-                                 "callback": self._open_edit_dialog},
+            "Type":         {"type": "label",  "value": "Roof"},
+            "Name":         {"type": "string", "value": self.name},
+            "Colour":       {"type": "color",  "value": self._color.name()},
+            "Roof Type":    {"type": "label",  "value": self._roof_type.capitalize()},
+            "Pitch":        {"type": "label",  "value": f"{self._pitch_deg}°"},
+            "Eave Level":   {"type": "label",  "value": self.level},
+            "Eave Height":  {"type": "label",  "value": self._fmt(self._eave_height_mm)},
+            "Overhang":     {"type": "label",  "value": self._fmt(self._overhang_mm)},
+            "Thickness":    {"type": "label",  "value": self._fmt(self._thickness_mm)},
+            "Points":       {"type": "label",  "value": str(len(self._points))},
+            "":             {"type": "button", "value": "Edit Roof…",
+                             "callback": self._open_edit_dialog},
         }
 
     def _open_edit_dialog(self):
@@ -428,12 +463,15 @@ class RoofItem(QGraphicsPathItem):
         dlg = RoofDialog(
             parent,
             defaults={
-                "name":           self.name,
-                "roof_type":      self._roof_type,
-                "pitch_deg":      self._pitch_deg,
-                "eave_height_ft": self._eave_height_ft,
-                "overhang_ft":    self._overhang_ft,
-                "color":          self._color.name(),
+                "name":            self.name,
+                "roof_type":       self._roof_type,
+                "pitch_deg":       self._pitch_deg,
+                "eave_height_mm":  self._eave_height_mm,
+                "level":           self.level,
+                "overhang_mm":     self._overhang_mm,
+                "color":           self._color.name(),
+                "ridge_direction": self._ridge_direction,
+                "half_span_mm":    self.half_span_mm(),
             },
             levels=levels,
             scale_manager=getattr(sc, "scale_manager", None),
@@ -441,12 +479,13 @@ class RoofItem(QGraphicsPathItem):
         from PyQt6.QtWidgets import QDialog
         if dlg.exec() == QDialog.DialogCode.Accepted:
             p = dlg.get_params()
-            self.name           = p["name"] or self.name
-            self._roof_type     = p["roof_type"]
-            self._pitch_deg     = p["pitch_deg"]
-            self._eave_height_ft = p["eave_height_ft"]
-            self._overhang_ft   = p["overhang_ft"]
-            self._color         = QColor(p["color"])
+            self.name            = p["name"] or self.name
+            self._roof_type      = p["roof_type"]
+            self._pitch_deg      = p["pitch_deg"]
+            self._eave_height_mm = p["eave_height_mm"]
+            self._overhang_mm    = p["overhang_mm"]
+            self._ridge_direction = p.get("ridge_direction", "auto")
+            self._color          = QColor(p["color"])
             if p.get("eave_level"):
                 self.level = p["eave_level"]
             self._rebuild_path()
@@ -466,26 +505,26 @@ class RoofItem(QGraphicsPathItem):
             if value in ROOF_TYPES:
                 self._roof_type = value
                 self.update()
-        elif key == "Pitch (deg)":
+        elif key == "Pitch":
             try:
-                self._pitch_deg = float(value)
+                self._pitch_deg = float(str(value).replace("°", ""))
             except (ValueError, TypeError):
                 pass
-        elif key == "Eave Height (ft)":
+        elif key == "Eave Height":
             try:
-                self._eave_height_ft = float(value)
+                self._eave_height_mm = float(value)
             except (ValueError, TypeError):
                 pass
-        elif key == "Overhang (ft)":
+        elif key == "Overhang":
             try:
-                self._overhang_ft = max(0.0, float(value))
+                self._overhang_mm = max(0.0, float(value))
                 self._rebuild_path()
                 self.update()
             except (ValueError, TypeError):
                 pass
-        elif key == "Thickness (ft)":
+        elif key == "Thickness":
             try:
-                self._thickness_ft = float(value)
+                self._thickness_mm = float(value)
             except (ValueError, TypeError):
                 pass
 
@@ -498,9 +537,11 @@ class RoofItem(QGraphicsPathItem):
             "color":           self._color.name(),
             "roof_type":       self._roof_type,
             "pitch_deg":       self._pitch_deg,
-            "eave_height_ft":  self._eave_height_ft,
-            "overhang_ft":     self._overhang_ft,
-            "thickness_ft":    self._thickness_ft,
+            "eave_height_mm":  self._eave_height_mm,
+            "overhang_mm":     self._overhang_mm,
+            "thickness_mm":    self._thickness_mm,
+            "ridge_direction": self._ridge_direction,
+            "ridge_position":  self._ridge_position,
             "level":           self.level,
             "user_layer":      self.user_layer,
             "name":            self.name,
@@ -508,13 +549,32 @@ class RoofItem(QGraphicsPathItem):
 
     @classmethod
     def from_dict(cls, data: dict) -> "RoofItem":
+        FT = 304.8
         points = [QPointF(p[0], p[1]) for p in data.get("points", [])]
         roof = cls(points=points, color=data.get("color", "#D2B48C"))
         roof._roof_type = data.get("roof_type", "flat")
         roof._pitch_deg = data.get("pitch_deg", DEFAULT_PITCH_DEG)
-        roof._eave_height_ft = data.get("eave_height_ft", DEFAULT_EAVE_HEIGHT_FT)
-        roof._overhang_ft = data.get("overhang_ft", DEFAULT_OVERHANG_FT)
-        roof._thickness_ft = data.get("thickness_ft", DEFAULT_THICKNESS_FT)
+        # Accept new mm keys; fall back to old ft keys with conversion
+        if "eave_height_mm" in data:
+            roof._eave_height_mm = data["eave_height_mm"]
+        elif "eave_height_ft" in data:
+            roof._eave_height_mm = data["eave_height_ft"] * FT
+        else:
+            roof._eave_height_mm = DEFAULT_EAVE_HEIGHT_MM
+        if "overhang_mm" in data:
+            roof._overhang_mm = data["overhang_mm"]
+        elif "overhang_ft" in data:
+            roof._overhang_mm = data["overhang_ft"] * FT
+        else:
+            roof._overhang_mm = DEFAULT_OVERHANG_MM
+        if "thickness_mm" in data:
+            roof._thickness_mm = data["thickness_mm"]
+        elif "thickness_ft" in data:
+            roof._thickness_mm = data["thickness_ft"] * FT
+        else:
+            roof._thickness_mm = DEFAULT_THICKNESS_MM
+        roof._ridge_direction = data.get("ridge_direction", "auto")
+        roof._ridge_position = data.get("ridge_position", 0.5)
         roof.level = data.get("level", DEFAULT_LEVEL)
         roof.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         roof.name = data.get("name", "")
@@ -531,16 +591,14 @@ class RoofItem(QGraphicsPathItem):
         if len(self._points) < 3:
             return None
 
-        FT_TO_MM = 304.8
-
-        # Level elevation
-        elev_ft = 0.0
+        # Level elevation (mm)
+        elev_mm = 0.0
         if level_manager is not None:
             lvl = level_manager.get(self.level)
             if lvl:
-                elev_ft = lvl.elevation
-        eave_z = (elev_ft + self._eave_height_ft) * FT_TO_MM
-        bot_z = eave_z - self._thickness_ft * FT_TO_MM
+                elev_mm = lvl.elevation
+        eave_z = elev_mm + self._eave_height_mm
+        bot_z = eave_z - self._thickness_mm
 
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
@@ -595,52 +653,62 @@ class RoofItem(QGraphicsPathItem):
         }
 
     def _mesh_gable(self, pts_2d, n, eave_z, bot_z) -> dict | None:
-        """Gable roof — raised ridge along longest axis."""
+        """Gable roof — two sloped planes + vertical gable-end walls."""
         ridge_rise = self._ridge_rise_mm()
-
-        # Find two longest edges and their midpoints
-        edges = []
-        for i in range(n):
-            j = (i + 1) % n
-            dx = pts_2d[j][0] - pts_2d[i][0]
-            dy = pts_2d[j][1] - pts_2d[i][1]
-            length = math.hypot(dx, dy)
-            mx = (pts_2d[i][0] + pts_2d[j][0]) / 2
-            my = (pts_2d[i][1] + pts_2d[j][1]) / 2
-            edges.append((length, mx, my, i))
-        edges.sort(key=lambda e: e[0], reverse=True)
-
-        if len(edges) < 2:
+        result = self._gable_ridge_endpoints(pts_2d)
+        if result is None:
             return self._mesh_flat(pts_2d, n, eave_z, bot_z)
 
-        # Ridge endpoints at midpoints of two longest edges
-        ridge_p1 = (edges[0][1], edges[0][2])
-        ridge_p2 = (edges[1][1], edges[1][2])
+        ridge_p1, ridge_p2, eave_indices, gable_indices = result
         ridge_z = eave_z + ridge_rise
 
-        # Build mesh: eave vertices + 2 ridge vertices
+        # Vertices: eave pts at eave_z, then 2 ridge pts at ridge_z
         verts = []
         for x, y in pts_2d:
             verts.append([x, y, eave_z])
-        # Ridge vertices at indices n and n+1
+        r1_idx = n      # ridge point 1
+        r2_idx = n + 1  # ridge point 2
         verts.append([ridge_p1[0], ridge_p1[1], ridge_z])
         verts.append([ridge_p2[0], ridge_p2[1], ridge_z])
 
-        # Triangulate each face from eave edge to ridge
         faces = []
+
+        # For each edge, determine which ridge point it's closest to
         for i in range(n):
             j = (i + 1) % n
-            # Connect each eave edge to nearest ridge point
-            faces.append([i, j, n])      # to ridge point 1
-            faces.append([i, j, n + 1])  # to ridge point 2
+            mx = (pts_2d[i][0] + pts_2d[j][0]) / 2
+            my = (pts_2d[i][1] + pts_2d[j][1]) / 2
+            d1 = math.hypot(mx - ridge_p1[0], my - ridge_p1[1])
+            d2 = math.hypot(mx - ridge_p2[0], my - ridge_p2[1])
 
-        # Bottom face (flat)
+            if i in eave_indices:
+                # Eave edge: sloped face from edge to ridge line
+                # Triangle 1: eave_i, eave_j, nearest_ridge
+                # Triangle 2: eave_i, nearest_ridge, far_ridge
+                # This creates a quad from eave edge to ridge line
+                near_r = r1_idx if d1 < d2 else r2_idx
+                far_r = r2_idx if d1 < d2 else r1_idx
+                faces.append([i, j, near_r])
+                faces.append([i, near_r, far_r])
+            else:
+                # Gable-end edge: triangular face from edge up to
+                # the nearest ridge point (vertical gable wall)
+                near_r = r1_idx if d1 < d2 else r2_idx
+                faces.append([i, j, near_r])
+
+        # Bottom face
         bot_start = n + 2
         for x, y in pts_2d:
             verts.append([x, y, bot_z])
         tri_indices = self._triangulate(pts_2d)
         for a, b, c in tri_indices:
             faces.append([a + bot_start, c + bot_start, b + bot_start])
+
+        # Side walls (eave to bottom)
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append([i, j, j + bot_start])
+            faces.append([i, j + bot_start, i + bot_start])
 
         return {
             "vertices": verts,
@@ -723,24 +791,56 @@ class RoofItem(QGraphicsPathItem):
         }
 
     def _ridge_rise_mm(self) -> float:
-        """Compute ridge rise in mm from pitch angle."""
-        FT_TO_MM = 304.8
-        if self._pitch_deg <= 0:
-            return 0.0
-        # Estimate half-span from polygon bounding box
-        if not self._points:
+        """Compute ridge rise in mm from pitch angle.
+
+        For gable roofs, the half-span is perpendicular to the ridge.
+        """
+        if self._pitch_deg <= 0 or not self._points:
             return 0.0
         xs = [p.x() for p in self._points]
         ys = [p.y() for p in self._points]
-        half_span = max(max(xs) - min(xs), max(ys) - min(ys)) / 2
+        w = max(xs) - min(xs)
+        h = max(ys) - min(ys)
+        # Half-span is perpendicular to ridge direction
+        if self._ridge_direction == "horizontal":
+            half_span = h / 2  # perpendicular to horizontal ridge = vertical span
+        elif self._ridge_direction == "vertical":
+            half_span = w / 2  # perpendicular to vertical ridge = horizontal span
+        else:
+            # "auto" — use the shorter dimension as the span
+            half_span = min(w, h) / 2
         # Convert scene units to mm if scale is available
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
         if sm and sm.is_calibrated and sm.drawing_scale > 0:
             half_span_mm = sm.scene_to_real(half_span)
         else:
             half_span_mm = half_span
         return half_span_mm * math.tan(math.radians(self._pitch_deg))
+
+    def half_span_mm(self) -> float:
+        """Return the half-span in mm (for dialog peak height display)."""
+        if not self._points:
+            return 0.0
+        xs = [p.x() for p in self._points]
+        ys = [p.y() for p in self._points]
+        w = max(xs) - min(xs)
+        h = max(ys) - min(ys)
+        if self._ridge_direction == "horizontal":
+            half_span = h / 2
+        elif self._ridge_direction == "vertical":
+            half_span = w / 2
+        else:
+            half_span = min(w, h) / 2
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        if sm is None:
+            sm = self._scale_manager_ref
+        if sm and sm.is_calibrated and sm.drawing_scale > 0:
+            return sm.scene_to_real(half_span)  # scene → mm
+        return half_span  # fallback
 
     @staticmethod
     def _triangulate(pts: list[tuple[float, float]]) -> list[tuple[int, int, int]]:

@@ -47,7 +47,9 @@ class _SplashScreen(QWidget):
             | Qt.WindowType.SplashScreen
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(480, 260)
+        self._splash_w = 480
+        self._splash_h = 320
+        self.setFixedSize(self._splash_w, self._splash_h)
 
         # Centre on screen
         from PyQt6.QtGui import QGuiApplication
@@ -55,8 +57,8 @@ class _SplashScreen(QWidget):
         if screen:
             geo = screen.availableGeometry()
             self.move(
-                geo.x() + (geo.width() - 480) // 2,
-                geo.y() + (geo.height() - 260) // 2,
+                geo.x() + (geo.width() - self._splash_w) // 2,
+                geo.y() + (geo.height() - self._splash_h) // 2,
             )
 
         layout = QVBoxLayout(self)
@@ -71,8 +73,11 @@ class _SplashScreen(QWidget):
             "graphics", "Program Icon", "Logo.png",
         )
         if os.path.isfile(logo_path):
-            logo_pm = QPixmap(logo_path).scaledToWidth(
-                464, Qt.TransformationMode.SmoothTransformation
+            from PyQt6.QtCore import QSize
+            logo_pm = QPixmap(logo_path).scaled(
+                QSize(464, 240),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             logo_lbl.setPixmap(logo_pm)
         else:
@@ -232,7 +237,8 @@ class MainWindow(QMainWindow):
         # (Level combo removed from ribbon — levels managed via Levels tab)
         self.level_widget.duplicateLevel.connect(self.scene.duplicate_level_entities)
 
-        self.project_browser = ProjectBrowser(level_manager=self.scene._level_manager)
+        self.project_browser = ProjectBrowser(level_manager=self.scene._level_manager,
+                                                     scale_manager=self.scene.scale_manager)
         self.project_browser.activateModelSpace.connect(
             lambda: self.central_tabs.setCurrentWidget(self.view)
         )
@@ -350,6 +356,7 @@ class MainWindow(QMainWindow):
         self._place_default_gridlines()
         from display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        self._apply_persistent_unit_prefs()
         self._current_file = None
         self._modified = False
         self._update_title()
@@ -383,16 +390,8 @@ class MainWindow(QMainWindow):
             self.view.set_grid(self.view._grid_visible, grid)
         if self.settings.contains("snap/angle_deg"):
             self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
-        # Restore display unit and precision
-        if self.settings.contains("display/unit"):
-            unit_str = self.settings.value("display/unit", "mm", type=str)
-            try:
-                self.scene.scale_manager.display_unit = DisplayUnit(unit_str)
-            except ValueError:
-                pass
-        if self.settings.contains("display/precision"):
-            self.scene.scale_manager.precision = self.settings.value(
-                "display/precision", 3, type=int)
+        # Restore display unit and precision from user preference
+        self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
         if self.settings.contains("template/pipe"):
             pipe_props = self.settings.value("template/pipe", {})
@@ -404,6 +403,20 @@ class MainWindow(QMainWindow):
             if isinstance(spr_props, dict):
                 for k, v in spr_props.items():
                     self.current_sprinkler_template.set_property(k, v)
+
+    def _apply_persistent_unit_prefs(self):
+        """Override the scale manager's display unit and precision with the
+        user's persistent QSettings preference.  Called after project load
+        so the file's stored units don't override the user's choice."""
+        if self.settings.contains("display/unit"):
+            unit_str = self.settings.value("display/unit", "mm", type=str)
+            try:
+                self.scene.scale_manager.display_unit = DisplayUnit(unit_str)
+            except ValueError:
+                pass
+        if self.settings.contains("display/precision"):
+            self.scene.scale_manager.precision = self.settings.value(
+                "display/precision", 3, type=int)
 
     def showEvent(self, event):
         """Fit the view after the window is fully shown for the first time."""
@@ -1285,6 +1298,9 @@ class MainWindow(QMainWindow):
                        "draw_circle", "draw_arc", "polyline"):
             template = self.scene._get_geometry_template()
             self.prop_manager.show_properties(template)
+        else:
+            # Exiting a template mode — clear stale template properties
+            self.prop_manager.show_properties(None)
 
     # ── OSNAP toggle (Sprint H) ───────────────────────────────────────────────
 
@@ -1585,6 +1601,8 @@ class MainWindow(QMainWindow):
         else:
             from display_manager import apply_saved_display_settings
             apply_saved_display_settings(self.scene)
+        # Override display unit and precision with user's persistent preference
+        self._apply_persistent_unit_prefs()
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -1644,6 +1662,7 @@ class MainWindow(QMainWindow):
             self.user_layer_widget.populate()
             self._modified = True
             self._update_title()
+            self._apply_persistent_unit_prefs()
         self._cleanup_autosave()
 
     def _cleanup_autosave(self):
@@ -1684,6 +1703,7 @@ class MainWindow(QMainWindow):
         # Apply saved display defaults to the new project
         from display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
+        self._apply_persistent_unit_prefs()
 
         # Reset undo stack so the template gridlines cannot be undone
         self.scene._undo_stack = []
@@ -1791,7 +1811,8 @@ class MainWindow(QMainWindow):
         try:
             # Don't override template properties during placement modes
             if self.scene.mode in ("pipe", "sprinkler", "wall", "floor",
-                                    "floor_rect", "set_scale", "design_area"):
+                                    "floor_rect", "roof", "roof_rect",
+                                    "set_scale", "design_area"):
                 return
             items = self.scene.selectedItems()
         except RuntimeError:

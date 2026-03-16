@@ -137,6 +137,15 @@ class ScaleManager:
         """Convert millimeters to scene-pixel distance."""
         return mm * self._pixels_per_mm
 
+    # Aliases used by entity 3D mesh builders
+    def scene_to_real(self, scene_val: float) -> float:
+        """Convert scene-pixel distance to real-world mm."""
+        return self.scene_to_mm(scene_val)
+
+    def real_to_scene(self, mm_val: float) -> float:
+        """Convert real-world mm to scene-pixel distance."""
+        return self.mm_to_scene(mm_val)
+
     def scene_to_display(self, scene_length: float) -> str:
         """Convert a scene distance to a formatted display string."""
         if not self._calibrated:
@@ -232,11 +241,107 @@ class ScaleManager:
         return mm / factor
 
     # -----------------------------------------------------------------
+    # Dimension parsing — accepts any unit format, returns mm
+    # -----------------------------------------------------------------
+
+    def bare_number_unit(self) -> str:
+        """Return the unit to assume for bare numbers (no suffix).
+
+        Imperial → 'ft', Metric MM → 'mm', Metric M → 'm'.
+        """
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return "ft"
+        elif self._display_unit == DisplayUnit.METRIC_M:
+            return "m"
+        return "mm"
+
+    @staticmethod
+    def parse_dimension(text: str, fallback_unit: str = "mm") -> float | None:
+        """Parse a dimension string in any format and return value in mm.
+
+        Accepted formats:
+            10' 6 1/2"    → feet-inches with optional fraction
+            10' 6"        → feet and inches
+            10'           → feet only
+            10 ft         → feet (with unit suffix)
+            126"          → inches
+            126 in        → inches (with unit suffix)
+            3048 mm       → millimeters
+            3.048 m       → metres
+            10            → bare number, interpreted as *fallback_unit*
+
+        Returns None if the text cannot be parsed.
+        """
+        import re
+        text = text.strip()
+        if not text:
+            return None
+
+        # 1. Feet-inches-fraction:  10' 6 1/2"  or  10' 6"  or  10'-6 1/2"
+        m = re.match(
+            r"^(-?\d+(?:\.\d+)?)\s*['']\s*"          # feet
+            r"(?:[-\s]*(\d+)?"                         # optional whole inches
+            r"(?:\s+(\d+)\s*/\s*(\d+))?"               # optional fraction
+            r'\s*["""]?\s*)?$',                         # optional closing "
+            text
+        )
+        if m:
+            ft = float(m.group(1))
+            inches = float(m.group(2)) if m.group(2) else 0.0
+            if m.group(3) and m.group(4):
+                denom = float(m.group(4))
+                if denom != 0:
+                    inches += float(m.group(3)) / denom
+            total_inches = ft * 12.0 + inches
+            return total_inches * 25.4
+
+        # 2. Pure inches with fraction:  6 1/2"  or  6"
+        m = re.match(
+            r'^(-?\d+(?:\.\d+)?)'                      # whole inches
+            r'(?:\s+(\d+)\s*/\s*(\d+))?'               # optional fraction
+            r'\s*["""]$',                               # closing "
+            text
+        )
+        if m:
+            inches = float(m.group(1))
+            if m.group(2) and m.group(3):
+                denom = float(m.group(3))
+                if denom != 0:
+                    inches += float(m.group(2)) / denom
+            return inches * 25.4
+
+        # 3. Number + unit suffix
+        m = re.match(
+            r'^(-?\d+(?:\.\d+)?)\s*(ft|in|mm|m)\b',
+            text, re.IGNORECASE
+        )
+        if m:
+            value = float(m.group(1))
+            unit = m.group(2).lower()
+            try:
+                return ScaleManager._to_mm(value, unit)
+            except ValueError:
+                return None
+
+        # 4. Bare number → use fallback_unit
+        m = re.match(r'^(-?\d+(?:\.\d+)?)\s*$', text)
+        if m:
+            value = float(m.group(1))
+            try:
+                return ScaleManager._to_mm(value, fallback_unit)
+            except ValueError:
+                return None
+
+        return None
+
+    # -----------------------------------------------------------------
     # Imperial formatting  (moved from Pipe for reuse)
     # -----------------------------------------------------------------
     @staticmethod
     def _format_feet_inches(total_inches: float, precision: int = 3) -> str:
         """Format total inches as  feet' inches-fraction".
+
+        Always outputs both feet and inches (e.g. 0' 6", 10' 0").
 
         *precision* controls the fractional denominator:
             0 → whole inches  (round)
@@ -246,16 +351,16 @@ class ScaleManager:
             4 → 16ths    (1/16)
             5 → 32nds    (1/32)
         """
+        sign = ""
+        if total_inches < 0:
+            sign = "-"
+            total_inches = abs(total_inches)
+
         if precision <= 0:
-            # Round to nearest whole inch
             total_inches = round(total_inches)
             feet = int(total_inches // 12)
             inches_whole = int(total_inches % 12)
-            parts = []
-            if feet > 0:
-                parts.append(f"{feet}'")
-            parts.append(f'{inches_whole}"')
-            return " ".join(parts)
+            return f'{sign}{feet}\' {inches_whole}"'
 
         denominator = 2 ** precision          # e.g. precision 3 → 8
         feet = int(total_inches // 12)
@@ -282,25 +387,16 @@ class ScaleManager:
         else:
             den = 1
 
-        parts = []
-        if feet > 0:
-            parts.append(f"{feet}'")
-
-        inch_part = ""
-        if inches_whole > 0:
-            inch_part += str(inches_whole)
+        # Always show both feet and inches
         if numerator > 0:
-            if inch_part:
-                inch_part += f" {numerator}/{den}"
+            if inches_whole > 0:
+                inch_str = f'{inches_whole} {numerator}/{den}"'
             else:
-                inch_part = f"{numerator}/{den}"
-        if inch_part:
-            parts.append(f'{inch_part}"')
+                inch_str = f'{numerator}/{den}"'
+        else:
+            inch_str = f'{inches_whole}"'
 
-        if not parts:
-            parts.append('0"')
-
-        return " ".join(parts)
+        return f"{sign}{feet}' {inch_str}"
 
     # -----------------------------------------------------------------
     # Serialisation

@@ -29,7 +29,7 @@ class Node(QGraphicsEllipseItem):
         self.x_pos = x
         self.y_pos = y
         self.z_pos = z
-        self.z_offset: float = z             # offset from level elevation (ft)
+        self.z_offset: float = z             # offset from level elevation (legacy, may be ft in old saves)
         self.icon_scale = 4
         self.sprinkler = None
         self.fitting = Fitting(self)
@@ -37,7 +37,7 @@ class Node(QGraphicsEllipseItem):
         self.user_layer: str = DEFAULT_USER_LAYER   # user-defined layer name
         self.level: str = DEFAULT_LEVEL          # floor level (visibility)
         self.ceiling_level: str = DEFAULT_LEVEL  # ceiling level (3D elevation)
-        self.ceiling_offset: float = -2.0    # inches below ceiling (default -2")
+        self.ceiling_offset: float = -50.8    # mm below ceiling (default -2" = -50.8mm)
         self._hydraulic_badge = None         # HydraulicNodeBadge child (transient)
         self._display_overrides: dict = {}  # per-instance display overrides
 
@@ -45,32 +45,52 @@ class Node(QGraphicsEllipseItem):
         self._properties: dict = {
             "Level":          {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":  {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset (in)": {"type": "string", "value": "-2"},
+            "Ceiling Offset": {"type": "string", "value": "-50.8"},
         }
 
     # -------------------------------------------------------------------------
     # Property API (used by PropertyManager and hydraulic solver)
 
+    def _fmt(self, mm: float) -> str:
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
-        return self._properties.copy()
+        props = self._properties.copy()
+        # Format ceiling offset for display using project units
+        props["Ceiling Offset"] = dict(props["Ceiling Offset"])
+        props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
+        return props
 
     def set_property(self, key: str, value: str):
         # Accept legacy names from old save files
         if key in ("Elevation", "Elevation Offset", "Ceiling Offset"):
-            key = "Ceiling Offset (in)"
-        if key in self._properties:
-            self._properties[key]["value"] = str(value)
+            key = "Ceiling Offset"
         if key == "Level":
+            self._properties[key]["value"] = str(value)
             self.level = str(value)
         elif key == "Ceiling Level":
+            self._properties[key]["value"] = str(value)
             self.ceiling_level = str(value)
             self._recompute_z_pos()
-        elif key == "Ceiling Offset (in)":
-            try:
-                self.ceiling_offset = float(value)
-            except (ValueError, TypeError):
-                pass
+        elif key == "Ceiling Offset":
+            sc = self.scene()
+            sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+            if sm:
+                parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
+                if parsed is not None:
+                    self.ceiling_offset = parsed
+            else:
+                try:
+                    self.ceiling_offset = float(value)
+                except (ValueError, TypeError):
+                    pass
+            # Store canonical mm value back (not raw user input)
+            self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
             self._recompute_z_pos()
+        elif key in self._properties:
+            self._properties[key]["value"] = str(value)
 
     def _recompute_z_pos(self):
         """Recompute z_pos from ceiling_level elevation + ceiling_offset.
@@ -88,7 +108,7 @@ class Node(QGraphicsEllipseItem):
         lvl = lm.get(self.ceiling_level)
         if lvl is None:
             return
-        self.z_pos = lvl.elevation + self.ceiling_offset / 12.0
+        self.z_pos = lvl.elevation + self.ceiling_offset  # both mm
 
     # -------------------------------------------------------------------------
     # Sprinkler helpers

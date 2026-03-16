@@ -9,35 +9,48 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QDialogButtonBox,
-    QComboBox, QDoubleSpinBox, QLineEdit, QLabel,
+    QComboBox, QLineEdit, QLabel,
 )
 from PyQt6.QtCore import Qt
 
 from wall import (
-    THICKNESS_PRESETS_IN, DEFAULT_THICKNESS_IN,
+    THICKNESS_PRESETS_IN, DEFAULT_THICKNESS_MM,
     FILL_NONE, FILL_SOLID, FILL_HATCH,
     ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR,
 )
+from dimension_edit import DimensionEdit
+
 
 
 class WallDialog(QDialog):
     """Modal dialog for setting wall parameters.
 
+    All dimensions are passed and returned in mm.
+
     Usage::
 
-        dlg = WallDialog(parent, levels=level_list)
+        dlg = WallDialog(parent, levels=level_list, scale_manager=sm)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             params = dlg.get_params()
     """
 
     def __init__(self, parent=None, *, defaults: dict | None = None,
-                 levels: list | None = None):
+                 levels: list | None = None, scale_manager=None):
         super().__init__(parent)
         self.setWindowTitle("Wall Properties")
         self.setMinimumWidth(380)
         self._defaults = defaults or {}
         self._levels = levels or []
+        self._sm = scale_manager
         self._build_ui()
+
+    # ── Helpers ───────────────────────────────────────────────────────
+
+    def _fmt_mm(self, mm: float) -> str:
+        """Format a length in mm using the ScaleManager."""
+        if self._sm:
+            return self._sm.format_length(mm)
+        return f"{mm:.1f} mm"
 
     # ── UI construction ───────────────────────────────────────────────
 
@@ -51,21 +64,21 @@ class WallDialog(QDialog):
         self._name_edit = QLineEdit(self._defaults.get("name", ""))
         form.addRow("Name:", self._name_edit)
 
-        # Thickness
+        # Thickness (combo shows inches presets; stored as mm internally)
         self._thickness_combo = QComboBox()
         self._thickness_combo.setEditable(True)
         for t in THICKNESS_PRESETS_IN:
-            self._thickness_combo.addItem(f"{t} in", float(t))
-        # Set current
-        cur_thick = self._defaults.get("thickness_in", DEFAULT_THICKNESS_IN)
+            self._thickness_combo.addItem(f"{t} in", float(t) * 25.4)  # store mm
+        # Set current from mm default
+        cur_thick_mm = self._defaults.get("thickness_mm", DEFAULT_THICKNESS_MM)
         found = False
         for i in range(self._thickness_combo.count()):
-            if abs(self._thickness_combo.itemData(i) - cur_thick) < 0.01:
+            if abs(self._thickness_combo.itemData(i) - cur_thick_mm) < 0.5:
                 self._thickness_combo.setCurrentIndex(i)
                 found = True
                 break
         if not found:
-            self._thickness_combo.setEditText(f"{cur_thick} in")
+            self._thickness_combo.setEditText(self._fmt_mm(cur_thick_mm))
         form.addRow("Thickness:", self._thickness_combo)
 
         # Colour
@@ -101,15 +114,12 @@ class WallDialog(QDialog):
         self._base_combo.currentIndexChanged.connect(self._update_height)
         form.addRow("Base Level:", self._base_combo)
 
-        # Base Offset
-        self._base_offset_spin = QDoubleSpinBox()
-        self._base_offset_spin.setRange(-1000.0, 1000.0)
-        self._base_offset_spin.setDecimals(2)
-        self._base_offset_spin.setSuffix(" ft")
-        self._base_offset_spin.setValue(
-            self._defaults.get("base_offset_ft", 0.0))
-        self._base_offset_spin.valueChanged.connect(self._update_height)
-        form.addRow("Base Offset:", self._base_offset_spin)
+        # Base Offset (DimensionEdit — stores mm internally)
+        base_off_mm = self._defaults.get("base_offset_mm", 0.0)
+        self._base_offset_edit = DimensionEdit(
+            self._sm, initial_mm=base_off_mm, parent=self)
+        self._base_offset_edit.valueChanged.connect(self._update_height)
+        form.addRow("Base Offset:", self._base_offset_edit)
 
         # Top Level
         self._top_combo = QComboBox()
@@ -118,15 +128,12 @@ class WallDialog(QDialog):
         self._top_combo.currentIndexChanged.connect(self._update_height)
         form.addRow("Top Level:", self._top_combo)
 
-        # Top Offset
-        self._top_offset_spin = QDoubleSpinBox()
-        self._top_offset_spin.setRange(-1000.0, 1000.0)
-        self._top_offset_spin.setDecimals(2)
-        self._top_offset_spin.setSuffix(" ft")
-        self._top_offset_spin.setValue(
-            self._defaults.get("top_offset_ft", 0.0))
-        self._top_offset_spin.valueChanged.connect(self._update_height)
-        form.addRow("Top Offset:", self._top_offset_spin)
+        # Top Offset (DimensionEdit — stores mm internally)
+        top_off_mm = self._defaults.get("top_offset_mm", 0.0)
+        self._top_offset_edit = DimensionEdit(
+            self._sm, initial_mm=top_off_mm, parent=self)
+        self._top_offset_edit.valueChanged.connect(self._update_height)
+        form.addRow("Top Offset:", self._top_offset_edit)
 
         # Height (read-only, computed)
         self._height_label = QLabel()
@@ -154,20 +161,20 @@ class WallDialog(QDialog):
         best_idx = 0
         if self._levels:
             for i, lvl in enumerate(self._levels):
-                label = f"{lvl.name}  ({lvl.elevation:.1f} ft)"
-                combo.addItem(label, {"name": lvl.name, "elevation": lvl.elevation})
+                label = f"{lvl.name}  ({self._fmt_mm(lvl.elevation)})"
+                combo.addItem(label, {"name": lvl.name, "elevation_mm": lvl.elevation})
                 if lvl.name == default_name:
                     best_idx = i
             combo.setCurrentIndex(best_idx)
         else:
-            combo.addItem(f"{default_name}  (0.0 ft)",
-                          {"name": default_name, "elevation": 0.0})
+            combo.addItem(f"{default_name}  ({self._fmt_mm(0.0)})",
+                          {"name": default_name, "elevation_mm": 0.0})
 
-    def _get_level_elevation(self, combo: QComboBox) -> float:
-        """Get the elevation from the currently selected level combo item."""
+    def _get_level_elevation_mm(self, combo: QComboBox) -> float:
+        """Get the elevation in mm from the currently selected level combo item."""
         data = combo.currentData()
         if data and isinstance(data, dict):
-            return data.get("elevation", 0.0)
+            return data.get("elevation_mm", 0.0)
         return 0.0
 
     def _get_level_name(self, combo: QComboBox) -> str:
@@ -177,45 +184,58 @@ class WallDialog(QDialog):
             return data.get("name", "")
         return ""
 
-    def _compute_height(self) -> float:
-        """Compute height from base/top levels and offsets."""
-        base_elev = self._get_level_elevation(self._base_combo)
-        top_elev = self._get_level_elevation(self._top_combo)
-        base_z = base_elev + self._base_offset_spin.value()
-        top_z = top_elev + self._top_offset_spin.value()
+    def _compute_height_mm(self) -> float:
+        """Compute height in mm from base/top levels and offsets."""
+        base_mm = self._get_level_elevation_mm(self._base_combo)
+        top_mm = self._get_level_elevation_mm(self._top_combo)
+        base_z = base_mm + self._base_offset_edit.value_mm()
+        top_z = top_mm + self._top_offset_edit.value_mm()
         return top_z - base_z
 
     # ── Slots ─────────────────────────────────────────────────────────
 
     def _update_height(self, *_args):
-        h = self._compute_height()
-        self._height_label.setText(f"{h:.2f} ft")
+        h_mm = self._compute_height_mm()
+        self._height_label.setText(self._fmt_mm(h_mm))
 
     # ── Data retrieval ────────────────────────────────────────────────
 
     def get_params(self) -> dict:
-        """Return a dict of wall parameters."""
-        # Parse thickness from combo (may be edited freeform)
-        thickness = DEFAULT_THICKNESS_IN
+        """Return a dict of wall parameters (all dimensions in mm)."""
+        # Parse thickness from combo (item data is already in mm)
+        thickness_mm = DEFAULT_THICKNESS_MM
         data = self._thickness_combo.currentData()
         if data is not None:
-            thickness = float(data)
+            thickness_mm = float(data)
         else:
-            text = self._thickness_combo.currentText().replace("in", "").strip()
-            try:
-                thickness = float(text)
-            except (ValueError, TypeError):
-                pass
+            # Freeform text — try to parse with ScaleManager
+            text = self._thickness_combo.currentText().strip()
+            if self._sm:
+                from scale_manager import ScaleManager
+                parsed = ScaleManager.parse_dimension(text, self._sm.bare_number_unit())
+                if parsed is not None:
+                    thickness_mm = parsed
+                else:
+                    # Last resort: strip "in" and parse as inches
+                    try:
+                        thickness_mm = float(text.replace("in", "").strip()) * 25.4
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                try:
+                    thickness_mm = float(text.replace("in", "").strip()) * 25.4
+                except (ValueError, TypeError):
+                    pass
 
         return {
             "name":           self._name_edit.text().strip(),
-            "thickness_in":   thickness,
+            "thickness_mm":   thickness_mm,
             "color":          self._color_edit.text().strip() or "#cccccc",
             "fill_mode":      self._fill_combo.currentText(),
             "alignment":      self._align_combo.currentText(),
             "base_level":     self._get_level_name(self._base_combo),
-            "base_offset_ft": self._base_offset_spin.value(),
+            "base_offset_mm": self._base_offset_edit.value_mm(),
             "top_level":      self._get_level_name(self._top_combo),
-            "top_offset_ft":  self._top_offset_spin.value(),
-            "height_ft":      self._compute_height(),
+            "top_offset_mm":  self._top_offset_edit.value_mm(),
+            "height_mm":      self._compute_height_mm(),
         }

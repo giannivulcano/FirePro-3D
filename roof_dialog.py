@@ -8,24 +8,28 @@ selected roof type.
 
 from __future__ import annotations
 
+import math
 import os
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QDialogButtonBox,
-    QComboBox, QDoubleSpinBox, QLineEdit, QLabel, QFrame,
+    QComboBox, QDoubleSpinBox, QLineEdit, QLabel, QFrame, QPushButton,
+    QColorDialog,
 )
 from PyQt6.QtGui import QColor, QPixmap, QPainter, QPen, QFont, QPolygonF
 from PyQt6.QtCore import Qt, QPointF
 
-from roof import ROOF_TYPES, DEFAULT_PITCH_DEG, DEFAULT_EAVE_HEIGHT_FT, \
-    DEFAULT_OVERHANG_FT
+from roof import ROOF_TYPES, DEFAULT_PITCH_DEG
+from scale_manager import DisplayUnit
+from dimension_edit import DimensionEdit
 
 # Path where user-supplied images will live (one per roof type).
-# If an image file exists it is used; otherwise a programmatic sketch is drawn.
 _IMG_DIR = os.path.join(os.path.dirname(__file__), "graphics", "roof_types")
 
 _IMG_W = 220
 _IMG_H = 180
+
+RIDGE_DIRECTIONS = ("auto", "horizontal", "vertical")
 
 
 def _placeholder_pixmap(roof_type: str) -> QPixmap:
@@ -47,16 +51,13 @@ def _placeholder_pixmap(roof_type: str) -> QPixmap:
     mid = _IMG_W // 2
     wall_top = base_y - 60
 
-    # Ground line
     p.setPen(QPen(QColor("#555555"), 1, Qt.PenStyle.DashLine))
     p.drawLine(10, base_y, _IMG_W - 10, base_y)
 
-    # Walls
     p.setPen(wall_pen)
     p.drawLine(left, base_y, left, wall_top)
     p.drawLine(right, base_y, right, wall_top)
 
-    # Roof shape
     p.setPen(roof_pen)
     p.setBrush(QColor(210, 180, 140, 60))
 
@@ -68,12 +69,10 @@ def _placeholder_pixmap(roof_type: str) -> QPixmap:
             QPointF(left - 10, wall_top - 8),
         ])
         p.drawPolygon(poly)
-
     elif roof_type == "gable":
         peak_y = wall_top - 55
         ridge_left = mid - 30
         ridge_right = mid + 30
-        # Left slope
         poly = QPolygonF([
             QPointF(left - 10, wall_top),
             QPointF(ridge_left, peak_y),
@@ -81,11 +80,8 @@ def _placeholder_pixmap(roof_type: str) -> QPixmap:
             QPointF(right + 10, wall_top),
         ])
         p.drawPolygon(poly)
-        # Ridge line connecting the two peaks
-        ridge_pen_dash = QPen(QColor("#D2B48C"), 2, Qt.PenStyle.DashDotLine)
-        p.setPen(ridge_pen_dash)
+        p.setPen(QPen(QColor("#D2B48C"), 2, Qt.PenStyle.DashDotLine))
         p.drawLine(int(ridge_left), int(peak_y), int(ridge_right), int(peak_y))
-
     elif roof_type == "hip":
         peak_y = wall_top - 50
         ridge_l = mid - 25
@@ -97,10 +93,8 @@ def _placeholder_pixmap(roof_type: str) -> QPixmap:
             QPointF(right + 10, wall_top),
         ])
         p.drawPolygon(poly)
-        # Ridge line
         p.setPen(QPen(QColor("#D2B48C"), 2, Qt.PenStyle.DashDotLine))
         p.drawLine(int(ridge_l), int(peak_y), int(ridge_r), int(peak_y))
-
     elif roof_type == "shed":
         high_y = wall_top - 50
         poly = QPolygonF([
@@ -113,12 +107,10 @@ def _placeholder_pixmap(roof_type: str) -> QPixmap:
         p.setPen(roof_pen)
         p.drawLine(int(left - 10), int(high_y), int(right + 10), int(wall_top))
 
-    # Label
     p.setPen(label_pen)
     p.setFont(QFont("Segoe UI", 10))
     p.drawText(0, 0, _IMG_W, 24, Qt.AlignmentFlag.AlignCenter,
                roof_type.capitalize())
-
     p.end()
     return pix
 
@@ -137,14 +129,7 @@ def _load_or_generate(roof_type: str) -> QPixmap:
 
 
 class RoofDialog(QDialog):
-    """Modal dialog for setting roof parameters.
-
-    Usage::
-
-        dlg = RoofDialog(parent, levels=level_list)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            params = dlg.get_params()
-    """
+    """Modal dialog for setting roof parameters."""
 
     def __init__(self, parent=None, *, defaults: dict | None = None,
                  levels: list | None = None, scale_manager=None):
@@ -152,16 +137,22 @@ class RoofDialog(QDialog):
         self.setWindowTitle("Roof Properties")
         self.setMinimumWidth(580)
         self._defaults = defaults or {}
-        self._levels = levels or []        # list of Level objects
+        self._levels = levels or []
         self._sm = scale_manager
-        self._unit_suffix = self._sm.display_unit_suffix() if self._sm else " ft"
         self._build_ui()
+
+    # ── Helpers ────────────────────────────────────────────────────────
+
+    def _fmt_mm(self, mm: float) -> str:
+        """Format a value in mm for display using project units."""
+        if self._sm:
+            return self._sm.format_length(mm)
+        return f"{mm:.1f} mm"
 
     # ── UI construction ───────────────────────────────────────────────
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-
         body = QHBoxLayout()
 
         # ── Left: form ────────────────────────────────────────────────
@@ -188,7 +179,17 @@ class RoofDialog(QDialog):
         self._pitch_spin.setDecimals(1)
         self._pitch_spin.setSuffix("°")
         self._pitch_spin.setValue(self._defaults.get("pitch_deg", DEFAULT_PITCH_DEG))
+        self._pitch_spin.valueChanged.connect(self._on_pitch_changed)
         form.addRow("Roof Slope:", self._pitch_spin)
+
+        # Ridge direction (gable only)
+        self._ridge_combo = QComboBox()
+        self._ridge_combo.addItems([d.capitalize() for d in RIDGE_DIRECTIONS])
+        cur_ridge = self._defaults.get("ridge_direction", "auto")
+        ridge_idx = (RIDGE_DIRECTIONS.index(cur_ridge)
+                     if cur_ridge in RIDGE_DIRECTIONS else 0)
+        self._ridge_combo.setCurrentIndex(ridge_idx)
+        form.addRow("Ridge Direction:", self._ridge_combo)
 
         # Eave level (reference level for eave height)
         self._eave_combo = QComboBox()
@@ -196,53 +197,54 @@ class RoofDialog(QDialog):
         if self._levels:
             best_idx = 0
             for i, lvl in enumerate(self._levels):
-                label = f"{lvl.name}  ({lvl.elevation:.1f}{self._unit_suffix})"
+                elev_mm = lvl.elevation
+                label = f"{lvl.name}  ({self._fmt_mm(elev_mm)})"
                 self._eave_combo.addItem(label, lvl.elevation)
                 if lvl.name == default_level:
                     best_idx = i
             self._eave_combo.setCurrentIndex(best_idx)
         else:
-            self._eave_combo.addItem(f"Default  (0.0{self._unit_suffix})", 0.0)
+            self._eave_combo.addItem(f"Default  ({self._fmt_mm(0.0)})", 0.0)
         self._eave_combo.currentIndexChanged.connect(self._on_eave_changed)
         form.addRow("Eave Level:", self._eave_combo)
 
-        # Eave height = level elevation (read-only) + offset
-        self._eave_height_spin = QDoubleSpinBox()
-        self._eave_height_spin.setRange(0.0, 500.0)
-        self._eave_height_spin.setDecimals(2)
-        self._eave_height_spin.setSuffix(self._unit_suffix)
-        self._eave_height_spin.setReadOnly(True)
-        self._eave_height_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
-        self._eave_height_spin.setStyleSheet("background: #2a2a2a; color: grey;")
-        form.addRow("Eave Height:", self._eave_height_spin)
+        # Eave height = level elevation + offset (read-only)
+        self._eave_height_label = QLabel()
+        self._eave_height_label.setStyleSheet(
+            "background: #2a2a2a; color: grey; padding: 4px 6px;"
+            " border: 1px solid #555; border-radius: 2px;")
+        form.addRow("Eave Height:", self._eave_height_label)
 
-        # Offset above the selected level
-        self._eave_offset_spin = QDoubleSpinBox()
-        self._eave_offset_spin.setRange(-500.0, 500.0)
-        self._eave_offset_spin.setDecimals(2)
-        self._eave_offset_spin.setSuffix(self._unit_suffix)
-        self._eave_offset_spin.setValue(
-            self._defaults.get("eave_height_ft", DEFAULT_EAVE_HEIGHT_FT))
-        self._eave_offset_spin.valueChanged.connect(self._on_eave_changed)
-        form.addRow("Offset:", self._eave_offset_spin)
+        # Offset above the selected level (DimensionEdit, stores mm)
+        offset_mm = self._defaults.get("eave_height_mm", 0.0)
+        self._eave_offset_edit = DimensionEdit(
+            self._sm, initial_mm=offset_mm)
+        self._eave_offset_edit.valueChanged.connect(self._on_eave_changed)
+        form.addRow("Offset:", self._eave_offset_edit)
 
-        # Set initial eave height display
+        # Peak height (read-only)
+        self._peak_height_label = QLabel()
+        self._peak_height_label.setStyleSheet(
+            "background: #2a2a2a; color: grey; padding: 4px 6px;"
+            " border: 1px solid #555; border-radius: 2px;")
+        form.addRow("Peak Height:", self._peak_height_label)
+
+        # Set initial eave/peak height display
         self._on_eave_changed()
 
-        # Overhang
-        self._overhang_spin = QDoubleSpinBox()
-        self._overhang_spin.setRange(0.0, 100.0)
-        self._overhang_spin.setDecimals(2)
-        self._overhang_spin.setSuffix(self._unit_suffix)
-        self._overhang_spin.setValue(
-            self._defaults.get("overhang_ft", DEFAULT_OVERHANG_FT))
-        form.addRow("Eave Overhang:", self._overhang_spin)
+        # Overhang (DimensionEdit, stores mm)
+        overhang_mm = self._defaults.get("overhang_mm", 0.0)
+        self._overhang_edit = DimensionEdit(
+            self._sm, initial_mm=overhang_mm)
+        form.addRow("Eave Overhang:", self._overhang_edit)
 
-        # Colour
-        self._color_edit = QLineEdit(
-            self._defaults.get("color", "#D2B48C"))
-        self._color_edit.setPlaceholderText("#RRGGBB")
-        form.addRow("Colour:", self._color_edit)
+        # Colour picker
+        self._color_value = self._defaults.get("color", "#D2B48C")
+        self._color_btn = QPushButton()
+        self._color_btn.setFixedHeight(28)
+        self._update_color_swatch()
+        self._color_btn.clicked.connect(self._pick_color)
+        form.addRow("Colour:", self._color_btn)
 
         left.addLayout(form)
 
@@ -269,7 +271,7 @@ class RoofDialog(QDialog):
         body.addLayout(right, 0)
         outer.addLayout(body)
 
-        # Trigger initial image + hint
+        # Trigger initial image + hint + ridge visibility
         self._on_type_changed(self._type_combo.currentIndex())
 
         # OK / Cancel
@@ -286,33 +288,75 @@ class RoofDialog(QDialog):
     def _on_type_changed(self, index: int):
         roof_type = ROOF_TYPES[index]
         is_flat = roof_type == "flat"
+        is_gable = roof_type == "gable"
         self._pitch_spin.setEnabled(not is_flat)
+        self._ridge_combo.setEnabled(is_gable)
         if is_flat:
             self._pitch_spin.setValue(0.0)
             self._pitch_hint.setText("Flat roofs have no slope.")
-        elif roof_type == "gable":
-            self._pitch_hint.setText("Ridge runs along the longest axis.")
-        elif roof_type == "hip":
-            self._pitch_hint.setText("All edges slope up to a central peak.")
-        elif roof_type == "shed":
-            self._pitch_hint.setText("First edge is high, opposite is at eave.")
+        else:
+            if self._pitch_spin.value() == 0.0:
+                self._pitch_spin.setValue(DEFAULT_PITCH_DEG)
+            if is_gable:
+                self._pitch_hint.setText("Ridge runs along the selected axis.")
+            elif roof_type == "hip":
+                self._pitch_hint.setText("All edges slope up to a central peak.")
+            elif roof_type == "shed":
+                self._pitch_hint.setText("First edge is high, opposite is at eave.")
 
-        # Update illustration
         pix = _load_or_generate(roof_type)
         self._img_label.setPixmap(pix)
+        self._update_peak_height()
 
     def _on_eave_changed(self, *_args):
-        level_elev = self._eave_combo.currentData()
-        if level_elev is None:
-            level_elev = 0.0
-        offset = self._eave_offset_spin.value()
-        self._eave_height_spin.setValue(level_elev + offset)
+        level_elev_mm = self._eave_combo.currentData()
+        if level_elev_mm is None:
+            level_elev_mm = 0.0
+        offset_mm = self._eave_offset_edit.value_mm()
+        total_mm = level_elev_mm + offset_mm
+        self._eave_height_label.setText(self._fmt_mm(total_mm))
+        self._update_peak_height()
+
+    def _on_pitch_changed(self, *_args):
+        self._update_peak_height()
+
+    def _update_peak_height(self):
+        """Compute and display estimated peak height."""
+        level_elev_mm = self._eave_combo.currentData() or 0.0
+        offset_mm = self._eave_offset_edit.value_mm()
+        eave_mm = level_elev_mm + offset_mm
+        pitch = self._pitch_spin.value()
+
+        if pitch <= 0:
+            self._peak_height_label.setText(self._fmt_mm(eave_mm))
+            return
+
+        # half_span_mm is computed from the polygon if editing an existing roof
+        half_span_mm = self._defaults.get("half_span_mm", 0.0)
+        if half_span_mm > 0:
+            ridge_rise_mm = half_span_mm * math.tan(math.radians(pitch))
+            peak_mm = eave_mm + ridge_rise_mm
+            self._peak_height_label.setText(self._fmt_mm(peak_mm))
+        else:
+            self._peak_height_label.setText("N/A (place roof first)")
+
+    def _update_color_swatch(self):
+        self._color_btn.setStyleSheet(
+            f"background-color: {self._color_value};"
+            f" border: 1px solid #666; border-radius: 3px;")
+        self._color_btn.setText(self._color_value)
+
+    def _pick_color(self):
+        current = QColor(self._color_value)
+        color = QColorDialog.getColor(current, self, "Pick Roof Colour")
+        if color.isValid():
+            self._color_value = color.name()
+            self._update_color_swatch()
 
     # ── Data retrieval ────────────────────────────────────────────────
 
     def get_params(self) -> dict:
-        """Return a dict of roof parameters."""
-        # Extract the level name from the combo
+        """Return a dict of roof parameters (all dimensions in mm)."""
         eave_level_name = ""
         if self._levels:
             idx = self._eave_combo.currentIndex()
@@ -320,11 +364,12 @@ class RoofDialog(QDialog):
                 eave_level_name = self._levels[idx].name
 
         return {
-            "name":           self._name_edit.text().strip(),
-            "roof_type":      ROOF_TYPES[self._type_combo.currentIndex()],
-            "pitch_deg":      self._pitch_spin.value(),
-            "eave_height_ft": self._eave_offset_spin.value(),
-            "eave_level":     eave_level_name,
-            "overhang_ft":    self._overhang_spin.value(),
-            "color":          self._color_edit.text().strip() or "#D2B48C",
+            "name":            self._name_edit.text().strip(),
+            "roof_type":       ROOF_TYPES[self._type_combo.currentIndex()],
+            "pitch_deg":       self._pitch_spin.value(),
+            "ridge_direction": RIDGE_DIRECTIONS[self._ridge_combo.currentIndex()],
+            "eave_height_mm":  self._eave_offset_edit.value_mm(),
+            "eave_level":      eave_level_name,
+            "overhang_mm":     self._overhang_edit.value_mm(),
+            "color":           self._color_value,
         }

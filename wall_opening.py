@@ -166,21 +166,26 @@ class WallOpening(QGraphicsPathItem):
 
     # ── Properties ───────────────────────────────────────────────────────────
 
+    def _fmt(self, mm: float) -> str:
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
         return {
             "Type":       {"type": "label", "value": self.KIND.title()},
-            "Width (mm)": {"type": "string", "value": str(self._width_mm)},
-            "Height (mm)":{"type": "string", "value": str(self._height_mm)},
+            "Width":      {"type": "string", "value": self._fmt(self._width_mm)},
+            "Height":     {"type": "string", "value": self._fmt(self._height_mm)},
         }
 
     def set_property(self, key: str, value):
-        if key == "Width (mm)":
+        if key in ("Width", "Width (mm)"):
             try:
                 self._width_mm = float(value)
             except (ValueError, TypeError):
                 return
             self._reposition()
-        elif key == "Height (mm)":
+        elif key in ("Height", "Height (mm)"):
             try:
                 self._height_mm = float(value)
             except (ValueError, TypeError):
@@ -376,8 +381,8 @@ class WindowOpening(WallOpening):
 
     def get_properties(self) -> dict:
         props = super().get_properties()
-        props["Sill Height (mm)"] = {
-            "type": "string", "value": str(self._sill_mm),
+        props["Sill Height"] = {
+            "type": "string", "value": self._fmt(self._sill_mm),
         }
         props["Preset"] = {
             "type": "enum",
@@ -387,7 +392,7 @@ class WindowOpening(WallOpening):
         return props
 
     def set_property(self, key: str, value):
-        if key == "Sill Height (mm)":
+        if key in ("Sill Height", "Sill Height (mm)"):
             try:
                 self._sill_mm = float(value)
             except (ValueError, TypeError):

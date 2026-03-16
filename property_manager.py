@@ -287,13 +287,16 @@ class PropertyManager(QWidget):
         elif isinstance(primary, Sprinkler) and primary.node is not None:
             node = primary.node
         if node is not None:
-            abs_field = QLineEdit(f"{node.z_pos:.2f}")
+            sc = node.scene()
+            sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+            elev_text = sm.format_length(node.z_pos) if sm else f"{node.z_pos:.1f} mm"
+            abs_field = QLineEdit(elev_text)
             abs_field.setReadOnly(True)
             abs_field.setStyleSheet(
                 f"background: {_t.bg_sunken}; "
                 f"color: {_t.text_secondary};"
             )
-            self._form.addRow(QLabel("Absolute Elev. (ft)"), abs_field)
+            self._form.addRow(QLabel("Absolute Elev."), abs_field)
 
         self._refreshing = False
 
