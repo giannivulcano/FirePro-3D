@@ -8056,3 +8056,7 @@ __pycache__/dxf_import_dialog.cpython-311.pyc
 __pycache__/dxf_import_worker.cpython-311.pyc
 __pycache__/underlay_context_menu.cpython-311.pyc
 GENERAL.docx
+
+__pycache__/
+.claude/
+*.pyc

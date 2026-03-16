@@ -5162,11 +5162,12 @@ class Model_Space(QGraphicsScene):
                             "roof_type":      roof._roof_type,
                             "pitch_deg":      roof._pitch_deg,
                             "eave_height_ft": roof._eave_height_ft,
-                            "thickness_ft":   roof._thickness_ft,
+                            "level":          roof.level,
                             "overhang_ft":    roof._overhang_ft,
                             "color":          roof._color.name(),
                         },
                         levels=_levels,
+                        scale_manager=self.scale_manager,
                     )
                     if dlg.exec() == QDialog.DialogCode.Accepted:
                         p = dlg.get_params()
@@ -5174,7 +5175,6 @@ class Model_Space(QGraphicsScene):
                         roof._roof_type     = p["roof_type"]
                         roof._pitch_deg     = p["pitch_deg"]
                         roof._eave_height_ft = p["eave_height_ft"]
-                        roof._thickness_ft  = p["thickness_ft"]
                         roof._overhang_ft   = p["overhang_ft"]
                         roof._color         = QColor(p["color"])
                         if p.get("eave_level"):
@@ -5258,11 +5258,12 @@ class Model_Space(QGraphicsScene):
                     "roof_type":      roof._roof_type,
                     "pitch_deg":      roof._pitch_deg,
                     "eave_height_ft": roof._eave_height_ft,
-                    "thickness_ft":   roof._thickness_ft,
+                    "level":          roof.level,
                     "overhang_ft":    roof._overhang_ft,
                     "color":          roof._color.name(),
                 },
                 levels=_levels,
+                scale_manager=self.scale_manager,
             )
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 p = dlg.get_params()
@@ -5270,7 +5271,6 @@ class Model_Space(QGraphicsScene):
                 roof._roof_type     = p["roof_type"]
                 roof._pitch_deg     = p["pitch_deg"]
                 roof._eave_height_ft = p["eave_height_ft"]
-                roof._thickness_ft  = p["thickness_ft"]
                 roof._overhang_ft   = p["overhang_ft"]
                 roof._color         = QColor(p["color"])
                 if p.get("eave_level"):
@@ -5835,11 +5835,12 @@ class Model_Space(QGraphicsScene):
                             "roof_type":      roof._roof_type,
                             "pitch_deg":      roof._pitch_deg,
                             "eave_height_ft": roof._eave_height_ft,
-                            "thickness_ft":   roof._thickness_ft,
+                            "level":          roof.level,
                             "overhang_ft":    roof._overhang_ft,
                             "color":          roof._color.name(),
                         },
                         levels=_levels,
+                        scale_manager=self.scale_manager,
                     )
                     if dlg.exec() == QDialog.DialogCode.Accepted:
                         p = dlg.get_params()
@@ -5847,7 +5848,6 @@ class Model_Space(QGraphicsScene):
                         roof._roof_type     = p["roof_type"]
                         roof._pitch_deg     = p["pitch_deg"]
                         roof._eave_height_ft = p["eave_height_ft"]
-                        roof._thickness_ft  = p["thickness_ft"]
                         roof._overhang_ft   = p["overhang_ft"]
                         roof._color         = QColor(p["color"])
                         if p.get("eave_level"):

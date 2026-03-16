@@ -189,6 +189,23 @@ class RoofItem(QGraphicsPathItem):
             path.closeSubpath()
         self.setPath(path)
 
+    def boundingRect(self):
+        """Expand bounding rect to include overhang area."""
+        br = super().boundingRect()
+        if self._overhang_ft > 0 and len(self._points) >= 3:
+            oh_pts = self._overhang_points()
+            if oh_pts is not self._points:
+                for p in oh_pts:
+                    if p.x() < br.left():
+                        br.setLeft(p.x())
+                    if p.x() > br.right():
+                        br.setRight(p.x())
+                    if p.y() < br.top():
+                        br.setTop(p.y())
+                    if p.y() > br.bottom():
+                        br.setBottom(p.y())
+        return br.adjusted(-2, -2, 2, 2)
+
     # ── Ridge line helpers (for 2D rendering) ────────────────────────────
 
     def _compute_ridge_lines(self) -> list[tuple[QPointF, QPointF]]:
@@ -415,11 +432,11 @@ class RoofItem(QGraphicsPathItem):
                 "roof_type":      self._roof_type,
                 "pitch_deg":      self._pitch_deg,
                 "eave_height_ft": self._eave_height_ft,
-                "thickness_ft":   self._thickness_ft,
                 "overhang_ft":    self._overhang_ft,
                 "color":          self._color.name(),
             },
             levels=levels,
+            scale_manager=getattr(sc, "scale_manager", None),
         )
         from PyQt6.QtWidgets import QDialog
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -428,7 +445,6 @@ class RoofItem(QGraphicsPathItem):
             self._roof_type     = p["roof_type"]
             self._pitch_deg     = p["pitch_deg"]
             self._eave_height_ft = p["eave_height_ft"]
-            self._thickness_ft  = p["thickness_ft"]
             self._overhang_ft   = p["overhang_ft"]
             self._color         = QColor(p["color"])
             if p.get("eave_level"):
@@ -463,6 +479,8 @@ class RoofItem(QGraphicsPathItem):
         elif key == "Overhang (ft)":
             try:
                 self._overhang_ft = max(0.0, float(value))
+                self._rebuild_path()
+                self.update()
             except (ValueError, TypeError):
                 pass
         elif key == "Thickness (ft)":
@@ -573,7 +591,7 @@ class RoofItem(QGraphicsPathItem):
             "vertices": verts,
             "faces": faces,
             "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.5),
+                      self._color.blueF(), 1.0),
         }
 
     def _mesh_gable(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -628,7 +646,7 @@ class RoofItem(QGraphicsPathItem):
             "vertices": verts,
             "faces": faces,
             "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.5),
+                      self._color.blueF(), 1.0),
         }
 
     def _mesh_hip(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -662,7 +680,7 @@ class RoofItem(QGraphicsPathItem):
             "vertices": verts,
             "faces": faces,
             "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.5),
+                      self._color.blueF(), 1.0),
         }
 
     def _mesh_shed(self, pts_2d, n, eave_z, bot_z) -> dict | None:
@@ -701,7 +719,7 @@ class RoofItem(QGraphicsPathItem):
             "vertices": verts,
             "faces": faces,
             "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.5),
+                      self._color.blueF(), 1.0),
         }
 
     def _ridge_rise_mm(self) -> float:

@@ -18,7 +18,7 @@ from PyQt6.QtGui import QColor, QPixmap, QPainter, QPen, QFont, QPolygonF
 from PyQt6.QtCore import Qt, QPointF
 
 from roof import ROOF_TYPES, DEFAULT_PITCH_DEG, DEFAULT_EAVE_HEIGHT_FT, \
-    DEFAULT_OVERHANG_FT, DEFAULT_THICKNESS_FT
+    DEFAULT_OVERHANG_FT
 
 # Path where user-supplied images will live (one per roof type).
 # If an image file exists it is used; otherwise a programmatic sketch is drawn.
@@ -147,12 +147,14 @@ class RoofDialog(QDialog):
     """
 
     def __init__(self, parent=None, *, defaults: dict | None = None,
-                 levels: list | None = None):
+                 levels: list | None = None, scale_manager=None):
         super().__init__(parent)
         self.setWindowTitle("Roof Properties")
         self.setMinimumWidth(580)
         self._defaults = defaults or {}
         self._levels = levels or []        # list of Level objects
+        self._sm = scale_manager
+        self._unit_suffix = self._sm.display_unit_suffix() if self._sm else " ft"
         self._build_ui()
 
     # ── UI construction ───────────────────────────────────────────────
@@ -188,47 +190,50 @@ class RoofDialog(QDialog):
         self._pitch_spin.setValue(self._defaults.get("pitch_deg", DEFAULT_PITCH_DEG))
         form.addRow("Roof Slope:", self._pitch_spin)
 
-        # Eave level (dropdown populated from level manager)
+        # Eave level (reference level for eave height)
         self._eave_combo = QComboBox()
-        default_eave_ft = self._defaults.get("eave_height_ft", DEFAULT_EAVE_HEIGHT_FT)
+        default_level = self._defaults.get("level", "")
         if self._levels:
             best_idx = 0
-            best_diff = float("inf")
             for i, lvl in enumerate(self._levels):
-                label = f"{lvl.name}  ({lvl.elevation:.1f} ft)"
+                label = f"{lvl.name}  ({lvl.elevation:.1f}{self._unit_suffix})"
                 self._eave_combo.addItem(label, lvl.elevation)
-                diff = abs(lvl.elevation - default_eave_ft)
-                if diff < best_diff:
-                    best_diff = diff
+                if lvl.name == default_level:
                     best_idx = i
             self._eave_combo.setCurrentIndex(best_idx)
         else:
-            # Fallback when no levels are available
-            self._eave_combo.addItem(
-                f"Default  ({default_eave_ft:.1f} ft)", default_eave_ft)
+            self._eave_combo.addItem(f"Default  (0.0{self._unit_suffix})", 0.0)
         self._eave_combo.currentIndexChanged.connect(self._on_eave_changed)
         form.addRow("Eave Level:", self._eave_combo)
 
-        # Eave height display (read-only, shows the elevation)
-        self._eave_label = QLabel()
-        self._eave_label.setStyleSheet("color: grey; font-size: 11px;")
-        self._on_eave_changed(self._eave_combo.currentIndex())
-        form.addRow("", self._eave_label)
+        # Eave height = level elevation (read-only) + offset
+        self._eave_height_spin = QDoubleSpinBox()
+        self._eave_height_spin.setRange(0.0, 500.0)
+        self._eave_height_spin.setDecimals(2)
+        self._eave_height_spin.setSuffix(self._unit_suffix)
+        self._eave_height_spin.setReadOnly(True)
+        self._eave_height_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self._eave_height_spin.setStyleSheet("background: #2a2a2a; color: grey;")
+        form.addRow("Eave Height:", self._eave_height_spin)
 
-        # Soffit depth (thickness)
-        self._thickness_spin = QDoubleSpinBox()
-        self._thickness_spin.setRange(0.01, 50.0)
-        self._thickness_spin.setDecimals(2)
-        self._thickness_spin.setSuffix(" ft")
-        self._thickness_spin.setValue(
-            self._defaults.get("thickness_ft", DEFAULT_THICKNESS_FT))
-        form.addRow("Soffit Depth:", self._thickness_spin)
+        # Offset above the selected level
+        self._eave_offset_spin = QDoubleSpinBox()
+        self._eave_offset_spin.setRange(-500.0, 500.0)
+        self._eave_offset_spin.setDecimals(2)
+        self._eave_offset_spin.setSuffix(self._unit_suffix)
+        self._eave_offset_spin.setValue(
+            self._defaults.get("eave_height_ft", DEFAULT_EAVE_HEIGHT_FT))
+        self._eave_offset_spin.valueChanged.connect(self._on_eave_changed)
+        form.addRow("Offset:", self._eave_offset_spin)
+
+        # Set initial eave height display
+        self._on_eave_changed()
 
         # Overhang
         self._overhang_spin = QDoubleSpinBox()
         self._overhang_spin.setRange(0.0, 100.0)
         self._overhang_spin.setDecimals(2)
-        self._overhang_spin.setSuffix(" ft")
+        self._overhang_spin.setSuffix(self._unit_suffix)
         self._overhang_spin.setValue(
             self._defaults.get("overhang_ft", DEFAULT_OVERHANG_FT))
         form.addRow("Eave Overhang:", self._overhang_spin)
@@ -296,20 +301,18 @@ class RoofDialog(QDialog):
         pix = _load_or_generate(roof_type)
         self._img_label.setPixmap(pix)
 
-    def _on_eave_changed(self, index: int):
-        elev = self._eave_combo.currentData()
-        if elev is not None:
-            self._eave_label.setText(f"Elevation: {elev:.1f} ft above datum")
+    def _on_eave_changed(self, *_args):
+        level_elev = self._eave_combo.currentData()
+        if level_elev is None:
+            level_elev = 0.0
+        offset = self._eave_offset_spin.value()
+        self._eave_height_spin.setValue(level_elev + offset)
 
     # ── Data retrieval ────────────────────────────────────────────────
 
     def get_params(self) -> dict:
         """Return a dict of roof parameters."""
-        eave_elev = self._eave_combo.currentData()
-        if eave_elev is None:
-            eave_elev = DEFAULT_EAVE_HEIGHT_FT
-
-        # Extract the level name from the combo text (before the parenthesis)
+        # Extract the level name from the combo
         eave_level_name = ""
         if self._levels:
             idx = self._eave_combo.currentIndex()
@@ -320,9 +323,8 @@ class RoofDialog(QDialog):
             "name":           self._name_edit.text().strip(),
             "roof_type":      ROOF_TYPES[self._type_combo.currentIndex()],
             "pitch_deg":      self._pitch_spin.value(),
-            "eave_height_ft": float(eave_elev),
+            "eave_height_ft": self._eave_offset_spin.value(),
             "eave_level":     eave_level_name,
-            "thickness_ft":   self._thickness_spin.value(),
             "overhang_ft":    self._overhang_spin.value(),
             "color":          self._color_edit.text().strip() or "#D2B48C",
         }
