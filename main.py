@@ -426,6 +426,21 @@ class MainWindow(QMainWindow):
             pipe_props = self.settings.value("template/pipe", {})
             if isinstance(pipe_props, dict):
                 for k, v in pipe_props.items():
+                    if k == "Ceiling Offset":
+                        # Value is stored as raw mm — bypass set_property
+                        # which would re-parse through parse_dimension and
+                        # misinterpret the bare number as display units.
+                        try:
+                            raw_mm = float(v)
+                            # Sanity: ceiling offsets beyond ±10 m are almost
+                            # certainly corrupted by the old double-parse bug.
+                            if abs(raw_mm) > 10000:
+                                raw_mm = -50.8  # reset to default -2"
+                            self.current_pipe_template.ceiling_offset = raw_mm
+                            self.current_pipe_template._properties["Ceiling Offset"]["value"] = str(raw_mm)
+                        except (ValueError, TypeError):
+                            pass
+                        continue
                     self.current_pipe_template.set_property(k, v)
         if self.settings.contains("template/sprinkler"):
             spr_props = self.settings.value("template/sprinkler", {})
