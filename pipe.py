@@ -348,8 +348,15 @@ class Pipe(QGraphicsLineItem):
                 self.ceiling_level = str(value)
     
     def set_properties(self, template: "Pipe"):
-        """Copy property values from a template sprinkler."""
+        """Copy property values from a template pipe."""
         for key, meta in template.get_properties().items():
+            if key == "Ceiling Offset":
+                # Copy raw mm value directly — the display-formatted string
+                # from get_properties() can't be parsed when the new pipe
+                # has no scene (no ScaleManager available yet).
+                self.ceiling_offset = template.ceiling_offset
+                self._properties["Ceiling Offset"]["value"] = str(template.ceiling_offset)
+                continue
             self.set_property(key, meta["value"])
 
     def display_width_mm(self) -> float:
