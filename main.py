@@ -69,6 +69,9 @@ class _SplashScreen(QWidget):
         # Logo
         logo_lbl = QLabel()
         logo_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_lbl.setStyleSheet(
+            "background: #f1f7f7; border-radius: 6px; padding: 8px;"
+        )
         logo_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "graphics", "Program Icon", "Logo.png",
@@ -87,7 +90,6 @@ class _SplashScreen(QWidget):
             f = QFont("Segoe UI", 22)
             f.setBold(True)
             logo_lbl.setFont(f)
-            logo_lbl.setStyleSheet("color: #333333;")
         layout.addWidget(logo_lbl)
 
         layout.addStretch()
