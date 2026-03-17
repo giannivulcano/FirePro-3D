@@ -2471,6 +2471,10 @@ class Model_Space(QGraphicsScene):
                 except (ValueError, KeyError, TypeError):
                     pass  # skip malformed constraint data
 
+            # Re-apply display settings (category defaults + per-item overrides)
+            from display_manager import apply_saved_display_settings
+            apply_saved_display_settings(self)
+
             # Re-apply level visibility
             if self._level_manager:
                 self._level_manager.apply_to_scene(self)
