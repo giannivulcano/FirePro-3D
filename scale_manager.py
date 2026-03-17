@@ -286,13 +286,17 @@ class ScaleManager:
             text
         )
         if m:
-            ft = float(m.group(1))
+            ft_str = m.group(1)
+            negative = ft_str.startswith("-")
+            ft = abs(float(ft_str))
             inches = float(m.group(2)) if m.group(2) else 0.0
             if m.group(3) and m.group(4):
                 denom = float(m.group(4))
                 if denom != 0:
                     inches += float(m.group(3)) / denom
             total_inches = ft * 12.0 + inches
+            if negative:
+                total_inches = -total_inches
             return total_inches * 25.4
 
         # 2. Pure inches with fraction:  6 1/2"  or  6"
