@@ -706,6 +706,8 @@ class View3D(QWidget):
                 line_width=width, name="pipes_lines",
             )
             actor.GetProperty().SetVertexVisibility(False)
+            actor.GetProperty().SetRenderPointsAsSpheres(False)
+            actor.GetProperty().SetPointSize(0.001)
             self._add_actor("pipes", actor)
 
     # ── Extract: Water Supply ──────────────────────────────────────────────
@@ -813,6 +815,8 @@ class View3D(QWidget):
                 line_width=1.0, name="construction",
             )
             actor.GetProperty().SetVertexVisibility(False)
+            actor.GetProperty().SetRenderPointsAsSpheres(False)
+            actor.GetProperty().SetPointSize(0.001)
             self._add_actor("construction", actor)
 
     # ── Extract: Level Floors ──────────────────────────────────────────────
@@ -858,22 +862,21 @@ class View3D(QWidget):
             actor.SetVisibility(self._level_floors_visible)
             self._add_actor("floors", actor)
 
-            # Edge outline
-            border = np.array([
-                [x_min, y_min, z], [x_max, y_min, z],
-                [x_max, y_max, z], [x_min, y_max, z],
-                [x_min, y_min, z],
-            ], dtype=np.float32)
-            edge_mesh = pv.PolyData(border)
-            edge_mesh.lines = np.array([5, 0, 1, 2, 3, 4], dtype=np.int64)
-            edge_actor = self._plotter.add_mesh(
-                edge_mesh, color=col[:3], opacity=0.6,
-                line_width=1.0, name=f"floor_edge_{i}",
+            # Edge outline via VTK feature edges
+            edges = floor_mesh.extract_feature_edges(
+                boundary_edges=True, feature_edges=True,
+                non_manifold_edges=False, manifold_edges=False,
+                feature_angle=1.0,
             )
-            edge_actor.GetProperty().SetPointSize(0.0)
-            edge_actor.GetProperty().SetVertexVisibility(False)
-            edge_actor.SetVisibility(self._level_floors_visible)
-            self._add_actor("floor_edges", edge_actor)
+            if edges.n_cells > 0:
+                edge_actor = self._plotter.add_mesh(
+                    edges, color=col[:3], opacity=0.6,
+                    line_width=1.0, name=f"floor_edge_{i}",
+                )
+                edge_actor.SetVisibility(self._level_floors_visible)
+                self._add_actor("floor_edges", edge_actor)
+            else:
+                self._add_actor("floor_edges", None)
 
             # Level label
             label_pt = np.array([[x_min + 200, y_min + 200, z + 50]])
@@ -886,52 +889,6 @@ class View3D(QWidget):
             if label_actor is not None:
                 label_actor.SetVisibility(self._level_floors_visible)
                 self._add_actor("floor_labels", label_actor)
-
-    # ── Edge extraction helper ──────────────────────────────────────────────
-
-    @staticmethod
-    def _edges_from_faces(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
-        """Extract visible edge segments from a triangulated mesh.
-
-        Filters out internal diagonal edges created when quads are split
-        into two triangles.
-        """
-        edge_faces: dict[tuple[int, int], list[int]] = {}
-        face_normals: list[np.ndarray] = []
-
-        for fi, f in enumerate(faces):
-            v0, v1, v2 = verts[int(f[0])], verts[int(f[1])], verts[int(f[2])]
-            normal = np.cross(v1 - v0, v2 - v0)
-            norm_len = np.linalg.norm(normal)
-            if norm_len > 1e-10:
-                normal = normal / norm_len
-            face_normals.append(normal)
-
-            for i in range(3):
-                e = tuple(sorted([int(f[i]), int(f[(i + 1) % 3])]))
-                edge_faces.setdefault(e, []).append(fi)
-
-        if not edge_faces:
-            return np.zeros((0, 3), dtype=np.float32)
-
-        segments: list[np.ndarray] = []
-        for (a, b), fi_list in edge_faces.items():
-            if len(fi_list) == 1:
-                segments.append(verts[a])
-                segments.append(verts[b])
-            elif len(fi_list) == 2:
-                dot = abs(float(np.dot(face_normals[fi_list[0]],
-                                       face_normals[fi_list[1]])))
-                if dot < 0.999:
-                    segments.append(verts[a])
-                    segments.append(verts[b])
-            else:
-                segments.append(verts[a])
-                segments.append(verts[b])
-
-        if not segments:
-            return np.zeros((0, 3), dtype=np.float32)
-        return np.array(segments, dtype=np.float32)
 
     # ── Extract: Walls ────────────────────────────────────────────────────
 
@@ -961,8 +918,6 @@ class View3D(QWidget):
             actor = self._plotter.add_mesh(
                 mesh, color=col[:3], opacity=1.0,
             )
-            actor.GetProperty().SetVertexVisibility(False)
-            actor.GetProperty().SetRepresentationToSurface()
             self._add_actor("walls", actor, entity=wall, entity_type="wall")
             self._wall_refs.append(wall)
             self._original_wall_colors.append(col)
@@ -971,22 +926,17 @@ class View3D(QWidget):
             # Store Z range for section cuts
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe
-            edge_segs = self._edges_from_faces(verts, faces)
-            if len(edge_segs) > 0:
-                n_segs = len(edge_segs) // 2
-                edge_pts = edge_segs
-                line_cells = []
-                for j in range(n_segs):
-                    line_cells.extend([2, j * 2, j * 2 + 1])
-                edge_mesh = pv.PolyData(edge_pts)
-                edge_mesh.lines = np.array(line_cells, dtype=np.int64)
+            # Edge wireframe via VTK feature edge extraction
+            edges = mesh.extract_feature_edges(
+                boundary_edges=True, feature_edges=True,
+                non_manifold_edges=False, manifold_edges=False,
+                feature_angle=1.0,
+            )
+            if edges.n_cells > 0:
                 edge_actor = self._plotter.add_mesh(
-                    edge_mesh, color=(0.0, 0.0, 0.0), opacity=1.0,
+                    edges, color=(0.0, 0.0, 0.0), opacity=1.0,
                     line_width=1.0,
                 )
-                edge_actor.GetProperty().SetPointSize(0.0)
-                edge_actor.GetProperty().SetVertexVisibility(False)
                 self._add_actor("wall_edges", edge_actor)
             else:
                 self._add_actor("wall_edges", None)
@@ -1021,8 +971,6 @@ class View3D(QWidget):
             actor = self._plotter.add_mesh(
                 mesh, color=col[:3], opacity=col[3] if len(col) > 3 else 1.0,
             )
-            actor.GetProperty().SetVertexVisibility(False)
-            actor.GetProperty().SetRepresentationToSurface()
             self._add_actor("slabs", actor, entity=slab, entity_type="slab")
             self._slab_refs.append(slab)
             self._original_slab_colors.append(col)
@@ -1030,21 +978,17 @@ class View3D(QWidget):
 
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe
-            edge_segs = self._edges_from_faces(verts, faces)
-            if len(edge_segs) > 0:
-                n_segs = len(edge_segs) // 2
-                line_cells = []
-                for j in range(n_segs):
-                    line_cells.extend([2, j * 2, j * 2 + 1])
-                edge_mesh = pv.PolyData(edge_segs)
-                edge_mesh.lines = np.array(line_cells, dtype=np.int64)
+            # Edge wireframe via VTK feature edge extraction
+            edges = mesh.extract_feature_edges(
+                boundary_edges=True, feature_edges=True,
+                non_manifold_edges=False, manifold_edges=False,
+                feature_angle=1.0,
+            )
+            if edges.n_cells > 0:
                 edge_actor = self._plotter.add_mesh(
-                    edge_mesh, color=(0.0, 0.0, 0.0), opacity=1.0,
+                    edges, color=(0.0, 0.0, 0.0), opacity=1.0,
                     line_width=1.0,
                 )
-                edge_actor.GetProperty().SetPointSize(0.0)
-                edge_actor.GetProperty().SetVertexVisibility(False)
                 self._add_actor("slab_edges", edge_actor)
             else:
                 self._add_actor("slab_edges", None)
@@ -1077,8 +1021,6 @@ class View3D(QWidget):
             actor = self._plotter.add_mesh(
                 mesh, color=col[:3], opacity=col[3] if len(col) > 3 else 1.0,
             )
-            actor.GetProperty().SetVertexVisibility(False)
-            actor.GetProperty().SetRepresentationToSurface()
             self._add_actor("roofs", actor, entity=roof, entity_type="roof")
             self._roof_refs.append(roof)
             self._original_roof_colors.append(col)
@@ -1086,21 +1028,17 @@ class View3D(QWidget):
 
             self._actor_z_range[actor] = (float(verts[:, 2].min()), float(verts[:, 2].max()))
 
-            # Edge wireframe
-            edge_segs = self._edges_from_faces(verts, faces)
-            if len(edge_segs) > 0:
-                n_segs = len(edge_segs) // 2
-                line_cells = []
-                for j in range(n_segs):
-                    line_cells.extend([2, j * 2, j * 2 + 1])
-                edge_mesh = pv.PolyData(edge_segs)
-                edge_mesh.lines = np.array(line_cells, dtype=np.int64)
+            # Edge wireframe via VTK feature edge extraction
+            edges = mesh.extract_feature_edges(
+                boundary_edges=True, feature_edges=True,
+                non_manifold_edges=False, manifold_edges=False,
+                feature_angle=1.0,
+            )
+            if edges.n_cells > 0:
                 edge_actor = self._plotter.add_mesh(
-                    edge_mesh, color=(0.0, 0.0, 0.0), opacity=1.0,
+                    edges, color=(0.0, 0.0, 0.0), opacity=1.0,
                     line_width=1.0,
                 )
-                edge_actor.GetProperty().SetPointSize(0.0)
-                edge_actor.GetProperty().SetVertexVisibility(False)
                 self._add_actor("roof_edges", edge_actor)
             else:
                 self._add_actor("roof_edges", None)
@@ -1669,24 +1607,19 @@ class View3D(QWidget):
             actor = self._plotter.add_mesh(
                 overlay, color=COL_SEL_MESH, opacity=1.0,
             )
-            actor.GetProperty().SetVertexVisibility(False)
             self._add_actor("sel_overlay", actor)
 
-            # Bright edge wireframe on top
-            edge_segs = self._edges_from_faces(verts, faces)
-            if len(edge_segs) > 0:
-                n_segs = len(edge_segs) // 2
-                line_cells = []
-                for j in range(n_segs):
-                    line_cells.extend([2, j * 2, j * 2 + 1])
-                edge_mesh = pv.PolyData(edge_segs)
-                edge_mesh.lines = np.array(line_cells, dtype=np.int64)
+            # Bright edge wireframe via VTK feature edges
+            edges = overlay.extract_feature_edges(
+                boundary_edges=True, feature_edges=True,
+                non_manifold_edges=False, manifold_edges=False,
+                feature_angle=1.0,
+            )
+            if edges.n_cells > 0:
                 edge_actor = self._plotter.add_mesh(
-                    edge_mesh, color=COL_SEL_EDGE, opacity=1.0,
+                    edges, color=COL_SEL_EDGE, opacity=1.0,
                     line_width=1.5,
                 )
-                edge_actor.GetProperty().SetPointSize(0.0)
-                edge_actor.GetProperty().SetVertexVisibility(False)
                 self._add_actor("sel_overlay_edges", edge_actor)
 
         self._plotter.render()
