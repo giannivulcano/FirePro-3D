@@ -129,8 +129,15 @@ class WallSegment(QGraphicsPathItem):
         # Alignment mode (centerline / interior / exterior)
         self._alignment: str = ALIGN_CENTER
 
-        # Join mode (auto = miter at connected walls, butt = no miter)
-        self._join_mode: str = "Auto"
+        # Per-endpoint join mode
+        # Auto: solid at 2-wall corners, butt at T/cross intersections
+        # Solid: miter without visible miter line (continuous fill)
+        # Butt: no miter extension
+        # Miter: classic miter with visible joint line
+        self._join_mode_pt1: str = "Auto"
+        self._join_mode_pt2: str = "Auto"
+        self._solid_pt1: bool = False   # set by mitered_quad()
+        self._solid_pt2: bool = False
 
         # Wall openings (doors / windows)
         self.openings: list[WallOpening] = []
@@ -258,7 +265,8 @@ class WallSegment(QGraphicsPathItem):
         pen = QPen(line_col, 1)
         pen.setCosmetic(True)
 
-        # Fill
+        # Fill (always fill the full quad area)
+        fill_brush = Qt.BrushStyle.NoBrush
         if self._fill_mode == FILL_SOLID:
             if self._display_fill_color:
                 fill_color = QColor(self._display_fill_color)
@@ -266,15 +274,35 @@ class WallSegment(QGraphicsPathItem):
             else:
                 fill_color = QColor(self._color)
                 fill_color.setAlpha(80)
-            painter.setBrush(QBrush(fill_color))
-        elif self._fill_mode == FILL_HATCH:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-        else:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
+            fill_brush = QBrush(fill_color)
 
-        painter.setPen(pen)
-        poly = QPolygonF([p1l, p2l, p2r, p1r])
-        painter.drawPolygon(poly)
+        solid_pt1 = getattr(self, "_solid_pt1", False)
+        solid_pt2 = getattr(self, "_solid_pt2", False)
+
+        if not solid_pt1 and not solid_pt2:
+            # No solid joins — draw full polygon as before
+            painter.setPen(pen)
+            painter.setBrush(fill_brush)
+            poly = QPolygonF([p1l, p2l, p2r, p1r])
+            painter.drawPolygon(poly)
+        else:
+            # Fill the quad without outline, then draw only non-solid edges
+            if fill_brush != Qt.BrushStyle.NoBrush:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill_brush)
+                painter.drawPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            # Left side edge (always drawn)
+            painter.drawLine(p1l, p2l)
+            # Right side edge (always drawn)
+            painter.drawLine(p1r, p2r)
+            # End edges: only draw if NOT solid at that endpoint
+            if not solid_pt1:
+                painter.drawLine(p1l, p1r)
+            if not solid_pt2:
+                painter.drawLine(p2l, p2r)
 
         # Hatch lines
         if self._fill_mode == FILL_HATCH:
@@ -286,7 +314,15 @@ class WallSegment(QGraphicsPathItem):
             sel_pen.setCosmetic(True)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPolygon(poly)
+            if not solid_pt1 and not solid_pt2:
+                painter.drawPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+            else:
+                painter.drawLine(p1l, p2l)
+                painter.drawLine(p1r, p2r)
+                if not solid_pt1:
+                    painter.drawLine(p1l, p1r)
+                if not solid_pt2:
+                    painter.drawLine(p2l, p2r)
 
     def _draw_hatch(self, painter, p1l, p1r, p2r, p2l):
         """Draw diagonal hatch lines inside the wall quad."""
@@ -408,7 +444,9 @@ class WallSegment(QGraphicsPathItem):
             "Top Offset":   {"type": "dimension", "value": self._fmt(self._top_offset_mm),
                              "value_mm": self._top_offset_mm},
             "Height":       {"type": "label",     "value": self._fmt(height_mm)},
-            "Join Mode":    {"type": "enum",      "value": self._join_mode,
+            "Join Start":   {"type": "enum",      "value": self._join_mode_pt1,
+                             "options": ["Auto", "Butt", "Miter", "Solid"]},
+            "Join End":     {"type": "enum",      "value": self._join_mode_pt2,
                              "options": ["Auto", "Butt", "Miter", "Solid"]},
         }
 
@@ -525,11 +563,21 @@ class WallSegment(QGraphicsPathItem):
                 self._height_mm = self._computed_height_mm()
                 self._rebuild_path()
                 self.update()
-        elif key == "Join Mode":
+        elif key in ("Join Start", "Join End"):
             if str(value) in ("Auto", "Butt", "Miter", "Solid"):
-                self._join_mode = str(value)
+                if key == "Join Start":
+                    self._join_mode_pt1 = str(value)
+                else:
+                    self._join_mode_pt2 = str(value)
                 self._rebuild_path()
                 self.update()
+                # Rebuild connected walls so they reflect the change
+                sc = self.scene()
+                if sc and hasattr(sc, "_walls"):
+                    for w in sc._walls:
+                        if w is not self:
+                            w._rebuild_path()
+                            w.update()
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -553,7 +601,8 @@ class WallSegment(QGraphicsPathItem):
             "level":         self.level,
             "user_layer":    self.user_layer,
             "name":          self.name,
-            "join_mode":     self._join_mode,
+            "join_mode_pt1": self._join_mode_pt1,
+            "join_mode_pt2": self._join_mode_pt2,
             "openings":      openings_data,
         }
 
@@ -596,7 +645,10 @@ class WallSegment(QGraphicsPathItem):
         wall.level = data.get("level", DEFAULT_LEVEL)
         wall.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         wall.name = data.get("name", "")
-        wall._join_mode = data.get("join_mode", "Auto")
+        # Per-endpoint join modes (backward compat: old "join_mode" applies to both)
+        legacy = data.get("join_mode", "Auto")
+        wall._join_mode_pt1 = data.get("join_mode_pt1", legacy)
+        wall._join_mode_pt2 = data.get("join_mode_pt2", legacy)
         # Openings restored by caller after wall_opening module is available
         return wall
 
@@ -805,78 +857,87 @@ class WallSegment(QGraphicsPathItem):
         t = ((p3.x() - p1.x()) * dy2 - (p3.y() - p1.y()) * dx2) / denom
         return QPointF(p1.x() + t * dx1, p1.y() + t * dy1)
 
+    def _resolve_join_mode(self, endpoint_idx: int, num_walls_at_point: int) -> str:
+        """Resolve the effective join mode for an endpoint.
+
+        Auto defaults:
+          - 2 walls at corner → Solid (continuous fill, no miter line)
+          - 3+ walls (T or cross) → Butt (clean termination)
+          - 1 wall (free end) → Butt
+        """
+        mode = self._join_mode_pt1 if endpoint_idx == 0 else self._join_mode_pt2
+        if mode != "Auto":
+            return mode
+        # Auto logic
+        if num_walls_at_point == 2:
+            return "Solid"
+        return "Butt"
+
     def mitered_quad(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
-        """Return quad_points adjusted for miter joins at connected endpoints.
+        """Return quad_points adjusted for per-endpoint join modes.
 
-        At each endpoint, if exactly one other wall shares the same point
-        the left/right corner vertices are moved to the intersection of
-        the two walls' corresponding side edges, producing a clean miter.
-
-        Join mode controls behavior:
-          Auto  — miter at connected walls (default)
-          Butt  — no miter, raw quad_points
-          Miter — always miter (same as Auto)
-          Solid — extend endpoints by half-thickness so walls overlap at corners
+        Also sets ``_solid_pt1`` / ``_solid_pt2`` flags indicating which
+        endpoints use Solid mode (so paint() can skip drawing the end edge).
         """
         p1l, p1r, p2r, p2l = self.quad_points()
-
-        # Butt join: skip miter entirely
-        if self._join_mode == "Butt":
-            return (p1l, p1r, p2r, p2l)
-
-        # Solid join: extend both endpoints along the wall axis by half-thickness
-        if self._join_mode == "Solid":
-            ht = self.half_thickness_scene()
-            a = self.centerline_angle_rad()
-            dx = math.cos(a) * ht
-            dy = math.sin(a) * ht
-            ext = QPointF(dx, dy)
-            return (p1l - ext, p1r - ext, p2r + ext, p2l + ext)
+        self._solid_pt1 = False
+        self._solid_pt2 = False
 
         sc = self.scene()
         if sc is None or not hasattr(sc, '_walls'):
             return (p1l, p1r, p2r, p2l)
 
-        MITER_TOL = 1.0  # scene units — tight, walls are snapped exactly
+        MITER_TOL = 1.0
         MAX_MITER = self.half_thickness_scene() * 4
 
         for my_idx in (0, 1):
             my_pt = self._pt1 if my_idx == 0 else self._pt2
+
+            # Count walls sharing this endpoint
+            partners = []
             for other in sc._walls:
                 if other is self:
                     continue
                 other_ep = other.endpoint_near(my_pt, MITER_TOL)
-                if other_ep is None:
-                    continue
+                if other_ep is not None:
+                    partners.append((other, other_ep))
 
-                o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
+            mode = self._resolve_join_mode(my_idx, 1 + len(partners))
 
-                # Same endpoint index → cross pairing, different → parallel
-                cross = (my_idx == other_ep)
-                if cross:
-                    left_target = (o_p1r, o_p2r)   # my left ∩ other right
-                    right_target = (o_p1l, o_p2l)   # my right ∩ other left
-                else:
-                    left_target = (o_p1l, o_p2l)    # my left ∩ other left
-                    right_target = (o_p1r, o_p2r)   # my right ∩ other right
+            if mode == "Butt" or not partners:
+                continue  # no modification at this endpoint
 
-                int_l = self._intersect_lines(p1l, p2l,
-                                              left_target[0], left_target[1])
-                int_r = self._intersect_lines(p1r, p2r,
-                                              right_target[0], right_target[1])
+            # Both Solid and Miter use edge intersection with connected wall
+            other, other_ep = partners[0]
+            o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
 
-                if int_l is not None and int_r is not None:
-                    # Guard: skip if miter extends too far (very acute angle)
-                    dist_l = math.hypot(int_l.x() - my_pt.x(),
-                                        int_l.y() - my_pt.y())
-                    dist_r = math.hypot(int_r.x() - my_pt.x(),
-                                        int_r.y() - my_pt.y())
-                    if dist_l < MAX_MITER and dist_r < MAX_MITER:
-                        if my_idx == 0:
-                            p1l, p1r = int_l, int_r
-                        else:
-                            p2l, p2r = int_l, int_r
-                break  # one miter partner per endpoint
+            cross = (my_idx == other_ep)
+            if cross:
+                left_target = (o_p1r, o_p2r)
+                right_target = (o_p1l, o_p2l)
+            else:
+                left_target = (o_p1l, o_p2l)
+                right_target = (o_p1r, o_p2r)
+
+            int_l = self._intersect_lines(p1l, p2l,
+                                          left_target[0], left_target[1])
+            int_r = self._intersect_lines(p1r, p2r,
+                                          right_target[0], right_target[1])
+
+            if int_l is not None and int_r is not None:
+                dist_l = math.hypot(int_l.x() - my_pt.x(),
+                                    int_l.y() - my_pt.y())
+                dist_r = math.hypot(int_r.x() - my_pt.x(),
+                                    int_r.y() - my_pt.y())
+                if dist_l < MAX_MITER and dist_r < MAX_MITER:
+                    if my_idx == 0:
+                        p1l, p1r = int_l, int_r
+                        if mode == "Solid":
+                            self._solid_pt1 = True
+                    else:
+                        p2l, p2r = int_l, int_r
+                        if mode == "Solid":
+                            self._solid_pt2 = True
 
         return (p1l, p1r, p2r, p2l)
 
