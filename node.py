@@ -237,7 +237,7 @@ class Node(QGraphicsEllipseItem):
     def boundingRect(self) -> QRectF:
         """Expand bounding rect to encompass selection highlight and coverage overlay."""
         if self.has_sprinkler():
-            r = self.sprinkler.TARGET_MM / 2.0 * 1.15
+            r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale * 1.15
         else:
             r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
         r = max(r, self.RADIUS + 4)
@@ -260,7 +260,7 @@ class Node(QGraphicsEllipseItem):
         """Expand clickable area to encompass the sprinkler graphic so
         clicking anywhere on the sprinkler selects the node."""
         if self.has_sprinkler():
-            r = self.sprinkler.TARGET_MM / 2.0
+            r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale
         else:
             r = 14.0 * 25.4 / 2.0  # 177.8 mm (7")
         r = max(r, self.RADIUS)
@@ -273,20 +273,14 @@ class Node(QGraphicsEllipseItem):
         painter.setPen(QPen(Qt.PenStyle.NoPen))
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        if self.isSelected():
-            # Zoom-dependent selection highlight (scales with scene geometry)
-            if self.has_sprinkler():
-                # Slightly larger than sprinkler SVG (15% bigger)
-                radius = self.sprinkler.TARGET_MM / 2.0 * 1.15
-            else:
-                # Plain node: 14-inch diameter highlight
-                radius = 14.0 * 25.4 / 2.0  # 177.8 mm
-
-            highlight_pen = QPen(QColor("red"), 2)
-            highlight_pen.setCosmetic(True)
-            painter.setPen(highlight_pen)
+        if self.isSelected() and not self.has_sprinkler():
+            # Plain node: blue glow circle at node radius
+            r = 14.0 * 25.4 / 2.0  # 177.8 mm
+            pen = QPen(QColor(0, 120, 215), 2)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPointF(0, 0), radius, radius)
+            painter.drawEllipse(QPointF(0, 0), r, r)
 
         # Pressure and node-number badges are now separate child items
         # (HydraulicNodeBadge) — no in-paint badge drawing needed.

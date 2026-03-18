@@ -103,10 +103,9 @@ class Sprinkler(QGraphicsSvgItem):
         parent = self.parentItem()
         if parent is not None and parent.isSelected():
             br = self.boundingRect()
-            cx, cy = br.center().x(), br.center().y()
-            radius = max(br.width(), br.height()) / 2
-            pen = QPen(QColor("#ff0000"), 2)
-            pen.setCosmetic(False)  # zoom-dependent
+            radius = max(br.width(), br.height()) / 2.0
+            pen = QPen(QColor(0, 120, 215), 2)  # bright blue glow
+            pen.setCosmetic(True)                # constant screen-pixel width
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(br.center(), radius, radius)

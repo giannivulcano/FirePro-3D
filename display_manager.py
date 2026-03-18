@@ -347,6 +347,9 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_svg_item(item, color, scale, opacity, visible, fill_color)
         item._display_scale = scale
         item._centre_on_node()
+        # Invalidate parent Node geometry so shape()/boundingRect() reflect new scale
+        if item.node is not None:
+            item.node.prepareGeometryChange()
     elif isinstance(item, Fitting):
         _apply_fitting(item, color, scale, opacity, visible, fill_color)
     elif isinstance(item, WaterSupply):
