@@ -409,8 +409,9 @@ class MainWindow(QMainWindow):
         # Restore dock visibility (only if settings exist, otherwise keep defaults)
         if self.settings.contains("dock/browser"):
             self.browser_dock.setVisible(self.settings.value("dock/browser", True, type=bool))
-        if self.settings.contains("dock/properties"):
-            self.prop_dock.setVisible(self.settings.value("dock/properties", True, type=bool))
+        # Properties panel defaults to visible; honour saved preference only
+        # when the user explicitly hid it (saved as False).
+        self.prop_dock.setVisible(self.settings.value("dock/properties", True, type=bool))
         if self.settings.contains("dock/hydraulics"):
             self.hydro_dock.setVisible(self.settings.value("dock/hydraulics", False, type=bool))
         # Restore snap settings

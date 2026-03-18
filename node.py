@@ -114,9 +114,11 @@ class Node(QGraphicsEllipseItem):
     # Sprinkler helpers
     def add_sprinkler(self):
         if self.sprinkler is None:
+            self.prepareGeometryChange()
             self.sprinkler = Sprinkler(self)
 
     def delete_sprinkler(self):
+        self.prepareGeometryChange()
         self.sprinkler = None
 
     def has_sprinkler(self):
