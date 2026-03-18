@@ -281,7 +281,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
     {"key": "Wall",             "color": "#666666", "fill": "#999999", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
-    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "font": None, "scale": 1.0, "opacity": 100, "visible": True},
+    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "font": 12,   "scale": 1.0, "opacity": 100, "visible": True},
 ]
 
 # Tree-column indices
@@ -350,6 +350,11 @@ def apply_display_to_item(item, color: str | None, scale: float,
         if fill_color:
             _, hex_col = _parse_fill_value(fill_color)
             item._display_fill_color = hex_col
+        if color:
+            item._label_font_color = color
+        if font_size is not None:
+            item._label_font_size = float(font_size) * 25.4  # inches → mm scene units
+        item._update_label()
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()

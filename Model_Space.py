@@ -5083,10 +5083,12 @@ class Model_Space(QGraphicsScene):
             return None
 
         # ── Offset boundary inward based on wall alignment ─────────────
-        # Interior alignment: centerline IS the inner face → no inset
-        # Center alignment: inset by half thickness
-        # Exterior alignment: inset by full thickness
-        # Use the dominant alignment among walls on this level
+        # Interior: centerline is at interior face, wall extends outward
+        #   → room boundary = centerline, no inset needed
+        # Center: centerline is at wall center
+        #   → room boundary inset by half thickness to reach inner face
+        # Exterior: centerline is at exterior face, wall extends inward
+        #   → room boundary inset by full thickness to reach inner face
         from wall import ALIGN_INTERIOR, ALIGN_EXTERIOR
         align_counts = {"Center": 0, "Interior": 0, "Exterior": 0}
         total_ht = 0.0
@@ -5097,16 +5099,21 @@ class Model_Space(QGraphicsScene):
 
         dominant = max(align_counts, key=align_counts.get)
         if dominant == "Interior":
-            inset_dist = 0.0  # centerline is already the inner face
+            inset_dist = 0.0  # centerline is at interior face, already correct
         elif dominant == "Exterior":
-            inset_dist = avg_ht * 2  # full thickness inward
+            inset_dist = avg_ht * 2  # centerline at exterior, inset by full thickness
         else:
-            inset_dist = avg_ht  # half thickness
+            inset_dist = avg_ht  # center alignment, half thickness
 
         if inset_dist > 0:
             inset = self._inset_polygon(boundary, inset_dist)
             if inset and len(inset) >= 3:
-                boundary = inset
+                # Verify inset still contains click point
+                test_path = QPainterPath()
+                test_path.addPolygon(QPolygonF(inset))
+                test_path.closeSubpath()
+                if test_path.contains(click_pt):
+                    boundary = inset
 
         # Validate
         path = QPainterPath()

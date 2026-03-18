@@ -90,9 +90,12 @@ class Room(QGraphicsPolygonItem):
         self._scale_manager_ref: ScaleManager | None = None
 
         # Label in scene units (scales with zoom like pipe labels)
+        self._label_bg = None  # background rect, created in _update_label
         self._label = QGraphicsTextItem(self)
         self._label.setDefaultTextColor(QColor("#000000"))
         self._label.setZValue(200)  # above everything including walls
+        self._label_font_color: str = "#000000"
+        self._label_font_size: float = 150.0  # mm in scene units
 
         # Rendering
         self.setZValue(-60)  # below walls (-50), above floors (-80)
@@ -113,24 +116,46 @@ class Room(QGraphicsPolygonItem):
         self._update_label()
 
     def _update_label(self):
-        """Position the room tag label at the polygon centroid."""
+        """Position the room tag label at the polygon centroid with background."""
+        from PyQt6.QtWidgets import QGraphicsRectItem
+
         text = self._tag or self.name or ""
         self._label.setVisible(self._show_label and bool(text))
+        if self._label_bg is not None:
+            self._label_bg.setVisible(self._show_label and bool(text))
         if not text or not self._boundary:
             return
-        # Use scene-unit font size (mm) so label scales with zoom
-        text_h = 150.0  # mm
-        html = (f"<div style='text-align:center; font-size:{text_h:.0f}px; "
+
+        fc = self._label_font_color
+        fs = self._label_font_size
+        html = (f"<div style='text-align:center; font-size:{fs:.0f}px; "
                 f"font-family:Segoe UI; font-weight:bold; "
-                f"color:#000000;'>{text}</div>")
+                f"color:{fc};'>{text}</div>")
         self._label.setHtml(html)
         self._label.setTextWidth(-1)
         ideal = self._label.document().idealWidth()
         self._label.setTextWidth(ideal)
+
         cx = sum(p.x() for p in self._boundary) / len(self._boundary)
         cy = sum(p.y() for p in self._boundary) / len(self._boundary)
         br = self._label.boundingRect()
-        self._label.setPos(cx - br.width() / 2, cy - br.height() / 2)
+        lx = cx - br.width() / 2
+        ly = cy - br.height() / 2
+        self._label.setPos(lx, ly)
+
+        # Background box
+        pad = fs * 0.2
+        if self._label_bg is None:
+            self._label_bg = QGraphicsRectItem(self)
+            self._label_bg.setZValue(199)
+            self._label_bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg_color = QColor("#ffffff")
+        bg_color.setAlpha(200)
+        self._label_bg.setBrush(QBrush(bg_color))
+        self._label_bg.setRect(
+            lx - pad, ly - pad,
+            br.width() + 2 * pad, br.height() + 2 * pad
+        )
 
     @property
     def boundary(self) -> list[QPointF]:
