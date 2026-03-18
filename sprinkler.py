@@ -40,7 +40,9 @@ class Sprinkler(QGraphicsSvgItem):
             "Ceiling Offset":  {"type": "string", "value": "-50.8"},
         }
 
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        # Selection is handled by the parent Node — the Node's shape() covers
+        # the sprinkler area so clicks land on the Node directly.
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
 
         if node is not None:
             self.setParentItem(node)
@@ -93,8 +95,8 @@ class Sprinkler(QGraphicsSvgItem):
         return path
 
     def paint(self, painter, option, widget=None):
-        """Draw the SVG, then overlay a red circle when the parent node
-        is selected.  Colour tinting is done at the SVG level via
+        """Draw the SVG, then overlay a blue glow circle when the parent
+        node is selected.  Colour tinting is done at the SVG level via
         _set_svg_tint (no QPainter composition needed)."""
         # Suppress default selection dashes
         option.state &= ~QStyle.StateFlag.State_Selected
