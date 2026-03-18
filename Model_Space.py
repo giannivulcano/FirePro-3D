@@ -977,7 +977,7 @@ class Model_Space(QGraphicsScene):
         self._grip_dragging = False
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
-        if mode not in ("select", "stretch",
+        if mode not in ("select", "stretch", "move", "rotate", "scale",
                         "radiation_emitter", "radiation_receiver"):
             self.clearSelection()
         self.preview_node.hide()
@@ -2980,14 +2980,24 @@ class Model_Space(QGraphicsScene):
             angle = math.degrees(math.atan2(-dy, dx))   # Y-up convention
             return max(length, 0.01), angle
 
+        # ScaleManager for unit formatting/parsing in Tab input dialogs
+        _sm = self.scale_manager
+
         # ── Inline frameless popup for Dynamic Input ──────────────────────
         class _DynInput(QDialog):
             """Frameless side-by-side input popup (no spinner, no header,
-            no OK/Cancel).  Enter accepts, Escape cancels, Tab cycles fields."""
+            no OK/Cancel).  Enter accepts, Escape cancels, Tab cycles fields.
 
-            def __init__(self, fields, parent=None):
-                """*fields*: list of (name, default, suffix, decimals)"""
+            Dimension fields show the formatted value with units inside the
+            text box (e.g. ``-0' 2"``).  Angle fields (suffix ``"°"``) keep
+            a plain numeric display with the ``°`` suffix label.
+            """
+
+            def __init__(self, fields, sm=None, parent=None):
+                """*fields*: list of (name, default_mm, suffix, decimals)
+                *sm*: ScaleManager for unit formatting/parsing (optional)."""
                 super().__init__(parent)
+                self._sm = sm
                 self.setWindowFlags(
                     Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
                 )
@@ -2999,25 +3009,39 @@ class Model_Space(QGraphicsScene):
                     "QLineEdit { background: #1a1a1a; color: #ffffff;"
                     "            border: 1px solid #555; border-radius: 3px;"
                     "            padding: 2px 4px; font: 8pt 'Consolas';"
-                    "            min-width: 50px; max-width: 68px; }"
+                    "            min-width: 70px; max-width: 110px; }"
                     "QLineEdit:focus { border-color: #4fa3e0; }"
                 )
                 lay = QHBoxLayout(self)
                 lay.setContentsMargins(6, 4, 6, 4)
                 lay.setSpacing(3)
                 self._edits = {}
+                self._is_dim = {}     # True for dimension fields, False for angle
                 self._order = []
                 first = None
                 for name, default_val, suffix, decimals in fields:
+                    is_angle = (suffix == "°")
+                    self._is_dim[name] = not is_angle
                     lay.addWidget(QLabel(f"{name}:"))
-                    edit = QLineEdit(f"{default_val:.{decimals}f}")
-                    edit.setAlignment(Qt.AlignmentFlag.AlignRight)
-                    v = QDoubleValidator()
-                    v.setDecimals(decimals)
-                    edit.setValidator(v)
-                    lay.addWidget(edit)
-                    if suffix:
-                        lay.addWidget(QLabel(suffix))
+                    if is_angle:
+                        # Angle: plain number + ° suffix label
+                        edit = QLineEdit(f"{default_val:.{decimals}f}")
+                        edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+                        v = QDoubleValidator()
+                        v.setDecimals(decimals)
+                        edit.setValidator(v)
+                        lay.addWidget(edit)
+                        lay.addWidget(QLabel("°"))
+                    else:
+                        # Dimension: formatted value with units inside text box
+                        if sm:
+                            display_text = sm.format_length(default_val)
+                        else:
+                            display_text = f"{default_val:.{decimals}f} mm"
+                        edit = QLineEdit(display_text)
+                        edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+                        # No QDoubleValidator — we accept free-form dimension text
+                        lay.addWidget(edit)
                     self._edits[name] = edit
                     self._order.append(edit)
                     if first is None:
@@ -3048,10 +3072,38 @@ class Model_Space(QGraphicsScene):
                     super().keyPressEvent(event)
 
             def value(self, name):
+                """Return value in scene units (mm for dimensions, degrees for angles)."""
+                text = self._edits[name].text().strip()
+                if self._is_dim.get(name, False) and self._sm:
+                    fallback = self._sm.bare_number_unit()
+                    parsed = ScaleManager.parse_dimension(text, fallback)
+                    if parsed is not None:
+                        return parsed
+                # Angle or fallback: plain float
                 try:
-                    return float(self._edits[name].text())
+                    return float(text)
                 except ValueError:
                     return 0.0
+
+        # ── Move mode: Tab opens dX/dY input after base point is set ──
+        if self.mode == "move" and self.node_start_pos is not None:
+            dx_mm = 0.0
+            dy_mm = 0.0
+            if cursor is not None:
+                dx_mm = cursor.x() - self.node_start_pos.x()
+                dy_mm = -(cursor.y() - self.node_start_pos.y())  # Y-up
+            dlg = _DynInput([
+                ("dX", dx_mm, "", 2),
+                ("dY", dy_mm, "", 2),
+            ], sm=_sm)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                offset = QPointF(dlg.value("dX"),
+                                 -dlg.value("dY"))  # Y-down
+                self.move_items(offset)
+                self.push_undo_state()
+                self.node_start_pos = None
+                self.set_mode(None)
+            return
 
         # ── Line ──────────────────────────────────────────────────────────
         if self.mode == "draw_line" and self._draw_line_anchor is not None:
@@ -3059,9 +3111,9 @@ class Model_Space(QGraphicsScene):
             def_len, def_ang = _defaults_from(anchor)
 
             dlg = _DynInput([
-                ("Length", def_len, "mm", 2),
+                ("Length", def_len, "", 2),
                 ("Angle",  def_ang, "°",  2),
-            ])
+            ], sm=_sm)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -3091,9 +3143,9 @@ class Model_Space(QGraphicsScene):
             def_len, def_ang = _defaults_from(anchor)
 
             dlg = _DynInput([
-                ("Length", def_len, "mm", 2),
+                ("Length", def_len, "", 2),
                 ("Angle",  def_ang, "°",  2),
-            ])
+            ], sm=_sm)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -3123,9 +3175,9 @@ class Model_Space(QGraphicsScene):
             def_h = max(def_h, 0.01)
 
             dlg = _DynInput([
-                ("X", def_w, "mm", 2),
-                ("Y", def_h, "mm", 2),
-            ])
+                ("X", def_w, "", 2),
+                ("Y", def_h, "", 2),
+            ], sm=_sm)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -3142,7 +3194,7 @@ class Model_Space(QGraphicsScene):
                               self._draw_rect_anchor.y())
                 pt2 = QPointF(
                     self._draw_rect_anchor.x() + dlg.value("X"),
-                    self._draw_rect_anchor.y() - dlg.value("Y"),   # Y-up → scene Y-down
+                    self._draw_rect_anchor.y() - dlg.value("Y"),
                 )
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
@@ -3166,9 +3218,9 @@ class Model_Space(QGraphicsScene):
             def_len, def_ang = _defaults_from(anchor)
 
             dlg = _DynInput([
-                ("Length", def_len, "mm", 2),
+                ("Length", def_len, "", 2),
                 ("Angle",  def_ang, "°",  2),
-            ])
+            ], sm=_sm)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -3190,8 +3242,8 @@ class Model_Space(QGraphicsScene):
                                        cursor.y() - center.y()), 0.01)
 
             dlg = _DynInput([
-                ("Radius", def_r, "mm", 2),
-            ])
+                ("Radius", def_r, "", 2),
+            ], sm=_sm)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -4388,22 +4440,20 @@ class Model_Space(QGraphicsScene):
                         self._create_vertical_connection(
                             self.node_start_pos, end_node, template,
                         )
-                        self.node_start_pos = None
-                        self.preview_pipe.hide()
-                        self.preview_node.hide()
+                        # Continue polyline from end node
+                        self.node_start_pos = end_node
                         self.push_undo_state()
-                        self.instructionChanged.emit("Pick start node")
+                        self.instructionChanged.emit("Pick next node (Esc/double-click to finish)")
                         return
 
             self.add_pipe(self.node_start_pos, end_node, template)
             self.node_start_pos.fitting.update()
             end_node.fitting.update()
-            self.node_start_pos = None
+            # Continuous polyline: end node becomes the next start node
+            self.node_start_pos = end_node
             self._pipe_node_was_new = False
-            self.preview_pipe.hide()
-            self.preview_node.hide()
             self.push_undo_state()
-            self.instructionChanged.emit("Pick start node")
+            self.instructionChanged.emit("Pick next node (Esc/double-click to finish)")
 
     def _press_set_scale(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cal_point1 is None:
@@ -5604,6 +5654,21 @@ class Model_Space(QGraphicsScene):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
+        # ── Pipe: double-click finishes the polyline chain ─────────────
+        if (event.button() == Qt.MouseButton.LeftButton
+                and self.mode == "pipe"
+                and self.node_start_pos is not None):
+            # Double-click fires a press first which placed one more pipe.
+            # Just end the chain — keep mode active for a new chain.
+            self.node_start_pos = None
+            self._pipe_node_was_new = False
+            self.preview_pipe.hide()
+            self.preview_node.hide()
+            self.push_undo_state()
+            self.instructionChanged.emit("Pick start node")
+            event.accept()
+            return
+
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "polyline"
                 and self._polyline_active is not None):
@@ -5984,6 +6049,14 @@ class Model_Space(QGraphicsScene):
                 self.radiationCancel.emit()
                 return
         if event.key() == Qt.Key.Key_Escape:
+            # Pipe polyline: first Escape ends the chain, second exits mode
+            if self.mode == "pipe" and self.node_start_pos is not None:
+                self.node_start_pos = None
+                self._pipe_node_was_new = False
+                self.preview_pipe.hide()
+                self.preview_node.hide()
+                self.instructionChanged.emit("Pick start node")
+                return
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
@@ -6290,7 +6363,16 @@ class Model_Space(QGraphicsScene):
     def move_items(self, offset):
         if not self._selected_items:
             return
+        # Resolve any Sprinkler items to their parent Node
+        resolved = []
+        seen = set()
         for item in self._selected_items:
+            if isinstance(item, Sprinkler) and item.node is not None:
+                item = item.node
+            if id(item) not in seen:
+                seen.add(id(item))
+                resolved.append(item)
+        for item in resolved:
             if isinstance(item, Node):
                 item.moveBy(offset.x(), offset.y())
                 item.setSelected(True)

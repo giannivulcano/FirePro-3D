@@ -102,16 +102,6 @@ class Sprinkler(QGraphicsSvgItem):
         option.state &= ~QStyle.StateFlag.State_Selected
         super().paint(painter, option, widget)
 
-        parent = self.parentItem()
-        if parent is not None and parent.isSelected():
-            br = self.boundingRect()
-            radius = max(br.width(), br.height()) / 2.0
-            pen = QPen(QColor(0, 120, 215), 2)  # bright blue glow
-            pen.setCosmetic(True)                # constant screen-pixel width
-            painter.setPen(pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(br.center(), radius, radius)
-
     # -------------------------------------------------------------------------
     # Public property API
 
@@ -142,6 +132,14 @@ class Sprinkler(QGraphicsSvgItem):
             props["Ceiling Level"]["value"] = self.node.ceiling_level
             props["Ceiling Offset"] = dict(props["Ceiling Offset"])
             props["Ceiling Offset"]["value"] = self._fmt(self.node.ceiling_offset)
+        else:
+            # Template sprinkler (no node) — format the raw mm value for display
+            props["Ceiling Offset"] = dict(props["Ceiling Offset"])
+            try:
+                raw_mm = float(props["Ceiling Offset"]["value"])
+            except (ValueError, TypeError):
+                raw_mm = -50.8
+            props["Ceiling Offset"]["value"] = self._fmt(raw_mm)
         return props
 
     def set_property(self, key: str, value):
@@ -163,19 +161,24 @@ class Sprinkler(QGraphicsSvgItem):
             self.node.ceiling_level = str(value)
             self.node._properties["Ceiling Level"]["value"] = str(value)
             self.node._recompute_z_pos()
-        elif key == "Ceiling Offset" and self.node is not None:
+        elif key == "Ceiling Offset":
             sm = self._get_scale_manager()
+            parsed_mm = None
             if sm:
-                parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
-                if parsed is not None:
-                    self.node.ceiling_offset = parsed
-            else:
+                parsed_mm = sm.parse_dimension(str(value), sm.bare_number_unit())
+            if parsed_mm is None:
                 try:
-                    self.node.ceiling_offset = float(value)
+                    parsed_mm = float(value)
                 except (ValueError, TypeError):
-                    pass
-            self.node._properties["Ceiling Offset"]["value"] = str(self.node.ceiling_offset)
-            self.node._recompute_z_pos()
+                    parsed_mm = None
+            if parsed_mm is not None:
+                if self.node is not None:
+                    self.node.ceiling_offset = parsed_mm
+                    self.node._properties["Ceiling Offset"]["value"] = str(parsed_mm)
+                    self.node._recompute_z_pos()
+                else:
+                    # Template sprinkler — store raw mm
+                    self._properties["Ceiling Offset"]["value"] = str(parsed_mm)
 
     def set_properties(self, template: "Sprinkler"):
         """Copy all property values from a template Sprinkler."""

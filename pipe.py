@@ -158,8 +158,8 @@ class Pipe(QGraphicsLineItem):
         except (ValueError, TypeError):
             _label_in = 12.0
         text_h = _label_in * 25.4   # inches → mm
-        # Gap between rows = pipe visual width + 2 inches (clearance each side)
-        gap = self.display_width_mm() + 2.0 * 25.4   # mm
+        # Gap between rows = actual rendered pipe width (incl. display scale) + margin
+        gap = self.display_width_mm() * self._display_scale + text_h * 0.3
 
         # Include hydraulic results if available
         hr_lines = ""

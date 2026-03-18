@@ -474,20 +474,34 @@ class Model_View(QGraphicsView):
         elif event.button() == Qt.MouseButton.LeftButton:
             # Track rubber-band start for crossing selection (stretch mode)
             self._rb_start = event.pos()
+            sc = self.scene()
+            scene_pos = self.mapToScene(event.pos())
+
             # When clicking on a grip handle the scene will consume the event.
             # However, QGraphicsView starts rubber-band selection before the
             # scene processes the click (grip handles are foreground overlays,
             # not real scene items).  Detect the grip hit here and suppress
             # rubber-band by temporarily switching to NoDrag for this press.
-            sc = self.scene()
             if (sc is not None
                     and hasattr(sc, "_find_grip_hit")):
-                scene_pos = self.mapToScene(event.pos())
                 if sc._find_grip_hit(scene_pos) is not None:
                     self._grip_press_active = True
                     self.setDragMode(QGraphicsView.DragMode.NoDrag)
                     super().mousePressEvent(event)
                     return
+
+            # In select mode, when clicking directly on an item the scene
+            # handles selection via _press_select_item.  Suppress
+            # rubber-band for this press so the view's mouseReleaseEvent
+            # doesn't clear the selection with an empty rubber-band rect.
+            if (sc is not None
+                    and getattr(sc, "mode", None) in (None, "select")
+                    and sc.items(scene_pos)):
+                self._item_press_active = True
+                self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                super().mousePressEvent(event)
+                return
+
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
@@ -510,8 +524,9 @@ class Model_View(QGraphicsView):
             self.setCursor(self._mode_cursors.get(
                 mode, Qt.CursorShape.ArrowCursor))
         elif event.button() == Qt.MouseButton.LeftButton:
-            if getattr(self, "_grip_press_active", False):
+            if getattr(self, "_grip_press_active", False) or getattr(self, "_item_press_active", False):
                 self._grip_press_active = False
+                self._item_press_active = False
                 # Only restore rubber-band in modes that use it
                 sc = self.scene()
                 mode = getattr(sc, "mode", "select") if sc else "select"

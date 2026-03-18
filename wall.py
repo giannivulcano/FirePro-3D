@@ -455,6 +455,20 @@ class WallSegment(QGraphicsPathItem):
             if sc and hasattr(sc, "push_undo_state"):
                 sc.push_undo_state()
 
+    def _parse_dim(self, value) -> float | None:
+        """Parse a dimension value (display-formatted or raw) to mm."""
+        from scale_manager import ScaleManager
+        sc = self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else self._scale_manager_ref
+        if sm:
+            parsed = ScaleManager.parse_dimension(str(value), sm.bare_number_unit())
+            if parsed is not None:
+                return parsed
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
@@ -462,12 +476,11 @@ class WallSegment(QGraphicsPathItem):
             self._color = QColor(value)
             self.update()
         elif key == "Thickness":
-            try:
-                self._thickness_mm = float(value)
+            parsed = self._parse_dim(value)
+            if parsed is not None:
+                self._thickness_mm = parsed
                 self._rebuild_path()
                 self.update()
-            except (ValueError, TypeError):
-                pass
         elif key == "Fill Mode":
             self._fill_mode = str(value)
             self.update()
@@ -482,26 +495,24 @@ class WallSegment(QGraphicsPathItem):
             self._rebuild_path()
             self.update()
         elif key == "Base Offset":
-            try:
-                self._base_offset_mm = float(value)
+            parsed = self._parse_dim(value)
+            if parsed is not None:
+                self._base_offset_mm = parsed
                 self._height_mm = self._computed_height_mm()
                 self._rebuild_path()
                 self.update()
-            except (ValueError, TypeError):
-                pass
         elif key == "Top Level":
             self._top_level = str(value)
             self._height_mm = self._computed_height_mm()
             self._rebuild_path()
             self.update()
         elif key == "Top Offset":
-            try:
-                self._top_offset_mm = float(value)
+            parsed = self._parse_dim(value)
+            if parsed is not None:
+                self._top_offset_mm = parsed
                 self._height_mm = self._computed_height_mm()
                 self._rebuild_path()
                 self.update()
-            except (ValueError, TypeError):
-                pass
 
     # ── Serialisation ────────────────────────────────────────────────────────
 

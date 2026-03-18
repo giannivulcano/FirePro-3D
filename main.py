@@ -94,34 +94,54 @@ class _SplashScreen(QWidget):
 
         layout.addStretch()
 
-        # Status label
-        self._status = QLabel("Loading...")
-        self._status.setFont(QFont("Segoe UI", 8))
-        self._status.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        self._status.setStyleSheet("color: #888888;")
-        layout.addWidget(self._status)
+        # Combined progress bar with overlaid status text
+        from PyQt6.QtWidgets import QStackedLayout
 
-        # Progress bar
+        bar_container = QWidget()
+        bar_container.setFixedHeight(28)
+        stack = QStackedLayout(bar_container)
+        stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
+        stack.setContentsMargins(0, 0, 0, 0)
+
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
-        self._bar.setFixedHeight(6)
         self._bar.setTextVisible(False)
         self._bar.setStyleSheet("""
             QProgressBar {
                 background: #e0e0e0;
                 border: none;
-                border-radius: 3px;
+                border-radius: 4px;
             }
             QProgressBar::chunk {
                 background: #3399ff;
-                border-radius: 3px;
+                border-radius: 4px;
             }
         """)
-        layout.addWidget(self._bar)
 
+        self._status = QLabel("Loading...")
+        self._status.setFont(QFont("Segoe UI", 8))
+        self._status.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        self._status.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._status.setObjectName("splashStatus")
+        self._status.setStyleSheet(
+            "#splashStatus { color: #555555; background: transparent;"
+            " padding-left: 8px; border: none; outline: none; }"
+        )
+
+        # Bar first (bottom of stack), then text on top
+        stack.addWidget(self._bar)
+        stack.addWidget(self._status)
+        self._status.raise_()
+
+        layout.addWidget(bar_container)
+
+        # Scope stylesheet to _SplashScreen only so it doesn't cascade
+        self.setObjectName("splashRoot")
         self.setStyleSheet(
-            "background: #ffffff; border: 1px solid #cccccc; border-radius: 8px;"
+            "#splashRoot { background: #ffffff; border: 1px solid #cccccc; border-radius: 8px; }"
         )
 
     # ── Public helpers ─────────────────────────────────────────────────────────
@@ -1646,7 +1666,7 @@ class MainWindow(QMainWindow):
             self.save_file_as()
 
     def save_file_as(self):
-        file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.fp3d)")
+        file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if file:
             self._current_file = file
             if self.scene.save_to_file(file):
@@ -1655,7 +1675,7 @@ class MainWindow(QMainWindow):
                 self._add_recent_file(file)
 
     def open_file(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.fp3d);;JSON Files (*.json)")
+        file, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "FirePro 3D Files (*.FPD);;JSON Files (*.json)")
         if file:
             self._load_project(file)
 
@@ -1714,7 +1734,7 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _autosave_path() -> str:
         return os.path.join(os.path.expanduser("~"), ".firepro3d",
-                            "autosave", "recovery.fp3d")
+                            "autosave", "recovery.FPD")
 
     def _autosave(self):
         if not self._modified:

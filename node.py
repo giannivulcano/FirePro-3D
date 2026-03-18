@@ -205,6 +205,9 @@ class Node(QGraphicsEllipseItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
             self.update()  # force a full repaint when selected/deselected
+            # Also repaint the child sprinkler so its highlight updates
+            if self.has_sprinkler():
+                self.sprinkler.update()
 
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             if self.pipes:
@@ -275,11 +278,17 @@ class Node(QGraphicsEllipseItem):
         painter.setPen(QPen(Qt.PenStyle.NoPen))
         painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        if self.isSelected() and not self.has_sprinkler():
-            # Plain node: blue glow circle at node radius
-            r = 14.0 * 25.4 / 2.0  # 177.8 mm
-            pen = QPen(QColor(0, 120, 215), 2)
-            pen.setCosmetic(True)
+        if self.isSelected():
+            if self.has_sprinkler():
+                # Sprinkler node: draw highlight behind the sprinkler graphic.
+                # Drawn here (Node Z=10) so it appears under the Sprinkler (Z=100)
+                # and isn't clipped by the Sprinkler's smaller boundingRect.
+                r = self.sprinkler.TARGET_MM / 2.0 * self.sprinkler._display_scale * 0.95
+            else:
+                # Plain node
+                r = 14.0 * 25.4 / 2.0  # 177.8 mm
+            pen = QPen(QColor(0, 120, 215), r * 0.45)  # ~45% of radius
+            pen.setCosmetic(False)                        # scales with zoom
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(0, 0), r, r)
