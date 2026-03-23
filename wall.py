@@ -420,12 +420,8 @@ class WallSegment(QGraphicsPathItem):
         return (top_elev_mm + self._top_offset_mm) - (base_elev_mm + self._base_offset_mm)
 
     def _fmt(self, mm: float) -> str:
-        """Format mm using scene's scale_manager."""
-        sc = self.scene()
-        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-        if sm is None:
-            sm = self._scale_manager_ref
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def get_properties(self) -> dict:
         height_mm = self._computed_height_mm()

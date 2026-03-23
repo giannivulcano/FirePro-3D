@@ -1,4 +1,5 @@
 import math
+import os
 from CAD_Math import CAD_Math
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsItem
@@ -17,11 +18,7 @@ class Fitting():
     TARGET_PAPER_MM = 6.0   # desired fitting symbol size in paper mm
     TARGET_SCREEN_PX = 20.0 # zoom-independent screen-pixel size
 
-    # Nominal pipe OD in inches (same table as Pipe.NOMINAL_OD_IN).
-    _NOMINAL_OD_IN: dict[str, float] = {
-        '1"Ø': 1.315, '1-½"Ø': 1.900, '2"Ø': 2.375, '3"Ø': 3.500,
-        '4"Ø': 4.500, '5"Ø': 5.563, '6"Ø': 6.625, '8"Ø': 8.625,
-    }
+    # Nominal OD table: use Pipe.NOMINAL_OD_IN (single source of truth)
     SYMBOLS = {
         "no fitting": {
             "path": r"graphics/fitting_symbols/no_fitting.svg"
@@ -204,7 +201,6 @@ class Fitting():
             self.symbol = None
 
         # Build new symbol as child of node
-        import os
         path = self.SYMBOLS[self.type]["path"]
         # Resolve relative to this module's directory (not CWD)
         if not os.path.isabs(path):

@@ -1,4 +1,3 @@
-from math import floor
 import math
 from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QGraphicsTextItem, QStyle
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
@@ -37,6 +36,9 @@ class Pipe(QGraphicsLineItem):
     NOMINAL_OD_IN: dict[str, float] = {
         '1"Ø': 1.315, '1-½"Ø': 1.900, '2"Ø': 2.375, '3"Ø': 3.500,
         '4"Ø': 4.500, '5"Ø': 5.563, '6"Ø': 6.625, '8"Ø': 8.625,
+        # Legacy keys without Ø (for backward-compat with older projects / 3D view)
+        '1"': 1.315, '1-½"': 1.900, '2"': 2.375, '3"': 3.500,
+        '4"': 4.500, '5"': 5.563, '6"': 6.625, '8"': 8.625,
     }
 
     # Inside diameter (inches) by schedule and nominal pipe size.
@@ -279,20 +281,12 @@ class Pipe(QGraphicsLineItem):
             return end
         
     def _get_scale_manager(self):
-        """Return the ScaleManager from the scene, or a fallback reference."""
-        sc = self.scene()
-        if sc and hasattr(sc, "scale_manager"):
-            return sc.scale_manager
-        # For templates not in a scene: follow a scene reference to get
-        # the *current* scale_manager (survives _clear_scene resets).
-        ref = getattr(self, "_scene_ref", None)
-        if ref is not None and hasattr(ref, "scale_manager"):
-            return ref.scale_manager
-        return None
+        from format_utils import get_scale_manager
+        return get_scale_manager(self)
 
     def _fmt(self, mm: float) -> str:
-        sm = self._get_scale_manager()
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def _is_metric_display(self) -> bool:
         """True when the current display unit is metric (mm or m)."""
@@ -449,12 +443,15 @@ class Pipe(QGraphicsLineItem):
             if on_calc_path:
                 v = scene.hydraulic_result.pipe_velocity.get(self, -1)
                 if v >= 0:
-                    if v > 20:
-                        colour = QColor(220, 0, 0)      # red: high velocity
-                    elif v > 12:
-                        colour = QColor(220, 140, 0)    # orange: elevated velocity
+                    from constants import (VELOCITY_HIGH_FPS, VELOCITY_WARN_FPS,
+                                           VELOCITY_COLOR_HIGH, VELOCITY_COLOR_WARN,
+                                           VELOCITY_COLOR_OK)
+                    if v > VELOCITY_HIGH_FPS:
+                        colour = QColor(*VELOCITY_COLOR_HIGH)
+                    elif v > VELOCITY_WARN_FPS:
+                        colour = QColor(*VELOCITY_COLOR_WARN)
                     else:
-                        colour = QColor(0, 200, 80)     # green: OK
+                        colour = QColor(*VELOCITY_COLOR_OK)
                     base_pen = QPen(colour, line_weight)
                     base_pen.setCapStyle(cap_style)
 

@@ -305,6 +305,84 @@ _COL_RESET   = 8
 _CATEGORY_MAP: dict[str, dict] = {c["key"]: c for c in _CATEGORIES}
 
 
+# ---------------------------------------------------------------------------
+# Shared QSettings read/write helpers — eliminates repeated patterns
+# ---------------------------------------------------------------------------
+
+def _read_category_from_settings(key: str, settings: QSettings | None = None,
+                                  overrides: dict | None = None) -> dict:
+    """Read display settings for category *key* from QSettings.
+
+    If *overrides* is given (e.g. from a project file), those values take
+    priority over QSettings, which in turn takes priority over factory
+    defaults from ``_CATEGORIES``.
+
+    Returns dict with keys: color, fill, hatch, scale, opacity, visible, font.
+    """
+    if settings is None:
+        settings = QSettings("GV", "FirePro3D")
+    cat_def = _CATEGORY_MAP[key]
+    ov = overrides or {}
+
+    def _s(prop, default):
+        """Read from overrides → QSettings → factory default."""
+        if prop in ov:
+            return ov[prop]
+        return settings.value(f"display/{key}/{prop}", default)
+
+    color   = _s("color", cat_def["color"])
+    fill    = _s("fill", cat_def.get("fill"))
+    hatch   = _s("hatch", cat_def.get("hatch"))
+    scale   = float(_s("scale", cat_def["scale"]))
+    opacity = int(float(_s("opacity", cat_def["opacity"])))
+    visible = _s("visible", cat_def["visible"])
+    if isinstance(visible, str):
+        visible = visible.lower() not in ("false", "0")
+    font = cat_def.get("font")
+    if font is not None:
+        font = int(float(_s("font", font)))
+
+    return {"color": color, "fill": fill, "hatch": hatch,
+            "scale": scale, "opacity": opacity, "visible": visible,
+            "font": font}
+
+
+def _write_category_to_settings(key: str, vals: dict,
+                                 settings: QSettings | None = None):
+    """Write display settings for category *key* to QSettings."""
+    if settings is None:
+        settings = QSettings("GV", "FirePro3D")
+    settings.setValue(f"display/{key}/color", vals["color"])
+    settings.setValue(f"display/{key}/scale", vals["scale"])
+    settings.setValue(f"display/{key}/opacity", vals["opacity"])
+    settings.setValue(f"display/{key}/visible", vals["visible"])
+    if vals.get("fill"):
+        settings.setValue(f"display/{key}/fill", vals["fill"])
+    if vals.get("hatch"):
+        settings.setValue(f"display/{key}/hatch", vals["hatch"])
+    if vals.get("font") is not None:
+        settings.setValue(f"display/{key}/font", vals["font"])
+
+
+def _apply_to_scene_items(scene, key: str, vals: dict,
+                           respect_overrides: bool = True):
+    """Apply display settings *vals* to all items of category *key*."""
+    items = _items_for_category_static(scene, key)
+    for obj in items:
+        if respect_overrides:
+            ov = getattr(obj, "_display_overrides", {})
+            c = ov.get("color", vals["color"])
+            s = ov.get("scale", vals["scale"])
+            o = ov.get("opacity", vals["opacity"])
+            v = ov.get("visible", vals["visible"])
+            f = ov.get("fill", vals.get("fill"))
+            fn = ov.get("font", vals.get("font"))
+        else:
+            c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
+            f, fn = vals.get("fill"), vals.get("font")
+        apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn)
+
+
 def _category_has_fill(key: str) -> bool:
     """Return True if this category supports a fill colour column."""
     c = _CATEGORY_MAP.get(key)
@@ -1245,13 +1323,13 @@ class DisplayManager(QDialog):
             vis_cb.toggled.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "visible", v))
             color_btn.clicked.connect(
-                lambda _, k=category_key: self._pick_category_color(k))
+                lambda _, k=category_key: self._pick_category_prop(k, "color"))
             if has_fill:
                 fill_btn.clicked.connect(
-                    lambda _, k=category_key: self._pick_category_fill(k))
+                    lambda _, k=category_key: self._pick_category_prop(k, "fill"))
             if has_hatch:
                 hatch_btn.clicked.connect(
-                    lambda _, k=category_key: self._pick_category_hatch(k))
+                    lambda _, k=category_key: self._pick_category_prop(k, "hatch"))
             scale_spin.valueChanged.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1263,13 +1341,13 @@ class DisplayManager(QDialog):
             vis_cb.toggled.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "visible", v))
             color_btn.clicked.connect(
-                lambda _, ref=item_ref: self._pick_instance_color(ref))
+                lambda _, ref=item_ref: self._pick_instance_prop(ref, "color"))
             if has_fill:
                 fill_btn.clicked.connect(
-                    lambda _, ref=item_ref: self._pick_instance_fill(ref))
+                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "fill"))
             if has_hatch:
                 hatch_btn.clicked.connect(
-                    lambda _, ref=item_ref: self._pick_instance_hatch(ref))
+                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "hatch"))
             scale_spin.valueChanged.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1296,96 +1374,64 @@ class DisplayManager(QDialog):
     # Colour pickers
     # ------------------------------------------------------------------
 
-    def _pick_category_color(self, category_key: str):
-        widgets = self._cat_data[category_key]["widgets"]
-        cur = QColor(widgets["color_btn"].property("_color"))
-        color = QColorDialog.getColor(cur, self, f"{category_key} colour")
-        if color.isValid():
-            self._update_color_btn(widgets["color_btn"], color.name())
-            self._on_category_changed(category_key, "color", color.name())
+    # ── Generic colour picker (replaces 6 specific pick methods) ────────
 
-    def _pick_instance_color(self, item_ref):
+    def _pick_category_prop(self, category_key: str, prop: str):
+        """Open a colour dialog for *prop* ('color', 'fill', or 'hatch')
+        on the category row and propagate to instances."""
+        btn_key = {"color": "color_btn", "fill": "fill_btn", "hatch": "hatch_btn"}[prop]
+        default = {"color": "#ffffff", "fill": "#000000", "hatch": "#666666"}[prop]
+        widgets = self._cat_data[category_key]["widgets"]
+        cur_hex = widgets[btn_key].property("_color") or default
+        color = QColorDialog.getColor(QColor(cur_hex), self,
+                                      f"{category_key} {prop}")
+        if color.isValid():
+            self._update_swatch(widgets[btn_key], prop, color.name())
+            self._on_category_changed(category_key, prop, color.name())
+
+    def _pick_instance_prop(self, item_ref, prop: str):
+        """Open a colour dialog for *prop* on an instance row."""
         data = self._inst_data.get(id(item_ref))
         if data is None:
             return
+        btn_key = {"color": "color_btn", "fill": "fill_btn", "hatch": "hatch_btn"}[prop]
+        default = {"color": "#ffffff", "fill": "#000000", "hatch": "#666666"}[prop]
         widgets = data["widgets"]
-        cur = QColor(widgets["color_btn"].property("_color"))
-        color = QColorDialog.getColor(cur, self, "Instance colour")
-        if color.isValid():
-            self._update_color_btn(widgets["color_btn"], color.name())
-            self._on_instance_changed(item_ref, "color", color.name())
-
-    def _pick_category_fill(self, category_key: str):
-        widgets = self._cat_data[category_key]["widgets"]
-        cur_hex = widgets["fill_btn"].property("_color") or "#000000"
+        cur_hex = widgets[btn_key].property("_color") or default
         color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      f"{category_key} fill colour")
+                                      f"Instance {prop}")
         if color.isValid():
-            self._update_color_btn(widgets["fill_btn"], color.name())
-            self._on_category_changed(category_key, "fill", color.name())
+            self._update_swatch(widgets[btn_key], prop, color.name())
+            self._on_instance_changed(item_ref, prop, color.name())
 
-    def _pick_instance_fill(self, item_ref):
-        data = self._inst_data.get(id(item_ref))
-        if data is None:
-            return
-        widgets = data["widgets"]
-        cur_hex = widgets["fill_btn"].property("_color") or "#000000"
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      "Instance fill colour")
-        if color.isValid():
-            self._update_color_btn(widgets["fill_btn"], color.name())
-            self._on_instance_changed(item_ref, "fill", color.name())
+    # ── Swatch update (replaces 3 specific update methods) ────────────
 
-    def _pick_category_hatch(self, category_key: str):
-        widgets = self._cat_data[category_key]["widgets"]
-        cur_hex = widgets["hatch_btn"].property("_color") or "#666666"
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      f"{category_key} hatch colour")
-        if color.isValid():
-            self._update_hatch_btn(widgets["hatch_btn"], color.name())
-            self._on_category_changed(category_key, "hatch", color.name())
-
-    def _pick_instance_hatch(self, item_ref):
-        data = self._inst_data.get(id(item_ref))
-        if data is None:
-            return
-        widgets = data["widgets"]
-        cur_hex = widgets["hatch_btn"].property("_color") or "#666666"
-        color = QColorDialog.getColor(QColor(cur_hex), self,
-                                      "Instance hatch colour")
-        if color.isValid():
-            self._update_hatch_btn(widgets["hatch_btn"], color.name())
-            self._on_instance_changed(item_ref, "hatch", color.name())
-
-    def _update_color_btn(self, btn: QPushButton, hex_color: str):
+    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str):
+        """Update a swatch button for 'color', 'fill', or 'hatch'."""
         _t = th.detect()
-        btn.setProperty("_color", hex_color)
-        btn.setStyleSheet(
-            f"background: {hex_color}; border: 1px solid {_t.border_subtle}; "
-            f"border-radius: 2px;")
+        if prop == "hatch":
+            btn.setProperty("_color", hex_color)
+            pix = _make_fill_icon("hatch", hex_color, 40, 20)
+            btn.setIcon(QIcon(pix))
+            btn.setIconSize(pix.size())
+            btn.setText("")
+            btn.setStyleSheet(
+                f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
+                f"background: transparent;")
+        else:
+            # color and fill are both solid swatches
+            _, hex_col = _parse_fill_value(hex_color)
+            btn.setProperty("_color", hex_col)
+            btn.setIcon(QIcon())
+            btn.setText("")
+            btn.setStyleSheet(
+                f"background: {hex_col}; border: 1px solid {_t.border_subtle}; "
+                f"border-radius: 2px;")
 
-    def _update_fill_btn(self, btn: QPushButton, fill_value: str):
-        """Update a fill button to show solid colour swatch."""
-        _t = th.detect()
-        _, hex_col = _parse_fill_value(fill_value)
-        btn.setProperty("_color", hex_col)
-        btn.setIcon(QIcon())
-        btn.setText("")
-        btn.setStyleSheet(
-            f"background: {hex_col}; border: 1px solid {_t.border_subtle}; "
-            f"border-radius: 2px;")
-
-    def _update_hatch_btn(self, btn: QPushButton, hex_color: str):
-        """Update a hatch button to show hatch swatch."""
-        _t = th.detect()
-        btn.setProperty("_color", hex_color)
-        pix = _make_fill_icon("hatch", hex_color, 40, 20)
-        btn.setIcon(QIcon(pix))
-        btn.setIconSize(pix.size())
-        btn.setText("")
-        btn.setStyleSheet(
-            f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
-            f"background: transparent;")
+    # Legacy aliases so existing internal calls still work
+    _update_color_btn = lambda self, btn, v: self._update_swatch(btn, "color", v)
+    _update_fill_btn  = lambda self, btn, v: self._update_swatch(btn, "fill", v)
+    _update_hatch_btn = lambda self, btn, v: self._update_swatch(btn, "hatch", v)
 
     # ------------------------------------------------------------------
     # Change handlers
@@ -1666,96 +1712,36 @@ class DisplayManager(QDialog):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def apply_saved_display_settings(scene):
-    """Read QSettings + per-item overrides and apply to all FS items."""
-    from pipe import Pipe
-    from sprinkler import Sprinkler
-    from fitting import Fitting
-    from water_supply import WaterSupply
-    from node import Node
-
+    """Read QSettings + per-item overrides and apply to all scene items."""
     settings = QSettings("GV", "FirePro3D")
-    cat_defaults = {c["key"]: c for c in _CATEGORIES}
-
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
-        color = settings.value(f"display/{key}/color", cat_def["color"])
-        scale = float(settings.value(f"display/{key}/scale", cat_def["scale"]))
-        opacity = int(float(settings.value(
-            f"display/{key}/opacity", cat_def["opacity"])))
-        visible = settings.value(f"display/{key}/visible", cat_def["visible"])
-        if isinstance(visible, str):
-            visible = visible.lower() not in ("false", "0")
-        fill = settings.value(f"display/{key}/fill", cat_def.get("fill"))
-        font = cat_def.get("font")
-        if font is not None:
-            font = int(float(settings.value(f"display/{key}/font", font)))
-
-        items = _items_for_category_static(scene, key)
-        for obj in items:
-            overrides = getattr(obj, "_display_overrides", {})
-            eff_color = overrides.get("color", color)
-            eff_scale = overrides.get("scale", scale)
-            eff_opacity = overrides.get("opacity", opacity)
-            eff_visible = overrides.get("visible", visible)
-            eff_fill = overrides.get("fill", fill)
-            eff_font = overrides.get("font", font)
-            apply_display_to_item(obj, eff_color, eff_scale,
-                                  eff_opacity, eff_visible,
-                                  fill_color=eff_fill,
-                                  font_size=eff_font)
+        vals = _read_category_from_settings(key, settings)
+        _apply_to_scene_items(scene, key, vals, respect_overrides=True)
 
 
 def apply_default_display_settings(scene):
     """Apply stored default settings (from 'Set as Default') to all items.
 
     Called when creating a new project to apply the user's preferred defaults.
+    Reads from ``display/{key}/default_*`` keys, falling back to regular keys.
     """
     settings = QSettings("GV", "FirePro3D")
 
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
-        color = settings.value(
-            f"display/{key}/default_color",
-            settings.value(f"display/{key}/color", cat_def["color"]))
-        scale = float(settings.value(
-            f"display/{key}/default_scale",
-            settings.value(f"display/{key}/scale", cat_def["scale"])))
-        opacity = int(float(settings.value(
-            f"display/{key}/default_opacity",
-            settings.value(f"display/{key}/opacity", cat_def["opacity"]))))
-        visible = settings.value(
-            f"display/{key}/default_visible",
-            settings.value(f"display/{key}/visible", cat_def["visible"]))
-        if isinstance(visible, str):
-            visible = visible.lower() not in ("false", "0")
-        fill = settings.value(
-            f"display/{key}/default_fill",
-            settings.value(f"display/{key}/fill", cat_def.get("fill")))
-        hatch = settings.value(
-            f"display/{key}/default_hatch",
-            settings.value(f"display/{key}/hatch", cat_def.get("hatch")))
-        font = cat_def.get("font")
-        if font is not None:
-            font = int(float(settings.value(
-                f"display/{key}/default_font",
-                settings.value(f"display/{key}/font", font))))
+        # Build overrides from default_* keys (fall back to regular keys)
+        default_ov: dict = {}
+        for prop in ("color", "fill", "hatch", "scale", "opacity", "visible", "font"):
+            dv = settings.value(f"display/{key}/default_{prop}")
+            if dv is not None:
+                default_ov[prop] = dv
+        vals = _read_category_from_settings(key, settings, overrides=default_ov)
 
         # Also save as current settings so Display Manager shows them
-        settings.setValue(f"display/{key}/color", color)
-        settings.setValue(f"display/{key}/scale", scale)
-        settings.setValue(f"display/{key}/opacity", opacity)
-        settings.setValue(f"display/{key}/visible", visible)
-        if fill:
-            settings.setValue(f"display/{key}/fill", fill)
-        if hatch:
-            settings.setValue(f"display/{key}/hatch", hatch)
-        if font is not None:
-            settings.setValue(f"display/{key}/font", font)
+        _write_category_to_settings(key, vals, settings)
 
-        items = _items_for_category_static(scene, key)
-        for obj in items:
-            apply_display_to_item(obj, color, scale, opacity, visible,
-                                  fill_color=fill, font_size=font)
+        _apply_to_scene_items(scene, key, vals, respect_overrides=False)
 
 
 def get_display_settings_for_save() -> dict:
@@ -1766,28 +1752,9 @@ def get_display_settings_for_save() -> dict:
     result: dict = {}
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
-        entry: dict = {}
-        entry["color"] = settings.value(
-            f"display/{key}/color", cat_def["color"])
-        entry["scale"] = float(settings.value(
-            f"display/{key}/scale", cat_def["scale"]))
-        entry["opacity"] = int(float(settings.value(
-            f"display/{key}/opacity", cat_def["opacity"])))
-        vis = settings.value(f"display/{key}/visible", cat_def["visible"])
-        if isinstance(vis, str):
-            vis = vis.lower() not in ("false", "0")
-        entry["visible"] = vis
-        fill = settings.value(f"display/{key}/fill", cat_def.get("fill"))
-        if fill:
-            entry["fill"] = fill
-        hatch = settings.value(f"display/{key}/hatch", cat_def.get("hatch"))
-        if hatch:
-            entry["hatch"] = hatch
-        font = cat_def.get("font")
-        if font is not None:
-            font = int(float(settings.value(
-                f"display/{key}/font", font)))
-            entry["font"] = font
+        vals = _read_category_from_settings(key, settings)
+        # Strip None values for clean serialisation
+        entry = {k: v for k, v in vals.items() if v is not None}
         result[key] = entry
     return result
 
@@ -1804,53 +1771,12 @@ def apply_project_display_settings(scene, display_dict: dict):
     for cat_def in _CATEGORIES:
         key = cat_def["key"]
         proj = display_dict.get(key, {})
-        # Read from project dict, fall back to QSettings, then factory default
-        color = proj.get("color",
-                         settings.value(f"display/{key}/color", cat_def["color"]))
-        scale = float(proj.get("scale",
-                               settings.value(f"display/{key}/scale", cat_def["scale"])))
-        opacity = int(float(proj.get("opacity",
-                                     settings.value(f"display/{key}/opacity", cat_def["opacity"]))))
-        visible = proj.get("visible",
-                           settings.value(f"display/{key}/visible", cat_def["visible"]))
-        if isinstance(visible, str):
-            visible = visible.lower() not in ("false", "0")
-        fill = proj.get("fill",
-                        settings.value(f"display/{key}/fill", cat_def.get("fill")))
-        hatch = proj.get("hatch",
-                         settings.value(f"display/{key}/hatch", cat_def.get("hatch")))
-        font = proj.get("font")
-        if font is None:
-            f_def = cat_def.get("font")
-            if f_def is not None:
-                font = int(float(settings.value(
-                    f"display/{key}/font", f_def)))
+        vals = _read_category_from_settings(key, settings, overrides=proj)
 
         # Also update QSettings so Display Manager shows these values
-        settings.setValue(f"display/{key}/color", color)
-        settings.setValue(f"display/{key}/scale", scale)
-        settings.setValue(f"display/{key}/opacity", opacity)
-        settings.setValue(f"display/{key}/visible", visible)
-        if fill:
-            settings.setValue(f"display/{key}/fill", fill)
-        if hatch:
-            settings.setValue(f"display/{key}/hatch", hatch)
-        if font is not None:
-            settings.setValue(f"display/{key}/font", font)
+        _write_category_to_settings(key, vals, settings)
 
-        items = _items_for_category_static(scene, key)
-        for obj in items:
-            overrides = getattr(obj, "_display_overrides", {})
-            eff_color = overrides.get("color", color)
-            eff_scale = overrides.get("scale", scale)
-            eff_opacity = overrides.get("opacity", opacity)
-            eff_visible = overrides.get("visible", visible)
-            eff_fill = overrides.get("fill", fill)
-            eff_font = overrides.get("font", font)
-            apply_display_to_item(obj, eff_color, eff_scale,
-                                  eff_opacity, eff_visible,
-                                  fill_color=eff_fill,
-                                  font_size=eff_font)
+        _apply_to_scene_items(scene, key, vals, respect_overrides=True)
     settings.sync()
 
 

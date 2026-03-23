@@ -1,3 +1,5 @@
+import os
+
 from PyQt6.QtWidgets import QGraphicsItem, QStyle
 from PyQt6.QtGui import QTransform, QPainterPath, QPen, QColor
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
@@ -55,7 +57,6 @@ class Sprinkler(QGraphicsSvgItem):
 
     def _load_graphic(self, svg_path: str):
         """Load an SVG file into this item and re-centre it on the node."""
-        import os
         # Resolve relative to this module's directory (not CWD)
         if not os.path.isabs(svg_path):
             svg_path = os.path.join(os.path.dirname(__file__), svg_path)
@@ -106,21 +107,12 @@ class Sprinkler(QGraphicsSvgItem):
     # Public property API
 
     def _get_scale_manager(self):
-        """Return the ScaleManager from the scene, or a fallback reference."""
-        if self.node is not None:
-            sc = self.node.scene()
-            if sc and hasattr(sc, "scale_manager"):
-                return sc.scale_manager
-        # For templates not in a scene: follow a scene reference to get
-        # the *current* scale_manager (survives _clear_scene resets).
-        ref = getattr(self, "_scene_ref", None)
-        if ref is not None and hasattr(ref, "scale_manager"):
-            return ref.scale_manager
-        return None
+        from format_utils import get_scale_manager
+        return get_scale_manager(self)
 
     def _fmt(self, mm: float) -> str:
-        sm = self._get_scale_manager()
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def get_properties(self) -> dict:
         props = self._properties.copy()

@@ -670,10 +670,7 @@ class ElevationScene(QGraphicsScene):
     # ── Pipes ────────────────────────────────────────────────────────────
 
     def _project_pipes(self):
-        _PIPE_COLORS = {
-            "Red":   "#e62828", "Blue":  "#3366e6", "Black": "#1a1a1a",
-            "White": "#f2f2f2", "Grey":  "#8c8c8c",
-        }
+        from constants import PIPE_COLORS as _PIPE_COLORS
         for pipe in self._ms.sprinkler_system.pipes:
             n1, n2 = pipe.node1, pipe.node2
             if n1 is None or n2 is None:

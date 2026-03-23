@@ -167,9 +167,8 @@ class WallOpening(QGraphicsPathItem):
     # ── Properties ───────────────────────────────────────────────────────────
 
     def _fmt(self, mm: float) -> str:
-        sc = self.scene()
-        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def get_properties(self) -> dict:
         return {

@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from fitting import Fitting
 from sprinkler import Sprinkler
-from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM
 
 class Node(QGraphicsEllipseItem):
     RADIUS = 13
@@ -37,7 +37,7 @@ class Node(QGraphicsEllipseItem):
         self.user_layer: str = DEFAULT_USER_LAYER   # user-defined layer name
         self.level: str = DEFAULT_LEVEL          # floor level (visibility)
         self.ceiling_level: str = DEFAULT_LEVEL  # ceiling level (3D elevation)
-        self.ceiling_offset: float = -50.8    # mm offset from ceiling level (negative = below)
+        self.ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
         self._hydraulic_badge = None         # HydraulicNodeBadge child (transient)
         self._display_overrides: dict = {}  # per-instance display overrides
 
@@ -45,16 +45,15 @@ class Node(QGraphicsEllipseItem):
         self._properties: dict = {
             "Level":          {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":  {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset": {"type": "string", "value": "-50.8"},
+            "Ceiling Offset": {"type": "string", "value": str(DEFAULT_CEILING_OFFSET_MM)},
         }
 
     # -------------------------------------------------------------------------
     # Property API (used by PropertyManager and hydraulic solver)
 
     def _fmt(self, mm: float) -> str:
-        sc = self.scene()
-        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def get_properties(self) -> dict:
         props = self._properties.copy()

@@ -45,14 +45,9 @@ CIRCLE_SEGMENTS = 64
 PICK_TOLERANCE_PX = 15
 MAX_CYLINDER_PIPES = 200   # above this count, fall back to line rendering
 
-# Pipe nominal diameter → approximate OD in inches (for cylinder radius)
-_NOMINAL_OD_IN = {
-    '1"Ø': 1.315, '1-½"Ø': 1.900, '2"Ø': 2.375, '3"Ø': 3.500,
-    '4"Ø': 4.500, '5"Ø': 5.563, '6"Ø': 6.625, '8"Ø': 8.625,
-    # Legacy keys without Ø
-    '1"': 1.315, '1-½"': 1.900, '2"': 2.375, '3"': 3.500,
-    '4"': 4.500, '5"': 5.563, '6"': 6.625, '8"': 8.625,
-}
+# Single source of truth for pipe OD table
+from pipe import Pipe as _PipeClass
+_NOMINAL_OD_IN = _PipeClass.NOMINAL_OD_IN
 
 # Colors (RGB tuples for PyVista)
 COL_NODE        = (0.55, 0.55, 0.55)

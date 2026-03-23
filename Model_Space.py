@@ -31,7 +31,8 @@ from snap_engine import SnapEngine, OsnapResult
 from display_manager import apply_category_defaults
 from gridline import GridlineItem, reset_grid_counters
 from view_marker import ViewMarkerArrow
-from constants import Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from constants import (Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER,
+                       DEFAULT_CEILING_OFFSET_MM)
 from wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from floor_slab import FloorSlab
 from roof import RoofItem
@@ -275,7 +276,7 @@ class Model_Space(QGraphicsScene):
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset_mm": getattr(node, "ceiling_offset", -50.8),
+                "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                 "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
             }
             # Per-instance display overrides (Display Manager)
@@ -309,7 +310,7 @@ class Model_Space(QGraphicsScene):
                 "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":      getattr(pipe, "level", DEFAULT_LEVEL),
                 "ceiling_level":     getattr(pipe, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset_mm": getattr(pipe, "ceiling_offset", -50.8),
+                "ceiling_offset_mm": getattr(pipe, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                 "properties": raw_props,
             }
             pipe_ovr = getattr(pipe, "_display_overrides", {})
@@ -1624,10 +1625,10 @@ class Model_Space(QGraphicsScene):
             return None
         try:
             offset = float(
-                template._properties.get("Ceiling Offset", {}).get("value", -50.8)
+                template._properties.get("Ceiling Offset", {}).get("value", DEFAULT_CEILING_OFFSET_MM)
             )
         except (ValueError, TypeError):
-            offset = -50.8
+            offset = DEFAULT_CEILING_OFFSET_MM
         return lvl.elevation + offset
 
     def _make_intermediate_node(self, existing_node, template):
@@ -1648,7 +1649,7 @@ class Model_Space(QGraphicsScene):
         try:
             ceiling_off = float(template._properties["Ceiling Offset"]["value"])
         except (ValueError, TypeError):
-            ceiling_off = -50.8
+            ceiling_off = DEFAULT_CEILING_OFFSET_MM
         intermediate.ceiling_level = ceiling_lvl
         intermediate._properties["Ceiling Level"]["value"] = ceiling_lvl
         intermediate.ceiling_offset = ceiling_off
@@ -2397,7 +2398,7 @@ class Model_Space(QGraphicsScene):
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset_mm": getattr(node, "ceiling_offset", -50.8),
+                "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
             }
             node_ovr = getattr(node, "_display_overrides", {})
             if node_ovr:
@@ -4019,12 +4020,9 @@ class Model_Space(QGraphicsScene):
             template = getattr(self, "current_template", None)
             if template:
                 from pipe import Pipe
-                _PIPE_COLORS = {
-                    "Red": "#e62828", "Blue": "#3366e6", "Black": "#1a1a1a",
-                    "White": "#f2f2f2", "Grey": "#8c8c8c",
-                }
+                from constants import PIPE_COLORS
                 col_name = template._properties.get("Colour", {}).get("value", "Red")
-                color = QColor(_PIPE_COLORS.get(col_name, "#e62828"))
+                color = QColor(PIPE_COLORS.get(col_name, "#e62828"))
                 width = Pipe.display_width_mm(template)
                 pen = QPen(color, width)
                 self.preview_pipe.setPen(pen)

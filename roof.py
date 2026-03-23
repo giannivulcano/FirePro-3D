@@ -428,12 +428,8 @@ class RoofItem(QGraphicsPathItem):
     # ── Properties API ───────────────────────────────────────────────────
 
     def _fmt(self, mm: float) -> str:
-        """Format mm using scene's scale_manager, fallback to raw mm."""
-        sc = self.scene()
-        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-        if sm is None:
-            sm = self._scale_manager_ref
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def get_properties(self) -> dict:
         return {

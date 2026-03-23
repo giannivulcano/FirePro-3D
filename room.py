@@ -28,27 +28,9 @@ from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
 if TYPE_CHECKING:
     from scale_manager import ScaleManager
 
-# ── NFPA 13 coverage limits (sq ft per sprinkler) ──────────────────────
+# ── NFPA 13 coverage limits — imported from constants.py ─────────────────
+from constants import HAZARD_CLASSES, NFPA_MAX_COVERAGE_SQFT as _NFPA_MAX_COVERAGE_SQFT
 
-HAZARD_CLASSES = [
-    "Light Hazard",
-    "Ordinary Hazard Group 1",
-    "Ordinary Hazard Group 2",
-    "Extra Hazard Group 1",
-    "Extra Hazard Group 2",
-    "Miscellaneous Storage",
-    "High Piled Storage",
-]
-
-_NFPA_MAX_COVERAGE_SQFT: dict[str, float] = {
-    "Light Hazard":             225.0,
-    "Ordinary Hazard Group 1":  130.0,
-    "Ordinary Hazard Group 2":  130.0,
-    "Extra Hazard Group 1":     100.0,
-    "Extra Hazard Group 2":     100.0,
-    "Miscellaneous Storage":    100.0,
-    "High Piled Storage":       100.0,
-}
 
 # NFPA 13 ceiling construction types — determines max spacing and
 # protection area per Table 10.2.4.2.1(a)/(b).
@@ -307,15 +289,12 @@ class Room(QGraphicsPolygonItem):
     # ── Formatting helpers ───────────────────────────────────────────────
 
     def _get_sm(self):
-        sc = self.scene()
-        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
-        if sm is None:
-            sm = self._scale_manager_ref
-        return sm
+        from format_utils import get_scale_manager
+        return get_scale_manager(self)
 
     def _fmt(self, mm: float) -> str:
-        sm = self._get_sm()
-        return sm.format_length(mm) if sm else f"{mm:.1f} mm"
+        from format_utils import fmt_length
+        return fmt_length(self, mm)
 
     def _fmt_area(self, mm2: float) -> str:
         """Format area in display units (sq ft or sq m)."""

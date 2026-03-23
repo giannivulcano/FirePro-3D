@@ -35,7 +35,7 @@ import theme as th
 
 FADE_OPACITY = 0.25  # opacity for faded levels
 
-from constants import DEFAULT_LEVEL
+from constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 # Display mode options (stored in Level.display_mode)
 DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
 
@@ -167,7 +167,7 @@ class LevelManager:
             # 3D elevation = ceiling level elevation (mm) + ceiling offset (mm)
             ceil_lvl = lvl_map.get(getattr(node, "ceiling_level", DEFAULT_LEVEL))
             ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
-            node.z_pos = ceil_elev + getattr(node, "ceiling_offset", -50.8)
+            node.z_pos = ceil_elev + getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM)
 
     # ── Apply to scene ────────────────────────────────────────────────────────
 
