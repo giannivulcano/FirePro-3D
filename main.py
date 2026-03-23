@@ -1430,7 +1430,7 @@ class MainWindow(QMainWindow):
         tol_group = QGroupBox("Tolerance")
         tol_layout = QFormLayout(tol_group)
         tol_spin = QSpinBox()
-        tol_spin.setRange(5, 100)
+        tol_spin.setRange(5, 1000)
         tol_spin.setSingleStep(5)
         tol_spin.setValue(snap_engine.SNAP_TOLERANCE_PX)
         tol_spin.setSuffix(" px")
