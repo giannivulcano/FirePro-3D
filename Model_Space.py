@@ -71,6 +71,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def __init__(self):
         super().__init__()
         self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
+        # One-time repair: fix display/*/visible stored as bool instead of string
+        self._repair_display_settings()
         # Disable BSP-tree indexing — cosmetic-pen items (gridlines) are
         # culled incorrectly by the spatial index at high zoom levels.
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
@@ -781,6 +783,39 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         elif instr:
             self.instructionChanged.emit(instr)
 
+    @staticmethod
+    def _repair_display_settings():
+        """Fix display/*/visible values stored as bool instead of string.
+
+        QSettings on Windows can round-trip bools inconsistently. This ensures
+        all visibility flags are stored as ``"true"``/``"false"`` strings.
+        """
+        from display_manager import _CATEGORIES
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("GV", "FirePro3D")
+        repaired = False
+        for cat in _CATEGORIES:
+            key = cat["key"]
+            for prefix in ("", "default_"):
+                skey = f"display/{key}/{prefix}visible"
+                val = settings.value(skey)
+                if val is None:
+                    continue
+                # Fix bools stored by older code — force to "true" string
+                # (a bool False here is a bug, not an intentional hide)
+                if isinstance(val, bool):
+                    settings.setValue(skey, "true")
+                    repaired = True
+                elif isinstance(val, str) and val.lower() == "false":
+                    # Check against the factory default — if the factory
+                    # default is True, this False was likely a bug too.
+                    factory_vis = cat.get("visible", True)
+                    if factory_vis:
+                        settings.setValue(skey, "true")
+                        repaired = True
+        if repaired:
+            settings.sync()
+
     # -------------------------------------------------------------------------
     # NODE / PIPE / SPRINKLER MANAGEMENT
 
@@ -834,6 +869,30 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         n = None
         self.node_start_pos = None
 
+    @staticmethod
+    def _apply_fitting_dm_colors(fitting):
+        """Apply Display Manager colour/opacity to a fitting without re-aligning.
+
+        This avoids the full apply_category_defaults → _apply_fitting → align_fitting
+        chain which can displace the symbol if called at the wrong time.
+        """
+        from display_manager import _set_svg_tint, _CATEGORIES
+        from PyQt6.QtCore import QSettings
+        cat_def = next((c for c in _CATEGORIES if c["key"] == "Fitting"), None)
+        if cat_def is None or fitting.symbol is None:
+            return
+        settings = QSettings("GV", "FirePro3D")
+        if not settings.contains("display/Fitting/color"):
+            return  # no user-saved settings — keep SVG natural colours
+        color = settings.value("display/Fitting/color", cat_def["color"])
+        fill = settings.value("display/Fitting/fill", cat_def.get("fill"))
+        opacity = int(float(settings.value("display/Fitting/opacity", cat_def["opacity"])))
+        fitting._display_color = color
+        fitting._display_fill_color = fill
+        fitting._display_opacity = opacity
+        _set_svg_tint(fitting.symbol, color, fill)
+        fitting.symbol.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
+
     def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True):
         pipe = Pipe(n1, n2)
         pipe.user_layer = self.active_user_layer
@@ -843,7 +902,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Only override the visibility level (Level) with the active level.
         # Ceiling Level comes from the template — it controls 3D elevation.
         pipe.level = self.active_level
-        pipe._properties["Level"]["value"] = self.active_level
         self.sprinkler_system.add_pipe(pipe)
         self.addItem(pipe)
         apply_category_defaults(pipe)
@@ -853,6 +911,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         pipe.setVisible(True)
         pipe.setOpacity(1.0)
         pipe.update()
+        # Update fittings at both endpoints immediately so they reflect
+        # the new connection angle before anything else renders.
+        # Collect all affected nodes first, then update + apply colours.
+        affected_nodes = {n1, n2}
+        for p in n1.pipes:
+            affected_nodes.add(p.node2 if p.node1 is n1 else p.node1)
+        for p in n2.pipes:
+            affected_nodes.add(p.node2 if p.node1 is n2 else p.node1)
+        for node in affected_nodes:
+            node.fitting.update()
+            self._apply_fitting_dm_colors(node.fitting)
         for v in self.views():
             v.viewport().update()
 
@@ -874,6 +943,62 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     node._recompute_z_pos()
 
         return pipe
+
+    def _validate_4th_branch(self, node, new_pt: QPointF) -> str | None:
+        """Check whether adding a 4th branch at *node* toward *new_pt* is valid.
+
+        A 4th pipe is only allowed if:
+        - The existing fitting is a tee (3 pipes with a through-run pair)
+        - The new pipe is perpendicular (~90°) to the through-run
+
+        Returns an error message string, or None if the connection is valid.
+        """
+        from fitting import Fitting
+        pipes = node.pipes
+        if len(pipes) != 3:
+            return "A 4th branch can only be added to a tee fitting."
+        # Check that the current fitting is actually a tee
+        ft_type = node.fitting.determine_type(pipes)
+        if ft_type != "tee":
+            return (f"A 4th branch can only be added to a tee fitting "
+                    f"(current fitting: {ft_type}).")
+        # Find the through-run direction (the collinear pair in the tee)
+        np_ = node.scenePos()
+        vectors = []
+        for p in pipes:
+            other = p.node2 if p.node1 is node else p.node1
+            op = other.scenePos()
+            dx, dy = op.x() - np_.x(), op.y() - np_.y()
+            length = math.hypot(dx, dy)
+            if length < 1e-6:
+                continue
+            vectors.append((dx / length, dy / length))
+        if len(vectors) != 3:
+            return "Cannot determine pipe directions at this node."
+        # Find the collinear pair (angle ≈ 180°)
+        through_dir = None
+        for i in range(3):
+            for j in range(i + 1, 3):
+                dot = vectors[i][0] * vectors[j][0] + vectors[i][1] * vectors[j][1]
+                if dot < -0.95:  # ~180° ± ~18°
+                    through_dir = vectors[i]
+                    break
+            if through_dir:
+                break
+        if through_dir is None:
+            return "Cannot find through-run direction on this tee."
+        # Check new pipe direction is perpendicular to through-run
+        dx_new = new_pt.x() - np_.x()
+        dy_new = new_pt.y() - np_.y()
+        len_new = math.hypot(dx_new, dy_new)
+        if len_new < 1e-6:
+            return "New pipe has zero length."
+        ux_new, uy_new = dx_new / len_new, dy_new / len_new
+        dot_new = through_dir[0] * ux_new + through_dir[1] * uy_new
+        if abs(dot_new) > 0.17:  # cos(80°) ≈ 0.17 — must be within ~10° of 90°
+            return ("A 4th branch must be perpendicular to the through-run "
+                    "to form a cross fitting.")
+        return None
 
     def _would_backtrack(self, start_node, end_node) -> bool:
         """Return True if placing a pipe from *start_node* to *end_node*
@@ -905,6 +1030,32 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 proj_y = sp.y() + t * dy
                 dist = math.hypot(ep.x() - proj_x, ep.y() - proj_y)
                 if dist < 10.0:  # within snap tolerance
+                    return True
+        return False
+
+    def _would_backtrack_at(self, start_node, target_pt: QPointF) -> bool:
+        """Like _would_backtrack but takes a point instead of a node.
+
+        Used to check for backtracking *before* creating a node.
+        """
+        sp = start_node.scenePos()
+        for pipe in start_node.pipes:
+            other = pipe.node2 if pipe.node1 is start_node else pipe.node1
+            op = other.scenePos()
+            # Check if target_pt is the same as other node
+            if math.hypot(target_pt.x() - op.x(), target_pt.y() - op.y()) < 5.0:
+                return True
+            # Check if target_pt lies on existing pipe segment
+            dx, dy = op.x() - sp.x(), op.y() - sp.y()
+            length_sq = dx * dx + dy * dy
+            if length_sq < 1e-6:
+                continue
+            t = ((target_pt.x() - sp.x()) * dx + (target_pt.y() - sp.y()) * dy) / length_sq
+            if 0.01 < t < 0.99:
+                proj_x = sp.x() + t * dx
+                proj_y = sp.y() + t * dy
+                dist = math.hypot(target_pt.x() - proj_x, target_pt.y() - proj_y)
+                if dist < 10.0:
                     return True
         return False
 
@@ -949,13 +1100,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if abs(dot - 1.0) > 0.05:  # ~5° tolerance
             return False
 
-        # Extend: reconnect existing pipe from far_node → end_node
-        # Remove old connections
-        if start_node in (existing.node1, existing.node2):
-            existing.node1.pipes.remove(existing) if existing in existing.node1.pipes else None
-            existing.node2.pipes.remove(existing) if existing in existing.node2.pipes else None
+        # Extend: reconnect existing pipe — replace start_node with end_node
+        # Only remove from the node being replaced (start_node), keep far_node
+        if existing in start_node.pipes:
+            start_node.pipes.remove(existing)
 
-        # Reconnect
+        # Reconnect the pipe endpoint
         if existing.node1 is start_node:
             existing.node1 = end_node
         else:
@@ -971,9 +1121,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.sprinkler_system.remove_node(start_node)
             self.removeItem(start_node)
 
-        # Update fittings
+        # Update fittings at both endpoints + apply DM colours
         far_node.fitting.update()
+        self._apply_fitting_dm_colors(far_node.fitting)
         end_node.fitting.update()
+        self._apply_fitting_dm_colors(end_node.fitting)
         self.update()
         return True
 
@@ -1098,7 +1250,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         vertical_pipe = Pipe(existing_end_node, intermediate)
         vertical_pipe.user_layer = self.active_user_layer
         vertical_pipe.level = self.active_level
-        vertical_pipe._properties["Level"]["value"] = self.active_level
         # Copy physical properties (not ceiling props — endpoints already set)
         for key in ("Diameter", "Schedule", "C-Factor", "Material", "Colour", "Phase"):
             if key in template._properties:
@@ -2017,6 +2168,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     pipe.user_layer = entry.get("user_layer", "0")
                     pipe.level = entry.get("level", DEFAULT_LEVEL)
                     pipe._display_overrides = entry.get("display_overrides", {})
+                    apply_category_defaults(pipe)
 
             for node in id_to_node.values():
                 node.fitting.update()
@@ -2024,6 +2176,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if pending:
                     node.fitting._display_overrides = pending
                     del node._fitting_display_overrides_pending
+                # Apply DM colours without re-aligning (align was done by update)
+                self._apply_fitting_dm_colors(node.fitting)
 
             for entry in state.get("annotations", []):
                 ann_type = entry.get("type")
@@ -3858,7 +4012,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 vert = Pipe(start_node, intermediate)
                 vert.user_layer = self.active_user_layer
                 vert.level = self.active_level
-                vert._properties["Level"]["value"] = self.active_level
                 for key in ("Diameter", "Schedule", "C-Factor",
                             "Material", "Colour", "Phase"):
                     vert._properties[key]["value"] = template._properties[key]["value"]
@@ -3883,7 +4036,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 vert = Pipe(intermediate, end_node)
                 vert.user_layer = self.active_user_layer
                 vert.level = self.active_level
-                vert._properties["Level"]["value"] = self.active_level
                 for key in ("Diameter", "Schedule", "C-Factor",
                             "Material", "Colour", "Phase"):
                     vert._properties[key]["value"] = template._properties[key]["value"]
@@ -4002,6 +4154,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Check for existing node BEFORE find_or_create_node
             existing_start = self.find_nearby_node(snapped.x(), snapped.y())
 
+            # Block starting a pipe from a node that's already full (4 = cross)
+            if existing_start is not None and len(existing_start.pipes) >= 4:
+                self.warningIssued.emit(
+                    "Connection Limit",
+                    f"This node already has {len(existing_start.pipes)} connections (max 4).")
+                return
+            # Starting from a tee node is allowed — the second-click check
+            # will validate the angle for the cross.
+
             if isinstance(item_under, Pipe):
                 start_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped, item_under))
                 self._pipe_node_was_new = True  # split created new node
@@ -4036,6 +4197,42 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             snapped_end = self.node_start_pos.snap_point_45(start_pos, snapped)
             template = getattr(self, "current_template", None)
 
+            # ── Backtrack check (before creating/splitting nodes) ─────
+            if self._would_backtrack_at(self.node_start_pos, snapped_end):
+                self.warningIssued.emit(
+                    "Pipe Overlap",
+                    "Cannot place a pipe back over an existing pipe segment.")
+                return
+
+            # ── Node connection-limit & angle validation ─────────────
+            start_pipes = len(self.node_start_pos.pipes)
+            if start_pipes >= 4:
+                self.warningIssued.emit(
+                    "Connection Limit",
+                    f"Start node already has {start_pipes} connections (max 4).")
+                return
+            # Adding a 4th branch is only valid to turn a tee into a cross
+            if start_pipes == 3:
+                err = self._validate_4th_branch(self.node_start_pos, snapped_end)
+                if err:
+                    self.warningIssued.emit("Invalid Connection", err)
+                    return
+            existing_end_check = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+            if existing_end_check is not None:
+                end_pipes = len(existing_end_check.pipes)
+                if end_pipes >= 4:
+                    self.warningIssued.emit(
+                        "Connection Limit",
+                        f"Target node already has {end_pipes} connections (max 4).")
+                    return
+                if end_pipes == 3:
+                    err = self._validate_4th_branch(
+                        existing_end_check,
+                        self.node_start_pos.scenePos())
+                    if err:
+                        self.warningIssued.emit("Invalid Connection", err)
+                        return
+
             # Check for existing node BEFORE find_or_create_node
             existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
 
@@ -4065,19 +4262,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         f"but the template targets {template_z:.1f} mm.\n\n"
                         "Create a vertical connection (riser/drop)?")
                     return
-
-            # ── Backtrack check ───────────────────────────────────────
-            if self._would_backtrack(self.node_start_pos, end_node):
-                self.warningIssued.emit(
-                    "Pipe Overlap",
-                    "Cannot place a pipe back over an existing pipe segment.")
-                # Remove end_node if it was newly created for this click
-                if len(end_node.pipes) == 0:
-                    if end_node in self.sprinkler_system.nodes:
-                        self.sprinkler_system.remove_node(end_node)
-                    if end_node.scene() is self:
-                        self.removeItem(end_node)
-                return
 
             # ── Collinear extension check ─────────────────────────────
             extended = self._try_extend_collinear(

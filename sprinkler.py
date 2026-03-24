@@ -39,7 +39,6 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             "Temperature":     {"type": "label",  "value": "155°F"},
             "Design Density":  {"type": "string", "value": "0.10"},
             "Graphic":         {"type": "enum",   "value": "Sprinkler0", "options": ["Sprinkler0", "Sprinkler1", "Sprinkler2"]},
-            "Level":           {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":   {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Offset":  {"type": "string", "value": "-50.8"},
         }
@@ -99,10 +98,8 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
 
     def get_properties(self) -> dict:
         props = self._properties.copy()
-        # Sync level properties and ceiling offset from the parent node
+        # Sync ceiling properties from the parent node
         if self.node is not None:
-            props["Level"] = dict(props["Level"])
-            props["Level"]["value"] = self.node.level
             props["Ceiling Level"] = dict(props["Ceiling Level"])
             props["Ceiling Level"]["value"] = self.node.ceiling_level
             props["Ceiling Offset"] = dict(props["Ceiling Offset"])

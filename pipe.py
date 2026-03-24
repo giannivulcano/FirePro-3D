@@ -67,7 +67,6 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
             "C-Factor":    {"type": "string", "value": "120"},
             "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC"]},
-            "Level":              {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Level":      {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Offset":{"type": "string", "value": "-50.8"},
             "Line Type":   {"type": "enum",   "value": "Branch",         "options": ["Branch", "Main"]},

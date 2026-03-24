@@ -284,6 +284,8 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     visible = _s("visible", cat_def["visible"])
     if isinstance(visible, str):
         visible = visible.lower() not in ("false", "0")
+    elif not isinstance(visible, bool):
+        visible = bool(visible)
     font = cat_def.get("font")
     if font is not None:
         font = int(float(_s("font", font)))
@@ -301,7 +303,7 @@ def _write_category_to_settings(key: str, vals: dict,
     settings.setValue(f"display/{key}/color", vals["color"])
     settings.setValue(f"display/{key}/scale", vals["scale"])
     settings.setValue(f"display/{key}/opacity", vals["opacity"])
-    settings.setValue(f"display/{key}/visible", vals["visible"])
+    settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
     if vals.get("fill"):
         settings.setValue(f"display/{key}/fill", vals["fill"])
     if vals.get("hatch"):
@@ -476,8 +478,10 @@ def _apply_fitting(fitting, color, scale, opacity, visible, fill_color=None):
     # Fitting.update()), so only override when we explicitly hide.
     if not visible:
         sym.setVisible(False)
-    # Re-apply scale by calling align_fitting which reads _display_scale
-    fitting.align_fitting()
+    # Re-apply scale + alignment only if the fitting has connected pipes —
+    # otherwise align_fitting can misplace the symbol.
+    if fitting.node and len(fitting.node.pipes) > 0:
+        fitting.align_fitting()
 
 
 def _apply_node(node, color, scale, opacity, visible):

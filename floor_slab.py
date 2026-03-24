@@ -319,6 +319,6 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "vertices": verts,
             "faces": faces,
             "color": (self._color.redF(), self._color.greenF(),
-                      self._color.blueF(), 0.5),
+                      self._color.blueF(), 1.0),
         }
 

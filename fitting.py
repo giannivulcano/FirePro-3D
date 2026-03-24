@@ -179,7 +179,26 @@ class Fitting():
             else:
                 return "wye"
         elif count == 4:
-            return "cross"
+            # Cross is only valid when all 4 pipes form two perpendicular
+            # collinear pairs.  Use pipe_vectors (from junction outward).
+            if len(pipe_vectors) == 4:
+                pairs_ok = False
+                for i in range(4):
+                    for j in range(i + 1, 4):
+                        a = abs(CAD_Math.get_angle_between_vectors(
+                            pipe_vectors[i], pipe_vectors[j], signed=False))
+                        if math.isclose(a, 180, abs_tol=10):
+                            others = [k for k in range(4) if k != i and k != j]
+                            a2 = abs(CAD_Math.get_angle_between_vectors(
+                                pipe_vectors[others[0]], pipe_vectors[others[1]],
+                                signed=False))
+                            if math.isclose(a2, 180, abs_tol=10):
+                                pairs_ok = True
+                                break
+                    if pairs_ok:
+                        break
+                return "cross" if pairs_ok else "no fitting"
+            return "no fitting"
         else:
             return "no fitting"
 
@@ -221,6 +240,9 @@ class Fitting():
         pipes = self.node.pipes
         node = self.node
 
+        if self.symbol is None:
+            return
+
         # Build 2D direction vectors only for horizontal pipes
         # (vertical pipes have zero-length 2D vectors and would break angle math)
         horiz_pipes = [p for p in pipes if not self._is_vertical(p, node)]
@@ -261,10 +283,34 @@ class Fitting():
             else:
                 transform = QTransform()
 
-        elif self.type in ("cap", "cross"):
+        elif self.type == "cap":
             V1 = pipe_vectors[0] if pipe_vectors else QPointF(1, 0)
             V2 = self.SYMBOLS[self.type].get("through")
             transform = CAD_Math.rotate_unit_vector(V2, V1)
+
+        elif self.type == "cross":
+            # Align cross using one of the collinear pairs
+            V2 = self.SYMBOLS[self.type].get("through")
+            if len(pipe_vectors) >= 2:
+                # Find a collinear pair to use as the through-run
+                M1 = pipe_vectors[:2]  # default
+                for i in range(len(pipe_vectors)):
+                    for j in range(i + 1, len(pipe_vectors)):
+                        a = abs(CAD_Math.get_angle_between_vectors(
+                            pipe_vectors[i], pipe_vectors[j], signed=False))
+                        if math.isclose(a, 180, abs_tol=10):
+                            M1 = [pipe_vectors[i], pipe_vectors[j]]
+                            break
+                try:
+                    transform = CAD_Math.make_qtransform_from_qpoints(V2, M1)
+                except (ValueError, TypeError, ZeroDivisionError):
+                    transform = CAD_Math.rotate_unit_vector(
+                        V2[0] if isinstance(V2, (list, tuple)) else V2,
+                        pipe_vectors[0])
+            else:
+                V1 = pipe_vectors[0] if pipe_vectors else QPointF(1, 0)
+                transform = CAD_Math.rotate_unit_vector(
+                    V2[0] if isinstance(V2, (list, tuple)) else V2, V1)
 
         elif self.type in ("90elbow", "45elbow"):
             M1 = pipe_vectors

@@ -958,12 +958,16 @@ class View3D(QWidget):
                 continue
             verts = np.array(mesh_data["vertices"], dtype=np.float32)
             faces = np.array(mesh_data["faces"], dtype=np.uint32)
-            col = mesh_data.get("color", (0.5, 0.5, 0.8, 0.5))
+            col = mesh_data.get("color", (0.5, 0.5, 0.8, 1.0))
 
             mesh = _mesh_from_faces(verts, faces)
+            # Full opacity, disable backface culling so slab is always visible
             actor = self._plotter.add_mesh(
-                mesh, color=col[:3], opacity=col[3] if len(col) > 3 else 1.0,
+                mesh, color=col[:3], opacity=1.0,
+                show_edges=False,
             )
+            actor.GetProperty().SetBackfaceCulling(False)
+            actor.GetProperty().SetFrontfaceCulling(False)
             self._add_actor("slabs", actor, entity=slab, entity_type="slab")
             self._slab_refs.append(slab)
             self._original_slab_colors.append(col)
