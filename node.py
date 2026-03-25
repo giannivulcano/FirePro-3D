@@ -108,6 +108,13 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
             return
         self.z_pos = lvl.elevation + self.ceiling_offset  # both mm
 
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Node is a point element — z_range is (z_pos, z_pos)."""
+        z = getattr(self, "z_pos", None)
+        if z is None:
+            return None
+        return (z, z)
+
     # -------------------------------------------------------------------------
     # Sprinkler helpers
     def add_sprinkler(self):

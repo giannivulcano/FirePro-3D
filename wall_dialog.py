@@ -15,7 +15,7 @@ from PyQt6.QtCore import Qt
 
 from wall import (
     THICKNESS_PRESETS_IN, DEFAULT_THICKNESS_MM,
-    FILL_NONE, FILL_SOLID, FILL_HATCH,
+    FILL_NONE, FILL_SOLID, FILL_HATCH, FILL_SECTION,
     ALIGN_CENTER, ALIGN_INTERIOR, ALIGN_EXTERIOR,
 )
 from dimension_edit import DimensionEdit
@@ -95,7 +95,7 @@ class WallDialog(QDialog):
 
         # Fill Mode
         self._fill_combo = QComboBox()
-        self._fill_combo.addItems([FILL_NONE, FILL_SOLID, FILL_HATCH])
+        self._fill_combo.addItems([FILL_NONE, FILL_SOLID, FILL_SECTION])
         cur_fill = self._defaults.get("fill_mode", FILL_NONE)
         idx = self._fill_combo.findText(cur_fill)
         if idx >= 0:

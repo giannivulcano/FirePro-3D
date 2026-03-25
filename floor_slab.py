@@ -67,6 +67,19 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         if len(self._points) >= 3:
             self._rebuild_path()
 
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Slab top is at level elevation, bottom is elevation - thickness."""
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return None
+        lvl = lm.get(getattr(self, "level", None))
+        if lvl is None:
+            return None
+        top_z = lvl.elevation
+        bot_z = top_z - self._thickness_mm
+        return (bot_z, top_z)
+
     # ── Point management ─────────────────────────────────────────────────────
 
     def add_point(self, pt: QPointF):
@@ -119,6 +132,23 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             painter.drawPolygon(poly)
         elif len(self._points) == 2:
             painter.drawLine(self._points[0], self._points[1])
+
+        # Section-cut hatch overlay
+        if getattr(self, "_is_section_cut", False) and len(self._points) >= 3:
+            from displayable_item import draw_section_hatch
+            clip = QPainterPath()
+            clip.addPolygon(QPolygonF(self._points))
+            clip.closeSubpath()
+            sec_fill_hex = getattr(self, "_display_section_color", None) or ""
+            sec_fill = QColor(sec_fill_hex) if sec_fill_hex.startswith("#") else None
+            pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
+            h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
+            draw_section_hatch(painter, clip, self.scene(),
+                               color=line_col,
+                               pattern=pattern,
+                               line_width=pen.widthF() or 1.0,
+                               section_fill=sec_fill,
+                               hatch_scale=h_scale)
 
         if self.isSelected():
             sel_pen = QPen(_SELECTION_COLOR, 2)

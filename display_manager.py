@@ -15,7 +15,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
-    QHeaderView, QColorDialog, QWidget, QLabel,
+    QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
     QAbstractItemView,
 )
 from PyQt6.QtGui import QColor, QFont, QBrush, QPen, QPainter, QPixmap, QIcon
@@ -193,7 +193,8 @@ def _compose_fill_value(mode: str, hex_color: str) -> str:
     return hex_color
 
 
-def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20) -> QPixmap:
+def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20,
+                    pattern: str = "diagonal") -> QPixmap:
     """Return a small pixmap showing solid or hatch swatch."""
     pix = QPixmap(w, h)
     pix.fill(QColor("transparent"))
@@ -201,12 +202,12 @@ def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20) -> QPix
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
     col = QColor(hex_color)
     if mode == "hatch":
+        from hatch_patterns import make_hatch_brush
         p.fillRect(0, 0, w, h, QColor("#2b2b2b"))
-        pen = QPen(col, 1)
-        p.setPen(pen)
-        spacing = 4
-        for x in range(-h, w + h, spacing):
-            p.drawLine(x, h, x + h, 0)
+        brush = make_hatch_brush(pattern, min(w, h), col)
+        p.setBrush(brush)
+        p.setPen(QPen(QColor(0, 0, 0, 0)))
+        p.drawRect(0, 0, w, h)
     else:
         p.fillRect(0, 0, w, h, col)
     p.end()
@@ -218,19 +219,19 @@ def _make_fill_icon(mode: str, hex_color: str, w: int = 40, h: int = 20) -> QPix
 # ---------------------------------------------------------------------------
 
 _CATEGORIES: list[dict] = [
-    {"key": "Pipe",             "color": "#4488ff", "fill": None,      "hatch": None,      "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Sprinkler",        "color": "#ff4444", "fill": "#000000", "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Fitting",          "color": "#44cc44", "fill": None,      "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Water Supply",     "color": "#00cccc", "fill": "#2b2b2e", "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Node",             "color": "#888888", "fill": None,      "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
-    {"key": "Wall",             "color": "#666666", "fill": "#999999", "hatch": "#666666", "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "hatch": "#8B4513", "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "hatch": None,      "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
-    {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "hatch": None,      "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "hatch": None,      "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
-    {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "hatch": None,      "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Pipe",             "color": "#4488ff", "fill": None,      "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Sprinkler",        "color": "#ff4444", "fill": "#000000", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Fitting",          "color": "#44cc44", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Water Supply",     "color": "#00cccc", "fill": "#2b2b2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Node",             "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": "#8B4513", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
 ]
 
 # Group display order
@@ -241,7 +242,7 @@ _COL_NAME    = 0
 _COL_VIS     = 1
 _COL_COLOR   = 2
 _COL_FILL    = 3
-_COL_HATCH   = 4
+_COL_SECTION = 4
 _COL_SCALE   = 5
 _COL_OPACITY = 6
 _COL_FONT    = 7
@@ -278,7 +279,12 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
 
     color   = _s("color", cat_def["color"])
     fill    = _s("fill", cat_def.get("fill"))
-    hatch   = _s("hatch", cat_def.get("hatch"))
+    # Read "section" key, falling back to legacy "hatch" key in QSettings
+    section = _s("section", None)
+    if section is None:
+        section = _s("hatch", cat_def.get("section"))
+    section_pattern = _s("section_pattern", cat_def.get("section_pattern"))
+    section_scale = float(_s("section_scale", 1.0))
     scale   = float(_s("scale", cat_def["scale"]))
     opacity = int(float(_s("opacity", cat_def["opacity"])))
     visible = _s("visible", cat_def["visible"])
@@ -290,7 +296,8 @@ def _read_category_from_settings(key: str, settings: QSettings | None = None,
     if font is not None:
         font = int(float(_s("font", font)))
 
-    return {"color": color, "fill": fill, "hatch": hatch,
+    return {"color": color, "fill": fill, "section": section,
+            "section_pattern": section_pattern, "section_scale": section_scale,
             "scale": scale, "opacity": opacity, "visible": visible,
             "font": font}
 
@@ -306,8 +313,12 @@ def _write_category_to_settings(key: str, vals: dict,
     settings.setValue(f"display/{key}/visible", str(vals["visible"]).lower())
     if vals.get("fill"):
         settings.setValue(f"display/{key}/fill", vals["fill"])
-    if vals.get("hatch"):
-        settings.setValue(f"display/{key}/hatch", vals["hatch"])
+    if vals.get("section"):
+        settings.setValue(f"display/{key}/section", vals["section"])
+    if vals.get("section_pattern"):
+        settings.setValue(f"display/{key}/section_pattern", vals["section_pattern"])
+    if vals.get("section_scale") is not None:
+        settings.setValue(f"display/{key}/section_scale", vals["section_scale"])
     if vals.get("font") is not None:
         settings.setValue(f"display/{key}/font", vals["font"])
 
@@ -325,10 +336,18 @@ def _apply_to_scene_items(scene, key: str, vals: dict,
             v = ov.get("visible", vals["visible"])
             f = ov.get("fill", vals.get("fill"))
             fn = ov.get("font", vals.get("font"))
+            sc = ov.get("section", vals.get("section"))
+            sp = ov.get("section_pattern", vals.get("section_pattern"))
+            ss = ov.get("section_scale", vals.get("section_scale"))
         else:
             c, s, o, v = vals["color"], vals["scale"], vals["opacity"], vals["visible"]
             f, fn = vals.get("fill"), vals.get("font")
-        apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn)
+            sc = vals.get("section")
+            sp = vals.get("section_pattern")
+            ss = vals.get("section_scale")
+        apply_display_to_item(obj, c, s, o, v, fill_color=f, font_size=fn,
+                              section_color=sc, section_pattern=sp,
+                              section_scale=ss)
 
 
 def _category_has_fill(key: str) -> bool:
@@ -337,10 +356,10 @@ def _category_has_fill(key: str) -> bool:
     return c is not None and c["fill"] is not None
 
 
-def _category_has_hatch(key: str) -> bool:
-    """Return True if this category supports a hatch colour column."""
+def _category_has_section(key: str) -> bool:
+    """Return True if this category supports a section colour column."""
     c = _CATEGORY_MAP.get(key)
-    return c is not None and c.get("hatch") is not None
+    return c is not None and c.get("section") is not None
 
 
 _NO_SCALE_CATEGORIES = {"Wall", "Roof", "Room", "Floor"}
@@ -364,7 +383,10 @@ def _category_has_font(key: str) -> bool:
 def apply_display_to_item(item, color: str | None, scale: float,
                           opacity: float, visible: bool,
                           fill_color: str | None = None,
-                          font_size: int | None = None):
+                          font_size: int | None = None,
+                          section_color: str | None = None,
+                          section_pattern: str | None = None,
+                          section_scale: float | None = None):
     """Apply display settings to *item* (Pipe, Sprinkler, Fitting, Node,
     WaterSupply, GridlineItem, or HydraulicNodeBadge).  Called both by the
     live-preview loop and at project load."""
@@ -386,9 +408,15 @@ def apply_display_to_item(item, color: str | None, scale: float,
             mode, hex_col = _parse_fill_value(fill_color)
             item._display_fill_color = hex_col
             if mode == "hatch":
-                item._fill_mode = "Hatch"
+                item._fill_mode = "Section"
             else:
                 item._fill_mode = "Solid"
+        if section_color:
+            item._display_section_color = section_color
+        if section_pattern:
+            item._display_section_pattern = section_pattern
+        if section_scale is not None:
+            item._display_section_scale = section_scale
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -429,12 +457,18 @@ def apply_display_to_item(item, color: str | None, scale: float,
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
     else:
-        # Generic items with _display_color/_display_fill_color (e.g. RoofItem)
+        # Generic items with _display_color/_display_fill_color (e.g. RoofItem, FloorSlab)
         if hasattr(item, '_display_color'):
             item._display_color = color
         if hasattr(item, '_display_fill_color') and fill_color is not None:
             _mode, _hex = _parse_fill_value(fill_color)
             item._display_fill_color = _hex
+        if section_color and hasattr(item, '_display_section_color'):
+            item._display_section_color = section_color
+        if section_pattern and hasattr(item, '_display_section_pattern'):
+            item._display_section_pattern = section_pattern
+        if section_scale is not None and hasattr(item, '_display_section_scale'):
+            item._display_section_scale = section_scale
         item.setVisible(visible)
         item.setOpacity(opacity / 100.0)
         item.update()
@@ -630,6 +664,99 @@ def apply_category_defaults(item):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Section-pattern picker dialog
+# ──────────────────────────────────────────────────────────────────────────────
+
+class SectionPatternDialog(QDialog):
+    """Compact dialog for picking a section hatch colour + pattern."""
+
+    def __init__(self, current_color: str, current_pattern: str,
+                 current_scale: float = 1.0, parent=None):
+        super().__init__(parent)
+        from hatch_patterns import PATTERN_NAMES
+        self._pattern_names = PATTERN_NAMES
+
+        self.setWindowTitle("Section Pattern")
+        self.setFixedSize(280, 170)
+        _t = th.detect()
+        self.setStyleSheet(f"background: {_t.bg_raised}; color: {_t.text_primary};")
+
+        lay = QVBoxLayout(self)
+
+        # ── Pattern combo ──
+        row1 = QHBoxLayout()
+        row1.addWidget(QLabel("Pattern:"))
+        self._combo = QComboBox()
+        self._combo.addItems(self._pattern_names)
+        idx = self._combo.findText(current_pattern)
+        if idx >= 0:
+            self._combo.setCurrentIndex(idx)
+        row1.addWidget(self._combo, 1)
+        lay.addLayout(row1)
+
+        # ── Colour button + preview ──
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Colour:"))
+        self._color_btn = QPushButton()
+        self._color_btn.setFixedSize(40, 20)
+        self._cur_color = current_color or "#666666"
+        self._color_btn.setStyleSheet(
+            f"background: {self._cur_color}; border: 1px solid {_t.border_subtle}; "
+            f"border-radius: 2px;")
+        self._color_btn.clicked.connect(self._pick_color)
+        row2.addWidget(self._color_btn)
+        self._preview = QLabel()
+        self._preview.setFixedSize(60, 20)
+        row2.addWidget(self._preview)
+        row2.addStretch()
+        lay.addLayout(row2)
+
+        # ── Scale spinbox ──
+        row3 = QHBoxLayout()
+        row3.addWidget(QLabel("Scale:"))
+        self._scale_spin = QDoubleSpinBox()
+        self._scale_spin.setRange(0.25, 4.0)
+        self._scale_spin.setSingleStep(0.25)
+        self._scale_spin.setDecimals(2)
+        self._scale_spin.setValue(current_scale)
+        self._scale_spin.setSuffix("x")
+        self._scale_spin.setFixedHeight(22)
+        row3.addWidget(self._scale_spin)
+        row3.addStretch()
+        lay.addLayout(row3)
+
+        # ── Buttons ──
+        bbox = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        bbox.accepted.connect(self.accept)
+        bbox.rejected.connect(self.reject)
+        lay.addWidget(bbox)
+
+        self._combo.currentTextChanged.connect(lambda _: self._refresh_preview())
+        self._refresh_preview()
+
+    def _pick_color(self):
+        color = QColorDialog.getColor(QColor(self._cur_color), self, "Section Colour")
+        if color.isValid():
+            self._cur_color = color.name()
+            _t = th.detect()
+            self._color_btn.setStyleSheet(
+                f"background: {self._cur_color}; border: 1px solid {_t.border_subtle}; "
+                f"border-radius: 2px;")
+            self._refresh_preview()
+
+    def _refresh_preview(self):
+        pix = _make_fill_icon("hatch", self._cur_color, 60, 20,
+                              pattern=self._combo.currentText())
+        self._preview.setPixmap(pix)
+
+    def get_result(self) -> tuple[str, str, float]:
+        """Return (hex_color, pattern_name, scale)."""
+        return self._cur_color, self._combo.currentText(), self._scale_spin.value()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # DisplayManager dialog
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -718,7 +845,7 @@ class DisplayManager(QDialog):
         self._elev_settings_snapshot: dict[str, dict] = {}
         for key in ("Grid Line", "Level Datum", "Elevation Marker", "Wall", "Roof", "Floor"):
             snap: dict = {}
-            for prop in ("color", "fill", "hatch", "scale", "opacity", "visible", "font"):
+            for prop in ("color", "fill", "section", "section_pattern", "section_scale", "scale", "opacity", "visible", "font"):
                 v = self._settings.value(f"display/{key}/{prop}")
                 if v is not None:
                     snap[prop] = v
@@ -954,14 +1081,20 @@ class DisplayManager(QDialog):
             fill = cat_def.get("fill")
             font = cat_def.get("font")
 
-        # Hatch colour — read from item or fall back to category default
-        hatch = (getattr(item, "_display_hatch_color", None)
-                 or cat_def.get("hatch"))
+        # Section colour + pattern — read from item or fall back to category default
+        section = (getattr(item, "_display_section_color", None)
+                   or cat_def.get("section"))
+        section_pattern = (getattr(item, "_display_section_pattern", None)
+                           or cat_def.get("section_pattern"))
+
+        section_scale = getattr(item, "_display_section_scale", 1.0) or 1.0
 
         return {
             "color": color,
             "fill": fill,
-            "hatch": hatch,
+            "section": section,
+            "section_pattern": section_pattern,
+            "section_scale": section_scale,
             "scale": scale,
             "opacity": opa,
             "visible": vis,
@@ -980,7 +1113,7 @@ class DisplayManager(QDialog):
         self._tree = QTreeWidget()
         self._tree.setColumnCount(9)
         self._tree.setHeaderLabels(
-            ["Name", "Vis", "Colour", "Fill", "Hatch", "Scale", "Opacity", "Font", ""])
+            ["Name", "Vis", "Colour", "Fill", "Section", "Scale", "Opacity", "Font", ""])
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(20)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -991,7 +1124,7 @@ class DisplayManager(QDialog):
         hdr.setSectionResizeMode(_COL_VIS, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_FILL, QHeaderView.ResizeMode.Fixed)
-        hdr.setSectionResizeMode(_COL_HATCH, QHeaderView.ResizeMode.Fixed)
+        hdr.setSectionResizeMode(_COL_SECTION, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_SCALE, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_OPACITY, QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(_COL_FONT, QHeaderView.ResizeMode.Fixed)
@@ -999,7 +1132,7 @@ class DisplayManager(QDialog):
         self._tree.setColumnWidth(_COL_VIS, 40)
         self._tree.setColumnWidth(_COL_COLOR, 60)
         self._tree.setColumnWidth(_COL_FILL, 60)
-        self._tree.setColumnWidth(_COL_HATCH, 60)
+        self._tree.setColumnWidth(_COL_SECTION, 60)
         self._tree.setColumnWidth(_COL_SCALE, 90)
         self._tree.setColumnWidth(_COL_OPACITY, 90)
         self._tree.setColumnWidth(_COL_FONT, 70)
@@ -1077,7 +1210,9 @@ class DisplayManager(QDialog):
                 saved_opacity = _first["opacity"]
                 saved_visible = _first["visible"]
                 saved_font    = _first["font"]
-                saved_hatch   = _first.get("hatch")
+                saved_section = _first.get("section")
+                saved_section_pattern = _first.get("section_pattern")
+                saved_section_scale = _first.get("section_scale", 1.0)
             else:
                 saved_color = self._settings.value(
                     f"display/{key}/color", cat_def["color"])
@@ -1095,8 +1230,15 @@ class DisplayManager(QDialog):
                 if saved_font is not None:
                     saved_font = int(float(self._settings.value(
                         f"display/{key}/font", saved_font)))
-                saved_hatch = self._settings.value(
-                    f"display/{key}/hatch", cat_def.get("hatch"))
+                saved_section = (self._settings.value(f"display/{key}/section")
+                                 or self._settings.value(
+                                     f"display/{key}/hatch",
+                                     cat_def.get("section")))
+                saved_section_pattern = self._settings.value(
+                    f"display/{key}/section_pattern",
+                    cat_def.get("section_pattern"))
+                saved_section_scale = float(self._settings.value(
+                    f"display/{key}/section_scale", 1.0))
 
             # ── Category row (child of its group) ─────────────────────
             grp_name = cat_def.get("group", "Other")
@@ -1117,7 +1259,9 @@ class DisplayManager(QDialog):
                 cat_item, saved_visible, saved_color, saved_fill,
                 saved_scale, saved_opacity, saved_font,
                 is_category=True, category_key=key,
-                hatch=saved_hatch)
+                section=saved_section,
+                section_pattern=saved_section_pattern,
+                section_scale=saved_section_scale)
 
             self._cat_data[key] = {
                 "items": items,
@@ -1135,7 +1279,9 @@ class DisplayManager(QDialog):
                 inst_opacity = _ist["opacity"]
                 inst_visible = _ist["visible"]
                 inst_font    = _ist["font"]
-                inst_hatch   = _ist.get("hatch")
+                inst_section = _ist.get("section")
+                inst_section_pattern = _ist.get("section_pattern")
+                inst_section_scale = _ist.get("section_scale", 1.0)
 
                 child = QTreeWidgetItem(cat_item)
                 child.setText(_COL_NAME, self._label_for_item(obj, i, key))
@@ -1145,7 +1291,9 @@ class DisplayManager(QDialog):
                     child, inst_visible, inst_color, inst_fill,
                     inst_scale, inst_opacity, inst_font,
                     is_category=False, category_key=key,
-                    item_ref=obj, hatch=inst_hatch)
+                    item_ref=obj, section=inst_section,
+                    section_pattern=inst_section_pattern,
+                    section_scale=inst_section_scale)
 
                 self._inst_data[id(obj)] = {
                     "tree_item": child,
@@ -1162,11 +1310,13 @@ class DisplayManager(QDialog):
                           is_category: bool,
                           category_key: str,
                           item_ref=None,
-                          hatch: str | None = None) -> dict:
+                          section: str | None = None,
+                          section_pattern: str | None = None,
+                          section_scale: float = 1.0) -> dict:
         """Create and embed widgets for one tree row. Returns widget dict."""
         _t = th.detect()
         has_fill = _category_has_fill(category_key)
-        has_hatch = _category_has_hatch(category_key)
+        has_section = _category_has_section(category_key)
         has_scale = _category_has_scale(category_key)
         has_font = _category_has_font(category_key)
         _disabled_ss = (f"background: {_t.bg_sunken}; color: {_t.text_disabled}; "
@@ -1207,22 +1357,26 @@ class DisplayManager(QDialog):
             fill_btn.setEnabled(False)
         self._tree.setItemWidget(tree_item, _COL_FILL, fill_btn)
 
-        # ── Hatch colour swatch (for sectioned geometry) ─────────────
-        hatch_btn = QPushButton()
-        hatch_btn.setFixedSize(40, 20)
-        if has_hatch and hatch:
-            hatch_btn.setProperty("_color", hatch)
-            pix = _make_fill_icon("hatch", hatch, 40, 20)
-            hatch_btn.setIcon(QIcon(pix))
-            hatch_btn.setIconSize(pix.size())
-            hatch_btn.setStyleSheet(
+        # ── Section colour+pattern swatch (for sectioned geometry) ─────
+        section_btn = QPushButton()
+        section_btn.setFixedSize(40, 20)
+        _sec_pat = section_pattern or "diagonal"
+        if has_section and section:
+            section_btn.setProperty("_color", section)
+            section_btn.setProperty("_pattern", _sec_pat)
+            section_btn.setProperty("_section_scale", section_scale)
+            pix = _make_fill_icon("hatch", section, 40, 20, pattern=_sec_pat)
+            section_btn.setIcon(QIcon(pix))
+            section_btn.setIconSize(pix.size())
+            section_btn.setStyleSheet(
                 f"border: 1px solid {_t.border_subtle}; border-radius: 2px; "
                 f"background: transparent;")
         else:
-            hatch_btn.setProperty("_color", "")
-            hatch_btn.setStyleSheet(_disabled_ss)
-            hatch_btn.setEnabled(False)
-        self._tree.setItemWidget(tree_item, _COL_HATCH, hatch_btn)
+            section_btn.setProperty("_color", "")
+            section_btn.setProperty("_pattern", "")
+            section_btn.setStyleSheet(_disabled_ss)
+            section_btn.setEnabled(False)
+        self._tree.setItemWidget(tree_item, _COL_SECTION, section_btn)
 
         # ── Scale spinbox ────────────────────────────────────────────
         scale_spin = QDoubleSpinBox()
@@ -1277,9 +1431,9 @@ class DisplayManager(QDialog):
             if has_fill:
                 fill_btn.clicked.connect(
                     lambda _, k=category_key: self._pick_category_prop(k, "fill"))
-            if has_hatch:
-                hatch_btn.clicked.connect(
-                    lambda _, k=category_key: self._pick_category_prop(k, "hatch"))
+            if has_section:
+                section_btn.clicked.connect(
+                    lambda _, k=category_key: self._pick_category_prop(k, "section"))
             scale_spin.valueChanged.connect(
                 lambda v, k=category_key: self._on_category_changed(k, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1295,9 +1449,9 @@ class DisplayManager(QDialog):
             if has_fill:
                 fill_btn.clicked.connect(
                     lambda _, ref=item_ref: self._pick_instance_prop(ref, "fill"))
-            if has_hatch:
-                hatch_btn.clicked.connect(
-                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "hatch"))
+            if has_section:
+                section_btn.clicked.connect(
+                    lambda _, ref=item_ref: self._pick_instance_prop(ref, "section"))
             scale_spin.valueChanged.connect(
                 lambda v, ref=item_ref: self._on_instance_changed(ref, "scale", v))
             opacity_spin.valueChanged.connect(
@@ -1313,7 +1467,7 @@ class DisplayManager(QDialog):
             "vis": vis_cb,
             "color_btn": color_btn,
             "fill_btn": fill_btn,
-            "hatch_btn": hatch_btn,
+            "section_btn": section_btn,
             "scale": scale_spin,
             "opacity": opacity_spin,
             "font": font_spin,
@@ -1327,10 +1481,12 @@ class DisplayManager(QDialog):
     # ── Generic colour picker (replaces 6 specific pick methods) ────────
 
     def _pick_category_prop(self, category_key: str, prop: str):
-        """Open a colour dialog for *prop* ('color', 'fill', or 'hatch')
+        """Open a colour/pattern dialog for *prop* ('color', 'fill', or 'section')
         on the category row and propagate to instances."""
-        btn_key = {"color": "color_btn", "fill": "fill_btn", "hatch": "hatch_btn"}[prop]
-        default = {"color": "#ffffff", "fill": "#000000", "hatch": "#666666"}[prop]
+        if prop == "section":
+            return self._pick_section(category_key, is_category=True)
+        btn_key = {"color": "color_btn", "fill": "fill_btn"}[prop]
+        default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = self._cat_data[category_key]["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
         color = QColorDialog.getColor(QColor(cur_hex), self,
@@ -1340,12 +1496,14 @@ class DisplayManager(QDialog):
             self._on_category_changed(category_key, prop, color.name())
 
     def _pick_instance_prop(self, item_ref, prop: str):
-        """Open a colour dialog for *prop* on an instance row."""
+        """Open a colour/pattern dialog for *prop* on an instance row."""
+        if prop == "section":
+            return self._pick_section(item_ref, is_category=False)
         data = self._inst_data.get(id(item_ref))
         if data is None:
             return
-        btn_key = {"color": "color_btn", "fill": "fill_btn", "hatch": "hatch_btn"}[prop]
-        default = {"color": "#ffffff", "fill": "#000000", "hatch": "#666666"}[prop]
+        btn_key = {"color": "color_btn", "fill": "fill_btn"}[prop]
+        default = {"color": "#ffffff", "fill": "#000000"}[prop]
         widgets = data["widgets"]
         cur_hex = widgets[btn_key].property("_color") or default
         color = QColorDialog.getColor(QColor(cur_hex), self,
@@ -1354,14 +1512,48 @@ class DisplayManager(QDialog):
             self._update_swatch(widgets[btn_key], prop, color.name())
             self._on_instance_changed(item_ref, prop, color.name())
 
+    def _pick_section(self, key_or_ref, *, is_category: bool):
+        """Open the SectionPatternDialog for a category or instance row."""
+        if is_category:
+            widgets = self._cat_data[key_or_ref]["widgets"]
+        else:
+            data = self._inst_data.get(id(key_or_ref))
+            if data is None:
+                return
+            widgets = data["widgets"]
+        btn = widgets["section_btn"]
+        cur_color = btn.property("_color") or "#666666"
+        cur_pattern = btn.property("_pattern") or "diagonal"
+        cur_scale = btn.property("_section_scale") or 1.0
+        if isinstance(cur_scale, str):
+            cur_scale = float(cur_scale or "1.0")
+        dlg = SectionPatternDialog(cur_color, cur_pattern, cur_scale, self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            new_color, new_pattern, new_scale = dlg.get_result()
+            btn.setProperty("_pattern", new_pattern)
+            btn.setProperty("_section_scale", new_scale)
+            self._update_swatch(btn, "section", new_color, pattern=new_pattern)
+            if is_category:
+                self._on_category_changed(key_or_ref, "section", new_color)
+                self._on_category_changed(key_or_ref, "section_pattern", new_pattern)
+                self._on_category_changed(key_or_ref, "section_scale", new_scale)
+            else:
+                self._on_instance_changed(key_or_ref, "section", new_color)
+                self._on_instance_changed(key_or_ref, "section_pattern", new_pattern)
+                self._on_instance_changed(key_or_ref, "section_scale", new_scale)
+
     # ── Swatch update (replaces 3 specific update methods) ────────────
 
-    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str):
-        """Update a swatch button for 'color', 'fill', or 'hatch'."""
+    def _update_swatch(self, btn: QPushButton, prop: str, hex_color: str,
+                        pattern: str | None = None):
+        """Update a swatch button for 'color', 'fill', or 'section'."""
         _t = th.detect()
-        if prop == "hatch":
+        if prop == "section":
             btn.setProperty("_color", hex_color)
-            pix = _make_fill_icon("hatch", hex_color, 40, 20)
+            if pattern:
+                btn.setProperty("_pattern", pattern)
+            pat = btn.property("_pattern") or "diagonal"
+            pix = _make_fill_icon("hatch", hex_color, 40, 20, pattern=pat)
             btn.setIcon(QIcon(pix))
             btn.setIconSize(pix.size())
             btn.setText("")
@@ -1381,7 +1573,7 @@ class DisplayManager(QDialog):
     # Legacy aliases so existing internal calls still work
     _update_color_btn = lambda self, btn, v: self._update_swatch(btn, "color", v)
     _update_fill_btn  = lambda self, btn, v: self._update_swatch(btn, "fill", v)
-    _update_hatch_btn = lambda self, btn, v: self._update_swatch(btn, "hatch", v)
+    _update_section_btn = lambda self, btn, v: self._update_swatch(btn, "section", v)
 
     # ------------------------------------------------------------------
     # Change handlers
@@ -1437,10 +1629,13 @@ class DisplayManager(QDialog):
                 fill_val = cat_widgets["fill_btn"].property("_color")
                 if fill_val:
                     self._update_fill_btn(w["fill_btn"], fill_val)
-            if _category_has_hatch(cat_key):
-                hatch_val = cat_widgets["hatch_btn"].property("_color")
-                if hatch_val:
-                    self._update_hatch_btn(w["hatch_btn"], hatch_val)
+            if _category_has_section(cat_key):
+                section_val = cat_widgets["section_btn"].property("_color")
+                section_pat = cat_widgets["section_btn"].property("_pattern") or "diagonal"
+                if section_val:
+                    w["section_btn"].setProperty("_pattern", section_pat)
+                    self._update_swatch(w["section_btn"], "section", section_val,
+                                        pattern=section_pat)
             w["scale"].setValue(cat_widgets["scale"].value())
             w["opacity"].setValue(cat_widgets["opacity"].value())
             if _category_has_font(cat_key):
@@ -1460,8 +1655,10 @@ class DisplayManager(QDialog):
                 self._update_color_btn(cw["color_btn"], cat_def["color"])
                 if _category_has_fill(key) and cat_def["fill"]:
                     self._update_fill_btn(cw["fill_btn"], cat_def["fill"])
-                if _category_has_hatch(key) and cat_def.get("hatch"):
-                    self._update_hatch_btn(cw["hatch_btn"], cat_def["hatch"])
+                if _category_has_section(key) and cat_def.get("section"):
+                    cw["section_btn"].setProperty("_pattern", cat_def.get("section_pattern") or "diagonal")
+                    self._update_swatch(cw["section_btn"], "section", cat_def["section"],
+                                        pattern=cat_def.get("section_pattern"))
                 cw["scale"].setValue(cat_def["scale"])
                 cw["opacity"].setValue(cat_def["opacity"])
                 if _category_has_font(key) and cat_def["font"] is not None:
@@ -1477,8 +1674,10 @@ class DisplayManager(QDialog):
                         self._update_color_btn(iw["color_btn"], cat_def["color"])
                         if _category_has_fill(key) and cat_def["fill"]:
                             self._update_fill_btn(iw["fill_btn"], cat_def["fill"])
-                        if _category_has_hatch(key) and cat_def.get("hatch"):
-                            self._update_hatch_btn(iw["hatch_btn"], cat_def["hatch"])
+                        if _category_has_section(key) and cat_def.get("section"):
+                            iw["section_btn"].setProperty("_pattern", cat_def.get("section_pattern") or "diagonal")
+                            self._update_swatch(iw["section_btn"], "section", cat_def["section"],
+                                                pattern=cat_def.get("section_pattern"))
                         iw["scale"].setValue(cat_def["scale"])
                         iw["opacity"].setValue(cat_def["opacity"])
                         if _category_has_font(key) and cat_def["font"] is not None:
@@ -1503,8 +1702,12 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/default_visible", s["visible"])
             if s.get("fill"):
                 self._settings.setValue(f"display/{key}/default_fill", s["fill"])
-            if s.get("hatch"):
-                self._settings.setValue(f"display/{key}/default_hatch", s["hatch"])
+            if s.get("section"):
+                self._settings.setValue(f"display/{key}/default_section", s["section"])
+            if s.get("section_pattern"):
+                self._settings.setValue(f"display/{key}/default_section_pattern", s["section_pattern"])
+            if s.get("section_scale") is not None:
+                self._settings.setValue(f"display/{key}/default_section_scale", s["section_scale"])
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/default_font", s["font"])
             # Also save as current settings so they persist across sessions
@@ -1514,8 +1717,12 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/visible", s["visible"])
             if s.get("fill"):
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("hatch"):
-                self._settings.setValue(f"display/{key}/hatch", s["hatch"])
+            if s.get("section"):
+                self._settings.setValue(f"display/{key}/section", s["section"])
+            if s.get("section_pattern"):
+                self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
+            if s.get("section_scale") is not None:
+                self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
         self._settings.sync()
@@ -1533,9 +1740,15 @@ class DisplayManager(QDialog):
         elif prop == "fill":
             if widgets["fill_btn"].isEnabled() and value:
                 self._update_fill_btn(widgets["fill_btn"], value)
-        elif prop == "hatch":
-            if widgets["hatch_btn"].isEnabled() and value:
-                self._update_hatch_btn(widgets["hatch_btn"], value)
+        elif prop == "section":
+            if widgets["section_btn"].isEnabled() and value:
+                self._update_swatch(widgets["section_btn"], "section", value)
+        elif prop == "section_pattern":
+            if widgets["section_btn"].isEnabled() and value:
+                widgets["section_btn"].setProperty("_pattern", value)
+                cur_col = widgets["section_btn"].property("_color") or "#666666"
+                self._update_swatch(widgets["section_btn"], "section", cur_col,
+                                    pattern=value)
         elif prop == "scale":
             widgets["scale"].setValue(value)
         elif prop == "opacity":
@@ -1557,10 +1770,14 @@ class DisplayManager(QDialog):
             result["fill"] = w["fill_btn"].property("_color") or None
         else:
             result["fill"] = None
-        if _category_has_hatch(key):
-            result["hatch"] = w["hatch_btn"].property("_color") or None
+        if _category_has_section(key):
+            result["section"] = w["section_btn"].property("_color") or None
+            result["section_pattern"] = w["section_btn"].property("_pattern") or "diagonal"
+            _ss = w["section_btn"].property("_section_scale")
+            result["section_scale"] = float(_ss) if _ss else 1.0
         else:
-            result["hatch"] = None
+            result["section"] = None
+            result["section_pattern"] = None
         if _category_has_font(key):
             result["font"] = w["font"].value()
         else:
@@ -1592,11 +1809,19 @@ class DisplayManager(QDialog):
                 eff_visible = overrides.get("visible", cat_settings["visible"])
                 eff_fill = overrides.get("fill", cat_settings.get("fill"))
                 eff_font = overrides.get("font", cat_settings.get("font"))
+                eff_section = overrides.get("section", cat_settings.get("section"))
+                eff_sec_pat = overrides.get("section_pattern",
+                                            cat_settings.get("section_pattern"))
+                eff_sec_scl = overrides.get("section_scale",
+                                            cat_settings.get("section_scale"))
 
                 apply_display_to_item(obj, eff_color, eff_scale,
                                       eff_opacity, eff_visible,
                                       fill_color=eff_fill,
-                                      font_size=eff_font)
+                                      font_size=eff_font,
+                                      section_color=eff_section,
+                                      section_pattern=eff_sec_pat,
+                                      section_scale=eff_sec_scl)
 
             # Sync elevation-related categories to QSettings so elevation
             # scene rebuilds pick up changes during live preview.
@@ -1607,8 +1832,12 @@ class DisplayManager(QDialog):
                 self._settings.setValue(f"display/{key}/visible", cat_settings["visible"])
                 if cat_settings.get("fill"):
                     self._settings.setValue(f"display/{key}/fill", cat_settings["fill"])
-                if cat_settings.get("hatch"):
-                    self._settings.setValue(f"display/{key}/hatch", cat_settings["hatch"])
+                if cat_settings.get("section"):
+                    self._settings.setValue(f"display/{key}/section", cat_settings["section"])
+                if cat_settings.get("section_pattern"):
+                    self._settings.setValue(f"display/{key}/section_pattern", cat_settings["section_pattern"])
+                if cat_settings.get("section_scale") is not None:
+                    self._settings.setValue(f"display/{key}/section_scale", cat_settings["section_scale"])
                 if cat_settings.get("font") is not None:
                     self._settings.setValue(f"display/{key}/font", cat_settings["font"])
                 elev_dirty = True
@@ -1637,8 +1866,12 @@ class DisplayManager(QDialog):
             self._settings.setValue(f"display/{key}/visible", s["visible"])
             if s.get("fill"):
                 self._settings.setValue(f"display/{key}/fill", s["fill"])
-            if s.get("hatch"):
-                self._settings.setValue(f"display/{key}/hatch", s["hatch"])
+            if s.get("section"):
+                self._settings.setValue(f"display/{key}/section", s["section"])
+            if s.get("section_pattern"):
+                self._settings.setValue(f"display/{key}/section_pattern", s["section_pattern"])
+            if s.get("section_scale") is not None:
+                self._settings.setValue(f"display/{key}/section_scale", s["section_scale"])
             if s.get("font") is not None:
                 self._settings.setValue(f"display/{key}/font", s["font"])
         self._settings.sync()
@@ -1682,7 +1915,7 @@ def apply_default_display_settings(scene):
         key = cat_def["key"]
         # Build overrides from default_* keys (fall back to regular keys)
         default_ov: dict = {}
-        for prop in ("color", "fill", "hatch", "scale", "opacity", "visible", "font"):
+        for prop in ("color", "fill", "section", "section_pattern", "section_scale", "scale", "opacity", "visible", "font"):
             dv = settings.value(f"display/{key}/default_{prop}")
             if dv is not None:
                 default_ov[prop] = dv

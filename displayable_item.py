@@ -19,8 +19,66 @@ interfering with the Qt graphics item constructor chain.  Call
 
 from __future__ import annotations
 
-from PyQt6.QtGui import QTransform
+import math
+from PyQt6.QtCore import QPointF
+from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform, QPolygonF
 from constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+
+_SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
+
+
+def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
+                       color: "QColor | None" = None,
+                       pattern: str = "diagonal",
+                       line_width: float = 1.0,
+                       section_fill: "QColor | None" = None,
+                       hatch_scale: float = 1.0):
+    """Fill *clip_path* with a section hatch overlay.
+
+    *section_fill*  — solid fill colour for the section body (replaces
+                      the element's normal fill).  If ``None``, no fill.
+    *color*         — hatch-line colour (should match the element's
+                      normal line colour).
+    *line_width*    — hatch-line weight in screen pixels.
+    *hatch_scale*   — multiplier for pattern density (1.0 = default).
+    *pattern*       — pattern name from ``hatch_patterns``.
+    """
+    if clip_path.isEmpty():
+        return
+
+    from hatch_patterns import make_hatch_brush, is_builtin, is_svg, draw_svg_hatch
+
+    hatch_col = color or _SECTION_HATCH_COLOR
+    views = scene.views() if scene else []
+    scale = abs(views[0].transform().m11()) if views else 1.0
+
+    painter.save()
+    painter.setClipPath(clip_path)
+
+    # 1. Solid section-fill background
+    if section_fill is not None:
+        painter.setPen(QPen(QColor(0, 0, 0, 0)))
+        painter.setBrush(QBrush(section_fill))
+        painter.drawRect(clip_path.boundingRect())
+
+    painter.restore()
+
+    # 2. Hatch lines on top
+    if is_svg(pattern):
+        # SVG patterns — draw as true vector lines (perfectly crisp)
+        draw_svg_hatch(painter, clip_path, scene, pattern, hatch_col,
+                       line_width=line_width, hatch_scale=hatch_scale)
+    else:
+        # Built-in Qt patterns — resolution-independent brush fill
+        painter.save()
+        painter.setClipPath(clip_path)
+        brush = make_hatch_brush(pattern, 24, hatch_col)
+        inv = 1.0 / max(scale, 1e-6) * hatch_scale
+        brush.setTransform(QTransform().scale(inv, inv))
+        painter.setPen(QPen(QColor(0, 0, 0, 0)))
+        painter.setBrush(brush)
+        painter.drawRect(clip_path.boundingRect())
+        painter.restore()
 
 
 def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,
@@ -71,6 +129,27 @@ class DisplayableItemMixin:
         self._display_fill_color: str | None = None
         self._display_overrides: dict = {}
         self._scale_manager_ref = None
+        self._is_section_cut: bool = False            # set by LevelManager view-range pass
+        self._display_section_color: str | None = None   # set by Display Manager
+        self._display_section_pattern: str | None = None  # set by Display Manager
+        self._display_section_scale: float = 1.0          # set by Display Manager
+
+    # ── View-range / section-cut protocol ──────────────────────────────────
+
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Return ``(z_bottom, z_top)`` in absolute mm, or ``None``.
+
+        Subclasses with meaningful 3D extent should override this.
+        Items returning ``None`` are filtered by level name only.
+        """
+        return None
+
+    def is_cut_by(self, view_height_mm: float) -> bool:
+        """True if this element's Z-range straddles *view_height_mm*."""
+        zr = self.z_range_mm()
+        if zr is None:
+            return False
+        return zr[0] < view_height_mm < zr[1]
 
     def _fmt(self, mm: float) -> str:
         """Format *mm* as a display string using the scene's ScaleManager."""

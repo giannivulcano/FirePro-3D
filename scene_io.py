@@ -203,6 +203,8 @@ class SceneIOMixin:
             "display_settings":    display_settings_data,
             "user_layers":         layers_data,
             "levels":              levels_data,
+            "plan_views":          (self._plan_view_manager.to_list()
+                                    if self._plan_view_manager else []),
             "active_level":        self.active_level,
             "nodes":               nodes_data,
             "pipes":               pipes_data,
@@ -300,6 +302,11 @@ class SceneIOMixin:
         saved_active = payload.get("active_level", "")
         if saved_active and self._level_manager and self._level_manager.get(saved_active):
             self.active_level = saved_active
+
+        # --- Plan views (per-view cut-plane settings) ---
+        pv_data = payload.get("plan_views", [])
+        if pv_data and self._plan_view_manager:
+            self._plan_view_manager.from_list(pv_data)
 
         # --- Nodes ---
         id_to_node: dict[int, Node] = {}

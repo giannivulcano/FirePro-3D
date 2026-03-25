@@ -358,6 +358,16 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 continue
             self.set_property(key, meta["value"])
 
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Return (z_bottom, z_top) spanning both endpoint elevations."""
+        z1 = getattr(self.node1, "z_pos", None) if self.node1 else None
+        z2 = getattr(self.node2, "z_pos", None) if self.node2 else None
+        if z1 is None and z2 is None:
+            return None
+        z1 = z1 if z1 is not None else z2
+        z2 = z2 if z2 is not None else z1
+        return (min(z1, z2), max(z1, z2))
+
     def display_width_mm(self) -> float:
         """Return display line width in mm based on Line Type (Main/Branch)."""
         return self.MAIN_WIDTH_MM if self._properties["Line Type"]["value"] == "Main" else self.BRANCH_WIDTH_MM

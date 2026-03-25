@@ -153,6 +153,7 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
         # Selectable (NOT movable — position pinned to shared box midlines)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self._exclude_from_bulk_select = True  # skip Ctrl+A / rubber-band
 
         # Ensure this level attribute exists for display manager categorization
         self.level = DEFAULT_LEVEL

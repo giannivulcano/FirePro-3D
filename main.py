@@ -21,7 +21,7 @@ from layer_manager import LayerManager
 from hydraulic_report import HydraulicReportWidget
 from thermal_radiation_report import ThermalRadiationReportWidget
 from user_layer_manager import UserLayerManager, UserLayerWidget
-from level_manager import LevelManager
+from level_manager import LevelManager, PlanViewManager
 from level_widget import LevelWidget
 from paper_space import PaperSpaceWidget, PAPER_SIZES
 from ribbon_bar import RibbonBar
@@ -215,6 +215,8 @@ class MainWindow(QMainWindow):
         # Level manager — shared between scene and UI
         self.level_mgr = LevelManager()
         self.scene._level_manager = self.level_mgr
+        self.plan_view_mgr = PlanViewManager()
+        self.scene._plan_view_manager = self.plan_view_mgr
 
         # Central tab widget: Model Space | 3D View | Layout 1 (Paper Space)
         self._splash_progress(35, "Building 3D viewport...")
@@ -237,6 +239,11 @@ class MainWindow(QMainWindow):
         self.setMenuWidget(self.ribbon)
         self.setCentralWidget(self.central_tabs)
         self.central_tabs.currentChanged.connect(self._on_tab_changed)
+        # Right-click context menu on plan tabs (View Range)
+        self.central_tabs.tabBar().setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu)
+        self.central_tabs.tabBar().customContextMenuRequested.connect(
+            self._on_tab_context_menu)
 
         # Property manager (will be added as tab in browser dock)
         self._splash_progress(65, "Setting up panels...")
@@ -558,6 +565,9 @@ class MainWindow(QMainWindow):
         """
         tab_name = f"Plan: {level_name}"
 
+        # Ensure a PlanView object exists for this tab
+        self.plan_view_mgr.create(level_name, self.level_mgr)
+
         # Check if tab already exists
         for i in range(self.central_tabs.count()):
             if self.central_tabs.tabText(i) == tab_name:
@@ -569,6 +579,7 @@ class MainWindow(QMainWindow):
         from Model_View import Model_View
         plan_view = Model_View(self.scene)
         plan_view.setObjectName(f"plan_view_{level_name}")
+        plan_view.plan_view_name = tab_name  # link widget to PlanView
         idx = self.central_tabs.addTab(plan_view, tab_name)
         self.central_tabs.setCurrentIndex(idx)
         self._apply_plan_level(level_name)
@@ -602,8 +613,46 @@ class MainWindow(QMainWindow):
     def _apply_plan_level(self, level_name: str):
         """Set the active level and refresh visibility for a plan view."""
         self.scene.active_level = level_name
-        self.level_mgr.apply_to_scene(self.scene, level_name)
-        pass  # level indicator removed
+        pv = self.plan_view_mgr.get(f"Plan: {level_name}")
+        if pv is not None:
+            self.level_mgr.apply_to_scene(
+                self.scene, level_name,
+                view_height=pv.view_height, view_depth=pv.view_depth)
+        else:
+            self.level_mgr.apply_to_scene(self.scene, level_name)
+
+    def _on_tab_context_menu(self, pos):
+        """Show context menu when right-clicking a plan tab header."""
+        tab_bar = self.central_tabs.tabBar()
+        index = tab_bar.tabAt(pos)
+        if index < 0:
+            return
+        tab_text = self.central_tabs.tabText(index)
+        if not tab_text.startswith("Plan: "):
+            return
+
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        view_range_action = menu.addAction("View Range\u2026")
+        action = menu.exec(tab_bar.mapToGlobal(pos))
+        if action == view_range_action:
+            level_name = tab_text[len("Plan: "):]
+            pv = self.plan_view_mgr.get(tab_text)
+            if pv is None:
+                pv = self.plan_view_mgr.create(level_name, self.level_mgr)
+            from view_range_dialog import ViewRangeDialog
+            dlg = ViewRangeDialog(
+                pv, self.level_mgr, self.plan_view_mgr,
+                self.scene.scale_manager, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                vh, vd = dlg.get_values()
+                pv.view_height = vh
+                pv.view_depth = vd
+                # Refresh visibility if this is the active tab
+                current_text = self.central_tabs.tabText(
+                    self.central_tabs.currentIndex())
+                if current_text == tab_text:
+                    self._apply_plan_level(level_name)
 
     def _get_active_plan_view(self):
         """Return the currently visible plan view, falling back to self.view."""
@@ -2184,6 +2233,27 @@ class MainWindow(QMainWindow):
     def _on_scene_modified(self):
         self._modified = True
         self._update_title()
+        # Debounce view rebuilds — 200ms so rapid edits don't stall the UI
+        if not hasattr(self, "_view_refresh_timer"):
+            self._view_refresh_timer = QTimer(self)
+            self._view_refresh_timer.setSingleShot(True)
+            self._view_refresh_timer.setInterval(200)
+            self._view_refresh_timer.timeout.connect(self._refresh_all_views)
+        if not self._view_refresh_timer.isActive():
+            self._view_refresh_timer.start()
+
+    def _refresh_all_views(self):
+        """Rebuild all views to reflect property / geometry changes."""
+        # Re-apply plan-level visibility & section-cut flags
+        active = getattr(self.scene, "active_level", None)
+        if active:
+            self._apply_plan_level(active)
+        # Elevation views
+        if hasattr(self, "elevation_manager"):
+            self.elevation_manager.rebuild_all()
+        # 3D view
+        if hasattr(self, "view_3d") and hasattr(self.view_3d, "rebuild"):
+            self.view_3d.rebuild()
 
     def _on_escape(self):
         """Escape: cancel current chain in pipe mode, else reset mode."""

@@ -140,6 +140,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self._level_manager = None                             # set by main.py
+        self._plan_view_manager = None                         # set by main.py
         # Grip editing (Sprint I)
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_index: int = -1              # grip handle index
@@ -1366,7 +1367,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         temp_spr._properties["Min Pressure"]["value"] = str(sprinkler_record.min_pressure)
         temp_spr._properties["Temperature"]["value"] = f"{sprinkler_record.temp_rating}\u00b0F"
         temp_spr._properties["Design Density"]["value"] = design_density
-        temp_spr._properties["Level"]["value"] = level
+        # Level is a Node property, not a Sprinkler property — set on node below
         temp_spr._properties["Ceiling Level"]["value"] = ceiling_level
         temp_spr._properties["Ceiling Offset"]["value"] = str(ceiling_offset)
 
@@ -4054,6 +4055,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             super().mousePressEvent(event)
             return
 
+        self._last_press_pos = event.scenePos()
         scene_pos = event.scenePos()
         snapped   = self.get_effective_position(scene_pos)
 
@@ -5841,6 +5843,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 v.viewport().update()
             return
         super().mouseReleaseEvent(event)
+        # Deselect markers that got caught in a rubber-band drag.
+        # Only do this for drag selections — not direct clicks on the marker.
+        press = getattr(self, "_last_press_pos", None)
+        release = event.scenePos()
+        is_drag = (press is not None
+                   and (press - release).manhattanLength() > 4.0)
+        if is_drag:
+            for item in self.selectedItems():
+                if getattr(item, "_exclude_from_bulk_select", False):
+                    item.setSelected(False)
 
     def mouseDoubleClickEvent(self, event):
         # ── Pipe: double-click finishes the polyline chain ─────────────
@@ -6284,9 +6296,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         elif event.key() == Qt.Key.Key_Delete:
             self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            # Ctrl+A is handled by QShortcut → Model_View._select_all_items()
+            # This fallback is kept for completeness.
             self.blockSignals(True)
             for item in self.items():
                 if isinstance(item, GridlineItem):
+                    continue
+                if getattr(item, "_exclude_from_bulk_select", False):
                     continue
                 if item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
                     item.setSelected(True)

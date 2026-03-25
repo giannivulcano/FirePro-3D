@@ -27,6 +27,37 @@ from PyQt6.QtCore import Qt
 # ─────────────────────────────────────────────────────────────────────────────
 
 FADE_OPACITY = 0.25  # opacity for faded levels
+CROSS_LEVEL_OPACITY = 0.50  # opacity for items from other levels shown via Z-range
+
+
+def _apply_z_filter(item, view_height, view_depth):
+    """Hide *item* if its Z-range is entirely outside the view range,
+    and flag it as section-cut if it straddles *view_height*."""
+    fn = getattr(item, "z_range_mm", None)
+    if fn is None:
+        return  # no Z data — keep current visibility
+    zr = fn()
+    if zr is None:
+        return
+    z_bot, z_top = zr
+    if z_top < view_depth or z_bot > view_height:
+        item.setVisible(False)
+        return
+    # Mark section-cut if element straddles the cut plane
+    if hasattr(item, "_is_section_cut"):
+        item._is_section_cut = (z_bot < view_height < z_top)
+
+
+def _z_intersects(item, view_height, view_depth) -> bool:
+    """Return True if *item* has a Z-range that overlaps [view_depth, view_height]."""
+    fn = getattr(item, "z_range_mm", None)
+    if fn is None:
+        return False
+    zr = fn()
+    if zr is None:
+        return False
+    z_bot, z_top = zr
+    return z_top >= view_depth and z_bot <= view_height
 
 from constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 # Display mode options (stored in Level.display_mode)
@@ -37,8 +68,8 @@ DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
 class Level:
     name:         str
     elevation:    float = 0.0       # mm, relative to project datum
-    view_top:     float = 2000.0    # mm above elevation (future use)
-    view_bottom:  float = -1000.0   # mm below elevation (future use)
+    view_top:     float = 2000.0    # mm above elevation (default offset for new plan views)
+    view_bottom:  float = -1000.0   # mm below elevation (default offset for new plan views)
     display_mode: str   = "Auto"    # Auto | Hidden | Faded | Visible
 
     def to_dict(self) -> dict:
@@ -64,6 +95,107 @@ class Level:
             view_bottom  = d.get("view_bottom",  -1000.0),
             display_mode = d.get("display_mode", "Auto"),
         )
+
+
+@dataclass
+class PlanView:
+    """Per-view cut-plane range for a plan tab.
+
+    *view_height* is the absolute elevation (mm) of the cut plane (camera
+    height).  Elements that straddle this plane are "section-cut" and get
+    hatching.  *view_depth* is the lowest elevation visible in the view.
+    """
+    name:        str            # unique view name, e.g. "Plan: Level 1"
+    level_name:  str            # which level this plan view shows
+    view_height: float = 0.0   # mm, absolute elevation of the cut plane
+    view_depth:  float = 0.0   # mm, absolute elevation of the bottom limit
+
+    def to_dict(self) -> dict:
+        return {
+            "name":        self.name,
+            "level_name":  self.level_name,
+            "view_height": self.view_height,
+            "view_depth":  self.view_depth,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "PlanView":
+        return cls(
+            name        = d["name"],
+            level_name  = d["level_name"],
+            view_height = d.get("view_height", 0.0),
+            view_depth  = d.get("view_depth",  0.0),
+        )
+
+
+_DEFAULT_SLAB_THICKNESS_MM = 152.4  # 6 inches — used to compute default view_height
+
+
+class PlanViewManager:
+    """Manages per-view cut-plane settings for plan tabs."""
+
+    def __init__(self):
+        self._views: dict[str, PlanView] = {}
+
+    def get(self, name: str) -> PlanView | None:
+        return self._views.get(name)
+
+    def create(self, level_name: str, level_manager: "LevelManager") -> PlanView:
+        """Create (or return existing) PlanView with smart defaults."""
+        name = f"Plan: {level_name}"
+        existing = self._views.get(name)
+        if existing is not None:
+            return existing
+
+        lvl = level_manager.get(level_name)
+        elev = lvl.elevation if lvl else 0.0
+
+        # view_depth: this level's elevation (show floor-level items)
+        view_depth = elev + (lvl.view_bottom if lvl else -1000.0)
+
+        # view_height: next level's elevation minus slab thickness,
+        # or this level + view_top if no level above exists
+        levels_sorted = sorted(level_manager.levels, key=lambda l: l.elevation)
+        next_lvl = None
+        for l in levels_sorted:
+            if l.elevation > elev:
+                next_lvl = l
+                break
+        if next_lvl is not None:
+            view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
+        else:
+            view_height = elev + (lvl.view_top if lvl else 2000.0)
+
+        pv = PlanView(name=name, level_name=level_name,
+                      view_height=view_height, view_depth=view_depth)
+        self._views[name] = pv
+        return pv
+
+    def remove(self, name: str):
+        self._views.pop(name, None)
+
+    def to_list(self) -> list[dict]:
+        return [pv.to_dict() for pv in self._views.values()]
+
+    def from_list(self, data: list[dict]):
+        self._views = {}
+        for d in data:
+            pv = PlanView.from_dict(d)
+            self._views[pv.name] = pv
+
+    def rename_level(self, old_name: str, new_name: str):
+        """Update plan views when a level is renamed."""
+        old_key = f"Plan: {old_name}"
+        pv = self._views.pop(old_key, None)
+        if pv is not None:
+            pv.name = f"Plan: {new_name}"
+            pv.level_name = new_name
+            self._views[pv.name] = pv
+
+    def remove_level(self, level_name: str):
+        """Remove any plan views referencing a deleted level."""
+        key = f"Plan: {level_name}"
+        self._views.pop(key, None)
 
 
 # Defaults shipped with every new document
@@ -162,20 +294,41 @@ class LevelManager:
             ceil_elev = ceil_lvl.elevation if ceil_lvl else 0.0
             node.z_pos = ceil_elev + getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM)
 
+    # ── Z-range helpers (module-level to avoid repeated closure overhead) ────
+
+    @staticmethod
+    def _get_z_range(item):
+        """Return (z_bot, z_top) or None if the item has no Z data."""
+        fn = getattr(item, "z_range_mm", None)
+        return fn() if fn is not None else None
+
     # ── Apply to scene ────────────────────────────────────────────────────────
 
-    def apply_to_scene(self, scene, active_level: str | None = None):
+    def apply_to_scene(self, scene, active_level: str | None = None,
+                       view_height: float | None = None,
+                       view_depth: float | None = None):
         """Show/hide/fade entities based on *active_level* and display_mode,
         then re-apply layer visibility so both level AND layer filtering
         are respected.
 
         *active_level* is the level of the current plan view.  If ``None``,
         falls back to ``scene.active_level``.
+
+        When *view_height* and *view_depth* are provided, elements with a
+        ``z_range_mm()`` method are additionally filtered by elevation:
+        only elements whose vertical extent intersects [view_depth, view_height]
+        are visible.  Elements on non-active levels that intersect the range
+        are shown (faded).  Elements cut by *view_height* get ``_is_section_cut = True``.
         """
         active = active_level or getattr(scene, "active_level", DEFAULT_LEVEL)
         lvl_map = {l.name: l for l in self._levels}
+        has_view_range = (view_height is not None and view_depth is not None)
 
         def _set_level_vis(item):
+            # Reset section-cut flag
+            if hasattr(item, "_is_section_cut"):
+                item._is_section_cut = False
+
             lvl_name = getattr(item, "level", DEFAULT_LEVEL)
             lvl_def = lvl_map.get(lvl_name)
             mode = lvl_def.display_mode if lvl_def else "Auto"
@@ -193,25 +346,41 @@ class LevelManager:
                 item.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
                 )
+                # Apply view-range Z filter
+                if has_view_range:
+                    _apply_z_filter(item, view_height, view_depth)
                 return
 
-            # Non-active level — check display_mode
+            # Non-active level — check display_mode first, then Z-range
             if mode == "Faded":
                 item.setVisible(True)
                 item.setOpacity(FADE_OPACITY)
                 item.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
                 )
+                if has_view_range:
+                    _apply_z_filter(item, view_height, view_depth)
             elif mode == "Visible":
                 item.setVisible(True)
                 item.setOpacity(1.0)
                 item.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
                 )
+                if has_view_range:
+                    _apply_z_filter(item, view_height, view_depth)
             else:
-                # "Auto" when not active — hidden
-                item.setVisible(False)
-                item.setOpacity(1.0)
+                # "Auto" when not active — check if Z-range brings it in
+                if has_view_range and _z_intersects(item, view_height, view_depth):
+                    # Multi-level element visible on this plan — full opacity
+                    item.setVisible(True)
+                    item.setOpacity(1.0)
+                    item.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
+                    )
+                    _apply_z_filter(item, view_height, view_depth)
+                else:
+                    item.setVisible(False)
+                    item.setOpacity(1.0)
 
         # ── Sprinkler system ──────────────────────────────────────────────
         for node in scene.sprinkler_system.nodes:

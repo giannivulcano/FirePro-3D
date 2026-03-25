@@ -703,16 +703,16 @@ class Model_View(QGraphicsView):
 
     def _select_all_items(self):
         from gridline import GridlineItem
-        from view_marker import SharedCropBox
         scene = self.scene()
         if scene:
             scene.blockSignals(True)
             for item in scene.items():
-                if isinstance(item, (GridlineItem, SharedCropBox)):
+                if isinstance(item, GridlineItem):
+                    continue
+                if getattr(item, "_exclude_from_bulk_select", False):
                     continue
                 if item.flags() & item.GraphicsItemFlag.ItemIsSelectable:
                     item.setSelected(True)
             scene.blockSignals(False)
-            # Single notification after batch selection
             scene.selectionChanged.emit()
             self.viewport().update()

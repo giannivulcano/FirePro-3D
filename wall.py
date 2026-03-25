@@ -33,7 +33,8 @@ DEFAULT_THICKNESS_MM = DEFAULT_THICKNESS_IN * 25.4  # 152.4 mm
 # Fill modes
 FILL_NONE  = "None"
 FILL_SOLID = "Solid"
-FILL_HATCH = "Hatch"
+FILL_HATCH = "Hatch"      # legacy alias
+FILL_SECTION = "Section"
 
 # Alignment modes (Revit-style wall placement line)
 ALIGN_CENTER   = "Center"
@@ -301,9 +302,27 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             if not solid_pt2:
                 painter.drawLine(p2l, p2r)
 
-        # Hatch lines
-        if self._fill_mode == FILL_HATCH:
-            self._draw_hatch(painter, p1l, p1r, p2r, p2l)
+        # Section hatching — shown when fill mode is Section/Hatch, OR when
+        # the view-range cut plane intersects this wall.
+        _show_section = (self._fill_mode in (FILL_HATCH, FILL_SECTION)
+                         or getattr(self, "_is_section_cut", False))
+        if _show_section:
+            from displayable_item import draw_section_hatch
+            clip = QPainterPath()
+            clip.addPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+            clip.closeSubpath()
+            # Section fill colour replaces element fill; hatch lines
+            # use the element's normal line colour and weight.
+            sec_fill_hex = getattr(self, "_display_section_color", None) or ""
+            sec_fill = QColor(sec_fill_hex) if sec_fill_hex.startswith("#") else None
+            pattern = getattr(self, "_display_section_pattern", None) or "diagonal"
+            h_scale = getattr(self, "_display_section_scale", 1.0) or 1.0
+            draw_section_hatch(painter, clip, self.scene(),
+                               color=line_col,
+                               pattern=pattern,
+                               line_width=pen.widthF() or 1.0,
+                               section_fill=sec_fill,
+                               hatch_scale=h_scale)
 
         # Selection highlight
         if self.isSelected():
@@ -401,18 +420,24 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
     # ── Properties API ───────────────────────────────────────────────────────
 
-    def _computed_height_mm(self) -> float:
-        """Auto-calculate wall height in mm from level elevations and offsets."""
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Return (z_bottom, z_top) of this wall in absolute mm."""
         sc = self.scene()
         lm = getattr(sc, "_level_manager", None) if sc else None
         if lm is None:
-            return self._height_mm  # fallback
-
+            return None
         base_lvl = lm.get(self._base_level)
         top_lvl = lm.get(self._top_level)
-        base_elev_mm = (base_lvl.elevation if base_lvl else 0.0)
-        top_elev_mm = (top_lvl.elevation if top_lvl else 0.0)
-        return (top_elev_mm + self._top_offset_mm) - (base_elev_mm + self._base_offset_mm)
+        z_bot = (base_lvl.elevation if base_lvl else 0.0) + self._base_offset_mm
+        z_top = (top_lvl.elevation if top_lvl else 0.0) + self._top_offset_mm
+        return (z_bot, z_top)
+
+    def _computed_height_mm(self) -> float:
+        """Auto-calculate wall height in mm from level elevations and offsets."""
+        zr = self.z_range_mm()
+        if zr is not None:
+            return zr[1] - zr[0]
+        return self._height_mm  # fallback
 
     def get_properties(self) -> dict:
         height_mm = self._computed_height_mm()
@@ -423,7 +448,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "Thickness":    {"type": "dimension", "value": self._fmt(self._thickness_mm),
                              "value_mm": self._thickness_mm},
             "Fill Mode":    {"type": "enum",      "value": self._fill_mode,
-                             "options": ["None", "Solid", "Hatch"]},
+                             "options": ["None", "Solid", "Section"]},
             "Alignment":    {"type": "enum",      "value": self._alignment,
                              "options": ["Center", "Interior", "Exterior"]},
             "Base Level":   {"type": "level_ref", "value": self._base_level},
