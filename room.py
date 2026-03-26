@@ -290,7 +290,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     # ── Sprinkler detection ──────────────────────────────────────────────
 
     def _detect_sprinklers(self) -> list:
-        """Return sprinklers whose nodes are inside the boundary polygon."""
+        """Return sprinklers whose nodes are inside the boundary polygon
+        AND within this room's Z range (floor to ceiling)."""
         sc = self.scene()
         if sc is None or not hasattr(sc, "sprinkler_system"):
             return []
@@ -301,14 +302,23 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         path.addPolygon(QPolygonF(self._boundary))
         path.closeSubpath()
 
+        zr = self.z_range_mm()
+
         result = []
         for node in sc.sprinkler_system.nodes:
             if not node.has_sprinkler():
                 continue
-            if node.level != self.level:
+            if not path.contains(node.scenePos()):
                 continue
-            if path.contains(node.scenePos()):
-                result.append(node.sprinkler)
+            # Check Z range — sprinkler must be within this room's
+            # floor-to-ceiling elevation range
+            if zr is not None:
+                z = getattr(node, "z_pos", None)
+                if z is not None:
+                    z_bot, z_top = min(zr), max(zr)
+                    if z < z_bot or z > z_top:
+                        continue
+            result.append(node.sprinkler)
         return result
 
     def _nfpa_max_coverage_sqft(self) -> float:
