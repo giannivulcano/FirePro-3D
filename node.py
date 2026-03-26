@@ -59,6 +59,9 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         # Format ceiling offset for display using project units
         props["Ceiling Offset"] = dict(props["Ceiling Offset"])
         props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
+        if self._room_name:
+            props["Room"] = {"type": "string", "value": self._room_name,
+                             "readonly": True}
         return props
 
     def set_property(self, key: str, value: str):
