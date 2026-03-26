@@ -559,6 +559,13 @@ class LevelManager:
             _apply_elev_z(item)
         for item in getattr(scene, "_rooms", []):
             _apply_elev_z(item)
+
+        # ── Detail markers ────────────────────────────────────────────────
+        dm = getattr(scene, "_detail_manager", None)
+        if dm is not None:
+            for marker in dm._markers.values():
+                _set_level_vis(marker)
+
         dm = getattr(scene, "_detail_manager", None)
         if dm is not None:
             for marker in dm._markers.values():

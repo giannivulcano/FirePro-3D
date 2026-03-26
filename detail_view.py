@@ -125,6 +125,18 @@ class DetailMarker(QGraphicsPathItem):
     def view_depth(self, v: float | None):
         self._view_depth = v
 
+    def z_range_mm(self):
+        """Z-range for view filtering — use the detail's level elevation."""
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return None
+        lvl = lm.get(self._level_name)
+        if lvl is None:
+            return None
+        z = lvl.elevation
+        return (z, z)
+
     # ── Path building ────────────────────────────────────────────────────
 
     def _rebuild_path(self):
