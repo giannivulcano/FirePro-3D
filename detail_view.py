@@ -69,7 +69,7 @@ class DetailMarker(QGraphicsPathItem):
         pen = QPen(self._tag_color, 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self.setPen(pen)
-        self.setBrush(Qt.BrushStyle.NoBrush)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
         self.setZValue(45)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
