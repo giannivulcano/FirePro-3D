@@ -4464,11 +4464,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         self._pending_confirm_data = {}
                     self._pending_confirm_data["elev_start"] = {
                         "start_node": start_node, "template": template}
+                    sm = self.scale_manager
+                    _fz = sm.format_length if sm else (lambda v: f"{v:.1f} mm")
                     self.confirmRequested.emit(
                         "elev_mismatch_start",
                         "Elevation Mismatch",
-                        f"Start node is at elevation {start_node.z_pos:.1f} mm "
-                        f"but the template targets {template_z:.1f} mm.")
+                        f"Start node is at elevation {_fz(start_node.z_pos)} "
+                        f"but the template targets {_fz(template_z)}.")
                     # Result handled by complete_confirmation(); flow resumes
                     # with start_node potentially replaced by intermediate
                     return
@@ -4560,11 +4562,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._pending_confirm_data["elev_end"] = {
                         "start_node": self.node_start_pos,
                         "end_node": end_node, "template": template}
+                    sm = self.scale_manager
+                    _fz = sm.format_length if sm else (lambda v: f"{v:.1f} mm")
                     self.confirmRequested.emit(
                         "elev_mismatch_end",
                         "Elevation Mismatch",
-                        f"The target node is at elevation {end_node.z_pos:.1f} mm "
-                        f"but the template targets {template_z:.1f} mm.")
+                        f"The target node is at elevation {_fz(end_node.z_pos)} "
+                        f"but the template targets {_fz(template_z)}.")
                     return
 
             # ── Collinear extension check ─────────────────────────────

@@ -354,9 +354,14 @@ class ModelBrowser(QWidget):
                     entities.append(entity)
         if not entities:
             return
-        self._scene.clearSelection()
-        for entity in entities:
-            entity.setSelected(True)
+        # Guard against scene.selectionChanged re-entering via clearSelection
+        self._syncing = True
+        try:
+            self._scene.clearSelection()
+            for entity in entities:
+                entity.setSelected(True)
+        finally:
+            self._syncing = False
         if len(entities) == 1:
             self.entitySelected.emit(entities[0])
         else:

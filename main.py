@@ -833,9 +833,9 @@ class MainWindow(QMainWindow):
             btn_riser = box.addButton(
                 "Create Riser", QMessageBox.ButtonRole.YesRole)
             btn_match = box.addButton(
-                "Match Elevation", QMessageBox.ButtonRole.NoRole)
+                "Place at Existing Elevation", QMessageBox.ButtonRole.NoRole)
             btn_template = box.addButton(
-                "Use Template Elevation", QMessageBox.ButtonRole.AcceptRole)
+                "Place at Template Elevation", QMessageBox.ButtonRole.AcceptRole)
             box.setDefaultButton(btn_riser)
             box.exec()
             clicked = box.clickedButton()

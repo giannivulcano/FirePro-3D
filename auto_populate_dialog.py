@@ -888,6 +888,14 @@ class AutoPopulateDialog(QDialog):
         fl.addRow("Compartment Type:", QLabel(self._room._compartment_type))
         fl.addRow("Floor Level:", QLabel(self._room.level))
         fl.addRow("Ceiling Level:", QLabel(self._room._ceiling_level))
+        ceil_offset = getattr(self._room, "_ceiling_offset", 0.0)
+        if ceil_offset:
+            offset_str = self._sm.format_length(ceil_offset) if self._sm else f"{ceil_offset:.1f} mm"
+            fl.addRow("Ceiling Offset:", QLabel(offset_str))
+        ceil_h = self._room._compute_ceiling_height()
+        self._ceiling_height_mm = ceil_h
+        ceil_h_str = self._sm.format_length(ceil_h) if self._sm else f"{ceil_h:.1f} mm"
+        fl.addRow("Ceiling Height:", QLabel(ceil_h_str))
         root.addWidget(g_room)
 
         # ── Side-by-side: Sprinkler Selection | Density/Area Graph ─────────
@@ -973,7 +981,7 @@ class AutoPopulateDialog(QDialog):
         req_lay.addRow("Sprinkler Listing Coverage:", self._lbl_spr_coverage)
         req_lay.addRow("Max Spacing:", self._lbl_max_spacing)
         req_lay.addRow("Min Spacing:", self._lbl_min_spacing)
-        req_lay.addRow("Ceiling Offset:", self._offset_edit)
+        req_lay.addRow("Sprinkler Offset:", self._offset_edit)
         bottom_split.addWidget(g_req)
 
         # Right — Results Preview
@@ -983,10 +991,12 @@ class AutoPopulateDialog(QDialog):
         self._lbl_spacing_xy = QLabel("---")
         self._lbl_count = QLabel("---")
         self._lbl_actual_cov = QLabel("---")
+        self._lbl_spr_height = QLabel("---")
         self._lbl_status = QLabel("---")
         res_top.addRow("Computed Spacing:", self._lbl_spacing_xy)
         res_top.addRow("Sprinkler Count:", self._lbl_count)
         res_top.addRow("Actual Coverage/Sprinkler:", self._lbl_actual_cov)
+        res_top.addRow("Sprinkler Height:", self._lbl_spr_height)
         res_top.addRow("Status:", self._lbl_status)
         res_vbox.addLayout(res_top)
 
@@ -1132,6 +1142,12 @@ class AutoPopulateDialog(QDialog):
         count = len(positions)
         self._lbl_spacing_xy.setText(f"{sx:.1f} ft x {sy:.1f} ft")
         self._lbl_count.setText(str(count))
+
+        # Sprinkler height = ceiling height + sprinkler offset
+        spr_h = getattr(self, "_ceiling_height_mm", 0.0) + self._offset_mm
+        spr_h_str = self._format_offset(spr_h)
+        self._lbl_spr_height.setText(spr_h_str)
+
         if count > 0:
             actual_cov = self._room_area_sqft / count
             self._lbl_actual_cov.setText(f"{actual_cov:.1f} sq ft")
