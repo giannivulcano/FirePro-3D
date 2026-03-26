@@ -137,10 +137,11 @@ class PlanViewInfo:
     """
 
     def __init__(self, plan_view: "PlanView", level_manager: "LevelManager",
-                 scale_manager=None):
+                 scale_manager=None, on_view_range=None):
         self._pv = plan_view
         self._lm = level_manager
         self._sm = scale_manager
+        self._on_view_range = on_view_range  # callback to open ViewRangeDialog
 
     def get_properties(self) -> dict:
         pv = self._pv
@@ -157,6 +158,10 @@ class PlanViewInfo:
         vd_str = sm.format_length(pv.view_depth) if sm else f"{pv.view_depth:.1f}"
         props["Cut Plane Height"] = {"value": vh_str, "type": "string", "readonly": True}
         props["View Depth"] = {"value": vd_str, "type": "string", "readonly": True}
+        if self._on_view_range is not None:
+            props["Edit View Range"] = {
+                "type": "button", "value": "View Range\u2026",
+                "callback": self._on_view_range}
         return props
 
     def set_property(self, key, value):

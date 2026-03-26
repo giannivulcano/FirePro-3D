@@ -91,6 +91,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._tag: str = ""
         self._show_label: bool = True
         self._ceiling_level: str = "Level 2"
+        self._ceiling_offset: float = 0.0   # mm offset from ceiling level
 
         # NFPA / fire protection
         self._hazard_class: str = "Light Hazard"
@@ -139,7 +140,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             for slab in getattr(sc, "_floor_slabs", []):
                 if getattr(slab, "level", None) == self._ceiling_level:
                     slab_thickness = max(slab_thickness, slab._thickness_mm)
-            top_z = ceil_lvl.elevation - slab_thickness
+            top_z = ceil_lvl.elevation - slab_thickness + self._ceiling_offset
         return (bot_z, top_z)
 
     # ── Grip protocol (drawn by Model_View like all other geometry) ────
@@ -284,7 +285,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         for slab in getattr(sc, "_floor_slabs", []):
             if getattr(slab, "level", None) == self._ceiling_level:
                 slab_thickness = max(slab_thickness, slab._thickness_mm)
-        return ceil_lvl.elevation - floor_lvl.elevation - slab_thickness
+        return ceil_lvl.elevation - floor_lvl.elevation - slab_thickness + self._ceiling_offset
 
     # ── Sprinkler detection ──────────────────────────────────────────────
 
@@ -343,7 +344,18 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             return f"{cum:.1f} m³"
         return f"{mm3:.0f} mm³"
 
-    # ── Hit-test (only the label tag is clickable) ─────────────────────
+    # ── Geometry ──────────────────────────────────────────────────────────
+
+    def boundingRect(self):
+        """Include the polygon AND all child items (label, background).
+
+        Without this override, the inherited QGraphicsPolygonItem bounding
+        rect only covers the polygon.  When the label child extends beyond
+        the polygon, Qt's BSP can incorrectly cull the polygon fill once
+        the label scrolls off screen.
+        """
+        br = super().boundingRect()
+        return br.united(self.childrenBoundingRect())
 
     def shape(self) -> QPainterPath:
         """Only the room tag label area is selectable, not the full polygon."""
@@ -405,6 +417,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Perimeter":         {"type": "label",     "value": self._fmt(perim_mm)},
             "Floor Level":       {"type": "level_ref", "value": self.level},
             "Ceiling Level":     {"type": "level_ref", "value": self._ceiling_level},
+            "Ceiling Offset":    {"type": "string",    "value": str(self._ceiling_offset)},
             "Ceiling Height":    {"type": "label",     "value": self._fmt(ceil_h)},
             "Volume":            {"type": "label",     "value": self._fmt_volume(vol_mm3)},
             "Hazard Class":      {"type": "enum",      "value": self._hazard_class,
@@ -434,6 +447,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             self.level = str(value)
         elif key == "Ceiling Level":
             self._ceiling_level = str(value)
+        elif key == "Ceiling Offset":
+            try:
+                self._ceiling_offset = float(value)
+            except (ValueError, TypeError):
+                pass
         elif key == "Hazard Class":
             if str(value) in HAZARD_CLASSES:
                 self._hazard_class = str(value)
@@ -467,6 +485,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "show_label":       self._show_label,
             "level":            self.level,
             "ceiling_level":    self._ceiling_level,
+            "ceiling_offset":   self._ceiling_offset,
             "user_layer":       self.user_layer,
             "hazard_class":     self._hazard_class,
             "compartment_type": self._compartment_type,
@@ -483,6 +502,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         room._show_label = data.get("show_label", True)
         room.level = data.get("level", DEFAULT_LEVEL)
         room._ceiling_level = data.get("ceiling_level", "Level 2")
+        room._ceiling_offset = float(data.get("ceiling_offset", 0.0))
         room.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         room._hazard_class = data.get("hazard_class", "Light Hazard")
         room._compartment_type = data.get("compartment_type", "Room")

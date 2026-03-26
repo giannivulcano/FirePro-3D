@@ -185,6 +185,18 @@ class ModelBrowser(QWidget):
             item.setToolTip(0, f"Level: {roof.level}  Type: {getattr(roof, '_roof_type', 'flat')}  Points: {pts}")
             self._style_hidden(item, roof)
 
+        # -- Rooms --
+        rooms = getattr(self._scene, "_rooms", [])
+        rooms_root = QTreeWidgetItem(self._tree, [f"Rooms ({len(rooms)})"])
+        rooms_root.setFont(0, f_bold)
+        rooms_root.setExpanded(True)
+        for room in rooms:
+            label = room.name if room.name else "Room"
+            item = QTreeWidgetItem(rooms_root, [label])
+            item.setData(0, _ROLE_ENTITY, id(room))
+            item.setToolTip(0, f"Level: {room.level}  Tag: {getattr(room, '_tag', '')}")
+            self._style_hidden(item, room)
+
         # -- Doors --
         doors: list = []
         for wall in walls:

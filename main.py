@@ -2686,13 +2686,60 @@ class MainWindow(QMainWindow):
             pv = self.plan_view_mgr.get(tab_text)
             if pv is not None:
                 from level_manager import PlanViewInfo
-                return PlanViewInfo(pv, self.level_mgr, self.scene.scale_manager)
+                return PlanViewInfo(
+                    pv, self.level_mgr, self.scene.scale_manager,
+                    on_view_range=lambda: self._open_plan_view_range(tab_text))
         elif tab_text.startswith("Detail: "):
             detail_name = tab_text[len("Detail: "):]
             marker = self.detail_manager.get_marker(detail_name)
             if marker is not None:
-                return marker  # DetailMarker has get_properties()
+                marker._on_view_range = lambda: self._open_detail_view_range(
+                    detail_name)
+                return marker
         return None
+
+    def _open_plan_view_range(self, tab_text: str):
+        """Open view range dialog for a plan view tab."""
+        level_name = tab_text[len("Plan: "):]
+        pv = self.plan_view_mgr.get(tab_text)
+        if pv is None:
+            pv = self.plan_view_mgr.create(level_name, self.level_mgr)
+        from view_range_dialog import ViewRangeDialog
+        dlg = ViewRangeDialog(
+            pv, self.level_mgr, self.plan_view_mgr,
+            self.scene.scale_manager, parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            vh, vd = dlg.get_values()
+            pv.view_height = vh
+            pv.view_depth = vd
+            current_text = self.central_tabs.tabText(
+                self.central_tabs.currentIndex())
+            if current_text == tab_text:
+                self._apply_plan_level(level_name)
+            self.update_property_manager()
+
+    def _open_detail_view_range(self, detail_name: str):
+        """Open view range dialog for a detail view."""
+        marker = self.detail_manager.get_marker(detail_name)
+        if marker is None:
+            return
+        from level_manager import PlanView
+        pv = PlanView(
+            name=f"Detail: {detail_name}",
+            level_name=marker.level_name,
+            view_height=marker.view_height or 0.0,
+            view_depth=marker.view_depth or 0.0,
+        )
+        from view_range_dialog import ViewRangeDialog
+        dlg = ViewRangeDialog(
+            pv, self.level_mgr, self.plan_view_mgr,
+            self.scene.scale_manager, parent=self)
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            vh, vd = dlg.get_values()
+            marker.view_height = vh
+            marker.view_depth = vd
+            self._apply_detail_level(detail_name)
+            self.update_property_manager()
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT HANDLING

@@ -60,6 +60,7 @@ class DetailMarker(QGraphicsPathItem):
         # View depth (mm) — None means inherit from plan
         self._view_height: float | None = None
         self._view_depth: float | None = None
+        self._on_view_range = None  # callback set by main.py
 
         # Visual style
         self._tag_color = QColor(_MARKER_COLOR)
@@ -338,6 +339,10 @@ class DetailMarker(QGraphicsPathItem):
         vd_str = f"{self._view_depth:.1f}" if self._view_depth is not None else "(inherit)"
         props["Cut Plane Height"] = {"value": vh_str, "type": "string", "readonly": True}
         props["View Depth"] = {"value": vd_str, "type": "string", "readonly": True}
+        if self._on_view_range is not None:
+            props["Edit View Range"] = {
+                "type": "button", "value": "View Range\u2026",
+                "callback": self._on_view_range}
         return props
 
     def set_property(self, key: str, value):
