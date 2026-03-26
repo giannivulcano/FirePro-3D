@@ -516,6 +516,7 @@ class LevelManager:
             "WindowOpening": 0.35,
             "Pipe":      0.4,
             "Node":      0.5,
+            "DetailMarker": 0.6,
         }
         _Z_SCALE = 1.0 / 100.0  # mm → Z units (keeps values manageable)
 
@@ -536,6 +537,12 @@ class LevelManager:
                     z_mm = max(zr)
             elif hasattr(item, "z_pos"):
                 z_mm = item.z_pos
+            else:
+                # Fall back to level elevation
+                lvl_name = getattr(item, "level", None)
+                lvl_obj = lvl_map.get(lvl_name) if lvl_name else None
+                if lvl_obj is not None:
+                    z_mm = lvl_obj.elevation
             item.setZValue(z_mm * _Z_SCALE + cat_offset)
 
         for node in scene.sprinkler_system.nodes:
@@ -552,6 +559,10 @@ class LevelManager:
             _apply_elev_z(item)
         for item in getattr(scene, "_rooms", []):
             _apply_elev_z(item)
+        dm = getattr(scene, "_detail_manager", None)
+        if dm is not None:
+            for marker in dm._markers.values():
+                _apply_elev_z(marker)
 
         # ── Re-apply user-layer visibility on top ─────────────────────────
         ulm = getattr(scene, "_user_layer_manager", None)
