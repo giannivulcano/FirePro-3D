@@ -232,6 +232,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Grid Line",        "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
 ]
 
 # Group display order
@@ -454,6 +455,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_gridline(item, color, scale, opacity, visible, fill_color, font_size)
     elif _is_elevation_marker(item):
         _apply_elevation_marker(item, color, scale, opacity, visible, fill_color, font_size)
+    elif _is_detail_marker(item):
+        _apply_detail_marker(item, color, scale, opacity, visible, fill_color, font_size)
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
     else:
@@ -528,6 +531,11 @@ def _is_elevation_marker(item) -> bool:
     return type(item).__name__ == "ViewMarkerArrow"
 
 
+def _is_detail_marker(item) -> bool:
+    """Check if item is a DetailMarker without importing at module level."""
+    return type(item).__name__ == "DetailMarker"
+
+
 def _is_floor_slab(item) -> bool:
     """Check if item is a FloorSlab without importing at module level."""
     return type(item).__name__ == "FloorSlab"
@@ -557,6 +565,27 @@ def _apply_elevation_marker(marker, color, scale, opacity, visible, fill_color,
             f = label.font()
             f.setPointSize(int(font_size))
             label.setFont(f)
+    marker.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
+    marker.setVisible(visible)
+    marker.update()
+
+
+def _apply_detail_marker(marker, color, scale, opacity, visible, fill_color,
+                         font_size=None):
+    """Apply display settings to a DetailMarker."""
+    if color:
+        marker._tag_color = QColor(color)
+        pen = marker.pen()
+        pen.setColor(QColor(color))
+        marker.setPen(pen)
+    if fill_color:
+        marker._fill_color = QColor(fill_color)
+    if scale and scale != 1.0:
+        marker.setScale(scale)
+    elif scale == 1.0:
+        marker.setScale(1.0)
+    if font_size is not None:
+        marker._display_font_size = font_size
     marker.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
     marker.setVisible(visible)
     marker.update()
@@ -629,6 +658,8 @@ def apply_category_defaults(item):
         key = "Floor"
     elif _is_elevation_marker(item):
         key = "Elevation Marker"
+    elif _is_detail_marker(item):
+        key = "Detail Marker"
     else:
         return
 

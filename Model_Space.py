@@ -4352,8 +4352,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if selection is None:
             selection = next(
                 (i for i in items
-                 if isinstance(i, (WallSegment, FloorSlab, RoofItem, Room,
-                                   ViewMarkerArrow))
+                 if (isinstance(i, (WallSegment, FloorSlab, RoofItem, Room,
+                                    ViewMarkerArrow))
+                     or type(i).__name__ == "DetailMarker")
                  and i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable),
                 None,
             )
@@ -6433,6 +6434,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if isinstance(item, Sprinkler):
                 item = item.parentItem()
             if isinstance(item, ENTITY_TYPES):
+                return item
+            # DetailMarker (avoid import — check by class name)
+            if type(item).__name__ == "DetailMarker":
                 return item
         return None
 

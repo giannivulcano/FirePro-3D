@@ -16,10 +16,11 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsEllipseItem,
-    QGraphicsSimpleTextItem, QTabWidget,
+    QGraphicsSimpleTextItem, QGraphicsLineItem, QGraphicsPathItem,
+    QTabWidget, QStyle,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
-from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainterPath
+from PyQt6.QtGui import QPen, QBrush, QColor, QFont, QPainter, QPainterPath
 
 from gridline import BUBBLE_RADIUS_MM
 from constants import DEFAULT_LEVEL
@@ -35,33 +36,41 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MARKER_COLOR = "#4488cc"
-_TAG_RADIUS = BUBBLE_RADIUS_MM * 2.0
+_FILL_COLOR = "#1a1a2e"
+_TAG_RADIUS = BUBBLE_RADIUS_MM * 3.0   # match elevation marker bubble size
+_FILLET_RADIUS = BUBBLE_RADIUS_MM * 1.5  # corner radius for crop rect
 
 
-class DetailMarker(QGraphicsRectItem):
-    """Dashed rectangle on a plan view marking a detail crop boundary.
+class DetailMarker(QGraphicsPathItem):
+    """Detail view crop boundary on a plan view.
 
-    Has a circular tag at the bottom-center with the detail number.
-    Selectable and resizable via 8 grip handles.
-    Double-click opens the detail view tab.
+    Visual: rounded-corner dashed rectangle + circular callout bubble
+    (circle with horizontal divider, detail number top, view ref bottom)
+    connected by a leader line.  The bubble is draggable.
     """
 
     def __init__(self, name: str, rect: QRectF, level_name: str = DEFAULT_LEVEL,
                  parent: QGraphicsItem | None = None):
-        super().__init__(rect, parent)
+        super().__init__(parent)
         self._name = name
         self._level_name = level_name
+        self._crop_rect = rect.normalized()
         self._manager: DetailViewManager | None = None
 
+        # View depth (mm) — None means inherit from plan
+        self._view_height: float | None = None
+        self._view_depth: float | None = None
+
         # Visual style
-        color = QColor(_MARKER_COLOR)
-        pen = QPen(color, 2, Qt.PenStyle.DashLine)
+        self._tag_color = QColor(_MARKER_COLOR)
+        self._fill_color = QColor(_FILL_COLOR)
+        self._display_font_size: int | None = None
+
+        pen = QPen(self._tag_color, 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self.setPen(pen)
-        fill = QColor(_MARKER_COLOR)
-        fill.setAlpha(12)
-        self.setBrush(QBrush(fill))
-        self.setZValue(45)  # above walls (-50..0) but below datum lines (50)
+        self.setBrush(Qt.BrushStyle.NoBrush)
+        self.setZValue(45)
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -72,9 +81,15 @@ class DetailMarker(QGraphicsRectItem):
         self.user_layer: str = "Default"
         self._display_overrides: dict = {}
 
-        # Build tag
-        self._tag_color = color
-        self._build_tag()
+        # Bubble position (defaults to below center of rect)
+        self._bubble_pos = QPointF(
+            rect.center().x(),
+            rect.bottom() + _TAG_RADIUS * 2.5)
+        self._bubble_dragging = False
+
+        self._rebuild_path()
+
+    # ── Properties ───────────────────────────────────────────────────────
 
     @property
     def name(self) -> str:
@@ -83,7 +98,7 @@ class DetailMarker(QGraphicsRectItem):
     @name.setter
     def name(self, value: str):
         self._name = value
-        self._update_tag_label()
+        self.update()
 
     @property
     def level_name(self) -> str:
@@ -91,79 +106,147 @@ class DetailMarker(QGraphicsRectItem):
 
     @property
     def crop_rect(self) -> QRectF:
-        return self.rect()
+        return QRectF(self._crop_rect)
 
-    # ── Tag (circle + label at bottom-center) ────────────────────────────
+    @property
+    def view_height(self) -> float | None:
+        return self._view_height
 
-    def _build_tag(self):
-        """Create the circular callout tag with detail number."""
-        r = _TAG_RADIUS
-        self._tag_circle = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r, self)
-        pen = QPen(self._tag_color, 2)
-        pen.setCosmetic(True)
-        self._tag_circle.setPen(pen)
-        self._tag_circle.setBrush(QBrush(QColor("#1a1a2e")))
-        self._tag_circle.setZValue(46)
+    @view_height.setter
+    def view_height(self, v: float | None):
+        self._view_height = v
 
-        # Number inside circle
-        self._tag_text = QGraphicsSimpleTextItem("", self._tag_circle)
-        font = QFont("Consolas", 10)
-        font.setBold(True)
-        self._tag_text.setFont(font)
-        self._tag_text.setBrush(QBrush(self._tag_color))
-        self._tag_text.setZValue(47)
+    @property
+    def view_depth(self) -> float | None:
+        return self._view_depth
 
-        # Label below circle
-        self._label_text = QGraphicsSimpleTextItem("", self)
-        label_font = QFont("Consolas", 8)
-        self._label_text.setFont(label_font)
-        self._label_text.setBrush(QBrush(self._tag_color))
-        self._label_text.setZValue(46)
+    @view_depth.setter
+    def view_depth(self, v: float | None):
+        self._view_depth = v
 
-        self._update_tag_label()
-        self._reposition_tag()
+    # ── Path building ────────────────────────────────────────────────────
 
-    def _update_tag_label(self):
-        """Update the number and label text."""
-        # Extract number from name like "Detail 1" → "1"
+    def _rebuild_path(self):
+        """Rebuild the rounded-rect + leader + bubble path."""
+        path = QPainterPath()
+        # Rounded rectangle crop boundary
+        r = self._crop_rect
+        fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
+        path.addRoundedRect(r, fr, fr)
+        self.setPath(path)
+
+    # ── Drawing ──────────────────────────────────────────────────────────
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        R = _TAG_RADIUS
+        pen_w = max(1.0, R * 0.04)
+
+        # ── Rounded-rect crop boundary ───────────────────────────────
+        r = self._crop_rect
+        fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
+        crop_pen = QPen(self._tag_color, pen_w, Qt.PenStyle.DashLine)
+        painter.setPen(crop_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(r, fr, fr)
+
+        # ── Leader line from crop rect edge to bubble center ─────────
+        bp = self._bubble_pos
+        # Find closest point on crop rect edge to bubble center
+        leader_start = self._closest_rect_point(r, bp)
+        leader_pen = QPen(self._tag_color, pen_w)
+        painter.setPen(leader_pen)
+        painter.drawLine(leader_start, bp)
+
+        # ── Bubble: circle with horizontal divider ───────────────────
+        # Filled circle
+        painter.setPen(QPen(self._tag_color, pen_w))
+        painter.setBrush(QBrush(self._fill_color))
+        painter.drawEllipse(bp, R, R)
+
+        # Horizontal divider line
+        painter.drawLine(
+            QPointF(bp.x() - R, bp.y()),
+            QPointF(bp.x() + R, bp.y()))
+
+        # Detail number (top half)
         parts = self._name.split()
         number = parts[-1] if parts else "1"
-        self._tag_text.setText(number)
-        # Center text in circle
-        br = self._tag_text.boundingRect()
-        self._tag_text.setPos(-br.width() / 2, -br.height() / 2)
+        font = QFont("Consolas")
+        font_pt = self._display_font_size if self._display_font_size else 10
+        font.setPixelSize(max(1, int(R * (font_pt / 10.0))))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(self._tag_color.lighter(150)))
+        top_rect = QRectF(bp.x() - R, bp.y() - R, R * 2, R)
+        painter.drawText(top_rect, Qt.AlignmentFlag.AlignCenter, number)
 
-        self._label_text.setText(self._name.upper())
+        # View reference (bottom half) — shows the source view name
+        ref_font = QFont("Consolas")
+        ref_font.setPixelSize(max(1, int(R * (font_pt / 10.0) * 0.7)))
+        painter.setFont(ref_font)
+        bot_rect = QRectF(bp.x() - R, bp.y(), R * 2, R)
+        # Show the level name abbreviation or "—"
+        ref_text = self._level_name.replace("Level ", "L") if self._level_name else "—"
+        painter.drawText(bot_rect, Qt.AlignmentFlag.AlignCenter, ref_text)
 
-    def _reposition_tag(self):
-        """Place tag at bottom-center of the crop rectangle."""
-        r = self.rect()
-        cx = r.center().x()
-        tag_y = r.bottom() + _TAG_RADIUS + 20
-        self._tag_circle.setPos(cx, tag_y)
+        # ── Selection highlight ──────────────────────────────────────
+        if self.isSelected():
+            hl_pen = QPen(self._tag_color.lighter(150), max(1, R * 0.08))
+            painter.setPen(hl_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(bp, R, R)
+            painter.drawRoundedRect(r, fr, fr)
 
-        # Label centered below the tag circle
-        lbr = self._label_text.boundingRect()
-        self._label_text.setPos(cx - lbr.width() / 2,
-                                tag_y + _TAG_RADIUS + 10)
+    @staticmethod
+    def _closest_rect_point(rect: QRectF, pt: QPointF) -> QPointF:
+        """Find closest point on the edge of *rect* to *pt*."""
+        cx = max(rect.left(), min(pt.x(), rect.right()))
+        cy = max(rect.top(), min(pt.y(), rect.bottom()))
+        # If point is inside rect, project to nearest edge
+        if rect.contains(pt):
+            dl = pt.x() - rect.left()
+            dr = rect.right() - pt.x()
+            dt = pt.y() - rect.top()
+            db = rect.bottom() - pt.y()
+            m = min(dl, dr, dt, db)
+            if m == dl:
+                return QPointF(rect.left(), pt.y())
+            elif m == dr:
+                return QPointF(rect.right(), pt.y())
+            elif m == dt:
+                return QPointF(pt.x(), rect.top())
+            else:
+                return QPointF(pt.x(), rect.bottom())
+        return QPointF(cx, cy)
 
     # ── Grip protocol ────────────────────────────────────────────────────
 
     def grip_points(self) -> list[QPointF]:
-        """8 grips: 4 corners + 4 edge midpoints."""
-        r = self.rect()
+        """8 grips for crop rect + 1 grip for bubble position."""
+        r = self._crop_rect
         return [
             r.topLeft(), r.topRight(), r.bottomRight(), r.bottomLeft(),
             QPointF(r.center().x(), r.top()),
             QPointF(r.right(), r.center().y()),
             QPointF(r.center().x(), r.bottom()),
             QPointF(r.left(), r.center().y()),
+            self._bubble_pos,  # grip 8: bubble drag
         ]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Resize the crop rect from a grip drag."""
-        r = self.rect()
+        """Resize crop rect (grips 0-7) or move bubble (grip 8)."""
+        if index == 8:
+            # Move bubble
+            self._bubble_pos = new_pos
+            self.prepareGeometryChange()
+            self._rebuild_path()
+            self.update()
+            return
 
+        r = QRectF(self._crop_rect)
         if index == 0:
             r.setTopLeft(new_pos)
         elif index == 1:
@@ -182,8 +265,10 @@ class DetailMarker(QGraphicsRectItem):
             r.setLeft(new_pos.x())
 
         r = r.normalized()
-        self.setRect(r)
-        self._reposition_tag()
+        self._crop_rect = r
+        self.prepareGeometryChange()
+        self._rebuild_path()
+        self.update()
 
         # Update open detail tab's clip rect
         if self._manager is not None:
@@ -199,44 +284,95 @@ class DetailMarker(QGraphicsRectItem):
         event.accept()
 
     def boundingRect(self):
-        br = super().boundingRect()
-        # Extend to include tag below
-        tag_bottom = self.rect().bottom() + _TAG_RADIUS * 2 + 80
-        if tag_bottom > br.bottom():
-            br.setBottom(tag_bottom)
-        return br
+        br = self.path().boundingRect()
+        # Extend to include bubble
+        R = _TAG_RADIUS
+        bp = self._bubble_pos
+        bubble_br = QRectF(bp.x() - R, bp.y() - R, R * 2, R * 2)
+        return br.united(bubble_br).adjusted(-10, -10, 10, 10)
 
     def shape(self) -> QPainterPath:
         path = QPainterPath()
-        path.addRect(self.rect())
-        # Add tag circle to hit-test area
-        r = _TAG_RADIUS
-        tag_center = self._tag_circle.pos()
-        path.addEllipse(tag_center, r, r)
+        r = self._crop_rect
+        fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
+        path.addRoundedRect(r, fr, fr)
+        path.addEllipse(self._bubble_pos, _TAG_RADIUS, _TAG_RADIUS)
         return path
+
+    # ── Properties (for property panel) ─────────────────────────────────
+
+    def get_properties(self) -> dict:
+        """Return properties for the property panel."""
+        props = {}
+        props["Name"] = {"value": self._name, "type": "string"}
+        props["Level"] = {"value": self._level_name, "type": "level_ref"}
+        r = self._crop_rect
+        props["Width"] = {"value": str(r.width()), "type": "string",
+                          "readonly": True}
+        props["Height"] = {"value": str(r.height()), "type": "string",
+                           "readonly": True}
+        props["── View Range ──"] = {"value": "", "type": "label"}
+        props["View Height"] = {
+            "value": str(self._view_height) if self._view_height is not None else "",
+            "type": "string",
+            "hint": "mm (blank = inherit from plan)"}
+        props["View Depth"] = {
+            "value": str(self._view_depth) if self._view_depth is not None else "",
+            "type": "string",
+            "hint": "mm (blank = inherit from plan)"}
+        return props
+
+    def set_property(self, key: str, value):
+        if key == "Name":
+            self._name = str(value)
+            self.update()
+        elif key == "Level":
+            self._level_name = str(value)
+            self.level = self._level_name
+            self.update()
+        elif key == "View Height":
+            s = str(value).strip()
+            self._view_height = float(s) if s else None
+        elif key == "View Depth":
+            s = str(value).strip()
+            self._view_depth = float(s) if s else None
 
     # ── Serialization ────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        r = self.rect()
-        return {
+        r = self._crop_rect
+        d = {
             "name": self._name,
             "level_name": self._level_name,
             "crop_rect": {
                 "x": r.x(), "y": r.y(),
                 "w": r.width(), "h": r.height(),
             },
+            "bubble_pos": {"x": self._bubble_pos.x(),
+                           "y": self._bubble_pos.y()},
         }
+        if self._view_height is not None:
+            d["view_height"] = self._view_height
+        if self._view_depth is not None:
+            d["view_depth"] = self._view_depth
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "DetailMarker":
         cr = data["crop_rect"]
         rect = QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
-        return cls(
+        marker = cls(
             name=data["name"],
             rect=rect,
             level_name=data.get("level_name", DEFAULT_LEVEL),
         )
+        bp = data.get("bubble_pos")
+        if bp:
+            marker._bubble_pos = QPointF(bp["x"], bp["y"])
+            marker._rebuild_path()
+        marker._view_height = data.get("view_height")
+        marker._view_depth = data.get("view_depth")
+        return marker
 
 
 # ─────────────────────────────────────────────────────────────────────────────
