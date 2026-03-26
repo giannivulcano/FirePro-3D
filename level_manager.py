@@ -516,11 +516,16 @@ class LevelManager:
             "WindowOpening": 0.35,
             "Pipe":      0.4,
             "Node":      0.5,
-            "DetailMarker": 0.6,
         }
+        # Items that always overlay on top regardless of elevation
+        _Z_OVERLAY = {"DetailMarker": 500, "GridlineItem": 500}
         _Z_SCALE = 1.0 / 100.0  # mm → Z units (keeps values manageable)
 
         def _apply_elev_z(item):
+            overlay_z = _Z_OVERLAY.get(type(item).__name__)
+            if overlay_z is not None:
+                item.setZValue(overlay_z)
+                return
             cat_offset = _Z_CATEGORY.get(type(item).__name__)
             if cat_offset is None:
                 return  # not a model item — keep its current Z
@@ -558,6 +563,9 @@ class LevelManager:
         for item in getattr(scene, "_roofs", []):
             _apply_elev_z(item)
         for item in getattr(scene, "_rooms", []):
+            _apply_elev_z(item)
+
+        for item in getattr(scene, "_gridlines", []):
             _apply_elev_z(item)
 
         # ── Detail markers ────────────────────────────────────────────────
