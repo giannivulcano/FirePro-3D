@@ -324,19 +324,27 @@ class DetailMarker(QGraphicsPathItem):
 
     # ── Properties (for property panel) ─────────────────────────────────
 
+    def _fmt(self, mm: float) -> str:
+        """Format mm in display units via the scene's ScaleManager."""
+        sc = self.scene()
+        sm = getattr(sc, "scale_manager", None) if sc else None
+        if sm:
+            return sm.format_length(mm)
+        return f"{mm:.1f} mm"
+
     def get_properties(self) -> dict:
         """Return properties for the property panel."""
         props = {}
         props["Name"] = {"value": self._name, "type": "string"}
         props["Level"] = {"value": self._level_name, "type": "level_ref"}
         r = self._crop_rect
-        props["Width"] = {"value": str(r.width()), "type": "string",
+        props["Width"] = {"value": self._fmt(r.width()), "type": "string",
                           "readonly": True}
-        props["Height"] = {"value": str(r.height()), "type": "string",
+        props["Height"] = {"value": self._fmt(r.height()), "type": "string",
                            "readonly": True}
         props["── View Range ──"] = {"value": "", "type": "label"}
-        vh_str = f"{self._view_height:.1f}" if self._view_height is not None else "(inherit)"
-        vd_str = f"{self._view_depth:.1f}" if self._view_depth is not None else "(inherit)"
+        vh_str = self._fmt(self._view_height) if self._view_height is not None else "(inherit)"
+        vd_str = self._fmt(self._view_depth) if self._view_depth is not None else "(inherit)"
         props["Cut Plane Height"] = {"value": vh_str, "type": "string", "readonly": True}
         props["View Depth"] = {"value": vd_str, "type": "string", "readonly": True}
         if self._on_view_range is not None:

@@ -417,7 +417,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Perimeter":         {"type": "label",     "value": self._fmt(perim_mm)},
             "Floor Level":       {"type": "level_ref", "value": self.level},
             "Ceiling Level":     {"type": "level_ref", "value": self._ceiling_level},
-            "Ceiling Offset":    {"type": "string",    "value": str(self._ceiling_offset)},
+            "Ceiling Offset":    {"type": "dimension", "value_mm": self._ceiling_offset},
             "Ceiling Height":    {"type": "label",     "value": self._fmt(ceil_h)},
             "Volume":            {"type": "label",     "value": self._fmt_volume(vol_mm3)},
             "Hazard Class":      {"type": "enum",      "value": self._hazard_class,

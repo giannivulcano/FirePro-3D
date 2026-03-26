@@ -326,6 +326,9 @@ class ModelBrowser(QWidget):
         for gl in getattr(self._scene, "_gridlines", []):
             if id(gl) == entity_id:
                 return gl
+        for room in getattr(self._scene, "_rooms", []):
+            if id(room) == entity_id:
+                return room
         for da in getattr(self._scene, "design_areas", []):
             if id(da) == entity_id:
                 return da
