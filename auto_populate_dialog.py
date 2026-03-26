@@ -960,6 +960,18 @@ class AutoPopulateDialog(QDialog):
         g_req = QGroupBox("NFPA 13 Requirements & Spacing")
         req_lay = QFormLayout(g_req)
 
+        # Algorithm selection
+        from PyQt6.QtWidgets import QComboBox
+        self._algo_combo = QComboBox()
+        self._algorithms = {
+            "Grid (Uniform)": "grid_uniform",
+        }
+        for label in self._algorithms:
+            self._algo_combo.addItem(label)
+        self._algo_combo.currentTextChanged.connect(
+            lambda _: self._on_config_changed())
+        req_lay.addRow("Algorithm:", self._algo_combo)
+
         self._lbl_orientation = QLabel("---")
         self._lbl_density = QLabel("---")
         self._lbl_min_design_area = QLabel("---")
@@ -1050,6 +1062,21 @@ class AutoPopulateDialog(QDialog):
         # Reformat to canonical display
         self._offset_edit.setText(self._format_offset(self._offset_mm))
 
+    # ── Algorithm dispatch ─────────────────────────────────────────────────
+
+    def _run_algorithm(self, algo_key: str, max_cov: float, max_spacing: float):
+        """Run the selected placement algorithm and return
+        (positions, spacing_x_ft, spacing_y_ft, calc_log)."""
+        if algo_key == "grid_uniform":
+            return compute_sprinkler_grid(
+                self._room.boundary, max_cov, max_spacing)
+        # Future algorithms go here:
+        # elif algo_key == "offset_from_walls":
+        #     return compute_wall_offset(...)
+        # Fallback
+        return compute_sprinkler_grid(
+            self._room.boundary, max_cov, max_spacing)
+
     # ── Sprinkler table ───────────────────────────────────────────────────
 
     def _populate_sprinkler_table(self):
@@ -1125,12 +1152,11 @@ class AutoPopulateDialog(QDialog):
         else:
             self._lbl_spr_coverage.setText("---")
 
-        # Compute grid using NFPA max coverage
-        positions, sx, sy, calc_log = compute_sprinkler_grid(
-            self._room.boundary,
-            nfpa_max_cov,
-            max_spacing,
-        )
+        # Dispatch to selected algorithm
+        algo_key = self._algorithms.get(
+            self._algo_combo.currentText(), "grid_uniform")
+        positions, sx, sy, calc_log = self._run_algorithm(
+            algo_key, nfpa_max_cov, max_spacing)
         self._computed_positions = positions
         self._computed_sx = sx
         self._computed_sy = sy
@@ -1201,6 +1227,8 @@ class AutoPopulateDialog(QDialog):
 
     def get_results(self) -> dict:
         """Return all parameters needed to place sprinklers."""
+        algo_key = self._algorithms.get(
+            self._algo_combo.currentText(), "grid_uniform")
         return {
             "positions": self._computed_positions,
             "record": self._selected_record,
@@ -1212,4 +1240,5 @@ class AutoPopulateDialog(QDialog):
             "design_area": self._selected_area,
             "spacing_x_ft": self._computed_sx,
             "spacing_y_ft": self._computed_sy,
+            "algorithm": algo_key,
         }
