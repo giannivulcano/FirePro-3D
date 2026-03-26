@@ -997,7 +997,7 @@ class AutoPopulateDialog(QDialog):
         self._calc_log.setMaximumHeight(160)
         self._calc_log.setStyleSheet(
             "QTextEdit { font-family: Consolas, monospace; font-size: 11px; "
-            "background: #f8f8f8; border: 1px solid #ccc; }"
+            "color: #000000; background: #f8f8f8; border: 1px solid #ccc; }"
         )
         res_vbox.addWidget(QLabel("Calculation Log:"))
         res_vbox.addWidget(self._calc_log)

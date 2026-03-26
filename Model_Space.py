@@ -6371,44 +6371,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _show_entity_context_menu(self, target, screen_pos):
         """Build and show the right-click context menu for scene entities."""
-        menu = QMenu()
+        from entity_context_menu import build_entity_context_menu
+        from room import Room
+
         selected = self.selectedItems()
-
-        # ── Standard actions ──
-        act_copy = menu.addAction("Copy")
-        act_copy.triggered.connect(self.copy_selected_items)
-
-        # ── Hide / Show actions ──
-        act_hide = menu.addAction("Hide")
-        act_hide.triggered.connect(
-            lambda: self._hide_items([target] + [i for i in selected if i is not target])
+        menu = build_entity_context_menu(
+            selected,
+            target,
+            scene=self,
+            on_copy=self.copy_selected_items,
+            on_hide=lambda: self._hide_items(
+                [target] + [i for i in selected if i is not target]
+            ),
+            on_hide_all_type=lambda t=type(target): self._hide_all_of_type(t),
+            on_show_all=self._show_all_hidden,
+            on_delete=self.delete_selected_items,
+            on_properties=lambda: self.requestPropertyUpdate.emit(target),
+            on_auto_populate_room=(
+                (lambda: self._auto_populate_room_dialog(target))
+                if isinstance(target, Room) else None
+            ),
         )
-
-        type_name = type(target).__name__
-        act_hide_all = menu.addAction(f"Hide All ({type_name})")
-        act_hide_all.triggered.connect(
-            lambda t=type(target): self._hide_all_of_type(t)
-        )
-
-        act_show_all = menu.addAction("Show All Hidden")
-        act_show_all.triggered.connect(self._show_all_hidden)
-
-        # ── Room-specific: Auto-Populate Sprinklers ──
-        if isinstance(target, Room):
-            menu.addSeparator()
-            act_auto = menu.addAction("Auto-Populate Sprinklers\u2026")
-            act_auto.triggered.connect(
-                lambda: self._auto_populate_room_dialog(target)
-            )
-
-        menu.addSeparator()
-
-        act_delete = menu.addAction("Delete")
-        act_delete.triggered.connect(self.delete_selected_items)
-
-        act_props = menu.addAction("Properties")
-        act_props.triggered.connect(lambda: self.requestPropertyUpdate.emit(target))
-
         menu.exec(screen_pos)
 
     def _auto_populate_room_dialog(self, room):

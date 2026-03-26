@@ -1457,41 +1457,26 @@ class View3D(QWidget):
 
     def _show_context_menu(self, global_pos):
         """Show right-click context menu in the 3D view."""
-        menu = QMenu(self)
+        from entity_context_menu import build_entity_context_menu
+
         selected = list(self._scene.selectedItems())
         # Include 3D-only selections
         for item in self._3d_selected:
             if item not in selected:
                 selected.append(item)
-        has_sel = bool(selected)
 
-        hide_action = menu.addAction("Hide")
-        hide_action.setEnabled(has_sel)
-        show_all_action = menu.addAction("Show All Hidden")
-        menu.addSeparator()
-        delete_action = menu.addAction("Delete")
-        delete_action.setEnabled(has_sel)
-        deselect_action = menu.addAction("Deselect All")
-        deselect_action.setEnabled(has_sel)
-        menu.addSeparator()
-        fit_action = menu.addAction("Fit All")
-        refresh_action = menu.addAction("Refresh")
-
-        action = menu.exec(global_pos)
-        if action == hide_action:
-            self._scene._hide_items(selected)
-            self.rebuild()
-        elif action == show_all_action:
-            self._scene._show_all_hidden()
-            self.rebuild()
-        elif action == delete_action:
-            self.delete_selected()
-        elif action == deselect_action:
-            self._on_escape()
-        elif action == fit_action:
-            self._fit_camera()
-        elif action == refresh_action:
-            self.rebuild()
+        menu = build_entity_context_menu(
+            selected,
+            target=selected[0] if selected else None,
+            scene=self._scene,
+            on_hide=lambda: (self._scene._hide_items(selected), self.rebuild()),
+            on_show_all=lambda: (self._scene._show_all_hidden(), self.rebuild()),
+            on_delete=self.delete_selected,
+            on_deselect=self._on_escape,
+            on_fit=self._fit_camera,
+            on_refresh=self.rebuild,
+        )
+        menu.exec(global_pos)
 
     def keyPressEvent(self, event):
         """Catch key events on the View3D widget itself (backup path)."""

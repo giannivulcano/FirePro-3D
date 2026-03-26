@@ -210,6 +210,8 @@ class ElevDatumItem(QGraphicsLineItem):
                  scale: float = 1.0, opacity: float = 1.0):
         super().__init__(h_min, v_pos, h_max, v_pos)
         self._v = v_pos
+        self._h_min = h_min
+        self._h_max = h_max
         self._bubble_r = bubble_r
         self._datum_color = datum_color
         self._fill_color = fill_color
@@ -300,24 +302,11 @@ class ElevDatumItem(QGraphicsLineItem):
         return path
 
     def paint(self, painter, option, widget=None):
-        option.state &= ~QStyle.StateFlag.State_Selected
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-
-        # Shorten left end to meet bubble edge
-        r = self._bubble_r
-        bubble_right_edge = self._bx + r
-        draw_p1 = QPointF(max(p1.x(), bubble_right_edge), p1.y())
-
-        pen = QPen(self._datum_color, self._pen_w, Qt.PenStyle.DashDotLine)
-        painter.setPen(pen)
-        painter.drawLine(draw_p1, p2)
-
-        if self.isSelected():
-            sel_pen = QPen(self._datum_color.lighter(150),
-                           self._pen_w * 2, Qt.PenStyle.DashDotLine)
-            painter.setPen(sel_pen)
-            painter.drawLine(draw_p1, p2)
+        # The datum line is drawn by the scene's drawForeground() so it
+        # remains visible even when the bubble has scrolled off-screen.
+        # Do NOT call super().paint() — the base QGraphicsLineItem must
+        # not draw its own line.
+        pass
 
     def mousePressEvent(self, event):
         """Clicking the bubble area selects this item."""
@@ -447,6 +436,11 @@ class ElevationScene(QGraphicsScene):
         return None
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            # Don't pass right-click to base — it deselects items.
+            # contextMenuEvent handles right-click menus separately.
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             hit = self._find_grip_hit(event.scenePos())
             if hit is not None:
@@ -501,6 +495,66 @@ class ElevationScene(QGraphicsScene):
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def contextMenuEvent(self, event):
+        """Show right-click context menu for elevation view entities."""
+        from entity_context_menu import build_entity_context_menu
+
+        # Find entity under cursor
+        target = None
+        for item in self.items(event.scenePos()):
+            source = item.data(_ROLE_SOURCE)
+            if source is not None:
+                target = item
+                break
+            if isinstance(item, (ElevDatumItem, ElevGridlineItem)):
+                target = item
+                break
+
+        if target is not None and not target.isSelected():
+            self.clearSelection()
+            target.setSelected(True)
+
+        selected = self.selectedItems()
+        source_entity = target.data(_ROLE_SOURCE) if target else None
+
+        menu = build_entity_context_menu(
+            selected,
+            target,
+            scene=self._ms,
+            on_hide=lambda: self._hide_elev_items(
+                [target] + [i for i in selected if i is not target]
+            ),
+            on_show_all=lambda: self._show_all_elev_hidden(),
+            on_delete=lambda: self._delete_elev_selected(),
+            on_properties=lambda: (
+                self.entitySelected.emit(source_entity) if source_entity else None
+            ),
+            on_refresh=lambda: self.rebuild(),
+        )
+        menu.exec(event.screenPos())
+
+    def _hide_elev_items(self, items):
+        """Hide elevation items and their source entities."""
+        for item in items:
+            source = item.data(_ROLE_SOURCE) if item else None
+            if source is not None and hasattr(source, "_display_overrides"):
+                source._display_overrides["visible"] = False
+            item.setVisible(False)
+
+    def _show_all_elev_hidden(self):
+        """Restore all hidden source entities and rebuild."""
+        self._ms._show_all_hidden()
+        self.rebuild()
+
+    def _delete_elev_selected(self):
+        """Delete source entities for selected elevation items."""
+        for item in list(self.selectedItems()):
+            source = item.data(_ROLE_SOURCE) if item else None
+            if source is not None and hasattr(source, "setSelected"):
+                source.setSelected(True)
+        self._ms.delete_selected_items()
+        self.rebuild()
 
     # ── Properties ───────────────────────────────────────────────────────
 
@@ -588,6 +642,36 @@ class ElevationScene(QGraphicsScene):
                 item.setZValue(z)
                 z += 0.01
         self._depth_items = []
+
+    # ── Foreground (datum lines) ─────────────────────────────────────────
+
+    def drawForeground(self, painter, rect):
+        """Draw datum lines from the bubble to h_max (gridline extent).
+
+        Drawn in foreground so lines remain visible even when the bubble
+        has scrolled out of the viewport.
+        """
+        super().drawForeground(painter, rect)
+        for item in self.items():
+            if not isinstance(item, ElevDatumItem):
+                continue
+            if not item.isVisible():
+                continue
+            v = item._v
+            h_start = item._bx + item._bubble_r
+            h_end = item._h_max
+            if h_end <= h_start:
+                continue
+
+            pen = QPen(item._datum_color, item._pen_w, Qt.PenStyle.DashDotLine)
+            painter.setPen(pen)
+            painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
+
+            if item.isSelected():
+                sel_pen = QPen(item._datum_color.lighter(150),
+                               item._pen_w * 2, Qt.PenStyle.DashDotLine)
+                painter.setPen(sel_pen)
+                painter.drawLine(QPointF(h_start, v), QPointF(h_end, v))
 
     # ── Walls ────────────────────────────────────────────────────────────
 
@@ -1075,10 +1159,14 @@ class ElevationScene(QGraphicsScene):
             half = DEFAULT_GRIDLINE_LENGTH_IN / ppm / 2.0
             return -half, half
 
-        # Gather all gridline H positions to find the full extent
+        # Gather H positions only from gridlines visible in this elevation
+        # (perpendicular to the view direction).  Parallel gridlines project
+        # to extreme H values and would make the datum lines way too long.
         h_vals = []
         for gl in gridlines:
             lg = gl.line()
+            if not self._should_show_gridline(lg):
+                continue
             wx1, wy1 = self._scene_to_world(lg.x1(), lg.y1())
             wx2, wy2 = self._scene_to_world(lg.x2(), lg.y2())
             h1, _ = self._world_to_elev(wx1, wy1, 0)
