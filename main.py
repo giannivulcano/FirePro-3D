@@ -633,15 +633,19 @@ class MainWindow(QMainWindow):
             self.level_mgr.apply_to_scene(self.scene, level_name)
 
     def _on_tab_context_menu(self, pos):
-        """Show context menu when right-clicking a plan tab header."""
+        """Show context menu when right-clicking a plan or detail tab header."""
         tab_bar = self.central_tabs.tabBar()
         index = tab_bar.tabAt(pos)
         if index < 0:
             return
         tab_text = self.central_tabs.tabText(index)
-        if not tab_text.startswith("Plan: "):
-            return
 
+        if tab_text.startswith("Plan: "):
+            self._tab_context_plan(tab_text, tab_bar, pos)
+        elif tab_text.startswith("Detail: "):
+            self._tab_context_detail(tab_text, tab_bar, pos)
+
+    def _tab_context_plan(self, tab_text, tab_bar, pos):
         from PyQt6.QtWidgets import QMenu
         menu = QMenu(self)
         view_range_action = menu.addAction("View Range\u2026")
@@ -659,11 +663,37 @@ class MainWindow(QMainWindow):
                 vh, vd = dlg.get_values()
                 pv.view_height = vh
                 pv.view_depth = vd
-                # Refresh visibility if this is the active tab
                 current_text = self.central_tabs.tabText(
                     self.central_tabs.currentIndex())
                 if current_text == tab_text:
                     self._apply_plan_level(level_name)
+
+    def _tab_context_detail(self, tab_text, tab_bar, pos):
+        from PyQt6.QtWidgets import QMenu
+        menu = QMenu(self)
+        view_range_action = menu.addAction("View Range\u2026")
+        action = menu.exec(tab_bar.mapToGlobal(pos))
+        if action == view_range_action:
+            detail_name = tab_text[len("Detail: "):]
+            marker = self.detail_manager.get_marker(detail_name)
+            if marker is None:
+                return
+            # Create a temporary PlanView to drive the dialog
+            from level_manager import PlanView
+            pv = PlanView(
+                name=tab_text,
+                level_name=marker.level_name,
+                view_height=marker.view_height or 0.0,
+                view_depth=marker.view_depth or 0.0,
+            )
+            from view_range_dialog import ViewRangeDialog
+            dlg = ViewRangeDialog(
+                pv, self.level_mgr, self.plan_view_mgr,
+                self.scene.scale_manager, parent=self)
+            if dlg.exec() == dlg.DialogCode.Accepted:
+                vh, vd = dlg.get_values()
+                marker.view_height = vh
+                marker.view_depth = vd
 
     def _get_active_plan_view(self):
         """Return the currently visible plan view, falling back to self.view."""

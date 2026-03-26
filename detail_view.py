@@ -311,15 +311,6 @@ class DetailMarker(QGraphicsPathItem):
                           "readonly": True}
         props["Height"] = {"value": str(r.height()), "type": "string",
                            "readonly": True}
-        props["── View Range ──"] = {"value": "", "type": "label"}
-        props["View Height"] = {
-            "value": str(self._view_height) if self._view_height is not None else "",
-            "type": "string",
-            "hint": "mm (blank = inherit from plan)"}
-        props["View Depth"] = {
-            "value": str(self._view_depth) if self._view_depth is not None else "",
-            "type": "string",
-            "hint": "mm (blank = inherit from plan)"}
         return props
 
     def set_property(self, key: str, value):
@@ -330,12 +321,6 @@ class DetailMarker(QGraphicsPathItem):
             self._level_name = str(value)
             self.level = self._level_name
             self.update()
-        elif key == "View Height":
-            s = str(value).strip()
-            self._view_height = float(s) if s else None
-        elif key == "View Depth":
-            s = str(value).strip()
-            self._view_depth = float(s) if s else None
 
     # ── Serialization ────────────────────────────────────────────────────
 
@@ -421,10 +406,12 @@ class DetailViewManager:
     def create_detail(self, name: str, crop_rect: QRectF,
                       level_name: str = DEFAULT_LEVEL) -> DetailMarker:
         """Create a detail marker and add it to the scene."""
+        from display_manager import apply_category_defaults
         marker = DetailMarker(name, crop_rect, level_name)
         marker._manager = self
         self._markers[name] = marker
         self._ms.addItem(marker)
+        apply_category_defaults(marker)
         return marker
 
     def open_detail(self, name: str):
@@ -509,6 +496,14 @@ class DetailViewManager:
             rect = QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
             level = d.get("level_name", DEFAULT_LEVEL)
             marker = self.create_detail(name, rect, level)
+            # Restore bubble position
+            bp = d.get("bubble_pos")
+            if bp:
+                marker._bubble_pos = QPointF(bp["x"], bp["y"])
+                marker._rebuild_path()
+            # Restore view range
+            marker._view_height = d.get("view_height")
+            marker._view_depth = d.get("view_depth")
             # Update counter to avoid name collisions
             parts = name.split()
             if len(parts) >= 2:
