@@ -292,11 +292,33 @@ class DetailMarker(QGraphicsPathItem):
         return br.united(bubble_br).adjusted(-10, -10, 10, 10)
 
     def shape(self) -> QPainterPath:
-        path = QPainterPath()
+        """Hit-test shape: only the border stroke + leader + bubble.
+
+        Clicking inside the crop area should NOT select the marker —
+        only clicking the edge, the leader line, or the bubble should.
+        """
+        from PyQt6.QtGui import QPainterPathStroker
+        # Stroke the rounded rect outline
         r = self._crop_rect
         fr = min(_FILLET_RADIUS, r.width() / 4, r.height() / 4)
-        path.addRoundedRect(r, fr, fr)
-        path.addEllipse(self._bubble_pos, _TAG_RADIUS, _TAG_RADIUS)
+        outline = QPainterPath()
+        outline.addRoundedRect(r, fr, fr)
+        stroker = QPainterPathStroker()
+        stroker.setWidth(max(20.0, _TAG_RADIUS * 0.5))  # generous hit margin
+        path = stroker.createStroke(outline)
+
+        # Leader line
+        bp = self._bubble_pos
+        leader_start = self._closest_rect_point(r, bp)
+        leader = QPainterPath()
+        leader.moveTo(leader_start)
+        leader.lineTo(bp)
+        stroker2 = QPainterPathStroker()
+        stroker2.setWidth(max(20.0, _TAG_RADIUS * 0.5))
+        path.addPath(stroker2.createStroke(leader))
+
+        # Bubble circle
+        path.addEllipse(bp, _TAG_RADIUS, _TAG_RADIUS)
         return path
 
     # ── Properties (for property panel) ─────────────────────────────────
@@ -311,6 +333,11 @@ class DetailMarker(QGraphicsPathItem):
                           "readonly": True}
         props["Height"] = {"value": str(r.height()), "type": "string",
                            "readonly": True}
+        props["── View Range ──"] = {"value": "", "type": "label"}
+        vh_str = f"{self._view_height:.1f}" if self._view_height is not None else "(inherit)"
+        vd_str = f"{self._view_depth:.1f}" if self._view_depth is not None else "(inherit)"
+        props["Cut Plane Height"] = {"value": vh_str, "type": "string", "readonly": True}
+        props["View Depth"] = {"value": vd_str, "type": "string", "readonly": True}
         return props
 
     def set_property(self, key: str, value):

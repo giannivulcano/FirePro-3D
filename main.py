@@ -600,11 +600,16 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(50, plan_view.fit_to_screen)
 
     def _on_tab_changed(self, index: int):
-        """Auto-switch active level when switching to a Plan tab."""
+        """Auto-switch active level when switching to a Plan or Detail tab."""
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]
             self._apply_plan_level(level_name)
+        elif tab_text.startswith("Detail: "):
+            detail_name = tab_text[len("Detail: "):]
+            self._apply_detail_level(detail_name)
+        # Update property panel with view info when nothing is selected
+        self.update_property_manager()
 
     def _on_tab_close_requested(self, index: int):
         """Close a view tab (Plan/Elevation). Core tabs are protected."""
@@ -694,6 +699,11 @@ class MainWindow(QMainWindow):
                 vh, vd = dlg.get_values()
                 marker.view_height = vh
                 marker.view_depth = vd
+                # Refresh masking if this detail tab is active
+                current_text = self.central_tabs.tabText(
+                    self.central_tabs.currentIndex())
+                if current_text == tab_text:
+                    self._apply_detail_level(detail_name)
 
     def _get_active_plan_view(self):
         """Return the currently visible plan view, falling back to self.view."""
@@ -770,6 +780,29 @@ class MainWindow(QMainWindow):
     def _activate_detail_view(self, name: str):
         """Open or switch to a detail view tab."""
         self.detail_manager.open_detail(name)
+        self._apply_detail_level(name)
+
+    def _apply_detail_level(self, detail_name: str):
+        """Apply view range from a detail marker to the scene."""
+        marker = self.detail_manager.get_marker(detail_name)
+        if marker is None:
+            return
+        level_name = marker.level_name
+        self.scene.active_level = level_name
+        vh = marker.view_height
+        vd = marker.view_depth
+        if vh is not None and vd is not None:
+            self.level_mgr.apply_to_scene(
+                self.scene, level_name, view_height=vh, view_depth=vd)
+        else:
+            # Inherit from the plan view for this level
+            pv = self.plan_view_mgr.get(f"Plan: {level_name}")
+            if pv is not None:
+                self.level_mgr.apply_to_scene(
+                    self.scene, level_name,
+                    view_height=pv.view_height, view_depth=pv.view_depth)
+            else:
+                self.level_mgr.apply_to_scene(self.scene, level_name)
 
     def _delete_detail_view(self, name: str):
         """Delete a detail view (marker + tab)."""
@@ -2641,7 +2674,25 @@ class MainWindow(QMainWindow):
         if items:
             self.prop_manager.show_properties(items)
         else:
-            self.prop_manager.show_properties(None)
+            # Nothing selected — show plan/detail view info if applicable
+            info = self._get_active_view_info()
+            self.prop_manager.show_properties(info)
+
+    def _get_active_view_info(self):
+        """Return a PlanViewInfo for the active plan/detail tab, or None."""
+        tab_text = self.central_tabs.tabText(self.central_tabs.currentIndex())
+        if tab_text.startswith("Plan: "):
+            level_name = tab_text[len("Plan: "):]
+            pv = self.plan_view_mgr.get(tab_text)
+            if pv is not None:
+                from level_manager import PlanViewInfo
+                return PlanViewInfo(pv, self.level_mgr, self.scene.scale_manager)
+        elif tab_text.startswith("Detail: "):
+            detail_name = tab_text[len("Detail: "):]
+            marker = self.detail_manager.get_marker(detail_name)
+            if marker is not None:
+                return marker  # DetailMarker has get_properties()
+        return None
 
     # ─────────────────────────────────────────────────────────────────────────
     # EVENT HANDLING

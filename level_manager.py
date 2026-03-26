@@ -129,6 +129,40 @@ class PlanView:
         )
 
 
+class PlanViewInfo:
+    """Lightweight wrapper that exposes PlanView data to the property panel.
+
+    Passed to ``PropertyManager.show_properties()`` when nothing is selected
+    and the active tab is a plan view.
+    """
+
+    def __init__(self, plan_view: "PlanView", level_manager: "LevelManager",
+                 scale_manager=None):
+        self._pv = plan_view
+        self._lm = level_manager
+        self._sm = scale_manager
+
+    def get_properties(self) -> dict:
+        pv = self._pv
+        sm = self._sm
+        props = {}
+        props["── Plan View ──"] = {"value": "", "type": "label"}
+        props["Name"] = {"value": pv.name, "type": "string", "readonly": True}
+        props["Level"] = {"value": pv.level_name, "type": "string", "readonly": True}
+        lvl = self._lm.get(pv.level_name)
+        elev_str = sm.format_length(lvl.elevation) if (lvl and sm) else "?"
+        props["Level Elevation"] = {"value": elev_str, "type": "string", "readonly": True}
+        props["── View Range ──"] = {"value": "", "type": "label"}
+        vh_str = sm.format_length(pv.view_height) if sm else f"{pv.view_height:.1f}"
+        vd_str = sm.format_length(pv.view_depth) if sm else f"{pv.view_depth:.1f}"
+        props["Cut Plane Height"] = {"value": vh_str, "type": "string", "readonly": True}
+        props["View Depth"] = {"value": vd_str, "type": "string", "readonly": True}
+        return props
+
+    def set_property(self, key, value):
+        pass  # read-only
+
+
 _DEFAULT_SLAB_THICKNESS_MM = 152.4  # 6 inches — used to compute default view_height
 
 
