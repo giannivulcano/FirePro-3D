@@ -9,29 +9,29 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow,
 from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer
 from PyQt6.QtWidgets import QGraphicsTextItem
-from Model_Space import Model_Space
-from Model_View import Model_View
-from sprinkler import Sprinkler
-from pipe import Pipe
-from Annotations import NoteAnnotation
-from dxf_preview_dialog import UnderlayImportDialog
-from property_manager import PropertyManager
-from scale_manager import DisplayUnit
-from layer_manager import LayerManager
-from hydraulic_report import HydraulicReportWidget
-from thermal_radiation_report import ThermalRadiationReportWidget
-from user_layer_manager import UserLayerManager, UserLayerWidget
-from level_manager import LevelManager, PlanViewManager
-from level_widget import LevelWidget
-from paper_space import PaperSpaceWidget, PAPER_SIZES
-from ribbon_bar import RibbonBar
+from firepro3d.model_space import Model_Space
+from firepro3d.model_view import Model_View
+from firepro3d.sprinkler import Sprinkler
+from firepro3d.pipe import Pipe
+from firepro3d.annotations import NoteAnnotation
+from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+from firepro3d.property_manager import PropertyManager
+from firepro3d.scale_manager import DisplayUnit
+from firepro3d.layer_manager import LayerManager
+from firepro3d.hydraulic_report import HydraulicReportWidget
+from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
+from firepro3d.user_layer_manager import UserLayerManager, UserLayerWidget
+from firepro3d.level_manager import LevelManager, PlanViewManager
+from firepro3d.level_widget import LevelWidget
+from firepro3d.paper_space import PaperSpaceWidget, PAPER_SIZES
+from firepro3d.ribbon_bar import RibbonBar
 # view_3d deferred — imports pyvista/VTK which is slow
-from array_dialog import ArrayDialog
-from project_browser import ProjectBrowser
-from model_browser import ModelBrowser
-from grid_lines_dialog import GridLinesDialog
-from constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
-import theme as th
+from firepro3d.array_dialog import ArrayDialog
+from firepro3d.project_browser import ProjectBrowser
+from firepro3d.model_browser import ModelBrowser
+from firepro3d.grid_lines_dialog import GridLinesDialog
+from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
+from firepro3d import theme as th
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,10 +73,8 @@ class _SplashScreen(QWidget):
         logo_lbl.setStyleSheet(
             "background: #f1f7f7; border-radius: 6px; padding: 8px;"
         )
-        logo_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "graphics", "Program Icon", "Logo.png",
-        )
+        from firepro3d.assets import asset_path as _asset_path
+        logo_path = _asset_path("Program Icon", "Logo.png")
         if os.path.isfile(logo_path):
             from PyQt6.QtCore import QSize
             logo_pm = QPixmap(logo_path).scaled(
@@ -163,10 +161,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("FirePro 3D \u2014 Untitled")
         # Window icon from logo
-        _logo = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "graphics", "Program Icon", "Logo.png",
-        )
+        from firepro3d.assets import asset_path as _asset_path
+        _logo = _asset_path("Program Icon", "Logo.png")
         if os.path.isfile(_logo):
             self.setWindowIcon(QIcon(_logo))
         self._splash = splash
@@ -299,7 +295,7 @@ class MainWindow(QMainWindow):
 
         # Elevation Manager — QGraphicsScene-based elevation views
         # (connect after elevation_manager is created below)
-        from elevation_manager import ElevationManager
+        from firepro3d.elevation_manager import ElevationManager
         self.elevation_manager = ElevationManager(
             self.scene, self.level_mgr, self.scene.scale_manager,
             self.central_tabs,
@@ -309,7 +305,7 @@ class MainWindow(QMainWindow):
         self.level_widget.levelsChanged.connect(self.elevation_manager.rebuild_all)
 
         # Detail View Manager
-        from detail_view import DetailViewManager
+        from firepro3d.detail_view import DetailViewManager
         self.detail_manager = DetailViewManager(
             self.scene, self.level_mgr, self.scene.scale_manager,
             self.central_tabs,
@@ -448,7 +444,7 @@ class MainWindow(QMainWindow):
         pass  # level indicator removed
         self._place_default_gridlines()
         self._create_elevation_markers()
-        from display_manager import apply_default_display_settings
+        from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         self._apply_persistent_unit_prefs()
         self._current_file = None
@@ -486,7 +482,7 @@ class MainWindow(QMainWindow):
         if self.settings.contains("snap/angle_deg"):
             self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
         if self.settings.contains("snap/tolerance_px"):
-            import snap_engine
+            from firepro3d import snap_engine
             snap_engine.SNAP_TOLERANCE_PX = self.settings.value("snap/tolerance_px", 40, type=int)
         if self.settings.contains("snap/grip_tolerance_px"):
             self.scene._grip_tolerance_px = self.settings.value(
@@ -550,7 +546,7 @@ class MainWindow(QMainWindow):
         if not self._initial_fit_done:
             self._initial_fit_done = True
             # Open Plan: Level 1 as the default view
-            from constants import DEFAULT_LEVEL
+            from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
 
     def _activate_paper_sheet(self, name: str):
@@ -563,7 +559,7 @@ class MainWindow(QMainWindow):
                 self.central_tabs.setCurrentIndex(i)
                 return
         # Create a new paper space tab
-        from paper_space import PaperSpaceWidget
+        from firepro3d.paper_space import PaperSpaceWidget
         ps = PaperSpaceWidget(self.scene)
         idx = self.central_tabs.addTab(ps, name)
         self.central_tabs.setCurrentIndex(idx)
@@ -588,7 +584,7 @@ class MainWindow(QMainWindow):
                 return
 
         # Create a new plan tab sharing the same scene + view
-        from Model_View import Model_View
+        from firepro3d.model_view import Model_View
         plan_view = Model_View(self.scene)
         plan_view.setObjectName(f"plan_view_{level_name}")
         plan_view.plan_view_name = tab_name  # link widget to PlanView
@@ -661,7 +657,7 @@ class MainWindow(QMainWindow):
             pv = self.plan_view_mgr.get(tab_text)
             if pv is None:
                 pv = self.plan_view_mgr.create(level_name, self.level_mgr)
-            from view_range_dialog import ViewRangeDialog
+            from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
                 self.scene.scale_manager, parent=self)
@@ -685,14 +681,14 @@ class MainWindow(QMainWindow):
             if marker is None:
                 return
             # Create a temporary PlanView to drive the dialog
-            from level_manager import PlanView
+            from firepro3d.level_manager import PlanView
             pv = PlanView(
                 name=tab_text,
                 level_name=marker.level_name,
                 view_height=marker.view_height or 0.0,
                 view_depth=marker.view_depth or 0.0,
             )
-            from view_range_dialog import ViewRangeDialog
+            from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
                 self.scene.scale_manager, parent=self)
@@ -709,7 +705,7 @@ class MainWindow(QMainWindow):
     def _get_active_plan_view(self):
         """Return the currently visible plan view, falling back to self.view."""
         w = self.central_tabs.currentWidget()
-        from Model_View import Model_View
+        from firepro3d.model_view import Model_View
         if isinstance(w, Model_View):
             return w
         # Find any plan tab
@@ -763,8 +759,8 @@ class MainWindow(QMainWindow):
 
     def _create_elevation_markers(self):
         """Create N/S/E/W elevation markers in the 2D plan view."""
-        from view_marker import ViewMarkerManager
-        from display_manager import apply_category_defaults
+        from firepro3d.view_marker import ViewMarkerManager
+        from firepro3d.display_manager import apply_category_defaults
         self._view_marker_mgr = ViewMarkerManager(self.scene)
         self._view_marker_mgr.create_elevation_markers()
         # Apply user's saved display defaults to the new markers
@@ -873,7 +869,8 @@ class MainWindow(QMainWindow):
         Must be called *after* all dock widgets are created so that dock
         visibility toggles can be wired correctly.
         """
-        _I = lambda name: QIcon(f"graphics/Ribbon/{name}")
+        from firepro3d.assets import asset_path
+        _I = lambda name: QIcon(asset_path("Ribbon", name))
 
         # Draw-mode buttons are checkable so the active tool stays highlighted
         self._mode_buttons = {}  # mode_name → QToolButton
@@ -1623,7 +1620,7 @@ class MainWindow(QMainWindow):
         """Live-adjustable snap settings dialog with per-type toggles."""
         from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
                                       QDialogButtonBox, QGroupBox, QCheckBox)
-        import snap_engine
+        from firepro3d import snap_engine
 
         eng = self.scene._snap_engine
 
@@ -1776,8 +1773,8 @@ class MainWindow(QMainWindow):
     def _insert_block(self):
         """Open a file dialog to select a saved block JSON, then place it."""
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from block_item import BlockItem
-        from construction_geometry import (
+        from firepro3d.block_item import BlockItem
+        from firepro3d.construction_geometry import (
             LineItem, RectangleItem, CircleItem, PolylineItem, ArcItem,
             ConstructionLine,
         )
@@ -1820,7 +1817,7 @@ class MainWindow(QMainWindow):
     def _create_block(self):
         """Group selected items into a BlockItem and optionally save to file."""
         from PyQt6.QtWidgets import QInputDialog, QFileDialog, QMessageBox
-        from block_item import BlockItem
+        from firepro3d.block_item import BlockItem
         import json
 
         selected = list(self.scene.selectedItems())
@@ -2116,13 +2113,13 @@ class MainWindow(QMainWindow):
 
     def _open_display_manager(self):
         """Open the Display Manager dialog (replaces FSVisibilityDialog)."""
-        from display_manager import DisplayManager
+        from firepro3d.display_manager import DisplayManager
         dlg = DisplayManager(self.scene, parent=self)
         dlg.exec()  # live preview handles apply/revert internally
 
     def _open_level_dialog(self):
         """Open the Level Manager dialog."""
-        from level_dialog import LevelDialog
+        from firepro3d.level_dialog import LevelDialog
         dlg = LevelDialog(self.level_mgr, scene=self.scene, parent=self)
         dlg.activeLevelChanged.connect(self._on_active_level_changed)
         dlg.levelsChanged.connect(
@@ -2135,7 +2132,7 @@ class MainWindow(QMainWindow):
 
     def open_sprinkler_manager(self):
         """Open the Sprinkler Manager database dialog."""
-        from sprinkler_db import SprinklerManagerDialog, SprinklerDatabase
+        from firepro3d.sprinkler_db import SprinklerManagerDialog, SprinklerDatabase
         if not hasattr(self, "_sprinkler_db"):
             self._sprinkler_db = SprinklerDatabase()
         dlg = SprinklerManagerDialog(db=self._sprinkler_db, parent=self)
@@ -2146,7 +2143,7 @@ class MainWindow(QMainWindow):
 
     def _apply_sprinkler_template_from_record(self, record):
         """Apply a SprinklerRecord as the active sprinkler placement template."""
-        from sprinkler import Sprinkler
+        from firepro3d.sprinkler import Sprinkler
         template = Sprinkler(None)
         template.set_property("K-Factor",      str(record.k_factor))
         template.set_property("Min Pressure",  str(record.min_pressure))
@@ -2163,7 +2160,7 @@ class MainWindow(QMainWindow):
 
     def _auto_populate_sprinklers(self):
         """Open auto-populate dialog for the currently selected room."""
-        from room import Room
+        from firepro3d.room import Room
         selected = self.scene.selectedItems()
         rooms = [i for i in selected if isinstance(i, Room)]
         if not rooms:
@@ -2236,10 +2233,10 @@ class MainWindow(QMainWindow):
         # Apply display settings: prefer project-embedded settings, fall back to QSettings
         project_ds = getattr(self.scene, '_loaded_display_settings', None)
         if project_ds:
-            from display_manager import apply_project_display_settings
+            from firepro3d.display_manager import apply_project_display_settings
             apply_project_display_settings(self.scene, project_ds)
         else:
-            from display_manager import apply_saved_display_settings
+            from firepro3d.display_manager import apply_saved_display_settings
             apply_saved_display_settings(self.scene)
         # Rebuild elevation markers (cleared during scene load)
         self._create_elevation_markers()
@@ -2351,7 +2348,7 @@ class MainWindow(QMainWindow):
         self._create_elevation_markers()
 
         # Apply saved display defaults to the new project
-        from display_manager import apply_default_display_settings
+        from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         self._apply_persistent_unit_prefs()
 
@@ -2436,7 +2433,7 @@ class MainWindow(QMainWindow):
             if (not params.geom_list
                     and params.file_type == "pdf"
                     and not params.has_vectors):
-                from underlay import Underlay
+                from firepro3d.underlay import Underlay
                 record = Underlay(
                     type="pdf", path=params.file_path,
                     dpi=params.pdf_dpi, page=params.pdf_page,
@@ -2511,9 +2508,9 @@ class MainWindow(QMainWindow):
 
     def _radiation_on_confirm(self):
         """Called when user presses Enter during radiation selection."""
-        from wall import WallSegment
-        from roof import RoofItem
-        from floor_slab import FloorSlab
+        from firepro3d.wall import WallSegment
+        from firepro3d.roof import RoofItem
+        from firepro3d.floor_slab import FloorSlab
 
         surface_types = (WallSegment, RoofItem, FloorSlab)
 
@@ -2545,7 +2542,7 @@ class MainWindow(QMainWindow):
             self._open_radiation_dialog()
 
     def _open_radiation_dialog(self):
-        from thermal_radiation_dialog import ThermalRadiationDialog
+        from firepro3d.thermal_radiation_dialog import ThermalRadiationDialog
         dlg = ThermalRadiationDialog(
             self,
             scale_manager=self.scene.scale_manager,
@@ -2558,7 +2555,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Radiation analysis cancelled.", 3000)
 
     def _run_radiation(self, params):
-        from thermal_radiation_solver import (
+        from firepro3d.thermal_radiation_solver import (
             StandardSurfaceRadiationModel, extract_surface_mesh,
         )
         lm = self.scene._level_manager
@@ -2587,9 +2584,9 @@ class MainWindow(QMainWindow):
             ]
 
             # Collect blocking geometry from OTHER surfaces not in analysis
-            from wall import WallSegment
-            from roof import RoofItem
-            from floor_slab import FloorSlab
+            from firepro3d.wall import WallSegment
+            from firepro3d.roof import RoofItem
+            from firepro3d.floor_slab import FloorSlab
             selected_ids = set(
                 id(e) for e in self._radiation_emitters + self._radiation_receivers
             )
@@ -2686,7 +2683,7 @@ class MainWindow(QMainWindow):
             level_name = tab_text[len("Plan: "):]
             pv = self.plan_view_mgr.get(tab_text)
             if pv is not None:
-                from level_manager import PlanViewInfo
+                from firepro3d.level_manager import PlanViewInfo
                 return PlanViewInfo(
                     pv, self.level_mgr, self.scene.scale_manager,
                     on_view_range=lambda: self._open_plan_view_range(tab_text))
@@ -2705,7 +2702,7 @@ class MainWindow(QMainWindow):
         pv = self.plan_view_mgr.get(tab_text)
         if pv is None:
             pv = self.plan_view_mgr.create(level_name, self.level_mgr)
-        from view_range_dialog import ViewRangeDialog
+        from firepro3d.view_range_dialog import ViewRangeDialog
         dlg = ViewRangeDialog(
             pv, self.level_mgr, self.plan_view_mgr,
             self.scene.scale_manager, parent=self)
@@ -2724,14 +2721,14 @@ class MainWindow(QMainWindow):
         marker = self.detail_manager.get_marker(detail_name)
         if marker is None:
             return
-        from level_manager import PlanView
+        from firepro3d.level_manager import PlanView
         pv = PlanView(
             name=f"Detail: {detail_name}",
             level_name=marker.level_name,
             view_height=marker.view_height or 0.0,
             view_depth=marker.view_depth or 0.0,
         )
-        from view_range_dialog import ViewRangeDialog
+        from firepro3d.view_range_dialog import ViewRangeDialog
         dlg = ViewRangeDialog(
             pv, self.level_mgr, self.plan_view_mgr,
             self.scene.scale_manager, parent=self)
@@ -2796,7 +2793,7 @@ def main():
     splash.set_progress(20, "Loading 3D engine...")
     QApplication.processEvents()
     global View3D
-    from view_3d import View3D
+    from firepro3d.view_3d import View3D
 
     splash.set_progress(50, "Building UI...")
     window = MainWindow(splash=splash)
