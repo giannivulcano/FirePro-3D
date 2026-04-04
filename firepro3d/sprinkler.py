@@ -113,6 +113,16 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
             except (ValueError, TypeError):
                 raw_mm = -50.8
             props["Ceiling Offset"]["value"] = self._fmt(raw_mm)
+        # Absolute position (read-only)
+        if self.node is not None:
+            pos = self.node.scenePos()
+            z = getattr(self.node, "z_pos", 0.0)
+            props["X"] = {"type": "string", "value": self._fmt(pos.x()),
+                          "readonly": True}
+            props["Y"] = {"type": "string", "value": self._fmt(pos.y()),
+                          "readonly": True}
+            props["Z"] = {"type": "string", "value": self._fmt(z),
+                          "readonly": True}
         # Show room assignment from parent node
         room_name = getattr(self.node, "_room_name", "") if self.node else ""
         if room_name:
