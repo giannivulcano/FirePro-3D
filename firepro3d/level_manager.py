@@ -377,6 +377,12 @@ class LevelManager:
                     slab._is_occluding = True
 
         def _set_level_vis(item):
+            # Guard against deleted C++ objects (e.g. after undo)
+            try:
+                item.isVisible()
+            except RuntimeError:
+                return
+
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
