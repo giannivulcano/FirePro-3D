@@ -1,0 +1,23 @@
+# TODO
+
+## Tasks
+- [x] Voronoi relaxation algorithm for auto-populate sprinkler placement [type:Recently Completed] [subject:Sprinkler Design]
+- [x] Level manager elevation enhancements (guard against deleted C++ objects) [type:Recently Completed] [subject:CAD]
+- [x] Sprinkler property display improvements (absolute X/Y/Z read-only properties) [type:Recently Completed] [subject:Sprinkler Design]
+- [x] Algorithm selection dropdown in auto-populate dialog [type:Recently Completed]
+- [x] Room name as read-only property on sprinklers and nodes [type:Recently Completed]
+- [x] Room name tagging on sprinkler nodes for reliable detection [type:Recently Completed]
+- [x] Auto-populate removes existing room sprinklers before placing new ones [type:Recently Completed]
+- [x] Fix stacked room sprinkler detection (Z-range filtering) [type:Recently Completed]
+- [x] Elevation-based Z-ordering for plan view depth sorting [type:Recently Completed]
+- [x] Detail markers filtered by view range [type:Recently Completed]
+- [x] Model browser refresh on undo/redo [type:Recently Completed]
+- [ ] README.md for the repository [type:Backlog] [subject:Documentation] [P3]
+- [ ] Unit tests for hydraulic solver [type:Backlog] [subject:Hydraulic Calculator]
+- [ ] Unit tests for auto-populate algorithms [type:Backlog] [subject:Sprinkler Design]
+- [ ] Unit tests for geometry utilities (CAD_Math, geometry_intersect) [type:Backlog] [subject:CAD]
+- [ ] full code review, develop specs for various existing feature sthat don't have specs and do full documentation for the project [type:Backlog] [P1] [subject:Documentation]
+- [ ] Spec & grill session: define and refine the relationship between views (plan, elevation, 3D, detail, and future views like sections) — same exercise as pipe placement spec [type:Backlog] [P1] [subject:Architecture]
+- [ ] Spec & grill session: snapping engine — review snap_engine.py, OSNAP system, snap priorities, and overall snapping UX [type:Backlog] [P1] [subject:CAD]
+- [ ] Add absolute elevation for node 1 and 2 in pipe properties template [type:Task] [subject:Sprinkler Design]
+- [ ] Plan Views room Z values seem to be calculated based on ceiling height property rather floor level [type:Bug] [subject:CAD] [P2]
