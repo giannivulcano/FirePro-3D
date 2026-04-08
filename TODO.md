@@ -31,7 +31,7 @@
 - [x] Decouple `nearest` from the perpendicular toggle in `_geometric_snaps` [ref:snap-spec§5-note-1] [type:Backlog] [P2] [subject:CAD] [done:2026-04-08]
 - [ ] ArcItem tangent support in `_geometric_snaps` [ref:snap-spec§5-row-ArcItem] [type:Backlog] [P2] [subject:CAD]
 - [ ] Generic `QGraphicsPathItem` (DXF) phase-4 segment extraction [ref:snap-spec§5-note-7] [type:Backlog] [P2] [subject:CAD]
-- [ ] Snap engine geometric primitive unit tests (`_line_line_intersect`, `_line_circle_intersect`, `_project_to_segment`) [ref:snap-spec§10.1] [type:Backlog] [P2] [subject:CAD]
+- [x] Snap engine geometric primitive unit tests (`_line_line_intersect`, `_line_circle_intersect`, `_project_to_segment`) [ref:snap-spec§10.1] [type:Backlog] [P2] [subject:CAD] [done:2026-04-08]
 - [ ] Snap engine matrix fixture test harness — one headless fixture per ✓-cell in §5 [ref:snap-spec§10.2] [type:Backlog] [P2] [subject:CAD]
 - [x] Snap engine case-study regression tests pinned to §7.1 and §7.2 [ref:snap-spec§10.3] [type:Backlog] [P2] [subject:CAD] [done:2026-04-07]
 - [x] Bind F3 to global OSNAP toggle and reflect state in status bar [ref:snap-spec§9.4-§9.5] [type:Backlog] [P3] [subject:CAD] [done:2026-04-08]
@@ -41,3 +41,4 @@
 - [ ] Decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec [type:Backlog] [P3] [subject:CAD]
 - [ ] Spec session: pipe-with-fitting named targets [ref:snap-spec§8.3] [type:Backlog] [P2] [subject:CAD]
 - [ ] Spec session: inferred / dimension-driven placement (next-priority subsystem) [ref:snap-spec§2.3] [type:Backlog] [P1] [subject:Architecture]
+- [ ] Extract snap primitive epsilons (`1e-10` line-line denom, `1e-12` degenerate segment/radius) to named constants on `SnapEngine` — surfaced by primitive unit tests mirroring literals [type:Backlog] [P3] [subject:CAD]
