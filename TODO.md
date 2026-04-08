@@ -17,11 +17,11 @@
 - [ ] Unit tests for auto-populate algorithms [type:Backlog] [subject:Sprinkler Design]
 - [ ] Unit tests for geometry utilities (CAD_Math, geometry_intersect) [type:Backlog] [subject:CAD]
 - [ ] full code review, develop specs for various existing feature sthat don't have specs and do full documentation for the project [type:Backlog] [P1] [subject:Documentation]
-- [ ] Spec & grill session: define and refine the relationship between views (plan, elevation, 3D, detail, and future views like sections) — same exercise as pipe placement spec [type:Backlog] [P1] [subject:Architecture]
+- [x] Spec & grill session: define and refine the relationship between views — see `docs/specs/view-relationships.md` [type:Backlog] [P1] [subject:Architecture] [done:2026-04-08]
 - [ ] Spec & grill session: wall placement & joinery — cover L/T/cross joints, cap geometry, face-corner semantics, wall-to-wall snap targets, zero-thickness behavior. Same exercise as pipe placement spec. Surfaced during snap-engine item 3 grill (T-joint snap target has no candidate today) [type:Backlog] [P1] [subject:Architecture]
 - [x] Spec & grill session: snapping engine — see `docs/specs/snapping-engine.md` (14 roadmap items added below) [type:Recently Completed] [subject:CAD]
 - [ ] Add absolute elevation for node 1 and 2 in pipe properties template [type:Task] [subject:Sprinkler Design]
-- [ ] Plan Views room Z values seem to be calculated based on ceiling height property rather floor level [subject:CAD] [P2] [type:In Progress]
+- [ ] Investigate `Room.z_range_mm()` vs user expectations — code already uses level-derived floor Z; real cause is likely one of: (a) slab-thickness lookup fragility when no slab exists for `_ceiling_level`, (b) `_ceiling_offset` sign, or (c) a UI display path using a different formula [ref:view-relationships§7.2] [subject:CAD] [P2] [type:In Progress]
 
 ## Snapping Engine Roadmap (from `docs/specs/snapping-engine.md` §12)
 - [x] Snap picker: same-parent intersection suppression + endpoint protection band — fixes wall-corner and hatch case studies [ref:snap-spec§6.3] [type:Backlog] [P1] [subject:CAD] [done:2026-04-07]
@@ -42,3 +42,12 @@
 - [ ] Spec session: pipe-with-fitting named targets [ref:snap-spec§8.3] [type:Backlog] [P2] [subject:CAD]
 - [ ] Spec session: inferred / dimension-driven placement (next-priority subsystem) [ref:snap-spec§2.3] [type:Backlog] [P1] [subject:Architecture]
 - [ ] Extract snap primitive epsilons (`1e-10` line-line denom, `1e-12` degenerate segment/radius) to named constants on `SnapEngine` — surfaced by primitive unit tests mirroring literals [type:Backlog] [P3] [subject:CAD]
+
+## View Relationships Follow-Ups (from `docs/specs/view-relationships.md` §11)
+- [ ] Extract plan-family Z-band magic numbers to named constants in `constants.py` — spec is source of truth for order, `constants.py` should own values [ref:view-relationships§7.3] [type:Backlog] [P3] [subject:CAD]
+- [ ] Investigate elevation marker persistence — gap vs `DetailMarker.to_dict()` pattern; decide mirror or alternate approach [ref:view-relationships§6.3] [type:Backlog] [P2] [subject:CAD]
+- [ ] Spec session: Section view subsystem — first-class arbitrary-cut-line section views [ref:view-relationships§4.1] [type:Backlog] [P1] [subject:Architecture]
+- [ ] Spec session: Drafting overrides / view templates — defines resolution rules on top of catalog [ref:view-relationships§7.4] [type:Backlog] [P2] [subject:Architecture]
+- [ ] Spec session: Cross-view selection / interaction sync [ref:view-relationships§1.3] [type:Backlog] [P2] [subject:Architecture]
+- [ ] Spec session: Paper-viewport-specific overrides (depends on view-templates spec landing first) [ref:view-relationships§7.4] [type:Backlog] [P3] [subject:Architecture]
+- [ ] Document or deprecate `Node.z_offset` legacy field — spec records it as legacy, migration/cleanup needed [ref:view-relationships§3.3] [type:Backlog] [P3] [subject:CAD]
