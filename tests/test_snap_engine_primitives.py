@@ -275,3 +275,30 @@ class TestLineCircleIntersect:
         for p in pts:
             assert p.x() == pytest.approx(5.0, abs=1e-9)
             assert p.y() == pytest.approx(0.0, abs=1e-9)
+
+
+# ────────────────────────────────────────────────────────────────────
+# _project_to_segment
+# ────────────────────────────────────────────────────────────────────
+
+
+class TestProjectToSegment:
+    """Tests for ``SnapEngine._project_to_segment``.
+
+    Contract (pinned from snap_engine.py:789-803):
+    - Degenerate segment (``len_sq < 1e-12``) → ``None``.
+    - Otherwise compute t, CLAMP to [0, 1], return foot at clamped t.
+      This means the function is 'closest point on finite segment',
+      not 'foot of unclamped perpendicular'.
+    """
+
+    def test_foot_inside_segment(self):
+        """Cursor above the middle of a horizontal segment → foot at
+        the midpoint."""
+        foot = SnapEngine._project_to_segment(
+            QPointF(5, 10),                  # cursor
+            QPointF(0, 0), QPointF(10, 0),   # segment
+        )
+        assert foot is not None
+        assert foot.x() == pytest.approx(5.0, abs=1e-9)
+        assert foot.y() == pytest.approx(0.0, abs=1e-9)
