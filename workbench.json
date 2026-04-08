@@ -1,0 +1,21 @@
+{
+  "types": [
+    "In Progress",
+    "Recently Completed",
+    "Backlog",
+    "Feature",
+    "Idea"
+  ],
+  "subjects": [
+    "Documentation",
+    "Hydraulic Calculator",
+    "CAD"
+  ],
+  "defaultType": "In Progress",
+  "viewPreferences": {
+    "groupBy": "subject",
+    "hideDone": true,
+    "sortKey": "priority",
+    "sortDir": "desc"
+  }
+}

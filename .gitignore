@@ -33,3 +33,6 @@ Thumbs.db
 *.pyc
 .claude/
 .worktrees/
+.agents/
+.coverage
+test.json
