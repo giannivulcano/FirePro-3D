@@ -202,3 +202,19 @@ class TestLineCircleIntersect:
         assert xs[1] == pytest.approx(5.0, abs=1e-9)
         for p in pts:
             assert p.y() == pytest.approx(0.0, abs=1e-9)
+
+    def test_one_intersection_inside_one_outside_segment(self):
+        """The infinite line meets the circle twice, but only one of the
+        two parameter values t falls inside [0, 1]. Exactly one point
+        is returned."""
+        # Segment: (0, 0) -> (10, 0). Circle: center (8, 0), r=5.
+        # Infinite line meets circle at x=3 and x=13.
+        # x=3  → t = 0.3  (inside)
+        # x=13 → t = 1.3  (outside)
+        pts = SnapEngine._line_circle_intersect(
+            QPointF(0, 0), QPointF(10, 0),
+            QPointF(8, 0), radius=5.0,
+        )
+        assert len(pts) == 1
+        assert pts[0].x() == pytest.approx(3.0, abs=1e-9)
+        assert pts[0].y() == pytest.approx(0.0, abs=1e-9)
