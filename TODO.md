@@ -37,5 +37,7 @@
 - [x] Bind F3 to global OSNAP toggle and reflect state in status bar [ref:snap-spec§9.4-§9.5] [type:Backlog] [P3] [subject:CAD] [done:2026-04-08]
 - [x] Confirm or build per-type OSNAP toggle UI surface (`snap_endpoint`, `snap_midpoint`, etc.) [ref:snap-spec§9.5] [type:Backlog] [P3] [subject:CAD] [done:2026-04-08]
 - [ ] Spec session: OSNAP toolbar — per-type toggle UI, dockable placement, indicator layout, interaction with status bar pill [ref:snap-spec§9.5] [type:Backlog] [P1] [subject:CAD]
+- [ ] F3 integration test on real keypress — QTest.keyClick did not dispatch through QAction shortcut on headless Windows; investigate pytest-qt / qtbot or alternate dispatch [type:Backlog] [P3] [subject:Testing]
+- [ ] Decide whether F3 / global OSNAP toggle should also disable `_snap_to_underlay` (DXF underlay snap), or document the separation in the snap spec [type:Backlog] [P3] [subject:CAD]
 - [ ] Spec session: pipe-with-fitting named targets [ref:snap-spec§8.3] [type:Backlog] [P2] [subject:CAD]
 - [ ] Spec session: inferred / dimension-driven placement (next-priority subsystem) [ref:snap-spec§2.3] [type:Backlog] [P1] [subject:Architecture]
