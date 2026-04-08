@@ -67,6 +67,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     numericInputRequested = pyqtSignal(str, str, str, float, float, float)  # mode, title, label, default, min, max
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
+    osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
 
     def __init__(self):
         super().__init__()
@@ -2804,7 +2805,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
     def toggle_osnap(self, enabled: bool | None = None):
-        """Toggle or explicitly set OSNAP.  Called from ribbon button / F3."""
+        """Toggle or explicitly set OSNAP.  Called from F3 shortcut and
+        the status bar OSNAP indicator."""
         if enabled is None:
             self._osnap_enabled = not self._osnap_enabled
         else:
@@ -2814,6 +2816,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Refresh foreground overlay
         for v in self.views():
             v.viewport().update()
+        self.osnapToggled.emit(self._osnap_enabled)
 
     def find_snap_point(self, pos: QPointF) -> QPointF | None:
         """Find the nearest DXF underlay snap point within tolerance."""
