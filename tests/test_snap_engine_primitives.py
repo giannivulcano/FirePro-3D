@@ -218,3 +218,19 @@ class TestLineCircleIntersect:
         assert len(pts) == 1
         assert pts[0].x() == pytest.approx(3.0, abs=1e-9)
         assert pts[0].y() == pytest.approx(0.0, abs=1e-9)
+
+    def test_tangent_returns_two_identical_points(self):
+        """CURRENT CONTRACT: when the segment is tangent to the circle
+        (disc == 0), the loop appends the same point twice. Spec §10.1
+        calls this 'one intersection' but the code returns two. If the
+        implementation changes to de-duplicate, update this test."""
+        # Segment along y=5 from x=-10 to x=10.
+        # Circle at origin with radius 5 → tangent at (0, 5).
+        pts = SnapEngine._line_circle_intersect(
+            QPointF(-10, 5), QPointF(10, 5),
+            QPointF(0, 0), radius=5.0,
+        )
+        assert len(pts) == 2
+        for p in pts:
+            assert p.x() == pytest.approx(0.0, abs=1e-9)
+            assert p.y() == pytest.approx(5.0, abs=1e-9)
