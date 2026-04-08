@@ -302,3 +302,24 @@ class TestProjectToSegment:
         assert foot is not None
         assert foot.x() == pytest.approx(5.0, abs=1e-9)
         assert foot.y() == pytest.approx(0.0, abs=1e-9)
+
+    def test_foot_before_seg_a_clamps_to_seg_a(self):
+        """CURRENT CONTRACT: t is clamped to [0, 1], so a cursor whose
+        unclamped foot lies BEFORE seg_a returns seg_a exactly."""
+        foot = SnapEngine._project_to_segment(
+            QPointF(-5, 10),                 # cursor off the 'a' end
+            QPointF(0, 0), QPointF(10, 0),
+        )
+        assert foot is not None
+        assert foot.x() == pytest.approx(0.0, abs=1e-9)
+        assert foot.y() == pytest.approx(0.0, abs=1e-9)
+
+    def test_foot_after_seg_b_clamps_to_seg_b(self):
+        """CURRENT CONTRACT: cursor past seg_b → returns seg_b."""
+        foot = SnapEngine._project_to_segment(
+            QPointF(15, 10),                 # cursor off the 'b' end
+            QPointF(0, 0), QPointF(10, 0),
+        )
+        assert foot is not None
+        assert foot.x() == pytest.approx(10.0, abs=1e-9)
+        assert foot.y() == pytest.approx(0.0, abs=1e-9)
