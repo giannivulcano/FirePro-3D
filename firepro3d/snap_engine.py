@@ -228,12 +228,12 @@ class SnapEngine:
             # DXF underlay groups — descend into children
             if isinstance(item, QGraphicsItemGroup) and item.data(0) == "DXF Underlay":
                 for child in item.childItems():
-                    for snap_type, scene_pt in self._collect(child):
-                        ctx.check(snap_type, scene_pt, child)
+                    for snap_type, scene_pt, name in self._collect(child):
+                        ctx.check(snap_type, scene_pt, child, name)
                 continue
 
-            for snap_type, pt in self._collect(item):
-                ctx.check(snap_type, pt, item)
+            for snap_type, pt, name in self._collect(item):
+                ctx.check(snap_type, pt, item, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, item):
                 ctx.check(snap_type, pt, item)
 
@@ -263,8 +263,8 @@ class SnapEngine:
     def _check_gridline_snaps(self, ctx: "_SnapCtx", gl_items: list):
         """Phase 3: Gridline point + edge snaps (shape is bubbles-only)."""
         for gl in gl_items:
-            for snap_type, pt in self._collect(gl):
-                ctx.check(snap_type, pt, gl)
+            for snap_type, pt, name in self._collect(gl):
+                ctx.check(snap_type, pt, gl, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, gl):
                 ctx.check(snap_type, pt, gl)
 
@@ -342,10 +342,17 @@ class SnapEngine:
 
     # ── Internal ─────────────────────────────────────────────────────────────
 
-    def _collect(self, item: QGraphicsItem) -> list[tuple[str, QPointF]]:
-        """Return (snap_type, scene_pos) pairs for one item."""
+    def _collect(
+        self, item: QGraphicsItem,
+    ) -> list[tuple[str, QPointF, str | None]]:
+        """Return (snap_type, scene_pos, name) triples for one item.
 
-        pts: list[tuple[str, QPointF]] = []
+        ``name`` is ``None`` for all item types except ``WallSegment``,
+        which emits semantic names (centerline-end-A, face-left-corner-A,
+        face-right-mid, etc.) so the foreground renderer can pick filled
+        vs outlined glyph variants.
+        """
+        pts: list[tuple[str, QPointF, str | None]] = []
 
         # ── LineItem (finite draw line) ───────────────────────────────────
         if isinstance(item, LineItem):
@@ -355,14 +362,14 @@ class SnapEngine:
         elif isinstance(item, ConstructionLine):
             # Snap to the two anchor points only
             if self.snap_endpoint:
-                pts.append(("endpoint", item.pt1))
-                pts.append(("endpoint", item.pt2))
+                pts.append(("endpoint", item.pt1, None))
+                pts.append(("endpoint", item.pt2, None))
             if self.snap_midpoint:
                 mid = QPointF(
                     (item.pt1.x() + item.pt2.x()) / 2,
                     (item.pt1.y() + item.pt2.y()) / 2,
                 )
-                pts.append(("midpoint", mid))
+                pts.append(("midpoint", mid, None))
 
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
         elif isinstance(item, GridlineItem):
@@ -389,12 +396,12 @@ class SnapEngine:
             ]
             if self.snap_endpoint:
                 for c in corners:
-                    pts.append(("endpoint", item.mapToScene(c)))
+                    pts.append(("endpoint", item.mapToScene(c), None))
             if self.snap_midpoint:
                 for e in edges:
-                    pts.append(("midpoint", item.mapToScene(e)))
+                    pts.append(("midpoint", item.mapToScene(e), None))
             if self.snap_center:
-                pts.append(("center", item.mapToScene(r.center())))
+                pts.append(("center", item.mapToScene(r.center()), None))
 
         # ── CircleItem / any QGraphicsEllipseItem (Node, sprinkler) ───────
         elif isinstance(item, QGraphicsEllipseItem):
@@ -402,34 +409,34 @@ class SnapEngine:
             cen = br.center()
             _is_node = hasattr(item, "pipes")  # Node has .pipes; circles don't
             if self.snap_center:
-                pts.append(("center", item.mapToScene(cen)))
+                pts.append(("center", item.mapToScene(cen), None))
             # Quadrant snaps only for real circles, not Nodes
             if self.snap_quadrant and not _is_node:
-                pts.append(("quadrant", item.mapToScene(QPointF(br.right(), cen.y()))))
-                pts.append(("quadrant", item.mapToScene(QPointF(br.left(),  cen.y()))))
-                pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top()))))
-                pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom()))))
+                pts.append(("quadrant", item.mapToScene(QPointF(br.right(), cen.y())), None))
+                pts.append(("quadrant", item.mapToScene(QPointF(br.left(),  cen.y())), None))
+                pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.top())), None))
+                pts.append(("quadrant", item.mapToScene(QPointF(cen.x(), br.bottom())), None))
 
         # ── WallSegment (must come before generic QGraphicsPathItem) ─────
         elif isinstance(item, WallSegment):
             p1, p2 = item.pt1, item.pt2
             # Centerline endpoints
             if self.snap_endpoint:
-                pts.append(("endpoint", p1))
-                pts.append(("endpoint", p2))
+                pts.append(("endpoint", p1, None))
+                pts.append(("endpoint", p2, None))
             # Centerline midpoint
             if self.snap_midpoint:
                 mid = QPointF((p1.x() + p2.x()) / 2,
                               (p1.y() + p2.y()) / 2)
-                pts.append(("midpoint", mid))
+                pts.append(("midpoint", mid, None))
             # Quad corner points (wall faces)
             if self.snap_endpoint:
                 try:
                     p1l, p1r, p2r, p2l = item.quad_points()
-                    pts.append(("endpoint", p1l))
-                    pts.append(("endpoint", p1r))
-                    pts.append(("endpoint", p2r))
-                    pts.append(("endpoint", p2l))
+                    pts.append(("endpoint", p1l, None))
+                    pts.append(("endpoint", p1r, None))
+                    pts.append(("endpoint", p2r, None))
+                    pts.append(("endpoint", p2l, None))
                 except Exception:
                     pass
             # Edge midpoints (face mid-lengths)
@@ -437,9 +444,9 @@ class SnapEngine:
                 try:
                     p1l, p1r, p2r, p2l = item.quad_points()
                     pts.append(("midpoint", QPointF(
-                        (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2)))
+                        (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2), None))
                     pts.append(("midpoint", QPointF(
-                        (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2)))
+                        (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2), None))
                 except Exception:
                     pass
 
@@ -449,13 +456,13 @@ class SnapEngine:
             # All vertices are real geometric endpoints
             if self.snap_endpoint:
                 for v in vertices:
-                    pts.append(("endpoint", item.mapToScene(v)))
+                    pts.append(("endpoint", item.mapToScene(v), None))
             # True midpoints of each segment between consecutive vertices
             if self.snap_midpoint:
                 for i in range(len(vertices) - 1):
                     a, b = vertices[i], vertices[i + 1]
                     mid = QPointF((a.x() + b.x()) / 2, (a.y() + b.y()) / 2)
-                    pts.append(("midpoint", item.mapToScene(mid)))
+                    pts.append(("midpoint", item.mapToScene(mid), None))
 
         # ── ArcItem ────────────────────────────────────────────────────────
         elif isinstance(item, ArcItem):
@@ -468,19 +475,19 @@ class SnapEngine:
             if self.snap_endpoint:
                 start_pt = QPointF(cx + r * math.cos(sa), cy - r * math.sin(sa))
                 end_pt   = QPointF(cx + r * math.cos(ea), cy - r * math.sin(ea))
-                pts.append(("endpoint", start_pt))
-                pts.append(("endpoint", end_pt))
+                pts.append(("endpoint", start_pt, None))
+                pts.append(("endpoint", end_pt, None))
 
             # Center
             if self.snap_center:
-                pts.append(("center", QPointF(cx, cy)))
+                pts.append(("center", QPointF(cx, cy), None))
 
             # Angular midpoint along the arc
             if self.snap_midpoint:
                 mid_a = math.radians(item._start_deg + item._span_deg / 2)
                 mid_pt = QPointF(cx + r * math.cos(mid_a),
                                  cy - r * math.sin(mid_a))
-                pts.append(("midpoint", mid_pt))
+                pts.append(("midpoint", mid_pt, None))
 
             # Quadrant points that fall within the arc's angular range
             if self.snap_quadrant:
@@ -489,7 +496,7 @@ class SnapEngine:
                         q_rad = math.radians(q_deg)
                         q_pt = QPointF(cx + r * math.cos(q_rad),
                                        cy - r * math.sin(q_rad))
-                        pts.append(("quadrant", q_pt))
+                        pts.append(("quadrant", q_pt, None))
 
         # ── Generic QGraphicsPathItem (DXF imports, etc.) ────────────────
         elif isinstance(item, QGraphicsPathItem):
@@ -500,29 +507,31 @@ class SnapEngine:
                 for i in range(min(n, 512)):
                     elem = path.elementAt(i)
                     pts.append(("endpoint",
-                                item.mapToScene(QPointF(elem.x, elem.y))))
+                                item.mapToScene(QPointF(elem.x, elem.y)), None))
             # Segment midpoints between consecutive vertices
             if self.snap_midpoint:
                 for i in range(min(n - 1, 511)):
                     e1 = path.elementAt(i)
                     e2 = path.elementAt(i + 1)
                     mid = QPointF((e1.x + e2.x) / 2, (e1.y + e2.y) / 2)
-                    pts.append(("midpoint", item.mapToScene(mid)))
+                    pts.append(("midpoint", item.mapToScene(mid), None))
 
         return pts
 
-    def _line_snaps(self, item: QGraphicsLineItem) -> list[tuple[str, QPointF]]:
+    def _line_snaps(
+        self, item: QGraphicsLineItem,
+    ) -> list[tuple[str, QPointF, str | None]]:
         """Endpoint + midpoint snaps for a QGraphicsLineItem."""
         line = item.line()
         p1  = item.mapToScene(line.p1())
         p2  = item.mapToScene(line.p2())
-        pts: list[tuple[str, QPointF]] = []
+        pts: list[tuple[str, QPointF, str | None]] = []
         if self.snap_endpoint:
-            pts.append(("endpoint", p1))
-            pts.append(("endpoint", p2))
+            pts.append(("endpoint", p1, None))
+            pts.append(("endpoint", p2, None))
         if self.snap_midpoint:
             mid = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
-            pts.append(("midpoint", mid))
+            pts.append(("midpoint", mid, None))
         return pts
 
     # ── Line–line intersection ──────────────────────────────────────────
