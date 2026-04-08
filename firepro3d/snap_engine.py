@@ -114,7 +114,8 @@ class OsnapResult:
 class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "tol", "priority_band",
-                 "best_dist", "best_prio", "best_result")
+                 "best_dist", "best_prio", "best_result",
+                 "endpoint_candidates")
 
     def __init__(self, cursor: QPointF, tol: float, priority_band: float):
         self.cursor = cursor
@@ -123,11 +124,17 @@ class _SnapCtx:
         self.best_dist: float = tol
         self.best_prio: int = 999
         self.best_result: OsnapResult | None = None
+        # Scene-coord points of in-tolerance endpoint candidates seen so
+        # far. Phase 4 uses this to suppress intersection candidates
+        # that land inside the endpoint protection band (§6.3 Change B).
+        self.endpoint_candidates: list[QPointF] = []
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
               name: str | None = None):
         """Compare a candidate snap against the current best."""
         d = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
+        if snap_type == "endpoint" and d <= self.tol:
+            self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
         if (d < self.best_dist - self.priority_band or
                 (d < self.best_dist + self.priority_band and prio < self.best_prio)):
@@ -331,16 +338,37 @@ class SnapEngine:
             elif isinstance(item, CircleItem):
                 _circles.append((item._center, item._radius, item))
 
+        # Endpoint protection band — §6.3 Change B. Intersection
+        # candidates within this radius of any in-tolerance endpoint
+        # candidate are suppressed before reaching the picker, so a
+        # high-priority intersection can never silently displace an
+        # endpoint at (for example) a mitered wall corner.
+        protection_r = ctx.tol * 0.15
+        protection_r_sq = protection_r * protection_r
+        endpoints = list(ctx.endpoint_candidates)
+
+        def _protected(ix: QPointF) -> bool:
+            for ep in endpoints:
+                ex = ix.x() - ep.x()
+                ey = ix.y() - ep.y()
+                if ex * ex + ey * ey <= protection_r_sq:
+                    return True
+            return False
+
         # Segment–segment intersections
         for i, (sa1, sa2, src1) in enumerate(_segments):
             for sb1, sb2, src2 in _segments[i + 1:]:
                 if src1 is src2:
+                    # Same-parent intersection filter — §6.3 Change A,
+                    # already present in the original implementation.
+                    # Dropped candidates are wall-internal face×face
+                    # crossings, rectangle edge self-crossings, etc.
                     continue
                 ix = self._line_line_intersect(sa1, sa2, sb1, sb2)
                 if ix is not None:
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
-                    if d <= ctx.tol:
+                    if d <= ctx.tol and not _protected(ix):
                         ctx.check("intersection", ix, src1)
 
         # Segment–circle intersections
@@ -349,7 +377,7 @@ class SnapEngine:
                 for ix in self._line_circle_intersect(sa1, sa2, center, radius):
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
-                    if d <= ctx.tol:
+                    if d <= ctx.tol and not _protected(ix):
                         ctx.check("intersection", ix, src)
 
     # ── Internal ─────────────────────────────────────────────────────────────
