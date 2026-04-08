@@ -122,3 +122,15 @@ class TestLineLineIntersect:
             QPointF(20, 0), QPointF(30, 0),
         )
         assert result is None
+
+    def test_touching_at_endpoint_returns_shared_point(self):
+        """When two non-collinear segments share exactly one endpoint,
+        denom is nonzero and t/s land on the [0, 1] boundary. The
+        shared point is returned."""
+        # L-joint: A ends at (10, 0), B starts at (10, 0) going up.
+        result = SnapEngine._line_line_intersect(
+            QPointF(0, 0), QPointF(10, 0),
+            QPointF(10, 0), QPointF(10, 10),
+        )
+        assert result is not None
+        assert _xy(result) == _approx_point(QPointF(10, 0))
