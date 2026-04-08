@@ -234,3 +234,11 @@ class TestLineCircleIntersect:
         for p in pts:
             assert p.x() == pytest.approx(0.0, abs=1e-9)
             assert p.y() == pytest.approx(5.0, abs=1e-9)
+
+    def test_no_intersection_returns_empty(self):
+        """Segment and circle do not meet at all → ``[]``."""
+        pts = SnapEngine._line_circle_intersect(
+            QPointF(-10, 20), QPointF(10, 20),
+            QPointF(0, 0), radius=5.0,
+        )
+        assert pts == []
