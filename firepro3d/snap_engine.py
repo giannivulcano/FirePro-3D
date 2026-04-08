@@ -44,6 +44,15 @@ from .wall import WallSegment
 
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
 
+# Below this half-thickness (in scene units) a WallSegment is too thin
+# for the user to visually distinguish its face corners from the
+# centerline endpoint. We suppress named face-corner / face-mid
+# candidates in that regime so the marker glyph doesn't flicker.
+# The value matches half of a physical 6 mm wall in the default scale
+# (practical floor for real FirePro3D drawings); drawings that use a
+# finer scale will almost always have thicker walls.
+_FACE_COLLAPSE_SCENE_EPS: float = 3.0
+
 SNAP_COLORS: dict[str, str] = {
     "endpoint":      "#ffff00",   # yellow  – square marker
     "midpoint":      "#00ff88",   # green   – triangle marker
@@ -310,8 +319,11 @@ class SnapEngine:
                 for j in range(4):
                     _segments.append((corners[j], corners[(j + 1) % 4], item))
             elif isinstance(item, WallSegment):
+                # Use mitered geometry so joined walls share clean corners
+                # instead of crossing each other inside the joint — the
+                # root cause of the §7.1 wall-corner false negative.
                 try:
-                    p1l, p1r, p2r, p2l = item.quad_points()
+                    p1l, p1r, p2r, p2l = item.snap_quad_points()
                     _segments.append((p1l, p2l, item))
                     _segments.append((p1r, p2r, item))
                 except (ValueError, AttributeError):
@@ -420,35 +432,52 @@ class SnapEngine:
         # ── WallSegment (must come before generic QGraphicsPathItem) ─────
         elif isinstance(item, WallSegment):
             p1, p2 = item.pt1, item.pt2
-            # Centerline endpoints
+
+            # Centerline endpoints (named, but rendered OUTLINED — default glyph)
             if self.snap_endpoint:
-                pts.append(("endpoint", p1, None))
-                pts.append(("endpoint", p2, None))
+                pts.append(("endpoint", p1, "centerline-end-A"))
+                pts.append(("endpoint", p2, "centerline-end-B"))
+
             # Centerline midpoint
             if self.snap_midpoint:
-                mid = QPointF((p1.x() + p2.x()) / 2,
-                              (p1.y() + p2.y()) / 2)
-                pts.append(("midpoint", mid, None))
-            # Quad corner points (wall faces)
-            if self.snap_endpoint:
-                try:
-                    p1l, p1r, p2r, p2l = item.quad_points()
-                    pts.append(("endpoint", p1l, None))
-                    pts.append(("endpoint", p1r, None))
-                    pts.append(("endpoint", p2r, None))
-                    pts.append(("endpoint", p2l, None))
-                except Exception:
-                    pass
-            # Edge midpoints (face mid-lengths)
-            if self.snap_midpoint:
-                try:
-                    p1l, p1r, p2r, p2l = item.quad_points()
-                    pts.append(("midpoint", QPointF(
-                        (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2), None))
-                    pts.append(("midpoint", QPointF(
-                        (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2), None))
-                except Exception:
-                    pass
+                mid_c = QPointF((p1.x() + p2.x()) / 2,
+                                (p1.y() + p2.y()) / 2)
+                pts.append(("midpoint", mid_c, "centerline-mid"))
+
+            # Face targets use mitered geometry so they land on the
+            # visible wall corners, not the raw unmitered quad. Use the
+            # side-effect-free snap_quad_points() (wall.py) — NOT
+            # mitered_quad(), which writes paint coordination state.
+            try:
+                p1l, p1r, p2r, p2l = item.snap_quad_points()
+            except Exception:
+                p1l = p1r = p2r = p2l = None
+
+            # Defensive rail: if the wall half-thickness in scene units
+            # is below _FACE_COLLAPSE_SCENE_EPS, the face corners and
+            # face midpoints collapse visually onto the centerline at
+            # any reasonable zoom — drop them so the marker doesn't
+            # flicker between filled (face) and outlined (centerline).
+            try:
+                _ht = item.half_thickness_scene()
+            except Exception:
+                _ht = 0.0
+
+            if (p1l is not None and self.snap_endpoint
+                    and _ht >= _FACE_COLLAPSE_SCENE_EPS):
+                pts.append(("endpoint", p1l, "face-left-corner-A"))
+                pts.append(("endpoint", p1r, "face-right-corner-A"))
+                pts.append(("endpoint", p2l, "face-left-corner-B"))
+                pts.append(("endpoint", p2r, "face-right-corner-B"))
+
+            if (p1l is not None and self.snap_midpoint
+                    and _ht >= _FACE_COLLAPSE_SCENE_EPS):
+                left_mid = QPointF(
+                    (p1l.x() + p2l.x()) / 2, (p1l.y() + p2l.y()) / 2)
+                right_mid = QPointF(
+                    (p1r.x() + p2r.x()) / 2, (p1r.y() + p2r.y()) / 2)
+                pts.append(("midpoint", left_mid,  "face-left-mid"))
+                pts.append(("midpoint", right_mid, "face-right-mid"))
 
         # ── PolylineItem (must come before generic QGraphicsPathItem) ────
         elif isinstance(item, PolylineItem):
@@ -606,9 +635,9 @@ class SnapEngine:
         elif isinstance(item, WallSegment):
             _seg_snap(item.pt1, item.pt2)  # centerline
             try:
-                p1l, p1r, p2r, p2l = item.quad_points()
-                _seg_snap(p1l, p2l)  # left face edge
-                _seg_snap(p1r, p2r)  # right face edge
+                p1l, p1r, p2r, p2l = item.snap_quad_points()
+                _seg_snap(p1l, p2l)  # left face edge (mitered)
+                _seg_snap(p1r, p2r)  # right face edge (mitered)
                 _seg_snap(p1l, p1r)  # start cap
                 _seg_snap(p2l, p2r)  # end cap
             except Exception:
