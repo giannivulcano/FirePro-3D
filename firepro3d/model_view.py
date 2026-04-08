@@ -275,7 +275,15 @@ class Model_View(QGraphicsView):
             pen = QPen(color, 2)
             pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
             painter.setPen(pen)
-            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+
+            # Filled glyph variant for WallSegment face-corner / face-mid
+            # targets (§8.2 of the snap engine spec, amended: *filled* =
+            # face / secondary, *outlined* = centerline / default).
+            _name = getattr(snap_result, "name", None)
+            if _name is not None and _name.startswith("face-"):
+                painter.setBrush(QBrush(color))
+            else:
+                painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
             if marker == "square":
                 painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
