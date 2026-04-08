@@ -893,13 +893,35 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Also sets ``_solid_pt1`` / ``_solid_pt2`` flags indicating which
         endpoints use Solid mode (so paint() can skip drawing the end edge).
         """
+        quad, solid_pt1, solid_pt2 = self._compute_mitered_quad()
+        self._solid_pt1 = solid_pt1
+        self._solid_pt2 = solid_pt2
+        return quad
+
+    def snap_quad_points(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
+        """Return the mitered/joined wall quad without any state mutation.
+
+        Identical geometry to ``mitered_quad()`` but safe to call from the
+        snap engine (which must not touch paint coordination state).
+        """
+        quad, _solid_pt1, _solid_pt2 = self._compute_mitered_quad()
+        return quad
+
+    def _compute_mitered_quad(
+        self,
+    ) -> tuple[tuple[QPointF, QPointF, QPointF, QPointF], bool, bool]:
+        """Pure computation shared by mitered_quad() and snap_quad_points().
+
+        Returns ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2). Does NOT
+        read or write ``self._solid_pt1`` / ``self._solid_pt2``.
+        """
         p1l, p1r, p2r, p2l = self.quad_points()
-        self._solid_pt1 = False
-        self._solid_pt2 = False
+        solid_pt1 = False
+        solid_pt2 = False
 
         sc = self.scene()
         if sc is None or not hasattr(sc, '_walls'):
-            return (p1l, p1r, p2r, p2l)
+            return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2)
 
         MITER_TOL = 1.0
         MAX_MITER = self.half_thickness_scene() * 4
@@ -907,7 +929,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         for my_idx in (0, 1):
             my_pt = self._pt1 if my_idx == 0 else self._pt2
 
-            # Count walls sharing this endpoint
             partners = []
             for other in sc._walls:
                 if other is self:
@@ -919,9 +940,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             mode = self._resolve_join_mode(my_idx, 1 + len(partners))
 
             if mode == "Butt" or not partners:
-                continue  # no modification at this endpoint
+                continue
 
-            # Both Solid and Miter use edge intersection with connected wall
             other, other_ep = partners[0]
             o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
 
@@ -947,13 +967,13 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                     if my_idx == 0:
                         p1l, p1r = int_l, int_r
                         if mode == "Solid":
-                            self._solid_pt1 = True
+                            solid_pt1 = True
                     else:
                         p2l, p2r = int_l, int_r
                         if mode == "Solid":
-                            self._solid_pt2 = True
+                            solid_pt2 = True
 
-        return (p1l, p1r, p2r, p2l)
+        return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2)
 
     # ── Wall joining helper ──────────────────────────────────────────────────
 
