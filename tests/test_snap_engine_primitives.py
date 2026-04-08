@@ -253,3 +253,25 @@ class TestLineCircleIntersect:
             QPointF(0, 0), radius=5.0,
         )
         assert pts == []
+
+    def test_zero_radius_center_off_segment_returns_empty(self):
+        """radius=0 reduces the circle to a point. When that point is
+        off the segment, disc < 0 → ``[]``."""
+        pts = SnapEngine._line_circle_intersect(
+            QPointF(0, 0), QPointF(10, 0),
+            QPointF(5, 5), radius=0.0,
+        )
+        assert pts == []
+
+    def test_zero_radius_center_on_segment_returns_center(self):
+        """radius=0, center ON the segment → disc == 0 → tangent-style
+        return: two identical points at the center."""
+        pts = SnapEngine._line_circle_intersect(
+            QPointF(0, 0), QPointF(10, 0),
+            QPointF(5, 0), radius=0.0,
+        )
+        # Mirrors the tangent case: two identical entries.
+        assert len(pts) == 2
+        for p in pts:
+            assert p.x() == pytest.approx(5.0, abs=1e-9)
+            assert p.y() == pytest.approx(0.0, abs=1e-9)
