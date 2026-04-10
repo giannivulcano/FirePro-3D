@@ -38,6 +38,28 @@ if TYPE_CHECKING:
 # Data role for storing source entity reference on projected items
 _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Cardinal filtering for elevation gridlines
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CARDINAL_EPSILON = 1e-6
+
+
+def _is_cardinal_for_elevation(p1: QPointF, p2: QPointF, direction: str) -> bool:
+    """Return True if the gridline defined by p1,p2 should appear in the given elevation.
+
+    Only exactly-cardinal gridlines appear:
+    - North/South: show gridlines where dx == 0 (vertical)
+    - East/West: show gridlines where dy == 0 (horizontal)
+    """
+    dx = abs(p2.x() - p1.x())
+    dy = abs(p2.y() - p1.y())
+    if direction in ("north", "south"):
+        return dx < _CARDINAL_EPSILON
+    elif direction in ("east", "west"):
+        return dy < _CARDINAL_EPSILON
+    return False
+
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
@@ -1051,27 +1073,6 @@ class ElevationScene(QGraphicsScene):
 
     # ── Gridlines ────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _gridline_is_vertical(line_geom) -> bool:
-        """True if the gridline is more vertical than horizontal in scene."""
-        dx = abs(line_geom.x2() - line_geom.x1())
-        dy = abs(line_geom.y2() - line_geom.y1())
-        return dy >= dx
-
-    def _should_show_gridline(self, line_geom) -> bool:
-        """Filter gridlines by elevation direction.
-
-        North/South elevations look along Y — show only vertical gridlines
-        (which run along Y and project to distinct H positions on the X axis).
-        East/West elevations look along X — show only horizontal gridlines
-        (which run along X and project to distinct H positions on the Y axis).
-        """
-        is_vert = self._gridline_is_vertical(line_geom)
-        if self._direction in ("north", "south"):
-            return is_vert       # vertical gridlines → visible as vertical lines in N/S
-        else:  # east, west
-            return not is_vert   # horizontal gridlines → visible as vertical lines in E/W
-
     def _project_gridlines(self):
         props = self._gridline_display_props()
         if not props["visible"]:
@@ -1087,8 +1088,10 @@ class ElevationScene(QGraphicsScene):
         for gl in getattr(self._ms, "_gridlines", []):
             line_geom = gl.line()
 
-            # Filter: only show gridlines perpendicular to the view direction
-            if not self._should_show_gridline(line_geom):
+            # Filter: only cardinal gridlines appear in elevations
+            p1 = QPointF(line_geom.x1(), line_geom.y1())
+            p2 = QPointF(line_geom.x2(), line_geom.y2())
+            if not _is_cardinal_for_elevation(p1, p2, self._direction):
                 continue
 
             wx1, wy1 = self._scene_to_world(line_geom.x1(), line_geom.y1())
@@ -1165,7 +1168,9 @@ class ElevationScene(QGraphicsScene):
         h_vals = []
         for gl in gridlines:
             lg = gl.line()
-            if not self._should_show_gridline(lg):
+            p1 = QPointF(lg.x1(), lg.y1())
+            p2 = QPointF(lg.x2(), lg.y2())
+            if not _is_cardinal_for_elevation(p1, p2, self._direction):
                 continue
             wx1, wy1 = self._scene_to_world(lg.x1(), lg.y1())
             wx2, wy2 = self._scene_to_world(lg.x2(), lg.y2())

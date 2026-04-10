@@ -223,3 +223,35 @@ class TestSerialization:
         assert gl.locked is False
         assert gl.paper_height_mm == pytest.approx(3.0)
         assert gl.user_layer == "Default"
+
+
+class TestElevationFiltering:
+    """Test the cardinal-only rule for elevation gridline visibility."""
+
+    def test_vertical_in_north(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        assert _is_cardinal_for_elevation(QPointF(1000, 0), QPointF(1000, 5000), "north") is True
+
+    def test_vertical_not_in_east(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        assert _is_cardinal_for_elevation(QPointF(1000, 0), QPointF(1000, 5000), "east") is False
+
+    def test_horizontal_in_east(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        assert _is_cardinal_for_elevation(QPointF(0, 2000), QPointF(5000, 2000), "east") is True
+
+    def test_horizontal_not_in_north(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        assert _is_cardinal_for_elevation(QPointF(0, 2000), QPointF(5000, 2000), "north") is False
+
+    def test_angled_in_no_elevation(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        p1, p2 = QPointF(0, 0), QPointF(3000, 4000)
+        for direction in ("north", "south", "east", "west"):
+            assert _is_cardinal_for_elevation(p1, p2, direction) is False
+
+    def test_nearly_vertical_excluded(self):
+        from firepro3d.elevation_scene import _is_cardinal_for_elevation
+        p1 = QPointF(1000, 0)
+        p2 = QPointF(1000.1, 5000)  # dx=0.1, well above 1e-6 epsilon
+        assert _is_cardinal_for_elevation(p1, p2, "north") is False
