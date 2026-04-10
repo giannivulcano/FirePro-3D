@@ -31,7 +31,7 @@ from .construction_geometry import (
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
-from .gridline import GridlineItem, reset_grid_counters
+from .gridline import GridlineItem, reset_grid_counters, sync_grid_counters
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER,
                        DEFAULT_CEILING_OFFSET_MM)
@@ -2679,6 +2679,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 gl = GridlineItem.from_dict(d)
                 self.addItem(gl)
                 self._gridlines.append(gl)
+            sync_grid_counters(self._gridlines)
 
             # ── Walls & Floors ────────────────────────────────────────────
             for d in state.get("walls", []):
@@ -2755,6 +2756,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._undo_pos > 0:
             self._undo_pos -= 1
             self._restore_network(self._undo_stack[self._undo_pos])
+            sync_grid_counters(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -2764,6 +2766,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
             self._restore_network(self._undo_stack[self._undo_pos])
+            sync_grid_counters(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -3525,12 +3528,72 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          oy + length * dy)
 
             gl = GridlineItem(p1, p2, label=label)
-            gl.level = self.active_level
             gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
 
+        self.sceneModified.emit()
+
+    def apply_grid_dialog(self, specs: list[dict]):
+        """Diff-based reconciliation of gridlines from the dialog.
+
+        Each *spec* dict has keys: label, offset (scene), length (scene),
+        angle_deg, and ``_backing`` (an existing ``GridlineItem`` or ``None``).
+        Gridlines present in ``self._gridlines`` but absent from *specs*
+        are deleted; existing ones are updated in place; new ones are created.
+        """
+        if not specs:
+            return
+
+        self.push_undo_state()
+
+        # Determine which existing gridlines are still referenced
+        referenced = set()
+        for spec in specs:
+            backing = spec.get("_backing")
+            if backing is not None:
+                referenced.add(id(backing))
+
+        # Delete unreferenced gridlines
+        to_delete = [gl for gl in self._gridlines if id(gl) not in referenced]
+        for gl in to_delete:
+            self.removeItem(gl)
+            self._gridlines.remove(gl)
+
+        # Create / update
+        for spec in specs:
+            backing = spec.get("_backing")
+            label = spec.get("label", "?")
+            offset = spec.get("offset", 0.0)
+            length = spec.get("length", 1000.0)
+            angle = spec.get("angle_deg", 90.0)
+
+            rad = math.radians(angle)
+            dx = math.cos(rad)
+            dy = -math.sin(rad)
+            px = -dy
+            py = dx
+            ox = offset * px
+            oy = -offset * py
+            bubble_overshoot = length * 0.06
+            p1 = QPointF(ox - bubble_overshoot * dx,
+                         oy - bubble_overshoot * dy)
+            p2 = QPointF(ox + length * dx,
+                         oy + length * dy)
+
+            if backing is not None:
+                backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+                backing.grid_label = label
+                backing._update_bubble_positions()
+            else:
+                gl = GridlineItem(p1, p2, label=label)
+                gl.user_layer = self.active_user_layer
+                self.addItem(gl)
+                apply_category_defaults(gl)
+                self._gridlines.append(gl)
+
+        sync_grid_counters(self._gridlines)
         self.sceneModified.emit()
 
 
@@ -5034,7 +5097,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Create gridline from anchor to snapped
             gl = GridlineItem(self._gridline_anchor, snapped)
             gl.user_layer = self.active_user_layer
-            gl.level = self.active_level
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
