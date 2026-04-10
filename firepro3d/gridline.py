@@ -547,19 +547,24 @@ class GridlineItem(QGraphicsLineItem):
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
-        p1 = QPointF(d["p1"][0], d["p1"][1])
-        p2 = QPointF(d["p2"][0], d["p2"][1])
+        # Migration: old GridLine format used "start"/"end" instead of "p1"/"p2"
+        if "p1" in d:
+            p1 = QPointF(d["p1"][0], d["p1"][1])
+            p2 = QPointF(d["p2"][0], d["p2"][1])
+        else:
+            p1 = QPointF(d["start"][0], d["start"][1])
+            p2 = QPointF(d["end"][0], d["end"][1])
         item = cls(p1, p2, label=d.get("label", "?"))
-        # Handle old-format key renames
+        # Handle old-format key renames for bubble visibility
         b1_vis = d.get("bubble1_vis", d.get("bubble_start", True))
         b2_vis = d.get("bubble2_vis", d.get("bubble_end", True))
         item.bubble1.setVisible(b1_vis)
         item.bubble2.setVisible(b2_vis)
-        item.user_layer = d.get("user_layer", "0")
+        item.user_layer = d.get("user_layer", DEFAULT_USER_LAYER)
         item._locked = d.get("locked", False)
         item.paper_height_mm = d.get("paper_height_mm", 3.0)
         item._display_overrides = d.get("display_overrides", {})
-        # Silently ignore "level" key from old files
+        # Silently ignore "level" and "axis" keys from old files
         return item
 
     # ── Properties for property panel ─────────────────────────────────────

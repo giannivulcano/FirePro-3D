@@ -173,3 +173,53 @@ class TestDuplicateDetection:
         from firepro3d.gridline import check_duplicate_labels
         dupes = check_duplicate_labels(scene._gridlines)
         assert len(dupes) == 0
+
+
+class TestSerialization:
+    def test_round_trip(self, scene):
+        """to_dict → from_dict preserves all fields."""
+        gl = GridlineItem(QPointF(100, 200), QPointF(100, 5200), label="C")
+        gl.locked = True
+        gl.set_bubble_visible(1, False)
+        gl.paper_height_mm = 4.5
+        gl.user_layer = "Gridlines"
+
+        d = gl.to_dict()
+        gl2 = GridlineItem.from_dict(d)
+
+        assert gl2.grid_label == "C"
+        assert gl2.locked is True
+        assert gl2.paper_height_mm == pytest.approx(4.5)
+        assert gl2.user_layer == "Gridlines"
+        assert gl2.line().p1().x() == pytest.approx(100.0)
+        assert gl2.line().p1().y() == pytest.approx(200.0)
+        assert gl2.line().p2().x() == pytest.approx(100.0)
+        assert gl2.line().p2().y() == pytest.approx(5200.0)
+
+    def test_migration_old_format(self, scene):
+        """Old GridLine format loads correctly into GridlineItem."""
+        old = {
+            "type": "grid_line",
+            "label": "B",
+            "axis": "x",
+            "start": [500, 0],
+            "end": [500, 3000],
+            "locked": True,
+            "bubble_start": True,
+            "bubble_end": False,
+        }
+        gl = GridlineItem.from_dict(old)
+        assert gl.grid_label == "B"
+        assert gl.locked is True
+        assert gl.line().p1().x() == pytest.approx(500.0)
+        assert gl.line().p2().y() == pytest.approx(3000.0)
+        assert gl.paper_height_mm == pytest.approx(3.0)
+        assert gl.user_layer == "Default"
+
+    def test_missing_fields_get_defaults(self, scene):
+        """Minimal dict gets sensible defaults."""
+        d = {"p1": [0, 0], "p2": [0, 1000], "label": "Z"}
+        gl = GridlineItem.from_dict(d)
+        assert gl.locked is False
+        assert gl.paper_height_mm == pytest.approx(3.0)
+        assert gl.user_layer == "Default"
