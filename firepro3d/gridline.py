@@ -69,6 +69,81 @@ def auto_label(p1: QPointF, p2: QPointF) -> str:
         return _next_h_label()
 
 
+def _label_to_letter_idx(label: str) -> int | None:
+    """Convert an alphabetic label to its sequential index (0-based).
+
+    Args:
+        label: A string label (e.g. "A", "Z", "AA", "AB").
+
+    Returns:
+        Integer index, or None if the label is not purely alphabetic or
+        has more than two characters.
+    """
+    if not label.isalpha():
+        return None
+    label = label.upper()
+    if len(label) == 1:
+        return ord(label) - ord('A')
+    elif len(label) == 2:
+        return 26 + (ord(label[0]) - ord('A')) * 26 + (ord(label[1]) - ord('A'))
+    return None
+
+
+def sync_grid_counters(gridlines: list) -> None:
+    """Advance auto-numbering counters past all existing gridline labels.
+
+    Scans *gridlines* for pure-numeric and pure-alpha labels and sets
+    ``_next_number`` / ``_next_letter_idx`` so the next auto-assigned
+    label does not collide with any existing one.  Custom labels (e.g.
+    "X-1") are silently ignored.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to inspect.
+    """
+    global _next_number, _next_letter_idx
+    max_num = 0
+    max_letter = -1
+    for gl in gridlines:
+        label = gl.grid_label
+        try:
+            n = int(label)
+            max_num = max(max_num, n)
+            continue
+        except ValueError:
+            pass
+        idx = _label_to_letter_idx(label)
+        if idx is not None:
+            max_letter = max(max_letter, idx)
+    _next_number = max_num + 1
+    _next_letter_idx = max_letter + 1
+
+
+def check_duplicate_labels(gridlines: list) -> set:
+    """Return the set of gridlines whose label appears more than once.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to inspect.
+
+    Returns:
+        Set of :class:`GridlineItem` instances that share a label with at
+        least one other item in *gridlines*.
+    """
+    from collections import Counter
+    label_counts = Counter(gl.grid_label for gl in gridlines)
+    return {gl for gl in gridlines if label_counts[gl.grid_label] > 1}
+
+
+def apply_duplicate_warnings(gridlines: list) -> None:
+    """Apply or clear duplicate-label warning colouring on every gridline.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to update.
+    """
+    dupes = check_duplicate_labels(gridlines)
+    for gl in gridlines:
+        gl.update_duplicate_warning(gl in dupes)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GridBubble — circle + text, fixed screen size
 # ─────────────────────────────────────────────────────────────────────────────
@@ -505,3 +580,17 @@ class GridlineItem(QGraphicsLineItem):
             self.bubble1.setVisible(value == "Visible")
         elif key == "Bubble 2":
             self.bubble2.setVisible(value == "Visible")
+
+    # ── Duplicate warning ─────────────────────────────────────────────────
+
+    def update_duplicate_warning(self, is_duplicate: bool):
+        """Colour the bubble outlines orange when *is_duplicate* is True.
+
+        Args:
+            is_duplicate: Whether this gridline shares its label with
+                another gridline in the scene.
+        """
+        color = QColor("#ff8800") if is_duplicate else self._grid_color
+        pen = QPen(color, 2)
+        self.bubble1.setPen(pen)
+        self.bubble2.setPen(pen)

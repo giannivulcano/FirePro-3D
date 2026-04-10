@@ -5,6 +5,10 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.gridline import GridlineItem
+from firepro3d.gridline import (
+    reset_grid_counters, sync_grid_counters,
+    _next_number, _next_letter_idx, auto_label,
+)
 
 
 @pytest.fixture
@@ -106,3 +110,66 @@ class TestLevelIndependence:
         }
         gl = GridlineItem.from_dict(d)
         assert not hasattr(gl, 'level')
+
+
+class TestCounterSync:
+    def test_sync_numbers(self, scene):
+        reset_grid_counters()
+        for label in ["1", "2", "5"]:
+            gl = GridlineItem(QPointF(0, 0), QPointF(5000, 0), label=label)
+            scene.addItem(gl)
+            scene._gridlines.append(gl)
+        sync_grid_counters(scene._gridlines)
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        assert lbl == "6"
+
+    def test_sync_letters(self, scene):
+        reset_grid_counters()
+        for label in ["A", "C"]:
+            gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label=label)
+            scene.addItem(gl)
+            scene._gridlines.append(gl)
+        sync_grid_counters(scene._gridlines)
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        assert lbl == "D"
+
+    def test_sync_multi_letter(self, scene):
+        reset_grid_counters()
+        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="AA")
+        scene.addItem(gl)
+        scene._gridlines.append(gl)
+        sync_grid_counters(scene._gridlines)
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        assert lbl == "AB"
+
+    def test_sync_ignores_custom_labels(self, scene):
+        reset_grid_counters()
+        gl = GridlineItem(QPointF(0, 0), QPointF(5000, 0), label="X-1")
+        scene.addItem(gl)
+        scene._gridlines.append(gl)
+        sync_grid_counters(scene._gridlines)
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        assert lbl == "1"
+
+
+class TestDuplicateDetection:
+    def test_duplicate_detected(self, scene):
+        gl_a = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="A")
+        gl_a2 = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="A")
+        scene.addItem(gl_a)
+        scene.addItem(gl_a2)
+        scene._gridlines = [gl_a, gl_a2]
+        from firepro3d.gridline import check_duplicate_labels
+        dupes = check_duplicate_labels(scene._gridlines)
+        assert gl_a in dupes
+        assert gl_a2 in dupes
+
+    def test_no_duplicate(self, scene):
+        gl_a = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="A")
+        gl_b = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="B")
+        scene.addItem(gl_a)
+        scene.addItem(gl_b)
+        scene._gridlines = [gl_a, gl_b]
+        from firepro3d.gridline import check_duplicate_labels
+        dupes = check_duplicate_labels(scene._gridlines)
+        assert len(dupes) == 0
