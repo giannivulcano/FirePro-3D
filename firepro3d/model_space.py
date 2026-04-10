@@ -345,6 +345,34 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 deduped.append(r)
         return deduped
 
+    def _apply_spacing_edit(self, dim: dict, new_distance: float):
+        """Move gridlines so that the spacing matches *new_distance*.
+
+        The selected gridline(s) are moved; the unselected anchor stays put.
+        """
+        self.push_undo_state()
+        from_gl, to_gl = dim["from_gl"], dim["to_gl"]
+        delta = new_distance - dim["distance"]
+
+        selected = [i for i in self.selectedItems()
+                    if isinstance(i, GridlineItem)]
+
+        if to_gl in selected and from_gl not in selected:
+            for gl in selected:
+                if not gl.locked:
+                    gl.move_perpendicular(delta)
+        elif from_gl in selected and to_gl not in selected:
+            for gl in selected:
+                if not gl.locked:
+                    gl.move_perpendicular(-delta)
+        else:
+            # Both or neither selected — move to_gl only
+            if not to_gl.locked:
+                to_gl.move_perpendicular(delta)
+
+        self._gridline_spacing_dims = self._compute_gridline_spacing()
+        self.update()
+
     # -------------------------------------------------------------------------
     # Preview items
 

@@ -760,7 +760,42 @@ class Model_View(QGraphicsView):
                             return
                     except (IndexError, AttributeError):
                         pass
+                # Check for double-click on a gridline spacing dimension
+                for dim in getattr(sc, '_gridline_spacing_dims', []):
+                    vp_mid = self.mapFromScene(dim["midpoint"])
+                    if math.hypot(event.pos().x() - vp_mid.x(),
+                                  event.pos().y() - vp_mid.y()) < 20:
+                        self._start_spacing_edit(dim, event.pos())
+                        return
         super().mouseDoubleClickEvent(event)
+
+    def _start_spacing_edit(self, dim, screen_pos):
+        """Open an inline editor to change gridline spacing distance."""
+        from PyQt6.QtWidgets import QLineEdit
+        scene = self.scene()
+        sm = getattr(scene, 'scale_manager', None)
+        current = (sm.scene_to_display_value(dim["distance"])
+                   if sm else dim["distance"])
+
+        editor = QLineEdit(self)
+        editor.setText(f"{current:.2f}")
+        editor.setFixedWidth(80)
+        editor.move(int(screen_pos.x()) - 40, int(screen_pos.y()) - 12)
+        editor.selectAll()
+        editor.show()
+        editor.setFocus()
+
+        def _accept():
+            try:
+                val = float(editor.text())
+                new_scene = sm.display_to_scene(val) if sm else val
+                scene._apply_spacing_edit(dim, new_scene)
+            except ValueError:
+                pass
+            editor.deleteLater()
+
+        editor.returnPressed.connect(_accept)
+        editor.editingFinished.connect(lambda: editor.deleteLater())
 
     # ── Right-click context menu ───────────────────────────────────────────
 
