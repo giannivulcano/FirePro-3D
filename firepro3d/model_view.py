@@ -387,6 +387,59 @@ class Model_View(QGraphicsView):
                             painter.drawText(cx - 3, cy + 3, "D")
             painter.restore()
 
+        # ── 3c. Gridline spacing dimensions (viewport coordinates) ────────
+        spacing_dims = getattr(scene, '_gridline_spacing_dims', [])
+        if spacing_dims:
+            painter.save()
+            painter.resetTransform()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            for dim in spacing_dims:
+                from_gl = dim["from_gl"]
+                to_gl = dim["to_gl"]
+
+                from_mid = QPointF(
+                    (from_gl.line().p1().x() + from_gl.line().p2().x()) / 2,
+                    (from_gl.line().p1().y() + from_gl.line().p2().y()) / 2)
+                to_mid = QPointF(
+                    (to_gl.line().p1().x() + to_gl.line().p2().x()) / 2,
+                    (to_gl.line().p1().y() + to_gl.line().p2().y()) / 2)
+
+                vp_from = self.mapFromScene(from_mid)
+                vp_to = self.mapFromScene(to_mid)
+                color = QColor("#0066cc")
+
+                # Dashed dimension line
+                painter.setPen(QPen(color, 1.5, Qt.PenStyle.DashLine))
+                painter.drawLine(vp_from, vp_to)
+
+                # Witness ticks
+                dx = vp_to.x() - vp_from.x()
+                dy = vp_to.y() - vp_from.y()
+                length = math.hypot(dx, dy)
+                if length > 1:
+                    nx = -dy / length * 6
+                    ny = dx / length * 6
+                    painter.setPen(QPen(color, 1.5))
+                    for vp in (vp_from, vp_to):
+                        painter.drawLine(
+                            int(vp.x() - nx), int(vp.y() - ny),
+                            int(vp.x() + nx), int(vp.y() + ny))
+
+                # Distance label
+                mid = QPointF(
+                    (vp_from.x() + vp_to.x()) / 2,
+                    (vp_from.y() + vp_to.y()) / 2)
+                sm = getattr(scene, 'scale_manager', None)
+                text = (sm.scene_to_display(dim["distance"])
+                        if sm else f"{dim['distance']:.1f}")
+                painter.setPen(QPen(color))
+                font = painter.font()
+                font.setPointSize(9)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.drawText(int(mid.x()) + 4, int(mid.y()) - 4, text)
+            painter.restore()
+
         # ── 4. Dim HUD (viewport coordinates, near cursor) ───────────────────
         dim_hint = getattr(scene, "_draw_dim_hint", None)
         vp_cursor = getattr(self, "_last_vp_pos", None)

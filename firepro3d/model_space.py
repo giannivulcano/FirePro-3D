@@ -150,6 +150,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._dragging_gridline = None          # GridlineItem being body-dragged
         self._gridline_drag_start = None        # scene pos at drag start
         self._gridline_drag_original_pos = None # perpendicular position at drag start
+        # Gridline spacing dimensions (on-selection)
+        self._gridline_spacing_dims: list[dict] = []
         # Offset command (Sprint L)
         self._offset_source = None              # entity selected for offset
         self._offset_dist: float = 0.0          # distance entered by user
@@ -249,6 +251,99 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.init_preview_pipe()
         self.draw_origin()
         self.push_undo_state()   # initial empty state
+        self.selectionChanged.connect(self._on_selection_changed)
+
+    # -------------------------------------------------------------------------
+    # Selection change handler
+
+    def _on_selection_changed(self):
+        """Recompute gridline spacing dimensions when selection changes."""
+        self._gridline_spacing_dims = self._compute_gridline_spacing()
+        for v in self.views():
+            v.viewport().update()
+
+    # -------------------------------------------------------------------------
+    # Gridline spacing computation
+
+    def _compute_gridline_spacing(self) -> list[dict]:
+        """Find nearest parallel unselected neighbours for each selected gridline.
+
+        Returns:
+            List of dicts with keys: from_gl, to_gl, distance, midpoint,
+            perp_vector.
+        """
+        selected = [item for item in self.selectedItems()
+                    if isinstance(item, GridlineItem)]
+        if not selected:
+            return []
+
+        all_gls = self._gridlines
+        results = []
+
+        for gl in selected:
+            px, py = gl._perpendicular_vector()
+            gl_perp_pos = gl.line().p1().x() * px + gl.line().p1().y() * py
+
+            gl_dx = abs(gl.line().p2().x() - gl.line().p1().x())
+            gl_dy = abs(gl.line().p2().y() - gl.line().p1().y())
+            gl_is_vertical = gl_dy >= gl_dx
+
+            neighbors = []
+            for other in all_gls:
+                if other is gl or other in selected:
+                    continue
+                o_dx = abs(other.line().p2().x() - other.line().p1().x())
+                o_dy = abs(other.line().p2().y() - other.line().p1().y())
+                if (o_dy >= o_dx) != gl_is_vertical:
+                    continue
+                o_perp_pos = other.line().p1().x() * px + other.line().p1().y() * py
+                neighbors.append((other, o_perp_pos))
+
+            before = [(o, p) for o, p in neighbors if p < gl_perp_pos]
+            after = [(o, p) for o, p in neighbors if p > gl_perp_pos]
+
+            if before:
+                nearest = max(before, key=lambda x: x[1])
+                dist = gl_perp_pos - nearest[1]
+                mid_perp = (gl_perp_pos + nearest[1]) / 2
+                gl_mid = QPointF(
+                    (gl.line().p1().x() + gl.line().p2().x()) / 2,
+                    (gl.line().p1().y() + gl.line().p2().y()) / 2)
+                midpoint = QPointF(
+                    mid_perp * px + gl_mid.x() * (1 - abs(px)),
+                    mid_perp * py + gl_mid.y() * (1 - abs(py)))
+                results.append({
+                    "from_gl": nearest[0], "to_gl": gl,
+                    "distance": abs(dist), "midpoint": midpoint,
+                    "perp_vector": (px, py),
+                })
+
+            if after:
+                nearest = min(after, key=lambda x: x[1])
+                dist = nearest[1] - gl_perp_pos
+                mid_perp = (gl_perp_pos + nearest[1]) / 2
+                gl_mid = QPointF(
+                    (gl.line().p1().x() + gl.line().p2().x()) / 2,
+                    (gl.line().p1().y() + gl.line().p2().y()) / 2)
+                midpoint = QPointF(
+                    mid_perp * px + gl_mid.x() * (1 - abs(px)),
+                    mid_perp * py + gl_mid.y() * (1 - abs(py)))
+                results.append({
+                    "from_gl": gl, "to_gl": nearest[0],
+                    "distance": abs(dist), "midpoint": midpoint,
+                    "perp_vector": (px, py),
+                })
+
+        # Deduplicate symmetric pairs
+        seen: set[tuple[int, int]] = set()
+        deduped = []
+        for r in results:
+            key = (id(r["from_gl"]), id(r["to_gl"]))
+            rev = (id(r["to_gl"]), id(r["from_gl"]))
+            if key not in seen and rev not in seen:
+                seen.add(key)
+                deduped.append(r)
+        return deduped
 
     # -------------------------------------------------------------------------
     # Preview items
