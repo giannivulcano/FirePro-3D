@@ -268,11 +268,19 @@ class _DirectionTab(QWidget):
     def _add_row(self):
         self._syncing = True
         row = self._table.rowCount()
-        self._table.insertRow(row)
+        # Compute label and offset BEFORE inserting the empty row
+        # (otherwise helpers read the empty row's blank cells).
         label = self._next_table_label() if row > 0 else (self._start_label.text() or "A")
-        offset_mm = self._last_offset_mm()
-        prev_mm = self._row_offset_mm(row - 1) if row > 0 else 0.0
-        spacing_mm = offset_mm - prev_mm
+        if row >= 2:
+            last_mm = self._row_offset_mm(row - 1)
+            prev_mm = self._row_offset_mm(row - 2)
+            spacing_mm = last_mm - prev_mm
+        elif row == 1:
+            spacing_mm = self._parse(self._qf_spacing_edit.text())
+        else:
+            spacing_mm = 0.0
+        offset_mm = (self._last_offset_mm() + spacing_mm) if row > 0 else 0.0
+        self._table.insertRow(row)
         length_mm = self._parse(self._length_edit.text())
         self._table.setItem(row, 0, QTableWidgetItem(label))
         self._table.setItem(row, 1, QTableWidgetItem(self._fmt(offset_mm)))
