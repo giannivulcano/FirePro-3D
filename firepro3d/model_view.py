@@ -388,6 +388,18 @@ class Model_View(QGraphicsView):
 
         # ── 3c. Gridline spacing dimensions (viewport coordinates) ────────
         spacing_dims = getattr(scene, '_gridline_spacing_dims', [])
+        # Cache for double-click hit detection (dims may be cleared by
+        # the second press of a double-click before the event fires).
+        # Keep old cache for 1 paint cycle so the double-click handler
+        # can still find them after deselection clears the scene list.
+        if spacing_dims:
+            self._last_spacing_dims = list(spacing_dims)
+            self._spacing_cache_age = 0
+        else:
+            age = getattr(self, '_spacing_cache_age', 0) + 1
+            if age > 1:
+                self._last_spacing_dims = []
+            self._spacing_cache_age = age
         if spacing_dims:
             painter.save()
             painter.resetTransform()
@@ -729,7 +741,6 @@ class Model_View(QGraphicsView):
                     try:
                         pa = c.item_a.grip_points()[c.grip_a]
                         pb = c.item_b.grip_points()[c.grip_b]
-                        import math
                         mid_x = (pa.x() + pb.x()) / 2
                         mid_y = (pa.y() + pb.y()) / 2
                         dist = math.hypot(scene_pos.x() - mid_x, scene_pos.y() - mid_y)
@@ -749,8 +760,11 @@ class Model_View(QGraphicsView):
                             return
                     except (IndexError, AttributeError):
                         pass
-                # Check for double-click on a gridline spacing dimension
-                for dim in getattr(sc, '_gridline_spacing_dims', []):
+                # Check for double-click on a gridline spacing dimension.
+                # Use the cached copy because the second press of the
+                # double-click may deselect the gridline, clearing the
+                # scene's live list before we get here.
+                for dim in getattr(self, '_last_spacing_dims', []):
                     vp_mid = self.mapFromScene(dim["midpoint"])
                     if math.hypot(event.pos().x() - vp_mid.x(),
                                   event.pos().y() - vp_mid.y()) < 20:
@@ -761,30 +775,40 @@ class Model_View(QGraphicsView):
     def _start_spacing_edit(self, dim, screen_pos):
         """Open an inline editor to change gridline spacing distance."""
         from PyQt6.QtWidgets import QLineEdit
+        from firepro3d.scale_manager import ScaleManager
         scene = self.scene()
         sm = getattr(scene, 'scale_manager', None)
-        current = (sm.scene_to_display_value(dim["distance"])
-                   if sm else dim["distance"])
+        # Display in formatted units (e.g. 24'-0" or 7315.2 mm)
+        current_text = (sm.format_length(dim["distance"])
+                        if sm else f"{dim['distance']:.1f} mm")
 
-        editor = QLineEdit(self)
-        editor.setText(f"{current:.2f}")
-        editor.setFixedWidth(80)
-        editor.move(int(screen_pos.x()) - 40, int(screen_pos.y()) - 12)
+        editor = QLineEdit(self.viewport())
+        editor.setText(current_text)
+        editor.setFixedWidth(100)
+        editor.move(int(screen_pos.x()) - 50, int(screen_pos.y()) - 12)
         editor.selectAll()
         editor.show()
         editor.setFocus()
 
         def _accept():
-            try:
-                val = float(editor.text())
-                new_scene = sm.display_to_scene(val) if sm else val
-                scene._apply_spacing_edit(dim, new_scene)
-            except ValueError:
-                pass
+            text = editor.text().strip()
+            if sm:
+                parsed_mm = ScaleManager.parse_dimension(
+                    text, sm.bare_number_unit())
+            else:
+                try:
+                    parsed_mm = float(text)
+                except ValueError:
+                    parsed_mm = None
+            if parsed_mm is not None:
+                scene._apply_spacing_edit(dim, parsed_mm)
+            editor.deleteLater()
+
+        def _cancel():
             editor.deleteLater()
 
         editor.returnPressed.connect(_accept)
-        editor.editingFinished.connect(lambda: editor.deleteLater())
+        editor.editingFinished.connect(_cancel)
 
     # ── Right-click context menu ───────────────────────────────────────────
 
