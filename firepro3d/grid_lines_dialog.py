@@ -196,8 +196,16 @@ class _DirectionTab(QWidget):
         self._table.cellChanged.connect(self._on_cell_changed)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSortIndicatorShown(True)
-        self._table.horizontalHeader().sectionClicked.connect(self._sort_by_column)
+        header = self._table.horizontalHeader()
+        header.setSortIndicatorShown(True)
+        header.setStyleSheet(
+            "QHeaderView::section { padding-right: 14px; }"
+            "QHeaderView::down-arrow, QHeaderView::up-arrow {"
+            "  width: 10px; height: 10px;"
+            "  subcontrol-position: center right;"
+            "  padding-right: 2px;"
+            "}")
+        header.sectionClicked.connect(self._sort_by_column)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.verticalHeader().setVisible(False)
