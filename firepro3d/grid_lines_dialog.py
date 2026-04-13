@@ -27,6 +27,26 @@ from .constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
 from .scale_manager import ScaleManager
 
 
+class _NumericItem(QTableWidgetItem):
+    """Table item that sorts by a numeric value, not lexicographically.
+
+    Stores a float via ``setData(UserRole+1, value)`` and uses it for
+    ``__lt__`` comparison so that ``24'-0"`` sorts correctly next to
+    ``48'-0"`` regardless of display format.
+    """
+
+    def __init__(self, text: str, sort_value: float):
+        super().__init__(text)
+        self.setData(Qt.ItemDataRole.UserRole + 1, sort_value)
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        my_val = self.data(Qt.ItemDataRole.UserRole + 1)
+        other_val = other.data(Qt.ItemDataRole.UserRole + 1) if other else None
+        if my_val is not None and other_val is not None:
+            return float(my_val) < float(other_val)
+        return super().__lt__(other)
+
+
 # ── Label generation helpers ──────────────────────────────────────────────────
 
 def _increment_label(label: str, scheme: str) -> str:
@@ -176,9 +196,13 @@ class _DirectionTab(QWidget):
         self._table.cellChanged.connect(self._on_cell_changed)
         self._table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
+        self._table.horizontalHeader().setSortIndicatorShown(True)
+        self._table.horizontalHeader().sectionClicked.connect(self._sort_by_column)
         self._table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.verticalHeader().setVisible(False)
+        self._sort_col = -1
+        self._sort_asc = True
         self._table.setMinimumHeight(180)
         outer.addWidget(self._table)
 
@@ -240,11 +264,16 @@ class _DirectionTab(QWidget):
         if col == 1:
             # Offset changed → recalculate Spacing
             offset = self._row_offset_mm(row)
+            # Update sort value on the edited cell
+            off_item = self._table.item(row, 1)
+            if off_item:
+                off_item.setData(Qt.ItemDataRole.UserRole + 1, offset)
             prev = self._row_offset_mm(row - 1) if row > 0 else 0.0
             spacing = offset - prev
             sp_item = self._table.item(row, 2)
             if sp_item:
                 sp_item.setText(self._fmt(spacing))
+                sp_item.setData(Qt.ItemDataRole.UserRole + 1, spacing)
             # Also update next row's spacing if it exists
             if row + 1 < self._table.rowCount():
                 next_off = self._row_offset_mm(row + 1)
@@ -252,16 +281,58 @@ class _DirectionTab(QWidget):
                 nsp_item = self._table.item(row + 1, 2)
                 if nsp_item:
                     nsp_item.setText(self._fmt(next_sp))
+                    nsp_item.setData(Qt.ItemDataRole.UserRole + 1, next_sp)
         elif col == 2:
             # Spacing changed → recalculate Offset
             sp_item = self._table.item(row, 2)
             spacing = self._parse(sp_item.text()) if sp_item else 0.0
+            if sp_item:
+                sp_item.setData(Qt.ItemDataRole.UserRole + 1, spacing)
             prev = self._row_offset_mm(row - 1) if row > 0 else 0.0
             new_offset = prev + spacing
             off_item = self._table.item(row, 1)
             if off_item:
                 off_item.setText(self._fmt(new_offset))
+                off_item.setData(Qt.ItemDataRole.UserRole + 1, new_offset)
+        elif col in (3, 4):
+            # Length or Angle changed → update sort value
+            item = self._table.item(row, col)
+            if item:
+                item.setData(Qt.ItemDataRole.UserRole + 1, self._parse(item.text())
+                             if col == 3 else float(item.text() or 0))
         self._syncing = False
+
+    # ── Sorting ──────────────────────────────────────────────────────────
+
+    def _sort_by_column(self, col: int):
+        """Sort table by column, toggling ascending/descending."""
+        if col == 5:
+            return  # Don't sort by hidden backing column
+        if col == self._sort_col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        order = (Qt.SortOrder.AscendingOrder if self._sort_asc
+                 else Qt.SortOrder.DescendingOrder)
+        self._table.horizontalHeader().setSortIndicator(col, order)
+        self._syncing = True
+        self._table.sortItems(col, order)
+        # Recalculate all spacing values after sort (spacing is relative
+        # to the previous row, so it changes when order changes).
+        self._recalc_spacing()
+        self._syncing = False
+
+    def _recalc_spacing(self):
+        """Recalculate spacing column for all rows after a sort."""
+        for row in range(self._table.rowCount()):
+            offset = self._row_offset_mm(row)
+            prev = self._row_offset_mm(row - 1) if row > 0 else 0.0
+            spacing = offset - prev
+            sp_item = self._table.item(row, 2)
+            if sp_item:
+                sp_item.setText(self._fmt(spacing))
+                sp_item.setData(Qt.ItemDataRole.UserRole + 1, spacing)
 
     # ── Row management ────────────────────────────────────────────────────
 
@@ -283,10 +354,10 @@ class _DirectionTab(QWidget):
         self._table.insertRow(row)
         length_mm = self._parse(self._length_edit.text())
         self._table.setItem(row, 0, QTableWidgetItem(label))
-        self._table.setItem(row, 1, QTableWidgetItem(self._fmt(offset_mm)))
-        self._table.setItem(row, 2, QTableWidgetItem(self._fmt(spacing_mm)))
-        self._table.setItem(row, 3, QTableWidgetItem(self._fmt(length_mm)))
-        self._table.setItem(row, 4, QTableWidgetItem(f"{self._default_angle:.1f}"))
+        self._table.setItem(row, 1, _NumericItem(self._fmt(offset_mm), offset_mm))
+        self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
+        self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
+        self._table.setItem(row, 4, _NumericItem(f"{self._default_angle:.1f}", self._default_angle))
         backing_item = QTableWidgetItem()
         backing_item.setData(Qt.ItemDataRole.UserRole, None)
         self._table.setItem(row, 5, backing_item)
@@ -316,10 +387,10 @@ class _DirectionTab(QWidget):
             self._table.insertRow(row)
             offset_mm = i * spacing_mm
             self._table.setItem(row, 0, QTableWidgetItem(label))
-            self._table.setItem(row, 1, QTableWidgetItem(self._fmt(offset_mm)))
-            self._table.setItem(row, 2, QTableWidgetItem(self._fmt(spacing_mm)))
-            self._table.setItem(row, 3, QTableWidgetItem(self._fmt(length_mm)))
-            self._table.setItem(row, 4, QTableWidgetItem(f"{self._default_angle:.1f}"))
+            self._table.setItem(row, 1, _NumericItem(self._fmt(offset_mm), offset_mm))
+            self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
+            self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
+            self._table.setItem(row, 4, _NumericItem(f"{self._default_angle:.1f}", self._default_angle))
             backing_item = QTableWidgetItem()
             backing_item.setData(Qt.ItemDataRole.UserRole, None)
             self._table.setItem(row, 5, backing_item)
@@ -350,10 +421,10 @@ class _DirectionTab(QWidget):
             spacing_mm = offset_mm - prev_offset_mm
             angle = _normalize_angle(angle)
             self._table.setItem(row, 0, QTableWidgetItem(label))
-            self._table.setItem(row, 1, QTableWidgetItem(self._fmt(offset_mm)))
-            self._table.setItem(row, 2, QTableWidgetItem(self._fmt(spacing_mm)))
-            self._table.setItem(row, 3, QTableWidgetItem(self._fmt(length_mm)))
-            self._table.setItem(row, 4, QTableWidgetItem(f"{angle:.1f}"))
+            self._table.setItem(row, 1, _NumericItem(self._fmt(offset_mm), offset_mm))
+            self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
+            self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
+            self._table.setItem(row, 4, _NumericItem(f"{angle:.1f}", angle))
             backing_item = QTableWidgetItem()
             backing_item.setData(Qt.ItemDataRole.UserRole, backing)
             self._table.setItem(row, 5, backing_item)
