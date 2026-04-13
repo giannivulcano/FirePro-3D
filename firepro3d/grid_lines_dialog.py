@@ -83,10 +83,14 @@ def _next_letter(s: str) -> str:
 # ── Helper: classify an existing gridline as H or V ──────────────────────────
 
 def _classify_gridline(p1: QPointF, p2: QPointF) -> str:
-    """Return 'H' if the gridline is mostly horizontal, else 'V'."""
+    """Return 'H' if the gridline is mostly horizontal, else 'V'.
+
+    At exactly 45 degrees (dx == dy), classifies as 'V' to match
+    ``auto_label``'s ``dy >= dx`` rule (spec §15).
+    """
     dx = abs(p2.x() - p1.x())
     dy = abs(p2.y() - p1.y())
-    return "H" if dx >= dy else "V"
+    return "H" if dx > dy else "V"
 
 
 def _normalize_angle(angle: float) -> float:

@@ -31,7 +31,8 @@ from .construction_geometry import (
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
-from .gridline import GridlineItem, reset_grid_counters, sync_grid_counters
+from .gridline import (GridlineItem, reset_grid_counters,
+                       sync_grid_counters, apply_duplicate_warnings)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER,
                        DEFAULT_CEILING_OFFSET_MM)
@@ -2685,6 +2686,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(gl)
                 self._gridlines.append(gl)
             sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
 
             # ── Walls & Floors ────────────────────────────────────────────
             for d in state.get("walls", []):
@@ -2762,6 +2764,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._undo_pos -= 1
             self._restore_network(self._undo_stack[self._undo_pos])
             sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -2772,6 +2775,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._undo_pos += 1
             self._restore_network(self._undo_stack[self._undo_pos])
             sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -3599,6 +3603,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._gridlines.append(gl)
 
         sync_grid_counters(self._gridlines)
+        apply_duplicate_warnings(self._gridlines)
         self.sceneModified.emit()
 
 

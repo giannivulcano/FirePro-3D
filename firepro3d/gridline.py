@@ -582,6 +582,9 @@ class GridlineItem(QGraphicsLineItem):
     def set_property(self, key: str, value):
         if key == "Label":
             self.grid_label = str(value)
+            sc = self.scene()
+            if sc and hasattr(sc, '_gridlines'):
+                apply_duplicate_warnings(sc._gridlines)
         elif key == "Bubble 1":
             self.bubble1.setVisible(value == "Visible")
         elif key == "Bubble 2":
