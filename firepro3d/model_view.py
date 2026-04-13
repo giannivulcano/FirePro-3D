@@ -358,7 +358,6 @@ class Model_View(QGraphicsView):
                             painter.setPen(QPen(color, 1.5, Qt.PenStyle.DashLine))
                             painter.drawLine(vpa, vpb)
                             # Witness ticks (short perpendicular marks)
-                            import math
                             dx = vpb.x() - vpa.x()
                             dy = vpb.y() - vpa.y()
                             length = math.hypot(dx, dy)
@@ -385,6 +384,61 @@ class Model_View(QGraphicsView):
                             painter.drawRect(cx - 5, cy - 5, 10, 10)
                             painter.setFont(QFont("Arial", 7))
                             painter.drawText(cx - 3, cy + 3, "D")
+            painter.restore()
+
+        # ── 3c. Gridline spacing dimensions (viewport coordinates) ────────
+        spacing_dims = getattr(scene, '_gridline_spacing_dims', [])
+        # Cache for double-click hit detection (dims may be cleared by
+        # the second press of a double-click before the event fires).
+        # Keep old cache for 1 paint cycle so the double-click handler
+        # can still find them after deselection clears the scene list.
+        if spacing_dims:
+            self._last_spacing_dims = list(spacing_dims)
+            self._spacing_cache_age = 0
+        else:
+            age = getattr(self, '_spacing_cache_age', 0) + 1
+            self._spacing_cache_age = age
+            if age > 2:
+                self._last_spacing_dims = []
+        if spacing_dims:
+            painter.save()
+            painter.resetTransform()
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            for dim in spacing_dims:
+                vp_from = self.mapFromScene(dim["from_pt"])
+                vp_to = self.mapFromScene(dim["to_pt"])
+                color = QColor("#0066cc")
+
+                # Dashed dimension line
+                painter.setPen(QPen(color, 1.5, Qt.PenStyle.DashLine))
+                painter.drawLine(vp_from, vp_to)
+
+                # Witness ticks
+                dx = vp_to.x() - vp_from.x()
+                dy = vp_to.y() - vp_from.y()
+                length = math.hypot(dx, dy)
+                if length > 1:
+                    nx = -dy / length * 6
+                    ny = dx / length * 6
+                    painter.setPen(QPen(color, 1.5))
+                    for vp in (vp_from, vp_to):
+                        painter.drawLine(
+                            int(vp.x() - nx), int(vp.y() - ny),
+                            int(vp.x() + nx), int(vp.y() + ny))
+
+                # Distance label
+                mid = QPointF(
+                    (vp_from.x() + vp_to.x()) / 2,
+                    (vp_from.y() + vp_to.y()) / 2)
+                sm = getattr(scene, 'scale_manager', None)
+                text = (sm.scene_to_display(dim["distance"])
+                        if sm else f"{dim['distance']:.1f}")
+                painter.setPen(QPen(color))
+                font = painter.font()
+                font.setPointSize(9)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.drawText(int(mid.x()) + 4, int(mid.y()) - 4, text)
             painter.restore()
 
         # ── 4. Dim HUD (viewport coordinates, near cursor) ───────────────────
@@ -687,7 +741,6 @@ class Model_View(QGraphicsView):
                     try:
                         pa = c.item_a.grip_points()[c.grip_a]
                         pb = c.item_b.grip_points()[c.grip_b]
-                        import math
                         mid_x = (pa.x() + pb.x()) / 2
                         mid_y = (pa.y() + pb.y()) / 2
                         dist = math.hypot(scene_pos.x() - mid_x, scene_pos.y() - mid_y)
@@ -707,7 +760,62 @@ class Model_View(QGraphicsView):
                             return
                     except (IndexError, AttributeError):
                         pass
+                # Check for double-click on a gridline spacing dimension.
+                # Use the cached copy because the second press of the
+                # double-click may deselect the gridline, clearing the
+                # scene's live list before we get here.
+                cached = getattr(self, '_last_spacing_dims', [])
+                for dim in cached:
+                    vp_mid = self.mapFromScene(dim["midpoint"])
+                    if math.hypot(event.pos().x() - vp_mid.x(),
+                                  event.pos().y() - vp_mid.y()) < 20:
+                        self._start_spacing_edit(dim, event.pos())
+                        return
         super().mouseDoubleClickEvent(event)
+
+    def _start_spacing_edit(self, dim, screen_pos):
+        """Open an inline editor to change gridline spacing distance."""
+        from PyQt6.QtWidgets import QLineEdit
+        from firepro3d.scale_manager import ScaleManager
+        from firepro3d.gridline import GridlineItem
+        scene = self.scene()
+        sm = getattr(scene, 'scale_manager', None)
+        # Use the selection snapshot that was captured when the dims were
+        # computed — by the time this handler fires the double-click has
+        # already deselected everything.
+        selected_snapshot = list(
+            getattr(scene, '_gridline_spacing_selected', []))
+        # Display in formatted units (e.g. 24'-0" or 7315.2 mm)
+        current_text = (sm.format_length(dim["distance"])
+                        if sm else f"{dim['distance']:.1f} mm")
+
+        editor = QLineEdit(self.viewport())
+        editor.setText(current_text)
+        editor.setFixedWidth(100)
+        editor.move(int(screen_pos.x()) - 50, int(screen_pos.y()) - 12)
+        editor.selectAll()
+        editor.show()
+        editor.setFocus()
+
+        def _accept():
+            text = editor.text().strip()
+            if sm:
+                parsed_mm = ScaleManager.parse_dimension(
+                    text, sm.bare_number_unit())
+            else:
+                try:
+                    parsed_mm = float(text)
+                except ValueError:
+                    parsed_mm = None
+            if parsed_mm is not None:
+                scene._apply_spacing_edit(dim, parsed_mm, selected_snapshot)
+            editor.deleteLater()
+
+        def _cancel():
+            editor.deleteLater()
+
+        editor.returnPressed.connect(_accept)
+        editor.editingFinished.connect(_cancel)
 
     # ── Right-click context menu ───────────────────────────────────────────
 

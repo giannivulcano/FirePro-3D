@@ -31,7 +31,8 @@ from .construction_geometry import (
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
-from .gridline import GridlineItem, reset_grid_counters
+from .gridline import (GridlineItem, reset_grid_counters,
+                       sync_grid_counters, apply_duplicate_warnings)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER,
                        DEFAULT_CEILING_OFFSET_MM)
@@ -146,6 +147,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None                  # item currently being grip-dragged
         self._grip_index: int = -1              # grip handle index
         self._grip_dragging: bool = False
+        # Gridline body drag (perpendicular constraint)
+        self._dragging_gridline = None          # GridlineItem being body-dragged
+        self._gridline_drag_start = None        # scene pos at drag start
+        self._gridline_drag_original_pos = None # perpendicular position at drag start
+        # Gridline spacing dimensions (on-selection)
+        self._gridline_spacing_dims: list[dict] = []
         # Offset command (Sprint L)
         self._offset_source = None              # entity selected for offset
         self._offset_dist: float = 0.0          # distance entered by user
@@ -245,6 +252,132 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.init_preview_pipe()
         self.draw_origin()
         self.push_undo_state()   # initial empty state
+        self.selectionChanged.connect(self._on_selection_changed)
+
+    # -------------------------------------------------------------------------
+    # Selection change handler
+
+    def _on_selection_changed(self):
+        """Recompute gridline spacing dimensions when selection changes."""
+        self._gridline_spacing_dims = self._compute_gridline_spacing()
+        # Snapshot selected gridlines — only update when there IS a
+        # selection.  The double-click press events fire deselection
+        # before mouseDoubleClickEvent, so we must keep the last
+        # non-empty snapshot intact.
+        sel = [item for item in self.selectedItems()
+               if isinstance(item, GridlineItem)]
+        if sel:
+            self._gridline_spacing_selected = sel
+        for v in self.views():
+            v.viewport().update()
+
+    # -------------------------------------------------------------------------
+    # Gridline spacing computation
+
+    def _compute_gridline_spacing(self) -> list[dict]:
+        """Compute spacing dimensions between adjacent gridlines.
+
+        Single selection: dimensions to nearest parallel unselected
+        neighbour on each side.
+
+        Multi-selection: chain dimensions between adjacent selected
+        gridlines, plus one dimension from each outer edge to the
+        nearest unselected neighbour.
+        """
+        selected_set = set(
+            item for item in self.selectedItems()
+            if isinstance(item, GridlineItem))
+        if not selected_set:
+            return []
+
+        # Group all gridlines by orientation
+        groups: dict[bool, list[tuple]] = {}  # is_vertical → [(gl, perp_pos)]
+        for gl in self._gridlines:
+            dx = abs(gl.line().p2().x() - gl.line().p1().x())
+            dy = abs(gl.line().p2().y() - gl.line().p1().y())
+            is_v = dy >= dx
+            px, py = gl._perpendicular_vector()
+            perp = gl.line().p1().x() * px + gl.line().p1().y() * py
+            groups.setdefault(is_v, []).append((gl, perp, px, py))
+
+        results = []
+
+        for is_v, members in groups.items():
+            # Any selected in this orientation?
+            sel_in_group = [m for m in members if m[0] in selected_set]
+            if not sel_in_group:
+                continue
+
+            # Sort all members by perpendicular position
+            members.sort(key=lambda m: m[1])
+            px, py = members[0][2], members[0][3]
+
+            # Compute along-direction unit vector and bubble-end position
+            # from the first selected gridline (for dimension line placement)
+            ref_gl = sel_in_group[0][0]
+            dir_x = ref_gl.line().p2().x() - ref_gl.line().p1().x()
+            dir_y = ref_gl.line().p2().y() - ref_gl.line().p1().y()
+            dir_len = math.hypot(dir_x, dir_y)
+            ux = dir_x / dir_len if dir_len > 1e-12 else 0.0
+            uy = dir_y / dir_len if dir_len > 1e-12 else 1.0
+            along_pos = ref_gl.line().p1().x() * ux + ref_gl.line().p1().y() * uy
+
+            def _make_dim(gl_a, perp_a, gl_b, perp_b):
+                from_pt = QPointF(perp_a * px + along_pos * ux,
+                                  perp_a * py + along_pos * uy)
+                to_pt = QPointF(perp_b * px + along_pos * ux,
+                                perp_b * py + along_pos * uy)
+                mid = QPointF((from_pt.x() + to_pt.x()) / 2,
+                              (from_pt.y() + to_pt.y()) / 2)
+                return {
+                    "from_gl": gl_a, "to_gl": gl_b,
+                    "distance": abs(perp_b - perp_a),
+                    "from_pt": from_pt, "to_pt": to_pt,
+                    "midpoint": mid, "perp_vector": (px, py),
+                }
+
+            # Walk the sorted list: show dim between every adjacent pair
+            # where at least one side is selected.
+            for i in range(len(members) - 1):
+                gl_a, perp_a = members[i][0], members[i][1]
+                gl_b, perp_b = members[i + 1][0], members[i + 1][1]
+                a_sel = gl_a in selected_set
+                b_sel = gl_b in selected_set
+                if a_sel or b_sel:
+                    results.append(_make_dim(gl_a, perp_a, gl_b, perp_b))
+
+        return results
+
+    def _apply_spacing_edit(self, dim: dict, new_distance: float,
+                            selected: list | None = None):
+        """Move gridlines so that the spacing matches *new_distance*.
+
+        *selected* is the list of GridlineItems that were selected when
+        the edit started.  All selected gridlines move as a rigid group;
+        the unselected anchor stays put.
+        """
+        self.push_undo_state()
+        from_gl, to_gl = dim["from_gl"], dim["to_gl"]
+        delta = new_distance - dim["distance"]
+
+        if selected is None:
+            selected = [i for i in self.selectedItems()
+                        if isinstance(i, GridlineItem)]
+
+        if to_gl in selected and from_gl not in selected:
+            for gl in selected:
+                if not gl.locked:
+                    gl.move_perpendicular(delta)
+        elif from_gl in selected and to_gl not in selected:
+            for gl in selected:
+                if not gl.locked:
+                    gl.move_perpendicular(-delta)
+        else:
+            if not to_gl.locked:
+                to_gl.move_perpendicular(delta)
+
+        self._gridline_spacing_dims = self._compute_gridline_spacing()
+        self.update()
 
     # -------------------------------------------------------------------------
     # Preview items
@@ -498,6 +631,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
+        # Reset gridline body drag state
+        self._dragging_gridline = None
+        self._gridline_drag_start = None
+        self._gridline_drag_original_pos = None
         self.modeChanged.emit(mode)
         # Auto-deselect all geometry when entering a drawing/placement mode
         if mode not in ("select", "stretch", "move", "rotate", "scale",
@@ -2548,6 +2685,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 gl = GridlineItem.from_dict(d)
                 self.addItem(gl)
                 self._gridlines.append(gl)
+            sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
 
             # ── Walls & Floors ────────────────────────────────────────────
             for d in state.get("walls", []):
@@ -2624,6 +2763,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._undo_pos > 0:
             self._undo_pos -= 1
             self._restore_network(self._undo_stack[self._undo_pos])
+            sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -2633,6 +2774,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
             self._restore_network(self._undo_stack[self._undo_pos])
+            sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
             # Refresh property panel and model browser — old references invalid
             self.requestPropertyUpdate.emit(None)
             self.sceneModified.emit()
@@ -3394,12 +3537,73 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          oy + length * dy)
 
             gl = GridlineItem(p1, p2, label=label)
-            gl.level = self.active_level
             gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
 
+        self.sceneModified.emit()
+
+    def apply_grid_dialog(self, specs: list[dict]):
+        """Diff-based reconciliation of gridlines from the dialog.
+
+        Each *spec* dict has keys: label, offset (scene), length (scene),
+        angle_deg, and ``_backing`` (an existing ``GridlineItem`` or ``None``).
+        Gridlines present in ``self._gridlines`` but absent from *specs*
+        are deleted; existing ones are updated in place; new ones are created.
+        """
+        if not specs:
+            return
+
+        self.push_undo_state()
+
+        # Determine which existing gridlines are still referenced
+        referenced = set()
+        for spec in specs:
+            backing = spec.get("_backing")
+            if backing is not None:
+                referenced.add(id(backing))
+
+        # Delete unreferenced gridlines
+        to_delete = [gl for gl in self._gridlines if id(gl) not in referenced]
+        for gl in to_delete:
+            self.removeItem(gl)
+            self._gridlines.remove(gl)
+
+        # Create / update
+        for spec in specs:
+            backing = spec.get("_backing")
+            label = spec.get("label", "?")
+            offset = spec.get("offset", 0.0)
+            length = spec.get("length", 1000.0)
+            angle = spec.get("angle_deg", 90.0)
+
+            rad = math.radians(angle)
+            dx = math.cos(rad)
+            dy = -math.sin(rad)
+            px = -dy
+            py = dx
+            ox = offset * px
+            oy = -offset * py
+            bubble_overshoot = length * 0.06
+            p1 = QPointF(ox - bubble_overshoot * dx,
+                         oy - bubble_overshoot * dy)
+            p2 = QPointF(ox + length * dx,
+                         oy + length * dy)
+
+            if backing is not None:
+                backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+                backing.grid_label = label
+                backing._update_bubble_positions()
+            else:
+                gl = GridlineItem(p1, p2, label=label)
+                gl.user_layer = self.active_user_layer
+                self.addItem(gl)
+                apply_category_defaults(gl)
+                self._gridlines.append(gl)
+
+        sync_grid_counters(self._gridlines)
+        apply_duplicate_warnings(self._gridlines)
         self.sceneModified.emit()
 
 
@@ -3476,6 +3680,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             for h in self._hatch_items:
                 if getattr(h, '_source_item', None) is self._grip_item:
                     h.rebuild_from_source()
+            for v in self.views():
+                v.viewport().update()
+            return
+
+        # ── Gridline body drag (perpendicular constraint) ───────────────
+        if self._dragging_gridline is not None:
+            gl = self._dragging_gridline
+            delta_x = snapped.x() - self._gridline_drag_start.x()
+            delta_y = snapped.y() - self._gridline_drag_start.y()
+            px, py = gl._perpendicular_vector()
+            perp_offset = delta_x * px + delta_y * py
+            gl.set_perpendicular_position(self._gridline_drag_original_pos + perp_offset)
             for v in self.views():
                 v.viewport().update()
             return
@@ -4432,6 +4648,25 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._grip_dragging = True
                 return  # consumed by grip system
 
+        # ── Gridline body drag (perpendicular constraint, select mode) ──
+        if self.mode in (None, "select"):
+            gl_hit = next(
+                (i for i in items
+                 if isinstance(i, GridlineItem)
+                 or (hasattr(i, 'parentItem') and isinstance(i.parentItem(), GridlineItem))),
+                None,
+            )
+            if gl_hit is not None:
+                gl = gl_hit if isinstance(gl_hit, GridlineItem) else gl_hit.parentItem()
+                if not gl.locked:
+                    px, py = gl._perpendicular_vector()
+                    line = gl.line()
+                    orig_perp = line.p1().x() * px + line.p1().y() * py
+                    self._dragging_gridline = gl
+                    self._gridline_drag_start = snapped
+                    self._gridline_drag_original_pos = orig_perp
+                    return
+
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is not None:
@@ -4872,7 +5107,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Create gridline from anchor to snapped
             gl = GridlineItem(self._gridline_anchor, snapped)
             gl.user_layer = self.active_user_layer
-            gl.level = self.active_level
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
@@ -6348,6 +6582,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return False
 
     def mouseReleaseEvent(self, event):
+        # ── Gridline body drag release ──────────────────────────────────
+        if event.button() == Qt.MouseButton.LeftButton and self._dragging_gridline is not None:
+            self.push_undo_state()
+            self._dragging_gridline = None
+            self._gridline_drag_start = None
+            self._gridline_drag_original_pos = None
+            return
         if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
             self._solve_constraints(self._grip_item)  # enforce constraints
             # Rebuild any hatches whose source was the dragged item

@@ -535,6 +535,9 @@ class SceneIOMixin:
 
         # --- Recalculate auto-name counters ---
         self._recalc_name_counters()
+        from .gridline import sync_grid_counters, apply_duplicate_warnings
+        sync_grid_counters(self._gridlines)
+        apply_duplicate_warnings(self._gridlines)
 
         # --- Hatches ---
         for entry in payload.get("hatches", []):

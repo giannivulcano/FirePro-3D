@@ -38,6 +38,28 @@ if TYPE_CHECKING:
 # Data role for storing source entity reference on projected items
 _ROLE_SOURCE = Qt.ItemDataRole.UserRole
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Cardinal filtering for elevation gridlines
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CARDINAL_EPSILON = 1e-6
+
+
+def _is_cardinal_for_elevation(p1: QPointF, p2: QPointF, direction: str) -> bool:
+    """Return True if the gridline defined by p1,p2 should appear in the given elevation.
+
+    Only exactly-cardinal gridlines appear:
+    - North/South: show gridlines where dx == 0 (vertical)
+    - East/West: show gridlines where dy == 0 (horizontal)
+    """
+    dx = abs(p2.x() - p1.x())
+    dy = abs(p2.y() - p1.y())
+    if direction in ("north", "south"):
+        return dx < _CARDINAL_EPSILON
+    elif direction in ("east", "west"):
+        return dy < _CARDINAL_EPSILON
+    return False
+
 # Marker role so elevation views can filter these from Ctrl+A
 _ROLE_ELEV_ANNOTATION = Qt.ItemDataRole.UserRole + 1
 
@@ -112,6 +134,7 @@ class ElevGridlineItem(QGraphicsLineItem):
         super().__init__(h_pos, v_top, h_pos, v_bot)
         self._h = h_pos
         self._bubble_r = bubble_r
+        self._label = label  # gridline label used as override key
 
         # Line pen — suppress default; drawn manually in paint()
         self.setPen(QPen(Qt.PenStyle.NoPen))
@@ -198,6 +221,20 @@ class ElevGridlineItem(QGraphicsLineItem):
             self.setLine(self._h, p1.y(), self._h, new_pos.y())
         self._update_bubble_positions()
         self.update()
+
+    def _commit_grip_override(self):
+        """Write current Z-extent back to the scene's override dict.
+
+        Called after a grip drag completes so the scene can persist the
+        user-adjusted top/bottom extents for this gridline.
+        """
+        scene = self.scene()
+        if scene and hasattr(scene, "_gridline_z_overrides"):
+            line = self.line()
+            scene._gridline_z_overrides[self._label] = {
+                "v_top": line.p1().y(),
+                "v_bot": line.p2().y(),
+            }
 
 
 class ElevDatumItem(QGraphicsLineItem):
@@ -377,6 +414,12 @@ class ElevationScene(QGraphicsScene):
         self._sm = scale_manager
         self._show_datums = True
 
+        # Per-view Z-extent overrides keyed by gridline label.
+        # Populated when the user grip-drags a gridline top/bottom.
+        # Serialization is handled by to_dict() / from_dict().
+        self._gridline_z_overrides: dict[str, dict] = {}
+        # Keyed by gridline label → {"v_top": float, "v_bot": float}
+
         # Grip-drag state (mirrors Model_Space pattern)
         self._grip_item = None
         self._grip_index: int = -1
@@ -488,10 +531,21 @@ class ElevationScene(QGraphicsScene):
 
     def mouseReleaseEvent(self, event):
         if self._grip_dragging:
+            # Commit override for the primary item and any co-selected gridlines
+            primary = self._grip_item
+            co_items = list(self._grip_co_items)
+
             self._grip_item = None
             self._grip_index = -1
             self._grip_dragging = False
             self._grip_co_items = []
+
+            if isinstance(primary, ElevGridlineItem):
+                primary._commit_grip_override()
+            for sel, _start_pt in co_items:
+                if isinstance(sel, ElevGridlineItem):
+                    sel._commit_grip_override()
+
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -570,6 +624,32 @@ class ElevationScene(QGraphicsScene):
     def show_datums(self, val: bool):
         self._show_datums = val
         self.rebuild()
+
+    # ── Serialization ────────────────────────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """Serialize per-view state for project save.
+
+        Currently persists gridline Z-extent overrides so that user-adjusted
+        top/bottom extents survive a project reload.
+
+        Note:
+            Wiring into the project save/load cycle (scene_io.py or
+            ElevationManager) is a follow-up step; this method provides the
+            data payload.
+        """
+        return {
+            "gridline_z_overrides": self._gridline_z_overrides,
+        }
+
+    def from_dict(self, d: dict) -> None:
+        """Restore per-view state from a project dict produced by to_dict().
+
+        Args:
+            d: Mapping as returned by to_dict().  Missing keys are silently
+               ignored so older project files load without error.
+        """
+        self._gridline_z_overrides = d.get("gridline_z_overrides", {})
 
     # ── Coordinate projection ────────────────────────────────────────────
 
@@ -1051,27 +1131,6 @@ class ElevationScene(QGraphicsScene):
 
     # ── Gridlines ────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _gridline_is_vertical(line_geom) -> bool:
-        """True if the gridline is more vertical than horizontal in scene."""
-        dx = abs(line_geom.x2() - line_geom.x1())
-        dy = abs(line_geom.y2() - line_geom.y1())
-        return dy >= dx
-
-    def _should_show_gridline(self, line_geom) -> bool:
-        """Filter gridlines by elevation direction.
-
-        North/South elevations look along Y — show only vertical gridlines
-        (which run along Y and project to distinct H positions on the X axis).
-        East/West elevations look along X — show only horizontal gridlines
-        (which run along X and project to distinct H positions on the Y axis).
-        """
-        is_vert = self._gridline_is_vertical(line_geom)
-        if self._direction in ("north", "south"):
-            return is_vert       # vertical gridlines → visible as vertical lines in N/S
-        else:  # east, west
-            return not is_vert   # horizontal gridlines → visible as vertical lines in E/W
-
     def _project_gridlines(self):
         props = self._gridline_display_props()
         if not props["visible"]:
@@ -1087,8 +1146,10 @@ class ElevationScene(QGraphicsScene):
         for gl in getattr(self._ms, "_gridlines", []):
             line_geom = gl.line()
 
-            # Filter: only show gridlines perpendicular to the view direction
-            if not self._should_show_gridline(line_geom):
+            # Filter: only cardinal gridlines appear in elevations
+            p1 = QPointF(line_geom.x1(), line_geom.y1())
+            p2 = QPointF(line_geom.x2(), line_geom.y2())
+            if not _is_cardinal_for_elevation(p1, p2, self._direction):
                 continue
 
             wx1, wy1 = self._scene_to_world(line_geom.x1(), line_geom.y1())
@@ -1106,6 +1167,12 @@ class ElevationScene(QGraphicsScene):
             label_text = getattr(gl, "_label_text", "")
             v_top = -z_max - BUBBLE_R - 50
             v_bot = -z_min + BUBBLE_R + 50
+
+            # Apply per-view override if the user has grip-dragged this gridline
+            if label_text in self._gridline_z_overrides:
+                ov = self._gridline_z_overrides[label_text]
+                v_top = ov.get("v_top", v_top)
+                v_bot = ov.get("v_bot", v_bot)
 
             item = ElevGridlineItem(
                 h_avg, v_top, v_bot, label_text, BUBBLE_R,
@@ -1165,7 +1232,9 @@ class ElevationScene(QGraphicsScene):
         h_vals = []
         for gl in gridlines:
             lg = gl.line()
-            if not self._should_show_gridline(lg):
+            p1 = QPointF(lg.x1(), lg.y1())
+            p2 = QPointF(lg.x2(), lg.y2())
+            if not _is_cardinal_for_elevation(p1, p2, self._direction):
                 continue
             wx1, wy1 = self._scene_to_world(lg.x1(), lg.y1())
             wx2, wy2 = self._scene_to_world(lg.x2(), lg.y2())

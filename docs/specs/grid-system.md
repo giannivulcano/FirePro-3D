@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-10
 **Complexity:** Large
-**Status:** Draft
+**Status:** Implemented
 **Source tasks:** TODO.md — "Spec session: grid system architecture"
 
 ## 1. Goal

@@ -17,10 +17,10 @@ from __future__ import annotations
 import math
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
-    QGraphicsItem, QStyle,
+    QGraphicsRectItem, QGraphicsItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_USER_LAYER
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -69,6 +69,81 @@ def auto_label(p1: QPointF, p2: QPointF) -> str:
         return _next_h_label()
 
 
+def _label_to_letter_idx(label: str) -> int | None:
+    """Convert an alphabetic label to its sequential index (0-based).
+
+    Args:
+        label: A string label (e.g. "A", "Z", "AA", "AB").
+
+    Returns:
+        Integer index, or None if the label is not purely alphabetic or
+        has more than two characters.
+    """
+    if not label.isalpha():
+        return None
+    label = label.upper()
+    if len(label) == 1:
+        return ord(label) - ord('A')
+    elif len(label) == 2:
+        return 26 + (ord(label[0]) - ord('A')) * 26 + (ord(label[1]) - ord('A'))
+    return None
+
+
+def sync_grid_counters(gridlines: list) -> None:
+    """Advance auto-numbering counters past all existing gridline labels.
+
+    Scans *gridlines* for pure-numeric and pure-alpha labels and sets
+    ``_next_number`` / ``_next_letter_idx`` so the next auto-assigned
+    label does not collide with any existing one.  Custom labels (e.g.
+    "X-1") are silently ignored.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to inspect.
+    """
+    global _next_number, _next_letter_idx
+    max_num = 0
+    max_letter = -1
+    for gl in gridlines:
+        label = gl.grid_label
+        try:
+            n = int(label)
+            max_num = max(max_num, n)
+            continue
+        except ValueError:
+            pass
+        idx = _label_to_letter_idx(label)
+        if idx is not None:
+            max_letter = max(max_letter, idx)
+    _next_number = max_num + 1
+    _next_letter_idx = max_letter + 1
+
+
+def check_duplicate_labels(gridlines: list) -> set:
+    """Return the set of gridlines whose label appears more than once.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to inspect.
+
+    Returns:
+        Set of :class:`GridlineItem` instances that share a label with at
+        least one other item in *gridlines*.
+    """
+    from collections import Counter
+    label_counts = Counter(gl.grid_label for gl in gridlines)
+    return {gl for gl in gridlines if label_counts[gl.grid_label] > 1}
+
+
+def apply_duplicate_warnings(gridlines: list) -> None:
+    """Apply or clear duplicate-label warning colouring on every gridline.
+
+    Args:
+        gridlines: Sequence of :class:`GridlineItem` objects to update.
+    """
+    dupes = check_duplicate_labels(gridlines)
+    for gl in gridlines:
+        gl.update_duplicate_warning(gl in dupes)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # GridBubble — circle + text, fixed screen size
 # ─────────────────────────────────────────────────────────────────────────────
@@ -77,13 +152,15 @@ BUBBLE_RADIUS_MM = 8.0 * 25.4   # 8-inch radius in mm (zoom-dependent scene unit
 
 
 class GridBubble(QGraphicsEllipseItem):
-    """Zoom-dependent circle with a centred label (scales with scene geometry)."""
+    """Fixed-size circle with a centred label (constant screen pixels)."""
+
+    RADIUS_PX = 14.0  # screen pixels — constant regardless of zoom
 
     def __init__(self, label: str, parent: QGraphicsItem | None = None):
-        r = BUBBLE_RADIUS_MM
+        r = self.RADIUS_PX
         super().__init__(-r, -r, 2 * r, 2 * r, parent)
-        # No ItemIgnoresTransformations — bubble scales with zoom
-        pen = QPen(QColor("#4488cc"), max(1, r * 0.04))
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        pen = QPen(QColor("#4488cc"), max(1.0, r * 0.08))
         self.setPen(pen)
         self.setBrush(QBrush(QColor("#1a1a2e")))
         self.setZValue(500)
@@ -91,7 +168,7 @@ class GridBubble(QGraphicsEllipseItem):
         self._label = QGraphicsTextItem(label, self)
         self._label.setDefaultTextColor(QColor("#88ccff"))
         font = QFont("Consolas")
-        font.setPixelSize(max(1, int(r * 1.0)))
+        font.setPixelSize(max(1, int(r * 0.9)))
         font.setBold(True)
         self._label.setFont(font)
         self._center_label()
@@ -113,10 +190,10 @@ class GridBubble(QGraphicsEllipseItem):
         super().paint(painter, option, widget)
         parent = self.parentItem()
         if parent is not None and parent.isSelected():
-            r = BUBBLE_RADIUS_MM
+            r = self.RADIUS_PX
             # Use the gridline's assigned colour for the highlight ring
             base_color = getattr(parent, "_grid_color", QColor(GRID_COLOR))
-            highlight = QPen(base_color.lighter(150), max(1, r * 0.08))
+            highlight = QPen(base_color.lighter(150), max(1.0, r * 0.12))
             painter.setPen(highlight)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QRectF(-r, -r, 2 * r, 2 * r))
@@ -132,6 +209,29 @@ class GridBubble(QGraphicsEllipseItem):
                     scene.clearSelection()
                     parent.setSelected(True)
         event.accept()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# _PullTabGrip — small handle at gridline endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GRIP_HALF = 5.0  # Half-width of pull-tab square (screen pixels)
+
+
+class _PullTabGrip(QGraphicsRectItem):
+    """Small square grip handle at a gridline endpoint.
+
+    Uses ItemIgnoresTransformations for constant screen size.
+    Visible only when parent gridline is selected or hovered.
+    """
+
+    def __init__(self, parent: QGraphicsItem):
+        super().__init__(-_GRIP_HALF, -_GRIP_HALF, 2 * _GRIP_HALF, 2 * _GRIP_HALF, parent)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setPen(QPen(Qt.PenStyle.NoPen))
+        self.setBrush(QBrush(QColor(68, 136, 204, 60)))
+        self.setZValue(1)
+        self.setVisible(False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -171,36 +271,53 @@ class GridlineItem(QGraphicsLineItem):
         self.bubble2 = GridBubble(label, self)
         self._update_bubble_positions()
 
+        # Pull-tab grips
+        self._grip1 = _PullTabGrip(self)
+        self._grip2 = _PullTabGrip(self)
+        self._update_grip_positions()
+
+        # Hover events for grip visibility
+        self.setAcceptHoverEvents(True)
+
         # User layer
         self.user_layer: str = DEFAULT_USER_LAYER
-        self.level: str = DEFAULT_LEVEL
+        self._locked: bool = False
+        self.paper_height_mm: float = 3.0
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
 
     # ── Geometry overrides ────────────────────────────────────────────────
 
     def boundingRect(self):
-        """Expand bounding rect to include the bubbles and a margin for
-        the manually-drawn gridline pen."""
+        """Expand bounding rect with a small margin for the pen.
+
+        Bubbles and grips use ItemIgnoresTransformations and manage
+        their own bounds independently.
+        """
         br = super().boundingRect()
-        m = BUBBLE_RADIUS_MM
+        m = 20.0  # small scene-unit margin for the gridline pen
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        """Return bubble areas as the selectable shape.
+        """Return bubble positions as the selectable shape.
 
-        This allows rubber-band (marquee) selection to work when the
-        selection rectangle covers a bubble.  Direct clicks on bubbles
-        are still handled by GridBubble.mousePressEvent.
+        Uses a small scene-unit radius so marquee selection works
+        near endpoints.  Direct clicks on ITT bubbles are handled
+        by GridBubble.mousePressEvent.
         """
         path = QPainterPath()
-        r = BUBBLE_RADIUS_MM
+        # Use a fixed scene-unit radius — enough for marquee selection
+        r = 50.0
         path.addEllipse(self.bubble1.pos(), r, r)
         path.addEllipse(self.bubble2.pos(), r, r)
         return path
 
     def itemChange(self, change, value):
-        """Refresh bubble paint when selection state changes."""
+        """Refresh bubble paint and show/hide grips on selection change."""
+        if change == self.GraphicsItemChange.ItemSelectedChange:
+            selected = bool(value)
+            self._grip1.setVisible(selected)
+            self._grip2.setVisible(selected)
         if change == self.GraphicsItemChange.ItemSelectedHasChanged:
             self.bubble1.update()
             self.bubble2.update()
@@ -212,6 +329,37 @@ class GridlineItem(QGraphicsLineItem):
         line = self.line()
         self.bubble1.setPos(line.p1())
         self.bubble2.setPos(line.p2())
+        if hasattr(self, '_grip1'):
+            self._update_grip_positions()
+
+    def _update_grip_positions(self):
+        """Place grips slightly beyond each endpoint along the line direction."""
+        line = self.line()
+        p1, p2 = line.p1(), line.p2()
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+        length = math.hypot(dx, dy)
+        if length < 1e-12:
+            self._grip1.setPos(p1)
+            self._grip2.setPos(p2)
+            return
+        ux, uy = dx / length, dy / length
+        self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
+        self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
+
+    # ── Hover events ─────────────────────────────────────────────────────
+
+    def hoverEnterEvent(self, event):
+        if not self.isSelected():
+            self._grip1.setVisible(True)
+            self._grip2.setVisible(True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        if not self.isSelected():
+            self._grip1.setVisible(False)
+            self._grip2.setVisible(False)
+        super().hoverLeaveEvent(event)
 
     # ── Selection highlight (suppress dashed box) ─────────────────────────
 
@@ -228,7 +376,8 @@ class GridlineItem(QGraphicsLineItem):
         pen_w = GRID_WIDTH / sx
 
         # Shorten line to meet visible bubbles at their edge.
-        # Account for bubble scale (display manager may call setScale()).
+        # Bubbles use ItemIgnoresTransformations, so convert pixel radius
+        # back to scene units using the current view scale.
         line = self.line()
         p1, p2 = line.p1(), line.p2()
         dx = p2.x() - p1.x()
@@ -236,10 +385,9 @@ class GridlineItem(QGraphicsLineItem):
         length = math.sqrt(dx * dx + dy * dy)
         if length > 1e-9:
             ux, uy = dx / length, dy / length
-            r1 = BUBBLE_RADIUS_MM * self.bubble1.scale()
-            r2 = BUBBLE_RADIUS_MM * self.bubble2.scale()
-            draw_p1 = QPointF(p1.x() + ux * r1, p1.y() + uy * r1) if self.bubble1.isVisible() else p1
-            draw_p2 = QPointF(p2.x() - ux * r2, p2.y() - uy * r2) if self.bubble2.isVisible() else p2
+            scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
+            draw_p1 = QPointF(p1.x() + ux * scene_r, p1.y() + uy * scene_r) if self.bubble1.isVisible() else p1
+            draw_p2 = QPointF(p2.x() - ux * scene_r, p2.y() - uy * scene_r) if self.bubble2.isVisible() else p2
         else:
             draw_p1, draw_p2 = p1, p2
 
@@ -272,6 +420,78 @@ class GridlineItem(QGraphicsLineItem):
         else:
             self.bubble2.setVisible(visible)
 
+    # ── Lock property ──────────────────────────────────────────────────
+
+    @property
+    def locked(self) -> bool:
+        """Whether the gridline is locked against editing."""
+        return self._locked
+
+    @locked.setter
+    def locked(self, value: bool):
+        self._locked = value
+
+    # ── Perpendicular move ───────────────────────────────────────────────
+
+    def _perpendicular_vector(self) -> tuple[float, float]:
+        """Return the unit perpendicular vector to the gridline direction.
+
+        For a vertical line (dx=0, dy!=0), returns (1, 0).
+        For a horizontal line (dy=0, dx!=0), returns (0, 1).
+        For angled lines, returns the left-hand normal.
+        """
+        line = self.line()
+        dx = line.p2().x() - line.p1().x()
+        dy = line.p2().y() - line.p1().y()
+        length = math.sqrt(dx * dx + dy * dy)
+        if length < 1e-12:
+            return (1.0, 0.0)
+        # Perpendicular normal: (-dy, dx) normalized, then flipped so
+        # the dominant component is positive.  This ensures positive
+        # distance always moves in the +X or +Y direction.
+        nx, ny = -dy / length, dx / length
+        # Flip so that the larger component is positive
+        dominant = nx if abs(nx) >= abs(ny) else ny
+        if dominant < 0:
+            nx, ny = -nx, -ny
+        return (nx, ny)
+
+    def move_perpendicular(self, distance: float):
+        """Translate the gridline by *distance* in the perpendicular direction.
+
+        Positive distance moves in the perpendicular direction; negative
+        moves opposite.  Locked gridlines are not affected.
+        """
+        if self._locked:
+            return
+        nx, ny = self._perpendicular_vector()
+        line = self.line()
+        p1 = line.p1()
+        p2 = line.p2()
+        offset_x = nx * distance
+        offset_y = ny * distance
+        self.setLine(
+            p1.x() + offset_x, p1.y() + offset_y,
+            p2.x() + offset_x, p2.y() + offset_y,
+        )
+        self._update_bubble_positions()
+        self.update()
+
+    def set_perpendicular_position(self, position: float):
+        """Move the gridline so its perpendicular coordinate equals *position*.
+
+        For a vertical gridline this sets the X coordinate of both endpoints.
+        For a horizontal gridline this sets the Y coordinate.
+        """
+        if self._locked:
+            return
+        nx, ny = self._perpendicular_vector()
+        line = self.line()
+        p1 = line.p1()
+        # Current perpendicular position = dot(p1, normal)
+        current = p1.x() * nx + p1.y() * ny
+        self.move_perpendicular(position - current)
+
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
@@ -281,7 +501,10 @@ class GridlineItem(QGraphicsLineItem):
 
     def apply_grip(self, index: int, new_pos: QPointF):
         """Move grip *index* to *new_pos*, constrained along the gridline
-        direction so the line stays co-linear."""
+        direction so the line stays co-linear.  Locked gridlines are not
+        affected."""
+        if self._locked:
+            return
         line = self.line()
         p1, p2 = line.p1(), line.p2()
         dx = p2.x() - p1.x()
@@ -315,7 +538,8 @@ class GridlineItem(QGraphicsLineItem):
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
             "user_layer": self.user_layer,
-            "level":      self.level,
+            "locked": self._locked,
+            "paper_height_mm": self.paper_height_mm,
         }
         if self._display_overrides:
             d["display_overrides"] = self._display_overrides
@@ -323,14 +547,24 @@ class GridlineItem(QGraphicsLineItem):
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
-        p1 = QPointF(d["p1"][0], d["p1"][1])
-        p2 = QPointF(d["p2"][0], d["p2"][1])
+        # Migration: old GridLine format used "start"/"end" instead of "p1"/"p2"
+        if "p1" in d:
+            p1 = QPointF(d["p1"][0], d["p1"][1])
+            p2 = QPointF(d["p2"][0], d["p2"][1])
+        else:
+            p1 = QPointF(d["start"][0], d["start"][1])
+            p2 = QPointF(d["end"][0], d["end"][1])
         item = cls(p1, p2, label=d.get("label", "?"))
-        item.bubble1.setVisible(d.get("bubble1_vis", True))
-        item.bubble2.setVisible(d.get("bubble2_vis", True))
-        item.user_layer = d.get("user_layer", "0")
-        item.level = d.get("level", DEFAULT_LEVEL)
+        # Handle old-format key renames for bubble visibility
+        b1_vis = d.get("bubble1_vis", d.get("bubble_start", True))
+        b2_vis = d.get("bubble2_vis", d.get("bubble_end", True))
+        item.bubble1.setVisible(b1_vis)
+        item.bubble2.setVisible(b2_vis)
+        item.user_layer = d.get("user_layer", DEFAULT_USER_LAYER)
+        item._locked = d.get("locked", False)
+        item.paper_height_mm = d.get("paper_height_mm", 3.0)
         item._display_overrides = d.get("display_overrides", {})
+        # Silently ignore "level" and "axis" keys from old files
         return item
 
     # ── Properties for property panel ─────────────────────────────────────
@@ -342,12 +576,32 @@ class GridlineItem(QGraphicsLineItem):
                          "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
             "Bubble 2": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble2.isVisible() else "Hidden"},
+            "Locked": {"type": "enum", "options": ["True", "False"], "value": str(self._locked)},
         }
 
     def set_property(self, key: str, value):
         if key == "Label":
             self.grid_label = str(value)
+            sc = self.scene()
+            if sc and hasattr(sc, '_gridlines'):
+                apply_duplicate_warnings(sc._gridlines)
         elif key == "Bubble 1":
             self.bubble1.setVisible(value == "Visible")
         elif key == "Bubble 2":
             self.bubble2.setVisible(value == "Visible")
+        elif key == "Locked":
+            self._locked = value in ("True", True)
+
+    # ── Duplicate warning ─────────────────────────────────────────────────
+
+    def update_duplicate_warning(self, is_duplicate: bool):
+        """Colour the bubble outlines orange when *is_duplicate* is True.
+
+        Args:
+            is_duplicate: Whether this gridline shares its label with
+                another gridline in the scene.
+        """
+        color = QColor("#ff8800") if is_duplicate else self._grid_color
+        pen = QPen(color, 2)
+        self.bubble1.setPen(pen)
+        self.bubble2.setPen(pen)
