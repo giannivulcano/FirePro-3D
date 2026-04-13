@@ -50,7 +50,7 @@
 - [ ] Spec session: inferred / dimension-driven placement (next-priority subsystem) [ref:snap-spec§2.3] [type:Backlog] [P1] [subject:Architecture]
 - [ ] Extract snap primitive epsilons (`1e-10` line-line denom, `1e-12` degenerate segment/radius) to named constants on `SnapEngine` — surfaced by primitive unit tests mirroring literals [type:Backlog] [P3] [subject:CAD]
 - [ ] QPainterPath MoveTo element handling — `_collect`, `_geometric_snaps`, and `_check_geometry_intersections` all pair consecutive path elements as segments without checking element type; MoveToElements in multi-contour DXF paths create phantom connecting segments. Fix consistently across all three sites. [type:Backlog] [P3] [subject:CAD]
-- [ ] OSNAP in DXF/PDF import dialogs — add snap functionality for origin selection and scale reference point picks in `dxf_preview_dialog.py` and `calibrate_dialog.py`; currently these dialogs have limited or no snap support [type:Backlog] [P2] [subject:CAD]
+- [ ] Full OSNAP visual treatment in import dialog — basic snap-to-point with color-coded crosshair works today; add foreground source-item trace, snap type label, and named target glyph markers to match main scene snap UX. `dxf_preview_dialog.py` [type:Backlog] [P2] [subject:CAD]
 - [ ] Phase-4 intersection highlight should show both source items — `ctx.check("intersection", ix, src1)` only passes one source; `source_item2` is always `None` for phase-4 intersections. Phase-2 gridline intersections manually set both. Fix `_check_geometry_intersections` to pass both `src1` and `src2` so the foreground trace highlights both crossing items [type:Backlog] [P2] [subject:CAD]
 - [ ] Snap search rect performance at low zoom — `SNAP_TOLERANCE_PX / scale` creates very large search rects when zoomed out (e.g., 800×800 scene units at scale=0.1), pulling in far too many items for the O(n²) phase-4 pairing. Consider capping the scene-unit tolerance or skipping phase 4 when the search rect exceeds a threshold [type:Backlog] [P1] [subject:CAD]
 
@@ -62,6 +62,7 @@
 - [ ] Spec session: Cross-view selection / interaction sync [ref:view-relationships§1.3] [type:Backlog] [P2] [subject:Architecture]
 - [ ] Spec session: Paper-viewport-specific overrides (depends on view-templates spec landing first) [ref:view-relationships§7.4] [type:Backlog] [P3] [subject:Architecture]
 - [ ] Document or deprecate `Node.z_offset` legacy field — spec records it as legacy, migration/cleanup needed [ref:view-relationships§3.3] [type:Backlog] [P3] [subject:CAD]
+- [ ] Remove vestigial `display_mode` from `Level` and `LevelManager.apply_to_scene()` — Hidden/Faded/Visible modes are unused; all visibility is driven by Z-range filtering in practice. Clean up `_set_level_vis()`, remove `DISPLAY_MODES` list, remove combo from `level_widget.py`, update serialization with backward compat [type:Backlog] [P3] [subject:CAD]
 
 ## Additional Spec Sessions
 - [ ] Spec session: Roof elements — 4 roof types (flat/gable/hip/shed), ridge/hip line computation, pitch-to-peak-height formula, overhang offset algorithm (perpendicular-edge intersection with degenerate fallback), "auto" ridge direction heuristic (longest-edge midpoints), 3D mesh generation (pitched roofs incomplete today). `roof.py` (848 LOC) [type:Backlog] [P2] [subject:Architecture]

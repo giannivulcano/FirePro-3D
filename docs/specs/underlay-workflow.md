@@ -3,7 +3,7 @@
 > **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 1 (post grill + brainstorm session)
+> **Revision:** 2 (Phase 2 refinements from 2026-04-13 implementation grill session)
 
 ---
 
@@ -110,7 +110,7 @@ class Underlay:
 
 When serializing an `Underlay` to the project file:
 
-1. Compute `os.path.relpath(underlay_path, project_dir)` where `project_dir` is the parent directory of the `.fp3d` file.
+1. Compute `os.path.relpath(underlay_path, project_dir)` where `project_dir` is the parent directory of the `.fpd` file.
 2. If the result requires 3 or more parent traversals (i.e., starts with `../../../` or deeper), store the absolute path instead — deeply relative paths are fragile.
 3. Otherwise store the relative path.
 
@@ -125,6 +125,8 @@ When deserializing:
 ### 4.3 Relink action
 
 User picks a new file via file dialog → `Underlay.path` updated using the save-time rules (§4.1) → triggers refresh from disk.
+
+The file dialog is constrained to the same file type as the original underlay (DXF→DXF, PDF→PDF). Relinking across types would break type-specific state (hidden_layers, colour, line_weight for DXF; page, dpi, import_mode for PDF). To change types, remove and re-import.
 
 ---
 
@@ -186,17 +188,35 @@ Each `Underlay` has a `level: str` field. Defaults to the active level at import
 
 ### 7.2 Level-switch filtering
 
-When the active level changes, the scene already walks items to filter visibility. Underlays are added to that walk:
+Underlays participate in the existing Z-range visibility system used by all other entities, rather than using a separate level-match check. This keeps the visibility model consistent and avoids the vestigial `display_mode` machinery.
+
+Each underlay is assigned a Z-value derived from its level's elevation (set in `LevelManager.apply_to_scene()`). When the plan view's Z-range `[view_depth, view_height]` does not include the underlay's Z-value, it is hidden — same as walls, floors, and other entities.
+
+**Special cases:**
+
+- `level == "*"` (all levels): Always visible regardless of Z-range filtering.
+- `data.visible == False`: Hidden regardless of level/Z-range (user's explicit override).
 
 ```
-for data, item in self.underlays:
+for data, item in scene.underlays:
     if item is None:
         continue
-    level_visible = (data.level == "*" or data.level == active_level)
-    item.setVisible(level_visible and data.visible)
+    if not data.visible:
+        item.setVisible(False)
+        continue
+    if data.level == "*":
+        item.setVisible(True)
+        continue
+    # Z-value assigned from level elevation; Z-range filtering handles the rest
+    lvl = lvl_map.get(data.level)
+    if lvl is None:
+        item.setVisible(False)
+        continue
+    z = lvl.elevation
+    item.setVisible(view_depth <= z <= view_height if has_view_range else data.level == active)
 ```
 
-Both conditions must be true: the level must match AND the user's explicit `visible` toggle must be on.
+Both Z-range (or level match when no view range is set) AND the user's explicit `visible` toggle must pass for the underlay to be shown.
 
 ### 7.3 Import behavior
 
@@ -221,11 +241,15 @@ Each child item in a DXF underlay group has `data(1)` set to its source layer na
 3. Update `data.hidden_layers` — add or remove the layer name.
 4. Emit `underlaysChanged` signal so the browser tree updates (dimmed styling for hidden layers).
 
-### 8.3 On refresh from disk
+### 8.3 On duplicate
+
+Duplicating an underlay (via context menu or browser tree) inherits the parent's `hidden_layers` list. The duplicate is a copy of the record, not a fresh import — if the user duplicated a structural plan with furniture hidden, the copy should also have furniture hidden.
+
+### 8.4 On refresh from disk
 
 After re-importing, re-apply hidden layers: walk children, hide those whose `data(1)` is in `data.hidden_layers`. If a layer name no longer exists in the refreshed file, silently drop it from `hidden_layers`. New layers in the refreshed file default to visible.
 
-### 8.4 PDF underlays
+### 8.5 PDF underlays
 
 Single raster item — no source layers. Browser tree shows the file node with a page child but no layer children. `hidden_layers` stays empty; layer toggling is not offered.
 
@@ -257,9 +281,11 @@ Extend `ModelBrowser.refresh()` in `firepro3d/model_browser.py` with an "Underla
 | Node | Left-click | Right-click menu |
 |---|---|---|
 | "Underlays" root | Expand/collapse | — |
-| File node | Select underlay in scene, pan to it | Lock/Unlock, Hide/Show, Change Level, Relink, Refresh, Duplicate, Remove, Properties |
+| File node | Select underlay in scene (if unlocked), pan to it, populate property panel (always, even if locked) | Lock/Unlock, Hide/Show, Change Level, Relink, Refresh, Duplicate, Remove, Properties |
 | Source layer node (DXF) | — | Hide/Show layer |
 | Missing file node | — | Relink, Remove |
+
+**Remove confirmation:** The "Remove" action shows a confirmation dialog ("Remove underlay '{filename}'? This cannot be undone.") since underlay removal is not undoable and re-importing requires effort.
 
 ### 9.4 Properties dialog
 
@@ -309,7 +335,30 @@ Locked underlays are not selectable or movable in the scene (current behavior, u
 
 Reads `$INSUNITS` from the DXF header. Maps known unit codes (1=inches, 2=feet, 4=mm, 5=cm, 6=meters) to scale factors. Missing or unitless (`0`) defaults to scale factor 1.0 (assumes inches). The pick-2-pts calibration serves as a fallback when auto-detection is wrong or absent.
 
-### 10.5 Import flow
+### 10.5 DXF entity coverage
+
+`DxfImportWorker._extract_geometry()` handles the following DXF entity types:
+
+| DXF Entity | Output | Status |
+|---|---|---|
+| LINE | `line` → QGraphicsLineItem | Existing |
+| CIRCLE | `circle` → QGraphicsEllipseItem | Existing |
+| ARC | `arc` → QGraphicsPathItem | Existing |
+| ELLIPSE | `ellipse_full` or `path_points` | Existing |
+| LWPOLYLINE | `path_points` → QGraphicsPathItem | Existing |
+| POLYLINE | `path_points` → QGraphicsPathItem | Existing |
+| SPLINE | `path_points` (flattened) | Existing |
+| TEXT | `text` → QGraphicsTextItem | Existing |
+| MTEXT | `text` (plain_text extracted) | Existing |
+| **INSERT** | Recurse via `entity.virtual_entities()` | **New** |
+| **HATCH** | Boundary paths via `virtual_entities()` | **New** |
+| **DIMENSION** | Explode to lines + text via `virtual_entities()` | **New** |
+
+**INSERT (block references)** is the highest-impact addition — architectural floor plans are primarily composed of blocks (doors, fixtures, symbols). Without INSERT support, large portions of the plan are missing from the underlay. `ezdxf`'s `virtual_entities()` explodes block references into constituent geometry with transforms applied, which can be fed recursively through `_extract_geometry()`.
+
+**HATCH** and **DIMENSION** use the same `virtual_entities()` pattern. All other entity types (SOLID, POINT, LEADER, 3DFACE) are deferred — uncommon in plan views and low impact.
+
+### 10.6 Import flow
 
 ```
 File selected
@@ -398,6 +447,7 @@ Old project files lack the new fields. `from_dict()` applies defaults (§3.3). N
 11. Per-source-layer visibility: toggle in browser tree, persisted across save/load/refresh.
 12. Browser tree: File → source layers hierarchy, right-click for all management actions.
 13. Lock: prevents movement and selection in scene; fully manageable via browser tree.
+14. DXF entity coverage: INSERT (block references), HATCH, and DIMENSION entities imported via `virtual_entities()` explosion.
 
 ### 13.2 Out of scope (future follow-ups)
 
