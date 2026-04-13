@@ -213,6 +213,9 @@ class UnderlayContextMenu:
             page=data.page, dpi=data.dpi,
             colour=data.colour, line_weight=data.line_weight,
             user_layer=data.user_layer,
+            level=data.level, visible=data.visible,
+            hidden_layers=list(data.hidden_layers),
+            import_mode=data.import_mode,
         )
         if data.type == "pdf":
             scene.import_pdf(

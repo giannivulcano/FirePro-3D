@@ -2028,6 +2028,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Apply saved display settings
         self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
         # Store sorted layer list on the group for the LayerManager
         all_layers = sorted({geom.get("layer", "0") for geom in geom_list})
         group.setData(2, all_layers)
@@ -2232,6 +2233,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if record.locked:
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
             item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+
+    def _apply_underlay_hidden_layers(self, item: QGraphicsItem,
+                                       data: Underlay):
+        """Hide child items whose source layer is in data.hidden_layers.
+
+        Stale layer names (no longer in the file) are silently dropped.
+        """
+        if not data.hidden_layers or not hasattr(item, "childItems"):
+            return
+        actual_layers = set()
+        for child in item.childItems():
+            layer_name = child.data(1)
+            if layer_name is not None:
+                actual_layers.add(layer_name)
+        data.hidden_layers = [
+            ln for ln in data.hidden_layers if ln in actual_layers
+        ]
+        hidden_set = set(data.hidden_layers)
+        for child in item.childItems():
+            layer_name = child.data(1)
+            if layer_name in hidden_set:
+                child.setVisible(False)
 
     def find_underlay_for_item(self, item: QGraphicsItem):
         """Return the (Underlay, QGraphicsItem) tuple for a scene item, or None."""
