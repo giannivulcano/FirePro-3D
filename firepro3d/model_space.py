@@ -1909,6 +1909,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             colour=color.name(),
             line_weight=lw,
             user_layer=user_layer,
+            import_scale=s,
+            import_base_x=bx,
+            import_base_y=by,
+            selected_layers=getattr(params, "selected_layers", None),
+            level=self.active_level,
         )
         self._apply_underlay_display(group, record)
         self.underlays.append((record, group))
