@@ -453,7 +453,10 @@ class SceneIOMixin:
             elif udata.type == "dxf":
                 self.import_dxf(udata.path, color=QColor(udata.colour),
                                 line_weight=udata.line_weight,
-                                x=udata.x, y=udata.y, _record=udata)
+                                x=udata.x, y=udata.y,
+                                layers=udata.selected_layers,
+                                _record=udata,
+                                user_layer=udata.user_layer)
 
         # Handle missing underlay files
         for udata in missing_underlays:
