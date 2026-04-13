@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
-from .constants import DEFAULT_USER_LAYER
+from .constants import DEFAULT_USER_LAYER, DEFAULT_LEVEL
 
 
 @dataclass
@@ -27,6 +27,11 @@ class Underlay:
     line_weight: float = 0.0
     # Layer assignment (colour/lineweight derived from this layer at runtime)
     user_layer: str = DEFAULT_USER_LAYER
+    # New fields (Revision 2)
+    level: str = DEFAULT_LEVEL
+    visible: bool = True
+    hidden_layers: list[str] = field(default_factory=list)
+    import_mode: str = "auto"
 
     def to_dict(self) -> dict:
         d = {
@@ -46,6 +51,10 @@ class Underlay:
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
         d["user_layer"] = self.user_layer
+        d["level"] = self.level
+        d["visible"] = self.visible
+        d["hidden_layers"] = list(self.hidden_layers)
+        d["import_mode"] = self.import_mode
         return d
 
     @staticmethod
@@ -63,5 +72,9 @@ class Underlay:
             dpi         = d.get("dpi", 150),
             colour      = d.get("colour", "#ffffff"),
             line_weight = d.get("line_weight", 0),
-            user_layer  = d.get("user_layer", DEFAULT_USER_LAYER),
+            user_layer    = d.get("user_layer", DEFAULT_USER_LAYER),
+            level         = d.get("level", DEFAULT_LEVEL),
+            visible       = d.get("visible", True),
+            hidden_layers = d.get("hidden_layers", []),
+            import_mode   = d.get("import_mode", "auto"),
         )
