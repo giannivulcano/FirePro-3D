@@ -509,6 +509,30 @@ class LevelManager:
         if ws is not None:
             _set_level_vis(ws)
 
+        # ── Underlays ────────────────────────────────────────────────────
+        for data, item in getattr(scene, "underlays", []):
+            if item is None:
+                continue
+            try:
+                item.isVisible()
+            except RuntimeError:
+                continue
+            if not data.visible:
+                item.setVisible(False)
+                continue
+            if data.level == "*":
+                item.setVisible(True)
+                continue
+            lvl = lvl_map.get(data.level)
+            if lvl is None:
+                item.setVisible(False)
+                continue
+            if has_view_range:
+                z = lvl.elevation
+                item.setVisible(view_depth <= z <= view_height)
+            else:
+                item.setVisible(data.level == active)
+
         # ── Elevation-based Z-ordering ────────────────────────────────────
         # Assign Qt Z-values based on actual elevation so that higher items
         # render on top of lower items.  Small category offsets preserve

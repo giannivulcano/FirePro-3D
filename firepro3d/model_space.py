@@ -2023,6 +2023,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             colour=color.name(),
             line_weight=params.get("line_weight", lw),
             user_layer=ul,
+            level=self.active_level,
         )
 
         # Apply saved display settings
@@ -2208,7 +2209,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         record = _record or Underlay(
             type="pdf", path=file_path,
             x=item.pos().x(), y=item.pos().y(),
-            dpi=dpi, page=page
+            dpi=dpi, page=page,
+            level=self.active_level,
         )
 
         # Apply saved display settings
