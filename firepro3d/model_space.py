@@ -288,6 +288,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             gl_dy = abs(gl.line().p2().y() - gl.line().p1().y())
             gl_is_vertical = gl_dy >= gl_dx
 
+            # The "along" position for the dimension line: use the
+            # bubble-end (p1) coordinate along the gridline direction.
+            dir_x = gl.line().p2().x() - gl.line().p1().x()
+            dir_y = gl.line().p2().y() - gl.line().p1().y()
+            dir_len = math.hypot(dir_x, dir_y)
+            if dir_len > 1e-12:
+                ux, uy = dir_x / dir_len, dir_y / dir_len
+            else:
+                ux, uy = 0.0, 1.0
+            # Along-direction position at p1 (bubble end)
+            along_pos = gl.line().p1().x() * ux + gl.line().p1().y() * uy
+
             neighbors = []
             for other in all_gls:
                 if other is gl or other in selected:
@@ -302,37 +314,36 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             before = [(o, p) for o, p in neighbors if p < gl_perp_pos]
             after = [(o, p) for o, p in neighbors if p > gl_perp_pos]
 
+            def _make_dim(neighbor_gl, neighbor_perp, from_gl, to_gl, dist):
+                # Build two scene points along the perpendicular at the
+                # bubble-end along-position — always a straight line.
+                from_pt = QPointF(
+                    gl_perp_pos * px + along_pos * ux,
+                    gl_perp_pos * py + along_pos * uy)
+                to_pt = QPointF(
+                    neighbor_perp * px + along_pos * ux,
+                    neighbor_perp * py + along_pos * uy)
+                mid = QPointF(
+                    (from_pt.x() + to_pt.x()) / 2,
+                    (from_pt.y() + to_pt.y()) / 2)
+                return {
+                    "from_gl": from_gl, "to_gl": to_gl,
+                    "distance": abs(dist),
+                    "from_pt": from_pt, "to_pt": to_pt,
+                    "midpoint": mid, "perp_vector": (px, py),
+                }
+
             if before:
                 nearest = max(before, key=lambda x: x[1])
-                dist = gl_perp_pos - nearest[1]
-                mid_perp = (gl_perp_pos + nearest[1]) / 2
-                gl_mid = QPointF(
-                    (gl.line().p1().x() + gl.line().p2().x()) / 2,
-                    (gl.line().p1().y() + gl.line().p2().y()) / 2)
-                midpoint = QPointF(
-                    mid_perp * px + gl_mid.x() * (1 - abs(px)),
-                    mid_perp * py + gl_mid.y() * (1 - abs(py)))
-                results.append({
-                    "from_gl": nearest[0], "to_gl": gl,
-                    "distance": abs(dist), "midpoint": midpoint,
-                    "perp_vector": (px, py),
-                })
+                results.append(_make_dim(
+                    nearest[0], nearest[1],
+                    nearest[0], gl, gl_perp_pos - nearest[1]))
 
             if after:
                 nearest = min(after, key=lambda x: x[1])
-                dist = nearest[1] - gl_perp_pos
-                mid_perp = (gl_perp_pos + nearest[1]) / 2
-                gl_mid = QPointF(
-                    (gl.line().p1().x() + gl.line().p2().x()) / 2,
-                    (gl.line().p1().y() + gl.line().p2().y()) / 2)
-                midpoint = QPointF(
-                    mid_perp * px + gl_mid.x() * (1 - abs(px)),
-                    mid_perp * py + gl_mid.y() * (1 - abs(py)))
-                results.append({
-                    "from_gl": gl, "to_gl": nearest[0],
-                    "distance": abs(dist), "midpoint": midpoint,
-                    "perp_vector": (px, py),
-                })
+                results.append(_make_dim(
+                    nearest[0], nearest[1],
+                    gl, nearest[0], nearest[1] - gl_perp_pos))
 
         # Deduplicate symmetric pairs
         seen: set[tuple[int, int]] = set()

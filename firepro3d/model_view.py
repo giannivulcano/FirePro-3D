@@ -393,18 +393,8 @@ class Model_View(QGraphicsView):
             painter.resetTransform()
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             for dim in spacing_dims:
-                from_gl = dim["from_gl"]
-                to_gl = dim["to_gl"]
-
-                from_mid = QPointF(
-                    (from_gl.line().p1().x() + from_gl.line().p2().x()) / 2,
-                    (from_gl.line().p1().y() + from_gl.line().p2().y()) / 2)
-                to_mid = QPointF(
-                    (to_gl.line().p1().x() + to_gl.line().p2().x()) / 2,
-                    (to_gl.line().p1().y() + to_gl.line().p2().y()) / 2)
-
-                vp_from = self.mapFromScene(from_mid)
-                vp_to = self.mapFromScene(to_mid)
+                vp_from = self.mapFromScene(dim["from_pt"])
+                vp_to = self.mapFromScene(dim["to_pt"])
                 color = QColor("#0066cc")
 
                 # Dashed dimension line
