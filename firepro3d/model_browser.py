@@ -578,6 +578,20 @@ class ModelBrowser(QWidget):
                 lambda: self._set_underlay_level(data, "*"))
 
             menu.addSeparator()
+            act_scale = menu.addAction("Scale\u2026")
+            act_scale.triggered.connect(
+                lambda: (UnderlayContextMenu._set_scale(scene, data, item),
+                         self.refresh()))
+            act_rotate = menu.addAction("Rotate\u2026")
+            act_rotate.triggered.connect(
+                lambda: (UnderlayContextMenu._set_rotation(scene, data, item),
+                         self.refresh()))
+            act_opacity = menu.addAction("Opacity\u2026")
+            act_opacity.triggered.connect(
+                lambda: (UnderlayContextMenu._set_opacity(scene, data, item),
+                         self.refresh()))
+
+            menu.addSeparator()
             act_relink = menu.addAction("Relink\u2026")
             act_relink.triggered.connect(
                 lambda: self._relink_underlay(data, item))

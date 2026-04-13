@@ -365,7 +365,6 @@ class MainWindow(QMainWindow):
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
-        self._left_tabs.addTab(self.layer_manager, "Underlay")
         self._left_tabs.addTab(self.user_layer_widget, "User Layers")
 
         self.browser_dock = QDockWidget("", self)
