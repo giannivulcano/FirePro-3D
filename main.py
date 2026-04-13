@@ -17,7 +17,6 @@ from firepro3d.annotations import NoteAnnotation
 from firepro3d.dxf_preview_dialog import UnderlayImportDialog
 from firepro3d.property_manager import PropertyManager
 from firepro3d.scale_manager import DisplayUnit
-from firepro3d.layer_manager import LayerManager
 from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.user_layer_manager import UserLayerManager, UserLayerWidget
@@ -292,8 +291,7 @@ class MainWindow(QMainWindow):
         self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.update_property_manager)
 
-        # Combined left-side dock: DXF Layers | User Layers | Project Browser
-        self.layer_manager = LayerManager(self.scene)
+        # Combined left-side dock: User Layers | Project Browser | Model Browser
         self.user_layer_widget = UserLayerWidget(
             self.user_layer_mgr, scene=self.scene
         )
