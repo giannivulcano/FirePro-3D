@@ -62,6 +62,10 @@ class Underlay:
         d["visible"] = self.visible
         d["hidden_layers"] = list(self.hidden_layers)
         d["import_mode"] = self.import_mode
+        d["import_scale"] = self.import_scale
+        d["import_base_x"] = self.import_base_x
+        d["import_base_y"] = self.import_base_y
+        d["selected_layers"] = list(self.selected_layers) if self.selected_layers is not None else None
         return d
 
     @staticmethod
@@ -84,6 +88,10 @@ class Underlay:
             visible       = d.get("visible", True),
             hidden_layers = d.get("hidden_layers", []),
             import_mode   = d.get("import_mode", "auto"),
+            import_scale    = d.get("import_scale", 1.0),
+            import_base_x   = d.get("import_base_x", 0.0),
+            import_base_y   = d.get("import_base_y", 0.0),
+            selected_layers = d.get("selected_layers", None),
         )
 
     @staticmethod
