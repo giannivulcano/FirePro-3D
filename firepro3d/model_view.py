@@ -780,11 +780,11 @@ class Model_View(QGraphicsView):
         from firepro3d.gridline import GridlineItem
         scene = self.scene()
         sm = getattr(scene, 'scale_manager', None)
-        # Capture the selection NOW — by the time the user presses Enter
-        # the scene selection will have been cleared by focus changes.
-        selected_snapshot = [
-            item for item in scene.selectedItems()
-            if isinstance(item, GridlineItem)]
+        # Use the selection snapshot that was captured when the dims were
+        # computed — by the time this handler fires the double-click has
+        # already deselected everything.
+        selected_snapshot = list(
+            getattr(scene, '_gridline_spacing_selected', []))
         # Display in formatted units (e.g. 24'-0" or 7315.2 mm)
         current_text = (sm.format_length(dim["distance"])
                         if sm else f"{dim['distance']:.1f} mm")

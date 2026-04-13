@@ -259,6 +259,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _on_selection_changed(self):
         """Recompute gridline spacing dimensions when selection changes."""
         self._gridline_spacing_dims = self._compute_gridline_spacing()
+        # Snapshot selected gridlines NOW so the spacing editor can use
+        # them later (by the time double-click fires, selection is gone).
+        self._gridline_spacing_selected = [
+            item for item in self.selectedItems()
+            if isinstance(item, GridlineItem)]
         for v in self.views():
             v.viewport().update()
 
