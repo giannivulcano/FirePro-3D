@@ -552,6 +552,10 @@ class LevelManager:
         _Z_SCALE = 1.0 / 100.0  # mm → Z units (keeps values manageable)
 
         def _apply_elev_z(item):
+            try:
+                item.isVisible()
+            except RuntimeError:
+                return  # wrapped C++ object deleted
             overlay_z = _Z_OVERLAY.get(type(item).__name__)
             if overlay_z is not None:
                 item.setZValue(overlay_z)

@@ -98,6 +98,7 @@ class ModelBrowser(QWidget):
         self._scene = scene
         if scene is not None and hasattr(scene, "sceneModified"):
             scene.sceneModified.connect(self.schedule_refresh)
+            scene.underlaysChanged.connect(self.schedule_refresh)
         self.refresh()
 
     def sync_from_scene(self):

@@ -33,6 +33,22 @@ class TestUnderlayFields:
         a.hidden_layers.append("Layer0")
         assert b.hidden_layers == []
 
+    def test_default_import_scale(self):
+        u = Underlay(type="dxf", path="test.dxf")
+        assert u.import_scale == 1.0
+
+    def test_default_import_base_x(self):
+        u = Underlay(type="dxf", path="test.dxf")
+        assert u.import_base_x == 0.0
+
+    def test_default_import_base_y(self):
+        u = Underlay(type="dxf", path="test.dxf")
+        assert u.import_base_y == 0.0
+
+    def test_default_selected_layers(self):
+        u = Underlay(type="dxf", path="test.dxf")
+        assert u.selected_layers is None
+
 
 class TestUnderlaySerialization:
     """to_dict / from_dict round-trip and backward compat."""
@@ -93,6 +109,57 @@ class TestUnderlaySerialization:
         assert d["visible"] is False
         assert d["hidden_layers"] == ["X"]
         assert d["import_mode"] == "auto"
+
+    def test_round_trip_import_params(self):
+        u = Underlay(
+            type="dxf", path="plans/floor1.dxf",
+            import_scale=25.4, import_base_x=100.0, import_base_y=200.0,
+            selected_layers=["A-WALL", "A-DOOR"],
+        )
+        d = u.to_dict()
+        u2 = Underlay.from_dict(d)
+        assert u2.import_scale == 25.4
+        assert u2.import_base_x == 100.0
+        assert u2.import_base_y == 200.0
+        assert u2.selected_layers == ["A-WALL", "A-DOOR"]
+
+    def test_round_trip_selected_layers_none(self):
+        u = Underlay(type="dxf", path="test.dxf", selected_layers=None)
+        d = u.to_dict()
+        u2 = Underlay.from_dict(d)
+        assert u2.selected_layers is None
+
+    def test_backward_compat_missing_import_params(self):
+        """Old project files lacking the new import-param fields get defaults."""
+        old_dict = {
+            "type": "dxf", "path": "old.dxf",
+            "x": 0.0, "y": 0.0, "scale": 1.0,
+            "rotation": 0.0, "opacity": 1.0, "locked": False,
+            "colour": "#ffffff", "line_weight": 0.0,
+            "user_layer": "Default",
+        }
+        u = Underlay.from_dict(old_dict)
+        assert u.import_scale == 1.0
+        assert u.import_base_x == 0.0
+        assert u.import_base_y == 0.0
+        assert u.selected_layers is None
+
+    def test_to_dict_includes_import_params(self):
+        u = Underlay(
+            type="dxf", path="test.dxf",
+            import_scale=2.0, import_base_x=50.0, import_base_y=75.0,
+            selected_layers=["A-WALL"],
+        )
+        d = u.to_dict()
+        assert d["import_scale"] == 2.0
+        assert d["import_base_x"] == 50.0
+        assert d["import_base_y"] == 75.0
+        assert d["selected_layers"] == ["A-WALL"]
+
+    def test_to_dict_selected_layers_none(self):
+        u = Underlay(type="dxf", path="test.dxf", selected_layers=None)
+        d = u.to_dict()
+        assert d["selected_layers"] is None
 
 
 class TestPathResolution:

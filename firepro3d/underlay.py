@@ -33,6 +33,12 @@ class Underlay:
     visible: bool = True
     hidden_layers: list[str] = field(default_factory=list)
     import_mode: str = "auto"
+    # Import transform params (Revision 3) — baked into geometry coordinates;
+    # stored so refresh-from-disk can re-apply the same transform.
+    import_scale: float = 1.0
+    import_base_x: float = 0.0
+    import_base_y: float = 0.0
+    selected_layers: list[str] | None = None
 
     def to_dict(self) -> dict:
         d = {
@@ -56,6 +62,10 @@ class Underlay:
         d["visible"] = self.visible
         d["hidden_layers"] = list(self.hidden_layers)
         d["import_mode"] = self.import_mode
+        d["import_scale"] = self.import_scale
+        d["import_base_x"] = self.import_base_x
+        d["import_base_y"] = self.import_base_y
+        d["selected_layers"] = list(self.selected_layers) if self.selected_layers is not None else None
         return d
 
     @staticmethod
@@ -78,6 +88,10 @@ class Underlay:
             visible       = d.get("visible", True),
             hidden_layers = d.get("hidden_layers", []),
             import_mode   = d.get("import_mode", "auto"),
+            import_scale    = d.get("import_scale", 1.0),
+            import_base_x   = d.get("import_base_x", 0.0),
+            import_base_y   = d.get("import_base_y", 0.0),
+            selected_layers = d.get("selected_layers", None),
         )
 
     @staticmethod
@@ -142,6 +156,8 @@ class Underlay:
                         "value": "Yes" if self.locked else "No"},
             "Visible": {"type": "label",
                          "value": "Yes" if self.visible else "No"},
+            "Import Scale": {"type": "label",
+                              "value": f"{self.import_scale:.6g}"},
         }
         if self.type == "pdf":
             props["DPI"] = {"type": "label", "value": str(self.dpi)}

@@ -1909,6 +1909,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             colour=color.name(),
             line_weight=lw,
             user_layer=user_layer,
+            import_scale=s,
+            import_base_x=bx,
+            import_base_y=by,
+            selected_layers=getattr(params, "selected_layers", None),
+            level=self.active_level,
         )
         self._apply_underlay_display(group, record)
         self.underlays.append((record, group))
@@ -1987,6 +1992,45 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             lw = 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
+
+        # Apply import transform if reloading from a record with baked params
+        record = params.get("_record")
+        if record is not None and (record.import_scale != 1.0
+                                    or record.import_base_x != 0.0
+                                    or record.import_base_y != 0.0):
+            s = record.import_scale
+            bx, by = record.import_base_x, record.import_base_y
+            transformed = []
+            for g in geom_list:
+                kind = g.get("kind")
+                t = dict(g)
+                if kind == "line":
+                    t["x1"] = (g["x1"] - bx) * s
+                    t["y1"] = (g["y1"] - by) * s
+                    t["x2"] = (g["x2"] - bx) * s
+                    t["y2"] = (g["y2"] - by) * s
+                elif kind in ("circle", "arc"):
+                    xk = "x" if kind == "circle" else "rx"
+                    yk = "y" if kind == "circle" else "ry"
+                    wk = "w" if kind == "circle" else "rw"
+                    hk = "h" if kind == "circle" else "rh"
+                    t[xk] = (g[xk] - bx) * s
+                    t[yk] = (g[yk] - by) * s
+                    t[wk] = g[wk] * s
+                    t[hk] = g[hk] * s
+                elif kind == "ellipse_full":
+                    t["pos_cx"] = (g["pos_cx"] - bx) * s
+                    t["pos_cy"] = (g["pos_cy"] - by) * s
+                    t["x"] = g["x"] * s; t["y"] = g["y"] * s
+                    t["w"] = g["w"] * s; t["h"] = g["h"] * s
+                elif kind == "path_points":
+                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
+                                   for p in g["points"]]
+                elif kind == "text":
+                    t["x"] = (g["x"] - bx) * s
+                    t["y"] = (g["y"] - by) * s
+                transformed.append(t)
+            geom_list = transformed
 
         items = []
         for geom in geom_list:
@@ -2344,8 +2388,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.import_dxf(
                 data.path, color=QColor(data.colour),
                 line_weight=data.line_weight,
-                x=data.x, y=data.y, _record=data,
-                user_layer=data.user_layer,
+                x=data.x, y=data.y, layers=data.selected_layers,
+                _record=data, user_layer=data.user_layer,
             )
 
         self._show_status(f"Refreshed underlay: {data.path}")
