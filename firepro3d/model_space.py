@@ -2381,9 +2381,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         group.setData(0, "PDF Underlay")
-        all_layers = sorted({g.get("layer", "0") for g in geom_list})
-        group.setData(2, all_layers)
-        self.setItemIndexMethod(old_method)
 
         record = _record or Underlay(
             type="pdf", path=file_path,
@@ -2394,7 +2391,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         )
 
         self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
+        all_layers = sorted({g.get("layer", "0") for g in geom_list})
+        group.setData(2, all_layers)
+
         self.underlays.append((record, group))
+
+        self.setItemIndexMethod(old_method)
         self.underlaysChanged.emit()
         self.push_undo_state()
         self._show_status(
