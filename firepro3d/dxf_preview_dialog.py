@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
     QLabel, QPushButton, QComboBox, QColorDialog,
     QListWidget, QListWidgetItem, QGroupBox,
-    QFileDialog, QLineEdit, QDoubleSpinBox, QFormLayout,
+    QFileDialog, QLineEdit, QFormLayout,
     QDialogButtonBox, QProgressDialog, QApplication,
     QCheckBox, QWidget, QSizePolicy, QScrollArea,
     QMessageBox, QInputDialog, QAbstractItemView,
@@ -424,17 +424,19 @@ class UnderlayImportDialog(QDialog):
             self._scale_combo.addItem(label)
         self._scale_combo.currentIndexChanged.connect(self._on_scale_combo_changed)
         scale_vlay.addWidget(self._scale_combo)
-        self._custom_scale_spin = QDoubleSpinBox()
-        self._custom_scale_spin.setRange(0.0001, 1000.0)
-        self._custom_scale_spin.setDecimals(5)
-        self._custom_scale_spin.setValue(1.0)
-        self._custom_scale_spin.setSuffix("  ×")
-        self._custom_scale_spin.setVisible(False)
-        scale_vlay.addWidget(self._custom_scale_spin)
+        self._custom_scale_edit = QLineEdit()
+        self._custom_scale_edit.setPlaceholderText("scale factor")
+        self._custom_scale_edit.setText("1.0")
+        self._custom_scale_edit.setVisible(False)
+        scale_vlay.addWidget(self._custom_scale_edit)
         self._units_info_lbl = QLabel("")
         self._units_info_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         self._units_info_lbl.setVisible(False)
         scale_vlay.addWidget(self._units_info_lbl)
+        self._calibration_lbl = QLabel("")
+        self._calibration_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._calibration_lbl.setVisible(False)
+        scale_vlay.addWidget(self._calibration_lbl)
         pick2_btn = QPushButton("📐 Pick 2 pts on preview")
         pick2_btn.setToolTip(
             "Click two points on the preview, then enter the real distance between them."
@@ -447,25 +449,18 @@ class UnderlayImportDialog(QDialog):
         rot_grp = QGroupBox("Rotation")
         rot_vlay = QVBoxLayout(rot_grp)
         rot_form = QFormLayout()
-        self._rotation_spin = QDoubleSpinBox()
-        self._rotation_spin.setRange(-360.0, 360.0)
-        self._rotation_spin.setDecimals(1)
-        self._rotation_spin.setSingleStep(1.0)
-        self._rotation_spin.setValue(0.0)
-        self._rotation_spin.setSuffix(" °")
-        self._rotation_spin.valueChanged.connect(self._on_rotation_changed)
-        rot_form.addRow("Angle:", self._rotation_spin)
+        self._rotation_edit = QLineEdit()
+        self._rotation_edit.setText("0.0°")
+        self._rotation_edit.editingFinished.connect(self._on_rotation_changed)
+        rot_form.addRow("Angle:", self._rotation_edit)
         rot_vlay.addLayout(rot_form)
         rot_btn_lay = QHBoxLayout()
         btn_ccw = QPushButton("⟲ −90°")
-        btn_ccw.clicked.connect(lambda: self._rotation_spin.setValue(
-            self._rotation_spin.value() - 90.0))
+        btn_ccw.clicked.connect(lambda: self._set_rotation(self._get_rotation() - 90.0))
         btn_cw = QPushButton("⟳ +90°")
-        btn_cw.clicked.connect(lambda: self._rotation_spin.setValue(
-            self._rotation_spin.value() + 90.0))
+        btn_cw.clicked.connect(lambda: self._set_rotation(self._get_rotation() + 90.0))
         btn_180 = QPushButton("180°")
-        btn_180.clicked.connect(lambda: self._rotation_spin.setValue(
-            self._rotation_spin.value() + 180.0))
+        btn_180.clicked.connect(lambda: self._set_rotation(self._get_rotation() + 180.0))
         rot_btn_lay.addWidget(btn_ccw)
         rot_btn_lay.addWidget(btn_cw)
         rot_btn_lay.addWidget(btn_180)
@@ -571,14 +566,14 @@ class UnderlayImportDialog(QDialog):
             self._scale_combo.blockSignals(False)
             self._on_scale_combo_changed(scale_idx)
         custom_scale = s.value(f"{pfx}custom_scale", 1.0, type=float)
-        self._custom_scale_spin.blockSignals(True)
-        self._custom_scale_spin.setValue(custom_scale)
-        self._custom_scale_spin.blockSignals(False)
+        self._custom_scale_edit.blockSignals(True)
+        self._custom_scale_edit.setText(str(custom_scale))
+        self._custom_scale_edit.blockSignals(False)
         # Rotation
         rotation = s.value(f"{pfx}rotation", 0.0, type=float)
-        self._rotation_spin.blockSignals(True)
-        self._rotation_spin.setValue(rotation)
-        self._rotation_spin.blockSignals(False)
+        self._rotation_edit.blockSignals(True)
+        self._rotation_edit.setText(f"{rotation:.1f}°")
+        self._rotation_edit.blockSignals(False)
         # Destination layer
         layer = s.value(f"{pfx}dest_layer", "", type=str)
         if layer:
@@ -597,8 +592,8 @@ class UnderlayImportDialog(QDialog):
         pfx = f"{self._SETTINGS_KEY}/"
         s = QSettings("GV", "FirePro3D")
         s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
-        s.setValue(f"{pfx}custom_scale", self._custom_scale_spin.value())
-        s.setValue(f"{pfx}rotation", self._rotation_spin.value())
+        s.setValue(f"{pfx}custom_scale", self._get_custom_scale())
+        s.setValue(f"{pfx}rotation", self._get_rotation())
         s.setValue(f"{pfx}dest_layer", self._dest_layer_combo.currentText())
         s.setValue(f"{pfx}insert_at_origin", self._origin_cb.isChecked())
 
@@ -716,7 +711,7 @@ class UnderlayImportDialog(QDialog):
             # Auto-set custom scale
             custom_idx = len(self._SCALE_OPTIONS) - 1
             self._scale_combo.setCurrentIndex(custom_idx)
-            self._custom_scale_spin.setValue(factor)
+            self._custom_scale_edit.setText(f"{factor:.5f}")
         else:
             self._units_info_lbl.setVisible(False)
 
@@ -932,7 +927,7 @@ class UnderlayImportDialog(QDialog):
                 geom_items.append(item)
 
         # Group geometry items and apply rotation around the base point
-        rotation = self._rotation_spin.value() if hasattr(self, "_rotation_spin") else 0.0
+        rotation = self._get_rotation()
         if geom_items and rotation != 0.0:
             group = self._preview_scene.createItemGroup(geom_items)
             bx = self._base_x_edit.value_mm() if hasattr(self, "_base_x_edit") else 0.0
@@ -1097,13 +1092,20 @@ class UnderlayImportDialog(QDialog):
 
     def _on_scale_combo_changed(self, idx: int):
         _, val = self._SCALE_OPTIONS[idx]
-        self._custom_scale_spin.setVisible(val is None)
+        self._custom_scale_edit.setVisible(val is None)
+        self._calibration_lbl.setVisible(val is None and self._calibration_lbl.text())
+
+    def _get_custom_scale(self) -> float:
+        try:
+            return float(self._custom_scale_edit.text())
+        except (ValueError, AttributeError):
+            return 1.0
 
     def _current_scale(self) -> float:
         idx = self._scale_combo.currentIndex()
         _, val = self._SCALE_OPTIONS[idx]
         if val is None:
-            return self._custom_scale_spin.value()
+            return self._get_custom_scale()
         return val
 
     def _start_pick2(self):
@@ -1180,11 +1182,12 @@ class UnderlayImportDialog(QDialog):
                     factor = parsed_mm / px_dist
                     custom_idx = len(self._SCALE_OPTIONS) - 1
                     self._scale_combo.setCurrentIndex(custom_idx)
-                    self._custom_scale_spin.setValue(factor)
+                    self._custom_scale_edit.setText(f"{factor:.5f}")
                     display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
-                    self._status_lbl.setText(
-                        f"Scale set: {px_dist:.1f} preview units = {display} → ×{factor:.5f}"
-                    )
+                    self._calibration_lbl.setText(
+                        f"{px_dist:.1f} px = {display}")
+                    self._calibration_lbl.setVisible(True)
+                    self._status_lbl.setText(f"Scale calibrated: {display}")
                 else:
                     self._status_lbl.setText("Could not parse distance — try again.")
             else:
@@ -1234,6 +1237,17 @@ class UnderlayImportDialog(QDialog):
         """Rebuild preview to reflect the new rotation angle."""
         self._rebuild_preview()
 
+    def _get_rotation(self) -> float:
+        text = self._rotation_edit.text().strip().rstrip("°").strip()
+        try:
+            return float(text)
+        except (ValueError, AttributeError):
+            return 0.0
+
+    def _set_rotation(self, deg: float):
+        self._rotation_edit.setText(f"{deg:.1f}°")
+        self._on_rotation_changed()
+
     def _on_base_changed(self):
         self._draw_base_marker()
 
@@ -1278,7 +1292,7 @@ class UnderlayImportDialog(QDialog):
         p.scale = self._current_scale()
         p.base_x = self._base_x_edit.value_mm()
         p.base_y = self._base_y_edit.value_mm()
-        p.rotation = self._rotation_spin.value()
+        p.rotation = self._get_rotation()
         p.user_layer = self._dest_layer_combo.currentText()
         p.selected_layers = (
             list(self._active_layers())
