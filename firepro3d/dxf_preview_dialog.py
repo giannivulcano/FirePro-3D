@@ -100,6 +100,7 @@ class ImportParams:
         self.pdf_page: int = 0
         self.pdf_dpi: int = 150
         self.has_vectors: bool = True      # False → raster fallback
+        self.import_mode: str = "auto"    # "auto" | "vector" | "raster"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -502,6 +503,17 @@ class UnderlayImportDialog(QDialog):
         self._on_dest_layer_changed()
         right_lay.addWidget(dest_grp)
 
+        # PDF options (DPI + import mode)
+        self._pdf_opts_grp = QGroupBox("PDF Options")
+        pdf_form = QFormLayout(self._pdf_opts_grp)
+        self._dpi_combo = QComboBox()
+        self._dpi_combo.addItems(["72", "150", "300"])
+        self._dpi_combo.setCurrentIndex(1)  # default 150
+        self._dpi_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
+        pdf_form.addRow("DPI:", self._dpi_combo)
+        self._pdf_opts_grp.setVisible(False)  # shown only for PDFs
+        right_lay.addWidget(self._pdf_opts_grp)
+
         right_lay.addStretch()
         right_scroll.setWidget(right_w)
         splitter.addWidget(right_scroll)
@@ -615,6 +627,7 @@ class UnderlayImportDialog(QDialog):
 
     def _load_dxf(self, path: str):
         self._file_type = "dxf"
+        self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
         self._has_vectors = True
 
@@ -706,6 +719,7 @@ class UnderlayImportDialog(QDialog):
 
     def _load_pdf(self, path: str):
         self._file_type = "pdf"
+        self._pdf_opts_grp.setVisible(True)
 
         if not _HAS_FITZ:
             QMessageBox.warning(self, "Missing dependency",
@@ -743,8 +757,10 @@ class UnderlayImportDialog(QDialog):
         self._pdf_page = 0
         self._load_pdf_page(path, 0)
 
-    def _load_pdf_page(self, path: str, page: int):
+    def _load_pdf_page(self, path: str, page: int, dpi: int | None = None):
         """Load vectors from a specific PDF page."""
+        if dpi is None:
+            dpi = int(self._dpi_combo.currentText())
         from .pdf_import_worker import extract_pdf_vectors_sync
 
         self._pdf_page = page
@@ -801,7 +817,7 @@ class UnderlayImportDialog(QDialog):
             self._layers = []
             self._populate_layer_list()
             self._selected_indices = None
-            self._show_raster_preview(path, page)
+            self._show_raster_preview(path, page, dpi)
             self._info_lbl.setText(
                 f"No vector geometry found on page {page + 1} — "
                 f"will import as raster image."
@@ -810,7 +826,7 @@ class UnderlayImportDialog(QDialog):
         self._units_info_lbl.setVisible(False)
         self._update_status()
 
-    def _show_raster_preview(self, path: str, page: int):
+    def _show_raster_preview(self, path: str, page: int, dpi: int = 150):
         """Show a raster rendering of the PDF page as a fallback preview."""
         self._preview_scene.clear()
         self._base_marker = None
@@ -821,8 +837,9 @@ class UnderlayImportDialog(QDialog):
         try:
             doc = fitz.open(path)
             pg = doc[page]
-            # Render at 72 DPI for preview
-            pix = pg.get_pixmap(alpha=False)
+            zoom = dpi / 72.0
+            mat = fitz.Matrix(zoom, zoom)
+            pix = pg.get_pixmap(matrix=mat, alpha=False)
             from PyQt6.QtGui import QImage
             qimg = QImage(pix.samples, pix.width, pix.height,
                           pix.stride, QImage.Format.Format_RGB888)
@@ -1181,6 +1198,15 @@ class UnderlayImportDialog(QDialog):
         )
         self._preview_view.set_mode("pan")
 
+    def _on_pdf_option_changed(self):
+        """Re-render PDF preview when DPI or import mode changes."""
+        if self._file_type != "pdf":
+            return
+        path = self._file_edit.text().strip()
+        if not path:
+            return
+        self._load_pdf_page(path, self._pdf_page)
+
     def _on_rotation_changed(self):
         """Rebuild preview to reflect the new rotation angle."""
         self._rebuild_preview()
@@ -1238,7 +1264,7 @@ class UnderlayImportDialog(QDialog):
         )
         p.has_vectors = self._has_vectors
         p.pdf_page = self._pdf_page
-        p.pdf_dpi = 150
+        p.pdf_dpi = int(self._dpi_combo.currentText())
         p.insert_at_origin = self._origin_cb.isChecked()
 
         active_layers = self._active_layers()
