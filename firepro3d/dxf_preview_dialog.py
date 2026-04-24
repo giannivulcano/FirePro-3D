@@ -511,6 +511,11 @@ class UnderlayImportDialog(QDialog):
         self._dpi_combo.setCurrentIndex(1)  # default 150
         self._dpi_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
         pdf_form.addRow("DPI:", self._dpi_combo)
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["Auto", "Vectors", "Raster"])
+        self._mode_combo.setCurrentIndex(0)  # default Auto
+        self._mode_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
+        pdf_form.addRow("Mode:", self._mode_combo)
         self._pdf_opts_grp.setVisible(False)  # shown only for PDFs
         right_lay.addWidget(self._pdf_opts_grp)
 
@@ -761,57 +766,11 @@ class UnderlayImportDialog(QDialog):
         """Load vectors from a specific PDF page."""
         if dpi is None:
             dpi = int(self._dpi_combo.currentText())
-        from .pdf_import_worker import extract_pdf_vectors_sync
 
         self._pdf_page = page
-        self._info_lbl.setText(f"Extracting vectors from page {page + 1}…")
-        QApplication.processEvents()
+        mode = self._mode_combo.currentText().lower()  # "auto", "vectors", "raster"
 
-        geoms, layers = extract_pdf_vectors_sync(path, page)
-
-        if geoms:
-            self._has_vectors = True
-            self._all_geoms = geoms
-            self._layers = layers
-            self._populate_layer_list()
-            self._selected_indices = None
-
-            # Default base point for PDFs: bottom-left corner of bounding box.
-            # PDF coords have origin at top-left (Y-down), so bottom-left is
-            # (min_x, max_y).  This ensures "Insert at origin" places the
-            # visual bottom-left at the scene origin.
-            xs, ys = [], []
-            for g in geoms:
-                kind = g.get("kind")
-                if kind == "line":
-                    xs += [g["x1"], g["x2"]]
-                    ys += [g["y1"], g["y2"]]
-                elif kind == "path_points":
-                    for pt in g.get("points", []):
-                        xs.append(pt[0]); ys.append(pt[1])
-                elif kind in ("circle", "arc"):
-                    x0 = g.get("x", g.get("rx", 0))
-                    y0 = g.get("y", g.get("ry", 0))
-                    xs += [x0, x0 + g.get("w", g.get("rw", 0))]
-                    ys += [y0, y0 + g.get("h", g.get("rh", 0))]
-                elif kind == "text":
-                    xs.append(g["x"]); ys.append(g["y"])
-            if xs and ys:
-                self._base_x_edit.blockSignals(True)
-                self._base_y_edit.blockSignals(True)
-                self._base_x_edit.set_value_mm(min(xs))
-                self._base_y_edit.set_value_mm(max(ys))
-                self._base_x_edit.blockSignals(False)
-                self._base_y_edit.blockSignals(False)
-
-            self._rebuild_preview()
-            n = len(geoms)
-            self._info_lbl.setText(
-                f"{n} vector entities from page {page + 1} of "
-                f"{os.path.basename(path)}"
-            )
-        else:
-            # No vectors — show raster preview
+        if mode == "raster":
             self._has_vectors = False
             self._all_geoms = []
             self._layers = []
@@ -819,9 +778,73 @@ class UnderlayImportDialog(QDialog):
             self._selected_indices = None
             self._show_raster_preview(path, page, dpi)
             self._info_lbl.setText(
-                f"No vector geometry found on page {page + 1} — "
-                f"will import as raster image."
-            )
+                f"Raster import of page {page + 1} at {dpi} DPI.")
+        else:
+            from .pdf_import_worker import extract_pdf_vectors_sync
+            self._info_lbl.setText(f"Extracting vectors from page {page + 1}…")
+            QApplication.processEvents()
+            geoms, layers = extract_pdf_vectors_sync(path, page)
+
+            if geoms:
+                self._has_vectors = True
+                self._all_geoms = geoms
+                self._layers = layers
+                self._populate_layer_list()
+                self._selected_indices = None
+
+                xs, ys = [], []
+                for g in geoms:
+                    kind = g.get("kind")
+                    if kind == "line":
+                        xs += [g["x1"], g["x2"]]
+                        ys += [g["y1"], g["y2"]]
+                    elif kind == "path_points":
+                        for pt in g.get("points", []):
+                            xs.append(pt[0]); ys.append(pt[1])
+                    elif kind in ("circle", "arc"):
+                        x0 = g.get("x", g.get("rx", 0))
+                        y0 = g.get("y", g.get("ry", 0))
+                        xs += [x0, x0 + g.get("w", g.get("rw", 0))]
+                        ys += [y0, y0 + g.get("h", g.get("rh", 0))]
+                    elif kind == "text":
+                        xs.append(g["x"]); ys.append(g["y"])
+                if xs and ys:
+                    self._base_x_edit.blockSignals(True)
+                    self._base_y_edit.blockSignals(True)
+                    self._base_x_edit.set_value_mm(min(xs))
+                    self._base_y_edit.set_value_mm(max(ys))
+                    self._base_x_edit.blockSignals(False)
+                    self._base_y_edit.blockSignals(False)
+
+                self._rebuild_preview()
+                n = len(geoms)
+                self._info_lbl.setText(
+                    f"{n} vector entities from page {page + 1} of "
+                    f"{os.path.basename(path)}")
+            elif mode == "vectors":
+                self._has_vectors = False
+                self._all_geoms = []
+                self._layers = []
+                self._populate_layer_list()
+                self._selected_indices = None
+                self._preview_scene.clear()
+                self._base_marker = None
+                self._pick_markers = []
+                self._create_overlay_items()
+                self._info_lbl.setText(
+                    f"No vector geometry found on page {page + 1}.")
+                self._status_lbl.setText(
+                    "No vectors found — switch to Auto or Raster.")
+            else:
+                self._has_vectors = False
+                self._all_geoms = []
+                self._layers = []
+                self._populate_layer_list()
+                self._selected_indices = None
+                self._show_raster_preview(path, page, dpi)
+                self._info_lbl.setText(
+                    f"No vector geometry found on page {page + 1} — "
+                    f"will import as raster image.")
 
         self._units_info_lbl.setVisible(False)
         self._update_status()
@@ -1265,6 +1288,7 @@ class UnderlayImportDialog(QDialog):
         p.has_vectors = self._has_vectors
         p.pdf_page = self._pdf_page
         p.pdf_dpi = int(self._dpi_combo.currentText())
+        p.import_mode = self._mode_combo.currentText().lower()
         p.insert_at_origin = self._origin_cb.isChecked()
 
         active_layers = self._active_layers()

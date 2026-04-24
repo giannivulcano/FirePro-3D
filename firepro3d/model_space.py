@@ -2164,7 +2164,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._dxf_import_params = None
 
     def import_pdf(self, file_path, dpi=150, page=0, x=0.0, y=0.0,
-                   _record: Underlay = None):
+                   _record: Underlay = None, import_mode: str = "auto"):
         import os
         if not os.path.isfile(file_path):
             self._show_status(f"PDF not found: {file_path}")
@@ -2256,6 +2256,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             x=item.pos().x(), y=item.pos().y(),
             dpi=dpi, page=page,
             level=self.active_level,
+            import_mode=import_mode,
         )
 
         # Apply saved display settings
@@ -2382,7 +2383,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if data.type == "pdf":
             self.import_pdf(
                 data.path, dpi=data.dpi, page=data.page,
-                x=data.x, y=data.y, _record=data
+                x=data.x, y=data.y, _record=data,
+                import_mode=data.import_mode,
             )
         elif data.type == "dxf":
             self.import_dxf(

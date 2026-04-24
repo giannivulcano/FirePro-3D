@@ -2500,12 +2500,14 @@ class MainWindow(QMainWindow):
                     rotation=params.rotation,
                     scale=params.scale,
                     user_layer=params.user_layer,
+                    import_mode=params.import_mode,
                 )
                 self.scene.import_pdf(
                     params.file_path,
                     dpi=params.pdf_dpi,
                     page=params.pdf_page,
                     _record=record,
+                    import_mode=params.import_mode,
                 )
                 return
             if not params.geom_list:
