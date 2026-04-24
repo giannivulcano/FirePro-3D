@@ -60,6 +60,7 @@ except ImportError:
 from .dxf_import_worker import _sanitize_dxf
 from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS
 from .scale_manager import ScaleManager
+from .dimension_edit import DimensionEdit
 from .constants import DEFAULT_USER_LAYER
 
 
@@ -473,18 +474,12 @@ class UnderlayImportDialog(QDialog):
         # Base point
         base_grp = QGroupBox("Base / Insertion Point")
         base_form = QFormLayout(base_grp)
-        self._base_x_spin = QDoubleSpinBox()
-        self._base_x_spin.setRange(-1e9, 1e9)
-        self._base_x_spin.setDecimals(3)
-        self._base_x_spin.setValue(0.0)
-        self._base_x_spin.valueChanged.connect(self._on_base_changed)
-        self._base_y_spin = QDoubleSpinBox()
-        self._base_y_spin.setRange(-1e9, 1e9)
-        self._base_y_spin.setDecimals(3)
-        self._base_y_spin.setValue(0.0)
-        self._base_y_spin.valueChanged.connect(self._on_base_changed)
-        base_form.addRow("X:", self._base_x_spin)
-        base_form.addRow("Y:", self._base_y_spin)
+        self._base_x_edit = DimensionEdit(self._sm, initial_mm=0.0)
+        self._base_x_edit.valueChanged.connect(self._on_base_changed)
+        self._base_y_edit = DimensionEdit(self._sm, initial_mm=0.0)
+        self._base_y_edit.valueChanged.connect(self._on_base_changed)
+        base_form.addRow("X:", self._base_x_edit)
+        base_form.addRow("Y:", self._base_y_edit)
         pick_base_btn = QPushButton("📍 Pick on preview")
         pick_base_btn.clicked.connect(self._start_pick_base)
         base_form.addRow(pick_base_btn)
@@ -786,12 +781,12 @@ class UnderlayImportDialog(QDialog):
                 elif kind == "text":
                     xs.append(g["x"]); ys.append(g["y"])
             if xs and ys:
-                self._base_x_spin.blockSignals(True)
-                self._base_y_spin.blockSignals(True)
-                self._base_x_spin.setValue(min(xs))
-                self._base_y_spin.setValue(max(ys))
-                self._base_x_spin.blockSignals(False)
-                self._base_y_spin.blockSignals(False)
+                self._base_x_edit.blockSignals(True)
+                self._base_y_edit.blockSignals(True)
+                self._base_x_edit.set_value_mm(min(xs))
+                self._base_y_edit.set_value_mm(max(ys))
+                self._base_x_edit.blockSignals(False)
+                self._base_y_edit.blockSignals(False)
 
             self._rebuild_preview()
             n = len(geoms)
@@ -900,8 +895,8 @@ class UnderlayImportDialog(QDialog):
         rotation = self._rotation_spin.value() if hasattr(self, "_rotation_spin") else 0.0
         if geom_items and rotation != 0.0:
             group = self._preview_scene.createItemGroup(geom_items)
-            bx = self._base_x_spin.value() if hasattr(self, "_base_x_spin") else 0.0
-            by = self._base_y_spin.value() if hasattr(self, "_base_y_spin") else 0.0
+            bx = self._base_x_edit.value_mm() if hasattr(self, "_base_x_edit") else 0.0
+            by = self._base_y_edit.value_mm() if hasattr(self, "_base_y_edit") else 0.0
             group.setTransformOriginPoint(bx, by)
             group.setRotation(rotation)
             self._preview_geom_group = group
@@ -968,8 +963,8 @@ class UnderlayImportDialog(QDialog):
             if self._base_marker.scene() is self._preview_scene:
                 self._preview_scene.removeItem(self._base_marker)
             self._base_marker = None
-        bx = self._base_x_spin.value()
-        by = self._base_y_spin.value()
+        bx = self._base_x_edit.value_mm()
+        by = self._base_y_edit.value_mm()
         s = 15
         pen = QPen(QColor("#ff4400"), 2)
         pen.setCosmetic(True)
@@ -1173,12 +1168,12 @@ class UnderlayImportDialog(QDialog):
         self._status_lbl.setText("Click the base / insertion point on the preview…")
 
     def _on_point_picked(self, pt: QPointF):
-        self._base_x_spin.blockSignals(True)
-        self._base_y_spin.blockSignals(True)
-        self._base_x_spin.setValue(pt.x())
-        self._base_y_spin.setValue(pt.y())
-        self._base_x_spin.blockSignals(False)
-        self._base_y_spin.blockSignals(False)
+        self._base_x_edit.blockSignals(True)
+        self._base_y_edit.blockSignals(True)
+        self._base_x_edit.set_value_mm(pt.x())
+        self._base_y_edit.set_value_mm(pt.y())
+        self._base_x_edit.blockSignals(False)
+        self._base_y_edit.blockSignals(False)
         self._draw_base_marker()
         self._pick_mode = None
         self._status_lbl.setText(
@@ -1232,8 +1227,8 @@ class UnderlayImportDialog(QDialog):
         p.file_path = self._file_edit.text().strip()
         p.file_type = self._file_type
         p.scale = self._current_scale()
-        p.base_x = self._base_x_spin.value()
-        p.base_y = self._base_y_spin.value()
+        p.base_x = self._base_x_edit.value_mm()
+        p.base_y = self._base_y_edit.value_mm()
         p.rotation = self._rotation_spin.value()
         p.user_layer = self._dest_layer_combo.currentText()
         p.selected_layers = (
