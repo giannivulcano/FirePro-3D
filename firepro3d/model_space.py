@@ -2086,6 +2086,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         progress.close()
         self._cleanup_dxf_worker()
         self.underlaysChanged.emit()
+        self.push_undo_state()
         self._show_status(f"Imported DXF: {params['file_path']} ({len(items)} items)")
 
     def _geom_to_item(self, geom: dict, pen: QPen, color: QColor):
@@ -2272,6 +2273,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self.underlays.append((record, item))
         self.underlaysChanged.emit()
+        self.push_undo_state()
         self._show_status(f"Imported PDF '{file_path}' page {page} at {dpi} DPI")
 
     # -------------------------------------------------------------------------
