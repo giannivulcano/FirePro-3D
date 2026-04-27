@@ -145,10 +145,37 @@ class ModelBrowser(QWidget):
     def _do_refresh(self):
         self.refresh()
 
+    def _save_expansion(self) -> set[str]:
+        """Return text of all expanded tree items."""
+        expanded = set()
+        for i in range(self._tree.topLevelItemCount()):
+            self._walk_expansion(self._tree.topLevelItem(i), expanded)
+        return expanded
+
+    def _walk_expansion(self, item, expanded: set, prefix: str = ""):
+        key = prefix + item.text(0)
+        if item.isExpanded():
+            expanded.add(key)
+        for j in range(item.childCount()):
+            self._walk_expansion(item.child(j), expanded, key + "/")
+
+    def _restore_expansion(self, expanded: set):
+        """Re-expand tree items whose text path matches."""
+        for i in range(self._tree.topLevelItemCount()):
+            self._walk_restore(self._tree.topLevelItem(i), expanded)
+
+    def _walk_restore(self, item, expanded: set, prefix: str = ""):
+        key = prefix + item.text(0)
+        if key in expanded:
+            item.setExpanded(True)
+        for j in range(item.childCount()):
+            self._walk_restore(item.child(j), expanded, key + "/")
+
     def refresh(self):
         """Rebuild the tree from current scene data."""
         self._syncing = True
         try:
+            expanded = self._save_expansion()
             self._tree.clear()
             if self._scene is None:
                 return
@@ -364,6 +391,7 @@ class ModelBrowser(QWidget):
                     # PDF page child
                     elif data.type == "pdf" and not is_missing:
                         QTreeWidgetItem(file_node, [f"Page {data.page + 1}"])
+            self._restore_expansion(expanded)
         finally:
             self._syncing = False
 
