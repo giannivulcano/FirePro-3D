@@ -251,6 +251,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         path.lineTo(p1r)
         path.closeSubpath()
         self.setPath(path)
+        # Reposition owned openings to reflect updated wall geometry
+        for op in self.openings:
+            op._reposition()
 
     # ── Paint ────────────────────────────────────────────────────────────────
 
