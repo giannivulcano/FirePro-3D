@@ -541,7 +541,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         elif key == "Thickness":
             parsed = self._parse_dim(value)
             if parsed is not None:
-                self._thickness_mm = parsed
+                self._thickness_mm = max(parsed, 1.0)
                 self._rebuild_path()
                 self.update()
         elif key == "Fill Mode":
@@ -631,6 +631,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             thick_mm = data["thickness_in"] * 25.4
         else:
             thick_mm = DEFAULT_THICKNESS_MM
+        thick_mm = max(thick_mm, 1.0)
         wall = cls(pt1, pt2, thickness_mm=thick_mm,
                    color=data.get("color", "#cccccc"))
         wall._fill_mode = data.get("fill_mode", FILL_NONE)
