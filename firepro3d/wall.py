@@ -139,9 +139,8 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         # Per-endpoint join mode
         # Auto: solid at 2-wall corners, butt at T/cross intersections
-        # Solid: miter without visible miter line (continuous fill)
+        # Solid: continuous fill, no visible miter line
         # Butt: no miter extension
-        # Miter: classic miter with visible joint line
         self._join_mode_pt1: str = "Auto"
         self._join_mode_pt2: str = "Auto"
         self._solid_pt1: bool = False   # set by mitered_quad()
@@ -459,9 +458,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                              "value_mm": self._top_offset_mm},
             "Height":       {"type": "label",     "value": self._fmt(height_mm)},
             "Join Start":   {"type": "enum",      "value": self._join_mode_pt1,
-                             "options": ["Auto", "Butt", "Miter", "Solid"]},
+                             "options": ["Auto", "Butt", "Solid"]},
             "Join End":     {"type": "enum",      "value": self._join_mode_pt2,
-                             "options": ["Auto", "Butt", "Miter", "Solid"]},
+                             "options": ["Auto", "Butt", "Solid"]},
         }
 
     def _open_edit_dialog(self):
@@ -578,7 +577,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 self._rebuild_path()
                 self.update()
         elif key in ("Join Start", "Join End"):
-            if str(value) in ("Auto", "Butt", "Miter", "Solid"):
+            if str(value) in ("Auto", "Butt", "Solid"):
                 if key == "Join Start":
                     self._join_mode_pt1 = str(value)
                 else:
@@ -668,6 +667,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         legacy = data.get("join_mode", "Auto")
         wall._join_mode_pt1 = data.get("join_mode_pt1", legacy)
         wall._join_mode_pt2 = data.get("join_mode_pt2", legacy)
+        # Migration: Miter removed — map to Solid (preserves corner geometry)
+        if wall._join_mode_pt1 == "Miter":
+            wall._join_mode_pt1 = "Solid"
+        if wall._join_mode_pt2 == "Miter":
+            wall._join_mode_pt2 = "Solid"
         # Openings restored by caller after wall_opening module is available
         return wall
 
