@@ -260,20 +260,31 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 | **Elevation (section-family)** | Type-based coarse band, then world-Z within band, projected onto the cut plane |
 | **3D** | GPU depth buffer; type bands and world-Z sorting do not apply |
 
-**Coarse type bands today (plan-family).** The codebase has only **two named constants** in `firepro3d/constants.py`:
+**Coarse type bands today (plan-family).** The codebase has three named constants in `firepro3d/constants.py`:
 
-- `Z_BELOW_GEOMETRY = -100` — underlays, PDFs
+- `Z_BELOW_GEOMETRY = -100` — origin cross, items below all geometry
+- `Z_UNDERLAY = -79` — underlays, DXF/PDF imports (initial value; overridden by elevation-based z-ordering at runtime)
 - `Z_ROOF = -75` — roof items
 
-All other bands are **scattered magic numbers** at item construction sites. The observed values from the codebase are:
+**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * _Z_SCALE + category_offset`. Category offsets determine draw order within the same elevation:
+
+| Category | Offset | Items |
+|---|---|---|
+| Floor slabs | 0.0 | `FloorSlab` |
+| **Underlays** | **0.05** | DXF/PDF imports (set in underlay z-ordering loop) |
+| Roof | 0.1 | `RoofItem` |
+| Rooms | 0.2 | `Room` |
+| Walls | 0.3 | `WallSegment` |
+| Doors/Windows | 0.35 | `DoorOpening`, `WindowOpening` |
+| Pipes | 0.4 | `Pipe` |
+| Nodes | 0.5 | `Node` |
+
+**Static z-values** (not elevation-based) for items outside the elevation system:
 
 | Band | Value | Items |
 |---|---|---|
 | Below geometry | -200 | `SharedCropBox` (`view_marker.py:65`) |
-| Underlays | -100 | `Z_BELOW_GEOMETRY` |
-| Floor slabs | -80 | `floor_slab.py:65` |
-| Roof | -75 | `Z_ROOF` |
-| Rooms | -60 | `room.py:116` |
+| Below geometry | -100 | `Z_BELOW_GEOMETRY` (origin cross) |
 | Walls | -50 | (typical, not hardcoded as a constant) |
 | Annotations / dimensions | 0 | `annotations.py` |
 | Title block (paper space) | 0.5 | `paper_space.py:134, 169` |

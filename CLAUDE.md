@@ -42,7 +42,7 @@ mkdocs serve
 - JSON-based project files for persistence
 - Default level: "Level 1"; default layer: "Default"
 - Default ceiling offset: -50.8 mm (-2 inches below ceiling)
-- Z-ordering: Z_BELOW_GEOMETRY (-100) < Z_ROOF (-75) < walls/floors (0-50) < nodes (10+) < sprinklers (100)
+- Z-ordering: Z_BELOW_GEOMETRY (-100) < Z_UNDERLAY (-79, initial) < Z_ROOF (-75); at runtime, elevation-based z-ordering sets: floors (0.0) < underlays (0.05) < roofs (0.1) < rooms (0.2) < walls (0.3) < pipes (0.4) < nodes (0.5)
 - Imports: relative within `firepro3d/` (`from .node import Node`), absolute from `main.py` (`from firepro3d.node import Node`)
 - Docstring style: Google
 - Module naming: lowercase_with_underscores (PEP 8)

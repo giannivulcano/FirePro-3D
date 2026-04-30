@@ -594,6 +594,21 @@ class LevelManager:
                 _apply_elev_z(op)
         for item in getattr(scene, "_floor_slabs", []):
             _apply_elev_z(item)
+
+        # Underlays: elevation-based z above floor slabs, below roofs
+        _UNDERLAY_CAT_OFFSET = 0.05  # above FloorSlab (0.0), below RoofItem (0.1)
+        for data, item in getattr(scene, "underlays", []):
+            if item is None:
+                continue
+            try:
+                item.isVisible()
+            except RuntimeError:
+                continue
+            if not item.isVisible():
+                continue
+            lvl = lvl_map.get(data.level)
+            elev = lvl.elevation if lvl else 0.0
+            item.setZValue(elev * _Z_SCALE + _UNDERLAY_CAT_OFFSET)
         for item in getattr(scene, "_roofs", []):
             _apply_elev_z(item)
         for item in getattr(scene, "_rooms", []):

@@ -34,8 +34,8 @@ from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings)
 from .view_marker import ViewMarkerArrow
-from .constants import (Z_BELOW_GEOMETRY, DEFAULT_LEVEL, DEFAULT_USER_LAYER,
-                       DEFAULT_CEILING_OFFSET_MM)
+from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
+                       DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM)
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
@@ -1887,7 +1887,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for item in items:
             self.addItem(item)
         group = self.createItemGroup(items)
-        group.setZValue(Z_BELOW_GEOMETRY)
+        group.setZValue(Z_UNDERLAY)
         group.setPos(insert_pt)
         group.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -2054,7 +2054,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for item in items:
             self.addItem(item)
         group = self.createItemGroup(items)
-        group.setZValue(Z_BELOW_GEOMETRY)
+        group.setZValue(Z_UNDERLAY)
         group.setPos(params["x"], params["y"])
         group.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -2098,12 +2098,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if kind == "line":
             item = QGraphicsLineItem(geom["x1"], geom["y1"], geom["x2"], geom["y2"])
             item.setPen(pen)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
 
         elif kind == "circle":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
             item.setPen(pen)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
 
         elif kind == "arc":
             path = QPainterPath()
@@ -2112,12 +2112,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             path.arcTo(rect, geom["start"], geom["span"])
             item = QGraphicsPathItem(path)
             item.setPen(pen)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
 
         elif kind == "ellipse_full":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
             item.setPen(pen)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
             item.setPos(geom["pos_cx"], geom["pos_cy"])
             item.setRotation(geom["rotation"])
 
@@ -2133,7 +2133,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 path.closeSubpath()
             item = QGraphicsPathItem(path)
             item.setPen(pen)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
 
         elif kind == "text":
             item = QGraphicsTextItem(geom["text"])
@@ -2143,7 +2143,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f = QFont()
                 f.setPointSizeF(geom["size"])
                 item.setFont(f)
-            item.setZValue(Z_BELOW_GEOMETRY)
+            item.setZValue(Z_UNDERLAY)
 
         else:
             return None
@@ -2271,7 +2271,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
 
         item = QGraphicsPixmapItem(pixmap)
-        item.setZValue(Z_BELOW_GEOMETRY)
+        item.setZValue(Z_UNDERLAY)
         item.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
@@ -2374,7 +2374,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for item in items:
             self.addItem(item)
         group = self.createItemGroup(items)
-        group.setZValue(Z_BELOW_GEOMETRY)
+        group.setZValue(Z_UNDERLAY)
         group.setPos(x, y)
         group.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |

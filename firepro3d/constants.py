@@ -12,7 +12,8 @@ DEFAULT_LEVEL = "Level 1"
 DEFAULT_USER_LAYER = "Default"
 
 # ── Z-ordering ───────────────────────────────────────────────────────────────
-Z_BELOW_GEOMETRY = -100  # Z-value for underlays, imports, PDF pages
+Z_BELOW_GEOMETRY = -100  # Z-value for items below all geometry
+Z_UNDERLAY = -79         # Z-value for underlays/imports (above floors, below roofs)
 Z_ROOF = -75             # Z-value for roof items (above underlays, below walls)
 
 # ── Default gridline geometry (in inches, converted to mm at 25.4 mm/in) ─────
