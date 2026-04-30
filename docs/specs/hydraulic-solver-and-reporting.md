@@ -1,7 +1,7 @@
 # Hydraulic Solver & Reporting Specification
 
-**Status:** Draft  
-**Date:** 2026-04-28  
+**Status:** Draft (D2/D3/D6 resolved 2026-04-29, D8 withdrawn 2026-04-30)  
+**Date:** 2026-04-30  
 **Scope:** Document current behavior + flag divergences with migration paths  
 **Depends on:** [Sprinkler System Components Spec](sprinkler-system-components.md)
 
@@ -197,9 +197,9 @@ hf [psi] = 4.52 × Q^1.852 / (C^1.852 × d^4.87) × L
 | Q | gpm | Accumulated pipe flow (Phase 1) |
 | C | dimensionless | Hazen-Williams coefficient (Pipe.C-Factor, material-derived) |
 | d | inches | Inside diameter (Pipe.get_inner_diameter()) |
-| L | feet | Total equivalent length: physical + fitting equivalents |
+| L | feet | Total equivalent length: physical + fitting equivalents (supply node fittings excluded) |
 
-Returns 0 if Q ≤ 0, d ≤ 0, or C ≤ 0.
+`L = L_physical + equiv(node1_fitting, diameter) + equiv(node2_fitting, diameter)`, where `equiv()` looks up NFPA 13 Table 22.4.3.1.1 via `equivalent_length.py`. Supply node fittings contribute 0 (the supply test data captures losses up to that point). Returns 0 if Q ≤ 0, d ≤ 0, or C ≤ 0.
 
 ### 5.2 Elevation Correction
 
@@ -258,20 +258,19 @@ Dataclass returned by `HydraulicSolver.solve()`:
 
 | Field | Type | Description |
 |---|---|---|
-| `required_node_pressures` | dict[Node, float] | Minimum required pressure at each node (psi) — Phase 2 output. **Primary display value.** |
-| `node_pressures` | dict[Node, float] | Actual working pressure at each node (psi) — Phase 4 output. Secondary. |
+| `node_pressures` | dict[Node, float] | Actual working pressure at each node (psi) — Phase 4 output. Secondary display value. |
 | `pipe_flows` | dict[Pipe, float] | Flow through each pipe (gpm) — Phase 1 output |
 | `pipe_velocity` | dict[Pipe, float] | Velocity in each pipe (fps) — Phase 4 output |
 | `pipe_friction_loss` | dict[Pipe, float] | Friction loss per pipe (psi) — Phase 4 output |
+| `required_node_pressures` | dict[Node, float] | Minimum required pressure at each node (psi) — Phase 2 output. **Primary display value.** |
 | `total_demand` | float | Sprinkler demand at supply (gpm) — Phase 1 output |
+| `hose_stream_gpm` | float | Hose stream allowance (gpm) — added to demand at supply check only, not to pipe flows |
 | `required_pressure` | float | Required pressure at supply node (psi) — Phase 2 output |
-| `supply_pressure` | float | Available pressure from supply curve (psi) — Phase 3 output |
+| `supply_pressure` | float | Available pressure from supply curve at `total_demand + hose_stream_gpm` (psi) — Phase 3 output |
 | `passed` | bool | True if `supply_pressure ≥ required_pressure` |
 | `messages` | list[str] | Warnings, errors, summary messages |
 | `node_numbers` | dict[Node, int] | BFS-order sequential numbers (major nodes only) |
 | `node_labels` | dict[Node, str] | Display labels: "1", "2", "3a", "3b", etc. |
-
-**Note:** `required_node_pressures` is currently computed internally (as `required_node_pressure` local variable) but not included in the result. See [Divergence D6](#12-divergences--migration-paths).
 
 ---
 
@@ -289,14 +288,13 @@ Dataclass returned by `HydraulicSolver.solve()`:
 
 ### 7.2 Supply Node Discovery
 
-Currently: `_find_supply_network_node()` finds the nearest Node to the WaterSupply item by Manhattan distance. Warns if distance > 50px but still proceeds. See [Divergence D5](#12-divergences--migration-paths).
+Currently: `_find_supply_network_node()` finds the nearest Node to the WaterSupply item by Manhattan distance. Warns (with distance in display units) if distance > 50 scene units but still proceeds. See [Divergence D5](#12-divergences--migration-paths).
 
 ### 7.3 Additional Validations (to be added)
 
 | Validation | Detection | Message | Action |
 |---|---|---|---|
 | V1 — Loop detection | `len(pipes) > len(bfs_order) - 1` (more pipes than tree edges) | "Network contains loops — N pipe(s) excluded from calculation." | Warn, proceed |
-| V2 — Uncalibrated scale | `scale_manager.is_calibrated` is False | "Scale not calibrated — pipe lengths are unreliable." | Fail (block) |
 
 ---
 
@@ -333,7 +331,7 @@ Nodes at the same XY position (vertical drops — detected by rounding scene pos
 | Project metadata | Project name, address, system description, date |
 | Design criteria | Hazard classification, design area (ft²), density (gpm/ft²), sprinkler count, hose stream allowance |
 | Water supply data | Static pressure, residual pressure, test flow, gauge elevation, test date |
-| Results | Sprinkler demand (gpm), hose stream (gpm), total demand (gpm), required pressure (psi), available pressure (psi) |
+| Results | Sprinkler demand (gpm), hose stream (gpm) *(shown only when > 0)*, total demand (gpm) *(shown only when hose stream > 0)*, required pressure (psi), available pressure (psi) |
 | Messages | All solver warnings/errors/summaries |
 
 **Note:** Project metadata and design criteria sections require data not currently available in the solver result. See [Divergence D7](#12-divergences--migration-paths).
@@ -368,9 +366,11 @@ Custom-painted `QWidget` (`_HydraulicGraphWidget`):
 |---|---|
 | X-axis | Flow (GPM), Q^1.85 scale — makes supply curve a straight line |
 | Y-axis | Pressure (PSI), linear scale |
-| Supply curve | Straight line from (0, P_static) through (Q_test, P_residual), extended to graph edge |
-| Demand point | Red marker at (total_demand + hose_stream, required_pressure) |
-| Data point labels | "0 GPM @ P_static PSI", "Q_test GPM @ P_residual PSI", demand label |
+| Supply curve | Straight line from (0, P_static) through (Q_test, P_residual), extended to graph edge. Blue markers at both data points. All labels bold. |
+| Origin marker | Gray dot at (0, 0) — anchors the graph |
+| Sprinkler demand | Red marker at (sprinkler_demand, required_pressure). Dashed red line from origin to this point. |
+| Total demand | Red marker at (sprinkler_demand + hose_stream, required_pressure) — **only shown when hose stream > 0**. Dashed red line from sprinkler demand to this point. |
+| Data point labels | All bold: "0 GPM @ P_static PSI", "Q_test GPM @ P_residual PSI", "Sprinkler: Q GPM @ P PSI", "Total: Q GPM @ P PSI" |
 | Grid | Dotted lines every 100 GPM (X) and 10 PSI (Y) |
 | Auto-scale | Axes fit data points with padding (nearest 100 GPM, nearest 10 PSI + 10) |
 
@@ -424,7 +424,7 @@ Where `equiv_at_nodeX` = equivalent length for that node's fitting type at the p
 
 ### 10.4 UI Access
 
-The equivalent length table is viewable within the application as a reference dialog — not just embedded in solver internals. This allows engineers to verify values and cross-reference against their copy of NFPA 13.
+The equivalent length table is viewable as `EquivalentLengthDialog` — accessible from the Hydraulics toolbar ("Equiv. Lengths" button) and from a button in the Hydraulic Report dock. Read-only display of the NFPA 13 table with human-readable fitting names and a source footnote. Implemented in `hydraulic_report.py`.
 
 ---
 
@@ -463,13 +463,13 @@ Thresholds are relative (normalized to system max hf), not absolute. This ensure
 | # | Divergence | Priority | Current Behavior | Target Behavior | Migration |
 |---|---|---|---|---|---|
 | D1 | Tree-only topology | P2 | BFS tree silently excludes pipes in looped networks | Detect loops, warn user with count of excluded pipes, proceed with tree approximation. Future: Hardy Cross iteration. | Add loop detection: if `len(system.pipes) > len(bfs_order) - 1`, warn. |
-| D2 | Equivalent pipe lengths | P1 | Friction loss uses physical pipe length only; fittings contribute zero friction | Add fitting equivalent lengths per NFPA 13 Table 22.4.3.1.1 to each pipe's total length | Add lookup table (§10.1), map Fitting.type → row (§10.2), sum both-end equivalents in `_friction_loss_psi()`. |
-| D3 | Hose stream allowance | P1 | `WaterSupply.hose_stream_allowance` exists but is never consumed by solver | Add hose stream to demand GPM at supply curve check; show on graph; display in report | Phase 3: `Q_check = total_demand + ws.hose_stream_allowance`. Graph: demand marker at adjusted Q. Report: show both values. |
+| ~~D2~~ | ~~Equivalent pipe lengths~~ | ~~P1~~ | **Resolved 2026-04-29.** Fitting equivalent lengths from NFPA 13 Table 22.4.3.1.1 added to friction loss via `equivalent_length.py`. Supply node fittings excluded. "Equiv (ft)" and "Total (ft)" columns in Pipe Results. Reference dialog accessible from Hydraulics toolbar and report. | | |
+| ~~D3~~ | ~~Hose stream allowance~~ | ~~P1~~ | **Resolved 2026-04-29.** Hose stream consumed in Phase 3 supply check (`Q_check = total_demand + hose_stream_allowance`). Report shows separate Sprinkler Demand / Hose Stream / Total Demand line items (hose stream omitted when 0). Graph shows origin marker, red sprinkler demand marker, and red total demand marker with dashed connecting lines (total marker omitted when hose = 0). `hose_stream_gpm` field on `HydraulicResult`. | | |
 | D4 | Velocity → pressure heatmap | P2 | Pipes/report color-coded by velocity thresholds (12/20 fps); solver warns at 20 fps | Replace with friction loss heatmap on pipes; de-emphasize velocity in report; keep as informational column only | Remove velocity color-coding from report cells. Add pipe hf overlay to scene (§11.2). Remove velocity warning messages from solver. |
-| D5 | Supply node proximity | P2 | WaterSupply found by nearest Manhattan distance to any Node; warns if >50px | WaterSupply placed directly on a Node (same placement model as sprinklers) | Change to on-node placement. Solver reads `supply_ws.parentItem()` or stored node ref instead of proximity search. |
-| D6 | Required pressure not exposed | P1 | Phase 2 `required_node_pressure` dict computed but not included in `HydraulicResult` | Add `required_node_pressures` field to result; make primary display in report table and node badges | Add field to dataclass. Pass `required_node_pressure` to result constructor. Update badge/report to use it. |
+| D5 | Supply node proximity | P2 | WaterSupply found by nearest Manhattan distance to any Node; warns (in display units) if >50 scene units | WaterSupply placed directly on a Node (same placement model as sprinklers) | Change to on-node placement. Solver reads `supply_ws.parentItem()` or stored node ref instead of proximity search. |
+| ~~D6~~ | ~~Required pressure not exposed~~ | ~~P1~~ | **Resolved 2026-04-29.** `required_node_pressures` field added to `HydraulicResult`. Node badges show "Required P (psi)" as primary and "Actual P (psi)" as secondary in PropertyManager. | | |
 | D7 | Report structure | P2 | 5 tabs (Summary, Pipe Results, Sprinkler Schedule, Pipe Schedule, Graph) | 3 tabs: Summary (with project/design metadata), Node Summary Table (NFPA format), Hydraulic Graph | Consolidate. Add project header + design criteria to Summary. Replace 3 middle tabs with unified NFPA-format Node Summary Table. |
-| D8 | Uncalibrated scale | P1 | Solver runs regardless; `get_length_ft()` has a fallback producing meaningless results | Block calculation if scale not calibrated; return fail with diagnostic | Check `sm.is_calibrated` at top of `solve()`. Return `_fail("Scale not calibrated...")` if false. |
+| ~~D8~~ | ~~Uncalibrated scale~~ | ~~P1~~ | **Withdrawn 2026-04-30.** Scene scale is always 1 px = 1 mm; `is_calibrated` refers to underlay calibration, not scene geometry. Pipes drawn directly on the scene have correct lengths regardless. The default `pixels_per_mm = 1.0` produces correct conversions. A scale guard would block valid calculations on projects without underlays. **Pre-existing bug:** `Pipe.get_length_ft()` returns 0.0 when `is_calibrated` is False, even though `pixels_per_mm = 1.0` gives the correct result. | | |
 | D9 | Multi-system export | P3 | One system per project; one calculation; one report | Per-system hydraulic calculations with combined multi-system PDF export | Depends on sprinkler spec D8. Report generates per-system sections with system identification. |
 | D10 | PDF templates | P3 | Basic QPrinter HTML rendering | Company logo, engineer stamp area, page numbers, professional formatting | Template system with configurable header block. |
 
