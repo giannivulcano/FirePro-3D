@@ -336,7 +336,7 @@ class _HydraulicGraphWidget(QWidget):
         p.drawEllipse(QPointF(x2, y2), 5, 5)
 
         # Labels
-        label_font = QFont("Arial", 8)
+        label_font = QFont("Arial", 8, QFont.Weight.Bold)
         p.setFont(label_font)
         p.setPen(QPen(QColor(0, 70, 160)))
         p.drawText(QPointF(x1 + 8, y1 - 8),
@@ -355,15 +355,23 @@ class _HydraulicGraphWidget(QWidget):
         p.setBrush(QBrush(QColor(140, 140, 140)))
         p.drawEllipse(QPointF(x0, y0), 5, 5)
 
-        # Blue dot at sprinkler demand point
+        # Red dot at sprinkler demand point
         q_spr = self._q_sprinkler if self._q_sprinkler > 0 else self._q_demand
         x_spr = self._q_to_x(q_spr, rect)
         y_spr = self._p_to_y(self._p_demand, rect)
-        p.setPen(QPen(QColor(0, 80, 200), 2))
-        p.setBrush(QBrush(QColor(0, 80, 200)))
+
+        # Dashed line from origin to sprinkler demand point
+        dash_pen = QPen(QColor(180, 0, 0), 2, Qt.PenStyle.DashLine)
+        p.setPen(dash_pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawLine(QPointF(x0, y0), QPointF(x_spr, y_spr))
+
+        # Sprinkler demand marker
+        p.setPen(QPen(QColor(200, 0, 0), 2))
+        p.setBrush(QBrush(QColor(200, 0, 0)))
         p.drawEllipse(QPointF(x_spr, y_spr), 6, 6)
         p.setFont(label_font)
-        p.setPen(QPen(QColor(0, 60, 160)))
+        p.setPen(QPen(QColor(180, 0, 0)))
         p.drawText(QPointF(x_spr + 10, y_spr - 10),
                    f"Sprinkler: {q_spr:.0f} GPM @ {self._p_demand:.1f} PSI")
 
@@ -373,12 +381,11 @@ class _HydraulicGraphWidget(QWidget):
             y_total = self._p_to_y(self._p_demand, rect)
 
             # Dashed line between sprinkler and total demand points
-            dash_pen = QPen(QColor(180, 0, 0), 2, Qt.PenStyle.DashLine)
             p.setPen(dash_pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawLine(QPointF(x_spr, y_spr), QPointF(x_total, y_total))
 
-            # Red marker
+            # Total demand marker
             p.setPen(QPen(QColor(200, 0, 0), 2))
             p.setBrush(QBrush(QColor(200, 0, 0)))
             p.drawEllipse(QPointF(x_total, y_total), 6, 6)

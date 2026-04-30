@@ -369,7 +369,7 @@ class HydraulicSolver:
     def _find_supply_network_node(self, supply_ws, messages: list):
         """
         Return the network Node closest to the WaterSupply item.
-        Issues a warning if the nearest node is >50 px away.
+        Issues a warning if the nearest node is >50 scene units away.
         Returns None if the system has no nodes.
         """
         from .node import Node
@@ -380,8 +380,13 @@ class HydraulicSolver:
         best = min(nodes, key=lambda n: (n.scenePos() - pos).manhattanLength())
         dist = (best.scenePos() - pos).manhattanLength()
         if dist > 50:
+            # Convert scene distance to display units (mm → ft-in or m)
+            if self.sm:
+                dist_str = self.sm.scene_to_display(dist)
+            else:
+                dist_str = f"{dist:.0f} mm"
             messages.append(
-                f"⚠️ Water supply is {dist:.0f} px from nearest node — "
+                f"⚠️ Water supply is {dist_str} from nearest node — "
                 "connect it closer to a pipe junction."
             )
         return best
