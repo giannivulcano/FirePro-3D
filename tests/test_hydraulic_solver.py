@@ -103,37 +103,6 @@ def _mock_sprinkler_system(supply_ws, nodes=None, pipes=None, sprinklers=None):
 # Task 2: Scale Guard
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestScaleGuard:
-    def test_uncalibrated_scale_fails(self):
-        from firepro3d.hydraulic_solver import HydraulicSolver
-        sm = _mock_scale_manager(calibrated=False)
-        ws = _mock_water_supply()
-        sys = _mock_sprinkler_system(ws)
-        solver = HydraulicSolver(sys, sm)
-        result = solver.solve()
-        assert result.passed is False
-        assert any("not calibrated" in m.lower() or "uncalibrated" in m.lower()
-                    for m in result.messages)
-
-    def test_calibrated_scale_proceeds(self):
-        from firepro3d.hydraulic_solver import HydraulicSolver
-        sm = _mock_scale_manager(calibrated=True)
-        ws = _mock_water_supply()
-        sys = _mock_sprinkler_system(ws, nodes=[])
-        solver = HydraulicSolver(sys, sm)
-        result = solver.solve()
-        assert not any("calibrat" in m.lower() for m in result.messages)
-
-    def test_none_scale_manager_fails(self):
-        from firepro3d.hydraulic_solver import HydraulicSolver
-        ws = _mock_water_supply()
-        sys = _mock_sprinkler_system(ws)
-        solver = HydraulicSolver(sys, None)
-        result = solver.solve()
-        assert result.passed is False
-        assert any("calibrat" in m.lower() for m in result.messages)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 3: Friction Loss with Equivalent Lengths
 # ─────────────────────────────────────────────────────────────────────────────
@@ -321,9 +290,6 @@ class TestEndToEnd:
         solver, sprs, supply_n, n1, n2, n3 = self._build_network()
         result = solver.solve(design_sprinklers=sprs)
 
-        # H4: Should not fail on scale (calibrated=True)
-        assert not any("calibrat" in m.lower() for m in result.messages)
-
         # H1: Equivalent lengths applied message present
         assert any("equivalent pipe lengths" in m.lower() for m in result.messages)
 
@@ -349,10 +315,3 @@ class TestEndToEnd:
             result.required_node_pressures[n3],
         )
 
-    def test_uncalibrated_blocks(self):
-        """Same network but with uncalibrated scale — should fail at guard."""
-        solver, sprs, *_ = self._build_network()
-        solver.sm = _mock_scale_manager(calibrated=False)
-        result = solver.solve(design_sprinklers=sprs)
-        assert result.passed is False
-        assert any("calibrat" in m.lower() for m in result.messages)

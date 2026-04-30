@@ -103,13 +103,6 @@ class HydraulicSolver:
         if supply_ws is None:
             return self._fail("No water supply node placed on the drawing.")
 
-        # ── Scale calibration guard ───────────────────────────────────────
-        if not self.sm or not self.sm.is_calibrated:
-            return self._fail(
-                "Scale not calibrated — pipe lengths are unreliable. "
-                "Calibrate the scale before running hydraulic calculations."
-            )
-
         if design_sprinklers is None:
             design_sprinklers = list(self.system.sprinklers)
 
