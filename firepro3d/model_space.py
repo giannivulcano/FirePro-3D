@@ -4910,7 +4910,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                             "draw_line", "construction_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "gridline",
                             "dimension", "text", "door", "window", "set_scale",
-                            "detail")
+                            "detail", "align")
         if (self.mode not in _skip_grip_modes
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
             grip_hit = self._find_grip_hit(snapped)
