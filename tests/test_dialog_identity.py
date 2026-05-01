@@ -9,34 +9,37 @@ from PyQt6.QtCore import Qt
 
 
 class TestDirectionTabIdentity:
-    """Verify hidden column 5 stores backing refs."""
+    """Verify hidden column 6 stores backing refs and column 5 is Locked."""
 
-    def test_table_has_6_columns(self, qapp):
+    def test_table_has_7_columns(self, qapp):
         tab = _DirectionTab("V")
-        assert tab._table.columnCount() == 6
+        assert tab._table.columnCount() == 7
 
-    def test_column_5_hidden(self, qapp):
+    def test_column_6_hidden(self, qapp):
         tab = _DirectionTab("V")
-        assert tab._table.isColumnHidden(5)
+        assert tab._table.isColumnHidden(6)
 
     def test_add_row_backing_none(self, qapp):
         tab = _DirectionTab("V")
         tab._add_row()
-        bck = tab._table.item(0, 5)
+        bck = tab._table.item(0, 6)
         assert bck is not None
         assert bck.data(Qt.ItemDataRole.UserRole) is None
 
-    def test_read_rows_returns_5_tuple(self, qapp):
+    def test_read_rows_returns_6_tuple(self, qapp):
         tab = _DirectionTab("V")
         tab._add_row()
         rows = tab.read_rows()
         assert len(rows) == 1
-        assert len(rows[0]) == 5
-        assert rows[0][4] is None
+        assert len(rows[0]) == 6
+        assert rows[0][4] is None   # backing
+        assert rows[0][5] is False  # locked
 
     def test_populate_with_backing(self, qapp):
+        from unittest.mock import MagicMock
+        sentinel = MagicMock()
+        sentinel._locked = False
         tab = _DirectionTab("V")
-        sentinel = object()
         tab.populate([("A", 0.0, 100.0, 90.0, sentinel)])
         rows = tab.read_rows()
         assert rows[0][4] is sentinel
@@ -48,12 +51,23 @@ class TestDirectionTabIdentity:
         assert rows[0][4] is None
 
     def test_generate_clears_backing(self, qapp):
+        from unittest.mock import MagicMock
+        sentinel = MagicMock()
+        sentinel._locked = False
         tab = _DirectionTab("V")
-        sentinel = object()
         tab.populate([("X", 0.0, 100.0, 90.0, sentinel)])
         tab._generate_array()
         for row in tab.read_rows():
             assert row[4] is None
+
+    def test_locked_column_checkbox(self, qapp):
+        from unittest.mock import MagicMock
+        gl = MagicMock()
+        gl._locked = True
+        tab = _DirectionTab("V")
+        tab.populate([("A", 0.0, 100.0, 90.0, gl)])
+        rows = tab.read_rows()
+        assert rows[0][5] is True  # locked flag read back
 
 
 class TestGetGridlinesIncludesBacking:
@@ -72,6 +86,7 @@ class TestGetGridlinesIncludesBacking:
         from PyQt6.QtCore import QLineF, QPointF
         gl = MagicMock()
         gl.grid_label = "1"
+        gl._locked = False
         gl.line.return_value = QLineF(QPointF(0, 0), QPointF(0, -1000))
         dlg = GridLinesDialog(existing_gridlines=[gl])
         specs = dlg.get_gridlines()

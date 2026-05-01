@@ -3866,12 +3866,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             p2 = QPointF(ox + length * dx,
                          oy + length * dy)
 
+            locked = spec.get("locked", False)
+
             if backing is not None:
                 backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
                 backing.grid_label = label
+                backing._locked = locked
                 backing._update_bubble_positions()
             else:
                 gl = GridlineItem(p1, p2, label=label)
+                gl._locked = locked
                 gl.user_layer = self.active_user_layer
                 self.addItem(gl)
                 apply_category_defaults(gl)
@@ -4925,7 +4929,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._grip_dragging = True
                 return  # consumed by grip system
 
-        # ── Gridline body drag (perpendicular constraint, select mode) ──
+        # ── Gridline body click → select (no body drag, use grips) ──
         if self.mode in (None, "select"):
             gl_hit = next(
                 (i for i in items
@@ -4935,14 +4939,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             )
             if gl_hit is not None:
                 gl = gl_hit if isinstance(gl_hit, GridlineItem) else gl_hit.parentItem()
-                if not gl.locked:
-                    px, py = gl._perpendicular_vector()
-                    line = gl.line()
-                    orig_perp = line.p1().x() * px + line.p1().y() * py
-                    self._dragging_gridline = gl
-                    self._gridline_drag_start = snapped
-                    self._gridline_drag_original_pos = orig_perp
-                    return
+                ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                if ctrl:
+                    gl.setSelected(not gl.isSelected())
+                else:
+                    # Clear other selections and select this gridline
+                    if not gl.isSelected():
+                        self.clearSelection()
+                        gl.setSelected(True)
+                return
 
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)

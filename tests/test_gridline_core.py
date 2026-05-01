@@ -89,10 +89,16 @@ class TestPerpendicularMove:
 
 
 class TestGripConstraint:
-    def test_grip_constrained_along_direction(self, vertical_gl):
+    def test_grip_translates_entire_gridline(self, vertical_gl):
+        """Grip drag now translates the entire gridline freely in 2D."""
+        p1_before = vertical_gl.line().p1()
+        p2_before = vertical_gl.line().p2()
         vertical_gl.apply_grip(0, QPointF(1500, -300))
-        assert vertical_gl.line().p1().x() == pytest.approx(1000.0)
-        assert vertical_gl.line().p1().y() == pytest.approx(-300.0, abs=1.0)
+        # Delta from p1 (1000, 0) to new_pos (1500, -300) is (500, -300)
+        assert vertical_gl.line().p1().x() == pytest.approx(1500.0)
+        assert vertical_gl.line().p1().y() == pytest.approx(-300.0)
+        assert vertical_gl.line().p2().x() == pytest.approx(p2_before.x() + 500.0)
+        assert vertical_gl.line().p2().y() == pytest.approx(p2_before.y() - 300.0)
 
 
 class TestLevelIndependence:

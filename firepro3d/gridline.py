@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
     QGraphicsRectItem, QGraphicsItem, QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
+from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker
 from .constants import DEFAULT_USER_LAYER
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
@@ -299,14 +299,18 @@ class GridlineItem(QGraphicsLineItem):
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        """Return bubble positions as the selectable shape.
-
-        Uses a small scene-unit radius so marquee selection works
-        near endpoints.  Direct clicks on ITT bubbles are handled
-        by GridBubble.mousePressEvent.
-        """
+        """Return the selectable hit area: the line body with a generous
+        stroke width plus the bubble positions for marquee selection."""
         path = QPainterPath()
-        # Use a fixed scene-unit radius — enough for marquee selection
+        line = self.line()
+        # Add a stroked version of the line with generous hit width
+        line_path = QPainterPath()
+        line_path.moveTo(line.p1())
+        line_path.lineTo(line.p2())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(40.0)  # scene units — generous click target
+        path = stroker.createStroke(line_path)
+        # Also include bubble positions for marquee selection
         r = 50.0
         path.addEllipse(self.bubble1.pos(), r, r)
         path.addEllipse(self.bubble2.pos(), r, r)
@@ -500,30 +504,28 @@ class GridlineItem(QGraphicsLineItem):
         return [line.p1(), line.p2()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Move grip *index* to *new_pos*, constrained along the gridline
-        direction so the line stays co-linear.  Locked gridlines are not
-        affected."""
+        """Translate the entire gridline by dragging a grip handle.
+
+        Both grip indices move the whole gridline freely in 2D.
+        Locked gridlines are not affected.
+        """
         if self._locked:
             return
         line = self.line()
         p1, p2 = line.p1(), line.p2()
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length_sq = dx * dx + dy * dy
-        if length_sq < 1e-12:
-            return
 
-        if index == 0:
-            # Project new_pos onto the line direction relative to p2
-            t = ((new_pos.x() - p2.x()) * dx + (new_pos.y() - p2.y()) * dy) / length_sq
-            proj = QPointF(p2.x() + t * dx, p2.y() + t * dy)
-            self.setLine(proj.x(), proj.y(), p2.x(), p2.y())
-        elif index == 1:
-            # Project new_pos onto the line direction relative to p1
-            t = ((new_pos.x() - p1.x()) * dx + (new_pos.y() - p1.y()) * dy) / length_sq
-            proj = QPointF(p1.x() + t * dx, p1.y() + t * dy)
-            self.setLine(p1.x(), p1.y(), proj.x(), proj.y())
+        # Current grip position
+        current = p1 if index == 0 else p2
 
+        # Delta from current to new
+        dx = new_pos.x() - current.x()
+        dy = new_pos.y() - current.y()
+
+        # Translate both endpoints
+        self.setLine(
+            p1.x() + dx, p1.y() + dy,
+            p2.x() + dx, p2.y() + dy,
+        )
         self._update_bubble_positions()
         self.update()
 
