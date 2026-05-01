@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore  import QPointF, QRectF
+from PyQt6.QtCore  import QLineF, QPointF, QRectF
 from PyQt6.QtGui   import QTransform
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
@@ -127,6 +127,8 @@ class OsnapResult:
     snap_type:   str                               # key from SNAP_COLORS
     source_item:  QGraphicsItem | None = field(default=None, repr=False)
     source_item2: QGraphicsItem | None = field(default=None, repr=False)
+    source_lines: list | None = field(default=None, repr=False)
+    """Optional list of QLineF segments to highlight instead of full items."""
     name:         str | None = None
     """Optional semantic name for this candidate.
 
@@ -158,7 +160,9 @@ class _SnapCtx:
         self.endpoint_candidates: list[QPointF] = []
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
-              name: str | None = None):
+              name: str | None = None, *,
+              src_item2: QGraphicsItem | None = None,
+              source_lines: list | None = None):
         """Compare a candidate snap against the current best."""
         d = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
         if snap_type == "endpoint" and d <= self.tol:
@@ -170,7 +174,8 @@ class _SnapCtx:
             self.best_prio = prio
             self.best_result = OsnapResult(
                 point=pt, snap_type=snap_type,
-                source_item=src_item, name=name,
+                source_item=src_item, source_item2=src_item2,
+                source_lines=source_lines, name=name,
             )
 
 
@@ -255,11 +260,21 @@ class SnapEngine:
         from .annotations import HatchItem
         _skip_types = (DimensionAnnotation, NoteAnnotation, HatchItem)
 
+        _underlay_tags = ("DXF Underlay", "PDF Underlay")
+
         for item in scene.items(search_rect):
             if exclude is not None and item is exclude:
                 continue
-            if item.parentItem() is not None:
+
+            parent = item.parentItem()
+            if parent is not None:
+                # Children of underlay groups — collect snaps
+                if (isinstance(parent, QGraphicsItemGroup)
+                        and parent.data(0) in _underlay_tags):
+                    for snap_type, scene_pt, name in self._collect(item):
+                        ctx.check(snap_type, scene_pt, item, name)
                 continue
+
             if item.zValue() > 150:
                 continue
             if isinstance(item, _skip_types):
@@ -270,18 +285,9 @@ class SnapEngine:
                 continue
 
             # DXF/PDF underlay groups — skip the group itself;
-            # children are yielded directly by scene.items() below.
+            # children are yielded directly by scene.items() above.
             if (isinstance(item, QGraphicsItemGroup)
-                    and item.data(0) in ("DXF Underlay", "PDF Underlay")):
-                continue
-
-            # Children of underlay groups — collect snaps
-            parent = item.parentItem()
-            if parent is not None:
-                if (isinstance(parent, QGraphicsItemGroup)
-                        and parent.data(0) in ("DXF Underlay", "PDF Underlay")):
-                    for snap_type, scene_pt, name in self._collect(item):
-                        ctx.check(snap_type, scene_pt, item, name)
+                    and item.data(0) in _underlay_tags):
                 continue
 
             for snap_type, pt, name in self._collect(item):
@@ -305,12 +311,8 @@ class SnapEngine:
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
                     if d <= ctx.tol:
-                        # Force intersection to win over perpendicular/nearest
-                        ctx.best_dist = d
-                        ctx.best_prio = 0
-                        ctx.best_result = OsnapResult(
-                            point=ix, snap_type="intersection",
-                            source_item=g1, source_item2=g2)
+                        ctx.check("intersection", ix, g1,
+                                  src_item2=g2)
 
     def _check_gridline_snaps(self, ctx: "_SnapCtx", gl_items: list):
         """Phase 3: Gridline point + edge snaps (shape is bubbles-only)."""
@@ -443,7 +445,10 @@ class SnapEngine:
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
                     if d <= ctx.tol and not _protected(ix):
-                        ctx.check("intersection", ix, src1)
+                        ctx.check("intersection", ix, src1,
+                                  src_item2=src2,
+                                  source_lines=[QLineF(sa1, sa2),
+                                                QLineF(sb1, sb2)])
 
         # Segment–circle intersections
         for center, radius, c_item in _circles:
@@ -452,7 +457,9 @@ class SnapEngine:
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
                     if d <= ctx.tol and not _protected(ix):
-                        ctx.check("intersection", ix, src)
+                        ctx.check("intersection", ix, src,
+                                  src_item2=c_item,
+                                  source_lines=[QLineF(sa1, sa2)])
 
     # ── Internal ─────────────────────────────────────────────────────────────
 

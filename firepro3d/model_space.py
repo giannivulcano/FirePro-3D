@@ -1917,10 +1917,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group = self.createItemGroup(items)
         group.setZValue(Z_UNDERLAY)
         group.setPos(insert_pt)
-        group.setFlags(
-            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
         file_type = getattr(params, "file_type", "dxf")
         label = "PDF Underlay" if file_type == "pdf" else "DXF Underlay"
         group.setData(0, label)
@@ -2084,10 +2080,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group = self.createItemGroup(items)
         group.setZValue(Z_UNDERLAY)
         group.setPos(params["x"], params["y"])
-        group.setFlags(
-            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
         group.setData(0, "DXF Underlay")
 
         record = params["_record"] or Underlay(

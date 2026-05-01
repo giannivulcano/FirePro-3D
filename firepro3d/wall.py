@@ -396,7 +396,17 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             (self._pt1.x() + self._pt2.x()) / 2,
             (self._pt1.y() + self._pt2.y()) / 2,
         )
-        return [QPointF(self._pt1), QPointF(self._pt2), mid]
+        # Width grip on the far face midpoint
+        p1l, p1r, p2r, p2l = self.quad_points()
+        if self._alignment == ALIGN_RIGHT:
+            # Right-aligned: far face is the right (negative-normal) side
+            width_grip = QPointF((p2r.x() + p1r.x()) / 2,
+                                 (p2r.y() + p1r.y()) / 2)
+        else:
+            # Center/Left: far face is the left (positive-normal) side
+            width_grip = QPointF((p1l.x() + p2l.x()) / 2,
+                                 (p1l.y() + p2l.y()) / 2)
+        return [QPointF(self._pt1), QPointF(self._pt2), mid, width_grip]
 
     def apply_grip(self, index: int, new_pos: QPointF):
         if index == 0:
@@ -413,6 +423,19 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             dy = new_pos.y() - old_mid.y()
             self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
             self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
+        elif index == 3:
+            # Width grip — drag perpendicular to wall to adjust thickness
+            nx, ny = self.normal()
+            mid_x = (self._pt1.x() + self._pt2.x()) / 2
+            mid_y = (self._pt1.y() + self._pt2.y()) / 2
+            d = abs((new_pos.x() - mid_x) * nx + (new_pos.y() - mid_y) * ny)
+            ht_scene = self.half_thickness_scene()
+            if ht_scene > 0 and d > 0:
+                if self._alignment == ALIGN_CENTER:
+                    new_thickness = self._thickness_mm * (d / ht_scene)
+                else:
+                    new_thickness = self._thickness_mm * (d / (2 * ht_scene))
+                self._thickness_mm = max(new_thickness, 25.4)  # min ~1 inch
         self._rebuild_path()
 
     def translate(self, dx: float, dy: float):

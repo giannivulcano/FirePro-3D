@@ -303,9 +303,9 @@ Accessed via file node right-click → "Properties". Shows: file path, type, lev
 - Selecting a file node in the tree selects the underlay in the scene (if unlocked) and pans the view to it.
 - `underlaysChanged` signal triggers tree rebuild.
 
-### 9.6 Lock behavior
+### 9.6 Selection behavior
 
-Locked underlays are not selectable or movable in the scene (current behavior, unchanged). The browser tree is the primary management surface for locked underlays — all actions are available via right-click regardless of lock state.
+Underlay groups are **not selectable or movable** in the scene — they are reference geometry that must not interfere with rubber-band selection or click-selection of design elements (walls, nodes, pipes, etc.). The browser tree is the primary management surface for all underlay operations — all actions are available via right-click regardless of lock state. Underlays remain snappable (the snap engine descends into underlay group children for endpoint, midpoint, and intersection detection).
 
 ---
 
@@ -452,7 +452,7 @@ Old project files lack the new fields. `from_dict()` applies defaults (§3.3). N
 10. Per-level visibility: underlay assigned to a level, auto-hides on level switch, "all levels" option.
 11. Per-source-layer visibility: toggle in browser tree, persisted across save/load/refresh.
 12. Browser tree: File → source layers hierarchy, right-click for all management actions.
-13. Lock: prevents movement and selection in scene; fully manageable via browser tree.
+13. Underlays are never selectable/movable in the scene (reference geometry); fully manageable via browser tree. Lock additionally prevents browser-initiated transforms.
 14. DXF entity coverage: INSERT (block references), HATCH, and DIMENSION entities imported via `virtual_entities()` explosion.
 
 ### 13.2 Out of scope (future follow-ups)

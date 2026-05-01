@@ -116,7 +116,7 @@ Eight snap types are defined today. Status reflects the engine's current behavio
 |---|---|---|---|---|---|---|
 | **endpoint** | square | `#ffff00` yellow | `END` | 1 | Line endpoints, polyline vertices, rectangle corners, arc start/end, wall centerline ends, wall face corners, generic path vertices | works |
 | **midpoint** | triangle | `#00ff88` green | `MID` | 2 | Line midpoints, polyline segment midpoints, rectangle edge centers, wall centerline midpoint, wall face-edge midpoints, arc angular midpoint | works |
-| **intersection** | x-cross | `#ffff00` yellow | `INT` | 0 | Gridline×gridline (phase 2), segment×segment and segment×circle (phase 4) | **buggy** — over-aggressive (priority 0 suppresses nearby endpoints; see §6, §7) |
+| **intersection** | x-cross | `#ffff00` yellow | `INT` | 0 | Gridline×gridline (phase 2), segment×segment and segment×circle (phase 4) | works — same-parent suppression (§6.3 Change A) + endpoint protection band (§6.3 Change B) fix prior over-aggressiveness; gridline intersections now compete via standard picker instead of force-winning |
 | **center** | circle | `#00eeee` cyan | `CEN` | 3 | Circle/ellipse centers, rectangle centers, arc centers | works |
 | **quadrant** | diamond | `#ff8800` orange | `QUA` | 5 | Circle 0°/90°/180°/270° points, arc quadrant points within angular range | works |
 | **perpendicular** | right-angle | `#ff00ff` magenta | `PER` | 4 | Foot-of-perpendicular onto any line/segment/wall edge/rectangle edge/polyline segment/arc/circle (cursor-dependent) | works |
@@ -146,7 +146,7 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 | `WallSegment` | **bug³** | ✓ (centerline + face mids) | **bug⁴** | N/A⁵ | N/A | ✓ (5 segments) | N/A | bug¹ |
 | `PolylineItem` | ✓ (vertices) | ✓ (segment mids) | ✓ (phase 4) | N/A | N/A | ✓ | N/A | bug¹ |
 | `ArcItem` | ✓ (start/end) | ✓ (angular) | ✓ (phase 4 vs segments) | ✓ | ✓ (in-range) | ✓ (closest on circumference) | **bug⁶** | bug¹ |
-| Generic `QGraphicsPathItem` (DXF) | ✓ (vertices) | ✓ (segment mids) | bug⁷ | N/A | N/A | ✓ | N/A | bug¹ |
+| Generic `QGraphicsPathItem` (DXF) | ✓ (vertices) | ✓ (segment mids) | ✓ (phase 4) | N/A | N/A | ✓ | N/A | bug¹ |
 | `HatchItem` (subclass of `QGraphicsPathItem`) | N/A | N/A | N/A | N/A | N/A | N/A | N/A | N/A |
 
 **Notes:**
@@ -156,7 +156,7 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 4. `WallSegment` contributes its two face edges as segments to phase 4. When two walls meet, this produces *real* corner intersections (good) but also produces wall-internal face crossings between same-parent edges, which the picker treats as ordinary intersections (bad). See §6 and §7.
 5. Walls have no meaningful geometric center. Marked N/A by design.
 6. Tangent is implemented only for full `QGraphicsEllipseItem`; the `ArcItem` branch in `_geometric_snaps` produces perpendicular but not tangent.
-7. Generic `QGraphicsPathItem` items (DXF imports) emit endpoints and midpoints in `_collect`, but `_check_geometry_intersections` has no branch for them, so they don't participate in phase-4 intersection scans even though they should. DXF underlay groups have a special phase-1 descent into children but no equivalent phase-4 path.
+7. ~~Generic `QGraphicsPathItem` items (DXF imports) emit endpoints and midpoints in `_collect`, but `_check_geometry_intersections` has no branch for them.~~ **Fixed.** Phase 4 now extracts segments from `QGraphicsPathItem` items (DXF imports) and `_phase4_items()` descends into underlay groups. DXF path items fully participate in phase-4 intersection scans.
 
 **`HatchItem` is intentionally all-N/A.** It is correctly skipped in phase 1 and matches no branch in phase 4, so it contributes zero candidates today. The hatch-noise case study (§7.2) is *not* caused by HatchItem leakage — see that section for the real cause.
 
@@ -168,10 +168,10 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 
 `SnapEngine.find()` runs four phases in order, each calling `_SnapCtx.check()` to compare candidates against the running best:
 
-1. **Phase 1 — Scene items in search rect.** Iterates `scene.items(search_rect)`, skipping a fixed type list (`DimensionAnnotation`, `NoteAnnotation`, `HatchItem`), the origin marker, child items, items above z=150, and (in design-area mode) pipes. For each surviving item, calls `_collect()` for static snaps (endpoint/midpoint/center/quadrant) and `_geometric_snaps()` for cursor-dependent snaps (perpendicular/nearest/tangent). DXF underlay groups descend into children.
-2. **Phase 2 — Gridline×gridline intersections.** Pairwise iterates visible gridlines, computes intersection points, and forces them into the picker with priority 0 (overrides whatever was best).
+1. **Phase 1 — Scene items in search rect.** Iterates `scene.items(search_rect)`. Child items are checked first: children of `DXF Underlay` / `PDF Underlay` groups are descended into for `_collect()` snaps (endpoint/midpoint/center/quadrant); all other child items are skipped. Top-level items skip `DimensionAnnotation`, `NoteAnnotation`, `HatchItem`, the origin marker, items above z=150, pipes (in design-area mode), and underlay groups themselves. For each surviving top-level item, calls `_collect()` for static snaps and `_geometric_snaps()` for cursor-dependent snaps (perpendicular/nearest/tangent).
+2. **Phase 2 — Gridline×gridline intersections.** Pairwise iterates visible gridlines, computes intersection points, and routes them through `_SnapCtx.check()` with the standard priority-band picker (no longer force-wins over other candidates).
 3. **Phase 3 — Gridline static + perpendicular snaps.** Calls `_collect()` and `_geometric_snaps()` for each visible gridline (gridlines have a bubbles-only `shape()` so they're missed by `scene.items(search_rect)`).
-4. **Phase 4 — Geometry×geometry intersections.** Re-iterates `scene.items(search_rect)`, extracting segments from `ConstructionLine`, `QGraphicsLineItem`, `PolylineItem`, `RectangleItem`, `WallSegment`, and circles from `CircleItem`. Pairs them all and emits `intersection` candidates for any crossing within tolerance.
+4. **Phase 4 — Geometry×geometry intersections.** Re-iterates `scene.items(search_rect)` via `_phase4_items()`, which descends into DXF/PDF underlay groups. Extracts segments from `ConstructionLine`, `QGraphicsLineItem`, `PolylineItem`, `RectangleItem`, `WallSegment`, `QGraphicsPathItem` (DXF geometry), and circles from `CircleItem`. Pairs them all and emits `intersection` candidates for any crossing within tolerance. Each intersection candidate carries both source items (`source_item`, `source_item2`) and the actual segment geometry (`source_lines`) for per-segment highlighting.
 
 The **picker** (`_SnapCtx.check()`) uses a "priority band":
 
@@ -293,6 +293,15 @@ The 8 base marker glyphs from §4 plus the 2 named-target variants from §8 are 
 
 Exactly one marker is drawn per `find()` call. If `find()` returns `None`, no marker. If multiple candidates tie on the picker, the picker breaks the tie deterministically (first-found wins after Changes A + B from §6.3).
 
+### 9.2.1 Snap trace highlighting
+
+When a snap result has a `source_item`, `Model_View.drawForeground()` draws a dashed-line trace in the snap type's color. Highlighting rules:
+
+- **Intersection snaps with `source_lines`:** Only the two participating segments are drawn (not the full source items). This prevents entire DXF rectangles or multi-segment paths from lighting up when only two edges intersect.
+- **Endpoint/midpoint on `QGraphicsPathItem`:** Only the 1–2 segments adjacent to the snap point are drawn, found by proximity check against path vertices and segment midpoints (1 mm² scene tolerance). Falls back to the full path if no adjacent segments match.
+- **Simple items** (`QGraphicsLineItem`, `QGraphicsEllipseItem`, `QGraphicsRectItem`): The full item is drawn.
+- **Both source items** (`source_item` + `source_item2`) are traced when present (intersection snaps always populate both).
+
 ### 9.3 Tooltip text
 
 **Not adopted in v1.** AutoCAD's AutoSnap tooltip is desirable but adding it now competes with the marker-variant disambiguation chosen in §8. If user testing of the marker variants reveals they're not enough, tooltip text becomes a roadmap follow-up.
@@ -396,7 +405,7 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 
 1. **Per-type toggle UI surface.** The boolean attributes `snap_endpoint`, `snap_midpoint`, etc. exist on `SnapEngine` but a code search did not turn up a UI that toggles them. Roadmap item 12 confirms or denies; if denied, the OSNAP toolbar spec becomes a higher priority than its current "deferred" tag suggests.
 
-2. **DXF underlay child item recall.** Phase 1 has a special descent into `DXF Underlay` `QGraphicsItemGroup` children for `_collect()`, but phase 4 has no equivalent path. Items inside DXF underlay groups are missed by phase-4 intersections. Roadmap item 7 begins to address this for paths; group descent in phase 4 may be a separate item.
+2. ~~**DXF underlay child item recall.**~~ **Resolved.** Phase 1 now correctly descends into underlay group children for `_collect()` snaps (endpoint/midpoint). Phase 4 descends via `_phase4_items()` for intersection detection. Both phases handle DXF/PDF underlay children.
 
 3. **Tolerance dataset hook (deferred subsystem feedforward).** While implementing the recall-first changes, instrument the engine to log near-miss cases (cursor position, all candidates within `tolerance × 1.5`, the candidate that won, and the distance margin to the second-best). This produces a dataset that the future tolerance UX spec inherits, replacing guesswork with measurement. **Not a blocking roadmap item** — implement opportunistically inside item 1 if cheap, otherwise spawn as a separate item later. Mentioned here so the door stays open.
 

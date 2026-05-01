@@ -140,8 +140,9 @@ Zero-thickness "room separation lines" are a distinct concept requiring a future
 | 0 | pt1 | Move endpoint, openings reposition |
 | 1 | pt2 | Move endpoint, openings reposition |
 | 2 | Midpoint | Translate whole wall, openings follow |
+| 3 | Far face midpoint | Drag perpendicular to wall to adjust thickness (min 25.4 mm / 1 inch). For Center alignment the grip sits on the positive-normal face; for Right alignment, the negative-normal face. |
 
-`apply_grip()` updates endpoints, calls `_rebuild_path()`, which repositions all owned openings (§7.3).
+`apply_grip()` updates endpoints (indices 0–2) or thickness (index 3), calls `_rebuild_path()`, which repositions all owned openings (§7.3). The width grip projects the drag position onto the wall normal and converts back to mm via the current scene-to-mm ratio.
 
 ## 5. Wall Joinery
 

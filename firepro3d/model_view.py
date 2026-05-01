@@ -1,7 +1,7 @@
 import math
 
 from PyQt6.QtWidgets import (
-    QGraphicsView, QScrollBar, QMenu,
+    QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
 from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, pyqtSignal
@@ -203,23 +203,54 @@ class Model_View(QGraphicsView):
             painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
 
-            # Draw all source items (source_item + optional source_item2)
-            _sources = [snap_result.source_item]
-            _src2 = getattr(snap_result, "source_item2", None)
-            if _src2 is not None:
-                _sources.append(_src2)
-            for src in _sources:
-                if isinstance(src, QGraphicsLineItem):
-                    ln = src.line()
-                    p1 = src.mapToScene(ln.p1())
-                    p2 = src.mapToScene(ln.p2())
-                    painter.drawLine(QLineF(p1, p2))
-                elif isinstance(src, QGraphicsEllipseItem):
-                    painter.drawEllipse(src.mapRectToScene(src.rect()))
-                elif isinstance(src, QGraphicsPathItem):
-                    painter.drawPath(src.mapToScene(src.path()))
-                elif isinstance(src, QGraphicsRectItem):
-                    painter.drawRect(src.mapRectToScene(src.rect()))
+            # If source_lines are provided (Phase 4 intersections),
+            # draw only the participating segments instead of full items.
+            _src_lines = getattr(snap_result, "source_lines", None)
+            if _src_lines:
+                for seg in _src_lines:
+                    painter.drawLine(seg)
+            else:
+                # Draw all source items (source_item + optional source_item2)
+                _sources = [snap_result.source_item]
+                _src2 = getattr(snap_result, "source_item2", None)
+                if _src2 is not None:
+                    _sources.append(_src2)
+                for src in _sources:
+                    if isinstance(src, QGraphicsLineItem):
+                        ln = src.line()
+                        p1 = src.mapToScene(ln.p1())
+                        p2 = src.mapToScene(ln.p2())
+                        painter.drawLine(QLineF(p1, p2))
+                    elif isinstance(src, QGraphicsEllipseItem):
+                        painter.drawEllipse(src.mapRectToScene(src.rect()))
+                    elif isinstance(src, QGraphicsPathItem):
+                        # Draw only segments adjacent to snap point,
+                        # not the entire path (avoids lighting up a
+                        # whole DXF rectangle for one corner snap).
+                        sp = snap_result.point
+                        path = src.path()
+                        n = path.elementCount()
+                        best_segs = []
+                        tol_sq = 1.0  # 1 mm² scene tolerance
+                        for si in range(n - 1):
+                            e1 = path.elementAt(si)
+                            e2 = path.elementAt(si + 1)
+                            p1 = src.mapToScene(QPointF(e1.x, e1.y))
+                            p2 = src.mapToScene(QPointF(e2.x, e2.y))
+                            d1 = (p1.x() - sp.x()) ** 2 + (p1.y() - sp.y()) ** 2
+                            d2 = (p2.x() - sp.x()) ** 2 + (p2.y() - sp.y()) ** 2
+                            mx = (p1.x() + p2.x()) * 0.5
+                            my = (p1.y() + p2.y()) * 0.5
+                            dm = (mx - sp.x()) ** 2 + (my - sp.y()) ** 2
+                            if d1 < tol_sq or d2 < tol_sq or dm < tol_sq:
+                                best_segs.append(QLineF(p1, p2))
+                        if best_segs:
+                            for seg in best_segs:
+                                painter.drawLine(seg)
+                        else:
+                            painter.drawPath(src.mapToScene(src.path()))
+                    elif isinstance(src, QGraphicsRectItem):
+                        painter.drawRect(src.mapRectToScene(src.rect()))
 
             painter.restore()
 
@@ -591,18 +622,6 @@ class Model_View(QGraphicsView):
                     super().mousePressEvent(event)
                     return
 
-            # In select mode, when clicking directly on an item the scene
-            # handles selection via _press_select_item.  Suppress
-            # rubber-band for this press so the view's mouseReleaseEvent
-            # doesn't clear the selection with an empty rubber-band rect.
-            if (sc is not None
-                    and getattr(sc, "mode", None) in (None, "select")
-                    and sc.items(scene_pos)):
-                self._item_press_active = True
-                self.setDragMode(QGraphicsView.DragMode.NoDrag)
-                super().mousePressEvent(event)
-                return
-
             super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
@@ -625,14 +644,30 @@ class Model_View(QGraphicsView):
             self.setCursor(self._mode_cursors.get(
                 mode, Qt.CursorShape.ArrowCursor))
         elif event.button() == Qt.MouseButton.LeftButton:
-            if getattr(self, "_grip_press_active", False) or getattr(self, "_item_press_active", False):
+            if getattr(self, "_grip_press_active", False):
                 self._grip_press_active = False
-                self._item_press_active = False
-                # Only restore rubber-band in modes that use it
+                # Restore rubber-band in modes that use it
                 sc = self.scene()
                 mode = getattr(sc, "mode", "select") if sc else "select"
                 if mode in ("select", "stretch"):
                     self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+            else:
+                # If this was a click (not a drag), temporarily suppress
+                # rubber-band so Qt doesn't deselect everything with an
+                # empty rubber-band rect.  The scene's press handler
+                # already handled item selection.
+                rb_start = getattr(self, "_rb_start", None)
+                if rb_start is not None:
+                    dist = (event.pos() - rb_start).manhattanLength()
+                    if dist < 5:
+                        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+                        super().mouseReleaseEvent(event)
+                        sc = self.scene()
+                        mode = getattr(sc, "mode", "select") if sc else "select"
+                        if mode in ("select", "stretch"):
+                            self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+                        self._rb_start = None
+                        return
             # Crossing selection for stretch mode: detect right-to-left drag
             sc = self.scene()
             rb_start = getattr(self, "_rb_start", None)

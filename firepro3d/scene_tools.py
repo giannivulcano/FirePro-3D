@@ -1116,23 +1116,27 @@ class SceneToolsMixin:
 
     def _find_grip_hit(self, pos: QPointF):
         """
-        Return *(item, grip_index)* if *pos* is within 8 screen pixels of any
-        grip handle on a selected item, else *None*.
+        Return *(item, grip_index)* for the closest grip handle within
+        tolerance of *pos* on any selected item, else *None*.
         """
         views = self.views()
         if not views:
             return None
         scale = views[0].transform().m11()
-        grip_px = getattr(self, "_grip_tolerance_px", 200)
+        grip_px = getattr(self, "_grip_tolerance_px", 12)
         tol   = grip_px / max(scale, 1e-6)
 
+        best = None
+        best_dist = tol
         for item in self.selectedItems():
             if not hasattr(item, "grip_points"):
                 continue
             for idx, gpt in enumerate(item.grip_points()):
-                if math.hypot(pos.x() - gpt.x(), pos.y() - gpt.y()) <= tol:
-                    return (item, idx)
-        return None
+                d = math.hypot(pos.x() - gpt.x(), pos.y() - gpt.y())
+                if d <= best_dist:
+                    best_dist = d
+                    best = (item, idx)
+        return best
 
     # =========================================================================
     # TRIM / EXTEND / MERGE  (Sprint Y)
