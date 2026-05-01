@@ -196,6 +196,7 @@ class _PadlockItem(QGraphicsPathItem):
                 scene._constraints.append(self._constraint)
             self._locked = True
             self._update_appearance()
+            event.accept()
         else:
             # Second click — remove constraint and self
             scene = self.scene()
@@ -211,6 +212,7 @@ class _PadlockItem(QGraphicsPathItem):
                     except ValueError:
                         pass
                 scene.removeItem(self)
+            event.accept()
 
 
 class SceneToolsMixin:
@@ -1810,6 +1812,11 @@ class SceneToolsMixin:
                 return
             edge, ref_item = result
             self._align_reference = (edge, ref_item)
+            # Remove any hover highlight before creating reference highlight
+            if self._align_highlight is not None:
+                if self._align_highlight.scene() is self:
+                    self.removeItem(self._align_highlight)
+                self._align_highlight = None
             # Visual highlight: dashed line along the reference edge
             highlight = QGraphicsLineItem(
                 edge[0].x(), edge[0].y(), edge[1].x(), edge[1].y())
@@ -1828,9 +1835,13 @@ class SceneToolsMixin:
             # Determine target: selected items or item under cursor
             selected = [s for s in self.selectedItems()
                         if s is not ref_item and s is not self._align_highlight]
-            if selected:
-                self._execute_align(ref_edge, ref_item, selected[0],
-                                    group=selected if len(selected) > 1 else None)
+            if selected and item_under in selected:
+                # Multi-select: item_under is the anchor
+                self._execute_align(ref_edge, ref_item, item_under,
+                                    group=selected)
+            elif item_under is not None and item_under is not ref_item:
+                # Single item
+                self._execute_align(ref_edge, ref_item, item_under)
             else:
                 result = self._find_nearest_edge(pos)
                 if result is None:
@@ -1867,27 +1878,27 @@ class SceneToolsMixin:
         best_edge = None
 
         target_edges = extract_edges(target)
-        if not target_edges:
-            self._show_status("Target has no extractable edges")
-            return
-
-        # Find the nearest parallel edge on the target
         ref_p1, ref_p2 = ref_edge
-        best_dist = float("inf")
-        for te in target_edges:
-            if is_parallel(ref_p1, ref_p2, te[0], te[1]):
-                mid = QPointF((te[0].x() + te[1].x()) / 2,
-                              (te[0].y() + te[1].y()) / 2)
-                d = perpendicular_translation(ref_p1, ref_p2, mid)
-                dist = math.hypot(d.x(), d.y())
-                if dist < best_dist:
-                    best_dist = dist
-                    best_edge = te
-                    delta = d
 
-        if best_edge is None:
-            self._show_status("No parallel edge found on target")
-            return
+        if not target_edges:
+            # Point-like item — project its position onto the reference line
+            delta = perpendicular_translation(ref_p1, ref_p2, target.scenePos())
+        else:
+            best_dist = float("inf")
+            for te in target_edges:
+                if is_parallel(ref_p1, ref_p2, te[0], te[1]):
+                    mid = QPointF((te[0].x() + te[1].x()) / 2,
+                                  (te[0].y() + te[1].y()) / 2)
+                    d = perpendicular_translation(ref_p1, ref_p2, mid)
+                    dist = math.hypot(d.x(), d.y())
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_edge = te
+                        delta = d
+
+            if best_edge is None:
+                self._show_status("No parallel edge found on target")
+                return
 
         self.push_undo_state()
 
@@ -1933,13 +1944,28 @@ class SceneToolsMixin:
                     item_offset = comp
                     break
             if item_mid is None:
-                # Fallback: use item scene pos
+                # Fallback: use item scene pos (point-like items)
                 sp = item.scenePos() if hasattr(item, 'scenePos') else item.pos()
                 item_mid = QPointF(sp.x(), sp.y())
+                comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
+                        + (item_mid.y() - ref_p1.y()) * perp_dir.y())
+                item_offset = comp
+
+            # Use live reference item when it's a trackable scene item
+            # (has .line() or ._p1); otherwise store a fixed reference line
+            if ref_item is not None and (
+                (hasattr(ref_item, 'line') and callable(ref_item.line))
+                or hasattr(ref_item, '_p1')
+            ):
+                c_ref_item = ref_item
+                c_ref_line = None
+            else:
+                c_ref_item = None
+                c_ref_line = (QPointF(ref_p1), QPointF(ref_p2))
 
             constraint_data = {
-                "reference_item": ref_item,
-                "reference_line": (QPointF(ref_p1), QPointF(ref_p2)),
+                "reference_item": c_ref_item,
+                "reference_line": c_ref_line,
                 "target_item": item,
                 "target_point": item_mid,
                 "perp_direction": perp_dir,
@@ -1975,6 +2001,12 @@ class SceneToolsMixin:
         for item in candidates:
             # Skip our own highlight / ghost items
             if item is self._align_highlight or item is self._align_ghost:
+                continue
+            # Skip padlock items
+            if isinstance(item, _PadlockItem):
+                continue
+            # Skip invisible items
+            if not item.isVisible():
                 continue
             edges = extract_edges(item)
             for edge in edges:

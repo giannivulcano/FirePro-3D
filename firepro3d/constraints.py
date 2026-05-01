@@ -382,11 +382,15 @@ class AlignmentConstraint(Constraint):
         """
         if self.reference_line is not None:
             return self.reference_line
-        if self.reference_item is not None and hasattr(self.reference_item, "_p1"):
-            return (
-                QPointF(self.reference_item._p1),
-                QPointF(self.reference_item._p2),
-            )
+        if self.reference_item is not None:
+            # GridlineItem / QGraphicsLineItem — uses .line()
+            if hasattr(self.reference_item, 'line') and callable(self.reference_item.line):
+                line = self.reference_item.line()
+                return (QPointF(line.p1()), QPointF(line.p2()))
+            # Fallback for items with _p1/_p2
+            if hasattr(self.reference_item, "_p1"):
+                return (QPointF(self.reference_item._p1),
+                        QPointF(self.reference_item._p2))
         return None
 
     @staticmethod
