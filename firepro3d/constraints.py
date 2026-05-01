@@ -95,6 +95,8 @@ class Constraint:
             return ConcentricConstraint.from_dict(data, id_to_item)
         elif ctype == "dimensional":
             return DimensionalConstraint.from_dict(data, id_to_item)
+        elif ctype == "alignment":
+            return AlignmentConstraint.from_dict(data, id_to_item)
         return None
 
 
@@ -320,6 +322,229 @@ class DimensionalConstraint(Constraint):
             item_a, data["grip_a"],
             item_b, data["grip_b"],
             data["distance"],
+        )
+        obj.enabled = data.get("enabled", True)
+        return obj
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AlignmentConstraint
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AlignmentConstraint(Constraint):
+    """Keeps a target item at a fixed perpendicular distance from a reference line.
+
+    The reference line may be provided as a pair of ``QPointF`` values
+    (``reference_line``) or indirectly via ``reference_item`` (not used in the
+    initial implementation but reserved for future live-item references).
+
+    When solved, the signed perpendicular distance from ``target_point`` to the
+    reference line is computed (positive on the same side as ``perp_direction``)
+    and the target item is translated via ``moveBy()`` so that the distance
+    equals ``perpendicular_offset``.
+
+    Args:
+        reference_item: Live scene item whose geometry defines the reference
+            line, or ``None`` when ``reference_line`` is supplied directly.
+        reference_line: Tuple ``(QPointF, QPointF)`` defining a fixed reference
+            line, or ``None`` when ``reference_item`` is used.
+        target_item: The scene item to be moved.
+        target_point: The specific point on the target item whose distance to
+            the reference line is constrained.
+        perp_direction: Unit vector indicating the positive perpendicular side.
+        perpendicular_offset: Desired signed perpendicular distance (mm).
+    """
+
+    def __init__(
+        self,
+        reference_item,
+        reference_line,
+        target_item,
+        target_point: QPointF,
+        perp_direction: QPointF,
+        perpendicular_offset: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.reference_item = reference_item
+        self.reference_line = reference_line  # (QPointF, QPointF) or None
+        self.target_item = target_item
+        self.target_point = QPointF(target_point)
+        self.perp_direction = QPointF(perp_direction)
+        self.perpendicular_offset: float = perpendicular_offset
+
+    # -- helpers --------------------------------------------------------------
+
+    def _get_reference_line(self):
+        """Return the current reference line as a (p1, p2) tuple.
+
+        Returns:
+            Tuple of two ``QPointF`` or ``None`` if unavailable.
+        """
+        if self.reference_line is not None:
+            return self.reference_line
+        if self.reference_item is not None and hasattr(self.reference_item, "_p1"):
+            return (
+                QPointF(self.reference_item._p1),
+                QPointF(self.reference_item._p2),
+            )
+        return None
+
+    @staticmethod
+    def _perp_component(p: QPointF, p1: QPointF, perp: QPointF) -> float:
+        """Perpendicular component of the vector from *p1* to *p* along *perp*.
+
+        Computes the dot product of ``(p - p1)`` with the unit vector *perp*,
+        giving the signed projection onto the perpendicular axis.
+
+        Args:
+            p: Query point.
+            p1: Origin of the reference line.
+            perp: Unit vector defining the positive perpendicular direction.
+
+        Returns:
+            Signed projection distance.
+        """
+        vx = p.x() - p1.x()
+        vy = p.y() - p1.y()
+        return vx * perp.x() + vy * perp.y()
+
+    # -- solve ----------------------------------------------------------------
+
+    def solve(self, moved_item=None) -> bool:
+        """Translate the target item to satisfy the perpendicular offset.
+
+        Computes the projection of ``target_point`` onto ``perp_direction``
+        (measured from the first reference-line point), then moves the target
+        item along ``perp_direction`` by the error
+        ``(perpendicular_offset - current_projection)``.
+
+        Returns:
+            ``True`` when the constraint is satisfied after solving.
+        """
+        if not self.enabled:
+            return True
+
+        line = self._get_reference_line()
+        if line is None:
+            self.satisfied = False
+            return False
+
+        p1, _p2 = line
+        current = self._perp_component(self.target_point, p1, self.perp_direction)
+        error = self.perpendicular_offset - current
+
+        if abs(error) < 1e-6:
+            self.satisfied = True
+            return True
+
+        move_x = self.perp_direction.x() * error
+        move_y = self.perp_direction.y() * error
+
+        self.target_item.moveBy(move_x, move_y)
+
+        # Update the stored target_point to reflect the new position
+        self.target_point = QPointF(
+            self.target_point.x() + move_x,
+            self.target_point.y() + move_y,
+        )
+
+        # Verify
+        new_proj = self._perp_component(self.target_point, p1, self.perp_direction)
+        self.satisfied = abs(new_proj - self.perpendicular_offset) < 0.5
+        return self.satisfied
+
+    # -- involves -------------------------------------------------------------
+
+    def involves(self, item) -> bool:
+        """Return ``True`` if this constraint references *item*.
+
+        Args:
+            item: Scene item to test.
+
+        Returns:
+            ``True`` when *item* is the reference item or the target item.
+        """
+        return item is self.reference_item or item is self.target_item
+
+    # -- visual_points --------------------------------------------------------
+
+    def visual_points(self) -> list[tuple[str, QPointF]]:
+        """Return an alignment indicator at the current target point.
+
+        Returns:
+            List containing a single ``("alignment", target_point)`` entry.
+        """
+        return [("alignment", QPointF(self.target_point))]
+
+    # -- serialisation --------------------------------------------------------
+
+    def to_dict(self, item_to_id: dict) -> dict:
+        """Serialise to a JSON-friendly dict.
+
+        Args:
+            item_to_id: Mapping from live item references to persistent IDs.
+
+        Returns:
+            Dict with ``constraint_type`` = ``"alignment"``.
+        """
+        data: dict = {
+            "constraint_type": "alignment",
+            "enabled": self.enabled,
+            "target_item": item_to_id.get(self.target_item),
+            "target_point_x": self.target_point.x(),
+            "target_point_y": self.target_point.y(),
+            "perp_direction_x": self.perp_direction.x(),
+            "perp_direction_y": self.perp_direction.y(),
+            "perpendicular_offset": self.perpendicular_offset,
+        }
+        # Reference: either a live item or a fixed line
+        if self.reference_item is not None and self.reference_item in item_to_id:
+            data["reference_item"] = item_to_id[self.reference_item]
+        elif self.reference_line is not None:
+            p1, p2 = self.reference_line
+            data["reference_line"] = [p1.x(), p1.y(), p2.x(), p2.y()]
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict, id_to_item: dict) -> "AlignmentConstraint | None":
+        """Deserialise from *data*.
+
+        Args:
+            data: Dict produced by :meth:`to_dict`.
+            id_to_item: Mapping from persistent IDs to live item references.
+
+        Returns:
+            New ``AlignmentConstraint`` or ``None`` if the target cannot be
+            resolved.
+        """
+        target_id = data.get("target_item")
+        if target_id is None:
+            return None
+        target_item = id_to_item.get(target_id)
+        if target_item is None:
+            return None
+
+        # Resolve reference
+        reference_item = None
+        reference_line = None
+        if "reference_item" in data:
+            reference_item = id_to_item.get(data["reference_item"])
+        elif "reference_line" in data:
+            coords = data["reference_line"]
+            reference_line = (
+                QPointF(coords[0], coords[1]),
+                QPointF(coords[2], coords[3]),
+            )
+
+        obj = cls(
+            reference_item=reference_item,
+            reference_line=reference_line,
+            target_item=target_item,
+            target_point=QPointF(data.get("target_point_x", 0.0),
+                                 data.get("target_point_y", 0.0)),
+            perp_direction=QPointF(data.get("perp_direction_x", 0.0),
+                                   data.get("perp_direction_y", 1.0)),
+            perpendicular_offset=data.get("perpendicular_offset", 0.0),
         )
         obj.enabled = data.get("enabled", True)
         return obj

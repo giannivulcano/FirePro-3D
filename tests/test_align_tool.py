@@ -106,3 +106,86 @@ class TestPerpendicularTranslation:
         new_x = 50 + delta.x()
         new_y = 60 + delta.y()
         assert abs(new_x - new_y) < 1e-6
+
+
+from firepro3d.constraints import AlignmentConstraint, Constraint
+
+
+class _FakeLineItem:
+    """Minimal stand-in for a scene item with a line edge."""
+
+    def __init__(self, x1, y1, x2, y2):
+        self._p1 = QPointF(x1, y1)
+        self._p2 = QPointF(x2, y2)
+
+    def pos(self):
+        return QPointF(0, 0)
+
+    def setPos(self, p):
+        delta = QPointF(p.x() - 0, p.y() - 0)
+        self._p1 = QPointF(self._p1.x() + delta.x(), self._p1.y() + delta.y())
+        self._p2 = QPointF(self._p2.x() + delta.x(), self._p2.y() + delta.y())
+
+    def moveBy(self, dx, dy):
+        self._p1 = QPointF(self._p1.x() + dx, self._p1.y() + dy)
+        self._p2 = QPointF(self._p2.x() + dx, self._p2.y() + dy)
+
+
+class TestAlignmentConstraint:
+
+    def _make_constraint(self, ref_line, target_item, offset=0.0):
+        """Helper: create constraint with a fixed reference line."""
+        c = AlignmentConstraint(
+            reference_item=None,
+            reference_line=(ref_line[0], ref_line[1]),
+            target_item=target_item,
+            target_point=QPointF(target_item._p1.x(), target_item._p1.y()),
+            perp_direction=QPointF(0, 1),
+            perpendicular_offset=offset,
+        )
+        return c
+
+    def test_solve_zero_offset_moves_target(self):
+        """Target at y=30 should snap to y=0 (reference line y=0, offset 0)."""
+        ref_line = (QPointF(0, 0), QPointF(100, 0))
+        target = _FakeLineItem(10, 30, 90, 30)
+        c = self._make_constraint(ref_line, target, offset=0.0)
+        c.solve()
+        assert abs(target._p1.y() - 0.0) < 1.0
+
+    def test_solve_nonzero_offset(self):
+        """Target should maintain perpendicular_offset=20 from reference."""
+        ref_line = (QPointF(0, 0), QPointF(100, 0))
+        target = _FakeLineItem(10, 50, 90, 50)
+        c = self._make_constraint(ref_line, target, offset=20.0)
+        c.solve()
+        assert abs(target._p1.y() - 20.0) < 1.0
+
+    def test_solve_disabled(self):
+        """Disabled constraint should not move target."""
+        ref_line = (QPointF(0, 0), QPointF(100, 0))
+        target = _FakeLineItem(10, 30, 90, 30)
+        c = self._make_constraint(ref_line, target, offset=0.0)
+        c.enabled = False
+        c.solve()
+        assert abs(target._p1.y() - 30.0) < 1.0
+
+    def test_involves(self):
+        ref_line = (QPointF(0, 0), QPointF(100, 0))
+        target = _FakeLineItem(10, 30, 90, 30)
+        c = self._make_constraint(ref_line, target)
+        assert c.involves(target) is True
+
+    def test_serialization_round_trip(self):
+        ref_line = (QPointF(0, 0), QPointF(100, 0))
+        target = _FakeLineItem(10, 30, 90, 30)
+        c = self._make_constraint(ref_line, target, offset=15.0)
+        item_to_id = {target: 42}
+        data = c.to_dict(item_to_id)
+        assert data["constraint_type"] == "alignment"
+        assert data["perpendicular_offset"] == 15.0
+        id_to_item = {42: target}
+        c2 = Constraint.from_dict(data, id_to_item)
+        assert c2 is not None
+        assert isinstance(c2, AlignmentConstraint)
+        assert c2.perpendicular_offset == 15.0
