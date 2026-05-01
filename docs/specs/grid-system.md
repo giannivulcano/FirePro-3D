@@ -409,6 +409,17 @@ The `paper_height_mm` property on `GridlineItem` is the bridge between the two s
 - [ ] Serialization migration handles old `GridLine` format
 - [ ] Snap interaction deferred to snap spec (cross-reference only)
 
+## Alignment Constraint Participation
+
+Gridlines can be both **reference** and **target** for the Align tool:
+
+- **As reference:** The gridline's single line segment (p1→p2) serves as the reference edge. Other items align to it.
+- **As target:** The Align tool calls `set_perpendicular_position()` to move the gridline. This respects the existing `_locked` flag — locked gridlines cannot be aligned (status bar warning: "Gridline 'X' is locked").
+- **Edge extraction:** A gridline exposes exactly one linear segment (p1→p2).
+- **Lock constraint:** When locked via Align, an `AlignmentConstraint` is stored referencing the gridline. The padlock icon appears at the alignment point. Moving the reference triggers `set_perpendicular_position()` via the constraint solver.
+
+No structural changes to `GridlineItem` are needed. The existing `move_perpendicular()` and `set_perpendicular_position()` APIs are sufficient.
+
 ## 13. Verification Checklist
 
 - [ ] All acceptance criteria met
@@ -417,6 +428,10 @@ The `paper_height_mm` property on `GridlineItem` is the bridge between the two s
 - [ ] No regressions: existing gridline creation (2-click), existing elevation view rendering, existing snap behavior with gridlines
 - [ ] `grid_line.py` fully removed, no dead imports
 - [ ] Existing project files with old-format gridlines load correctly
+- [ ] Align tool can use gridline as reference (other items align to it)
+- [ ] Align tool can use gridline as target (gridline moves to match reference)
+- [ ] Locked gridlines rejected by Align tool with status bar warning
+- [ ] AlignmentConstraint lock works with gridline as target
 
 ## 14. Existing Code Context
 

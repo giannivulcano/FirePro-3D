@@ -482,6 +482,7 @@ class MainWindow(QMainWindow):
             self.view._select_all_items)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
             lambda: self.scene.set_mode("duplicate"))
+        QShortcut(QKeySequence("A, L"), self, lambda: self.scene.set_mode("align"))
 
         # Restore settings
         self._splash_progress(90, "Restoring settings...")
@@ -1382,6 +1383,8 @@ class MainWindow(QMainWindow):
         _btn.setToolTip("Explode polylines/rectangles into individual lines")
         _mode_btn(g_xform, "Merge\nPoints", _I("placeholder_icon.svg"), "merge_points", large=False).setToolTip(
             "Merge two endpoints")
+        _mode_btn(g_xform, "Align", _I("placeholder_icon.svg"), "align", large=False).setToolTip(
+            "Align items to a reference edge [AL]")
 
         # --- Constraints ---
         g_constraint = modify_page.add_group("Constraints")

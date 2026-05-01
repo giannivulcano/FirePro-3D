@@ -176,6 +176,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._constraints: list = []        # list of Constraint objects
         self._constraint_circle_a = None    # first circle for concentric constraint
         self._constraint_grip_a: tuple | None = None  # (item, grip_index) for dimensional
+        # Align tool state
+        self._align_reference = None
+        self._align_highlight = None
+        self._align_ghost = None
+        self._align_padlocks: list = []
         # Interactive transforms (Rotate, Scale, Mirror)
         self._rotate_pivot: "QPointF | None" = None
         self._rotate_preview_line = None
@@ -616,6 +621,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._constraints = [c for c in self._constraints
                              if not any(c.involves(d) for d in all_deleted)]
 
+        # Clean up padlocks for removed constraints
+        surviving = set(self._constraints)
+        stale_padlocks = [p for p in self._align_padlocks
+                          if p._constraint is not None
+                          and p._constraint not in surviving]
+        for p in stale_padlocks:
+            self._align_padlocks.remove(p)
+            if p.scene() is self:
+                self.removeItem(p)
+
         # Update fittings on surviving nodes that lost pipes
         for node in ss.nodes:
             if hasattr(node, "fitting") and node.fitting:
@@ -772,6 +787,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._constraint_circle_a = None
         if mode != "constraint_dimensional":
             self._constraint_grip_a = None
+
+        # Clean up align state
+        if mode != "align":
+            self._align_reference = None
+            if self._align_highlight is not None:
+                if self._align_highlight.scene() is self:
+                    self.removeItem(self._align_highlight)
+                self._align_highlight = None
+            if hasattr(self, '_align_ghost') and self._align_ghost is not None:
+                if self._align_ghost.scene() is self:
+                    self.removeItem(self._align_ghost)
+                self._align_ghost = None
 
         # Clean up wall drawing state
         if mode != "wall":
@@ -930,6 +957,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "hatch":          "Click a closed object to apply hatching",
             "constraint_concentric":   "Select first circle",
             "constraint_dimensional":  "Click first grip point",
+            "align": "Click reference edge",
             "rotate":          "Pick pivot point",
             "scale":           "Pick base point (Tab = enter factor)",
             "mirror":          "Pick first axis point",
@@ -2886,6 +2914,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(h)
             self._hatch_items.clear()
 
+            # Clear padlocks
+            for p in self._align_padlocks:
+                if p.scene() is self:
+                    self.removeItem(p)
+            self._align_padlocks.clear()
+
             self._constraints.clear()
 
             # Restore from snapshot
@@ -3778,6 +3812,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          oy + length * dy)
 
             gl = GridlineItem(p1, p2, label=label)
+            gl._locked = spec.get("locked", False)
             gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)
@@ -3832,12 +3867,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             p2 = QPointF(ox + length * dx,
                          oy + length * dy)
 
+            locked = spec.get("locked", False)
+
             if backing is not None:
                 backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
                 backing.grid_label = label
+                backing._locked = locked
                 backing._update_bubble_positions()
             else:
                 gl = GridlineItem(p1, p2, label=label)
+                gl._locked = locked
                 gl.user_layer = self.active_user_layer
                 self.addItem(gl)
                 apply_category_defaults(gl)
@@ -3986,6 +4025,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "door":                     "_move_door_window",
         "window":                   "_move_door_window",
         "detail":                   "_move_detail",
+        "align":                    "_move_align",
     }
 
     # ── Per-mode move handlers ──────────────────────────────────────────
@@ -4607,6 +4647,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "hatch":                    "_press_merge_hatch",
         "constraint_concentric":    "_press_constraint",
         "constraint_dimensional":   "_press_constraint",
+        "align":                    "_press_align",
         "polyline":                 "_press_polyline",
         "draw_line":                "_press_draw_line",
         "construction_line":        "_press_construction_line",
@@ -4874,7 +4915,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                             "draw_line", "construction_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "gridline",
                             "dimension", "text", "door", "window", "set_scale",
-                            "detail")
+                            "detail", "align")
         if (self.mode not in _skip_grip_modes
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
             grip_hit = self._find_grip_hit(snapped)
@@ -4889,7 +4930,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._grip_dragging = True
                 return  # consumed by grip system
 
-        # ── Gridline body drag (perpendicular constraint, select mode) ──
+        # ── Gridline body click → select (no body drag, use grips) ──
         if self.mode in (None, "select"):
             gl_hit = next(
                 (i for i in items
@@ -4899,14 +4940,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             )
             if gl_hit is not None:
                 gl = gl_hit if isinstance(gl_hit, GridlineItem) else gl_hit.parentItem()
-                if not gl.locked:
-                    px, py = gl._perpendicular_vector()
-                    line = gl.line()
-                    orig_perp = line.p1().x() * px + line.p1().y() * py
-                    self._dragging_gridline = gl
-                    self._gridline_drag_start = snapped
-                    self._gridline_drag_original_pos = orig_perp
-                    return
+                ctrl = event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                if ctrl:
+                    gl.setSelected(not gl.isSelected())
+                else:
+                    # Clear other selections and select this gridline
+                    if not gl.isSelected():
+                        self.clearSelection()
+                        gl.setSelected(True)
+                return
 
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
@@ -7272,6 +7314,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.preview_pipe.hide()
                 self.preview_node.hide()
                 self.instructionChanged.emit("Pick start node")
+                return
+            # Align: first Escape clears reference, second exits mode
+            if self.mode == "align" and self._align_reference is not None:
+                self._align_reference = None
+                if self._align_highlight is not None:
+                    if self._align_highlight.scene() is self:
+                        self.removeItem(self._align_highlight)
+                    self._align_highlight = None
+                if hasattr(self, '_align_ghost') and self._align_ghost is not None:
+                    if self._align_ghost.scene() is self:
+                        self.removeItem(self._align_ghost)
+                    self._align_ghost = None
+                self._show_status("Click reference edge")
                 return
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)

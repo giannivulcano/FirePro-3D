@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import json
-from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtCore import QPointF, QRectF, Qt
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QApplication
 
@@ -35,6 +35,184 @@ from .node import Node
 from .annotations import HatchItem
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
+
+
+def extract_edges(item) -> list[tuple[QPointF, QPointF]]:
+    """Extract linear edge segments from a scene item.
+
+    Returns a list of (QPointF, QPointF) tuples representing line segments
+    in scene coordinates.  Handles gridlines, walls, pipes, construction
+    geometry, polylines, and generic QGraphicsPathItems (DXF/PDF entities).
+
+    Args:
+        item: A QGraphicsItem or ``None``.
+
+    Returns:
+        List of ``(p1, p2)`` segment tuples.  Empty for unrecognised types.
+    """
+    if item is None:
+        return []
+
+    # Deferred imports to avoid circular dependencies
+    from .gridline import GridlineItem
+    from .wall import WallSegment
+    from .pipe import Pipe
+    from .construction_geometry import LineItem, PolylineItem, ConstructionLine
+
+    # GridlineItem — single line segment
+    if isinstance(item, GridlineItem):
+        line = item.line()
+        return [(line.p1(), line.p2())]
+
+    # WallSegment — centerline + two face edges
+    if isinstance(item, WallSegment):
+        edges = [(QPointF(item._pt1), QPointF(item._pt2))]
+        try:
+            p1l, p1r, p2r, p2l = item.mitered_quad()
+            edges.append((QPointF(p1l), QPointF(p2l)))
+            edges.append((QPointF(p1r), QPointF(p2r)))
+        except Exception:
+            pass
+        return edges
+
+    # Pipe — node1 to node2
+    if isinstance(item, Pipe):
+        if item.node1 and item.node2:
+            return [(item.node1.scenePos(), item.node2.scenePos())]
+        return []
+
+    # LineItem or ConstructionLine — use item.line() mapped to scene coords
+    if isinstance(item, (LineItem, ConstructionLine)):
+        line = item.line()
+        p1 = item.mapToScene(line.p1())
+        p2 = item.mapToScene(line.p2())
+        return [(p1, p2)]
+
+    # PolylineItem — consecutive _points mapped to scene coords
+    if isinstance(item, PolylineItem):
+        pts = getattr(item, "_points", [])
+        if len(pts) < 2:
+            return []
+        edges = []
+        for i in range(len(pts) - 1):
+            p1 = item.mapToScene(pts[i])
+            p2 = item.mapToScene(pts[i + 1])
+            edges.append((p1, p2))
+        return edges
+
+    # Generic QGraphicsPathItem (DXF/PDF entities) — walk path elements
+    if isinstance(item, QGraphicsPathItem):
+        path = item.path()
+        edges = []
+        current = QPointF(0, 0)
+        for i in range(path.elementCount()):
+            el = path.elementAt(i)
+            pt = QPointF(el.x, el.y)
+            if el.type == QPainterPath.ElementType.MoveToElement:
+                current = pt
+            elif el.type == QPainterPath.ElementType.LineToElement:
+                p1 = item.mapToScene(current)
+                p2 = item.mapToScene(pt)
+                edges.append((p1, p2))
+                current = pt
+            else:
+                # Skip curve elements
+                current = pt
+        return edges
+
+    return []
+
+
+class _PadlockItem(QGraphicsPathItem):
+    """Small padlock icon placed at the alignment point.
+
+    First click: creates an ``AlignmentConstraint`` and locks (turns green).
+    Second click (when locked): removes the constraint and itself from
+    the scene.
+    """
+
+    _SIZE = 12  # pixels (ignores transforms)
+
+    def __init__(self, pos: QPointF, constraint_data: dict, parent=None):
+        super().__init__(parent)
+        self.constraint_data = constraint_data
+        self._locked = False
+        self._constraint = None
+
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setZValue(10000)
+        self.setPos(pos)
+
+        self._build_path()
+        self._update_appearance()
+
+    def _build_path(self):
+        """Construct padlock shape: rectangle body + arc shackle."""
+        s = self._SIZE
+        path = QPainterPath()
+        # Body (rectangle)
+        body_w = s
+        body_h = s * 0.7
+        body_x = -body_w / 2
+        body_y = 0
+        path.addRect(body_x, body_y, body_w, body_h)
+        # Shackle (arc)
+        shackle_w = s * 0.6
+        shackle_h = s * 0.5
+        shackle_x = -shackle_w / 2
+        shackle_y = -shackle_h
+        path.moveTo(shackle_x, 0)
+        path.arcTo(shackle_x, shackle_y, shackle_w, shackle_h * 2, 180, -180)
+        self.setPath(path)
+
+    def _update_appearance(self):
+        """Orange when unlocked, green when locked."""
+        if self._locked:
+            color = QColor("#22cc44")
+        else:
+            color = QColor("#ff8800")
+        pen = QPen(color, 2)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(QColor(color.red(), color.green(), color.blue(), 60)))
+
+    def mousePressEvent(self, event):
+        """Toggle lock state on click."""
+        if not self._locked:
+            # First click — create constraint and lock
+            from .constraints import AlignmentConstraint
+            cd = self.constraint_data
+            self._constraint = AlignmentConstraint(
+                reference_item=cd.get("reference_item"),
+                reference_line=cd.get("reference_line"),
+                target_item=cd.get("target_item"),
+                target_point=cd.get("target_point", QPointF(0, 0)),
+                perp_direction=cd.get("perp_direction", QPointF(0, 1)),
+                perpendicular_offset=cd.get("perpendicular_offset", 0.0),
+            )
+            scene = self.scene()
+            if scene and hasattr(scene, "_constraints"):
+                scene._constraints.append(self._constraint)
+            self._locked = True
+            self._update_appearance()
+            event.accept()
+        else:
+            # Second click — remove constraint and self
+            scene = self.scene()
+            if scene and self._constraint is not None:
+                if hasattr(scene, "_constraints"):
+                    try:
+                        scene._constraints.remove(self._constraint)
+                    except ValueError:
+                        pass
+                if hasattr(scene, "_align_padlocks"):
+                    try:
+                        scene._align_padlocks.remove(self)
+                    except ValueError:
+                        pass
+                scene.removeItem(self)
+            event.accept()
 
 
 class SceneToolsMixin:
@@ -1611,3 +1789,340 @@ class SceneToolsMixin:
             for i in range(len(pts) - 1):
                 segs.append(("line", QPointF(pts[i]), QPointF(pts[i + 1])))
         return segs
+
+    # ======================================================================
+    # ALIGN TOOL
+    # ======================================================================
+
+    def _press_align(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Two-pick align handler.
+
+        First click: store reference edge nearest to cursor.
+        Second click: find target item, compute perpendicular translation
+        to align its nearest parallel edge with the reference, and move it.
+        """
+        from .gridline import GridlineItem
+        from .geometry_intersect import is_parallel, perpendicular_translation
+
+        if self._align_reference is None:
+            # ── First pick: reference edge ──────────────────────────────
+            result = self._find_nearest_edge(pos)
+            if result is None:
+                self._show_status("No edge found near cursor")
+                return
+            edge, ref_item = result
+            self._align_reference = (edge, ref_item)
+            # Remove any hover highlight before creating reference highlight
+            if self._align_highlight is not None:
+                if self._align_highlight.scene() is self:
+                    self.removeItem(self._align_highlight)
+                self._align_highlight = None
+            # Visual highlight: dashed line along the reference edge
+            highlight = QGraphicsLineItem(
+                edge[0].x(), edge[0].y(), edge[1].x(), edge[1].y())
+            pen = QPen(QColor("#00bfff"), 2)
+            pen.setCosmetic(True)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            highlight.setPen(pen)
+            highlight.setZValue(9999)
+            self.addItem(highlight)
+            self._align_highlight = highlight
+            self.instructionChanged.emit("Click element to align")
+        else:
+            # ── Second pick: target ─────────────────────────────────────
+            ref_edge, ref_item = self._align_reference
+
+            # Determine target: selected items or item under cursor
+            selected = [s for s in self.selectedItems()
+                        if s is not ref_item and s is not self._align_highlight]
+            if selected and item_under in selected:
+                # Multi-select: item_under is the anchor
+                self._execute_align(ref_edge, ref_item, item_under,
+                                    group=selected)
+            elif item_under is not None and item_under is not ref_item:
+                # Single item
+                self._execute_align(ref_edge, ref_item, item_under)
+            else:
+                result = self._find_nearest_edge(pos)
+                if result is None:
+                    self._show_status("No target edge found")
+                    return
+                target_edge, target_item = result
+                if target_item is ref_item:
+                    self._show_status("Target must differ from reference")
+                    return
+                self._execute_align(ref_edge, ref_item, target_item)
+
+            # Clean up reference state
+            self._align_reference = None
+            if self._align_highlight is not None:
+                if self._align_highlight.scene() is self:
+                    self.removeItem(self._align_highlight)
+                self._align_highlight = None
+            if self._align_ghost is not None:
+                if self._align_ghost.scene() is self:
+                    self.removeItem(self._align_ghost)
+                self._align_ghost = None
+            self.instructionChanged.emit("Click reference edge")
+
+    def _execute_align(self, ref_edge, ref_item, target, group=None):
+        """Align *target* (and optional *group*) to *ref_edge*.
+
+        Finds the nearest parallel edge on the target, computes the
+        perpendicular delta, and moves the target accordingly.
+        """
+        from .gridline import GridlineItem
+        from .geometry_intersect import is_parallel, perpendicular_translation
+
+        delta = QPointF(0, 0)
+        best_edge = None
+
+        target_edges = extract_edges(target)
+        ref_p1, ref_p2 = ref_edge
+
+        if not target_edges:
+            # Point-like item — project its position onto the reference line
+            delta = perpendicular_translation(ref_p1, ref_p2, target.scenePos())
+        else:
+            best_dist = float("inf")
+            for te in target_edges:
+                if is_parallel(ref_p1, ref_p2, te[0], te[1]):
+                    mid = QPointF((te[0].x() + te[1].x()) / 2,
+                                  (te[0].y() + te[1].y()) / 2)
+                    d = perpendicular_translation(ref_p1, ref_p2, mid)
+                    dist = math.hypot(d.x(), d.y())
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_edge = te
+                        delta = d
+
+            if best_edge is None:
+                self._show_status("No parallel edge found on target")
+                return
+
+        self.push_undo_state()
+
+        items_to_move = [target] + (group[1:] if group else [])
+        for item in items_to_move:
+            if isinstance(item, GridlineItem):
+                if getattr(item, '_locked', False):
+                    self._show_status("Gridline is locked — skipped")
+                    continue
+                # Use move_perpendicular for gridlines
+                # Compute signed perpendicular distance
+                line = item.line()
+                nx, ny = item._perpendicular_vector()
+                dist_signed = delta.x() * nx + delta.y() * ny
+                item.move_perpendicular(dist_signed)
+            else:
+                item.moveBy(delta.x(), delta.y())
+
+        # Compute perpendicular direction for constraint
+        dx = ref_p2.x() - ref_p1.x()
+        dy = ref_p2.y() - ref_p1.y()
+        seg_len = math.hypot(dx, dy)
+        if seg_len > 1e-10:
+            perp_dir = QPointF(-dy / seg_len, dx / seg_len)
+        else:
+            perp_dir = QPointF(0, 1)
+
+        # Place one padlock per item (anchor + group members)
+        for item in items_to_move:
+            # Find the best edge on this specific item for padlock placement
+            item_edges = extract_edges(item)
+            item_mid = None
+            item_offset = 0.0
+            for ie in item_edges:
+                if is_parallel(ref_p1, ref_p2, ie[0], ie[1]):
+                    item_mid = QPointF(
+                        (ie[0].x() + ie[1].x()) / 2,
+                        (ie[0].y() + ie[1].y()) / 2)
+                    # Compute perpendicular offset from reference line
+                    # (after alignment the anchor is at 0; others may differ)
+                    comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
+                            + (item_mid.y() - ref_p1.y()) * perp_dir.y())
+                    item_offset = comp
+                    break
+            if item_mid is None:
+                # Fallback: use item scene pos (point-like items)
+                sp = item.scenePos() if hasattr(item, 'scenePos') else item.pos()
+                item_mid = QPointF(sp.x(), sp.y())
+                comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
+                        + (item_mid.y() - ref_p1.y()) * perp_dir.y())
+                item_offset = comp
+
+            # Use live reference item when it's a trackable scene item
+            # (has .line() or ._p1); otherwise store a fixed reference line
+            if ref_item is not None and (
+                (hasattr(ref_item, 'line') and callable(ref_item.line))
+                or hasattr(ref_item, '_p1')
+            ):
+                c_ref_item = ref_item
+                c_ref_line = None
+            else:
+                c_ref_item = None
+                c_ref_line = (QPointF(ref_p1), QPointF(ref_p2))
+
+            constraint_data = {
+                "reference_item": c_ref_item,
+                "reference_line": c_ref_line,
+                "target_item": item,
+                "target_point": item_mid,
+                "perp_direction": perp_dir,
+                "perpendicular_offset": item_offset if item is not target else 0.0,
+            }
+            padlock = _PadlockItem(item_mid, constraint_data)
+            self.addItem(padlock)
+            self._align_padlocks.append(padlock)
+
+        self._show_status("Aligned \u2014 click padlock to lock")
+        for v in self.views():
+            v.viewport().update()
+
+    def _find_nearest_edge(self, pos):
+        """Spatial query: find the nearest edge segment to *pos*.
+
+        Returns ``(edge, item)`` where *edge* is ``(QPointF, QPointF)``
+        and *item* is the owning scene item, or ``None`` if nothing found.
+        """
+        tol = 20.0
+        views = self.views()
+        if views:
+            scale = views[0].transform().m11()
+            tol = 20.0 / max(scale, 1e-6)
+
+        search_rect = QRectF(pos.x() - tol, pos.y() - tol, tol * 2, tol * 2)
+        candidates = self.items(search_rect)
+
+        best_edge = None
+        best_item = None
+        best_dist = tol
+
+        for item in candidates:
+            # Skip our own highlight / ghost items
+            if item is self._align_highlight or item is self._align_ghost:
+                continue
+            # Skip padlock / lock indicator items
+            if isinstance(item, _PadlockItem):
+                continue
+            if type(item).__name__ == '_LockIndicator':
+                continue
+            # Skip invisible items
+            if not item.isVisible():
+                continue
+            edges = extract_edges(item)
+            for edge in edges:
+                d = self._point_to_segment_dist(pos, edge[0], edge[1])
+                if d < best_dist:
+                    best_dist = d
+                    best_edge = edge
+                    best_item = item
+
+        if best_edge is None:
+            return None
+        return (best_edge, best_item)
+
+    @staticmethod
+    def _point_to_segment_dist(p, s1, s2):
+        """Return the minimum distance from point *p* to segment *s1*-*s2*."""
+        dx = s2.x() - s1.x()
+        dy = s2.y() - s1.y()
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return math.hypot(p.x() - s1.x(), p.y() - s1.y())
+        t = ((p.x() - s1.x()) * dx + (p.y() - s1.y()) * dy) / len_sq
+        t = max(0.0, min(1.0, t))
+        proj_x = s1.x() + t * dx
+        proj_y = s1.y() + t * dy
+        return math.hypot(p.x() - proj_x, p.y() - proj_y)
+
+    def _move_align(self, event, snapped):
+        """Live preview for the align tool.
+
+        Before reference pick: highlight the nearest edge under the cursor
+        with a dashed line.
+        After reference pick: show a ghost dotted line where the target edge
+        would land after alignment.
+        """
+        from .geometry_intersect import is_parallel, perpendicular_translation
+
+        pos = snapped
+
+        if self._align_reference is None:
+            # ── Pre-reference: highlight nearest edge ───────────────────
+            result = self._find_nearest_edge(pos)
+            if result is not None:
+                edge, _ = result
+                if self._align_highlight is not None:
+                    # Update existing highlight
+                    self._align_highlight.setLine(
+                        edge[0].x(), edge[0].y(),
+                        edge[1].x(), edge[1].y())
+                else:
+                    highlight = QGraphicsLineItem(
+                        edge[0].x(), edge[0].y(),
+                        edge[1].x(), edge[1].y())
+                    pen = QPen(QColor("#00bfff"), 2)
+                    pen.setCosmetic(True)
+                    pen.setStyle(Qt.PenStyle.DashLine)
+                    highlight.setPen(pen)
+                    highlight.setZValue(9999)
+                    self.addItem(highlight)
+                    self._align_highlight = highlight
+            else:
+                # No edge nearby — remove highlight
+                if self._align_highlight is not None:
+                    if self._align_highlight.scene() is self:
+                        self.removeItem(self._align_highlight)
+                    self._align_highlight = None
+        else:
+            # ── Post-reference: ghost line showing projected position ───
+            ref_edge, ref_item = self._align_reference
+            ref_p1, ref_p2 = ref_edge
+
+            result = self._find_nearest_edge(pos)
+            if result is not None:
+                target_edge, target_item = result
+                if target_item is not ref_item:
+                    # Find nearest parallel edge
+                    target_edges = extract_edges(target_item)
+                    best_te = None
+                    best_delta = QPointF(0, 0)
+                    best_dist = float("inf")
+                    for te in target_edges:
+                        if is_parallel(ref_p1, ref_p2, te[0], te[1]):
+                            mid = QPointF((te[0].x() + te[1].x()) / 2,
+                                          (te[0].y() + te[1].y()) / 2)
+                            d = perpendicular_translation(ref_p1, ref_p2, mid)
+                            dist = math.hypot(d.x(), d.y())
+                            if dist < best_dist:
+                                best_dist = dist
+                                best_te = te
+                                best_delta = d
+
+                    if best_te is not None:
+                        # Show ghost line at projected position
+                        gp1 = QPointF(best_te[0].x() + best_delta.x(),
+                                      best_te[0].y() + best_delta.y())
+                        gp2 = QPointF(best_te[1].x() + best_delta.x(),
+                                      best_te[1].y() + best_delta.y())
+                        if self._align_ghost is not None:
+                            self._align_ghost.setLine(
+                                gp1.x(), gp1.y(), gp2.x(), gp2.y())
+                        else:
+                            ghost = QGraphicsLineItem(
+                                gp1.x(), gp1.y(), gp2.x(), gp2.y())
+                            pen = QPen(QColor("#00ff88"), 2)
+                            pen.setCosmetic(True)
+                            pen.setStyle(Qt.PenStyle.DotLine)
+                            ghost.setPen(pen)
+                            ghost.setZValue(9999)
+                            self.addItem(ghost)
+                            self._align_ghost = ghost
+                        return
+
+            # No valid target — remove ghost
+            if self._align_ghost is not None:
+                if self._align_ghost.scene() is self:
+                    self.removeItem(self._align_ghost)
+                self._align_ghost = None

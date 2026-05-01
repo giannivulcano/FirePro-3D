@@ -186,16 +186,17 @@ class _DirectionTab(QWidget):
 
         # ── Table ─────────────────────────────────────────────────────────
         self._default_angle = 90.0 if self._direction == "V" else 0.0
-        self._table = QTableWidget(0, 6)
+        self._table = QTableWidget(0, 7)
         self._table.setHorizontalHeaderLabels([
             "Label",
             "Offset",
             "Spacing",
             "Length",
             "Angle°",
+            "Locked",
             "_backing",
         ])
-        self._table.setColumnHidden(5, True)
+        self._table.setColumnHidden(6, True)  # _backing is now column 6
         self._syncing = False  # guard against recursive cellChanged loops
         self._table.cellChanged.connect(self._on_cell_changed)
         self._table.horizontalHeader().setSectionResizeMode(
@@ -318,7 +319,7 @@ class _DirectionTab(QWidget):
 
     def _sort_by_column(self, col: int):
         """Sort table by column, toggling ascending/descending."""
-        if col == 5:
+        if col == 6:
             return  # Don't sort by hidden backing column
         if col == self._sort_col:
             self._sort_asc = not self._sort_asc
@@ -370,9 +371,13 @@ class _DirectionTab(QWidget):
         self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
         self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
         self._table.setItem(row, 4, _NumericItem(f"{self._default_angle:.1f}", self._default_angle))
+        lock_item = QTableWidgetItem()
+        lock_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        lock_item.setCheckState(Qt.CheckState.Unchecked)
+        self._table.setItem(row, 5, lock_item)
         backing_item = QTableWidgetItem()
         backing_item.setData(Qt.ItemDataRole.UserRole, None)
-        self._table.setItem(row, 5, backing_item)
+        self._table.setItem(row, 6, backing_item)
         self._syncing = False
 
     def _remove_row(self):
@@ -403,9 +408,13 @@ class _DirectionTab(QWidget):
             self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
             self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
             self._table.setItem(row, 4, _NumericItem(f"{self._default_angle:.1f}", self._default_angle))
+            lock_item = QTableWidgetItem()
+            lock_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            lock_item.setCheckState(Qt.CheckState.Unchecked)
+            self._table.setItem(row, 5, lock_item)
             backing_item = QTableWidgetItem()
             backing_item.setData(Qt.ItemDataRole.UserRole, None)
-            self._table.setItem(row, 5, backing_item)
+            self._table.setItem(row, 6, backing_item)
             label = _increment_label(label, scheme)
         self._syncing = False
 
@@ -437,19 +446,27 @@ class _DirectionTab(QWidget):
             self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
             self._table.setItem(row, 3, _NumericItem(self._fmt(length_mm), length_mm))
             self._table.setItem(row, 4, _NumericItem(f"{angle:.1f}", angle))
+            lock_item = QTableWidgetItem()
+            lock_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            lock_item.setCheckState(
+                Qt.CheckState.Checked if (backing is not None and backing._locked)
+                else Qt.CheckState.Unchecked
+            )
+            self._table.setItem(row, 5, lock_item)
             backing_item = QTableWidgetItem()
             backing_item.setData(Qt.ItemDataRole.UserRole, backing)
-            self._table.setItem(row, 5, backing_item)
+            self._table.setItem(row, 6, backing_item)
             prev_offset_mm = offset_mm
         self._syncing = False
 
     # ── Read table ────────────────────────────────────────────────────────
 
     def read_rows(self) -> list[tuple]:
-        """Return (label, offset_mm, length_mm, angle_deg, backing) per row.
+        """Return (label, offset_mm, length_mm, angle_deg, backing, locked) per row.
 
         *backing* is the original ``GridlineItem`` reference (or ``None``
         for newly-added rows).  Offset and length are in **mm**.
+        *locked* is a bool indicating the lock checkbox state.
         """
         result = []
         for row in range(self._table.rowCount()):
@@ -458,7 +475,8 @@ class _DirectionTab(QWidget):
             # column 2 = spacing (derived), skip
             len_item = self._table.item(row, 3)
             ang_item = self._table.item(row, 4)
-            bck_item = self._table.item(row, 5)
+            lock_item = self._table.item(row, 5)
+            bck_item = self._table.item(row, 6)
             label = lbl_item.text() if lbl_item else "?"
             offset = self._parse(off_item.text()) if off_item else 0.0
             length = self._parse(len_item.text()) if len_item else 100.0
@@ -468,7 +486,8 @@ class _DirectionTab(QWidget):
                 angle = self._default_angle
             angle = _normalize_angle(angle)
             backing = bck_item.data(Qt.ItemDataRole.UserRole) if bck_item else None
-            result.append((label, offset, length, angle, backing))
+            locked = (lock_item.checkState() == Qt.CheckState.Checked) if lock_item else False
+            result.append((label, offset, length, angle, backing, locked))
         return result
 
 
@@ -560,23 +579,25 @@ class GridLinesDialog(QDialog):
         result = []
 
         # Vertical gridlines
-        for label, offset_mm, length_mm, angle, backing in self._v_tab.read_rows():
+        for label, offset_mm, length_mm, angle, backing, locked in self._v_tab.read_rows():
             result.append({
                 "label": label,
                 "offset": offset_mm,
                 "length": length_mm,
                 "angle_deg": angle,
                 "_backing": backing,
+                "locked": locked,
             })
 
         # Horizontal gridlines
-        for label, offset_mm, length_mm, angle, backing in self._h_tab.read_rows():
+        for label, offset_mm, length_mm, angle, backing, locked in self._h_tab.read_rows():
             result.append({
                 "label": label,
                 "offset": offset_mm,
                 "length": length_mm,
                 "angle_deg": angle,
                 "_backing": backing,
+                "locked": locked,
             })
 
         return result
@@ -588,10 +609,10 @@ class GridLinesDialog(QDialog):
         if self._existing:
             # Collect all backing refs still present in the tables
             kept = set()
-            for _, _, _, _, backing in self._v_tab.read_rows():
+            for _, _, _, _, backing, _ in self._v_tab.read_rows():
                 if backing is not None:
                     kept.add(id(backing))
-            for _, _, _, _, backing in self._h_tab.read_rows():
+            for _, _, _, _, backing, _ in self._h_tab.read_rows():
                 if backing is not None:
                     kept.add(id(backing))
             deleted = [gl for gl in self._existing if id(gl) not in kept]

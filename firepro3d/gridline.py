@@ -17,9 +17,9 @@ from __future__ import annotations
 import math
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
-    QGraphicsRectItem, QGraphicsItem, QStyle,
+    QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath
+from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker
 from .constants import DEFAULT_USER_LAYER
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
@@ -235,6 +235,75 @@ class _PullTabGrip(QGraphicsRectItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# _LockIndicator — small padlock icon at gridline midpoint
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LOCK_SIZE = 10.0  # pixels (screen-fixed)
+
+
+class _LockIndicator(QGraphicsPathItem):
+    """Small padlock icon adjacent to the primary gridline bubble.
+
+    Visible when the parent gridline is selected.  Click toggles the
+    gridline's ``_locked`` state.  Orange = unlocked, green = locked.
+    Drawn offset from the bubble centre so it sits beside it.
+    """
+
+    _OFFSET_PX = GridBubble.RADIUS_PX + 6  # bubble edge + gap
+
+    def __init__(self, parent: "GridlineItem"):
+        super().__init__(parent)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setZValue(501)  # just above bubbles
+        self.setVisible(False)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self._gridline = parent
+        self._rebuild()
+
+    def _rebuild(self):
+        """Redraw the padlock shape offset from the bubble, colour reflects lock state."""
+        s = _LOCK_SIZE
+        # Compute offset direction: perpendicular to gridline, in screen pixels
+        line = self._gridline.line()
+        dx = line.p2().x() - line.p1().x()
+        dy = line.p2().y() - line.p1().y()
+        length = math.hypot(dx, dy)
+        if length > 1e-9:
+            # Perpendicular unit vector (screen space, since ITT)
+            nx, ny = -dy / length, dx / length
+        else:
+            nx, ny = 1.0, 0.0
+        # Pick the side where the dominant perpendicular component is positive
+        dominant = nx if abs(nx) >= abs(ny) else ny
+        if dominant < 0:
+            nx, ny = -nx, -ny
+        ox = nx * self._OFFSET_PX
+        oy = ny * self._OFFSET_PX
+
+        path = QPainterPath()
+        # Body (rectangle) — offset by (ox, oy)
+        path.addRect(ox - s / 2, oy - s * 0.35, s, s * 0.7)
+        # Shackle (arc)
+        path.moveTo(ox - s * 0.3, oy - s * 0.35)
+        path.arcTo(ox - s * 0.3, oy - s * 0.85, s * 0.6, s * 0.6, 180, -180)
+        self.setPath(path)
+        locked = self._gridline._locked
+        color = QColor("#44cc44") if locked else QColor("#ffaa00")
+        self.setPen(QPen(color, 1.5))
+        self.setBrush(QBrush(color.lighter(180)))
+
+    def mousePressEvent(self, event):
+        gl = self._gridline
+        gl._locked = not gl._locked
+        self._rebuild()
+        # Update grip visibility — hide grips when locked
+        gl._grip1.setVisible(not gl._locked and gl.isSelected())
+        gl._grip2.setVisible(not gl._locked and gl.isSelected())
+        event.accept()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GridlineItem — finite line with two bubbles
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -271,17 +340,23 @@ class GridlineItem(QGraphicsLineItem):
         self.bubble2 = GridBubble(label, self)
         self._update_bubble_positions()
 
+        # Lock state (must be set before _LockIndicator creation)
+        self._locked: bool = False
+
         # Pull-tab grips
         self._grip1 = _PullTabGrip(self)
         self._grip2 = _PullTabGrip(self)
         self._update_grip_positions()
+
+        # Lock indicator (padlock at midpoint)
+        self._lock_indicator = _LockIndicator(self)
+        self._update_lock_indicator_pos()
 
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
 
         # User layer
         self.user_layer: str = DEFAULT_USER_LAYER
-        self._locked: bool = False
         self.paper_height_mm: float = 3.0
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
@@ -299,25 +374,34 @@ class GridlineItem(QGraphicsLineItem):
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        """Return bubble positions as the selectable shape.
-
-        Uses a small scene-unit radius so marquee selection works
-        near endpoints.  Direct clicks on ITT bubbles are handled
-        by GridBubble.mousePressEvent.
-        """
+        """Return the selectable hit area: the line body with a generous
+        stroke width plus the bubble positions for marquee selection."""
         path = QPainterPath()
-        # Use a fixed scene-unit radius — enough for marquee selection
+        line = self.line()
+        # Add a stroked version of the line with generous hit width
+        line_path = QPainterPath()
+        line_path.moveTo(line.p1())
+        line_path.lineTo(line.p2())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(40.0)  # scene units — generous click target
+        path = stroker.createStroke(line_path)
+        # Also include bubble positions for marquee selection
         r = 50.0
         path.addEllipse(self.bubble1.pos(), r, r)
         path.addEllipse(self.bubble2.pos(), r, r)
         return path
 
     def itemChange(self, change, value):
-        """Refresh bubble paint and show/hide grips on selection change."""
+        """Refresh bubble paint and show/hide grips + lock indicator on selection change."""
         if change == self.GraphicsItemChange.ItemSelectedChange:
             selected = bool(value)
-            self._grip1.setVisible(selected)
-            self._grip2.setVisible(selected)
+            # Show grips only when selected AND unlocked
+            self._grip1.setVisible(selected and not self._locked)
+            self._grip2.setVisible(selected and not self._locked)
+            # Show lock indicator when selected
+            self._lock_indicator.setVisible(selected)
+            if selected:
+                self._lock_indicator._rebuild()
         if change == self.GraphicsItemChange.ItemSelectedHasChanged:
             self.bubble1.update()
             self.bubble2.update()
@@ -331,6 +415,8 @@ class GridlineItem(QGraphicsLineItem):
         self.bubble2.setPos(line.p2())
         if hasattr(self, '_grip1'):
             self._update_grip_positions()
+        if hasattr(self, '_lock_indicator'):
+            self._update_lock_indicator_pos()
 
     def _update_grip_positions(self):
         """Place grips slightly beyond each endpoint along the line direction."""
@@ -347,10 +433,14 @@ class GridlineItem(QGraphicsLineItem):
         self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
         self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
 
+    def _update_lock_indicator_pos(self):
+        """Place lock indicator adjacent to bubble1 (primary bubble)."""
+        self._lock_indicator.setPos(self.bubble1.pos())
+
     # ── Hover events ─────────────────────────────────────────────────────
 
     def hoverEnterEvent(self, event):
-        if not self.isSelected():
+        if not self.isSelected() and not self._locked:
             self._grip1.setVisible(True)
             self._grip2.setVisible(True)
         super().hoverEnterEvent(event)
@@ -500,30 +590,28 @@ class GridlineItem(QGraphicsLineItem):
         return [line.p1(), line.p2()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Move grip *index* to *new_pos*, constrained along the gridline
-        direction so the line stays co-linear.  Locked gridlines are not
-        affected."""
+        """Translate the entire gridline by dragging a grip handle.
+
+        Both grip indices move the whole gridline freely in 2D.
+        Locked gridlines are not affected.
+        """
         if self._locked:
             return
         line = self.line()
         p1, p2 = line.p1(), line.p2()
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length_sq = dx * dx + dy * dy
-        if length_sq < 1e-12:
-            return
 
-        if index == 0:
-            # Project new_pos onto the line direction relative to p2
-            t = ((new_pos.x() - p2.x()) * dx + (new_pos.y() - p2.y()) * dy) / length_sq
-            proj = QPointF(p2.x() + t * dx, p2.y() + t * dy)
-            self.setLine(proj.x(), proj.y(), p2.x(), p2.y())
-        elif index == 1:
-            # Project new_pos onto the line direction relative to p1
-            t = ((new_pos.x() - p1.x()) * dx + (new_pos.y() - p1.y()) * dy) / length_sq
-            proj = QPointF(p1.x() + t * dx, p1.y() + t * dy)
-            self.setLine(p1.x(), p1.y(), proj.x(), proj.y())
+        # Current grip position
+        current = p1 if index == 0 else p2
 
+        # Delta from current to new
+        dx = new_pos.x() - current.x()
+        dy = new_pos.y() - current.y()
+
+        # Translate both endpoints
+        self.setLine(
+            p1.x() + dx, p1.y() + dy,
+            p2.x() + dx, p2.y() + dy,
+        )
         self._update_bubble_positions()
         self.update()
 

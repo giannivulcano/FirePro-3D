@@ -284,3 +284,54 @@ def nearest_intersection(click_pt: QPointF,
             best = pt
 
     return best
+
+
+def is_parallel(p1: QPointF, p2: QPointF,
+                p3: QPointF, p4: QPointF,
+                tolerance_deg: float = 5.0) -> bool:
+    """Return True if segment (p1,p2) is parallel to segment (p3,p4).
+
+    Antiparallel (180°) counts as parallel.  Degenerate (zero-length)
+    segments return False.
+    """
+    dx1 = p2.x() - p1.x()
+    dy1 = p2.y() - p1.y()
+    dx2 = p4.x() - p3.x()
+    dy2 = p4.y() - p3.y()
+
+    len1 = math.hypot(dx1, dy1)
+    len2 = math.hypot(dx2, dy2)
+    if len1 < EPS or len2 < EPS:
+        return False
+
+    # Cross product gives sin(angle)
+    cross = abs(dx1 * dy2 - dy1 * dx2) / (len1 * len2)
+    # Clamp for numerical safety
+    cross = min(cross, 1.0)
+    angle_deg = math.degrees(math.asin(cross))
+    return angle_deg <= tolerance_deg
+
+
+def perpendicular_translation(ref_p1: QPointF, ref_p2: QPointF,
+                               target_point: QPointF) -> QPointF:
+    """Return the translation vector that moves *target_point* onto the
+    infinite line through *ref_p1*–*ref_p2*, perpendicular to the line.
+
+    Returns a QPointF delta (dx, dy).  Add it to target_point (or any
+    co-moving points) to reach the line.
+    """
+    dx = ref_p2.x() - ref_p1.x()
+    dy = ref_p2.y() - ref_p1.y()
+    len_sq = dx * dx + dy * dy
+    if len_sq < EPS:
+        return QPointF(0.0, 0.0)
+
+    # Foot of perpendicular from target_point onto the infinite line
+    px = target_point.x() - ref_p1.x()
+    py = target_point.y() - ref_p1.y()
+    t = (px * dx + py * dy) / len_sq
+    foot_x = ref_p1.x() + t * dx
+    foot_y = ref_p1.y() + t * dy
+
+    # Translation is from target_point to the foot
+    return QPointF(foot_x - target_point.x(), foot_y - target_point.y())
