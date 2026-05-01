@@ -209,3 +209,59 @@ class TestExtractEdges:
 
     def test_unknown_type_returns_empty(self):
         assert extract_edges("not_an_item") == []
+
+
+from PyQt6.QtWidgets import QGraphicsScene
+
+
+class TestAlignToolIntegration:
+    """End-to-end tests using real scene items."""
+
+    def test_align_gridline_to_line(self, qapp):
+        """Gridline at x=100 aligns to a vertical line at x=50."""
+        scene = QGraphicsScene()
+        gl = GridlineItem(QPointF(100, 0), QPointF(100, 500), "A")
+        scene.addItem(gl)
+
+        ref_line = scene.addLine(50, 0, 50, 500)
+
+        ref_edge = (QPointF(50, 0), QPointF(50, 500))
+        edges = extract_edges(gl)
+        assert len(edges) == 1
+
+        from firepro3d.geometry_intersect import is_parallel, perpendicular_translation
+        assert is_parallel(ref_edge[0], ref_edge[1], edges[0][0], edges[0][1])
+
+        mid = QPointF((edges[0][0].x() + edges[0][1].x()) / 2,
+                      (edges[0][0].y() + edges[0][1].y()) / 2)
+        delta = perpendicular_translation(ref_edge[0], ref_edge[1], mid)
+        gl.move_perpendicular(
+            delta.x() * gl._perpendicular_vector()[0]
+            + delta.y() * gl._perpendicular_vector()[1]
+        )
+
+        line = gl.line()
+        assert abs(line.p1().x() - 50.0) < 1.0
+        assert abs(line.p2().x() - 50.0) < 1.0
+
+    def test_locked_gridline_does_not_move(self, qapp):
+        """Locked gridlines should not be affected by alignment."""
+        scene = QGraphicsScene()
+        gl = GridlineItem(QPointF(100, 0), QPointF(100, 500), "B")
+        gl._locked = True
+        scene.addItem(gl)
+
+        gl.move_perpendicular(-50)
+        line = gl.line()
+        assert abs(line.p1().x() - 100.0) < 1.0
+
+    def test_point_item_projects_onto_reference(self, qapp):
+        """A point at (30, 70) projected onto y=0 horizontal line → (30, 0)."""
+        from firepro3d.geometry_intersect import perpendicular_translation
+        delta = perpendicular_translation(
+            QPointF(0, 0), QPointF(100, 0),
+            QPointF(30, 70),
+        )
+        new_y = 70 + delta.y()
+        assert abs(new_y) < 1e-6
+        assert abs(delta.x()) < 1e-6
