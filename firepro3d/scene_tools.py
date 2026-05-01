@@ -1915,20 +1915,39 @@ class SceneToolsMixin:
         else:
             perp_dir = QPointF(0, 1)
 
-        # Place padlock at midpoint of the aligned edge
-        mid = QPointF((best_edge[0].x() + best_edge[1].x()) / 2 + delta.x(),
-                      (best_edge[0].y() + best_edge[1].y()) / 2 + delta.y())
-        constraint_data = {
-            "reference_item": ref_item,
-            "reference_line": (QPointF(ref_p1), QPointF(ref_p2)),
-            "target_item": target,
-            "target_point": mid,
-            "perp_direction": perp_dir,
-            "perpendicular_offset": 0.0,
-        }
-        padlock = _PadlockItem(mid, constraint_data)
-        self.addItem(padlock)
-        self._align_padlocks.append(padlock)
+        # Place one padlock per item (anchor + group members)
+        for item in items_to_move:
+            # Find the best edge on this specific item for padlock placement
+            item_edges = extract_edges(item)
+            item_mid = None
+            item_offset = 0.0
+            for ie in item_edges:
+                if is_parallel(ref_p1, ref_p2, ie[0], ie[1]):
+                    item_mid = QPointF(
+                        (ie[0].x() + ie[1].x()) / 2,
+                        (ie[0].y() + ie[1].y()) / 2)
+                    # Compute perpendicular offset from reference line
+                    # (after alignment the anchor is at 0; others may differ)
+                    comp = ((item_mid.x() - ref_p1.x()) * perp_dir.x()
+                            + (item_mid.y() - ref_p1.y()) * perp_dir.y())
+                    item_offset = comp
+                    break
+            if item_mid is None:
+                # Fallback: use item scene pos
+                sp = item.scenePos() if hasattr(item, 'scenePos') else item.pos()
+                item_mid = QPointF(sp.x(), sp.y())
+
+            constraint_data = {
+                "reference_item": ref_item,
+                "reference_line": (QPointF(ref_p1), QPointF(ref_p2)),
+                "target_item": item,
+                "target_point": item_mid,
+                "perp_direction": perp_dir,
+                "perpendicular_offset": item_offset if item is not target else 0.0,
+            }
+            padlock = _PadlockItem(item_mid, constraint_data)
+            self.addItem(padlock)
+            self._align_padlocks.append(padlock)
 
         self._show_status("Aligned \u2014 click padlock to lock")
         for v in self.views():
