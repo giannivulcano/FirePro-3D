@@ -3812,6 +3812,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          oy + length * dy)
 
             gl = GridlineItem(p1, p2, label=label)
+            gl._locked = spec.get("locked", False)
             gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)

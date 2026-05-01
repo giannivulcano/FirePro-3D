@@ -2002,8 +2002,10 @@ class SceneToolsMixin:
             # Skip our own highlight / ghost items
             if item is self._align_highlight or item is self._align_ghost:
                 continue
-            # Skip padlock items
+            # Skip padlock / lock indicator items
             if isinstance(item, _PadlockItem):
+                continue
+            if type(item).__name__ == '_LockIndicator':
                 continue
             # Skip invisible items
             if not item.isVisible():
