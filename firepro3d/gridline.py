@@ -242,16 +242,19 @@ _LOCK_SIZE = 10.0  # pixels (screen-fixed)
 
 
 class _LockIndicator(QGraphicsPathItem):
-    """Small padlock icon at the gridline midpoint.
+    """Small padlock icon adjacent to the primary gridline bubble.
 
     Visible when the parent gridline is selected.  Click toggles the
     gridline's ``_locked`` state.  Orange = unlocked, green = locked.
+    Drawn offset from the bubble centre so it sits beside it.
     """
+
+    _OFFSET_PX = GridBubble.RADIUS_PX + 6  # bubble edge + gap
 
     def __init__(self, parent: "GridlineItem"):
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setZValue(2)
+        self.setZValue(501)  # just above bubbles
         self.setVisible(False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
@@ -259,14 +262,31 @@ class _LockIndicator(QGraphicsPathItem):
         self._rebuild()
 
     def _rebuild(self):
-        """Redraw the padlock shape with colour reflecting lock state."""
+        """Redraw the padlock shape offset from the bubble, colour reflects lock state."""
         s = _LOCK_SIZE
+        # Compute offset direction: perpendicular to gridline, in screen pixels
+        line = self._gridline.line()
+        dx = line.p2().x() - line.p1().x()
+        dy = line.p2().y() - line.p1().y()
+        length = math.hypot(dx, dy)
+        if length > 1e-9:
+            # Perpendicular unit vector (screen space, since ITT)
+            nx, ny = -dy / length, dx / length
+        else:
+            nx, ny = 1.0, 0.0
+        # Pick the side where the dominant perpendicular component is positive
+        dominant = nx if abs(nx) >= abs(ny) else ny
+        if dominant < 0:
+            nx, ny = -nx, -ny
+        ox = nx * self._OFFSET_PX
+        oy = ny * self._OFFSET_PX
+
         path = QPainterPath()
-        # Body (rectangle)
-        path.addRect(-s / 2, 0, s, s * 0.7)
+        # Body (rectangle) — offset by (ox, oy)
+        path.addRect(ox - s / 2, oy - s * 0.35, s, s * 0.7)
         # Shackle (arc)
-        path.moveTo(-s * 0.3, 0)
-        path.arcTo(-s * 0.3, -s * 0.5, s * 0.6, s * 0.6, 180, -180)
+        path.moveTo(ox - s * 0.3, oy - s * 0.35)
+        path.arcTo(ox - s * 0.3, oy - s * 0.85, s * 0.6, s * 0.6, 180, -180)
         self.setPath(path)
         locked = self._gridline._locked
         color = QColor("#44cc44") if locked else QColor("#ffaa00")
@@ -414,11 +434,8 @@ class GridlineItem(QGraphicsLineItem):
         self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
 
     def _update_lock_indicator_pos(self):
-        """Place lock indicator at the midpoint of the gridline."""
-        line = self.line()
-        mid = QPointF((line.p1().x() + line.p2().x()) / 2,
-                      (line.p1().y() + line.p2().y()) / 2)
-        self._lock_indicator.setPos(mid)
+        """Place lock indicator adjacent to bubble1 (primary bubble)."""
+        self._lock_indicator.setPos(self.bubble1.pos())
 
     # ── Hover events ─────────────────────────────────────────────────────
 
