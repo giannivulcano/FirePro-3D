@@ -47,7 +47,6 @@ class SceneIOMixin:
                 "x":              node.scenePos().x(),
                 "y":              node.scenePos().y(),
                 "elevation":      node.z_pos,
-                "z_offset":       getattr(node, "z_offset", node.z_pos),
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
@@ -332,7 +331,6 @@ class SceneIOMixin:
             self.addItem(node)
             self.sprinkler_system.add_node(node)
             id_to_node[entry["id"]] = node
-            node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
             node.user_layer = entry.get("user_layer", "0")
             node.level = entry.get("level", DEFAULT_LEVEL)
             node._room_name = entry.get("room_name", "")

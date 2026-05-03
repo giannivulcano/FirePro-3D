@@ -301,7 +301,7 @@ class TestSprinklerDatabase:
 class TestPipeDiameterSchedule:
 
     def test_internal_diameter_keys(self):
-        expected = ['1"Ø', '1-½"Ø', '2"Ø', '3"Ø', '4"Ø', '5"Ø', '6"Ø', '8"Ø']
+        expected = ['¾"Ø', '1"Ø', '1-¼"Ø', '1-½"Ø', '2"Ø', '2-½"Ø', '3"Ø', '4"Ø', '5"Ø', '6"Ø', '8"Ø']
         assert Pipe._INTERNAL_DIAMETERS == expected
 
     def test_od_table_covers_all_internal_keys(self):

@@ -2577,7 +2577,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "x":              node.scenePos().x(),
                 "y":              node.scenePos().y(),
                 "elevation":      node.z_pos,
-                "z_offset":       getattr(node, "z_offset", node.z_pos),
                 "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
                 "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
@@ -2728,7 +2727,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(node)
                 self.sprinkler_system.add_node(node)
                 id_to_node[entry["id"]] = node
-                node.z_offset = entry.get("z_offset", entry.get("elevation", 0))
                 node._display_overrides = entry.get("display_overrides", {})
                 if entry.get("sprinkler"):
                     template = Sprinkler(None)
@@ -7099,10 +7097,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 item.level = target_level
                 if isinstance(item, Node):
                     moved_nodes.add(item)
+                    item.ceiling_level = target_level
+                    item._properties["Ceiling Level"]["value"] = target_level
                     if self._level_manager:
                         lvl = self._level_manager.get(target_level)
                         if lvl:
-                            item.z_pos = lvl.elevation + item.z_offset  # z_offset is legacy (may be ft from old saves)
+                            item.z_pos = lvl.elevation + item.ceiling_offset
 
         # Move pipes whose both endpoints moved
         for item in items:
@@ -7519,7 +7519,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "type": "node",
                     "x": item.pos().x(), "y": item.pos().y(),
                     "elevation": item.z_pos,
-                    "z_offset": getattr(item, "z_offset", item.z_pos),
+                    "ceiling_level": getattr(item, "ceiling_level", DEFAULT_LEVEL),
+                    "ceiling_offset_mm": getattr(item, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                     "level": getattr(item, "level", DEFAULT_LEVEL),
                     "user_layer": getattr(item, "user_layer", DEFAULT_USER_LAYER),
                     "sprinkler": sprinkler,
@@ -7540,21 +7541,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 existing = self.find_nearby_node(new_x, new_y)
                 node1 = existing if existing else self.add_node(new_x, new_y)
 
-                # Restore elevation offset and layer from copied data
-                if "z_offset" in obj:
-                    node1.z_offset = obj["z_offset"]
-                elif "elevation" in obj:
-                    node1.z_offset = obj["elevation"]
-                node1.set_property("Elevation Offset", str(node1.z_offset))
+                # Restore ceiling and layer from copied data
+                if "ceiling_level" in obj:
+                    node1.ceiling_level = obj["ceiling_level"]
+                    node1._properties["Ceiling Level"]["value"] = obj["ceiling_level"]
+                if "ceiling_offset_mm" in obj:
+                    node1.ceiling_offset = obj["ceiling_offset_mm"]
+                    node1._properties["Ceiling Offset"]["value"] = str(obj["ceiling_offset_mm"])
+                elif "z_offset" in obj:
+                    # Old clipboard data: z_offset was raw elevation offset
+                    node1.ceiling_offset = obj["z_offset"]
+                    node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
                 if "level" in obj:
                     node1.level = obj["level"]
                 if "user_layer" in obj:
                     node1.user_layer = obj["user_layer"]
-                # Recompute z_pos from level
+                # Recompute z_pos from ceiling level + offset
                 if self._level_manager:
-                    lvl = self._level_manager.get(node1.level)
+                    lvl = self._level_manager.get(node1.ceiling_level)
                     if lvl:
-                        node1.z_pos = lvl.elevation + node1.z_offset  # z_offset is legacy (may be ft from old saves)
+                        node1.z_pos = lvl.elevation + node1.ceiling_offset
+                    elif "elevation" in obj:
+                        node1.z_pos = obj["elevation"]
 
                 if obj.get("sprinkler"):
                     template = Sprinkler(None)

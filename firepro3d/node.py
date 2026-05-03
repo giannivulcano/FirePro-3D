@@ -30,7 +30,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         self.x_pos = x
         self.y_pos = y
         self.z_pos = z
-        self.z_offset: float = z             # offset from level elevation (legacy, may be ft in old saves)
+        self.z_offset: float = 0.0            # deprecated — kept for old-file load compat only
         self.icon_scale = 4
         self.sprinkler = None
         self.fitting = Fitting(self)

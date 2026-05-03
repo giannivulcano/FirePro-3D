@@ -17,14 +17,23 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     # Diameters that auto-assign as "Main" (≥ 3")
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
 
+    # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
+    MATERIAL_C_FACTOR: dict[str, int] = {
+        "Galvanized Steel": 120,
+        "Black Steel": 120,
+        "Stainless Steel": 150,
+        "PVC": 150,
+        "CPVC": 150,
+    }
+
     # Internal diameter keys (stored in _properties and serialization)
-    _INTERNAL_DIAMETERS = ["1\"Ø", "1-½\"Ø", "2\"Ø", "3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"]
+    _INTERNAL_DIAMETERS = ["¾\"Ø", "1\"Ø", "1-¼\"Ø", "1-½\"Ø", "2\"Ø", "2-½\"Ø", "3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"]
 
     # Imperial display strings (Ø sign first, space before value)
-    _IMPERIAL_DIAMETERS = ["Ø 1\"", "Ø 1-½\"", "Ø 2\"", "Ø 3\"", "Ø 4\"", "Ø 5\"", "Ø 6\"", "Ø 8\""]
+    _IMPERIAL_DIAMETERS = ["Ø ¾\"", "Ø 1\"", "Ø 1-¼\"", "Ø 1-½\"", "Ø 2\"", "Ø 2-½\"", "Ø 3\"", "Ø 4\"", "Ø 5\"", "Ø 6\"", "Ø 8\""]
 
     # Metric nominal diameter display strings (DN / nominal mm)
-    _METRIC_DIAMETERS = ["Ø 25 mm", "Ø 40 mm", "Ø 50 mm", "Ø 80 mm", "Ø 100 mm", "Ø 125 mm", "Ø 150 mm", "Ø 200 mm"]
+    _METRIC_DIAMETERS = ["Ø 20 mm", "Ø 25 mm", "Ø 32 mm", "Ø 40 mm", "Ø 50 mm", "Ø 65 mm", "Ø 80 mm", "Ø 100 mm", "Ø 125 mm", "Ø 150 mm", "Ø 200 mm"]
 
     # Mappings: internal key ↔ display strings
     _INT_TO_IMPERIAL = dict(zip(_INTERNAL_DIAMETERS, _IMPERIAL_DIAMETERS))
@@ -35,10 +44,12 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     # Nominal pipe OD in inches — used to set the 2D line width to the real
     # pipe size (1 scene unit = 1 mm, so OD_in × 25.4 = pen width in scene units).
     NOMINAL_OD_IN: dict[str, float] = {
-        '1"Ø': 1.315, '1-½"Ø': 1.900, '2"Ø': 2.375, '3"Ø': 3.500,
+        '¾"Ø': 1.050, '1"Ø': 1.315, '1-¼"Ø': 1.660, '1-½"Ø': 1.900,
+        '2"Ø': 2.375, '2-½"Ø': 2.875, '3"Ø': 3.500,
         '4"Ø': 4.500, '5"Ø': 5.563, '6"Ø': 6.625, '8"Ø': 8.625,
         # Legacy keys without Ø (for backward-compat with older projects / 3D view)
-        '1"': 1.315, '1-½"': 1.900, '2"': 2.375, '3"': 3.500,
+        '¾"': 1.050, '1"': 1.315, '1-¼"': 1.660, '1-½"': 1.900,
+        '2"': 2.375, '2-½"': 2.875, '3"': 3.500,
         '4"': 4.500, '5"': 5.563, '6"': 6.625, '8"': 8.625,
     }
 
@@ -46,15 +57,20 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     # Used by the hydraulic solver (Hazen-Williams requires actual ID, not nominal).
     # Keys match the "Diameter" property option strings.
     INNER_DIAMETER_IN: dict[str, dict[str, float]] = {
-        "Sch 10":  {"1\"Ø": 1.097, "1-½\"Ø": 1.682, "2\"Ø": 2.157, "3\"Ø": 3.260,
+        "Sch 10":  {"¾\"Ø": 0.884, "1\"Ø": 1.097, "1-¼\"Ø": 1.442, "1-½\"Ø": 1.682,
+                    "2\"Ø": 2.157, "2-½\"Ø": 2.635, "3\"Ø": 3.260,
                     "4\"Ø": 4.260, "5\"Ø": 5.295, "6\"Ø": 6.357, "8\"Ø": 8.329},
-        "Sch 40":  {"1\"Ø": 1.049, "1-½\"Ø": 1.610, "2\"Ø": 2.067, "3\"Ø": 3.068,
+        "Sch 40":  {"¾\"Ø": 0.824, "1\"Ø": 1.049, "1-¼\"Ø": 1.380, "1-½\"Ø": 1.610,
+                    "2\"Ø": 2.067, "2-½\"Ø": 2.469, "3\"Ø": 3.068,
                     "4\"Ø": 4.026, "5\"Ø": 5.047, "6\"Ø": 6.065, "8\"Ø": 7.981},
-        "Sch 80":  {"1\"Ø": 0.957, "1-½\"Ø": 1.500, "2\"Ø": 1.939, "3\"Ø": 2.900,
+        "Sch 80":  {"¾\"Ø": 0.742, "1\"Ø": 0.957, "1-¼\"Ø": 1.278, "1-½\"Ø": 1.500,
+                    "2\"Ø": 1.939, "2-½\"Ø": 2.323, "3\"Ø": 2.900,
                     "4\"Ø": 3.826, "5\"Ø": 4.813, "6\"Ø": 5.761, "8\"Ø": 7.625},
-        "Sch 40S": {"1\"Ø": 1.049, "1-½\"Ø": 1.610, "2\"Ø": 2.067, "3\"Ø": 3.068,
+        "Sch 40S": {"¾\"Ø": 0.824, "1\"Ø": 1.049, "1-¼\"Ø": 1.380, "1-½\"Ø": 1.610,
+                    "2\"Ø": 2.067, "2-½\"Ø": 2.469, "3\"Ø": 3.068,
                     "4\"Ø": 4.026, "5\"Ø": 5.047, "6\"Ø": 6.065, "8\"Ø": 7.981},
-        "Sch 10S": {"1\"Ø": 1.097, "1-½\"Ø": 1.682, "2\"Ø": 2.157, "3\"Ø": 3.260,
+        "Sch 10S": {"¾\"Ø": 0.884, "1\"Ø": 1.097, "1-¼\"Ø": 1.442, "1-½\"Ø": 1.682,
+                    "2\"Ø": 2.157, "2-½\"Ø": 2.635, "3\"Ø": 3.260,
                     "4\"Ø": 4.260, "5\"Ø": 5.295, "6\"Ø": 6.357, "8\"Ø": 8.329},
     }
 
@@ -63,10 +79,10 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         super().__init__()
         # Properties
         self._properties = {
-            "Diameter":    {"type": "enum",   "value": "1\"Ø",            "options": ["1\"Ø", "1-½\"Ø", "2\"Ø","3\"Ø","4\"Ø","5\"Ø","6\"Ø","8\"Ø"]},
+            "Diameter":    {"type": "enum",   "value": "1\"Ø",            "options": ["¾\"Ø", "1\"Ø", "1-¼\"Ø", "1-½\"Ø", "2\"Ø", "2-½\"Ø", "3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"]},
             "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
-            "C-Factor":    {"type": "string", "value": "120"},
-            "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC"]},
+            "C-Factor":    {"type": "string", "value": "120", "readonly": True},
+            "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC", "CPVC"]},
             "Ceiling Level":      {"type": "level_ref", "value": DEFAULT_LEVEL},
             "Ceiling Offset":{"type": "string", "value": "-50.8"},
             "Line Type":   {"type": "enum",   "value": "Branch",         "options": ["Branch", "Main"]},
@@ -356,6 +372,16 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             length_str = f"{length_mm:.1f} mm"
         props["Length"] = {"type": "label", "value": length_str}
 
+        # Absolute node elevations (real pipes only)
+        if self.node1 is not None and self.node2 is not None:
+            for label, node in [("Node 1 Elevation", self.node1),
+                                ("Node 2 Elevation", self.node2)]:
+                z = getattr(node, "z_pos", 0.0)
+                if sm:
+                    props[label] = {"type": "label", "value": sm.format_length(z)}
+                else:
+                    props[label] = {"type": "label", "value": f"{z:.1f} mm"}
+
         # Template node elevation sections (node1/node2 are None for templates)
         if self.node1 is None and self.node2 is None:
             # Remove pipe-level ceiling props — they're replaced by per-node ones
@@ -389,8 +415,11 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
 
     def set_property(self, key, value):
         # Accept legacy names from old save files
-        if key in ("Elevation 1", "Elevation 2", "Line Weight", "Length"):
+        if key in ("Elevation 1", "Elevation 2", "Line Weight", "Length",
+                    "Node 1 Elevation", "Node 2 Elevation"):
             return  # discard old/removed or read-only properties
+        if key == "C-Factor":
+            return  # read-only; derived from Material
         # Per-node template ceiling properties
         if key in ("N1 Ceiling Level", "N2 Ceiling Level"):
             attr = "node1_ceiling_level" if key.startswith("N1") else "node2_ceiling_level"
@@ -435,6 +464,10 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 value = self._DISPLAY_TO_INT[value]
             self._properties[key]["value"] = value
 
+            if key == "Material":
+                # Auto-derive C-Factor from material
+                c = self.MATERIAL_C_FACTOR.get(value, 120)
+                self._properties["C-Factor"]["value"] = str(c)
             if key == "Diameter":
                 # Auto-assign Line Type based on diameter threshold
                 if value in self._MAIN_DIAMETERS:
