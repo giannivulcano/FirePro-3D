@@ -22,7 +22,7 @@ import math
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore  import QLineF, QPointF, QRectF
-from PyQt6.QtGui   import QTransform
+from PyQt6.QtGui   import QPainterPath, QTransform
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
@@ -43,6 +43,8 @@ from .wall import WallSegment
 # ─────────────────────────────────────────────────────────────────────────────
 
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
+SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
+_PHASE4_MAX_ITEMS = 64      # skip phase-4 intersection pairing above this item count
 
 # Geometry primitive epsilons (used in snap math helpers)
 _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
@@ -223,11 +225,12 @@ class SnapEngine:
         if not self.enabled:
             return None
 
-        # Convert tolerance from screen pixels to scene units
+        # Convert tolerance from screen pixels to scene units, capped to
+        # prevent huge search rects at low zoom (O(n²) phase-4 cost).
         scale = view_transform.m11()
         if scale <= 0:
             scale = 1.0
-        tol = SNAP_TOLERANCE_PX / scale
+        tol = min(SNAP_TOLERANCE_PX / scale, SNAP_MAX_SCENE_TOL)
 
         search_rect = QRectF(
             cursor_scene.x() - tol, cursor_scene.y() - tol,
@@ -250,9 +253,11 @@ class SnapEngine:
         # Phase 3 — Gridline point + edge snaps
         self._check_gridline_snaps(ctx, gl_items)
 
-        # Phase 4 — Geometry-to-geometry intersections
+        # Phase 4 — Geometry-to-geometry intersections (skip when search
+        # rect captures too many items — O(n²) pairing is not useful then)
         if self.snap_intersection:
-            self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
+            if len(scene.items(search_rect)) <= _PHASE4_MAX_ITEMS:
+                self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
 
         return ctx.best_result
 
@@ -411,8 +416,10 @@ class SnapEngine:
                     path = item.path()
                     n = path.elementCount()
                     for j in range(min(n - 1, 511)):
-                        e1 = path.elementAt(j)
                         e2 = path.elementAt(j + 1)
+                        if e2.type == QPainterPath.ElementType.MoveToElement:
+                            continue  # sub-path boundary, no segment
+                        e1 = path.elementAt(j)
                         _segments.append((
                             item.mapToScene(QPointF(e1.x, e1.y)),
                             item.mapToScene(QPointF(e2.x, e2.y)),
@@ -654,8 +661,10 @@ class SnapEngine:
             # Segment midpoints between consecutive vertices
             if self.snap_midpoint:
                 for i in range(min(n - 1, 511)):
-                    e1 = path.elementAt(i)
                     e2 = path.elementAt(i + 1)
+                    if e2.type == QPainterPath.ElementType.MoveToElement:
+                        continue  # sub-path boundary, no segment
+                    e1 = path.elementAt(i)
                     mid = QPointF((e1.x + e2.x) / 2, (e1.y + e2.y) / 2)
                     pts.append(("midpoint", item.mapToScene(mid), None))
 
@@ -851,8 +860,10 @@ class SnapEngine:
                     path = item.path()
                     n = path.elementCount()
                     for i in range(min(n - 1, 511)):
-                        e1 = path.elementAt(i)
                         e2 = path.elementAt(i + 1)
+                        if e2.type == QPainterPath.ElementType.MoveToElement:
+                            continue  # sub-path boundary, no segment
+                        e1 = path.elementAt(i)
                         _seg_snap(
                             item.mapToScene(QPointF(e1.x, e1.y)),
                             item.mapToScene(QPointF(e2.x, e2.y)),

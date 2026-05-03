@@ -26,7 +26,6 @@ from PyQt6.QtCore import Qt
 # Data model
 # ─────────────────────────────────────────────────────────────────────────────
 
-FADE_OPACITY = 0.25  # opacity for faded levels
 CROSS_LEVEL_OPACITY = 0.50  # opacity for items from other levels shown via Z-range
 
 
@@ -66,17 +65,12 @@ from .constants import (
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
     Z_GRIDLINE_BUBBLE,
 )
-# Display mode options (stored in Level.display_mode)
-DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
-
-
 @dataclass
 class Level:
     name:         str
     elevation:    float = 0.0       # mm, relative to project datum
     view_top:     float = 2000.0    # mm above elevation (default offset for new plan views)
     view_bottom:  float = -1000.0   # mm below elevation (default offset for new plan views)
-    display_mode: str   = "Auto"    # Auto | Hidden | Faded | Visible
 
     def to_dict(self) -> dict:
         return {
@@ -84,7 +78,6 @@ class Level:
             "elevation_mm": self.elevation,
             "view_top":     self.view_top,
             "view_bottom":  self.view_bottom,
-            "display_mode": self.display_mode,
         }
 
     @classmethod
@@ -94,12 +87,12 @@ class Level:
             elev = d["elevation_mm"]
         else:
             elev = d.get("elevation", 0.0) * 304.8
+        # Note: "display_mode" is ignored on load (removed feature)
         return cls(
             name         = d["name"],
             elevation    = elev,
             view_top     = d.get("view_top",     2000.0),
             view_bottom  = d.get("view_bottom",  -1000.0),
-            display_mode = d.get("display_mode", "Auto"),
         )
 
 
@@ -352,7 +345,7 @@ class LevelManager:
     def apply_to_scene(self, scene, active_level: str | None = None,
                        view_height: float | None = None,
                        view_depth: float | None = None):
-        """Show/hide/fade entities based on *active_level* and display_mode,
+        """Show/hide entities based on *active_level* and Z-range,
         then re-apply layer visibility so both level AND layer filtering
         are respected.
 
@@ -393,14 +386,6 @@ class LevelManager:
                 item._is_section_cut = False
 
             lvl_name = getattr(item, "level", DEFAULT_LEVEL)
-            lvl_def = lvl_map.get(lvl_name)
-            mode = lvl_def.display_mode if lvl_def else "Auto"
-
-            # "Hidden" always hides, even if active
-            if mode == "Hidden":
-                item.setVisible(False)
-                item.setOpacity(1.0)
-                return
 
             if lvl_name == active:
                 # Active level — fully visible and selectable
@@ -409,41 +394,21 @@ class LevelManager:
                 item.setFlag(
                     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
                 )
-                # Apply view-range Z filter
                 if has_view_range:
                     _apply_z_filter(item, view_height, view_depth)
                 return
 
-            # Non-active level — check display_mode first, then Z-range
-            if mode == "Faded":
-                item.setVisible(True)
-                item.setOpacity(FADE_OPACITY)
-                item.setFlag(
-                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
-                )
-                if has_view_range:
-                    _apply_z_filter(item, view_height, view_depth)
-            elif mode == "Visible":
+            # Non-active level — visible only if Z-range overlaps
+            if has_view_range and _z_intersects(item, view_height, view_depth):
                 item.setVisible(True)
                 item.setOpacity(1.0)
                 item.setFlag(
-                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False,
+                    QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
                 )
-                if has_view_range:
-                    _apply_z_filter(item, view_height, view_depth)
+                _apply_z_filter(item, view_height, view_depth)
             else:
-                # "Auto" when not active — check if Z-range brings it in
-                if has_view_range and _z_intersects(item, view_height, view_depth):
-                    # Multi-level element visible on this plan — full opacity
-                    item.setVisible(True)
-                    item.setOpacity(1.0)
-                    item.setFlag(
-                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
-                    )
-                    _apply_z_filter(item, view_height, view_depth)
-                else:
-                    item.setVisible(False)
-                    item.setOpacity(1.0)
+                item.setVisible(False)
+                item.setOpacity(1.0)
 
         # ── Sprinkler system ──────────────────────────────────────────────
         for node in scene.sprinkler_system.nodes:
@@ -637,49 +602,4 @@ class LevelManager:
         if ulm is not None:
             ulm.apply_to_scene(scene)
 
-        # ── Fixup: restore faded opacity for items that survived layer
-        #    filtering (ulm.apply_to_scene may have reset opacity) ─────────
-        faded_levels = {l.name for l in self._levels
-                        if l.display_mode == "Faded" and l.name != active}
-        if faded_levels:
-            self._reapply_fade(scene, faded_levels)
-
-    def _reapply_fade(self, scene, faded_levels: set[str]):
-        """Re-apply FADE_OPACITY to items on faded levels that are still
-        visible after user-layer filtering."""
-        def _fix(item):
-            if not item.isVisible():
-                return
-            if getattr(item, "level", DEFAULT_LEVEL) in faded_levels:
-                item.setOpacity(FADE_OPACITY)
-
-        for node in scene.sprinkler_system.nodes:
-            _fix(node)
-        for pipe in scene.sprinkler_system.pipes:
-            _fix(pipe)
-        for item in getattr(scene, "_construction_lines", []):
-            _fix(item)
-        for item in getattr(scene, "_polylines", []):
-            _fix(item)
-        for item in getattr(scene, "_draw_lines", []):
-            _fix(item)
-        for item in getattr(scene, "_draw_rects", []):
-            _fix(item)
-        for item in getattr(scene, "_draw_circles", []):
-            _fix(item)
-        for item in getattr(scene, "_draw_arcs", []):
-            _fix(item)
-        for item in getattr(scene, "_gridlines", []):
-            _fix(item)
-        annotations = getattr(scene, "annotations", None)
-        if annotations is not None:
-            for dim in getattr(annotations, "dimensions", []):
-                _fix(dim)
-            for note in getattr(annotations, "notes", []):
-                _fix(note)
-        for item in getattr(scene, "_hatch_items", []):
-            _fix(item)
-        ws = getattr(scene, "water_supply_node", None)
-        if ws is not None:
-            _fix(ws)
 

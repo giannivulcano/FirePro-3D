@@ -21,7 +21,7 @@ from .dimension_edit import DimensionEdit
 from . import theme as th
 
 from .constants import DEFAULT_LEVEL
-from .level_manager import Level, LevelManager, DISPLAY_MODES
+from .level_manager import Level, LevelManager
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,7 +30,6 @@ from .level_manager import Level, LevelManager, DISPLAY_MODES
 
 _COL_NAME    = 0
 _COL_ELEV    = 1
-_COL_DISPLAY = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,13 +157,12 @@ class LevelWidget(QWidget):
         layout.addLayout(toolbar)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Name", "Elevation", "Display"])
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Name", "Elevation"])
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_NAME, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(
             _COL_ELEV, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setColumnWidth(_COL_DISPLAY, 100)
         self.table.verticalHeader().setDefaultSectionSize(24)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -212,15 +210,6 @@ class LevelWidget(QWidget):
         elev_it = QTableWidgetItem(self._fmt_elev(lvl.elevation))
         elev_it.setData(Qt.ItemDataRole.UserRole, lvl.elevation)
         self.table.setItem(row, _COL_ELEV, elev_it)
-        combo = QComboBox()
-        combo.setFixedHeight(20)
-        combo.addItems(DISPLAY_MODES)
-        idx = combo.findText(lvl.display_mode)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        combo.currentIndexChanged.connect(
-            lambda _idx, r=row: self._on_display_combo_changed(r, _idx))
-        self.table.setCellWidget(row, _COL_DISPLAY, combo)
 
     # ── Active-level highlight ────────────────────────────────────────────────
 
@@ -237,19 +226,6 @@ class LevelWidget(QWidget):
                 it = self.table.item(row, col)
                 if it:
                     it.setFont(bold if is_active else normal)
-            combo = self.table.cellWidget(row, _COL_DISPLAY)
-            if combo and isinstance(combo, QComboBox):
-                combo.blockSignals(True)
-                if combo.count() == 1 and combo.itemText(0) == "Active":
-                    lvl = self._level_at_row(row)
-                    combo.clear()
-                    combo.addItems(DISPLAY_MODES)
-                    if lvl:
-                        idx = combo.findText(lvl.display_mode)
-                        if idx >= 0:
-                            combo.setCurrentIndex(idx)
-                combo.setEnabled(True)
-                combo.blockSignals(False)
 
     # ── Event handlers ────────────────────────────────────────────────────────
 
@@ -314,15 +290,6 @@ class LevelWidget(QWidget):
             if self.scene:
                 self.manager.update_elevations(self.scene)
             self.levelsChanged.emit()
-
-    def _on_display_combo_changed(self, row: int, idx: int):
-        if self._building:
-            return
-        lvl = self._level_at_row(row)
-        if lvl is None or idx < 0 or idx >= len(DISPLAY_MODES):
-            return
-        lvl.display_mode = DISPLAY_MODES[idx]
-        self.levelsChanged.emit()
 
     def _on_active_combo_changed(self, idx: int):
         if self._building or idx < 0:

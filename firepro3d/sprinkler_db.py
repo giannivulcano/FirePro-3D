@@ -57,6 +57,14 @@ class SprinklerRecord:
     temp_rating:   int          # °F
     orifice:       str          # e.g. '1/2"'
     notes:         str = ""
+    # Optional extended fields (NFPA 13 / listing data)
+    response_type:   str = ""   # "Standard" | "Quick" | "Extended Coverage" | ""
+    max_s_spacing:   float = 0.0  # max spacing along branch line (ft), 0 = unset
+    max_l_spacing:   float = 0.0  # max spacing between branch lines (ft), 0 = unset
+    thread_size:     str = ""   # e.g. '1/2" NPT'
+    listing:         str = ""   # UL/FM listing number
+    deflector_min:   float = 0.0  # min deflector-to-ceiling distance (in), 0 = unset
+    deflector_max:   float = 0.0  # max deflector-to-ceiling distance (in), 0 = unset
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -64,16 +72,23 @@ class SprinklerRecord:
     @classmethod
     def from_dict(cls, d: dict) -> "SprinklerRecord":
         return cls(
-            id            = str(d.get("id", "")),
-            manufacturer  = str(d.get("manufacturer", "")),
-            model         = str(d.get("model", "")),
-            type          = str(d.get("type", "Pendent")),
-            k_factor      = float(d.get("k_factor", 5.6)),
-            min_pressure  = float(d.get("min_pressure", 7.0)),
-            coverage_area = float(d.get("coverage_area", 130.0)),
-            temp_rating   = int(d.get("temp_rating", 155)),
-            orifice       = str(d.get("orifice", '1/2"')),
-            notes         = str(d.get("notes", "")),
+            id              = str(d.get("id", "")),
+            manufacturer    = str(d.get("manufacturer", "")),
+            model           = str(d.get("model", "")),
+            type            = str(d.get("type", "Pendent")),
+            k_factor        = float(d.get("k_factor", 5.6)),
+            min_pressure    = float(d.get("min_pressure", 7.0)),
+            coverage_area   = float(d.get("coverage_area", 130.0)),
+            temp_rating     = int(d.get("temp_rating", 155)),
+            orifice         = str(d.get("orifice", '1/2"')),
+            notes           = str(d.get("notes", "")),
+            response_type   = str(d.get("response_type", "")),
+            max_s_spacing   = float(d.get("max_s_spacing", 0.0)),
+            max_l_spacing   = float(d.get("max_l_spacing", 0.0)),
+            thread_size     = str(d.get("thread_size", "")),
+            listing         = str(d.get("listing", "")),
+            deflector_min   = float(d.get("deflector_min", 0.0)),
+            deflector_max   = float(d.get("deflector_max", 0.0)),
         )
 
 
