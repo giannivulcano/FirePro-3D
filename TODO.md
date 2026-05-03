@@ -65,7 +65,7 @@
 - [ ] Spec session: Drafting overrides / view templates — defines resolution rules on top of catalog [ref:view-relationships§7.4] [type:Backlog] [P2] [subject:Architecture]
 - [ ] Spec session: Cross-view selection / interaction sync [ref:view-relationships§1.3] [type:Backlog] [P2] [subject:Architecture]
 - [ ] Spec session: Paper-viewport-specific overrides (depends on view-templates spec landing first) [ref:view-relationships§7.4] [type:Backlog] [P3] [subject:Architecture]
-- [ ] Document or deprecate `Node.z_offset` legacy field — spec records it as legacy, migration/cleanup needed [ref:view-relationships§3.3] [type:Backlog] [P3] [subject:CAD]
+- [x] Document or deprecate `Node.z_offset` legacy field — deprecated: no longer written on save/copy; ceiling_offset is sole Z source; specs updated [ref:view-relationships§3.3] [type:Backlog] [P3] [subject:CAD] [done:2026-05-03]
 - [ ] Remove vestigial `display_mode` from `Level` and `LevelManager.apply_to_scene()` — Hidden/Faded/Visible modes are unused; all visibility is driven by Z-range filtering in practice. Clean up `_set_level_vis()`, remove `DISPLAY_MODES` list, remove combo from `level_widget.py`, update serialization with backward compat [type:Backlog] [P3] [subject:CAD]
 
 ## Additional Spec Sessions

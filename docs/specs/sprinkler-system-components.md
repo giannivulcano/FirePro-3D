@@ -232,20 +232,28 @@ When Diameter is set to a value in this set, Line Type auto-assigns to "Main". D
 
 ### 5.5 C-Factor
 
-Hazen-Williams roughness coefficient. Default: 120. Currently stored as a user-editable string property, independent of Material selection.
+Hazen-Williams roughness coefficient. Read-only, auto-derived from Material via `MATERIAL_C_FACTOR` mapping (NFPA 13 Table 22.4.4.8):
 
-Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC.
+| Material | C-Factor |
+|----------|----------|
+| Galvanized Steel | 120 |
+| Black Steel | 120 |
+| Stainless Steel | 150 |
+| PVC | 150 |
+| CPVC | 150 |
 
-See [Divergence D5](#14-divergences--migration-paths) for planned material-derivation.
+Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC.
+
+~~See [Divergence D5](#14-divergences--migration-paths) for planned material-derivation.~~ **Resolved 2026-05-03.**
 
 ### 5.6 Pipe Properties Schema
 
 | Key | Type | Default | Options |
 |-----|------|---------|---------|
-| Diameter | enum | 1"Ø | 1"Ø, 1-½"Ø, 2"Ø, 3"Ø, 4"Ø, 5"Ø, 6"Ø, 8"Ø |
+| Diameter | enum | 1"Ø | ¾"Ø, 1"Ø, 1-¼"Ø, 1-½"Ø, 2"Ø, 2-½"Ø, 3"Ø, 4"Ø, 5"Ø, 6"Ø, 8"Ø |
 | Schedule | enum | Sch 40 | Sch 10, Sch 40, Sch 80, Sch 40S, Sch 10S |
-| C-Factor | string | 120 | — |
-| Material | enum | Galvanized Steel | Galvanized Steel, Stainless Steel, Black Steel, PVC |
+| C-Factor | string (readonly) | 120 | Auto-derived from Material |
+| Material | enum | Galvanized Steel | Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC |
 | Ceiling Level | level_ref | Level 1 | — |
 | Ceiling Offset | string | -50.8 | mm |
 | Line Type | enum | Branch | Branch, Main |
@@ -374,11 +382,11 @@ Both are updated together on `set_property()`. When a Sprinkler is present, its 
 
 ### 7.5 Legacy z_offset Field
 
-See [Divergence D4](#14-divergences--migration-paths). Two parallel Z-computation paths currently exist:
-- **New path** (property panel edits): `z_pos = lvl.elevation + ceiling_offset`
-- **Old path** (deserialization, level elevation changes): `z_pos = lvl.elevation + z_offset`
+~~See [Divergence D4](#14-divergences--migration-paths).~~ **Resolved 2026-05-03.** `ceiling_offset` is now the sole source of truth for Z computation:
 
-`z_offset` is initialized to the constructor `z` parameter and may contain feet-based values from old saves. The two paths produce different results when `z_offset ≠ ceiling_offset`.
+- `z_pos = lvl.elevation + ceiling_offset` (all paths: property panel, deserialization, level changes, paste, move-to-level)
+
+`z_offset` is deprecated: no longer written on save or clipboard copy. Old saves containing `z_offset` are still read for backward compatibility (paste path falls back to `z_offset` when `ceiling_offset_mm` is absent).
 
 ---
 
@@ -595,12 +603,13 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.1 Node Serialization
 
-**Saved fields:** position (x, y), `z_offset`, `ceiling_level`, `ceiling_offset`, level, layer, sprinkler properties (if sprinkler present).
+**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, layer, sprinkler properties (if sprinkler present). `z_offset` is no longer written (removed 2026-05-03).
 
 **Load migration:**
-1. Read `z_offset` (or legacy field `elevation`)
-2. Read `ceiling_level` and `ceiling_offset` if present (newer saves)
-3. Recompute `z_pos` from level manager after all nodes loaded
+1. Read `ceiling_level` and `ceiling_offset_mm` (current format)
+2. If `ceiling_offset_mm` absent, derive from legacy `ceiling_offset` field (inches → mm)
+3. Recompute `z_pos` from level manager; fall back to `elevation` field if level not found
+4. Old `z_offset` field is ignored (read only for clipboard backward compat)
 
 ### 13.2 Pipe Serialization
 
@@ -632,9 +641,9 @@ No format version bump required for any currently-flagged divergence. All migrat
 | D1 | Database path + singleton | P1 | CWD-relative `sprinklers.json`; 3 independent instances (MainWindow, model_space, property_manager) | Stable path (`%APPDATA%/FirePro3D/sprinklers.json`); single shared instance on MainWindow passed to all consumers | Move path to platform-appropriate app data dir. Remove direct `SprinklerDatabase()` calls; accept instance parameter everywhere. |
 | D2 | SprinklerRecord missing fields | P2 | 10 fields (see §4.1) | Add optional: `response_type` (SR/QR/EC/ESFR), `max_s_spacing` (ft), `max_l_spacing` (ft), `thread_size`, `listing`, `deflector_min` (in), `deflector_max` (in) | Add fields with defaults to dataclass. `from_dict` provides defaults for missing fields. No breaking change. |
 | D3 | "Concealed" missing from Orientation | P1 | Sprinkler Orientation options: Upright, Pendent, Sidewall | Add "Concealed" to options list | One-line change to `Sprinkler._properties["Orientation"]["options"]`. |
-| D4 | z_offset dual computation path | P2 | Two paths: property panel uses `ceiling_offset`; deserialization/level-change uses `z_offset` | Unify on `ceiling_offset` as sole source of truth | On load: if `ceiling_offset` present, use it; else derive from `z_offset + level`. Remove `z_offset` from new serialization. Keep reading `z_offset` for old-file compat. |
-| D5 | C-Factor user-editable | P2 | User can type any C-Factor value; independent of Material | Read-only, auto-derived from Material: Galvanized/Black Steel → 120, Stainless → 150, PVC → 150 | Add `MATERIAL_C_FACTOR` dict. Make C-Factor `readonly` in property schema. Derive on Material change. Old saves: preserve user value until Material is edited. Future: Material Property Manager (database-backed, same pattern as Sprinkler Manager). |
-| D6 | Missing pipe sizes | P2 | 8 sizes: 1" through 8" | Add: ¾", 1-¼", 2-½" (total 11 sizes) | Add to `_INTERNAL_DIAMETERS`, `NOMINAL_OD_IN` (all schedules), `INNER_DIAMETER_IN` (all schedules), display mappings. 2-½" classified as Branch (below ≥3" Main threshold). Requires OD/ID data from ASME pipe tables. |
+| ~~D4~~ | ~~z_offset dual computation path~~ | ~~P2~~ | **Resolved 2026-05-03.** `ceiling_offset` is now sole source of truth. `z_offset` no longer written on save/copy. Old files still read for backward compat. All computation sites (move-to-level, paste, property manager) unified. | | |
+| ~~D5~~ | ~~C-Factor user-editable~~ | ~~P2~~ | **Resolved 2026-05-03.** C-Factor is now read-only and auto-derived from Material via `MATERIAL_C_FACTOR` mapping. CPVC added as material option. Old saves: C-Factor re-derived from Material on next edit. | | |
+| ~~D6~~ | ~~Missing pipe sizes~~ | ~~P2~~ | **Resolved 2026-05-03.** 11 sizes: ¾", 1", 1-¼", 1-½", 2", 2-½", 3", 4", 5", 6", 8". All added to `_INTERNAL_DIAMETERS`, `NOMINAL_OD_IN`, `INNER_DIAMETER_IN` (all 5 schedules), imperial/metric display mappings. | | |
 | D7 | SVG symbols limited & orientation-blind | P3 | 3 generic symbols; no orientation-driven selection | Asymmetric sidewall symbol (triangle); orientation-driven symbol auto-selection; wall auto-detection for sidewall orientation; tab-cycle orientation input; in-app symbol editor (create/edit/delete) | Multi-phase: (1) Add sidewall triangle SVG + orientation→symbol mapping, (2) Wall proximity detection for orientation prediction, (3) Symbol editor UI. Each phase is a separate implementation task. |
 | D8 | Singleton SprinklerSystem | P3 | One SprinklerSystem per project; one supply_node; all items in one container | Per-node/pipe system assignment; multiple SprinklerSystem instances; independent supply nodes; per-system hydraulic calculations | Requires: system ID field on Node/Pipe, system selector UI, serialization extension, hydraulic solver multi-run. Major architectural change — separate spec recommended. |
 | D9 | Sprinkler Manager template bug | P1 | `main.py` uses wrong keys (`"Temp Rating"`, `"Type"`) and omits Manufacturer/Model when applying a SprinklerRecord as template | Use correct keys (`"Temperature"`, `"Orientation"`) and transfer all fields matching auto-populate path | Fix key strings in `_apply_sprinkler_template_from_record()`. Add Manufacturer and Model transfer. |
@@ -717,7 +726,7 @@ No format version bump required for any currently-flagged divergence. All migrat
 - [ ] Every `Pipe` property documented with type, default, and options
 - [ ] `determine_type` truth table covers all pipe-count × angle combinations
 - [ ] Vertical pipe logic documented with detection thresholds
-- [ ] Z-position formula stated with both old (z_offset) and new (ceiling_offset) paths
+- [x] Z-position formula unified on `ceiling_offset` (z_offset deprecated 2026-05-03)
 - [ ] Density/area curve data structure and interpolation algorithm described
 - [ ] Template lifecycle: creation, update, persistence, placement all documented
 - [ ] Each divergence has: current behavior, target behavior, priority, migration steps

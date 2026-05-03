@@ -93,7 +93,7 @@ This table enumerates every property in the data model that contributes to an ob
 | **Pipe** | `node1/2_ceiling_level` | str | "Level 1" | Per-endpoint level (template placement) | `pipe.py:94-97` |
 | **Pipe** | `node1/2_ceiling_offset` | float (mm) | -50.8 | Per-endpoint offset (template placement) | `pipe.py:94-97` |
 | **Node** | `z_pos` | float (mm) | computed | World Z; `_recompute_z_pos()` derives from `ceiling_level + ceiling_offset` | `node.py:32, 95-111` |
-| **Node** | `z_offset` | float | constructor `z` | **Legacy** field; pre-`z_pos` saves; do not use in new code | `node.py:33` |
+| **Node** | `z_offset` | float | 0.0 | **Deprecated** (2026-05-03); no longer written on save/copy; kept for old-file load compat only | `node.py:33` |
 | **Sprinkler** | `ceiling_level` | str | "Level 1" | Inherits from parent node via property panel | `sprinkler.py:43` |
 | **Sprinkler** | `ceiling_offset` | float (mm) | -50.8 | Same mechanism as pipe | `sprinkler.py:44` |
 | **WallSegment** | `_base_level` | str | "Level 1" | Wall bottom level | `wall.py:131` |
@@ -387,4 +387,4 @@ A reader should be able to answer all of these *without reading code*:
 - **[P2] Future spec session: Drafting overrides / view templates.** Will reference §7.4 catalog and define resolution rules.
 - **[P2] Future spec session: Cross-view selection / interaction sync.** Will reference §2 vocabulary.
 - **[P3] Future spec session: Paper-viewport-specific overrides** (on top of view-instance overrides). Depends on view templates spec landing first.
-- **[P3] Document `Node.z_offset` legacy field migration.** §3.3 records `z_offset` as legacy; a migration / cleanup task should remove or formally deprecate it.
+- ~~**[P3] Document `Node.z_offset` legacy field migration.**~~ **Done 2026-05-03.** `z_offset` deprecated: no longer written on save/copy; `ceiling_offset` is sole Z-computation source. Old files still load via backward-compat read path.
