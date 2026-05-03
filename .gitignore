@@ -31,8 +31,12 @@ Thumbs.db
 
 # Project
 *.pyc
+*.FPD
+*.dxf
 .claude/
+.planning/
 .worktrees/
 .agents/
 .coverage
 test.json
+docs/superpowers/plans/
