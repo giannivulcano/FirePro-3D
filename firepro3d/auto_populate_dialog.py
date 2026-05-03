@@ -27,26 +27,13 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSettings, QByteArray
 
+from .constants import HAZARD_CLASSES
+
 if TYPE_CHECKING:
     from .room import Room
     from .sprinkler_db import SprinklerDatabase, SprinklerRecord
     from .level_manager import LevelManager
     from .scale_manager import ScaleManager
-
-# ─────────────────────────────────────────────────────────────────────────────
-# NFPA 13 Data
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Hazard classes (same order as room.py)
-HAZARD_CLASSES = [
-    "Light Hazard",
-    "Ordinary Hazard Group 1",
-    "Ordinary Hazard Group 2",
-    "Extra Hazard Group 1",
-    "Extra Hazard Group 2",
-    "Miscellaneous Storage",
-    "High Piled Storage",
-]
 
 # Max protection area per sprinkler (sq ft) — NFPA 13-2019
 #

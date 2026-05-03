@@ -2211,11 +2211,13 @@ class MainWindow(QMainWindow):
         """Apply a SprinklerRecord as the active sprinkler placement template."""
         from firepro3d.sprinkler import Sprinkler
         template = Sprinkler(None)
+        template.set_property("Manufacturer",  record.manufacturer)
+        template.set_property("Model",         record.model)
         template.set_property("K-Factor",      str(record.k_factor))
         template.set_property("Min Pressure",  str(record.min_pressure))
         template.set_property("Coverage Area", str(record.coverage_area))
-        template.set_property("Temp Rating",   str(record.temp_rating))
-        template.set_property("Type",          record.type)
+        template.set_property("Temperature",   f"{record.temp_rating}°F")
+        template.set_property("Orientation",   record.type)
         self.current_sprinkler_template = template
         self.scene.set_mode("sprinkler", template)
         self.statusBar().showMessage(

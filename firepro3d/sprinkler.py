@@ -31,7 +31,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
         self._properties = {
             "Manufacturer":    {"type": "enum",   "value": "Tyco",       "options": ["Victaulic", "Tyco", "Viking", "Central"]},
             "Model":           {"type": "enum",   "value": "",           "options": []},
-            "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall"]},
+            "Orientation":     {"type": "enum",   "value": "Upright",    "options": ["Upright", "Pendent", "Sidewall", "Concealed"]},
             "K-Factor":        {"type": "label",  "value": "5.6"},
             "Coverage Area":   {"type": "label",  "value": "130"},
             "S Spacing":       {"type": "label",  "value": "---"},
