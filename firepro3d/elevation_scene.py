@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsTextItem, QStyle,
 )
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QLineF, QTimer
-from PyQt6.QtGui import QPen, QColor, QBrush, QFont, QPainterPath, QPainter
+from PyQt6.QtGui import QPen, QColor, QBrush, QFont, QPainterPath, QPainterPathStroker, QPainter
 
 from PyQt6.QtCore import QSettings
 
@@ -166,7 +166,16 @@ class ElevGridlineItem(QGraphicsLineItem):
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
-        path = QPainterPath()
+        # Include the line segment so Qt paint culling doesn't hide the
+        # line when both bubbles scroll off-screen (same class of bug as
+        # the Room shape() fix — see TODO.md shape() audit).
+        line = self.line()
+        line_path = QPainterPath()
+        line_path.moveTo(line.p1())
+        line_path.lineTo(line.p2())
+        stroker = QPainterPathStroker()
+        stroker.setWidth(max(self._pen_w * 4, 8))
+        path = stroker.createStroke(line_path)
         r = self._bubble_r
         path.addEllipse(self.bubble1.pos(), r, r)
         path.addEllipse(self.bubble2.pos(), r, r)

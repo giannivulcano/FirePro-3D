@@ -4,7 +4,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .cad_math import CAD_Math
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_PIPE
 from .displayable_item import DisplayableItemMixin
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
@@ -102,7 +102,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.set_pipe_display()
         
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-        self.setZValue(5)    # above walls (-50) and floors (-80), below nodes (10)
+        self.setZValue(Z_PIPE)
         
         # track node movement
         if node1 and node2:

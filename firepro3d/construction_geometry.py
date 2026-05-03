@@ -18,8 +18,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF
-from .constants import DEFAULT_USER_LAYER
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_USER_LAYER, DEFAULT_LEVEL, Z_CONSTRUCTION
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -231,7 +230,7 @@ class PolylineItem(QGraphicsPathItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(1)
+        self.setZValue(Z_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -392,7 +391,7 @@ class LineItem(QGraphicsLineItem):
         pen.setCosmetic(True)
         self.setPen(pen)
 
-        self.setZValue(1)
+        self.setZValue(Z_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -526,7 +525,7 @@ class RectangleItem(QGraphicsRectItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(1)
+        self.setZValue(Z_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -681,7 +680,7 @@ class CircleItem(QGraphicsEllipseItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(1)
+        self.setZValue(Z_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 

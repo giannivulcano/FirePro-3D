@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QFont, QPainterPath, QPainter
 from PyQt6.QtCore import Qt, QPointF
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_OVERLAY
 
 if TYPE_CHECKING:
     from .scale_manager import ScaleManager
@@ -107,7 +107,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         self._label_bg = None  # background rect, created in _update_label
         self._label = QGraphicsTextItem(self)
         self._label.setDefaultTextColor(QColor("#000000"))
-        self._label.setZValue(200)  # above everything including walls
+        self._label.setZValue(Z_OVERLAY)  # above everything including walls
         self._label_font_color: str = "#000000"
         self._label_font_size: float = 150.0  # mm in scene units
         self._label_offset: QPointF = QPointF(0, 0)  # user drag offset from centroid
@@ -225,7 +225,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         pad = fs * 0.2
         if self._label_bg is None:
             self._label_bg = _RoundedRectBgItem(self)
-            self._label_bg.setZValue(199)
+            self._label_bg.setZValue(Z_OVERLAY - 1)
         border_color = QColor(self._display_color or self._color.name())
         pen = QPen(border_color, 2)
         pen.setCosmetic(True)

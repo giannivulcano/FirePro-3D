@@ -10,6 +10,8 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtTest import QTest
 
+from firepro3d import snap_engine
+
 import main as _main_module
 from firepro3d.view_3d import View3D  # heavy import, required before MainWindow()
 _main_module.View3D = View3D
@@ -21,12 +23,14 @@ def _main_window_singleton(qapp):
     """Module-scoped MainWindow. Creating multiple MainWindow instances
     in the same process hangs (View3D / splash / singleton managers are
     not re-entrant), so we share one across this test module."""
+    saved_tol = snap_engine.SNAP_TOLERANCE_PX
     win = MainWindow()
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
     win.close()
     win.deleteLater()
+    snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
 @pytest.fixture

@@ -44,6 +44,11 @@ from .wall import WallSegment
 
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
 
+# Geometry primitive epsilons (used in snap math helpers)
+_EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
+_EPS_DEGENERATE: float = 1e-12  # zero-length segment / zero-radius guard
+_EPS_COINCIDENT: float = 1e-6   # cursor-on-center / point-coincidence
+
 # Below this half-thickness (in scene units) a WallSegment is too thin
 # for the user to visually distinguish its face corners from the
 # centerline endpoint. We suppress named face-corner / face-mid
@@ -682,7 +687,7 @@ class SnapEngine:
         dx1 = a2.x() - a1.x();  dy1 = a2.y() - a1.y()
         dx2 = b2.x() - b1.x();  dy2 = b2.y() - b1.y()
         denom = dx1 * dy2 - dy1 * dx2
-        if abs(denom) < 1e-10:
+        if abs(denom) < _EPS_PARALLEL:
             return None  # parallel
         t = ((b1.x() - a1.x()) * dy2 - (b1.y() - a1.y()) * dx2) / denom
         s = ((b1.x() - a1.x()) * dy1 - (b1.y() - a1.y()) * dx1) / denom
@@ -707,7 +712,7 @@ class SnapEngine:
         c = fx * fx + fy * fy - radius * radius
         disc = b * b - 4.0 * a * c
         pts: list[QPointF] = []
-        if disc < 0 or a < 1e-12:
+        if disc < 0 or a < _EPS_DEGENERATE:
             return pts
         disc_sqrt = math.sqrt(disc)
         for sign in (-1, 1):
@@ -778,7 +783,7 @@ class SnapEngine:
             dx = cursor.x() - cx
             dy = cursor.y() - cy
             d = math.hypot(dx, dy)
-            if d > 1e-6:
+            if d > _EPS_COINCIDENT:
                 foot_angle_deg = math.degrees(math.atan2(-dy, dx))
                 if _angle_in_arc(foot_angle_deg, item._start_deg, item._span_deg):
                     foot = QPointF(cx + r * dx / d, cy + r * dy / d)
@@ -788,7 +793,7 @@ class SnapEngine:
                         pts.append(("nearest", foot))
 
                 # Tangent — cursor must be outside the arc's radius
-                if self.snap_tangent and d > r + 1e-6:
+                if self.snap_tangent and d > r + _EPS_COINCIDENT:
                     angle_to_cursor = math.atan2(
                         cursor.y() - cy, cursor.x() - cx,
                     )
@@ -813,7 +818,7 @@ class SnapEngine:
                 d = math.hypot(cursor.x() - center.x(),
                                cursor.y() - center.y())
                 # Perpendicular / nearest to circle circumference
-                if (self.snap_perpendicular or self.snap_nearest) and d > 1e-6:
+                if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
                     foot = QPointF(
                         center.x() + r * (cursor.x() - center.x()) / d,
                         center.y() + r * (cursor.y() - center.y()) / d,
@@ -824,7 +829,7 @@ class SnapEngine:
                         pts.append(("nearest", foot))
 
                 # Tangent
-                if self.snap_tangent and d > r + 1e-6:
+                if self.snap_tangent and d > r + _EPS_COINCIDENT:
                     angle_to_cursor = math.atan2(
                         cursor.y() - center.y(),
                         cursor.x() - center.x(),
@@ -866,7 +871,7 @@ class SnapEngine:
         dx = seg_b.x() - seg_a.x()
         dy = seg_b.y() - seg_a.y()
         len_sq = dx * dx + dy * dy
-        if len_sq < 1e-12:
+        if len_sq < _EPS_DEGENERATE:
             return None
         t = ((pt.x() - seg_a.x()) * dx + (pt.y() - seg_a.y()) * dy) / len_sq
         t = max(0.0, min(1.0, t))

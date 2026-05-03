@@ -16,6 +16,8 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QTransform, QFont
 
+from .constants import Z_OVERLAY
+
 _SVG_PATH = os.path.join(
     os.path.dirname(__file__),
     "graphics", "sprinkler_graphics", "hydraulic_node.svg",
@@ -113,7 +115,7 @@ class HydraulicNodeBadge(QGraphicsSvgItem):
         self._stack_index = stack_index      # 0-based stack offset
         self._stack_total = stack_total      # total badges at this position
 
-        self.setZValue(200)
+        self.setZValue(Z_OVERLAY)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         # Scale and centre the SVG

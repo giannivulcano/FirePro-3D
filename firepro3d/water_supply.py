@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, Z_WATER_SUPPLY
 from PyQt6.QtSvg import QSvgRenderer
 
 
@@ -55,7 +55,7 @@ class WaterSupply(QGraphicsSvgItem):
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
         )
-        self.setZValue(50)
+        self.setZValue(Z_WATER_SUPPLY)
         self.level: str = DEFAULT_LEVEL
 
         # Load SVG

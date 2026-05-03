@@ -12,9 +12,35 @@ DEFAULT_LEVEL = "Level 1"
 DEFAULT_USER_LAYER = "Default"
 
 # ── Z-ordering ───────────────────────────────────────────────────────────────
-Z_BELOW_GEOMETRY = -100  # Z-value for items below all geometry
-Z_UNDERLAY = -79         # Z-value for underlays/imports (above floors, below roofs)
-Z_ROOF = -75             # Z-value for roof items (above underlays, below walls)
+# See docs/specs/view-relationships.md §7.3 for the spec source of truth.
+#
+# Static z-values (items outside or before elevation-based z-ordering):
+Z_CROP_BOX       = -200   # SharedCropBox (below all geometry)
+Z_BELOW_GEOMETRY = -100   # origin cross, items below all geometry
+Z_UNDERLAY       = -79    # underlays/imports (initial; overridden at runtime)
+Z_ROOF           = -75    # roof items (initial; overridden at runtime)
+Z_CONSTRUCTION   = 1      # construction geometry (lines, rects, circles, arcs)
+Z_DESIGN_AREA    = 2      # design area boundary
+Z_PIPE           = 5      # pipes (initial; overridden at runtime)
+Z_NODE           = 10     # nodes (initial; overridden at runtime)
+Z_DETAIL_MARKER  = 45     # detail view markers
+Z_WATER_SUPPLY   = 50     # water supply symbol
+Z_SPRINKLER      = 100    # sprinkler symbols
+Z_OVERLAY        = 200    # previews, view markers, room labels, badges
+Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
+Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
+#
+# Elevation-based Z-ordering (level_manager.apply_to_scene):
+# z = elevation_mm * Z_ELEV_SCALE + category offset
+Z_ELEV_SCALE     = 1.0 / 100.0  # mm → Z units (keeps values manageable)
+Z_CAT_FLOOR      = 0.0    # FloorSlab
+Z_CAT_UNDERLAY   = 0.05   # DXF/PDF imports
+Z_CAT_ROOF       = 0.1    # RoofItem
+Z_CAT_ROOM       = 0.2    # Room
+Z_CAT_WALL       = 0.3    # WallSegment
+Z_CAT_OPENING    = 0.35   # DoorOpening, WindowOpening
+Z_CAT_PIPE       = 0.4    # Pipe
+Z_CAT_NODE       = 0.5    # Node
 
 # ── Default gridline geometry (in inches, converted to mm at 25.4 mm/in) ─────
 DEFAULT_GRIDLINE_SPACING_IN = 7315.2   # 288 in / 24 ft

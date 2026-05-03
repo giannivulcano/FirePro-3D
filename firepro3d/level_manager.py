@@ -60,7 +60,12 @@ def _z_intersects(item, view_height, view_depth) -> bool:
     z_bot, z_top = zr
     return z_top >= view_depth and z_bot <= view_height
 
-from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
+from .constants import (
+    DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM,
+    Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
+    Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
+    Z_GRIDLINE_BUBBLE,
+)
 # Display mode options (stored in Level.display_mode)
 DISPLAY_MODES = ["Auto", "Hidden", "Faded", "Visible"]
 
@@ -538,18 +543,18 @@ class LevelManager:
         # render on top of lower items.  Small category offsets preserve
         # draw order within the same elevation (slab < room < wall < pipe < node).
         _Z_CATEGORY = {
-            "FloorSlab": 0.0,
-            "RoofItem":  0.1,
-            "Room":      0.2,
-            "WallSegment": 0.3,
-            "DoorOpening": 0.35,
-            "WindowOpening": 0.35,
-            "Pipe":      0.4,
-            "Node":      0.5,
+            "FloorSlab":    Z_CAT_FLOOR,
+            "RoofItem":     Z_CAT_ROOF,
+            "Room":         Z_CAT_ROOM,
+            "WallSegment":  Z_CAT_WALL,
+            "DoorOpening":  Z_CAT_OPENING,
+            "WindowOpening": Z_CAT_OPENING,
+            "Pipe":         Z_CAT_PIPE,
+            "Node":         Z_CAT_NODE,
         }
         # Items that always overlay on top regardless of elevation
-        _Z_OVERLAY = {"DetailMarker": 500, "GridlineItem": 500}
-        _Z_SCALE = 1.0 / 100.0  # mm → Z units (keeps values manageable)
+        _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
+                      "GridlineItem": Z_GRIDLINE_BUBBLE}
 
         def _apply_elev_z(item):
             try:
@@ -582,7 +587,7 @@ class LevelManager:
                 lvl_obj = lvl_map.get(lvl_name) if lvl_name else None
                 if lvl_obj is not None:
                     z_mm = lvl_obj.elevation
-            item.setZValue(z_mm * _Z_SCALE + cat_offset)
+            item.setZValue(z_mm * Z_ELEV_SCALE + cat_offset)
 
         for node in scene.sprinkler_system.nodes:
             _apply_elev_z(node)
@@ -596,7 +601,6 @@ class LevelManager:
             _apply_elev_z(item)
 
         # Underlays: elevation-based z above floor slabs, below roofs
-        _UNDERLAY_CAT_OFFSET = 0.05  # above FloorSlab (0.0), below RoofItem (0.1)
         for data, item in getattr(scene, "underlays", []):
             if item is None:
                 continue
@@ -608,7 +612,7 @@ class LevelManager:
                 continue
             lvl = lvl_map.get(data.level)
             elev = lvl.elevation if lvl else 0.0
-            item.setZValue(elev * _Z_SCALE + _UNDERLAY_CAT_OFFSET)
+            item.setZValue(elev * Z_ELEV_SCALE + Z_CAT_UNDERLAY)
         for item in getattr(scene, "_roofs", []):
             _apply_elev_z(item)
         for item in getattr(scene, "_rooms", []):

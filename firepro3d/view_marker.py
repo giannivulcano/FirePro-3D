@@ -25,7 +25,7 @@ from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPolygonF, QFont, QPainter, QPainterPath,
 )
 
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, Z_OVERLAY
 from .gridline import BUBBLE_RADIUS_MM, GRID_COLOR
 
 if TYPE_CHECKING:
@@ -148,7 +148,7 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
         pen = QPen(self._marker_color, pen_w)
         self.setPen(pen)
         self.setBrush(QBrush(self._fill_color))
-        self.setZValue(200)
+        self.setZValue(Z_OVERLAY)
 
         # Selectable (NOT movable — position pinned to shared box midlines)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)

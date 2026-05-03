@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker
-from .constants import DEFAULT_USER_LAYER
+from .constants import DEFAULT_USER_LAYER, Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -163,7 +163,7 @@ class GridBubble(QGraphicsEllipseItem):
         pen = QPen(QColor("#4488cc"), max(1.0, r * 0.08))
         self.setPen(pen)
         self.setBrush(QBrush(QColor("#1a1a2e")))
-        self.setZValue(500)
+        self.setZValue(Z_GRIDLINE_BUBBLE)
 
         self._label = QGraphicsTextItem(label, self)
         self._label.setDefaultTextColor(QColor("#88ccff"))
@@ -230,7 +230,7 @@ class _PullTabGrip(QGraphicsRectItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setBrush(QBrush(QColor(68, 136, 204, 60)))
-        self.setZValue(1)
+        self.setZValue(Z_CONSTRUCTION)
         self.setVisible(False)
 
 
@@ -254,7 +254,7 @@ class _LockIndicator(QGraphicsPathItem):
     def __init__(self, parent: "GridlineItem"):
         super().__init__(parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setZValue(501)  # just above bubbles
+        self.setZValue(Z_GRIDLINE_BUBBLE + 1)  # just above bubbles
         self.setVisible(False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)

@@ -7,7 +7,7 @@ from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import Qt
 
 from .assets import asset_path
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, Z_SPRINKLER
 
 from .displayable_item import DisplayableItemMixin
 
@@ -50,7 +50,7 @@ class Sprinkler(DisplayableItemMixin, QGraphicsSvgItem):
 
         if node is not None:
             self.setParentItem(node)
-            self.setZValue(100)
+            self.setZValue(Z_SPRINKLER)
             # No ItemIgnoresTransformations — symbol scales with zoom (real-world size)
             self._load_graphic(self.GRAPHICS[self._properties["Graphic"]["value"]])
 

@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from .fitting import Fitting
 from .sprinkler import Sprinkler
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_NODE
 from .displayable_item import DisplayableItemMixin
 
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
@@ -22,7 +22,7 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         self.setPos(x, y)
         self.setPen(QPen(Qt.PenStyle.NoPen))
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-        self.setZValue(10)  # above walls (-50) and floors (-80)
+        self.setZValue(Z_NODE)
         self.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
             QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
