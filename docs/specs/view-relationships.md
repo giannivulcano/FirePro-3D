@@ -281,21 +281,22 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 
 **Static z-values** (not elevation-based) for items outside the elevation system:
 
-| Band | Value | Items |
-|---|---|---|
-| Below geometry | -200 | `SharedCropBox` (`view_marker.py:65`) |
-| Below geometry | -100 | `Z_BELOW_GEOMETRY` (origin cross) |
-| Walls | -50 | (typical, not hardcoded as a constant) |
-| Annotations / dimensions | 0 | `annotations.py` |
-| Title block (paper space) | 0.5 | `paper_space.py:134, 169` |
-| Pipes / paper viewport | 5 | `pipe.py:105`, `paper_space.py:482` |
-| Nodes | 10 | `node.py:25` |
-| Detail markers | 45 | `detail_view.py:74` |
-| Sprinklers / view marker arrows | 200 | `sprinkler.py:53`, `view_marker.py:151` |
-| Elevation bubbles (in elevation scene) | 500 | `elevation_scene.py:63` |
-| Array preview overlay | 999 | ephemeral UI |
+| Band | Value | Constant | Items |
+|---|---|---|---|
+| Below geometry | -200 | `Z_CROP_BOX` | `SharedCropBox` |
+| Below geometry | -100 | `Z_BELOW_GEOMETRY` | origin cross |
+| Construction geometry | 1 | `Z_CONSTRUCTION` | lines, rects, circles, arcs |
+| Design area | 2 | `Z_DESIGN_AREA` | `DesignArea` boundary |
+| Pipes / paper viewport | 5 | `Z_PIPE` | `Pipe`, `paper_space.py` |
+| Nodes | 10 | `Z_NODE` | `Node` |
+| Detail markers | 45 | `Z_DETAIL_MARKER` | `DetailMarker` |
+| Water supply | 50 | `Z_WATER_SUPPLY` | `WaterSupply` |
+| Sprinklers | 100 | `Z_SPRINKLER` | `Sprinkler` |
+| Overlays | 200 | `Z_OVERLAY` | previews, view markers, room labels, badges |
+| Gridline bubbles | 500 | `Z_GRIDLINE_BUBBLE` | gridline/elevation bubbles |
+| Preview overlay | 999 | `Z_PREVIEW` | ephemeral array/tool UI |
 
-> **Follow-up:** these magic numbers should be extracted to named constants in `constants.py`. The spec is the source of truth for the *order*; `constants.py` will become the source of truth for the *values* once extracted.
+> **Resolved (2026-05-03):** these values are now named constants in `constants.py` (`Z_PIPE`, `Z_NODE`, `Z_DETAIL_MARKER`, `Z_SPRINKLER`, `Z_OVERLAY`, `Z_GRIDLINE_BUBBLE`, `Z_PREVIEW`, etc.). The spec remains the source of truth for the *order*; `constants.py` owns the *values*.
 
 ### 7.4 Drafting overrides — catalog (current state: aspirational)
 
