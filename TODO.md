@@ -110,7 +110,7 @@ _Grid system, scale calibration & underlay, wall/room/floor system, sprinkler co
 - [x] Add loop detection warning — compares reachable pipe count vs BFS tree edges; warns with excluded pipe count and singular/plural grammar. `hydraulic_solver.py` [ref:hydraulic-spec§7.3,D1] [type:Task] [P2] [subject:Hydraulic Calculator] [done:2026-05-01]
 - [ ] Replace velocity color-coding with pipe hf heatmap — normalize friction loss to system max; color pipes green/orange/red by relative hf. `model_space.py`, `hydraulic_report.py` [ref:hydraulic-spec§11.2,D4] [type:Task] [P2] [subject:Hydraulic Calculator]
 - [ ] Consolidate report to 3 tabs — Summary (add project metadata + design criteria), Node Summary Table (NFPA format), Hydraulic Graph. Remove Pipe Results, Sprinkler Schedule, Pipe Schedule tabs. `hydraulic_report.py` [ref:hydraulic-spec§9,D7] [type:Task] [P2] [subject:Hydraulic Calculator]
-- [ ] Place WaterSupply on-node — change from proximity search to direct node placement (same as sprinklers). `model_space.py`, `hydraulic_solver.py` [ref:hydraulic-spec§7.2,D5] [type:Task] [P2] [subject:Hydraulic Calculator]
+- [x] Place WaterSupply on-node — change from proximity search to direct node placement (same as sprinklers). `model_space.py`, `hydraulic_solver.py` [ref:hydraulic-spec§7.2,D5] [type:Task] [P2] [subject:Hydraulic Calculator] [done:2026-05-06]
 - [ ] Multi-system hydraulic export — per-system sections in combined PDF. Depends on sprinkler spec D8. `hydraulic_report.py` [ref:hydraulic-spec§9.4,D9] [type:Task] [P3] [subject:Hydraulic Calculator]
 - [ ] Professional PDF templates — company logo, engineer stamp area, page numbers. `hydraulic_report.py` [ref:hydraulic-spec§9.4,D10] [type:Task] [P3] [subject:Hydraulic Calculator]
 
@@ -176,7 +176,7 @@ _Existing test gap tasks (hydraulic solver, auto-populate, geometry utilities) a
 - [ ] PEP 8 class naming — `Model_Space`, `Model_View`, `CAD_Math` use underscores; should be `ModelSpace`, `ModelView`, `CADMath`. Requires renaming classes + updating all imports and string references. Low priority due to churn. [type:Backlog] [P3] [subject:Code Quality]
 
 ## Pipe Placement Bug Fixes (from `docs/specs/pipe-placement-methodology.md` §9)
-- [ ] Fix `find_nearby_node()` Z-blind snap — currently matches nodes on any level by XY proximity. Add `z_hint` parameter to filter by active level elevation. Causes 5+ downstream bugs on multi-level projects. `model_space.py` [type:Bug] [P1] [subject:CAD]
+- [x] Fix `find_nearby_node()` Z-blind snap — currently matches nodes on any level by XY proximity. Add `z_hint` parameter to filter by active level elevation. Causes 5+ downstream bugs on multi-level projects. `model_space.py` [type:Bug] [P1] [subject:CAD] [done:2026-05-06]
 - [ ] Fix 2D-only geometry checks in pipe placement — all geometry checks (`_would_backtrack_at`, angle calculations, intersection tests) use 2D vectors, producing false positives when pipes on different levels share XY coordinates. `model_space.py`, `scene_tools.py` [type:Bug] [P1] [subject:CAD]
 - [ ] Fix riser auto-build bypassing `add_pipe()` — riser creation directly creates Pipe and adds to scene, skipping display setup, undo capture, and signal emission that `add_pipe()` provides. Route through `add_pipe()`. `model_space.py` [type:Bug] [P2] [subject:CAD]
 
