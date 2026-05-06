@@ -7575,8 +7575,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
-                existing = self.find_nearby_node(new_x, new_y)
-                node1 = existing if existing else self.add_node(new_x, new_y)
+                # Compute z_hint from clipboard elevation data
+                paste_z = obj.get("elevation")
+                if paste_z is None and "ceiling_level" in obj:
+                    if self._level_manager:
+                        _lvl = self._level_manager.get(obj["ceiling_level"])
+                        if _lvl:
+                            _off = obj.get("ceiling_offset_mm",
+                                           DEFAULT_CEILING_OFFSET_MM)
+                            paste_z = _lvl.elevation + _off
+                existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
+                node1 = existing if existing else self.add_node(
+                    new_x, new_y, z_hint=paste_z)
 
                 # Restore ceiling and layer from copied data
                 if "ceiling_level" in obj:
@@ -7610,8 +7620,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
                     py = p["y"] + offset.y()
-                    existing_p = self.find_nearby_node(px, py)
-                    node2 = existing_p if existing_p else self.add_node(px, py)
+                    existing_p = self.find_nearby_node(
+                        px, py, z_hint=paste_z)
+                    node2 = existing_p if existing_p else self.add_node(
+                        px, py, z_hint=paste_z)
                     if not any(
                         (pipe.node1 == node1 and pipe.node2 == node2) or
                         (pipe.node1 == node2 and pipe.node2 == node1)
