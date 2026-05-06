@@ -5100,11 +5100,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos is None:
             template = getattr(self, "current_template", None)
 
+            # Use Tab-selected candidate if available
+            tab_node = None
+            if (self._pipe_tab_candidates
+                    and self._pipe_tab_index < len(self._pipe_tab_candidates)):
+                tab_node = self._pipe_tab_candidates[self._pipe_tab_index]
+
             # Check for existing node BEFORE find_or_create_node
             template_z1 = (self._compute_template_z_pos(template, node_idx=1)
                            if template is not None else None)
-            existing_start = self.find_nearby_node(
-                snapped.x(), snapped.y(), z_hint=template_z1)
+            existing_start = (tab_node if tab_node is not None
+                              else self.find_nearby_node(
+                                  snapped.x(), snapped.y(), z_hint=template_z1))
 
             # Block starting a pipe from a node that's already full (4 = cross)
             if existing_start is not None and len(existing_start.pipes) >= 4:
@@ -5120,8 +5127,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._pipe_node_was_new = True  # split created new node
                 _check_elevation = True  # split node inherits pipe's Z — may differ from template
             else:
-                start_node = self.find_or_create_node(
-                    snapped.x(), snapped.y(), z_hint=template_z1)
+                start_node = (tab_node if tab_node is not None
+                              else self.find_or_create_node(
+                                  snapped.x(), snapped.y(), z_hint=template_z1))
                 self._pipe_node_was_new = (existing_start is None)
                 _check_elevation = (existing_start is not None and existing_start is start_node)
 
@@ -5145,6 +5153,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
 
             self.node_start_pos = start_node
+            # Reset Tab cycling after committing start node
+            self._pipe_tab_candidates = []
+            self._pipe_tab_index = 0
             # Transition to phase 1: lock Node 1, allow Node 2 editing
             if template is not None:
                 if self._pipe_node_was_new:
@@ -5186,10 +5197,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if err:
                     self.warningIssued.emit("Invalid Connection", err)
                     return
+            # Use Tab-selected candidate if available
+            tab_node = None
+            if (self._pipe_tab_candidates
+                    and self._pipe_tab_index < len(self._pipe_tab_candidates)):
+                tab_node = self._pipe_tab_candidates[self._pipe_tab_index]
+
             template_z2 = (self._compute_template_z_pos(template, node_idx=2)
                            if template is not None else None)
-            existing_end_check = self.find_nearby_node(
-                snapped_end.x(), snapped_end.y(), z_hint=template_z2)
+            existing_end_check = (tab_node if tab_node is not None
+                                  else self.find_nearby_node(
+                                      snapped_end.x(), snapped_end.y(), z_hint=template_z2))
             if existing_end_check is not None:
                 end_pipes = len(existing_end_check.pipes)
                 if end_pipes >= 4:
@@ -5206,15 +5224,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return
 
             # Check for existing node BEFORE find_or_create_node
-            existing_end = self.find_nearby_node(
-                snapped_end.x(), snapped_end.y(), z_hint=template_z2)
+            existing_end = (tab_node if tab_node is not None
+                            else self.find_nearby_node(
+                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
 
             if isinstance(item_under, Pipe):
                 end_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped_end, item_under))
                 _check_end_elev = True  # split node inherits pipe's Z
             else:
-                end_node = self.find_or_create_node(
-                    snapped_end.x(), snapped_end.y(), z_hint=template_z2)
+                end_node = (tab_node if tab_node is not None
+                            else self.find_or_create_node(
+                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
                 _check_end_elev = (existing_end is not None)
 
             # Block zero-length same-node pipe — unless template specifies
@@ -5266,6 +5286,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Continuous polyline: end node becomes the next start node
             self.node_start_pos = end_node
             self._pipe_node_was_new = False
+            # Reset Tab cycling after committing end node
+            self._pipe_tab_candidates = []
+            self._pipe_tab_index = 0
             self.push_undo_state()
             # Update template: Node 1 adopts end node's elevation for next segment
             if template is not None:
