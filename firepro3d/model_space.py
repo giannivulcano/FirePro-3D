@@ -70,6 +70,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
+    pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
     def __init__(self):
         super().__init__()
@@ -650,6 +651,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._pipe_tab_candidates = []
         self._pipe_tab_index = 0
         self._pipe_tab_pos = None
+        if hasattr(self, 'pipeNodeHighlight'):
+            self.pipeNodeHighlight.emit("")
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
         self._grip_index = -1
@@ -1098,6 +1101,35 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if z_hint is not None and len(candidates) > 1:
             candidates.sort(key=lambda n: abs(n.z_pos - z_hint))
         return candidates
+
+    def _update_pipe_tab_candidates(self, scene_pos, z_hint=None):
+        """Rebuild pipe-mode Tab candidate list at the given cursor position.
+
+        Resets Tab index to 0.  Called on every cursor move in pipe mode.
+        """
+        self._pipe_tab_candidates = self.find_nearby_candidates(
+            scene_pos.x(), scene_pos.y(), z_hint=z_hint)
+        self._pipe_tab_index = 0
+        self._pipe_tab_pos = QPointF(scene_pos.x(), scene_pos.y())
+        self._emit_pipe_tab_readout()
+
+    def _emit_pipe_tab_readout(self):
+        """Emit signal with current Tab-cycle candidate info for status bar."""
+        candidates = self._pipe_tab_candidates
+        if not candidates:
+            self.pipeNodeHighlight.emit("")
+            return
+        idx = self._pipe_tab_index
+        node = candidates[idx]
+        sm = self.scale_manager
+        elev_str = sm.format_length(node.z_pos) if sm else f"{node.z_pos:.1f} mm"
+        level_str = getattr(node, "ceiling_level", "?")
+        total = len(candidates)
+        if total > 1:
+            text = f"Node @ {elev_str} ({level_str}) [{idx + 1}/{total}]"
+        else:
+            text = f"Node @ {elev_str} ({level_str})"
+        self.pipeNodeHighlight.emit(text)
 
     def find_or_create_node(self, x, y, z_hint=None):
         existing = self.find_nearby_node(x, y, z_hint=z_hint)
@@ -4090,11 +4122,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos:
             start = self.node_start_pos.scenePos()
             snapped_end = self.node_start_pos.snap_point_45(start, snapped)
+
+            # Update Tab cycling candidates at cursor position
+            template = getattr(self, "current_template", None)
+            template_z2 = (self._compute_template_z_pos(template, node_idx=2)
+                           if template is not None else None)
+            self._update_pipe_tab_candidates(snapped_end, z_hint=template_z2)
+
             self.update_preview_node(snapped_end)
             self.preview_pipe.setLine(start.x(), start.y(), snapped_end.x(), snapped_end.y())
 
             # Style preview from current template
-            template = getattr(self, "current_template", None)
             if template:
                 from .pipe import Pipe
                 from .constants import PIPE_COLORS
@@ -4141,7 +4179,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             self.preview_pipe.show()
         else:
+            # Before first click — track candidates at cursor for Tab cycling
             self.update_preview_node(snapped)
+            template = getattr(self, "current_template", None)
+            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
+                           if template is not None else None)
+            self._update_pipe_tab_candidates(snapped, z_hint=template_z1)
             self.preview_pipe.hide()
             self._preview_label.hide()
 
@@ -7393,6 +7436,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
+        elif event.key() == Qt.Key.Key_Tab:
+            if self.mode == "pipe" and len(self._pipe_tab_candidates) > 1:
+                self._pipe_tab_index = (
+                    (self._pipe_tab_index + 1)
+                    % len(self._pipe_tab_candidates))
+                self._emit_pipe_tab_readout()
+                event.accept()
+                return
         elif event.key() == Qt.Key.Key_Delete:
             self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
