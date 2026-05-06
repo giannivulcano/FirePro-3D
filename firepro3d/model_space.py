@@ -141,6 +141,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
+        # Pipe-mode Tab cycling through Z-stacked node candidates
+        self._pipe_tab_candidates: list = []
+        self._pipe_tab_index: int = 0
+        self._pipe_tab_pos: QPointF | None = None
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self._level_manager = None                             # set by main.py
         self._plan_view_manager = None                         # set by main.py
@@ -643,6 +647,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def set_mode(self, mode, template=None):
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
+        self._pipe_tab_candidates = []
+        self._pipe_tab_index = 0
+        self._pipe_tab_pos = None
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
         self._grip_index = -1
@@ -1061,6 +1068,36 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if z_hint is None or len(candidates) == 1:
             return candidates[0]
         return min(candidates, key=lambda n: abs(n.z_pos - z_hint))
+
+    def find_nearby_candidates(self, x, y, z_hint=None):
+        """Return all nodes within SNAP_RADIUS, filtered by view range.
+
+        If *z_hint* is provided, results are sorted by ascending distance
+        to *z_hint*.  Otherwise sorted by insertion order.
+        """
+        pt = QPointF(x, y)
+        view_range = self._get_active_view_range()
+
+        def _in_view_range(node):
+            if view_range is None:
+                return True
+            return view_range[0] <= node.z_pos <= view_range[1]
+
+        candidates = []
+        for node in self.sprinkler_system.nodes:
+            if not _in_view_range(node):
+                continue
+            if node.has_sprinkler():
+                spr = node.sprinkler
+                if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
+                    candidates.append(node)
+                    continue
+            if node.distance_to(x, y) <= self.SNAP_RADIUS:
+                candidates.append(node)
+
+        if z_hint is not None and len(candidates) > 1:
+            candidates.sort(key=lambda n: abs(n.z_pos - z_hint))
+        return candidates
 
     def find_or_create_node(self, x, y, z_hint=None):
         existing = self.find_nearby_node(x, y, z_hint=z_hint)

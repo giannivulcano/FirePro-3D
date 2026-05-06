@@ -58,6 +58,7 @@ class _StubScene(QGraphicsScene):
     from firepro3d.model_space import Model_Space as _MS
     _get_active_view_range = _MS._get_active_view_range
     find_nearby_node = _MS.find_nearby_node
+    find_nearby_candidates = _MS.find_nearby_candidates
     find_or_create_node = _MS.find_or_create_node
     add_node = _MS.add_node
     del _MS
@@ -188,3 +189,74 @@ class TestWrapperThreading:
                            plan_view_manager=_FakePlanViewManager(pv))
         result = scene.add_node(0, 0, z_hint=2800.0)
         assert result is n_high
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. Tab cycling state
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPipeTabCycling:
+
+    def _make_scene_with_stack(self, qapp):
+        """Three nodes stacked at (0,0) with z=0, 3000, 6000."""
+        n1 = _make_node(0, 0, z_pos=0.0)
+        n2 = _make_node(0, 0, z_pos=3000.0)
+        n3 = _make_node(0, 0, z_pos=6000.0)
+        pv = _FakePlanView(view_depth=-1000.0, view_height=9000.0)
+        scene = _StubScene([n1, n2, n3],
+                           plan_view_manager=_FakePlanViewManager(pv))
+        return scene, n1, n2, n3
+
+    def test_find_nearby_candidates_returns_all_matches(self, qapp):
+        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
+        candidates = scene.find_nearby_candidates(0, 0)
+        assert set(candidates) == {n1, n2, n3}
+
+    def test_find_nearby_candidates_filtered_by_view_range(self, qapp):
+        n_in = _make_node(0, 0, z_pos=1000.0)
+        n_out = _make_node(0, 0, z_pos=5000.0)
+        pv = _FakePlanView(view_depth=0.0, view_height=3500.0)
+        scene = _StubScene([n_in, n_out],
+                           plan_view_manager=_FakePlanViewManager(pv))
+        candidates = scene.find_nearby_candidates(0, 0)
+        assert candidates == [n_in]
+
+    def test_find_nearby_candidates_sorted_by_z_hint(self, qapp):
+        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
+        # Sorted by distance to z_hint=2800 → n2(3000), n1(0), n3(6000)
+        candidates = scene.find_nearby_candidates(0, 0, z_hint=2800.0)
+        assert candidates[0] is n2
+
+    def test_find_nearby_candidates_empty_at_distance(self, qapp):
+        """No node within SNAP_RADIUS → empty list."""
+        n = _make_node(100, 100, z_pos=0.0)
+        pv = _FakePlanView(view_depth=-1000.0, view_height=5000.0)
+        scene = _StubScene([n], plan_view_manager=_FakePlanViewManager(pv))
+        assert scene.find_nearby_candidates(0, 0) == []
+
+    def test_pipe_tab_state_advances(self, qapp):
+        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
+        scene._pipe_tab_candidates = [n1, n2, n3]
+        scene._pipe_tab_index = 0
+        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
+            scene._pipe_tab_candidates)
+        assert scene._pipe_tab_index == 1
+        assert scene._pipe_tab_candidates[scene._pipe_tab_index] is n2
+
+    def test_pipe_tab_wraps_around(self, qapp):
+        scene, n1, n2, n3 = self._make_scene_with_stack(qapp)
+        scene._pipe_tab_candidates = [n1, n2, n3]
+        scene._pipe_tab_index = 2
+        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
+            scene._pipe_tab_candidates)
+        assert scene._pipe_tab_index == 0
+
+    def test_single_node_no_cycle(self, qapp):
+        n = _make_node(0, 0, z_pos=0.0)
+        pv = _FakePlanView(view_depth=-1000.0, view_height=5000.0)
+        scene = _StubScene([n], plan_view_manager=_FakePlanViewManager(pv))
+        scene._pipe_tab_candidates = [n]
+        scene._pipe_tab_index = 0
+        scene._pipe_tab_index = (scene._pipe_tab_index + 1) % len(
+            scene._pipe_tab_candidates)
+        assert scene._pipe_tab_index == 0
