@@ -431,6 +431,15 @@ class MainWindow(QMainWindow):
         status_bar.addPermanentWidget(self.osnap_indicator)
         self.scene.osnapToggled.connect(self._update_osnap_indicator)
         self._update_osnap_indicator(self.scene._osnap_enabled)
+        # Pipe-mode node snap readout (between OSNAP and coordinates)
+        self.node_snap_label = QLabel("")
+        self.node_snap_label.setStyleSheet(
+            "color: #ffcc44; padding: 2px 8px; "
+            "border: 1px solid #665522; border-radius: 3px;"
+        )
+        self.node_snap_label.setMinimumWidth(0)
+        self.node_snap_label.hide()  # only visible in pipe mode with candidates
+        status_bar.addPermanentWidget(self.node_snap_label)
         self.coord_label = QLabel("X: —   Y: —")
         self.coord_label.setMinimumWidth(280)
         status_bar.addPermanentWidget(self.coord_label)
@@ -446,6 +455,7 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.mode_label)
         # Level indicator removed — active level is now implicit from the plan tab
         self.scene.cursorMoved.connect(self.coord_label.setText)
+        self.scene.pipeNodeHighlight.connect(self._update_node_snap_readout)
         self.scene.modeChanged.connect(self._update_mode_label)
         self.scene.modeChanged.connect(self._sync_mode_buttons)
         self.scene.modeChanged.connect(self._on_mode_changed_template)
@@ -1986,6 +1996,14 @@ class MainWindow(QMainWindow):
 
     def _update_osnap_indicator(self, enabled: bool) -> None:
         self.osnap_indicator.setOsnapOn(enabled)
+
+    def _update_node_snap_readout(self, text: str):
+        """Update the pipe-mode node snap readout in the status bar."""
+        if text:
+            self.node_snap_label.setText(text)
+            self.node_snap_label.show()
+        else:
+            self.node_snap_label.hide()
 
     def _update_mode_label(self, mode: str):
         text = self._MODE_INSTRUCTIONS.get(mode, mode.replace("_", " ").title())
