@@ -5021,7 +5021,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             template = getattr(self, "current_template", None)
 
             # Check for existing node BEFORE find_or_create_node
-            existing_start = self.find_nearby_node(snapped.x(), snapped.y())
+            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
+                           if template is not None else None)
+            existing_start = self.find_nearby_node(
+                snapped.x(), snapped.y(), z_hint=template_z1)
 
             # Block starting a pipe from a node that's already full (4 = cross)
             if existing_start is not None and len(existing_start.pipes) >= 4:
@@ -5037,7 +5040,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._pipe_node_was_new = True  # split created new node
                 _check_elevation = True  # split node inherits pipe's Z — may differ from template
             else:
-                start_node = self.find_or_create_node(snapped.x(), snapped.y())
+                start_node = self.find_or_create_node(
+                    snapped.x(), snapped.y(), z_hint=template_z1)
                 self._pipe_node_was_new = (existing_start is None)
                 _check_elevation = (existing_start is not None and existing_start is start_node)
 
@@ -5102,7 +5106,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if err:
                     self.warningIssued.emit("Invalid Connection", err)
                     return
-            existing_end_check = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+            template_z2 = (self._compute_template_z_pos(template, node_idx=2)
+                           if template is not None else None)
+            existing_end_check = self.find_nearby_node(
+                snapped_end.x(), snapped_end.y(), z_hint=template_z2)
             if existing_end_check is not None:
                 end_pipes = len(existing_end_check.pipes)
                 if end_pipes >= 4:
@@ -5119,13 +5126,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return
 
             # Check for existing node BEFORE find_or_create_node
-            existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+            existing_end = self.find_nearby_node(
+                snapped_end.x(), snapped_end.y(), z_hint=template_z2)
 
             if isinstance(item_under, Pipe):
                 end_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped_end, item_under))
                 _check_end_elev = True  # split node inherits pipe's Z
             else:
-                end_node = self.find_or_create_node(snapped_end.x(), snapped_end.y())
+                end_node = self.find_or_create_node(
+                    snapped_end.x(), snapped_end.y(), z_hint=template_z2)
                 _check_end_elev = (existing_end is not None)
 
             # Block zero-length same-node pipe — unless template specifies
