@@ -1020,28 +1020,56 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # NODE / PIPE / SPRINKLER MANAGEMENT
 
-    def find_nearby_node(self, x, y):
+    def _get_active_view_range(self):
+        """Return (view_depth, view_height) for the active level, or None."""
+        pvm = self._plan_view_manager
+        if pvm is None:
+            return None
+        pv = pvm.get(f"Plan: {self.active_level}")
+        if pv is None:
+            return None
+        return (pv.view_depth, pv.view_height)
+
+    def find_nearby_node(self, x, y, z_hint=None):
         pt = QPointF(x, y)
-        # Priority 1: cursor inside any sprinkler's bounding box → snap to node
+
+        view_range = self._get_active_view_range()
+
+        def _in_view_range(node):
+            if view_range is None:
+                return True
+            return view_range[0] <= node.z_pos <= view_range[1]
+
+        # Collect all XY candidates (both priority tiers), filtered by view range
+        bbox_candidates = []
+        dist_candidates = []
         for node in self.sprinkler_system.nodes:
+            if not _in_view_range(node):
+                continue
             if node.has_sprinkler():
                 spr = node.sprinkler
                 if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
-                    return node
-        # Priority 2: distance-based snap
-        for node in self.sprinkler_system.nodes:
+                    bbox_candidates.append(node)
+                    continue
             if node.distance_to(x, y) <= self.SNAP_RADIUS:
-                return node
-        return None
+                dist_candidates.append(node)
 
-    def find_or_create_node(self, x, y):
-        existing = self.find_nearby_node(x, y)
+        # Merge: bbox hits first, then distance hits
+        candidates = bbox_candidates + dist_candidates
+        if not candidates:
+            return None
+        if z_hint is None or len(candidates) == 1:
+            return candidates[0]
+        return min(candidates, key=lambda n: abs(n.z_pos - z_hint))
+
+    def find_or_create_node(self, x, y, z_hint=None):
+        existing = self.find_nearby_node(x, y, z_hint=z_hint)
         if existing:
             return existing
-        return self.add_node(x, y)
+        return self.add_node(x, y, z_hint=z_hint)
 
-    def add_node(self, x, y):
-        node = self.find_nearby_node(x, y)
+    def add_node(self, x, y, z_hint=None):
+        node = self.find_nearby_node(x, y, z_hint=z_hint)
         if not node:
             node = Node(x, y)
             node.user_layer = self.active_user_layer
