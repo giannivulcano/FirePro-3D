@@ -5433,7 +5433,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.instructionChanged.emit("Pick start point")
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Require placement on a node or pipe (split to create node)
+        # Require direct click on a node or pipe (no proximity fallback)
         if isinstance(item_under, Node):
             target_node = item_under
         elif isinstance(item_under, Pipe):
@@ -5442,7 +5442,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.project_click_onto_pipe_segment(snapped, item_under),
             )
         else:
-            target_node = self.find_nearby_node(snapped.x(), snapped.y())
+            self._show_status("Click on a node or pipe to place water supply")
+            return
 
         if target_node is None:
             self._show_status("Click on a node or pipe to place water supply")
