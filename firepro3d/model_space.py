@@ -3494,6 +3494,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             return  # in select mode but nothing to cycle — do nothing
 
+        # ── Pipe mode: cycle Z-stacked node candidates ──
+        if self.mode == "pipe" and len(self._pipe_tab_candidates) > 1:
+            self._pipe_tab_index = (
+                (self._pipe_tab_index + 1)
+                % len(self._pipe_tab_candidates))
+            self._emit_pipe_tab_readout()
+            return
+
         # ── Wall mode: cycle alignment instead of opening dialog ──
         if self.mode in ("wall", "wall_rect"):
             _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
@@ -7459,14 +7467,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.mode and self.mode not in (None, "select"):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
-        elif event.key() == Qt.Key.Key_Tab:
-            if self.mode == "pipe" and len(self._pipe_tab_candidates) > 1:
-                self._pipe_tab_index = (
-                    (self._pipe_tab_index + 1)
-                    % len(self._pipe_tab_candidates))
-                self._emit_pipe_tab_readout()
-                event.accept()
-                return
         elif event.key() == Qt.Key.Key_Delete:
             self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
