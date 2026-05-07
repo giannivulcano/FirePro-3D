@@ -70,6 +70,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
+    pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
     def __init__(self):
         super().__init__()
@@ -141,6 +142,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
+        # Pipe-mode Tab cycling through Z-stacked node candidates
+        self._pipe_tab_candidates: list = []
+        self._pipe_tab_index: int = 0
+        self._pipe_tab_pos: QPointF | None = None
         self._project_info: dict = {}            # project metadata (name, address, etc.)
         self._level_manager = None                             # set by main.py
         self._plan_view_manager = None                         # set by main.py
@@ -643,6 +648,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def set_mode(self, mode, template=None):
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
+        self._pipe_tab_candidates = []
+        self._pipe_tab_index = 0
+        self._pipe_tab_pos = None
+        if hasattr(self, 'pipeNodeHighlight'):
+            self.pipeNodeHighlight.emit("")
         # Reset grip editing state (prevents stale grip after Escape mid-drag)
         self._grip_item = None
         self._grip_index = -1
@@ -1020,28 +1030,115 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # NODE / PIPE / SPRINKLER MANAGEMENT
 
-    def find_nearby_node(self, x, y):
+    def _get_active_view_range(self):
+        """Return (view_depth, view_height) for the active level, or None."""
+        pvm = self._plan_view_manager
+        if pvm is None:
+            return None
+        pv = pvm.get(f"Plan: {self.active_level}")
+        if pv is None:
+            return None
+        return (pv.view_depth, pv.view_height)
+
+    def find_nearby_node(self, x, y, z_hint=None):
         pt = QPointF(x, y)
-        # Priority 1: cursor inside any sprinkler's bounding box → snap to node
+
+        view_range = self._get_active_view_range()
+
+        def _in_view_range(node):
+            if view_range is None:
+                return True
+            return view_range[0] <= node.z_pos <= view_range[1]
+
+        # Collect all XY candidates (both priority tiers), filtered by view range
+        bbox_candidates = []
+        dist_candidates = []
         for node in self.sprinkler_system.nodes:
+            if not _in_view_range(node):
+                continue
             if node.has_sprinkler():
                 spr = node.sprinkler
                 if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
-                    return node
-        # Priority 2: distance-based snap
-        for node in self.sprinkler_system.nodes:
+                    bbox_candidates.append(node)
+                    continue
             if node.distance_to(x, y) <= self.SNAP_RADIUS:
-                return node
-        return None
+                dist_candidates.append(node)
 
-    def find_or_create_node(self, x, y):
-        existing = self.find_nearby_node(x, y)
+        # Merge: bbox hits first, then distance hits
+        candidates = bbox_candidates + dist_candidates
+        if not candidates:
+            return None
+        if z_hint is None or len(candidates) == 1:
+            return candidates[0]
+        return min(candidates, key=lambda n: abs(n.z_pos - z_hint))
+
+    def find_nearby_candidates(self, x, y, z_hint=None):
+        """Return all nodes within SNAP_RADIUS, filtered by view range.
+
+        If *z_hint* is provided, results are sorted by ascending distance
+        to *z_hint*.  Otherwise sorted by insertion order.
+        """
+        pt = QPointF(x, y)
+        view_range = self._get_active_view_range()
+
+        def _in_view_range(node):
+            if view_range is None:
+                return True
+            return view_range[0] <= node.z_pos <= view_range[1]
+
+        candidates = []
+        for node in self.sprinkler_system.nodes:
+            if not _in_view_range(node):
+                continue
+            if node.has_sprinkler():
+                spr = node.sprinkler
+                if spr.mapToScene(spr.boundingRect()).boundingRect().contains(pt):
+                    candidates.append(node)
+                    continue
+            if node.distance_to(x, y) <= self.SNAP_RADIUS:
+                candidates.append(node)
+
+        if z_hint is not None and len(candidates) > 1:
+            candidates.sort(key=lambda n: abs(n.z_pos - z_hint))
+        return candidates
+
+    def _update_pipe_tab_candidates(self, scene_pos, z_hint=None):
+        """Rebuild pipe-mode Tab candidate list at the given cursor position.
+
+        Resets Tab index to 0.  Called on every cursor move in pipe mode.
+        """
+        self._pipe_tab_candidates = self.find_nearby_candidates(
+            scene_pos.x(), scene_pos.y(), z_hint=z_hint)
+        self._pipe_tab_index = 0
+        self._pipe_tab_pos = QPointF(scene_pos.x(), scene_pos.y())
+        self._emit_pipe_tab_readout()
+
+    def _emit_pipe_tab_readout(self):
+        """Emit signal with current Tab-cycle candidate info for status bar."""
+        candidates = self._pipe_tab_candidates
+        if not candidates:
+            self.pipeNodeHighlight.emit("")
+            return
+        idx = self._pipe_tab_index
+        node = candidates[idx]
+        sm = self.scale_manager
+        elev_str = sm.format_length(node.z_pos) if sm else f"{node.z_pos:.1f} mm"
+        level_str = getattr(node, "ceiling_level", "?")
+        total = len(candidates)
+        if total > 1:
+            text = f"Node @ {elev_str} ({level_str}) [{idx + 1}/{total}]"
+        else:
+            text = f"Node @ {elev_str} ({level_str})"
+        self.pipeNodeHighlight.emit(text)
+
+    def find_or_create_node(self, x, y, z_hint=None):
+        existing = self.find_nearby_node(x, y, z_hint=z_hint)
         if existing:
             return existing
-        return self.add_node(x, y)
+        return self.add_node(x, y, z_hint=z_hint)
 
-    def add_node(self, x, y):
-        node = self.find_nearby_node(x, y)
+    def add_node(self, x, y, z_hint=None):
+        node = self.find_nearby_node(x, y, z_hint=z_hint)
         if not node:
             node = Node(x, y)
             node.user_layer = self.active_user_layer
@@ -3397,6 +3494,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             return  # in select mode but nothing to cycle — do nothing
 
+        # ── Pipe mode: cycle Z-stacked node candidates ──
+        if self.mode == "pipe" and len(self._pipe_tab_candidates) > 1:
+            self._pipe_tab_index = (
+                (self._pipe_tab_index + 1)
+                % len(self._pipe_tab_candidates))
+            self._emit_pipe_tab_readout()
+            return
+
         # ── Wall mode: cycle alignment instead of opening dialog ──
         if self.mode in ("wall", "wall_rect"):
             _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
@@ -4025,11 +4130,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos:
             start = self.node_start_pos.scenePos()
             snapped_end = self.node_start_pos.snap_point_45(start, snapped)
+
+            # Update Tab cycling candidates at cursor position
+            template = getattr(self, "current_template", None)
+            template_z2 = (self._compute_template_z_pos(template, node_idx=2)
+                           if template is not None else None)
+            self._update_pipe_tab_candidates(snapped_end, z_hint=template_z2)
+
             self.update_preview_node(snapped_end)
             self.preview_pipe.setLine(start.x(), start.y(), snapped_end.x(), snapped_end.y())
 
             # Style preview from current template
-            template = getattr(self, "current_template", None)
             if template:
                 from .pipe import Pipe
                 from .constants import PIPE_COLORS
@@ -4076,7 +4187,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             self.preview_pipe.show()
         else:
+            # Before first click — track candidates at cursor for Tab cycling
             self.update_preview_node(snapped)
+            template = getattr(self, "current_template", None)
+            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
+                           if template is not None else None)
+            self._update_pipe_tab_candidates(snapped, z_hint=template_z1)
             self.preview_pipe.hide()
             self._preview_label.hide()
 
@@ -4992,8 +5108,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.node_start_pos is None:
             template = getattr(self, "current_template", None)
 
+            # Use Tab-selected candidate if available
+            tab_node = None
+            if (self._pipe_tab_candidates
+                    and self._pipe_tab_index < len(self._pipe_tab_candidates)):
+                tab_node = self._pipe_tab_candidates[self._pipe_tab_index]
+
             # Check for existing node BEFORE find_or_create_node
-            existing_start = self.find_nearby_node(snapped.x(), snapped.y())
+            template_z1 = (self._compute_template_z_pos(template, node_idx=1)
+                           if template is not None else None)
+            existing_start = (tab_node if tab_node is not None
+                              else self.find_nearby_node(
+                                  snapped.x(), snapped.y(), z_hint=template_z1))
 
             # Block starting a pipe from a node that's already full (4 = cross)
             if existing_start is not None and len(existing_start.pipes) >= 4:
@@ -5009,7 +5135,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._pipe_node_was_new = True  # split created new node
                 _check_elevation = True  # split node inherits pipe's Z — may differ from template
             else:
-                start_node = self.find_or_create_node(snapped.x(), snapped.y())
+                start_node = (tab_node if tab_node is not None
+                              else self.find_or_create_node(
+                                  snapped.x(), snapped.y(), z_hint=template_z1))
                 self._pipe_node_was_new = (existing_start is None)
                 _check_elevation = (existing_start is not None and existing_start is start_node)
 
@@ -5033,6 +5161,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
 
             self.node_start_pos = start_node
+            # Reset Tab cycling after committing start node
+            self._pipe_tab_candidates = []
+            self._pipe_tab_index = 0
             # Transition to phase 1: lock Node 1, allow Node 2 editing
             if template is not None:
                 if self._pipe_node_was_new:
@@ -5074,7 +5205,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if err:
                     self.warningIssued.emit("Invalid Connection", err)
                     return
-            existing_end_check = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+            # Use Tab-selected candidate if available
+            tab_node = None
+            if (self._pipe_tab_candidates
+                    and self._pipe_tab_index < len(self._pipe_tab_candidates)):
+                tab_node = self._pipe_tab_candidates[self._pipe_tab_index]
+
+            template_z2 = (self._compute_template_z_pos(template, node_idx=2)
+                           if template is not None else None)
+            existing_end_check = (tab_node if tab_node is not None
+                                  else self.find_nearby_node(
+                                      snapped_end.x(), snapped_end.y(), z_hint=template_z2))
             if existing_end_check is not None:
                 end_pipes = len(existing_end_check.pipes)
                 if end_pipes >= 4:
@@ -5091,13 +5232,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return
 
             # Check for existing node BEFORE find_or_create_node
-            existing_end = self.find_nearby_node(snapped_end.x(), snapped_end.y())
+            existing_end = (tab_node if tab_node is not None
+                            else self.find_nearby_node(
+                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
 
             if isinstance(item_under, Pipe):
                 end_node = self.split_pipe(item_under, self.project_click_onto_pipe_segment(snapped_end, item_under))
                 _check_end_elev = True  # split node inherits pipe's Z
             else:
-                end_node = self.find_or_create_node(snapped_end.x(), snapped_end.y())
+                end_node = (tab_node if tab_node is not None
+                            else self.find_or_create_node(
+                                snapped_end.x(), snapped_end.y(), z_hint=template_z2))
                 _check_end_elev = (existing_end is not None)
 
             # Block zero-length same-node pipe — unless template specifies
@@ -5149,6 +5294,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Continuous polyline: end node becomes the next start node
             self.node_start_pos = end_node
             self._pipe_node_was_new = False
+            # Reset Tab cycling after committing end node
+            self._pipe_tab_candidates = []
+            self._pipe_tab_index = 0
             self.push_undo_state()
             # Update template: Node 1 adopts end node's elevation for next segment
             if template is not None:
@@ -5396,7 +5544,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.instructionChanged.emit("Pick start point")
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
-        # Require placement on a node or pipe (split to create node)
+        # Require direct click on a node or pipe (no proximity fallback)
         if isinstance(item_under, Node):
             target_node = item_under
         elif isinstance(item_under, Pipe):
@@ -5405,7 +5553,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.project_click_onto_pipe_segment(snapped, item_under),
             )
         else:
-            target_node = self.find_nearby_node(snapped.x(), snapped.y())
+            self._show_status("Click on a node or pipe to place water supply")
+            return
 
         if target_node is None:
             self._show_status("Click on a node or pipe to place water supply")
@@ -7538,8 +7687,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if obj_type == "node":
                 new_x = obj["x"] + offset.x()
                 new_y = obj["y"] + offset.y()
-                existing = self.find_nearby_node(new_x, new_y)
-                node1 = existing if existing else self.add_node(new_x, new_y)
+                # Compute z_hint from clipboard elevation data
+                paste_z = obj.get("elevation")
+                if paste_z is None and "ceiling_level" in obj:
+                    if self._level_manager:
+                        _lvl = self._level_manager.get(obj["ceiling_level"])
+                        if _lvl:
+                            _off = obj.get("ceiling_offset_mm",
+                                           DEFAULT_CEILING_OFFSET_MM)
+                            paste_z = _lvl.elevation + _off
+                existing = self.find_nearby_node(new_x, new_y, z_hint=paste_z)
+                node1 = existing if existing else self.add_node(
+                    new_x, new_y, z_hint=paste_z)
 
                 # Restore ceiling and layer from copied data
                 if "ceiling_level" in obj:
@@ -7573,8 +7732,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 for p in obj.get("pipes", []):
                     px = p["x"] + offset.x()
                     py = p["y"] + offset.y()
-                    existing_p = self.find_nearby_node(px, py)
-                    node2 = existing_p if existing_p else self.add_node(px, py)
+                    existing_p = self.find_nearby_node(
+                        px, py, z_hint=paste_z)
+                    node2 = existing_p if existing_p else self.add_node(
+                        px, py, z_hint=paste_z)
                     if not any(
                         (pipe.node1 == node1 and pipe.node2 == node2) or
                         (pipe.node1 == node2 and pipe.node2 == node1)
