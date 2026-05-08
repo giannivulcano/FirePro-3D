@@ -1627,25 +1627,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         intermediate = self._make_intermediate_node(existing_end_node, template)
 
         # Vertical pipe (existing_end_node <-> intermediate) — same XY, different z
-        vertical_pipe = Pipe(existing_end_node, intermediate)
-        vertical_pipe.user_layer = self.active_user_layer
-        vertical_pipe.level = self.active_level
-        # Copy physical properties (not ceiling props — endpoints already set)
-        for key in ("Diameter", "Schedule", "C-Factor", "Material", "Colour", "Phase"):
-            if key in template._properties:
-                vertical_pipe.set_property(key, template._properties[key]["value"])
-        self.sprinkler_system.add_pipe(vertical_pipe)
-        self.addItem(vertical_pipe)
-        apply_category_defaults(vertical_pipe)
-        vertical_pipe.update_label()
+        self.add_pipe(existing_end_node, intermediate, template,
+                      _propagate_ceiling=False)
 
         # Horizontal pipe (start_node <-> intermediate) with full template
         self.add_pipe(start_node, intermediate, template)
-
-        # Refresh fittings on all affected nodes
-        start_node.fitting.update()
-        existing_end_node.fitting.update()
-        intermediate.fitting.update()
 
     def _find_or_split_vertical_at_z(self, xy_pos: QPointF,
                                       target_z: float,
@@ -4879,15 +4865,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.node_start_pos = split_node
                 else:
                     intermediate = self._make_intermediate_node(start_node, template)
-                    vert = Pipe(start_node, intermediate)
-                    vert.user_layer = self.active_user_layer
-                    vert.level = self.active_level
-                    for key in ("Diameter", "Schedule", "C-Factor",
-                                "Material", "Colour", "Phase"):
-                        vert._properties[key]["value"] = template._properties[key]["value"]
-                    self.sprinkler_system.add_pipe(vert)
-                    self.addItem(vert)
-                    vert.set_pipe_display()
+                    self.add_pipe(start_node, intermediate, template,
+                                  _propagate_ceiling=False)
                     self.node_start_pos = intermediate
                 self.instructionChanged.emit("Pick end node")
 
@@ -4933,15 +4912,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     intermediate = split_node
                 else:
                     intermediate = self._make_intermediate_node(end_node, template)
-                    vert = Pipe(intermediate, end_node)
-                    vert.user_layer = self.active_user_layer
-                    vert.level = self.active_level
-                    for key in ("Diameter", "Schedule", "C-Factor",
-                                "Material", "Colour", "Phase"):
-                        vert._properties[key]["value"] = template._properties[key]["value"]
-                    self.sprinkler_system.add_pipe(vert)
-                    self.addItem(vert)
-                    vert.set_pipe_display()
+                    self.add_pipe(intermediate, end_node, template,
+                                  _propagate_ceiling=False)
                 # Place the horizontal pipe to the intermediate node
                 extended = self._try_extend_collinear(
                     start_node, intermediate, template)
