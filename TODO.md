@@ -177,8 +177,8 @@ _Existing test gap tasks (hydraulic solver, auto-populate, geometry utilities) a
 
 ## Pipe Placement Bug Fixes (from `docs/specs/pipe-placement-methodology.md` §9)
 - [x] Fix `find_nearby_node()` Z-blind snap — currently matches nodes on any level by XY proximity. Add `z_hint` parameter to filter by active level elevation. Causes 5+ downstream bugs on multi-level projects. `model_space.py` [type:Bug] [P1] [subject:CAD] [done:2026-05-06]
-- [ ] Fix 2D-only geometry checks in pipe placement — all geometry checks (`_would_backtrack_at`, angle calculations, intersection tests) use 2D vectors, producing false positives when pipes on different levels share XY coordinates. `model_space.py`, `scene_tools.py` [type:Bug] [P1] [subject:CAD]
-- [ ] Fix riser auto-build bypassing `add_pipe()` — riser creation directly creates Pipe and adds to scene, skipping display setup, undo capture, and signal emission that `add_pipe()` provides. Route through `add_pipe()`. `model_space.py` [type:Bug] [P2] [subject:CAD]
+- [x] Fix 2D-only geometry checks in pipe placement — added Z-coplanarity filter (`Z_COPLANAR_TOL = 1mm`) to `_would_backtrack`, `_would_backtrack_at`, `_validate_4th_branch`, and connection-limit checks in `_press_pipe`. Risers and cross-level pipes no longer trigger false positives. `model_space.py`, `constants.py` [type:Bug] [P1] [subject:CAD] [done:2026-05-07]
+- [x] Fix riser auto-build bypassing `add_pipe()` — all three riser creation sites now route through `add_pipe(_propagate_ceiling=False)`, getting category defaults, geometry updates, fitting updates, and display setup. `model_space.py` [type:Bug] [P2] [subject:CAD] [done:2026-05-07]
 
 ## NFPA 13 Compliance Gaps (from 2026-04-29 gap analysis)
 - [ ] Remote area selection mechanism — no way to designate the most-demanding remote area for hydraulic design. Currently uses all design sprinklers equally. Need UI to mark remote area + solver to validate it as most demanding. `hydraulic_solver.py`, `design_area.py` [type:Task] [P1] [subject:Hydraulic Calculator]
