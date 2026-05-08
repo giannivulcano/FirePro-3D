@@ -36,7 +36,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM,
-                       AUTO_JOIN_TOLERANCE, TEE_TOLERANCE)
+                       AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL)
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
@@ -1330,13 +1330,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         2. End lands on an existing pipe connected to start — the new end
            point lies between the endpoints of a pipe already attached to
            start_node.
+
+        Only considers coplanar pipes (other endpoint within
+        ``Z_COPLANAR_TOL`` of *start_node*).
         """
         ep = end_node.scenePos()
+        sz = start_node.z_pos
         for pipe in start_node.pipes:
             other = pipe.node2 if pipe.node1 is start_node else pipe.node1
-            # Direct duplicate
+            # Direct duplicate — always block regardless of Z
             if other is end_node:
                 return True
+            # Skip non-coplanar pipes (risers / cross-level)
+            if abs(other.z_pos - sz) > Z_COPLANAR_TOL:
+                continue
             # End point lies on an existing pipe segment
             op = other.scenePos()
             sp = start_node.scenePos()
@@ -1346,11 +1353,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 continue
             t = ((ep.x() - sp.x()) * dx + (ep.y() - sp.y()) * dy) / length_sq
             if 0.01 < t < 0.99:
-                # Project and check perpendicular distance
                 proj_x = sp.x() + t * dx
                 proj_y = sp.y() + t * dy
                 dist = math.hypot(ep.x() - proj_x, ep.y() - proj_y)
-                if dist < 10.0:  # within snap tolerance
+                if dist < 10.0:
                     return True
         return False
 
@@ -1358,10 +1364,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Like _would_backtrack but takes a point instead of a node.
 
         Used to check for backtracking *before* creating a node.
+        Only considers coplanar pipes (other endpoint within
+        ``Z_COPLANAR_TOL`` of *start_node*).
         """
         sp = start_node.scenePos()
+        sz = start_node.z_pos
         for pipe in start_node.pipes:
             other = pipe.node2 if pipe.node1 is start_node else pipe.node1
+            # Skip non-coplanar pipes (risers / cross-level)
+            if abs(other.z_pos - sz) > Z_COPLANAR_TOL:
+                continue
             op = other.scenePos()
             # Check if target_pt is the same as other node
             if math.hypot(target_pt.x() - op.x(), target_pt.y() - op.y()) < 5.0:
