@@ -1266,27 +1266,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return pipe
 
     def _validate_4th_branch(self, node, new_pt: QPointF) -> str | None:
-        """Check whether adding a 4th branch at *node* toward *new_pt* is valid.
+        """Check whether adding a 4th coplanar branch at *node* toward *new_pt* is valid.
 
-        A 4th pipe is only allowed if:
-        - The existing fitting is a tee (3 pipes with a through-run pair)
+        A 4th coplanar pipe is only allowed if:
+        - The existing coplanar fitting is a tee (3 pipes with a through-run pair)
         - The new pipe is perpendicular (~90°) to the through-run
+
+        Only considers coplanar pipes (other endpoint within
+        ``Z_COPLANAR_TOL`` of *node*).
 
         Returns an error message string, or None if the connection is valid.
         """
         from .fitting import Fitting
-        pipes = node.pipes
-        if len(pipes) != 3:
+        nz = node.z_pos
+        coplanar_pipes = [p for p in node.pipes
+                          if abs((p.node2 if p.node1 is node else p.node1).z_pos
+                                 - nz) <= Z_COPLANAR_TOL]
+        if len(coplanar_pipes) != 3:
             return "A 4th branch can only be added to a tee fitting."
-        # Check that the current fitting is actually a tee
-        ft_type = node.fitting.determine_type(pipes)
+        # Check that the current coplanar fitting is actually a tee
+        ft_type = node.fitting.determine_type(coplanar_pipes)
         if ft_type != "tee":
             return (f"A 4th branch can only be added to a tee fitting "
                     f"(current fitting: {ft_type}).")
         # Find the through-run direction (the collinear pair in the tee)
         np_ = node.scenePos()
         vectors = []
-        for p in pipes:
+        for p in coplanar_pipes:
             other = p.node2 if p.node1 is node else p.node1
             op = other.scenePos()
             dx, dy = op.x() - np_.x(), op.y() - np_.y()
@@ -5205,11 +5211,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return
 
             # ── Node connection-limit & angle validation ─────────────
-            start_pipes = len(self.node_start_pos.pipes)
+            # Only count coplanar pipes — risers don't consume branch slots
+            _sz = self.node_start_pos.z_pos
+            start_pipes = sum(1 for p in self.node_start_pos.pipes
+                              if abs((p.node2 if p.node1 is self.node_start_pos
+                                      else p.node1).z_pos - _sz) <= Z_COPLANAR_TOL)
             if start_pipes >= 4:
                 self.warningIssued.emit(
                     "Connection Limit",
-                    f"Start node already has {start_pipes} connections (max 4).")
+                    f"Start node already has {start_pipes} coplanar connections (max 4).")
                 return
             # Adding a 4th branch is only valid to turn a tee into a cross
             if start_pipes == 3:
@@ -5229,11 +5239,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                                   else self.find_nearby_node(
                                       snapped_end.x(), snapped_end.y(), z_hint=template_z2))
             if existing_end_check is not None:
-                end_pipes = len(existing_end_check.pipes)
+                _ez = existing_end_check.z_pos
+                end_pipes = sum(1 for p in existing_end_check.pipes
+                                if abs((p.node2 if p.node1 is existing_end_check
+                                        else p.node1).z_pos - _ez) <= Z_COPLANAR_TOL)
                 if end_pipes >= 4:
                     self.warningIssued.emit(
                         "Connection Limit",
-                        f"Target node already has {end_pipes} connections (max 4).")
+                        f"Target node already has {end_pipes} coplanar connections (max 4).")
                     return
                 if end_pipes == 3:
                     err = self._validate_4th_branch(
