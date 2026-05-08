@@ -49,6 +49,9 @@ DEFAULT_GRIDLINE_LENGTH_IN  = 21945.6  # 864 in / 72 ft
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 
+# ── Pipe geometry check tolerance ────────────────────────────────────────────
+Z_COPLANAR_TOL = 1.0              # mm — pipes within this Z-difference are coplanar
+
 # ── Hydraulic velocity thresholds (ft/s) ──────────────────────────────────────
 VELOCITY_HIGH_FPS  = 20.0   # Red — exceeds NFPA limits
 VELOCITY_WARN_FPS  = 12.0   # Orange — approaching limit
