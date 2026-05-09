@@ -4,7 +4,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .cad_math import CAD_Math
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_PIPE
+from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
@@ -114,6 +114,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self._placement_phase: int = 0  # 0=before 1st click, 1=before 2nd click
 
         self.label = QGraphicsTextItem("", self)  # Child of pipe
+        self.label.setZValue(Z_OVERLAY)
 
         self.set_pipe_display()
         
