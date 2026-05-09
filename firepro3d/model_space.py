@@ -4871,10 +4871,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.instructionChanged.emit("Pick end node")
 
             elif result == "match":
-                # Place pipe at existing node's elevation
+                # Place pipe at existing node's elevation — adopt node's
+                # ceiling into template (mirrors normal existing-node flow)
                 template.set_property("Ceiling Level", start_node.ceiling_level)
                 template.set_property("Ceiling Offset", start_node.ceiling_offset)
-                self.requestPropertyUpdate.emit(template)
+                template.node1_ceiling_level = start_node.ceiling_level
+                template.node1_ceiling_offset = start_node.ceiling_offset
+                template.node2_ceiling_level = start_node.ceiling_level
+                template.node2_ceiling_offset = start_node.ceiling_offset
                 self.node_start_pos = start_node
                 self.instructionChanged.emit("Pick end node")
 
@@ -4933,9 +4937,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "Pick next node (Esc/double-click to finish)")
 
             elif result == "match":
-                # Place pipe at existing node's elevation
+                # Place pipe at existing node's elevation — adopt node's
+                # ceiling into template (mirrors normal existing-node flow)
                 template.set_property("Ceiling Level", end_node.ceiling_level)
                 template.set_property("Ceiling Offset", end_node.ceiling_offset)
+                template.node2_ceiling_level = end_node.ceiling_level
+                template.node2_ceiling_offset = end_node.ceiling_offset
                 self.requestPropertyUpdate.emit(template)
                 extended = self._try_extend_collinear(
                     start_node, end_node, template)
