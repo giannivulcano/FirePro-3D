@@ -4892,6 +4892,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         start_node, template)
                 self.instructionChanged.emit("Pick end node")
 
+            # Transition to phase 1: N1 locked, N2 editable
+            template._placement_phase = 1
+            self.requestPropertyUpdate.emit(template)
+
         elif action_id == "elev_mismatch_end":
             self._pending_confirm_data = getattr(self, "_pending_confirm_data", {})
             data = self._pending_confirm_data.pop("elev_end", None)

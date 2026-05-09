@@ -886,29 +886,28 @@ class MainWindow(QMainWindow):
 
     def _on_confirm_requested(self, action_id: str, title: str, message: str):
         if action_id.startswith("elev_mismatch"):
-            box = QMessageBox(self)
-            box.setWindowTitle(title)
-            box.setText(message)
-            box.setWindowFlags(
+            dlg = QDialog(self)
+            dlg.setWindowTitle(title)
+            dlg.setWindowFlags(
                 Qt.WindowType.Dialog
                 | Qt.WindowType.WindowTitleHint
                 | Qt.WindowType.WindowCloseButtonHint
                 | Qt.WindowType.CustomizeWindowHint)
-            btn_riser = box.addButton(
-                "Create Riser", QMessageBox.ButtonRole.YesRole)
-            btn_match = box.addButton(
-                "Use Existing Elevation", QMessageBox.ButtonRole.NoRole)
-            btn_template = box.addButton(
-                "Use Specified Elevation", QMessageBox.ButtonRole.AcceptRole)
-            box.setDefaultButton(btn_riser)
-            box.exec()
-            clicked = box.clickedButton()
-            if clicked is btn_riser:
-                result = "riser"
-            elif clicked is btn_template:
-                result = "template"
-            else:
-                result = "match"
+            lay = QVBoxLayout(dlg)
+            lbl = QLabel(message)
+            lbl.setWordWrap(True)
+            lay.addWidget(lbl)
+            _result = ["match"]
+            for text, val in (("Create Riser", "riser"),
+                              ("Use Specified Elevation", "template"),
+                              ("Use Existing Elevation", "match")):
+                btn = QPushButton(text)
+                btn.clicked.connect(
+                    lambda _c=False, v=val: (_result.__setitem__(0, v),
+                                             dlg.accept()))
+                lay.addWidget(btn)
+            dlg.exec()
+            result = _result[0]
             self.scene.complete_confirmation(action_id, result)
         else:
             reply = QMessageBox.question(
