@@ -7234,13 +7234,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _show_all_hidden(self):
         """Restore visibility for all manually hidden items."""
-        from .floor_slab import FloorSlab
-        from .room import Room
         for item in self.items():
             if hasattr(item, "_display_overrides"):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
                     item.setVisible(True)
+        # Re-apply level filtering so items outside the active view range
+        # don't remain visible after being un-hidden.
+        if hasattr(self, "_level_manager"):
+            self._level_manager.apply_to_scene(self)
 
     def _hide_all_of_type(self, item_type):
         """Hide all scene items that are instances of *item_type*."""
