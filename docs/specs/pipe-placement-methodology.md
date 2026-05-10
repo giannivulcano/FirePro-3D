@@ -503,6 +503,15 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True)
 - `Pipe.setVisible()` cascades visibility to the label
 - Labels are **non-interactive** (reject mouse clicks and hover events)
 
+**Riser pass-through symbol** (vertical pipes):
+- Vertical pipes (zero 2D extent) render a yin-yang / broken-pipe SVG symbol at their XY location
+- SVG asset: `firepro3d/graphics/fitting_symbols/riser_passthrough.svg`
+- Top-level scene item at `Z_OVERLAY` (200), non-interactive
+- Fixed size: 300mm scene units
+- Visibility rule: shown when no visible endpoint node has horizontal pipes (i.e., the fitting symbol already indicates the riser). Hidden when a visible endpoint has horizontal connections.
+- `Pipe.setVisible()` cascades to the riser symbol
+- Vertical pipe `shape()` returns a circular hit area (300mm diameter) so the riser is clickable for `split_pipe` operations
+
 > **BUG (current):** `update_label()` shows 2D projected length via `scene_to_display(self.length)`, not 3D length. Inconsistent with hydraulic solver's `get_length_ft()`.
 >
 > **FIX:** Labels must show 3D length. Use `get_length_ft()` (or equivalent mm computation) for the label.
