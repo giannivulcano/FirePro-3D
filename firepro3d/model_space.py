@@ -1727,12 +1727,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if (dx * dx + dy * dy) < self.SNAP_RADIUS * self.SNAP_RADIUS:
                     return end_node
         new_node = self.add_node(split_point.x(), split_point.y())
-        template = pipe
         node_a = pipe.node1
         node_b = pipe.node2
-        self.add_pipe(node_a, new_node, template)
-        self.add_pipe(new_node, node_b, template)
+        # Use _propagate_ceiling=False — pipe attributes can be stale.
+        # Copy ceiling from the authoritative source (endpoint nodes).
+        self.add_pipe(node_a, new_node, pipe, _propagate_ceiling=False)
+        self.add_pipe(new_node, node_b, pipe, _propagate_ceiling=False)
         self.delete_pipe(pipe)
+        # Set new_node's ceiling from node_a (authoritative endpoint)
+        new_node.ceiling_level = node_a.ceiling_level
+        new_node._properties["Ceiling Level"]["value"] = node_a.ceiling_level
+        new_node.ceiling_offset = node_a.ceiling_offset
+        new_node._properties["Ceiling Offset"]["value"] = str(node_a.ceiling_offset)
+        new_node._recompute_z_pos()
         new_node.fitting.update()
         node_a.fitting.update()
         node_b.fitting.update()
