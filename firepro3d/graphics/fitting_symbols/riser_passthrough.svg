@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="20mm" height="20mm" viewBox="0 0 20 20" version="1.1"
+     xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <!-- Outer circle -->
+    <circle cx="10" cy="10" r="9" fill="none" stroke="#ffffff" stroke-width="1.5"/>
+    <!-- Left half filled (semicircle) -->
+    <path d="M 10,1 A 9,9 0 0 0 10,19" fill="#ffffff" stroke="none"/>
+    <!-- S-curve divider -->
+    <path d="M 10,1 C 10,5.5 14.5,7 14.5,10 C 14.5,13 10,14.5 10,19"
+          fill="none" stroke="#ffffff" stroke-width="1"/>
+    <!-- Yin-yang dots -->
+    <circle cx="10" cy="5.5" r="1.2" fill="#ffffff" stroke="none"/>
+    <circle cx="10" cy="14.5" r="1.2" fill="none" stroke="#ffffff" stroke-width="0.8"/>
+  </g>
+</svg>
