@@ -34,8 +34,6 @@ These rules govern the entire pipe placement system:
 |---|---|---|---|
 | `node1`, `node2` | `Node \| None` | — | Endpoint nodes (`None` = template pipe) |
 | `length` | `float` | — | 2D scene-pixel distance (auto-computed) |
-| `ceiling_level` | `str` | `"Level 1"` | Level the pipe hangs from |
-| `ceiling_offset` | `float` | `-50.8` mm | Distance below ceiling (negative = below) |
 | `user_layer` | `str` | `"Default"` | CAD-style user layer |
 | `level` | `str` | `"Level 1"` | Display/visibility level |
 | `_placement_phase` | `int` | `0` | Template state: 0 = before 1st click, 1 = before 2nd |
@@ -48,8 +46,6 @@ These rules govern the entire pipe placement system:
 | Schedule | enum | `"Sch 40"` | `Sch 10`, `Sch 40`, `Sch 80`, `Sch 40S`, `Sch 10S` |
 | C-Factor | string | `"120"` | Hazen-Williams roughness coefficient |
 | Material | enum | `"Galvanized Steel"` | Galvanized Steel, Stainless Steel, Black Steel, PVC |
-| Ceiling Level | level_ref | `"Level 1"` | Any defined level |
-| Ceiling Offset | string | `"-50.8"` | mm below ceiling |
 | Line Type | enum | `"Branch"` | Branch (75 mm width), Main (150 mm width) |
 | Colour | enum | `"Red"` | Black, White, Red, Blue, Grey |
 | Phase | enum | `"New"` | New, Existing, Demo |
@@ -355,14 +351,14 @@ node.z_pos = level.elevation + node.ceiling_offset
 
 ### 5.2 Template Elevation Propagation
 
-During pipe placement, ceiling properties flow in two directions:
+Pipes do not store ceiling data. Ceiling level and offset are **node-only** attributes. During pipe placement, the template's per-node attrs (`node1_ceiling_level`, `node1_ceiling_offset`, `node2_ceiling_level`, `node2_ceiling_offset`) drive elevation propagation, falling back to `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` when absent.
 
 | Scenario | Direction | Behavior |
 |---|---|---|
-| New node created | Template → Node | Node gets template's ceiling level/offset |
-| Existing node selected | Node → Template | Template adopts node's existing elevation |
-| Chain continuation | End node → Template Node 1 | Next segment starts at previous end elevation |
-| Default Node 2 | Copies Node 1 | Horizontal pipe by default |
+| New node created | Template per-node attrs → Node | Node gets template's per-node ceiling level/offset (or defaults) |
+| Existing node selected | Node → Template per-node attrs | Template adopts node's existing elevation |
+| Chain continuation | End node → Template Node 1 attrs | Next segment starts at previous end elevation |
+| Default Node 2 | Copies Node 1 attrs | Horizontal pipe by default |
 
 ### 5.3 Vertical Pipes (Risers/Drops)
 
@@ -455,8 +451,8 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True)
 11. Apply fitting display manager colors
 12. Force viewport repaint
 13. If `_propagate_ceiling`:
-    - **With template:** Use per-node ceiling values (`node1_ceiling_level/offset`, `node2_ceiling_level/offset`), falling back to pipe-level values
-    - **Without template:** Apply pipe's single ceiling level/offset to both nodes
+    - **With template:** Use per-node ceiling values (`node1_ceiling_level/offset`, `node2_ceiling_level/offset`), falling back to `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM`
+    - **Without template:** Apply `DEFAULT_LEVEL` / `DEFAULT_CEILING_OFFSET_MM` to both nodes
     - Recompute `z_pos` on both nodes
 
 ---
@@ -503,6 +499,9 @@ add_pipe(n1, n2, template=None, _propagate_ceiling=True)
 - Hydraulic results if available (flow gpm, friction loss psi)
 - Positioned at midpoint, rotated to align with pipe
 - Hidden for vertical pipes (zero 2D projection)
+- Labels are **independent top-level scene items** at `Z_OVERLAY` (200), not children of Pipe
+- `Pipe.setVisible()` cascades visibility to the label
+- Labels are **non-interactive** (reject mouse clicks and hover events)
 
 > **BUG (current):** `update_label()` shows 2D projected length via `scene_to_display(self.length)`, not 3D length. Inconsistent with hydraulic solver's `get_length_ft()`.
 >
@@ -593,17 +592,17 @@ Where: Q = flow (gpm), C = C-factor, d = inner diameter (inches), L = length (ft
 {
   "node1_id": 0, "node2_id": 1,
   "user_layer": "Default", "level": "Level 1",
-  "ceiling_level": "Level 1", "ceiling_offset_mm": -50.8,
   "properties": {
     "Diameter": "2\"Ø", "Schedule": "Sch 40",
     "C-Factor": "120", "Material": "Galvanized Steel",
-    "Ceiling Level": "Level 1", "Ceiling Offset": "-50.8",
     "Line Type": "Branch", "Colour": "Red",
     "Phase": "New", "Show Label": "True", "Label Size": "12"
   },
   "display_overrides": {}
 }
 ```
+
+> **Backward compatibility:** Old save files containing pipe-level `ceiling_level` / `ceiling_offset_mm` fields (or `"Ceiling Level"` / `"Ceiling Offset"` in the properties dict) are silently ignored on load.
 
 **Load sequence:** Nodes are loaded first (with stable integer IDs), then pipes reference them by `node1_id`/`node2_id`.
 
@@ -689,7 +688,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 
 5. **Template as property clipboard** — the template pipe is a full `Pipe` instance used purely for property transfer. It is never rendered or added to the scene.
 
-6. **Elevation is node-owned** — pipes don't have independent elevations; they derive Z from their endpoint nodes. The pipe's `ceiling_level`/`ceiling_offset` properties exist for template propagation and serialization, not runtime positioning.
+6. **Elevation is node-owned** — pipes don't store ceiling data at all; they derive Z entirely from their endpoint nodes. The template carries per-node ceiling attrs (`node1_ceiling_level/offset`, `node2_ceiling_level/offset`) for propagation during placement.
 
 7. **Fitting determination is angle-based** — uses dot products between normalized pipe direction vectors, with hardcoded angular tolerances. No consideration of pipe diameter or physical fitting geometry.
 
