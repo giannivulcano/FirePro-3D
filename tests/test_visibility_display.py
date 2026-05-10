@@ -25,12 +25,21 @@ def _make_node(scene, x, y, z=0.0):
     n = Node(x, y)
     scene.addItem(n)
     n.z_pos = z
+    ss = getattr(scene, "sprinkler_system", None)
+    if ss is not None and callable(getattr(ss, "add_node", None)) and n not in ss.nodes:
+        ss.add_node(n)
     return n
 
 
 def _make_pipe(scene, n1, n2):
     p = Pipe(n1, n2)
     scene.addItem(p)
+    ss = getattr(scene, "sprinkler_system", None)
+    if ss is not None and callable(getattr(ss, "add_pipe", None)) and p not in ss.pipes:
+        ss.add_pipe(p)
+    # Keep fitting type in sync so callers can rely on it without explicit update()
+    n1.fitting.type = n1.fitting.determine_type(n1.pipes)
+    n2.fitting.type = n2.fitting.determine_type(n2.pipes)
     return p
 
 
@@ -203,3 +212,73 @@ class TestFittingDisplayOverrides:
         n1.fitting._display_overrides.pop("visible", None)
         n1.fitting.update()
         assert n1.fitting.symbol.isVisible() is True
+
+
+# ── Fittings group in model browser ─────────────────────────────────────
+
+
+class TestFittingsBrowserGroup:
+
+    def _make_browser(self, scene):
+        """Create a ModelBrowser attached to the given scene."""
+        from firepro3d.model_browser import ModelBrowser
+        browser = ModelBrowser()
+        browser._scene = scene
+        browser.refresh()
+        return browser
+
+    def _find_group(self, browser, prefix):
+        """Find a top-level group item starting with prefix."""
+        root = browser._tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            if item.text(0).startswith(prefix):
+                return item
+        return None
+
+    def test_fittings_group_exists(self, qapp):
+        """Browser should have a Fittings group."""
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        n1 = _make_node(ms, 0, 0)
+        n2 = _make_node(ms, 1000, 0)
+        n3 = _make_node(ms, 1000, 1000)
+        _make_pipe(ms, n1, n2)
+        _make_pipe(ms, n2, n3)
+        n2.fitting.update()
+        browser = self._make_browser(ms)
+        group = self._find_group(browser, "Fittings")
+        assert group is not None
+
+    def test_fittings_count_excludes_no_fitting(self, qapp):
+        """'no fitting' type nodes should not appear in the Fittings group."""
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        n1 = _make_node(ms, 0, 0)
+        n2 = _make_node(ms, 1000, 0)
+        n3 = _make_node(ms, 2000, 0)
+        _make_pipe(ms, n1, n2)
+        _make_pipe(ms, n2, n3)
+        # n2 is collinear — fitting type is "no fitting"
+        n2.fitting.update()
+        assert n2.fitting.type == "no fitting"
+        browser = self._make_browser(ms)
+        group = self._find_group(browser, "Fittings")
+        # n1 and n3 have "cap" fittings; n2 has "no fitting" → excluded
+        assert group.childCount() == 2
+
+    def test_fitting_item_stores_node_id(self, qapp):
+        """Fitting tree items should store the parent node id."""
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        n1 = _make_node(ms, 0, 0)
+        n2 = _make_node(ms, 1000, 0)
+        _make_pipe(ms, n1, n2)
+        browser = self._make_browser(ms)
+        group = self._find_group(browser, "Fittings")
+        assert group is not None
+        # Check that at least one child stores a node id
+        from firepro3d.model_browser import _ROLE_ENTITY
+        child = group.child(0)
+        eid = child.data(0, _ROLE_ENTITY)
+        assert eid == id(n1) or eid == id(n2)
