@@ -595,6 +595,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(pipe.label)
                 except (RuntimeError, ValueError):
                     pass
+            # Remove top-level riser symbol from scene
+            if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+                try:
+                    self.removeItem(pipe._riser_symbol)
+                except (RuntimeError, ValueError):
+                    pass
             try:
                 if pipe.scene() is self:
                     self.removeItem(pipe)
@@ -1750,6 +1756,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.removeItem(pipe.label)
             except (RuntimeError, ValueError):
                 pass
+        # Remove top-level riser symbol from scene
+        if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+            try:
+                self.removeItem(pipe._riser_symbol)
+            except (RuntimeError, ValueError):
+                pass
         try:
             self.removeItem(pipe)
         except (RuntimeError, ValueError):
@@ -2806,6 +2818,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if hasattr(pipe, "label") and pipe.label is not None:
                     try:
                         self.removeItem(pipe.label)
+                    except (RuntimeError, ValueError):
+                        pass
+                # Remove top-level riser symbol from scene
+                if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+                    try:
+                        self.removeItem(pipe._riser_symbol)
                     except (RuntimeError, ValueError):
                         pass
                 if pipe.scene() is self:

@@ -93,3 +93,82 @@ class TestHiddenItemsRespectOverrides:
         lm.apply_to_scene(scene, active_level="Level 1")
 
         assert p.isVisible() is True
+
+
+from firepro3d.constants import Z_OVERLAY
+
+
+# ── Riser pass-through indicator ────────────────────────────────────────
+
+
+class TestRiserPassthroughIndicator:
+
+    def test_vertical_pipe_creates_riser_symbol(self, qapp, scene):
+        """Vertical pipe should have a _riser_symbol."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        p = _make_pipe(scene, top, bot)
+        p.update_label()
+        assert p._riser_symbol is not None
+
+    def test_horizontal_pipe_no_riser_symbol(self, qapp, scene):
+        """Horizontal pipe should not create a riser symbol."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        assert p._riser_symbol is None or not p._riser_symbol.isVisible()
+
+    def test_riser_symbol_hidden_when_endpoint_visible(self, qapp, scene):
+        """Riser symbol hidden when either endpoint node is visible."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        p = _make_pipe(scene, top, bot)
+        p.update_label()
+        assert p._riser_symbol.isVisible() is False
+
+    def test_riser_symbol_shown_when_no_endpoint_visible(self, qapp, scene):
+        """Riser symbol shows when neither endpoint node is visible."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        p = _make_pipe(scene, top, bot)
+        top.setVisible(False)
+        bot.setVisible(False)
+        p.update_label()
+        assert p._riser_symbol.isVisible() is True
+
+    def test_riser_symbol_at_z_overlay(self, qapp, scene):
+        """Riser symbol should be at Z_OVERLAY."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        p = _make_pipe(scene, top, bot)
+        top.setVisible(False)
+        bot.setVisible(False)
+        p.update_label()
+        assert p._riser_symbol.zValue() == Z_OVERLAY
+
+    def test_riser_symbol_hidden_when_pipe_hidden(self, qapp, scene):
+        """setVisible(False) on pipe cascades to riser symbol."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        p = _make_pipe(scene, top, bot)
+        top.setVisible(False)
+        bot.setVisible(False)
+        p.update_label()
+        assert p._riser_symbol.isVisible() is True
+        p.setVisible(False)
+        assert p._riser_symbol.isVisible() is False
+
+    def test_riser_symbol_cleanup_on_delete(self, qapp):
+        """Riser symbol removed from scene when pipe is deleted."""
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        top = _make_node(ms, 0, 0, z=3000)
+        bot = _make_node(ms, 0, 0, z=0)
+        p = _make_pipe(ms, top, bot)
+        top.setVisible(False)
+        bot.setVisible(False)
+        p.update_label()
+        sym = p._riser_symbol
+        ms.delete_pipe(p)
+        assert sym.scene() is None
