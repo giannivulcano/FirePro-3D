@@ -39,6 +39,8 @@ Model_Space delegates specialized concerns to manager objects:
 
 Some managers (LevelManager, PlanViewManager, ElevationManager) are injected by `main.py` after construction. Others (ScaleManager, SnapEngine, SprinklerSystem) are created in `Model_Space.__init__`.
 
+**Visibility interaction:** `LevelManager._set_level_vis()` checks `_display_overrides["visible"]` before applying level filtering. Items with `visible == False` are skipped entirely (no Z-ordering, opacity, or selectability changes). This ensures user-hidden items persist across level switches.
+
 ## Signal-based communication
 
 Model_Space communicates with the UI through PyQt6 signals, keeping the scene decoupled from specific UI widgets:
