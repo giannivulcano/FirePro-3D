@@ -92,7 +92,7 @@ class Fitting():
             for p in pipes:
                 if self._is_vertical(p, node):
                     other = p.node2 if p.node1 is node else p.node1
-                    if other is not None:
+                    if other is not None and other.isVisible():
                         np = node.scenePos()
                         op = other.scenePos()
                         if (np.x() - op.x()) ** 2 + (np.y() - op.y()) ** 2 < 100:

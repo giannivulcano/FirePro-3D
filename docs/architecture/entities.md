@@ -62,7 +62,6 @@ classDiagram
         +node2: Node
         +_properties: dict
         +length: float
-        +ceiling_offset: float
     }
 
     class Sprinkler {

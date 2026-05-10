@@ -4,7 +4,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .cad_math import CAD_Math
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_PIPE
+from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
@@ -83,8 +83,6 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             "Schedule":    {"type": "enum",   "value": "Sch 40",         "options": ["Sch 10", "Sch 40", "Sch 80", "Sch 40S", "Sch 10S"]},
             "C-Factor":    {"type": "string", "value": "120", "readonly": True},
             "Material":    {"type": "enum",   "value": "Galvanized Steel","options": ["Galvanized Steel", "Stainless Steel", "Black Steel", "PVC", "CPVC"]},
-            "Ceiling Level":      {"type": "level_ref", "value": DEFAULT_LEVEL},
-            "Ceiling Offset":{"type": "string", "value": "-50.8"},
             "Line Type":   {"type": "enum",   "value": "Branch",         "options": ["Branch", "Main"]},
             "Colour":      {"type": "enum",   "value": "Red",            "options": ["Black", "White", "Red", "Blue", "Grey"]},
             "Phase":       {"type": "enum",   "value": "New",            "options": ["New", "Existing", "Demo"]},
@@ -102,8 +100,6 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.init_displayable()
 
         # Pipe-specific attributes
-        self.ceiling_level: str = DEFAULT_LEVEL
-        self.ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
         self._display_scale: float = 1.0
 
         # Per-node elevation for template placement (None = use pipe-level ceiling)
@@ -113,18 +109,32 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.node2_ceiling_offset: float | None = None
         self._placement_phase: int = 0  # 0=before 1st click, 1=before 2nd click
 
-        self.label = QGraphicsTextItem("", self)  # Child of pipe
+        self.label = QGraphicsTextItem("")  # top-level; added to scene in update_label
+        self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.label.setAcceptHoverEvents(False)
 
         self.set_pipe_display()
-        
+
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setZValue(Z_PIPE)
-        
+
         # track node movement
         if node1 and node2:
             self.node1.pipes.append(self)
             self.node2.pipes.append(self)
             self.update_geometry()
+
+    def setVisible(self, visible: bool):
+        """Override to cascade visibility to the top-level label."""
+        super().setVisible(visible)
+        if hasattr(self, "label") and self.label is not None:
+            if not visible:
+                self.label.setVisible(False)
+            else:
+                # Re-evaluate: only show if Show Label is on and pipe isn't vertical
+                show = (self._properties["Show Label"]["value"] == "True"
+                        and not self._is_vertical())
+                self.label.setVisible(show)
 
     def set_pipe_display(self):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
@@ -160,9 +170,21 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             return  # cannot position label yet
 
         if not hasattr(self, "label") or self.label is None:
-            self.label = QGraphicsTextItem(parent=self)
+            self.label = QGraphicsTextItem("")
             self.label.setDefaultTextColor(Qt.GlobalColor.black)
-            # No ItemIgnoresTransformations — label is in model-space units
+            self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.label.setAcceptHoverEvents(False)
+
+        # Ensure label is added to the same scene as the pipe
+        sc = self.scene()
+        if sc is not None and self.label.scene() is None:
+            sc.addItem(self.label)
+            self.label.setZValue(Z_OVERLAY)
+
+        # Sync label visibility with pipe visibility
+        if not self.isVisible():
+            self.label.setVisible(False)
+            return
 
         # Hide label for vertical pipes (same XY, different z) in plan view
         if self._is_vertical():
@@ -317,33 +339,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             return sc
         return getattr(self, "_scene_ref", None)
 
-    def _ceiling_elevation_str(self) -> str:
-        """Return the effective ceiling elevation (level minus slab thickness)."""
-        sc = self._get_scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return ""
-        lvl = lm.get(self.ceiling_level)
-        if lvl is None:
-            return ""
-        # Find thickest floor slab on the ceiling level
-        slab_thickness = 0.0
-        for slab in getattr(sc, "_floor_slabs", []):
-            if getattr(slab, "level", None) == self.ceiling_level:
-                slab_thickness = max(slab_thickness, slab._thickness_mm)
-        elev = lvl.elevation - slab_thickness
-        return f"({self._fmt(elev)})"
-
     def get_properties(self):
         props = self._properties.copy()
-        # Format ceiling offset for display using project units
-        props["Ceiling Offset"] = dict(props["Ceiling Offset"])
-        props["Ceiling Offset"]["value"] = self._fmt(self.ceiling_offset)
-        # Annotate Ceiling Level with effective elevation
-        props["Ceiling Level"] = dict(props["Ceiling Level"])
-        ceil_str = self._ceiling_elevation_str()
-        if ceil_str:
-            props["Ceiling Level"]["suffix"] = ceil_str
         # Show diameter with Ø prefix; metric nominal sizes when metric display
         props["Diameter"] = dict(props["Diameter"])
         int_val = props["Diameter"]["value"]
@@ -416,7 +413,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     def set_property(self, key, value):
         # Accept legacy names from old save files
         if key in ("Elevation 1", "Elevation 2", "Line Weight", "Length",
-                    "Node 1 Elevation", "Node 2 Elevation"):
+                    "Node 1 Elevation", "Node 2 Elevation",
+                    "Ceiling Level", "Ceiling Offset"):
             return  # discard old/removed or read-only properties
         if key == "C-Factor":
             return  # read-only; derived from Material
@@ -440,25 +438,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 except (ValueError, TypeError):
                     pass
             return
-        if key in ("Elevation", "Elevation Offset", "Ceiling Offset (in)"):
-            key = "Ceiling Offset"
-        if key == "Ceiling Offset":
-            # Parse dimension input and store canonical mm value
-            if isinstance(value, (int, float)):
-                self.ceiling_offset = float(value)
-            else:
-                sm = self._get_scale_manager()
-                if sm:
-                    parsed = sm.parse_dimension(str(value), sm.bare_number_unit())
-                    if parsed is not None:
-                        self.ceiling_offset = parsed
-                else:
-                    try:
-                        self.ceiling_offset = float(value)
-                    except (ValueError, TypeError):
-                        pass
-            self._properties["Ceiling Offset"]["value"] = str(self.ceiling_offset)
-        elif key in self._properties:
+        if key in self._properties:
             # Convert display diameter string back to internal key
             if key == "Diameter" and value in self._DISPLAY_TO_INT:
                 value = self._DISPLAY_TO_INT[value]
@@ -480,27 +460,11 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 self.set_pipe_display()
             if key == "Level":
                 self.level = str(value)
-            elif key == "Ceiling Level":
-                self.ceiling_level = str(value)
     
     def set_properties(self, template: "Pipe"):
         """Copy property values from a template pipe."""
         for key, meta in template.get_properties().items():
-            if key == "Ceiling Offset":
-                # Copy raw mm value directly — the display-formatted string
-                # from get_properties() can't be parsed when the new pipe
-                # has no scene (no ScaleManager available yet).
-                self.ceiling_offset = template.ceiling_offset
-                self._properties["Ceiling Offset"]["value"] = str(template.ceiling_offset)
-                continue
             self.set_property(key, meta["value"])
-        # Ensure pipe-level ceiling properties are copied even when
-        # get_properties() omits them (template mode replaces with N1/N2)
-        self.ceiling_level = template.ceiling_level
-        self._properties["Ceiling Level"]["value"] = template.ceiling_level
-        if self.ceiling_offset == DEFAULT_CEILING_OFFSET_MM:
-            self.ceiling_offset = template.ceiling_offset
-            self._properties["Ceiling Offset"]["value"] = str(template.ceiling_offset)
 
     def z_range_mm(self) -> tuple[float, float] | None:
         """Return (z_bottom, z_top) spanning the full storey range of both nodes.

@@ -254,8 +254,6 @@ Material options: Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC.
 | Schedule | enum | Sch 40 | Sch 10, Sch 40, Sch 80, Sch 40S, Sch 10S |
 | C-Factor | string (readonly) | 120 | Auto-derived from Material |
 | Material | enum | Galvanized Steel | Galvanized Steel, Stainless Steel, Black Steel, PVC, CPVC |
-| Ceiling Level | level_ref | Level 1 | — |
-| Ceiling Offset | string | -50.8 | mm |
 | Line Type | enum | Branch | Branch, Main |
 | Colour | enum | Red | Black, White, Red, Blue, Grey |
 | Phase | enum | New | New, Existing, Demo |
@@ -304,7 +302,7 @@ Direction (`up`/`down`) determined by comparing `z_pos` of this node vs the othe
 
 Fitting symbol is hidden when:
 1. Node has a sprinkler (sprinkler symbol takes visual precedence)
-2. Two nodes overlap in XY (vertical pipe): only the highest-Z node shows its fitting
+2. Two nodes overlap in XY (vertical pipe): only the highest-Z **visible** node shows its fitting. Hidden nodes (e.g. outside view range) are skipped -- the next-highest visible node shows its fitting instead.
    - Tie-break 1: higher `ceiling_offset` wins
    - Tie-break 2: higher `id()` wins
 
@@ -379,6 +377,8 @@ Ceiling Level and Ceiling Offset exist in two forms:
 - Properties dict: `node._properties["Ceiling Level"]`, `node._properties["Ceiling Offset"]` (for PropertyManager display)
 
 Both are updated together on `set_property()`. When a Sprinkler is present, its `get_properties()` reads ceiling values directly from the parent Node (Node is single source of truth).
+
+Pipes do not store ceiling data; all Z positioning is derived from endpoint Node `ceiling_level` and `ceiling_offset` attributes.
 
 ### 7.5 Legacy z_offset Field
 
@@ -613,7 +613,9 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.2 Pipe Serialization
 
-**Saved fields:** node references (by index into node list), all `_properties` values, `ceiling_level`, `ceiling_offset`, per-node ceiling fields (`node1_ceiling_level`, etc.).
+**Saved fields:** node references (by index into node list), all `_properties` values, per-node ceiling fields (`node1_ceiling_level`, etc.).
+
+**Backward compat:** Old save files containing pipe-level `ceiling_level`/`ceiling_offset_mm` fields are silently ignored on load; all ceiling data is read from endpoint Node attributes.
 
 **Stability:** Diameter internal keys (`"1\"Ø"` format), schedule strings, and material strings are stable across versions. No migration needed.
 
