@@ -751,11 +751,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 template._scene_ref = self  # so template can access level_manager
                 if mode == "pipe":
                     template._placement_phase = 0
-                    # Sync per-node defaults from pipe's ceiling properties
-                    template.node1_ceiling_level = template.ceiling_level
-                    template.node1_ceiling_offset = template.ceiling_offset
-                    template.node2_ceiling_level = template.ceiling_level
-                    template.node2_ceiling_offset = template.ceiling_offset
+                    # Sync per-node defaults — use existing per-node values or fall back to defaults
+                    template.node1_ceiling_level = template.node1_ceiling_level or DEFAULT_LEVEL
+                    template.node1_ceiling_offset = template.node1_ceiling_offset if template.node1_ceiling_offset is not None else DEFAULT_CEILING_OFFSET_MM
+                    template.node2_ceiling_level = template.node2_ceiling_level or DEFAULT_LEVEL
+                    template.node2_ceiling_offset = template.node2_ceiling_offset if template.node2_ceiling_offset is not None else DEFAULT_CEILING_OFFSET_MM
                 self.requestPropertyUpdate.emit(template)
         else:
             self.current_template = None
@@ -1227,7 +1227,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # so their 3D elevation matches what the user set on the template.
         # Skip during load — nodes already have authoritative ceiling data.
         if _propagate_ceiling and template is not None:
-            # Use per-node ceiling values if available (template placement)
+            # Use per-node ceiling values from template; fall back to defaults
             for node, lvl_attr, off_attr in (
                 (n1, "node1_ceiling_level", "node1_ceiling_offset"),
                 (n2, "node2_ceiling_level", "node2_ceiling_offset"),
@@ -1237,30 +1237,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 c_lvl = getattr(template, lvl_attr, None)
                 c_off = getattr(template, off_attr, None)
                 if c_lvl is None:
-                    c_lvl = pipe._properties["Ceiling Level"]["value"]
+                    c_lvl = DEFAULT_LEVEL
                 if c_off is None:
-                    try:
-                        c_off = float(pipe._properties["Ceiling Offset"]["value"])
-                    except (ValueError, TypeError):
-                        c_off = -2.0
+                    c_off = DEFAULT_CEILING_OFFSET_MM
                 node.ceiling_level = c_lvl
                 node._properties["Ceiling Level"]["value"] = c_lvl
                 node.ceiling_offset = c_off
                 node._properties["Ceiling Offset"]["value"] = str(c_off)
                 node._recompute_z_pos()
         elif _propagate_ceiling:
-            # No template — fallback to pipe's single ceiling values
-            ceiling_lvl = pipe._properties["Ceiling Level"]["value"]
-            try:
-                ceiling_off = float(pipe._properties["Ceiling Offset"]["value"])
-            except (ValueError, TypeError):
-                ceiling_off = -2.0
+            # No template — apply defaults to both endpoint nodes
             for node in (n1, n2):
                 if node is not None:
-                    node.ceiling_level = ceiling_lvl
-                    node._properties["Ceiling Level"]["value"] = ceiling_lvl
-                    node.ceiling_offset = ceiling_off
-                    node._properties["Ceiling Offset"]["value"] = str(ceiling_off)
+                    node.ceiling_level = DEFAULT_LEVEL
+                    node._properties["Ceiling Level"]["value"] = DEFAULT_LEVEL
+                    node.ceiling_offset = DEFAULT_CEILING_OFFSET_MM
+                    node._properties["Ceiling Offset"]["value"] = str(DEFAULT_CEILING_OFFSET_MM)
                     node._recompute_z_pos()
 
         return pipe
@@ -1537,16 +1529,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             ceiling_lvl_name = getattr(template, "node2_ceiling_level", None)
             offset = getattr(template, "node2_ceiling_offset", None)
-        # Fallback to pipe-level properties
+        # Fallback to defaults (pipe-level ceiling attrs were removed)
         if not ceiling_lvl_name:
-            ceiling_lvl_name = template._properties.get(
-                "Ceiling Level", {}).get("value")
+            ceiling_lvl_name = DEFAULT_LEVEL
         if offset is None:
-            try:
-                offset = float(template._properties.get(
-                    "Ceiling Offset", {}).get("value", DEFAULT_CEILING_OFFSET_MM))
-            except (ValueError, TypeError):
-                offset = DEFAULT_CEILING_OFFSET_MM
+            offset = DEFAULT_CEILING_OFFSET_MM
         if not ceiling_lvl_name or not self._level_manager:
             return None
         lvl = self._level_manager.get(ceiling_lvl_name)
@@ -1567,10 +1554,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         intermediate.user_layer = self.active_user_layer
         intermediate.level = self.active_level
 
-        ceiling_lvl = template._properties["Ceiling Level"]["value"]
-        try:
-            ceiling_off = float(template._properties["Ceiling Offset"]["value"])
-        except (ValueError, TypeError):
+        ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
+        ceiling_off = getattr(template, "node1_ceiling_offset", None)
+        if ceiling_off is None:
             ceiling_off = DEFAULT_CEILING_OFFSET_MM
         intermediate.ceiling_level = ceiling_lvl
         intermediate._properties["Ceiling Level"]["value"] = ceiling_lvl
@@ -1598,10 +1584,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         node.user_layer = self.active_user_layer
         node.level = self.active_level
 
-        ceiling_lvl = getattr(template, "node2_ceiling_level",
-                              template._properties["Ceiling Level"]["value"])
-        ceiling_off = getattr(template, "node2_ceiling_offset",
-                              template.ceiling_offset)
+        ceiling_lvl = getattr(template, "node2_ceiling_level", None) or DEFAULT_LEVEL
+        ceiling_off = getattr(template, "node2_ceiling_offset", None)
+        if ceiling_off is None:
+            ceiling_off = DEFAULT_CEILING_OFFSET_MM
         node.ceiling_level = ceiling_lvl
         node._properties["Ceiling Level"]["value"] = ceiling_lvl
         node.ceiling_offset = ceiling_off
@@ -1681,11 +1667,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         mid.user_layer = self.active_user_layer
         mid.level = self.active_level
 
-        ceiling_lvl = template._properties["Ceiling Level"]["value"]
+        ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
+        ceiling_off = getattr(template, "node1_ceiling_offset", None)
+        if ceiling_off is None:
+            ceiling_off = DEFAULT_CEILING_OFFSET_MM
         mid.ceiling_level = ceiling_lvl
         mid._properties["Ceiling Level"]["value"] = ceiling_lvl
-        mid.ceiling_offset = template.ceiling_offset
-        mid._properties["Ceiling Offset"]["value"] = str(template.ceiling_offset)
+        mid.ceiling_offset = ceiling_off
+        mid._properties["Ceiling Offset"]["value"] = str(ceiling_off)
         mid.z_pos = target_z
 
         self.addItem(mid)
@@ -1701,10 +1690,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             for key in ("Diameter", "Schedule", "C-Factor",
                         "Material", "Colour", "Phase", "Line Type"):
                 seg._properties[key]["value"] = pipe._properties[key]["value"]
-            seg.ceiling_level = pipe.ceiling_level
-            seg.ceiling_offset = pipe.ceiling_offset
-            seg._properties["Ceiling Level"]["value"] = pipe.ceiling_level
-            seg._properties["Ceiling Offset"]["value"] = str(pipe.ceiling_offset)
             self.sprinkler_system.add_pipe(seg)
             self.addItem(seg)
             seg.set_pipe_display()

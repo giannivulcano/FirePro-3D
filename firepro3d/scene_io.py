@@ -74,14 +74,11 @@ class SceneIOMixin:
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
             raw_props = {k: v["value"] for k, v in pipe._properties.items()}
-            raw_props["Ceiling Offset"] = str(pipe.ceiling_offset)
             pipe_entry = {
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":      getattr(pipe, "level", DEFAULT_LEVEL),
-                "ceiling_level":     getattr(pipe, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset_mm": getattr(pipe, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                 "properties": raw_props,
             }
             pipe_ovr = getattr(pipe, "_display_overrides", {})
@@ -379,15 +376,7 @@ class SceneIOMixin:
                 pipe = self.add_pipe(n1, n2, _propagate_ceiling=False)
                 pipe.user_layer = entry.get("user_layer", "0")
                 pipe.level = entry.get("level", DEFAULT_LEVEL)
-                pipe.ceiling_level = entry.get("ceiling_level",
-                    entry.get("properties", {}).get("Ceiling Level", DEFAULT_LEVEL))
-                pipe._properties["Ceiling Level"]["value"] = pipe.ceiling_level
-                if "ceiling_offset_mm" in entry:
-                    pipe.ceiling_offset = entry["ceiling_offset_mm"]
-                    pipe._properties["Ceiling Offset"]["value"] = str(pipe.ceiling_offset)
                 for key, value in entry.get("properties", {}).items():
-                    if key in ("Ceiling Level", "Ceiling Offset"):
-                        continue
                     pipe.set_property(key, value)
                 props = entry.get("properties", {})
                 if "Line Type" not in props:
