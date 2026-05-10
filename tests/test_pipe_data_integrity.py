@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QGraphicsScene
 from firepro3d.node import Node
 from firepro3d.pipe import Pipe
 from firepro3d.fitting import Fitting
+from firepro3d.constants import Z_OVERLAY
 
 
 @pytest.fixture
@@ -132,3 +133,48 @@ class TestPipeCeilingRemoval:
         p = _make_pipe(scene, n1, n2)
         p.set_property("Ceiling Offset", "-100.0")
         assert n1.ceiling_offset == -50.8  # unchanged
+
+
+# ── Pipe label Z-ordering ──────────────────────────────────────────────────
+
+
+class TestPipeLabelZOrdering:
+
+    def test_label_is_top_level_scene_item(self, qapp, scene):
+        """Pipe label should be a top-level scene item, not a child of pipe."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        assert p.label.parentItem() is None
+        assert p.label.scene() is scene
+
+    def test_label_z_value_is_overlay(self, qapp, scene):
+        """Pipe label should render at Z_OVERLAY."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        assert p.label.zValue() == Z_OVERLAY
+
+    def test_label_hidden_when_pipe_hidden(self, qapp, scene):
+        """When pipe is hidden, label should also be hidden."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        p.setVisible(False)
+        p.update_label()
+        assert p.label.isVisible() is False
+
+    def test_label_removed_on_pipe_delete(self, qapp):
+        """When pipe is deleted, label should be removed from scene."""
+        from firepro3d.model_space import Model_Space
+        scene = Model_Space()
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        label = p.label
+        scene.delete_pipe(p)
+        assert label.scene() is None

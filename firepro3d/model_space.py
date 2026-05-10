@@ -589,6 +589,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         nodes_to_remove.add(node)
             pipe.node1 = None
             pipe.node2 = None
+            # Remove top-level label from scene
+            if hasattr(pipe, "label") and pipe.label is not None:
+                try:
+                    self.removeItem(pipe.label)
+                except (RuntimeError, ValueError):
+                    pass
             try:
                 if pipe.scene() is self:
                     self.removeItem(pipe)
@@ -1738,6 +1744,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.remove_node(node)
         pipe.node1 = None
         pipe.node2 = None
+        # Remove top-level label from scene
+        if hasattr(pipe, "label") and pipe.label is not None:
+            try:
+                self.removeItem(pipe.label)
+            except (RuntimeError, ValueError):
+                pass
         try:
             self.removeItem(pipe)
         except (RuntimeError, ValueError):
@@ -2790,6 +2802,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._in_undo_restore = True
         try:
             for pipe in list(self.sprinkler_system.pipes):
+                # Remove top-level label from scene
+                if hasattr(pipe, "label") and pipe.label is not None:
+                    try:
+                        self.removeItem(pipe.label)
+                    except (RuntimeError, ValueError):
+                        pass
                 if pipe.scene() is self:
                     self.removeItem(pipe)
             for node in list(self.sprinkler_system.nodes):
