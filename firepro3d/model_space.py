@@ -4865,8 +4865,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif result == "match":
                 # Place pipe at existing node's elevation — adopt node's
                 # ceiling into template (mirrors normal existing-node flow)
-                template.set_property("Ceiling Level", start_node.ceiling_level)
-                template.set_property("Ceiling Offset", start_node.ceiling_offset)
                 template.node1_ceiling_level = start_node.ceiling_level
                 template.node1_ceiling_offset = start_node.ceiling_offset
                 template.node2_ceiling_level = start_node.ceiling_level
@@ -4931,8 +4929,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif result == "match":
                 # Place pipe at existing node's elevation — adopt node's
                 # ceiling into template (mirrors normal existing-node flow)
-                template.set_property("Ceiling Level", end_node.ceiling_level)
-                template.set_property("Ceiling Offset", end_node.ceiling_offset)
                 template.node2_ceiling_level = end_node.ceiling_level
                 template.node2_ceiling_offset = end_node.ceiling_offset
                 self.requestPropertyUpdate.emit(template)
