@@ -292,6 +292,37 @@ class ModelBrowser(QWidget):
                 item.setToolTip(0, f"Level: {node.level}  Layer: {node.user_layer}")
                 self._style_hidden(item, node)
 
+            # -- Fittings --
+            all_nodes = list(
+                getattr(self._scene, "sprinkler_system", None).nodes
+            ) if getattr(self._scene, "sprinkler_system", None) else []
+            # Build pipe index for labeling
+            pipe_list = list(
+                getattr(self._scene, "sprinkler_system", None).pipes
+            ) if getattr(self._scene, "sprinkler_system", None) else []
+            pipe_idx = {id(p): i for i, p in enumerate(pipe_list, 1)}
+            fitting_nodes = [
+                n for n in all_nodes
+                if n.fitting and n.fitting.type != "no fitting"
+            ]
+            fittings_root = QTreeWidgetItem(
+                self._tree, [f"Fittings ({len(fitting_nodes)})"])
+            fittings_root.setFont(0, f_bold)
+            for node in fitting_nodes:
+                fit = node.fitting
+                # Build label: type @ connected pipe indices
+                pipe_refs = ", ".join(
+                    f"Pipe {pipe_idx.get(id(p), '?')}"
+                    for p in node.pipes
+                )
+                type_name = fit.type.replace("_", " ").title()
+                label = f"{type_name} @ {pipe_refs}" if pipe_refs else type_name
+                item = QTreeWidgetItem(fittings_root, [label])
+                item.setData(0, _ROLE_ENTITY, id(node))
+                item.setToolTip(
+                    0, f"Level: {node.level}  Type: {fit.type}")
+                self._style_hidden(item, fit)
+
             # -- Gridlines --
             gridlines = getattr(self._scene, "_gridlines", [])
             if gridlines:

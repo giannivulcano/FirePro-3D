@@ -1,11 +1,13 @@
 import math
 from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsItem, QGraphicsTextItem, QStyle
+from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .cad_math import CAD_Math
 
 from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
+from .assets import asset_path
 
 class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     SNAP_TOLERANCE_DEG = 7.5  # snap if within this angle
@@ -16,6 +18,9 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
 
     # Diameters that auto-assign as "Main" (≥ 3")
     _MAIN_DIAMETERS = {"3\"Ø", "4\"Ø", "5\"Ø", "6\"Ø", "8\"Ø"}
+
+    _RISER_SVG = asset_path("fitting_symbols", "riser_passthrough.svg")
+    _RISER_SIZE_MM = 300.0  # fixed symbol size in scene units (mm)
 
     # Hazen-Williams C-factor by pipe material (NFPA 13 Table 22.4.4.8)
     MATERIAL_C_FACTOR: dict[str, int] = {
@@ -113,6 +118,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.label.setAcceptHoverEvents(False)
 
+        self._riser_symbol: QGraphicsSvgItem | None = None
+
         self.set_pipe_display()
 
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -135,6 +142,12 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
                 show = (self._properties["Show Label"]["value"] == "True"
                         and not self._is_vertical())
                 self.label.setVisible(show)
+        if hasattr(self, "_riser_symbol") and self._riser_symbol is not None:
+            if not visible:
+                self._riser_symbol.setVisible(False)
+            elif self._is_vertical():
+                # Delegate to _update_riser_symbol for consistent logic
+                self._update_riser_symbol()
 
     def set_pipe_display(self):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
@@ -165,6 +178,59 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         dz = abs(getattr(self.node1, "z_pos", 0) - getattr(self.node2, "z_pos", 0))
         return (dx * dx + dy * dy) < 100 and dz > 0.01
 
+    def _update_riser_symbol(self):
+        """Show/hide the riser pass-through symbol for vertical pipes."""
+        if not self.node1 or not self.node2:
+            return
+
+        if not self._is_vertical():
+            if self._riser_symbol is not None:
+                self._riser_symbol.setVisible(False)
+            return
+
+        # Vertical pipe — create symbol if needed
+        if self._riser_symbol is None:
+            self._riser_symbol = QGraphicsSvgItem(self._RISER_SVG)
+            self._riser_symbol.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self._riser_symbol.setAcceptHoverEvents(False)
+
+        # Add to scene if not yet added
+        sc = self.scene()
+        if sc is not None and self._riser_symbol.scene() is None:
+            sc.addItem(self._riser_symbol)
+            self._riser_symbol.setZValue(Z_OVERLAY)
+
+        # Scale to fixed size
+        bounds = self._riser_symbol.boundingRect()
+        natural = max(bounds.width(), bounds.height())
+        if natural > 0:
+            scale = self._RISER_SIZE_MM / natural
+            self._riser_symbol.setScale(scale)
+
+        # Position at pipe XY (both endpoints share same XY for vertical pipes)
+        pos = self.node1.scenePos()
+        half = self._RISER_SIZE_MM / 2
+        self._riser_symbol.setPos(pos.x() - half, pos.y() - half)
+
+        # Visibility: show unless a visible endpoint has horizontal pipes
+        # (horizontal pipes produce a fitting symbol that already indicates
+        # the riser).  If the visible node only has vertical pipes, the
+        # riser symbol is the only visual cue — keep it visible.
+        if not self.isVisible():
+            self._riser_symbol.setVisible(False)
+        else:
+            show = True
+            for nd in (self.node1, self.node2):
+                if nd.isVisible():
+                    has_horiz = any(
+                        not p._is_vertical()
+                        for p in nd.pipes if p is not self
+                    )
+                    if has_horiz:
+                        show = False
+                        break
+            self._riser_symbol.setVisible(show)
+
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:
             return  # cannot position label yet
@@ -184,11 +250,13 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         # Sync label visibility with pipe visibility
         if not self.isVisible():
             self.label.setVisible(False)
+            self._update_riser_symbol()
             return
 
         # Hide label for vertical pipes (same XY, different z) in plan view
         if self._is_vertical():
             self.label.setVisible(False)
+            self._update_riser_symbol()
             return
 
         visible = True if self._properties["Show Label"]["value"] == "True" else False
@@ -245,6 +313,7 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.label.setTextWidth(ideal)
 
         self.set_label_position()
+        self._update_riser_symbol()
 
 
     def set_label_position(self):
@@ -292,9 +361,21 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         Pipes use a non-cosmetic scene-unit pen whose width shrinks when the scale
         manager converts mm → scene units.  Without this override, a thin calibrated
         pipe can become nearly impossible to click.
+
+        Vertical pipes (zero 2D length) get a circular hit area at their XY
+        position so they remain clickable for split_pipe operations.
         """
         ln = self.line()
         path = QPainterPath()
+
+        # Vertical pipes: zero-length line produces degenerate stroke.
+        # Use a circular hit area matching the riser symbol size.
+        if ln.length() < 1.0:
+            center = ln.p1()
+            r = self._RISER_SIZE_MM / 2
+            path.addEllipse(center, r, r)
+            return path
+
         path.moveTo(ln.p1())
         path.lineTo(ln.p2())
         stroker = QPainterPathStroker()

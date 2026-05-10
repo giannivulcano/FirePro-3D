@@ -37,6 +37,7 @@ from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL)
+from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
@@ -593,6 +594,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if hasattr(pipe, "label") and pipe.label is not None:
                 try:
                     self.removeItem(pipe.label)
+                except (RuntimeError, ValueError):
+                    pass
+            # Remove top-level riser symbol from scene
+            if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+                try:
+                    self.removeItem(pipe._riser_symbol)
                 except (RuntimeError, ValueError):
                     pass
             try:
@@ -1750,6 +1757,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.removeItem(pipe.label)
             except (RuntimeError, ValueError):
                 pass
+        # Remove top-level riser symbol from scene
+        if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+            try:
+                self.removeItem(pipe._riser_symbol)
+            except (RuntimeError, ValueError):
+                pass
         try:
             self.removeItem(pipe)
         except (RuntimeError, ValueError):
@@ -2806,6 +2819,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if hasattr(pipe, "label") and pipe.label is not None:
                     try:
                         self.removeItem(pipe.label)
+                    except (RuntimeError, ValueError):
+                        pass
+                # Remove top-level riser symbol from scene
+                if hasattr(pipe, "_riser_symbol") and pipe._riser_symbol is not None:
+                    try:
+                        self.removeItem(pipe._riser_symbol)
                     except (RuntimeError, ValueError):
                         pass
                 if pipe.scene() is self:
@@ -7223,14 +7242,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for item in items:
             if hasattr(item, "_display_overrides"):
                 item._display_overrides["visible"] = False
-            item.setVisible(False)
+            # Fitting is not a QGraphicsItem — hide its symbol directly
+            if isinstance(item, Fitting):
+                if item.symbol is not None:
+                    item.symbol.setVisible(False)
+            else:
+                item.setVisible(False)
 
     def _show_items(self, items):
         """Show the given items via display overrides."""
         for item in items:
             if hasattr(item, "_display_overrides"):
                 item._display_overrides.pop("visible", None)
-            item.setVisible(True)
+            # Fitting is not a QGraphicsItem — re-evaluate via update()
+            if isinstance(item, Fitting):
+                item.update()
+            else:
+                item.setVisible(True)
 
     def _show_all_hidden(self):
         """Restore visibility for all manually hidden items."""
@@ -7239,6 +7267,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if item._display_overrides.get("visible") is False:
                     item._display_overrides.pop("visible", None)
                     item.setVisible(True)
+        # Also clear fitting overrides (Fitting is not a QGraphicsItem)
+        ss = getattr(self, "sprinkler_system", None)
+        if ss:
+            for node in ss.nodes:
+                if node.fitting and node.fitting._display_overrides.get("visible") is False:
+                    node.fitting._display_overrides.pop("visible", None)
+                    node.fitting.update()
         # Re-apply level filtering so items outside the active view range
         # don't remain visible after being un-hidden.
         if hasattr(self, "_level_manager"):

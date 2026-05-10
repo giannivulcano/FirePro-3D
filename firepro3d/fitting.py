@@ -111,6 +111,9 @@ class Fitting():
                                     if id(node) < id(other):
                                         visibility = False
                             break
+        # Respect per-instance display override (model browser hide/show)
+        if self._display_overrides.get("visible") is False:
+            visibility = False
         self.symbol.setVisible(visibility)
 
     # ── Vertical pipe helpers ────────────────────────────────────────────
