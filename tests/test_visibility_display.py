@@ -172,3 +172,34 @@ class TestRiserPassthroughIndicator:
         sym = p._riser_symbol
         ms.delete_pipe(p)
         assert sym.scene() is None
+
+
+from firepro3d.fitting import Fitting
+
+
+# ── Fitting visibility respects display overrides ───────────────────────
+
+
+class TestFittingDisplayOverrides:
+
+    def test_fitting_hidden_via_display_override(self, qapp, scene):
+        """Fitting with _display_overrides['visible']=False stays hidden
+        even after fitting.update()."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        _make_pipe(scene, n1, n2)
+        n1.fitting._display_overrides["visible"] = False
+        n1.fitting.update()
+        assert n1.fitting.symbol.isVisible() is False
+
+    def test_fitting_shown_after_override_cleared(self, qapp, scene):
+        """Clearing _display_overrides restores fitting visibility."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        _make_pipe(scene, n1, n2)
+        n1.fitting._display_overrides["visible"] = False
+        n1.fitting.update()
+        assert n1.fitting.symbol.isVisible() is False
+        n1.fitting._display_overrides.pop("visible", None)
+        n1.fitting.update()
+        assert n1.fitting.symbol.isVisible() is True
