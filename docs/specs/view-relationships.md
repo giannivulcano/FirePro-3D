@@ -88,10 +88,10 @@ This table enumerates every property in the data model that contributes to an ob
 | **Level** | `elevation` | float (mm) | Level 1 = 0; Level 2 = 3048; Level 3 = 6096 | Floor elevation of the level | `level_manager.py:68-74` |
 | **Level** | `view_top` | float (mm) | 2000 | Default plan view-range top, *relative to elevation* | `level_manager.py:72` |
 | **Level** | `view_bottom` | float (mm) | -1000 | Default plan view-range bottom, relative to elevation | `level_manager.py:73` |
-| **Pipe** | `ceiling_level` | str (level ref) | "Level 1" | Level the pipe hangs from | `pipe.py:89` |
-| **Pipe** | `ceiling_offset` | float (mm) | -50.8 | Offset below `ceiling_level.elevation` | `pipe.py:90` |
 | **Pipe** | `node1/2_ceiling_level` | str | "Level 1" | Per-endpoint level (template placement) | `pipe.py:94-97` |
 | **Pipe** | `node1/2_ceiling_offset` | float (mm) | -50.8 | Per-endpoint offset (template placement) | `pipe.py:94-97` |
+
+> **Note:** Pipes no longer store their own `ceiling_level` or `ceiling_offset`. Ceiling data is stored exclusively on Nodes; pipes derive ceiling display values from their endpoint nodes.
 | **Node** | `z_pos` | float (mm) | computed | World Z; `_recompute_z_pos()` derives from `ceiling_level + ceiling_offset` | `node.py:32, 95-111` |
 | **Node** | `z_offset` | float | 0.0 | **Deprecated** (2026-05-03); no longer written on save/copy; kept for old-file load compat only | `node.py:33` |
 | **Sprinkler** | `ceiling_level` | str | "Level 1" | Inherits from parent node via property panel | `sprinkler.py:43` |
@@ -114,7 +114,7 @@ This table enumerates every property in the data model that contributes to an ob
 | **DetailMarker** | `level` | str | "Level 1" | Same | `detail_view.py:81` |
 | **DetailMarker** | `_view_height` / `_view_depth` | float \| None | None | Optional Z-range override; inherits from parent plan if None | `detail_view.py:61-62` |
 
-**Resolution rule.** When multiple mechanisms could supply Z for the same object (e.g. pipe carries `ceiling_level`/`ceiling_offset` AND its endpoint nodes carry `z_pos`), **the node values are authoritative** for placed pipes; the pipe's own `ceiling_level`/`ceiling_offset` are template defaults applied at placement time.
+**Resolution rule.** Pipes no longer store `ceiling_level` or `ceiling_offset`. Ceiling data is stored exclusively on Nodes; the template's per-node ceiling attributes (`node1_ceiling_level`, `node1_ceiling_offset`, etc.) propagate to endpoint nodes during pipe placement. For placed pipes, **the node values are authoritative** — the pipe's `node1/2_ceiling_level` and `node1/2_ceiling_offset` are template defaults that seed the endpoint nodes at creation time.
 
 ---
 
@@ -292,7 +292,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 | Detail markers | 45 | `Z_DETAIL_MARKER` | `DetailMarker` |
 | Water supply | 50 | `Z_WATER_SUPPLY` | `WaterSupply` |
 | Sprinklers | 100 | `Z_SPRINKLER` | `Sprinkler` |
-| Overlays | 200 | `Z_OVERLAY` | previews, view markers, room labels, badges |
+| Overlays | 200 | `Z_OVERLAY` | previews, view markers, room labels, badges, pipe labels |
 | Gridline bubbles | 500 | `Z_GRIDLINE_BUBBLE` | gridline/elevation bubbles |
 | Preview overlay | 999 | `Z_PREVIEW` | ephemeral array/tool UI |
 
