@@ -110,6 +110,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self._placement_phase: int = 0  # 0=before 1st click, 1=before 2nd click
 
         self.label = QGraphicsTextItem("")  # top-level; added to scene in update_label
+        self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+        self.label.setAcceptHoverEvents(False)
 
         self.set_pipe_display()
         
@@ -158,6 +160,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         if not hasattr(self, "label") or self.label is None:
             self.label = QGraphicsTextItem("")
             self.label.setDefaultTextColor(Qt.GlobalColor.black)
+            self.label.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.label.setAcceptHoverEvents(False)
 
         # Ensure label is added to the same scene as the pipe
         sc = self.scene()
