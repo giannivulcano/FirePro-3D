@@ -70,3 +70,65 @@ class TestFittingStackingVisibility:
         bot.fitting.update()
         assert top.fitting.symbol.isVisible() is False
         assert bot.fitting.symbol.isVisible() is False
+
+
+# ── Pipe ceiling attr removal ──────────────────────────────────────────────
+
+
+class TestPipeCeilingRemoval:
+
+    def test_pipe_has_no_ceiling_level_attr(self, qapp, scene):
+        """Pipe should not have ceiling_level as an instance attribute."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        assert not hasattr(p, "ceiling_level")
+
+    def test_pipe_has_no_ceiling_offset_attr(self, qapp, scene):
+        """Pipe should not have ceiling_offset as an instance attribute."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        assert not hasattr(p, "ceiling_offset")
+
+    def test_pipe_properties_no_ceiling_keys(self, qapp, scene):
+        """_properties dict should not contain Ceiling Level or Ceiling Offset."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        assert "Ceiling Level" not in p._properties
+        assert "Ceiling Offset" not in p._properties
+
+    def test_get_properties_shows_readonly_ceiling_from_nodes(self, qapp, scene):
+        """get_properties() derives ceiling info read-only from endpoint nodes."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        n1.ceiling_level = "Level 2"
+        n1.ceiling_offset = -100.0
+        n2.ceiling_level = "Level 2"
+        n2.ceiling_offset = -100.0
+        p = _make_pipe(scene, n1, n2)
+        props = p.get_properties()
+        assert props["Ceiling Level"]["readonly"] is True
+        assert props["Ceiling Level"]["value"] == "Level 2"
+        assert props["Ceiling Offset"]["readonly"] is True
+
+    def test_get_properties_ceiling_shows_both_when_different(self, qapp, scene):
+        """When nodes have different ceilings, show both values."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        n1.ceiling_level = "Level 1"
+        n2.ceiling_level = "Level 2"
+        p = _make_pipe(scene, n1, n2)
+        props = p.get_properties()
+        assert "Level 1" in props["Ceiling Level"]["value"]
+        assert "Level 2" in props["Ceiling Level"]["value"]
+
+    def test_set_property_ceiling_offset_is_noop(self, qapp, scene):
+        """Setting Ceiling Offset on a pipe should be a no-op (read-only)."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        n1.ceiling_offset = -50.8
+        p = _make_pipe(scene, n1, n2)
+        p.set_property("Ceiling Offset", "-100.0")
+        assert n1.ceiling_offset == -50.8  # unchanged
