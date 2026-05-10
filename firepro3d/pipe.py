@@ -106,11 +106,11 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
         self._display_scale: float = 1.0
 
-        # Per-node elevation for template placement
-        self.node1_ceiling_level: str = DEFAULT_LEVEL
-        self.node1_ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
-        self.node2_ceiling_level: str = DEFAULT_LEVEL
-        self.node2_ceiling_offset: float = DEFAULT_CEILING_OFFSET_MM
+        # Per-node elevation for template placement (None = use pipe-level ceiling)
+        self.node1_ceiling_level: str | None = None
+        self.node1_ceiling_offset: float | None = None
+        self.node2_ceiling_level: str | None = None
+        self.node2_ceiling_offset: float | None = None
         self._placement_phase: int = 0  # 0=before 1st click, 1=before 2nd click
 
         self.label = QGraphicsTextItem("", self)  # Child of pipe
