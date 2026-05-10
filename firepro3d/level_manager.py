@@ -381,6 +381,11 @@ class LevelManager:
             except RuntimeError:
                 return
 
+            # Respect user-hidden items — do not re-show
+            if getattr(item, "_display_overrides", {}).get("visible") is False:
+                item.setVisible(False)
+                return
+
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
