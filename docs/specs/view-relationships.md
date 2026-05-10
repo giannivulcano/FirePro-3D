@@ -231,6 +231,8 @@ A plan or section view instance is parameterized by a **Z slab** `[z_bottom, z_t
 
 The implementation of intersection + cut today lives in `level_manager.py:33-50` (`_apply_z_filter`).
 
+**Display override suppression:** When `_display_overrides["visible"]` is `False` on any item, `_set_level_vis()` returns early — the item remains hidden regardless of level or view-range logic. Hidden items are not selectable and skip Z-ordering.
+
 ### 7.2 Room Z formula and the "ceiling vs floor" follow-up
 
 `Room.z_range_mm()` (`room.py:124-144`) currently returns:
@@ -292,7 +294,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 | Detail markers | 45 | `Z_DETAIL_MARKER` | `DetailMarker` |
 | Water supply | 50 | `Z_WATER_SUPPLY` | `WaterSupply` |
 | Sprinklers | 100 | `Z_SPRINKLER` | `Sprinkler` |
-| Overlays | 200 | `Z_OVERLAY` | previews, view markers, room labels, badges, pipe labels |
+| Overlays | 200 | `Z_OVERLAY` | previews, view markers, room labels, badges, pipe labels, riser symbols, fitting symbols |
 | Gridline bubbles | 500 | `Z_GRIDLINE_BUBBLE` | gridline/elevation bubbles |
 | Preview overlay | 999 | `Z_PREVIEW` | ephemeral array/tool UI |
 
