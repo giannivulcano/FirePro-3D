@@ -305,6 +305,7 @@ Fitting symbol is hidden when:
 2. Two nodes overlap in XY (vertical pipe): only the highest-Z **visible** node shows its fitting. Hidden nodes (e.g. outside view range) are skipped -- the next-highest visible node shows its fitting instead.
    - Tie-break 1: higher `ceiling_offset` wins
    - Tie-break 2: higher `id()` wins
+- **Display override:** `fitting._display_overrides["visible"] == False` forces the fitting symbol hidden regardless of other visibility rules. Set via model browser Hide/Show context menu.
 
 ### 6.4 Symbol Alignment
 
@@ -448,6 +449,8 @@ Performance-motivated typed index (`firepro3d/sprinkler_system.py`, 49 LOC). Avo
 | `supply_node` | WaterSupply \| None | Set when water supply is placed/removed |
 
 **Design invariant:** The `fittings` list is intentionally unused. Fittings are always accessed through their owning Node. The list exists for potential future use but carries no maintenance burden.
+
+Fittings are listed in the model browser under a "Fittings (N)" group with individual hide/show support.
 
 ### 9.3 Consumers
 
