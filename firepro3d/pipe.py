@@ -114,15 +114,27 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         self.label.setAcceptHoverEvents(False)
 
         self.set_pipe_display()
-        
+
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setZValue(Z_PIPE)
-        
+
         # track node movement
         if node1 and node2:
             self.node1.pipes.append(self)
             self.node2.pipes.append(self)
             self.update_geometry()
+
+    def setVisible(self, visible: bool):
+        """Override to cascade visibility to the top-level label."""
+        super().setVisible(visible)
+        if hasattr(self, "label") and self.label is not None:
+            if not visible:
+                self.label.setVisible(False)
+            else:
+                # Re-evaluate: only show if Show Label is on and pipe isn't vertical
+                show = (self._properties["Show Label"]["value"] == "True"
+                        and not self._is_vertical())
+                self.label.setVisible(show)
 
     def set_pipe_display(self):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
@@ -327,48 +339,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             return sc
         return getattr(self, "_scene_ref", None)
 
-    def _ceiling_elevation_str(self, ceiling_level: str) -> str:
-        """Return the effective ceiling elevation (level minus slab thickness)."""
-        sc = self._get_scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return ""
-        lvl = lm.get(ceiling_level)
-        if lvl is None:
-            return ""
-        # Find thickest floor slab on the ceiling level
-        slab_thickness = 0.0
-        for slab in getattr(sc, "_floor_slabs", []):
-            if getattr(slab, "level", None) == ceiling_level:
-                slab_thickness = max(slab_thickness, slab._thickness_mm)
-        elev = lvl.elevation - slab_thickness
-        return f"({self._fmt(elev)})"
-
     def get_properties(self):
         props = self._properties.copy()
-        # Ceiling info derived read-only from endpoint nodes
-        if self.node1 is not None and self.node2 is not None:
-            cl1 = getattr(self.node1, "ceiling_level", DEFAULT_LEVEL)
-            cl2 = getattr(self.node2, "ceiling_level", DEFAULT_LEVEL)
-            co1 = getattr(self.node1, "ceiling_offset", -50.8)
-            co2 = getattr(self.node2, "ceiling_offset", -50.8)
-            if cl1 == cl2:
-                ceil_lvl_val = cl1
-            else:
-                ceil_lvl_val = f"{cl1} / {cl2}"
-            ceil_str = self._ceiling_elevation_str(cl1)
-            props["Ceiling Level"] = {
-                "type": "label", "value": ceil_lvl_val, "readonly": True,
-            }
-            if ceil_str:
-                props["Ceiling Level"]["suffix"] = ceil_str
-            if co1 == co2:
-                ceil_off_val = self._fmt(co1)
-            else:
-                ceil_off_val = f"{self._fmt(co1)} / {self._fmt(co2)}"
-            props["Ceiling Offset"] = {
-                "type": "label", "value": ceil_off_val, "readonly": True,
-            }
         # Show diameter with Ø prefix; metric nominal sizes when metric display
         props["Diameter"] = dict(props["Diameter"])
         int_val = props["Diameter"]["value"]

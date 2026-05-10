@@ -100,30 +100,14 @@ class TestPipeCeilingRemoval:
         assert "Ceiling Level" not in p._properties
         assert "Ceiling Offset" not in p._properties
 
-    def test_get_properties_shows_readonly_ceiling_from_nodes(self, qapp, scene):
-        """get_properties() derives ceiling info read-only from endpoint nodes."""
+    def test_get_properties_no_ceiling_in_output(self, qapp, scene):
+        """get_properties() should not include Ceiling Level or Ceiling Offset."""
         n1 = _make_node(scene, 0, 0)
         n2 = _make_node(scene, 1000, 0)
-        n1.ceiling_level = "Level 2"
-        n1.ceiling_offset = -100.0
-        n2.ceiling_level = "Level 2"
-        n2.ceiling_offset = -100.0
         p = _make_pipe(scene, n1, n2)
         props = p.get_properties()
-        assert props["Ceiling Level"]["readonly"] is True
-        assert props["Ceiling Level"]["value"] == "Level 2"
-        assert props["Ceiling Offset"]["readonly"] is True
-
-    def test_get_properties_ceiling_shows_both_when_different(self, qapp, scene):
-        """When nodes have different ceilings, show both values."""
-        n1 = _make_node(scene, 0, 0)
-        n2 = _make_node(scene, 1000, 0)
-        n1.ceiling_level = "Level 1"
-        n2.ceiling_level = "Level 2"
-        p = _make_pipe(scene, n1, n2)
-        props = p.get_properties()
-        assert "Level 1" in props["Ceiling Level"]["value"]
-        assert "Level 2" in props["Ceiling Level"]["value"]
+        assert "Ceiling Level" not in props
+        assert "Ceiling Offset" not in props
 
     def test_set_property_ceiling_offset_is_noop(self, qapp, scene):
         """Setting Ceiling Offset on a pipe should be a no-op (read-only)."""
@@ -158,14 +142,25 @@ class TestPipeLabelZOrdering:
         assert p.label.zValue() == Z_OVERLAY
 
     def test_label_hidden_when_pipe_hidden(self, qapp, scene):
-        """When pipe is hidden, label should also be hidden."""
+        """setVisible(False) on pipe cascades to label without update_label."""
+        n1 = _make_node(scene, 0, 0)
+        n2 = _make_node(scene, 1000, 0)
+        p = _make_pipe(scene, n1, n2)
+        p.update_label()
+        assert p.label.isVisible() is True
+        p.setVisible(False)  # no update_label needed — setVisible cascades
+        assert p.label.isVisible() is False
+
+    def test_label_reshown_when_pipe_reshown(self, qapp, scene):
+        """setVisible(True) on pipe re-shows label if Show Label is on."""
         n1 = _make_node(scene, 0, 0)
         n2 = _make_node(scene, 1000, 0)
         p = _make_pipe(scene, n1, n2)
         p.update_label()
         p.setVisible(False)
-        p.update_label()
         assert p.label.isVisible() is False
+        p.setVisible(True)
+        assert p.label.isVisible() is True
 
     def test_label_removed_on_pipe_delete(self, qapp):
         """When pipe is deleted, label should be removed from scene."""
