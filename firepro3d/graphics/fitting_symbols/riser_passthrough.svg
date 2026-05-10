@@ -1,16 +1,115 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<svg width="20mm" height="20mm" viewBox="0 0 20 20" version="1.1"
-     xmlns="http://www.w3.org/2000/svg">
-  <g>
-    <!-- Outer circle -->
-    <circle cx="10" cy="10" r="9" fill="none" stroke="#ffffff" stroke-width="1.5"/>
-    <!-- Left half filled (semicircle) -->
-    <path d="M 10,1 A 9,9 0 0 0 10,19" fill="#ffffff" stroke="none"/>
-    <!-- S-curve divider -->
-    <path d="M 10,1 C 10,5.5 14.5,7 14.5,10 C 14.5,13 10,14.5 10,19"
-          fill="none" stroke="#ffffff" stroke-width="1"/>
-    <!-- Yin-yang dots -->
-    <circle cx="10" cy="5.5" r="1.2" fill="#ffffff" stroke="none"/>
-    <circle cx="10" cy="14.5" r="1.2" fill="none" stroke="#ffffff" stroke-width="0.8"/>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="20mm"
+   height="20mm"
+   viewBox="0 0 20 20"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.3 (0d15f75, 2025-12-25)"
+   sodipodi:docname="riser_passthrough.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#505050"
+     bordercolor="#eeeeee"
+     borderopacity="1"
+     inkscape:showpageshadow="0"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#505050"
+     inkscape:document-units="mm"
+     showguides="true"
+     inkscape:zoom="1.4378367"
+     inkscape:cx="-237.16184"
+     inkscape:cy="-15.648509"
+     inkscape:window-width="1920"
+     inkscape:window-height="1009"
+     inkscape:window-x="1912"
+     inkscape:window-y="-2"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1">
+    <sodipodi:guide
+       position="190.6394,300.68031"
+       orientation="0,-1"
+       id="guide2"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="0,297"
+       orientation="0,793.70079"
+       id="guide1"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="210,297"
+       orientation="1122.5197,0"
+       id="guide3"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="210,0"
+       orientation="0,-793.70079"
+       id="guide4"
+       inkscape:locked="false" />
+    <sodipodi:guide
+       position="0,0"
+       orientation="-1122.5197,0"
+       id="guide5"
+       inkscape:locked="false" />
+  </sodipodi:namedview>
+  <defs
+     id="defs1">
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect3"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,0,0,1 @ F,0,0,1,0,4.6270438,0,1 @ F,0,0,1,0,0,0,1"
+       radius="0"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
+    <inkscape:path-effect
+       effect="fillet_chamfer"
+       id="path-effect10"
+       is_visible="true"
+       lpeversion="1"
+       nodesatellites_param="F,0,0,1,0,0,0,1 @ F,0,0,1,0,4.6270438,0,1 @ F,0,0,1,0,0,0,1"
+       radius="0"
+       unit="px"
+       method="auto"
+       mode="F"
+       chamfer_steps="1"
+       flexible="false"
+       use_knot_distance="true"
+       apply_no_radius="true"
+       apply_with_radius="true"
+       only_selected="false"
+       hide_knots="false" />
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <circle
+       style="fill:none;stroke:#ffffff;stroke-width:1.429;stroke-dasharray:none;stroke-opacity:1"
+       id="path1"
+       cx="10.000001"
+       cy="10.000001"
+       r="9.2852659" />
+    <path
+       style="fill:none;fill-opacity:1;stroke:#ffffff;stroke-width:1.5;stroke-dasharray:none;stroke-opacity:1"
+       d="m 10,1 c -0.00678,0.054255 -5.0356192,5.3732865 0,9 4.766864,3.433153 0,9 0,9"
+       id="path3"
+       sodipodi:nodetypes="csc" />
   </g>
 </svg>

@@ -351,9 +351,21 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         Pipes use a non-cosmetic scene-unit pen whose width shrinks when the scale
         manager converts mm → scene units.  Without this override, a thin calibrated
         pipe can become nearly impossible to click.
+
+        Vertical pipes (zero 2D length) get a circular hit area at their XY
+        position so they remain clickable for split_pipe operations.
         """
         ln = self.line()
         path = QPainterPath()
+
+        # Vertical pipes: zero-length line produces degenerate stroke.
+        # Use a circular hit area matching the riser symbol size.
+        if ln.length() < 1.0:
+            center = ln.p1()
+            r = self._RISER_SIZE_MM / 2
+            path.addEllipse(center, r, r)
+            return path
+
         path.moveTo(ln.p1())
         path.lineTo(ln.p2())
         stroker = QPainterPathStroker()
