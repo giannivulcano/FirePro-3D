@@ -390,7 +390,7 @@ class TestPipeSerialization:
         pipe = Pipe(n1, n2)
         expected_keys = {
             "Diameter", "Schedule", "C-Factor", "Material",
-            "Ceiling Level", "Ceiling Offset", "Line Type",
+            "Line Type",
             "Colour", "Phase", "Show Label", "Label Size",
         }
         actual = {k for k in pipe._properties if not k.startswith("──")}
