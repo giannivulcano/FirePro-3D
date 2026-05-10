@@ -146,9 +146,8 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
             if not visible:
                 self._riser_symbol.setVisible(False)
             elif self._is_vertical():
-                n1_vis = self.node1.isVisible() if self.node1 else False
-                n2_vis = self.node2.isVisible() if self.node2 else False
-                self._riser_symbol.setVisible(not n1_vis and not n2_vis)
+                # Delegate to _update_riser_symbol for consistent logic
+                self._update_riser_symbol()
 
     def set_pipe_display(self):
         colour = QColor(self._display_color or self._properties["Colour"]["value"])
@@ -213,13 +212,24 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         half = self._RISER_SIZE_MM / 2
         self._riser_symbol.setPos(pos.x() - half, pos.y() - half)
 
-        # Visibility: only show when NEITHER endpoint node is visible
+        # Visibility: show unless a visible endpoint has horizontal pipes
+        # (horizontal pipes produce a fitting symbol that already indicates
+        # the riser).  If the visible node only has vertical pipes, the
+        # riser symbol is the only visual cue — keep it visible.
         if not self.isVisible():
             self._riser_symbol.setVisible(False)
-        elif self.node1.isVisible() or self.node2.isVisible():
-            self._riser_symbol.setVisible(False)
         else:
-            self._riser_symbol.setVisible(True)
+            show = True
+            for nd in (self.node1, self.node2):
+                if nd.isVisible():
+                    has_horiz = any(
+                        not p._is_vertical()
+                        for p in nd.pipes if p is not self
+                    )
+                    if has_horiz:
+                        show = False
+                        break
+            self._riser_symbol.setVisible(show)
 
     def update_label(self, visible=None):
         if not self.node1 or not self.node2:

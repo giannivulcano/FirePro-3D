@@ -128,11 +128,23 @@ class TestRiserPassthroughIndicator:
         p.update_label()
         assert p._riser_symbol is None or not p._riser_symbol.isVisible()
 
-    def test_riser_symbol_hidden_when_endpoint_visible(self, qapp, scene):
-        """Riser symbol hidden when either endpoint node is visible."""
+    def test_riser_symbol_shown_when_endpoint_has_no_horiz_pipes(self, qapp, scene):
+        """Riser symbol shown when visible endpoint has only vertical pipes."""
         top = _make_node(scene, 0, 0, z=3000)
         bot = _make_node(scene, 0, 0, z=0)
         p = _make_pipe(scene, top, bot)
+        p.update_label()
+        # Both nodes visible but neither has horizontal pipes — symbol shows
+        assert p._riser_symbol.isVisible() is True
+
+    def test_riser_symbol_hidden_when_endpoint_has_horiz_pipe(self, qapp, scene):
+        """Riser symbol hidden when a visible endpoint has horizontal pipes
+        (fitting already indicates the riser)."""
+        top = _make_node(scene, 0, 0, z=3000)
+        bot = _make_node(scene, 0, 0, z=0)
+        east = _make_node(scene, 1000, 0, z=0)
+        p = _make_pipe(scene, top, bot)  # riser
+        _make_pipe(scene, bot, east)      # horizontal on bot
         p.update_label()
         assert p._riser_symbol.isVisible() is False
 
