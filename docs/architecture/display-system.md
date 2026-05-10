@@ -153,3 +153,7 @@ Changes apply live to the canvas. Cancelling the dialog reverts all changes to t
 - **Level Manager** -- sets `_is_section_cut` flag during visibility passes
 - **Scene I/O** -- saves/loads per-instance overrides and project-level category settings
 - **3D View** -- reads display colours for mesh materials
+
+## Fitting visibility
+
+Fitting objects (not QGraphicsItem subclasses) store `_display_overrides` supporting per-instance hide/show via the model browser. `fitting.update()` checks `_display_overrides["visible"]` before setting symbol visibility. `_hide_items()` and `_show_items()` have special Fitting branches since Fitting is not a QGraphicsItem.
