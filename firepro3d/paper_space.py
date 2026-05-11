@@ -259,6 +259,73 @@ class Sheet:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ViewResolver — bridges source view managers to (scene, source_rect) pairs
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ViewResolver:
+    """Resolves source view type + name to (QGraphicsScene, QRectF).
+
+    Single bridge object decoupling SheetViewport from individual view managers.
+    """
+
+    def __init__(self, model_scene, plan_view_manager,
+                 detail_manager, elevation_manager):
+        self._scene = model_scene
+        self._pvm = plan_view_manager
+        self._dm = detail_manager
+        self._em = elevation_manager
+
+    def resolve(self, view_type: str, view_name: str
+                ) -> "tuple[QGraphicsScene, QRectF] | None":
+        """Return (source_scene, source_rect) or None if not found."""
+        if view_type == "plan":
+            return self._resolve_plan(view_name)
+        if view_type == "detail":
+            return self._resolve_detail(view_name)
+        if view_type == "elevation":
+            return self._resolve_elevation(view_name)
+        return None
+
+    def _resolve_plan(self, name: str):
+        pv = self._pvm.get(name) if hasattr(self._pvm, 'get') else self._pvm._views.get(name)
+        if pv is None:
+            return None
+        rect = self._scene.itemsBoundingRect()
+        if rect.isNull() or rect.isEmpty():
+            rect = QRectF(0, 0, 1000, 1000)
+        return (self._scene, rect)
+
+    def _resolve_detail(self, name: str):
+        marker = self._dm.get_marker(name)
+        if marker is None:
+            return None
+        return (self._scene, marker.crop_rect)
+
+    def _resolve_elevation(self, name: str):
+        direction = name.lower()
+        scene = self._em.get_scene(direction)
+        if scene is None:
+            return None
+        rect = scene.itemsBoundingRect()
+        if rect.isNull() or rect.isEmpty():
+            rect = QRectF(0, 0, 1000, 1000)
+        return (scene, rect)
+
+    def available_views(self) -> dict[str, list[str]]:
+        """Return available views grouped by type."""
+        result: dict[str, list[str]] = {}
+        plan_names = list(self._pvm._views.keys())
+        if plan_names:
+            result["Floor Plans"] = plan_names
+        detail_names = self._dm.detail_names
+        if detail_names:
+            result["Details"] = detail_names
+        directions = ["North", "South", "East", "West"]
+        result["Elevations"] = directions
+        return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF-based title block background
 # ─────────────────────────────────────────────────────────────────────────────
 

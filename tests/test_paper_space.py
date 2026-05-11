@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QGraphicsScene
 from PyQt6.QtCore import QRectF, Qt
 
@@ -433,3 +434,81 @@ class TestSheet:
         assert sheet.paper_size == "ANSI D"
         assert "Company" in sheet.title_block_fields
         assert sheet.sheet_views == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ViewResolver
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestViewResolver:
+    def _make_resolver(self, qapp):
+        from firepro3d.paper_space import ViewResolver
+        model_scene = QGraphicsScene()
+        model_scene.addRect(0, 0, 10000, 8000)
+
+        plan_mgr = MagicMock()
+        plan_view = MagicMock()
+        plan_view.view_height = 3000.0
+        plan_view.view_depth = 0.0
+        plan_mgr._views = {"Plan: Level 1": plan_view}
+        plan_mgr.get.return_value = plan_view
+
+        detail_mgr = MagicMock()
+        detail_mgr.detail_names = ["Detail 1"]
+        marker = MagicMock()
+        marker.crop_rect = QRectF(100, 100, 2000, 1500)
+        detail_mgr.get_marker.return_value = marker
+
+        elev_mgr = MagicMock()
+        elev_scene = QGraphicsScene()
+        elev_scene.addRect(0, 0, 5000, 3000)
+        elev_mgr.get_scene.return_value = elev_scene
+        elev_mgr.open_directions = ["north", "east"]
+
+        return ViewResolver(model_scene, plan_mgr, detail_mgr, elev_mgr)
+
+    def test_available_views(self, qapp):
+        resolver = self._make_resolver(qapp)
+        views = resolver.available_views()
+        assert "Floor Plans" in views
+        assert "Plan: Level 1" in views["Floor Plans"]
+        assert "Details" in views
+        assert "Detail 1" in views["Details"]
+        assert "Elevations" in views
+
+    def test_resolve_plan(self, qapp):
+        resolver = self._make_resolver(qapp)
+        result = resolver.resolve("plan", "Plan: Level 1")
+        assert result is not None
+        scene, rect = result
+        assert scene is not None
+        assert not rect.isEmpty()
+
+    def test_resolve_detail(self, qapp):
+        resolver = self._make_resolver(qapp)
+        result = resolver.resolve("detail", "Detail 1")
+        assert result is not None
+        scene, rect = result
+        assert rect == QRectF(100, 100, 2000, 1500)
+
+    def test_resolve_elevation(self, qapp):
+        resolver = self._make_resolver(qapp)
+        result = resolver.resolve("elevation", "North")
+        assert result is not None
+
+    def test_resolve_missing_returns_none(self, qapp):
+        from firepro3d.paper_space import ViewResolver
+        model_scene = QGraphicsScene()
+        plan_mgr = MagicMock()
+        plan_mgr._views = {}
+        plan_mgr.get.return_value = None
+        detail_mgr = MagicMock()
+        detail_mgr.detail_names = []
+        detail_mgr.get_marker.return_value = None
+        elev_mgr = MagicMock()
+        elev_mgr.get_scene.return_value = None
+        resolver = ViewResolver(model_scene, plan_mgr, detail_mgr, elev_mgr)
+        assert resolver.resolve("plan", "Nonexistent") is None
+        assert resolver.resolve("detail", "Nonexistent") is None
+        assert resolver.resolve("elevation", "Nonexistent") is None
+        assert resolver.resolve("unknown_type", "Foo") is None
