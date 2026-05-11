@@ -350,7 +350,6 @@ class SheetViewport(QGraphicsObject):
         self._data = data
         self._resolver = resolver
         self._dirty = True
-        self._cache: QPixmap | None = None
         self._placeholder = False
         self._resizing = False
         self._resize_handle: int = -1
@@ -390,8 +389,6 @@ class SheetViewport(QGraphicsObject):
         self.mark_dirty()
 
     def mark_dirty(self):
-        self._dirty = True
-        self._cache = None
         self.update()
 
     def sync_data_from_item(self):
@@ -416,43 +413,31 @@ class SheetViewport(QGraphicsObject):
             painter.drawText(vp_rect, Qt.AlignmentFlag.AlignCenter,
                              f"View not found:\n{self._data.source_view_name}")
             return
-        if self._dirty or self._cache is None:
-            self._render_to_cache()
-        if self._cache and not self._cache.isNull():
-            painter.drawPixmap(vp_rect.toRect(), self._cache)
-        else:
-            painter.fillRect(vp_rect, Qt.GlobalColor.white)
+
+        # White background
+        painter.fillRect(vp_rect, Qt.GlobalColor.white)
+
+        # Clip to viewport bounds
+        painter.setClipRect(vp_rect)
+
+        # Render source scene directly (vector output)
+        if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
+            self._source_scene.render(painter, vp_rect, self._source_rect)
+
+        # Release clip
+        painter.setClipping(False)
+
+        # Border
         painter.setBrush(Qt.BrushStyle.NoBrush)
         if self.isSelected():
             painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
         else:
             painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
         painter.drawRect(vp_rect)
+
+        # Resize grips when selected
         if self.isSelected():
             self._draw_grips(painter)
-
-    def _render_to_cache(self):
-        if self._source_scene is None:
-            self._cache = None
-            self._dirty = False
-            return
-        w, h = self._data.w, self._data.h
-        dpr = 2
-        px_w, px_h = int(w * dpr), int(h * dpr)
-        if px_w <= 0 or px_h <= 0:
-            self._cache = None
-            self._dirty = False
-            return
-        pixmap = QPixmap(px_w, px_h)
-        pixmap.setDevicePixelRatio(dpr)
-        pixmap.fill(Qt.GlobalColor.white)
-        p = QPainter(pixmap)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        target = QRectF(0, 0, w, h)
-        self._source_scene.render(p, target, self._source_rect)
-        p.end()
-        self._cache = pixmap
-        self._dirty = False
 
     def _grip_rects(self) -> list[QRectF]:
         w, h = self._data.w, self._data.h
@@ -901,11 +886,8 @@ class TitleBlockDxfItem(QGraphicsItem):
         return QRectF(0, 0, self._paper_w, self._paper_h)
 
     def paint(self, painter: QPainter, option, widget=None):
-        pen = QPen(Qt.GlobalColor.black, 0)        # cosmetic (hairline)
-        pen.setCosmetic(False)
-        pen.setWidthF(0.25)                         # 0.25 mm line weight
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(Qt.GlobalColor.black))
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for path in self._paths:
             painter.drawPath(path)
@@ -1234,15 +1216,16 @@ class PaperScene(QGraphicsScene):
                     self._title_tb = tb_pdf
                     use_external_title = True
 
-        # Drawing border
+        # Drawing border (skip when external DXF/PDF artwork provides its own)
         bx, by = MARGIN, MARGIN
         bw, bh = w - 2 * MARGIN, h - 2 * MARGIN
-        border = self.addRect(
-            bx, by, bw, bh,
-            QPen(Qt.GlobalColor.black, 0.5),
-            QBrush(Qt.BrushStyle.NoBrush),
-        )
-        border.setZValue(2)
+        if not use_external_title:
+            border = self.addRect(
+                bx, by, bw, bh,
+                QPen(Qt.GlobalColor.black, 0.5),
+                QBrush(Qt.BrushStyle.NoBrush),
+            )
+            border.setZValue(2)
 
         # Programmatic title block (fallback)
         self._title = TitleBlockItem(w, h)
@@ -1251,11 +1234,8 @@ class PaperScene(QGraphicsScene):
         if use_external_title:
             self._title.hide()
 
-        # Field overlay for DXF/PDF title blocks
-        if use_external_title:
-            self._field_overlay = TitleBlockFieldOverlay(
-                w, h, self._sheet.title_block_fields)
-            self.addItem(self._field_overlay)
+        # Field overlay removed — DXF artwork already contains placeholder text
+        # as geometry; the programmatic overlay produced misaligned duplicates.
 
         self.setSceneRect(-20, -20, w + 40, h + 40)
 

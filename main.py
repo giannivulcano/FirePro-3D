@@ -401,8 +401,12 @@ class MainWindow(QMainWindow):
         self.prop_dock.setMinimumWidth(200)
 
         # Keyboard shortcuts to toggle dock visibility (B = browser, P = properties)
-        self.browser_dock.toggleViewAction().setShortcut(QKeySequence("B"))
-        self.prop_dock.toggleViewAction().setShortcut(QKeySequence("P"))
+        QShortcut(QKeySequence("B"), self,
+                  lambda: self.browser_dock.setVisible(not self.browser_dock.isVisible()),
+                  context=Qt.ShortcutContext.ApplicationShortcut)
+        QShortcut(QKeySequence("P"), self,
+                  lambda: self.prop_dock.setVisible(not self.prop_dock.isVisible()),
+                  context=Qt.ShortcutContext.ApplicationShortcut)
 
         # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
         self.hydro_report = HydraulicReportWidget()

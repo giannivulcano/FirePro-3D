@@ -516,15 +516,13 @@ class TestSheetViewport:
         assert flags & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         assert flags & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
 
-    def test_dirty_flag_initial(self, qapp):
+    def test_mark_dirty_calls_update(self, qapp):
+        """mark_dirty() triggers a repaint via update()."""
+        from unittest.mock import patch
         vp, _, _, _ = self._make_viewport(qapp)
-        assert vp._dirty is True
-
-    def test_mark_dirty(self, qapp):
-        vp, _, _, _ = self._make_viewport(qapp)
-        vp._dirty = False
-        vp.mark_dirty()
-        assert vp._dirty is True
+        with patch.object(vp, "update") as mock_update:
+            vp.mark_dirty()
+            mock_update.assert_called_once()
 
     def test_update_data_from_position(self, qapp):
         vp, data, _, _ = self._make_viewport(qapp)
@@ -541,12 +539,14 @@ class TestSheetViewport:
         vp = SheetViewport(data, resolver)
         assert vp._placeholder is True
 
-    def test_dirty_flag_on_source_change(self, qapp):
+    def test_source_change_triggers_update(self, qapp):
+        """Source scene change triggers mark_dirty -> update()."""
+        from unittest.mock import patch
         vp, _, _, model_scene = self._make_viewport(qapp)
-        vp._dirty = False
-        model_scene.addRect(500, 500, 100, 100)
-        qapp.processEvents()
-        assert vp._dirty is True
+        with patch.object(vp, "update") as mock_update:
+            model_scene.addRect(500, 500, 100, 100)
+            qapp.processEvents()
+            assert mock_update.call_count >= 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────
