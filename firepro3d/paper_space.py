@@ -1167,30 +1167,33 @@ class PaperViewport(QGraphicsRectItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PaperScene(QGraphicsScene):
-    """
-    QGraphicsScene representing one paper layout.
+    """QGraphicsScene representing one paper layout.
 
     Coordinate system: 1 scene unit = 1 mm.
-    The paper sits at (0, 0) with width × height in mm.
     """
 
-    def __init__(self, model_scene, paper_size: str = "ANSI D"):
+    navigate_to_view = pyqtSignal(str, str)
+
+    def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()
-        self._model_scene  = model_scene
-        self._paper_size   = paper_size
-        self._bg_item      = None
-        self._border_item  = None
-        self._title        = None
-        self._title_tb     = None   # DXF or PDF title block item
-        self._viewport     = None
+        self._sheet = sheet
+        self._resolver = resolver
+        self._bg_item = None
+        self._border_item = None
+        self._title = None
+        self._title_tb = None
+        self._field_overlay = None
+        self._viewports: list[SheetViewport] = []
         self._setup()
 
     def _setup(self):
         """Build/rebuild all paper scene items."""
         self.clear()
         self._title_tb = None
+        self._field_overlay = None
+        self._viewports = []
 
-        w, h = PAPER_SIZES[self._paper_size]
+        w, h = PAPER_SIZES[self._sheet.paper_size]
 
         # White paper background
         self._bg_item = self.addRect(
@@ -1203,8 +1206,7 @@ class PaperScene(QGraphicsScene):
         # Title block: try DXF (vector) → PDF (raster) → programmatic
         use_external_title = False
 
-        # 1) DXF title block (preferred — crisp vector at any zoom)
-        dxf_path = TITLE_BLOCK_DXFS.get(self._paper_size)
+        dxf_path = TITLE_BLOCK_DXFS.get(self._sheet.paper_size)
         if dxf_path and os.path.isfile(dxf_path):
             tb_dxf = TitleBlockDxfItem(dxf_path, w, h)
             if tb_dxf.is_valid():
@@ -1212,9 +1214,8 @@ class PaperScene(QGraphicsScene):
                 self._title_tb = tb_dxf
                 use_external_title = True
 
-        # 2) PDF title block (fallback — rasterized)
         if not use_external_title:
-            pdf_path = TITLE_BLOCK_PDFS.get(self._paper_size)
+            pdf_path = TITLE_BLOCK_PDFS.get(self._sheet.paper_size)
             if pdf_path:
                 tb_pdf = TitleBlockPdfItem(pdf_path, w, h)
                 if tb_pdf.pixmap() is not None and not tb_pdf.pixmap().isNull():
@@ -1222,9 +1223,9 @@ class PaperScene(QGraphicsScene):
                     self._title_tb = tb_pdf
                     use_external_title = True
 
-        # Drawing border (inner margin) — always shown
-        bx = MARGIN; by = MARGIN
-        bw = w - 2 * MARGIN; bh = h - 2 * MARGIN
+        # Drawing border
+        bx, by = MARGIN, MARGIN
+        bw, bh = w - 2 * MARGIN, h - 2 * MARGIN
         border = self.addRect(
             bx, by, bw, bh,
             QPen(Qt.GlobalColor.black, 0.5),
@@ -1232,43 +1233,118 @@ class PaperScene(QGraphicsScene):
         )
         border.setZValue(2)
 
-        # Programmatic title block — shown only when no DXF/PDF loaded
+        # Programmatic title block (fallback)
         self._title = TitleBlockItem(w, h)
+        self._title.fields = self._sheet.title_block_fields
         self.addItem(self._title)
         if use_external_title:
-            self._title.hide()   # DXF/PDF title block takes precedence
+            self._title.hide()
 
-        # Viewport — fills the area above the title block (inside border)
-        vp_x = bx + INNER_MARGIN
-        vp_y = by + INNER_MARGIN
-        vp_w = bw - 2 * INNER_MARGIN
-        vp_h = bh - 2 * INNER_MARGIN - TITLE_H - 2
-        self._viewport = PaperViewport(self._model_scene,
-                                       vp_x, vp_y, vp_w, vp_h)
-        self.addItem(self._viewport)
+        # Field overlay for DXF/PDF title blocks
+        if use_external_title:
+            self._field_overlay = TitleBlockFieldOverlay(
+                w, h, self._sheet.title_block_fields)
+            self.addItem(self._field_overlay)
 
         self.setSceneRect(-20, -20, w + 40, h + 40)
 
-    # ── Public API ──────────────────────────────────────────────────────────
+        # Rebuild viewports from sheet data
+        for sv_data in self._sheet.sheet_views:
+            self._create_viewport(sv_data)
+
+    # ── Viewport management ──────────────────────────────────────────────
+
+    def _create_viewport(self, data: SheetViewData) -> SheetViewport:
+        vp = SheetViewport(data, self._resolver)
+        vp.navigate_requested.connect(self._on_navigate)
+        vp.delete_requested.connect(self._on_delete_viewport)
+        vp.properties_requested.connect(self._on_viewport_properties)
+        self.addItem(vp)
+        self._viewports.append(vp)
+        return vp
+
+    def add_viewport(self, data: SheetViewData) -> SheetViewport:
+        self._sheet.sheet_views.append(data)
+        vp = self._create_viewport(data)
+        self._update_scale_field()
+        return vp
+
+    def remove_viewport(self, viewport: SheetViewport):
+        if viewport in self._viewports:
+            self._viewports.remove(viewport)
+        if viewport.data in self._sheet.sheet_views:
+            self._sheet.sheet_views.remove(viewport.data)
+        self.removeItem(viewport)
+        self._update_scale_field()
+
+    def get_viewports(self) -> list[SheetViewport]:
+        return list(self._viewports)
+
+    def update_from_sheet(self, sheet: Sheet):
+        self._sheet = sheet
+        self._setup()
+
+    def _update_scale_field(self):
+        self._sheet.title_block_fields["Scale"] = _compute_scale_field(self._sheet)
+        if self._title:
+            self._title.update()
+        if self._field_overlay:
+            self._field_overlay.update()
+
+    def _on_navigate(self, view_type: str, view_name: str):
+        self.navigate_to_view.emit(view_type, view_name)
+
+    def _on_delete_viewport(self, viewport):
+        self.remove_viewport(viewport)
+
+    def _on_viewport_properties(self, viewport):
+        dlg = SheetViewPropertiesDialog(
+            viewport.data.source_view_name, viewport.data)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            viewport.data.title = dlg.get_title()
+            new_scale = dlg.get_scale()
+            if new_scale != viewport.data.scale:
+                viewport.data.scale = new_scale
+                result = self._resolver.resolve(
+                    viewport.data.source_view_type, viewport.data.source_view_name)
+                if result:
+                    _, src_rect = result
+                    viewport.data.w = src_rect.width() * new_scale
+                    viewport.data.h = src_rect.height() * new_scale
+            pos = dlg.get_position()
+            if pos:
+                viewport.data.x, viewport.data.y = pos
+            size = dlg.get_size()
+            if size:
+                viewport.data.w, viewport.data.h = size
+            viewport.setPos(viewport.data.x, viewport.data.y)
+            viewport.mark_dirty()
+            viewport.prepareGeometryChange()
+            self._update_scale_field()
+
+    # ── Public API (preserved) ──────────────────────────────────────────
 
     @property
     def paper_size(self) -> str:
-        return self._paper_size
+        return self._sheet.paper_size
 
     @paper_size.setter
     def paper_size(self, size: str):
         if size in PAPER_SIZES:
-            self._paper_size = size
+            self._sheet.paper_size = size
             self._setup()
+
+    @property
+    def sheet(self) -> Sheet:
+        return self._sheet
 
     @property
     def title_block(self) -> TitleBlockItem:
         return self._title
 
     def refresh_viewport(self):
-        """Force the viewport to repaint (call after model changes)."""
-        if self._viewport:
-            self._viewport.update()
+        for vp in self._viewports:
+            vp.mark_dirty()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1314,15 +1390,18 @@ class PaperSpaceWidget(QWidget):
 
     Parameters
     ----------
-    model_scene : Model_Space
-        The drawing scene whose content will be rendered in the viewport.
+    sheet : Sheet
+        The sheet data model driving the paper layout.
+    resolver : ViewResolver
+        Resolves source view type + name to (scene, rect) pairs.
     """
 
-    def __init__(self, model_scene, parent=None):
+    def __init__(self, sheet: Sheet, resolver: ViewResolver, parent=None):
         super().__init__(parent)
-        self._model_scene = model_scene
+        self._sheet = sheet
+        self._resolver = resolver
 
-        self.paper_scene = PaperScene(model_scene, "ANSI D")
+        self.paper_scene = PaperScene(sheet, resolver)
 
         self._build_ui()
 

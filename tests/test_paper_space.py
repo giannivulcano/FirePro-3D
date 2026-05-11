@@ -9,6 +9,7 @@ from PyQt6.QtCore import QRectF, QPointF, Qt
 from firepro3d.paper_space import (
     PAPER_SIZES, MARGIN, INNER_MARGIN, TITLE_H,
     TitleBlockItem, PaperViewport, PaperScene, PaperSpaceWidget,
+    Sheet, ViewResolver, SheetViewData,
 )
 
 
@@ -22,6 +23,15 @@ def model_scene(qapp):
     scene = QGraphicsScene()
     scene.addRect(0, 0, 1000, 1000)
     return scene
+
+
+@pytest.fixture
+def paper_scene(qapp):
+    """PaperScene with a default Sheet and mock resolver."""
+    sheet = Sheet.create_default()
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.return_value = None  # no actual source views needed
+    return PaperScene(sheet, resolver)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,80 +179,88 @@ class TestPaperViewport:
 class TestPaperScene:
     """Tests for PaperScene setup and API."""
 
-    def test_default_paper_size(self, model_scene):
-        ps = PaperScene(model_scene)
-        assert ps.paper_size == "ANSI D"
+    def _make_scene(self, paper_size="ANSI D"):
+        """Helper: create a PaperScene with the given paper size."""
+        sheet = Sheet.create_default()
+        sheet.paper_size = paper_size
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        return PaperScene(sheet, resolver)
 
-    def test_custom_paper_size(self, model_scene):
-        ps = PaperScene(model_scene, paper_size="A4")
+    def test_default_paper_size(self, paper_scene):
+        assert paper_scene.paper_size == "ANSI D"
+
+    def test_custom_paper_size(self, qapp):
+        ps = self._make_scene("A4")
         assert ps.paper_size == "A4"
 
-    def test_paper_size_setter(self, model_scene):
-        ps = PaperScene(model_scene, paper_size="ANSI D")
-        ps.paper_size = "A3"
-        assert ps.paper_size == "A3"
+    def test_paper_size_setter(self, paper_scene):
+        paper_scene.paper_size = "A3"
+        assert paper_scene.paper_size == "A3"
 
-    def test_invalid_paper_size_ignored(self, model_scene):
-        ps = PaperScene(model_scene, paper_size="ANSI D")
-        ps.paper_size = "NONEXISTENT"
-        assert ps.paper_size == "ANSI D"
+    def test_invalid_paper_size_ignored(self, paper_scene):
+        paper_scene.paper_size = "NONEXISTENT"
+        assert paper_scene.paper_size == "ANSI D"
 
-    def test_title_block_not_none(self, model_scene):
-        ps = PaperScene(model_scene)
-        assert ps.title_block is not None
-        assert isinstance(ps.title_block, TitleBlockItem)
+    def test_title_block_not_none(self, paper_scene):
+        assert paper_scene.title_block is not None
+        assert isinstance(paper_scene.title_block, TitleBlockItem)
 
-    def test_scene_rect_larger_than_paper(self, model_scene):
-        ps = PaperScene(model_scene, paper_size="ANSI D")
+    def test_scene_rect_larger_than_paper(self, paper_scene):
         w, h = PAPER_SIZES["ANSI D"]
-        sr = ps.sceneRect()
+        sr = paper_scene.sceneRect()
         # Scene rect should include 20 mm padding on each side
         assert sr.width() == pytest.approx(w + 40)
         assert sr.height() == pytest.approx(h + 40)
         assert sr.x() == pytest.approx(-20)
         assert sr.y() == pytest.approx(-20)
 
-    def test_scene_has_items(self, model_scene):
-        ps = PaperScene(model_scene)
-        # Should have at least: background rect, border rect, title block, viewport
-        assert len(ps.items()) >= 4
+    def test_scene_has_items(self, paper_scene):
+        # Should have at least: background rect, border rect, title block
+        assert len(paper_scene.items()) >= 3
 
-    def test_paper_size_change_rebuilds(self, model_scene):
+    def test_paper_size_change_rebuilds(self, qapp):
         """Changing paper size triggers a full rebuild."""
-        ps = PaperScene(model_scene, paper_size="A4")
+        ps = self._make_scene("A4")
         sr_a4 = ps.sceneRect()
         ps.paper_size = "ANSI D"
         sr_ansi = ps.sceneRect()
         assert sr_a4 != sr_ansi
 
-    def test_refresh_viewport_no_crash(self, model_scene):
+    def test_refresh_viewport_no_crash(self, paper_scene):
         """refresh_viewport() should not raise."""
-        ps = PaperScene(model_scene)
-        ps.refresh_viewport()  # should succeed silently
+        paper_scene.refresh_viewport()  # should succeed silently
 
-    def test_viewport_exists_after_setup(self, model_scene):
-        ps = PaperScene(model_scene)
-        assert ps._viewport is not None
-        assert isinstance(ps._viewport, PaperViewport)
+    def test_empty_viewports_after_setup(self, paper_scene):
+        """No viewports when sheet has no sheet_views."""
+        assert len(paper_scene.get_viewports()) == 0
 
-    def test_viewport_inside_margins(self, model_scene):
-        """Viewport rect should sit within the border margins."""
-        ps = PaperScene(model_scene, paper_size="ANSI D")
-        vp = ps._viewport
-        r = vp.rect()
-        w, h = PAPER_SIZES["ANSI D"]
-        # Viewport x must be >= MARGIN + INNER_MARGIN
-        assert r.x() >= MARGIN + INNER_MARGIN - 1
-        # Viewport right edge must be <= w - MARGIN - INNER_MARGIN
-        assert r.x() + r.width() <= w - MARGIN - INNER_MARGIN + 1
-        # Viewport y must be >= MARGIN + INNER_MARGIN
-        assert r.y() >= MARGIN + INNER_MARGIN - 1
+    def test_sheet_property(self, paper_scene):
+        assert paper_scene.sheet is not None
+        assert isinstance(paper_scene.sheet, Sheet)
 
-    def test_all_paper_sizes_construct(self, model_scene):
+    def test_all_paper_sizes_construct(self, qapp):
         """PaperScene can be constructed for every size in the catalogue."""
         for name in PAPER_SIZES:
-            ps = PaperScene(model_scene, paper_size=name)
+            ps = self._make_scene(name)
             assert ps.paper_size == name
+
+    def test_add_and_remove_viewport(self, qapp):
+        model_scene = QGraphicsScene()
+        model_scene.addRect(0, 0, 10000, 8000)
+        sheet = Sheet.create_default()
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = (model_scene, QRectF(0, 0, 10000, 8000))
+        ps = PaperScene(sheet, resolver)
+
+        data = SheetViewData("plan", "Level 1", "Level 1", 0.01, 50, 50, 400, 300)
+        vp = ps.add_viewport(data)
+        assert len(ps.get_viewports()) == 1
+        assert data in sheet.sheet_views
+
+        ps.remove_viewport(vp)
+        assert len(ps.get_viewports()) == 0
+        assert data not in sheet.sheet_views
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -252,39 +270,46 @@ class TestPaperScene:
 class TestPaperSpaceWidget:
     """Tests for the PaperSpaceWidget toolbar and integration."""
 
-    def test_widget_creates(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def _make_widget(self):
+        """Helper: create a PaperSpaceWidget with default Sheet and mock resolver."""
+        sheet = Sheet.create_default()
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        return PaperSpaceWidget(sheet, resolver)
+
+    def test_widget_creates(self, qapp):
+        widget = self._make_widget()
         assert widget is not None
 
-    def test_default_combo_value(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_default_combo_value(self, qapp):
+        widget = self._make_widget()
         assert widget._size_combo.currentText() == "ANSI D"
 
-    def test_combo_has_all_sizes(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_combo_has_all_sizes(self, qapp):
+        widget = self._make_widget()
         items = [widget._size_combo.itemText(i)
                  for i in range(widget._size_combo.count())]
         for name in PAPER_SIZES:
             assert name in items
 
-    def test_change_paper_updates_scene(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_change_paper_updates_scene(self, qapp):
+        widget = self._make_widget()
         widget.change_paper("A3")
         assert widget.paper_scene.paper_size == "A3"
         assert widget._size_combo.currentText() == "A3"
 
-    def test_paper_scene_is_set(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_paper_scene_is_set(self, qapp):
+        widget = self._make_widget()
         assert widget.paper_scene is not None
         assert isinstance(widget.paper_scene, PaperScene)
 
-    def test_view_exists(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_view_exists(self, qapp):
+        widget = self._make_widget()
         assert widget.view is not None
         assert widget.view.scene() is widget.paper_scene
 
-    def test_refresh_no_crash(self, model_scene):
-        widget = PaperSpaceWidget(model_scene)
+    def test_refresh_no_crash(self, qapp):
+        widget = self._make_widget()
         widget._refresh()  # should not raise
 
 
