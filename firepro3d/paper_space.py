@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
-    QPainterPath,
+    QPainterPath, QImage,
 )
 try:
     from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
@@ -137,7 +137,8 @@ def float_to_scale_str(ratio: float) -> str:
     """Return the human-readable scale label closest to *ratio*.
 
     Prefers a known preset label when the ratio is within 0.1 % of a preset;
-    otherwise falls back to a ``"1:N"`` metric string.
+    otherwise falls back to a ``"1:N"`` metric string.  A ratio of ``0.0``
+    returns ``"NTS"`` (Not To Scale).
 
     Args:
         ratio: Dimensionless scale ratio (model units / paper units).
@@ -145,6 +146,8 @@ def float_to_scale_str(ratio: float) -> str:
     Returns:
         A scale string such as ``"1:100"`` or ``'1/4"=1\\'-0"'``.
     """
+    if ratio == 0.0:
+        return "NTS"
     for label, preset_ratio in SCALE_PRESETS:
         if abs(ratio - preset_ratio) < preset_ratio * 0.001:
             return label
@@ -161,11 +164,14 @@ def _compute_scale_field(sheet: "Sheet") -> str:
 
     Returns:
         A scale string (e.g. ``"1:100"``), ``"AS NOTED"`` when viewports use
-        different scales, or an empty string when there are no viewports.
+        different scales, ``"NTS"`` when all viewports are Not To Scale,
+        or an empty string when there are no viewports.
     """
     if not sheet.sheet_views:
         return ""
-    scales = {sv.scale for sv in sheet.sheet_views}
+    scales = {sv.scale for sv in sheet.sheet_views if sv.scale != 0.0}
+    if not scales:
+        return "NTS"
     if len(scales) == 1:
         return float_to_scale_str(next(iter(scales)))
     return "AS NOTED"
@@ -336,6 +342,7 @@ class ViewResolver:
 
 _GRIP_SIZE = 4.0
 _MIN_VIEWPORT_SIZE = 20.0
+_VIEW_TITLE_H = 8.0  # mm height for view title below viewport
 
 
 class SheetViewport(QGraphicsObject):
@@ -399,7 +406,9 @@ class SheetViewport(QGraphicsObject):
 
     def boundingRect(self) -> QRectF:
         margin = _GRIP_SIZE if self.isSelected() else 0
-        return QRectF(-margin, -margin, self._data.w + 2 * margin, self._data.h + 2 * margin)
+        return QRectF(-margin, -margin,
+                      self._data.w + 2 * margin,
+                      self._data.h + _VIEW_TITLE_H + 2 * margin)
 
     def paint(self, painter: QPainter, option, widget=None):
         w, h = self._data.w, self._data.h
@@ -421,9 +430,21 @@ class SheetViewport(QGraphicsObject):
         # Clip to viewport bounds
         painter.setClipRect(vp_rect)
 
-        # Render source scene directly (vector output)
+        # Render source scene in black & white
         if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
-            self._source_scene.render(painter, vp_rect, self._source_rect)
+            # Render at 2x for quality
+            dpr = 2
+            px_w = int(w * dpr)
+            px_h = int(h * dpr)
+            if px_w > 0 and px_h > 0:
+                img = QImage(px_w, px_h, QImage.Format.Format_Grayscale8)
+                img.setDevicePixelRatio(dpr)
+                img.fill(Qt.GlobalColor.white)
+                p = QPainter(img)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                self._source_scene.render(p, QRectF(0, 0, w, h), self._source_rect)
+                p.end()
+                painter.drawImage(vp_rect, img)
 
         # Release clip
         painter.setClipping(False)
@@ -435,6 +456,26 @@ class SheetViewport(QGraphicsObject):
         else:
             painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
         painter.drawRect(vp_rect)
+
+        # View title below viewport
+        title_y = h + 1.0  # 1mm gap below viewport
+        # Horizontal line
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
+        painter.drawLine(QPointF(0, title_y), QPointF(w, title_y))
+        # Title text
+        if self._data.scale == 0.0:
+            scale_text = "NTS"
+        else:
+            scale_text = float_to_scale_str(self._data.scale)
+        title_text = f"{self._data.title}\nScale: {scale_text}"
+        f = QFont("Arial")
+        f.setPointSizeF(2.0)
+        painter.setFont(f)
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
+        title_rect = QRectF(0, title_y + 0.5, w, _VIEW_TITLE_H - 1.5)
+        painter.drawText(title_rect,
+                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                         title_text)
 
         # Resize grips when selected
         if self.isSelected():
@@ -571,6 +612,7 @@ class SheetViewPropertiesDialog(QDialog):
 
         self._scale_combo = QComboBox()
         self._scale_combo.setEditable(True)
+        self._scale_combo.addItem("NTS")
         for label, _ in SCALE_PRESETS:
             self._scale_combo.addItem(label)
         if data:
@@ -602,7 +644,10 @@ class SheetViewPropertiesDialog(QDialog):
         return self._title_edit.text()
 
     def get_scale(self) -> float:
-        return scale_to_float(self._scale_combo.currentText())
+        text = self._scale_combo.currentText()
+        if text.upper() == "NTS":
+            return 0.0  # sentinel for Not To Scale
+        return scale_to_float(text)
 
     def get_position(self) -> "tuple[float, float] | None":
         if self._data is None:
@@ -763,12 +808,24 @@ class PaperGraphicsView(QGraphicsView):
             event.ignore()
             return
         _, src_rect = result
-        vp_w = src_rect.width() * scale
-        vp_h = src_rect.height() * scale
 
         pw, ph = PAPER_SIZES[self._paper_scene.sheet.paper_size]
         max_w = pw - 2 * (MARGIN + INNER_MARGIN)
         max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
+
+        if scale == 0.0:
+            # NTS: fit to a reasonable default viewport size
+            target_w = max_w * 0.6
+            target_h = max_h * 0.6
+            sx = target_w / src_rect.width() if src_rect.width() > 0 else 0.01
+            sy = target_h / src_rect.height() if src_rect.height() > 0 else 0.01
+            fit_scale = min(sx, sy)
+            vp_w = src_rect.width() * fit_scale
+            vp_h = src_rect.height() * fit_scale
+        else:
+            vp_w = src_rect.width() * scale
+            vp_h = src_rect.height() * scale
+
         if vp_w > max_w or vp_h > max_h:
             clamp = min(max_w / vp_w, max_h / vp_h)
             vp_w *= clamp
@@ -1352,12 +1409,13 @@ class PaperScene(QGraphicsScene):
             new_scale = dlg.get_scale()
             if new_scale != viewport.data.scale:
                 viewport.data.scale = new_scale
-                result = self._resolver.resolve(
-                    viewport.data.source_view_type, viewport.data.source_view_name)
-                if result:
-                    _, src_rect = result
-                    viewport.data.w = src_rect.width() * new_scale
-                    viewport.data.h = src_rect.height() * new_scale
+                if new_scale != 0.0:
+                    result = self._resolver.resolve(
+                        viewport.data.source_view_type, viewport.data.source_view_name)
+                    if result:
+                        _, src_rect = result
+                        viewport.data.w = src_rect.width() * new_scale
+                        viewport.data.h = src_rect.height() * new_scale
             pos = dlg.get_position()
             if pos:
                 viewport.data.x, viewport.data.y = pos
