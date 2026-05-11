@@ -205,6 +205,8 @@ class SheetViewData:
     y: float
     w: float
     h: float
+    show_border: bool = True
+    view_number: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -214,6 +216,8 @@ class SheetViewData:
             "scale": self.scale,
             "x": self.x, "y": self.y,
             "w": self.w, "h": self.h,
+            "show_border": self.show_border,
+            "view_number": self.view_number,
         }
 
     @classmethod
@@ -225,6 +229,8 @@ class SheetViewData:
             scale=d["scale"],
             x=d["x"], y=d["y"],
             w=d["w"], h=d["h"],
+            show_border=d.get("show_border", True),
+            view_number=d.get("view_number", ""),
         )
 
 
@@ -430,52 +436,74 @@ class SheetViewport(QGraphicsObject):
         # Clip to viewport bounds
         painter.setClipRect(vp_rect)
 
-        # Render source scene in black & white
+        # Render source scene directly (vector output)
         if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
-            # Render at 2x for quality
-            dpr = 2
-            px_w = int(w * dpr)
-            px_h = int(h * dpr)
-            if px_w > 0 and px_h > 0:
-                img = QImage(px_w, px_h, QImage.Format.Format_Grayscale8)
-                img.setDevicePixelRatio(dpr)
-                img.fill(Qt.GlobalColor.white)
-                p = QPainter(img)
-                p.setRenderHint(QPainter.RenderHint.Antialiasing)
-                self._source_scene.render(p, QRectF(0, 0, w, h), self._source_rect)
-                p.end()
-                painter.drawImage(vp_rect, img)
+            self._source_scene.render(painter, vp_rect, self._source_rect)
 
         # Release clip
         painter.setClipping(False)
 
-        # Border
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if self.isSelected():
+        # Border (only when enabled)
+        if self._data.show_border:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if self.isSelected():
+                painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
+            else:
+                painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
+            painter.drawRect(vp_rect)
+        elif self.isSelected():
+            # Still show selection indicator even without border
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
-        else:
-            painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
-        painter.drawRect(vp_rect)
+            painter.drawRect(vp_rect)
 
-        # View title below viewport
-        title_y = h + 1.0  # 1mm gap below viewport
-        # Horizontal line
+        # View title below viewport (Revit-style)
+        title_y = h + 0.5
+        # Horizontal line spanning viewport width
         painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
         painter.drawLine(QPointF(0, title_y), QPointF(w, title_y))
-        # Title text
+
+        # Bubble with view number
+        bubble_r = 3.0  # radius in mm
+        bubble_cx = bubble_r + 1.0  # center x
+        bubble_cy = title_y + bubble_r + 1.0
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.25))
+        painter.setBrush(QBrush(Qt.GlobalColor.white))
+        painter.drawEllipse(QPointF(bubble_cx, bubble_cy), bubble_r, bubble_r)
+        # Number in bubble
+        f_num = QFont("Arial")
+        f_num.setPointSizeF(2.0)
+        f_num.setBold(True)
+        painter.setFont(f_num)
+        painter.setPen(Qt.GlobalColor.black)
+        painter.drawText(QRectF(bubble_cx - bubble_r, bubble_cy - bubble_r,
+                                bubble_r * 2, bubble_r * 2),
+                         Qt.AlignmentFlag.AlignCenter,
+                         self._data.view_number or "1")
+
+        # Title text — ALL CAPS, bold, right of bubble
+        text_x = bubble_cx + bubble_r + 2.0
+        f_title = QFont("Arial")
+        f_title.setPointSizeF(2.2)
+        f_title.setBold(True)
+        painter.setFont(f_title)
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
+        painter.drawText(QRectF(text_x, title_y + 0.5, w - text_x, 4.0),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         self._data.title.upper())
+
+        # Scale text below title
         if self._data.scale == 0.0:
             scale_text = "NTS"
         else:
             scale_text = float_to_scale_str(self._data.scale)
-        title_text = f"{self._data.title}\nScale: {scale_text}"
-        f = QFont("Arial")
-        f.setPointSizeF(2.0)
-        painter.setFont(f)
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
-        title_rect = QRectF(0, title_y + 0.5, w, _VIEW_TITLE_H - 1.5)
-        painter.drawText(title_rect,
-                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                         title_text)
+        f_scale = QFont("Arial")
+        f_scale.setPointSizeF(1.6)
+        painter.setFont(f_scale)
+        painter.setPen(QPen(QColor("#444444"), 0.1))
+        painter.drawText(QRectF(text_x, title_y + 4.0, w - text_x, 3.0),
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                         scale_text)
 
         # Resize grips when selected
         if self.isSelected():
@@ -621,6 +649,11 @@ class SheetViewPropertiesDialog(QDialog):
             self._scale_combo.setCurrentText("1:100")
         layout.addRow("Scale:", self._scale_combo)
 
+        from PyQt6.QtWidgets import QCheckBox
+        self._border_check = QCheckBox("Show Border")
+        self._border_check.setChecked(data.show_border if data else True)
+        layout.addRow("", self._border_check)
+
         if data:
             from .constants import format_length, parse_dimension
             self._x_edit = QLineEdit(format_length(data.x))
@@ -642,6 +675,9 @@ class SheetViewPropertiesDialog(QDialog):
 
     def get_title(self) -> str:
         return self._title_edit.text()
+
+    def get_show_border(self) -> bool:
+        return self._border_check.isChecked()
 
     def get_scale(self) -> float:
         text = self._scale_combo.currentText()
@@ -769,6 +805,21 @@ class PaperGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
+
+    # ── Delete key handling ────────────────────────────────────────────
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            scene = self._paper_scene
+            selected = [item for item in scene.selectedItems()
+                        if isinstance(item, SheetViewport)]
+            for vp in selected:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda v=vp: scene.remove_viewport(v))
+            if selected:
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     # ── Drag-and-drop (existing) ─────────────────────────────────────
 
@@ -1367,6 +1418,8 @@ class PaperScene(QGraphicsScene):
         return vp
 
     def add_viewport(self, data: SheetViewData) -> SheetViewport:
+        if not data.view_number:
+            data.view_number = str(len(self._sheet.sheet_views) + 1)
         self._sheet.sheet_views.append(data)
         vp = self._create_viewport(data)
         self._update_scale_field()
@@ -1406,6 +1459,7 @@ class PaperScene(QGraphicsScene):
             viewport.data.source_view_name, viewport.data)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             viewport.data.title = dlg.get_title()
+            viewport.data.show_border = dlg.get_show_border()
             new_scale = dlg.get_scale()
             if new_scale != viewport.data.scale:
                 viewport.data.scale = new_scale

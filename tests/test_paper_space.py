@@ -353,6 +353,30 @@ class TestSheetViewData:
         assert restored.x == pytest.approx(25.0)
         assert restored.w == pytest.approx(400.0)
 
+    def test_round_trip_new_fields(self):
+        from firepro3d.paper_space import SheetViewData
+        svd = SheetViewData(
+            source_view_type="plan", source_view_name="Level 1",
+            title="Level 1", scale=0.01,
+            x=25.0, y=25.0, w=400.0, h=300.0,
+            show_border=False, view_number="3",
+        )
+        d = svd.to_dict()
+        restored = SheetViewData.from_dict(d)
+        assert restored.show_border is False
+        assert restored.view_number == "3"
+
+    def test_backward_compat_missing_new_fields(self):
+        from firepro3d.paper_space import SheetViewData
+        d = {
+            "source_view_type": "plan", "source_view_name": "Level 1",
+            "title": "Level 1", "scale": 0.01,
+            "x": 0, "y": 0, "w": 100, "h": 100,
+        }
+        restored = SheetViewData.from_dict(d)
+        assert restored.show_border is True
+        assert restored.view_number == ""
+
     def test_to_dict_keys(self):
         from firepro3d.paper_space import SheetViewData
         svd = SheetViewData("plan", "Level 1", "Level 1", 0.01, 0, 0, 100, 100)
@@ -360,6 +384,7 @@ class TestSheetViewData:
         assert set(d.keys()) == {
             "source_view_type", "source_view_name", "title",
             "scale", "x", "y", "w", "h",
+            "show_border", "view_number",
         }
 
 
