@@ -229,6 +229,7 @@ class SceneIOMixin:
             "constraints":         constraints_data,
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
+            "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
         }
         bak_path = filename + ".bak"
         if os.path.exists(filename):
@@ -316,6 +317,11 @@ class SceneIOMixin:
         detail_data = payload.get("detail_views", [])
         if detail_data and getattr(self, "_detail_manager", None):
             self._detail_manager.from_list(detail_data)
+
+        # --- Sheets (paper space) ---
+        from .paper_space import Sheet
+        sheet_data = payload.get("sheets", [])
+        self._sheets = [Sheet.from_dict(d) for d in sheet_data]
 
         # --- Nodes ---
         # Create each node unconditionally — bypass find_nearby_node so that

@@ -256,6 +256,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._detail_rect_preview: "QGraphicsRectItem | None" = None
         self._detail_markers: list = []
         self._detail_manager = None  # set by main.py
+        self._sheets: list = []
         # Undo/redo
         self._undo_stack: list[dict] = []
         self._undo_pos: int = -1

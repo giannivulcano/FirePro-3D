@@ -634,3 +634,32 @@ class TestScaleAutoPopulation:
         from firepro3d.paper_space import Sheet, _compute_scale_field
         sheet = Sheet.create_default()
         assert _compute_scale_field(sheet) == ""
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Serialization (scene_io integration)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSerialization:
+    def test_backward_compat_no_sheets_key(self):
+        from firepro3d.paper_space import Sheet
+        payload = {"version": 4}
+        sheets = [Sheet.from_dict(d) for d in payload.get("sheets", [])]
+        assert sheets == []
+
+    def test_round_trip_via_payload(self):
+        from firepro3d.paper_space import Sheet, SheetViewData
+        sheet = Sheet(
+            number="FP-1.0", name="Test Sheet",
+            paper_size="ANSI D",
+            title_block_fields={"Company": "Test", "Scale": "1:100"},
+            sheet_views=[
+                SheetViewData("plan", "Level 1", "Level 1", 0.01, 25, 25, 400, 300),
+            ],
+        )
+        payload = {"sheets": [sheet.to_dict()]}
+        loaded = [Sheet.from_dict(d) for d in payload["sheets"]]
+        assert len(loaded) == 1
+        assert loaded[0].number == "FP-1.0"
+        assert len(loaded[0].sheet_views) == 1
+        assert loaded[0].sheet_views[0].scale == pytest.approx(0.01)
