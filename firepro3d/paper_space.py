@@ -37,7 +37,7 @@ except ImportError:
     _PDF_AVAILABLE = False
 
 # Base directory for default title block PDFs
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
