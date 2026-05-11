@@ -359,6 +359,7 @@ class SheetViewport(QGraphicsObject):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setZValue(5)
 
         self._source_scene = None
@@ -709,12 +710,22 @@ def _get_field_layout(paper_w: float, paper_h: float
 # ─────────────────────────────────────────────────────────────────────────────
 
 class PaperGraphicsView(QGraphicsView):
-    """QGraphicsView for PaperScene with drop support for view placement."""
+    """QGraphicsView for PaperScene with drop support and model-view-style navigation."""
 
     def __init__(self, scene: "PaperScene", parent=None):
         super().__init__(scene, parent)
         self.setAcceptDrops(True)
         self._paper_scene = scene
+        self._panning = False
+        self._pan_start = QPointF()
+
+        # Match Model_View navigation style
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
+
+    # ── Drag-and-drop (existing) ─────────────────────────────────────
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(MIME_VIEW):
@@ -772,6 +783,47 @@ class PaperGraphicsView(QGraphicsView):
         data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h)
         self._paper_scene.add_viewport(data)
         event.acceptProposedAction()
+
+    # ── Navigation (middle-button pan + scroll zoom) ─────────────────
+
+    def wheelEvent(self, event):
+        """Zoom under cursor, matching Model_View behavior."""
+        factor = 1.15 if event.angleDelta().y() > 0 else 1.0 / 1.15
+        # Anchor zoom to cursor position
+        cursor_scene = self.mapToScene(event.position().toPoint())
+        self.scale(factor, factor)
+        new_cursor_scene = self.mapToScene(event.position().toPoint())
+        delta = new_cursor_scene - cursor_scene
+        self.translate(delta.x(), delta.y())
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+            self._pan_start = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            delta = event.position() - self._pan_start
+            self._pan_start = event.position()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - int(delta.x()))
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - int(delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton and self._panning:
+            self._panning = False
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -886,8 +938,11 @@ class TitleBlockDxfItem(QGraphicsItem):
         return QRectF(0, 0, self._paper_w, self._paper_h)
 
     def paint(self, painter: QPainter, option, widget=None):
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(Qt.GlobalColor.black))
+        pen = QPen(Qt.GlobalColor.black, 0)
+        pen.setCosmetic(False)
+        pen.setWidthF(0.25)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         for path in self._paths:
             painter.drawPath(path)
@@ -1286,7 +1341,8 @@ class PaperScene(QGraphicsScene):
         self.navigate_to_view.emit(view_type, view_name)
 
     def _on_delete_viewport(self, viewport):
-        self.remove_viewport(viewport)
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda vp=viewport: self.remove_viewport(vp))
 
     def _on_viewport_properties(self, viewport):
         dlg = SheetViewPropertiesDialog(
@@ -1446,12 +1502,6 @@ class PaperSpaceWidget(QWidget):
 
         # ── View ─────────────────────────────────────────────────────────────
         self.view = PaperGraphicsView(self.paper_scene)
-        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.view.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
-        self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self.view.setTransformationAnchor(
-            QGraphicsView.ViewportAnchor.AnchorUnderMouse
-        )
         layout.addWidget(self.view)
 
         # Fit to sheet on first show
@@ -1484,9 +1534,3 @@ class PaperSpaceWidget(QWidget):
     def _fit(self):
         self.view.fitInView(self.paper_scene.sceneRect(),
                             Qt.AspectRatioMode.KeepAspectRatio)
-
-    # ── Zoom wheel ────────────────────────────────────────────────────────────
-
-    def wheelEvent(self, event):
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.view.scale(factor, factor)
