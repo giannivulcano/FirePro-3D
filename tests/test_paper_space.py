@@ -572,3 +572,40 @@ class TestSheetViewport:
         model_scene.addRect(500, 500, 100, 100)
         qapp.processEvents()
         assert vp._dirty is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scale Auto-Population
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestScaleAutoPopulation:
+    def test_single_viewport_scale(self):
+        from firepro3d.paper_space import Sheet, SheetViewData, _compute_scale_field
+        sheet = Sheet.create_default()
+        sheet.sheet_views = [
+            SheetViewData("plan", "L1", "L1", 0.01, 0, 0, 100, 100),
+        ]
+        assert _compute_scale_field(sheet) == "1:100"
+
+    def test_multiple_same_scale(self):
+        from firepro3d.paper_space import Sheet, SheetViewData, _compute_scale_field
+        sheet = Sheet.create_default()
+        sheet.sheet_views = [
+            SheetViewData("plan", "L1", "L1", 0.01, 0, 0, 100, 100),
+            SheetViewData("detail", "D1", "D1", 0.01, 200, 0, 100, 100),
+        ]
+        assert _compute_scale_field(sheet) == "1:100"
+
+    def test_multiple_different_scales(self):
+        from firepro3d.paper_space import Sheet, SheetViewData, _compute_scale_field
+        sheet = Sheet.create_default()
+        sheet.sheet_views = [
+            SheetViewData("plan", "L1", "L1", 0.01, 0, 0, 100, 100),
+            SheetViewData("detail", "D1", "D1", 0.02, 200, 0, 100, 100),
+        ]
+        assert _compute_scale_field(sheet) == "AS NOTED"
+
+    def test_no_viewports(self):
+        from firepro3d.paper_space import Sheet, _compute_scale_field
+        sheet = Sheet.create_default()
+        assert _compute_scale_field(sheet) == ""
