@@ -559,6 +559,164 @@ class SheetViewport(QGraphicsObject):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SheetViewPropertiesDialog
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SheetViewPropertiesDialog(QDialog):
+    """Properties dialog for a sheet viewport.
+
+    Used both pre-placement (title + scale) and post-placement
+    (adds position and size fields).
+    """
+
+    def __init__(self, source_view_name: str, data: SheetViewData | None = None,
+                 parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sheet View Properties")
+        self._data = data
+
+        layout = QFormLayout(self)
+
+        self._title_edit = QLineEdit(data.title if data else source_view_name)
+        layout.addRow("Title:", self._title_edit)
+
+        self._scale_combo = QComboBox()
+        self._scale_combo.setEditable(True)
+        for label, _ in SCALE_PRESETS:
+            self._scale_combo.addItem(label)
+        if data:
+            self._scale_combo.setCurrentText(float_to_scale_str(data.scale))
+        else:
+            self._scale_combo.setCurrentText("1:100")
+        layout.addRow("Scale:", self._scale_combo)
+
+        if data:
+            from .constants import format_length, parse_dimension
+            self._x_edit = QLineEdit(format_length(data.x))
+            self._y_edit = QLineEdit(format_length(data.y))
+            self._w_edit = QLineEdit(format_length(data.w))
+            self._h_edit = QLineEdit(format_length(data.h))
+            layout.addRow("Position X:", self._x_edit)
+            layout.addRow("Position Y:", self._y_edit)
+            layout.addRow("Width:", self._w_edit)
+            layout.addRow("Height:", self._h_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def get_title(self) -> str:
+        return self._title_edit.text()
+
+    def get_scale(self) -> float:
+        return scale_to_float(self._scale_combo.currentText())
+
+    def get_position(self) -> "tuple[float, float] | None":
+        if self._data is None:
+            return None
+        from .constants import parse_dimension
+        x = parse_dimension(self._x_edit.text())
+        y = parse_dimension(self._y_edit.text())
+        if x is None or y is None:
+            return (self._data.x, self._data.y)
+        return (x, y)
+
+    def get_size(self) -> "tuple[float, float] | None":
+        if self._data is None:
+            return None
+        from .constants import parse_dimension
+        w = parse_dimension(self._w_edit.text())
+        h = parse_dimension(self._h_edit.text())
+        if w is None or h is None:
+            return (self._data.w, self._data.h)
+        return (max(w, _MIN_VIEWPORT_SIZE), max(h, _MIN_VIEWPORT_SIZE))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TitleBlockFieldOverlay — field values painted over DXF/PDF artwork
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TitleBlockFieldOverlay(QGraphicsItem):
+    """Draws title block field values on top of DXF/PDF artwork.
+
+    Only used when an external (DXF/PDF) title block is active.
+    """
+
+    def __init__(self, paper_w: float, paper_h: float,
+                 fields: dict[str, str], parent=None):
+        super().__init__(parent)
+        self._paper_w = paper_w
+        self._paper_h = paper_h
+        self._fields = fields
+        self.setZValue(1)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(0, 0, self._paper_w, self._paper_h)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        layout = _get_field_layout(self._paper_w, self._paper_h)
+        if layout is None:
+            return
+        for field_name, (x, y, w, h, font_size) in layout.items():
+            value = self._fields.get(field_name, "")
+            if not value:
+                continue
+            f = QFont("Arial")
+            f.setPointSizeF(font_size)
+            f.setBold(True)
+            painter.setFont(f)
+            painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
+            painter.drawText(
+                QRectF(x + 1, y + h * 0.3, w - 2, h * 0.65),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                value,
+            )
+
+
+def _get_field_layout(paper_w: float, paper_h: float
+                      ) -> "dict[str, tuple[float, float, float, float, float]] | None":
+    """Return field layout for the given paper size.
+
+    Returns {field_name: (x, y, w, h, font_size_pt)} in mm.
+    """
+    bx = MARGIN + INNER_MARGIN
+    by = paper_h - MARGIN - INNER_MARGIN - TITLE_H
+    bw = paper_w - 2 * (MARGIN + INNER_MARGIN)
+    bh = TITLE_H
+
+    c0 = bx
+    c1 = bx + bw * 0.30
+    c2 = bx + bw * 0.70
+    c3 = bx + bw * 0.85
+
+    r0 = by
+    r1 = by + bh * 0.33
+    r2 = by + bh * 0.66
+    r3 = by + bh
+
+    row_h = (r3 - r0) / 3.0
+    half_col1 = (c2 - c1) / 2.0
+
+    return {
+        "Company":    (c0, r0, c1 - c0, bh, 2.5),
+        "Project":    (c1, r0, c2 - c1, row_h, 2.2),
+        "Title":      (c1, r1, c2 - c1, row_h, 2.2),
+        "Drawn By":   (c1, r2, half_col1, row_h, 2.0),
+        "Checked By": (c1 + half_col1, r2, half_col1, row_h, 2.0),
+        "Scale":      (c2, r0, c3 - c2, row_h, 2.2),
+        "Drawing No": (c2, r1, c3 - c2, row_h, 2.2),
+        "Rev":        (c3, r0, bx + bw - c3, row_h, 2.2),
+        "Date":       (c3, r1, bx + bw - c3, row_h, 2.2),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF-based title block background
 # ─────────────────────────────────────────────────────────────────────────────
 
