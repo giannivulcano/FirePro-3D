@@ -14,6 +14,7 @@ PaperSpaceWidget — QWidget wrapping a view of PaperScene + paper-size/title co
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -74,6 +75,8 @@ TITLE_BLOCK_PDFS: dict[str, str] = {
 MARGIN        = 10.0    # outer border
 INNER_MARGIN  = 5.0     # inside border to content
 TITLE_H       = 65.0    # title block height
+
+MIME_VIEW = "application/x-firepro3d-view"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -717,6 +720,76 @@ def _get_field_layout(paper_w: float, paper_h: float
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PaperGraphicsView — drop-aware view for placing sheet viewports
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PaperGraphicsView(QGraphicsView):
+    """QGraphicsView for PaperScene with drop support for view placement."""
+
+    def __init__(self, scene: "PaperScene", parent=None):
+        super().__init__(scene, parent)
+        self.setAcceptDrops(True)
+        self._paper_scene = scene
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat(MIME_VIEW):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat(MIME_VIEW):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if not event.mimeData().hasFormat(MIME_VIEW):
+            event.ignore()
+            return
+        raw = bytes(event.mimeData().data(MIME_VIEW)).decode("utf-8")
+        payload = json.loads(raw)
+        view_type = payload["view_type"]
+        view_name = payload["view_name"]
+
+        drop_pos = self.mapToScene(event.position().toPoint())
+
+        dlg = SheetViewPropertiesDialog(view_name, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            event.ignore()
+            return
+
+        title = dlg.get_title()
+        scale = dlg.get_scale()
+
+        result = self._paper_scene._resolver.resolve(view_type, view_name)
+        if result is None:
+            event.ignore()
+            return
+        _, src_rect = result
+        vp_w = src_rect.width() * scale
+        vp_h = src_rect.height() * scale
+
+        pw, ph = PAPER_SIZES[self._paper_scene.sheet.paper_size]
+        max_w = pw - 2 * (MARGIN + INNER_MARGIN)
+        max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
+        if vp_w > max_w or vp_h > max_h:
+            clamp = min(max_w / vp_w, max_h / vp_h)
+            vp_w *= clamp
+            vp_h *= clamp
+
+        x = drop_pos.x() - vp_w / 2
+        y = drop_pos.y() - vp_h / 2
+
+        x = max(MARGIN + INNER_MARGIN, min(x, pw - MARGIN - INNER_MARGIN - vp_w))
+        y = max(MARGIN + INNER_MARGIN, min(y, ph - MARGIN - INNER_MARGIN - TITLE_H - vp_h))
+
+        data = SheetViewData(view_type, view_name, title, scale, x, y, vp_w, vp_h)
+        self._paper_scene.add_viewport(data)
+        event.acceptProposedAction()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # PDF-based title block background
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1352,16 +1425,25 @@ class PaperScene(QGraphicsScene):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TitleBlockDialog(QDialog):
-    def __init__(self, title_block: TitleBlockItem, parent=None):
+    def __init__(self, title_block_or_sheet, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Title Block")
-        self._tb = title_block
+        # Accept either a TitleBlockItem (legacy) or Sheet
+        if hasattr(title_block_or_sheet, 'title_block_fields'):
+            self._fields = title_block_or_sheet.title_block_fields
+            self._tb = None
+        else:
+            self._tb = title_block_or_sheet
+            self._fields = title_block_or_sheet.fields
 
         layout = QFormLayout(self)
         self._edits: dict[str, QLineEdit] = {}
 
-        for key, value in title_block.fields.items():
+        for key, value in self._fields.items():
             edit = QLineEdit(value)
+            if key == "Scale":
+                edit.setReadOnly(True)
+                edit.setStyleSheet("background: #f0f0f0;")
             self._edits[key] = edit
             layout.addRow(key + ":", edit)
 
@@ -1375,8 +1457,10 @@ class TitleBlockDialog(QDialog):
 
     def _save(self):
         for key, edit in self._edits.items():
-            self._tb.fields[key] = edit.text()
-        self._tb.update()
+            if key != "Scale":
+                self._fields[key] = edit.text()
+        if self._tb is not None:
+            self._tb.update()
         self.accept()
 
 
@@ -1396,12 +1480,15 @@ class PaperSpaceWidget(QWidget):
         Resolves source view type + name to (scene, rect) pairs.
     """
 
+    navigate_to_view = pyqtSignal(str, str)
+
     def __init__(self, sheet: Sheet, resolver: ViewResolver, parent=None):
         super().__init__(parent)
         self._sheet = sheet
         self._resolver = resolver
 
         self.paper_scene = PaperScene(sheet, resolver)
+        self.paper_scene.navigate_to_view.connect(self.navigate_to_view.emit)
 
         self._build_ui()
 
@@ -1440,7 +1527,7 @@ class PaperSpaceWidget(QWidget):
         layout.addLayout(toolbar)
 
         # ── View ─────────────────────────────────────────────────────────────
-        self.view = QGraphicsView(self.paper_scene)
+        self.view = PaperGraphicsView(self.paper_scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
         self.view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
@@ -1465,6 +1552,8 @@ class PaperSpaceWidget(QWidget):
     def _edit_title(self):
         dlg = TitleBlockDialog(self.paper_scene.title_block, self)
         dlg.exec()
+        # Sync programmatic title block fields from sheet
+        self.paper_scene.title_block.fields = self._sheet.title_block_fields
         self.paper_scene.refresh_viewport()
 
     def edit_title_block(self):
