@@ -311,3 +311,46 @@ class TestLayoutConstants:
             f"Title block ({required:.1f} mm) exceeds smallest paper height "
             f"({min_h:.1f} mm)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scale helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestScaleHelpers:
+    def test_metric_scale_to_float(self):
+        from firepro3d.paper_space import scale_to_float
+        assert scale_to_float("1:100") == pytest.approx(0.01)
+        assert scale_to_float("1:50") == pytest.approx(0.02)
+        assert scale_to_float("1:1") == pytest.approx(1.0)
+        assert scale_to_float("1:200") == pytest.approx(0.005)
+
+    def test_imperial_scale_to_float(self):
+        from firepro3d.paper_space import scale_to_float
+        assert scale_to_float('1/4"=1\'-0"') == pytest.approx(1 / 48)
+        assert scale_to_float('1/8"=1\'-0"') == pytest.approx(1 / 96)
+        assert scale_to_float('1"=1\'-0"') == pytest.approx(1 / 12)
+        assert scale_to_float('3/8"=1\'-0"') == pytest.approx(3 / 96)
+
+    def test_custom_scale_to_float(self):
+        from firepro3d.paper_space import scale_to_float
+        assert scale_to_float("1:125") == pytest.approx(1 / 125)
+
+    def test_invalid_scale_to_float(self):
+        from firepro3d.paper_space import scale_to_float
+        with pytest.raises(ValueError):
+            scale_to_float("not a scale")
+
+    def test_float_to_known_preset(self):
+        from firepro3d.paper_space import float_to_scale_str
+        assert float_to_scale_str(0.01) == "1:100"
+        assert float_to_scale_str(0.02) == "1:50"
+        assert float_to_scale_str(1.0) == "1:1"
+
+    def test_float_to_imperial_preset(self):
+        from firepro3d.paper_space import float_to_scale_str
+        assert float_to_scale_str(1 / 48) == '1/4"=1\'-0"'
+
+    def test_float_to_custom(self):
+        from firepro3d.paper_space import float_to_scale_str
+        assert float_to_scale_str(1 / 125) == "1:125"

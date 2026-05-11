@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsRectItem, QGraphicsPixmapItem, QComboBox, QPushButton, QLabel,
@@ -70,6 +71,98 @@ TITLE_BLOCK_PDFS: dict[str, str] = {
 MARGIN        = 10.0    # outer border
 INNER_MARGIN  = 5.0     # inside border to content
 TITLE_H       = 65.0    # title block height
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scale helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+SCALE_PRESETS: list[tuple[str, float]] = [
+    ("1:200", 1 / 200), ("1:100", 1 / 100), ("1:75", 1 / 75),
+    ("1:50", 1 / 50), ("1:25", 1 / 25), ("1:20", 1 / 20),
+    ("1:10", 1 / 10), ("1:5", 1 / 5), ("1:1", 1.0),
+    ('1/8"=1\'-0"', 1 / 96), ('3/16"=1\'-0"', 3 / 192),
+    ('1/4"=1\'-0"', 1 / 48), ('3/8"=1\'-0"', 3 / 96),
+    ('1/2"=1\'-0"', 1 / 24), ('3/4"=1\'-0"', 3 / 36),
+    ('1"=1\'-0"', 1 / 12), ('1-1/2"=1\'-0"', 1.5 / 12),
+    ('3"=1\'-0"', 3 / 12),
+]
+_PRESET_MAP: dict[str, float] = {label: ratio for label, ratio in SCALE_PRESETS}
+_RE_METRIC = re.compile(r"^1\s*:\s*(\d+(?:\.\d+)?)$")
+_RE_IMPERIAL = re.compile(r'^(\d+(?:-\d+/\d+|\.\d+)?(?:/\d+)?)\s*"\s*=\s*1\'-0"$')
+
+
+def _parse_imperial_inches(s: str) -> float:
+    if "-" in s:
+        whole, frac = s.split("-", 1)
+        return float(whole) + _parse_imperial_inches(frac)
+    if "/" in s:
+        num, den = s.split("/", 1)
+        return float(num) / float(den)
+    return float(s)
+
+
+def scale_to_float(s: str) -> float:
+    """Parse a scale string and return the corresponding ratio (model/paper).
+
+    Args:
+        s: A scale string such as ``"1:100"``, ``'1/4"=1\\'-0"'``, or
+           ``"1:125"`` (custom metric).
+
+    Returns:
+        The dimensionless scale ratio (e.g. 0.01 for 1:100).
+
+    Raises:
+        ValueError: If *s* cannot be recognised as a valid scale string.
+    """
+    s = s.strip()
+    if s in _PRESET_MAP:
+        return _PRESET_MAP[s]
+    m = _RE_METRIC.match(s)
+    if m:
+        return 1.0 / float(m.group(1))
+    m = _RE_IMPERIAL.match(s)
+    if m:
+        return _parse_imperial_inches(m.group(1)) / 12.0
+    raise ValueError(f"Cannot parse scale string: {s!r}")
+
+
+def float_to_scale_str(ratio: float) -> str:
+    """Return the human-readable scale label closest to *ratio*.
+
+    Prefers a known preset label when the ratio is within 0.1 % of a preset;
+    otherwise falls back to a ``"1:N"`` metric string.
+
+    Args:
+        ratio: Dimensionless scale ratio (model units / paper units).
+
+    Returns:
+        A scale string such as ``"1:100"`` or ``'1/4"=1\\'-0"'``.
+    """
+    for label, preset_ratio in SCALE_PRESETS:
+        if abs(ratio - preset_ratio) < preset_ratio * 0.001:
+            return label
+    n = round(1.0 / ratio)
+    return f"1:{n}"
+
+
+def _compute_scale_field(sheet: "Sheet") -> str:
+    """Return the scale label to display in the title block for *sheet*.
+
+    Args:
+        sheet: A ``Sheet`` instance whose ``sheet_views`` attribute holds the
+            active viewports.
+
+    Returns:
+        A scale string (e.g. ``"1:100"``), ``"AS NOTED"`` when viewports use
+        different scales, or an empty string when there are no viewports.
+    """
+    if not sheet.sheet_views:
+        return ""
+    scales = {sv.scale for sv in sheet.sheet_views}
+    if len(scales) == 1:
+        return float_to_scale_str(next(iter(scales)))
+    return "AS NOTED"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
