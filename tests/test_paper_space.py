@@ -8,7 +8,7 @@ from PyQt6.QtCore import QRectF, QPointF, Qt
 
 from firepro3d.paper_space import (
     PAPER_SIZES, MARGIN, INNER_MARGIN, TITLE_H,
-    TitleBlockItem, PaperViewport, PaperScene, PaperSpaceWidget,
+    TitleBlockItem, PaperScene, PaperSpaceWidget,
     Sheet, ViewResolver, SheetViewData,
 )
 
@@ -120,56 +120,6 @@ class TestTitleBlockItem:
     def test_z_value(self, qapp):
         tb = TitleBlockItem(600, 400)
         assert tb.zValue() == 10
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PaperViewport
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestPaperViewport:
-    """Tests for the PaperViewport item."""
-
-    def test_rect_matches_constructor(self, model_scene):
-        vp = PaperViewport(model_scene, 10, 20, 300, 200)
-        r = vp.rect()
-        assert r.x() == pytest.approx(10)
-        assert r.y() == pytest.approx(20)
-        assert r.width() == pytest.approx(300)
-        assert r.height() == pytest.approx(200)
-
-    def test_source_rect_default_none(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        assert vp.source_rect is None
-
-    def test_source_rect_setter(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        src = QRectF(50, 50, 200, 200)
-        vp.source_rect = src
-        assert vp.source_rect == src
-
-    def test_source_rect_reset_to_none(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        vp.source_rect = QRectF(0, 0, 50, 50)
-        vp.source_rect = None
-        assert vp.source_rect is None
-
-    def test_is_movable(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        flags = vp.flags()
-        assert flags & vp.GraphicsItemFlag.ItemIsMovable
-
-    def test_is_selectable(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        flags = vp.flags()
-        assert flags & vp.GraphicsItemFlag.ItemIsSelectable
-
-    def test_z_value(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        assert vp.zValue() == 5
-
-    def test_white_brush(self, model_scene):
-        vp = PaperViewport(model_scene, 0, 0, 100, 100)
-        assert vp.brush().color() == Qt.GlobalColor.white
 
 
 # ─────────────────────────────────────────────────────────────────────────────

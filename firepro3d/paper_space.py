@@ -6,7 +6,7 @@ Sprint 4B — Paper Space layout with title block and live model-space viewport.
 Classes
 -------
 TitleBlockItem   — QGraphicsItem that draws a professional engineering title block
-PaperViewport    — QGraphicsRectItem that live-renders Model_Space content
+SheetViewport    — QGraphicsObject viewport placed on a paper sheet (replaces PaperViewport)
 PaperScene       — QGraphicsScene representing one paper layout
 PaperSpaceWidget — QWidget wrapping a view of PaperScene + paper-size/title controls
 """
@@ -20,7 +20,7 @@ import re
 from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsItem, QGraphicsRectItem, QGraphicsPixmapItem, QGraphicsObject,
+    QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject,
     QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
     QMenu,
@@ -1171,68 +1171,6 @@ class TitleBlockItem(QGraphicsItem):
         painter.setPen(pen_thick)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(QRectF(x, y, w, h))
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Viewport
-# ─────────────────────────────────────────────────────────────────────────────
-
-class PaperViewport(QGraphicsRectItem):
-    """
-    A rectangle in Paper Space that live-renders Model_Space content.
-
-    The source area of the model scene can be overridden; if not set the
-    entire scene rect is used.
-    """
-
-    def __init__(self, model_scene, x: float, y: float,
-                 w: float, h: float, parent=None):
-        super().__init__(x, y, w, h, parent)
-        self._model_scene = model_scene
-        self._source_rect: QRectF | None = None  # None = full scene rect
-
-        pen = QPen(Qt.GlobalColor.black, 0.5)
-        self.setPen(pen)
-        self.setBrush(QBrush(Qt.GlobalColor.white))
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setZValue(5)
-
-    @property
-    def source_rect(self) -> QRectF | None:
-        return self._source_rect
-
-    @source_rect.setter
-    def source_rect(self, rect: QRectF | None):
-        self._source_rect = rect
-        self.update()
-
-    def paint(self, painter: QPainter, option, widget=None):
-        r = self.rect()
-
-        # White background
-        painter.fillRect(r, Qt.GlobalColor.white)
-
-        # Clip to viewport bounds
-        painter.setClipRect(r)
-
-        # Determine model-space source rect
-        src = self._source_rect
-        if src is None:
-            src = self._model_scene.sceneRect()
-        if not src.isNull() and not src.isEmpty():
-            self._model_scene.render(painter, r, src)
-
-        # Release clip before drawing border
-        painter.setClipping(False)
-
-        # Border
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        if self.isSelected():
-            painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
-        else:
-            painter.setPen(QPen(Qt.GlobalColor.black, 0.5))
-        painter.drawRect(r)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
