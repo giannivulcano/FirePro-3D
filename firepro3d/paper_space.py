@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime
 import os
 import re
+from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsRectItem, QGraphicsPixmapItem, QComboBox, QPushButton, QLabel,
@@ -163,6 +164,98 @@ def _compute_scale_field(sheet: "Sheet") -> str:
     if len(scales) == 1:
         return float_to_scale_str(next(iter(scales)))
     return "AS NOTED"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sheet data model
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEFAULT_TITLE_BLOCK_FIELDS: dict[str, str] = {
+    "Company": "Celerity Engineering Limited",
+    "Project": "",
+    "Title": "Fire Suppression Layout",
+    "Scale": "1:100",
+    "Drawing No": "FP-001",
+    "Rev": "A",
+    "Date": datetime.date.today().strftime("%d %b %Y"),
+    "Drawn By": "",
+    "Checked By": "",
+}
+
+
+@dataclass
+class SheetViewData:
+    """Data for one viewport placed on a sheet."""
+    source_view_type: str
+    source_view_name: str
+    title: str
+    scale: float
+    x: float
+    y: float
+    w: float
+    h: float
+
+    def to_dict(self) -> dict:
+        return {
+            "source_view_type": self.source_view_type,
+            "source_view_name": self.source_view_name,
+            "title": self.title,
+            "scale": self.scale,
+            "x": self.x, "y": self.y,
+            "w": self.w, "h": self.h,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SheetViewData":
+        return cls(
+            source_view_type=d["source_view_type"],
+            source_view_name=d["source_view_name"],
+            title=d["title"],
+            scale=d["scale"],
+            x=d["x"], y=d["y"],
+            w=d["w"], h=d["h"],
+        )
+
+
+@dataclass
+class Sheet:
+    """Data model for one paper sheet."""
+    number: str
+    name: str
+    paper_size: str
+    title_block_fields: dict[str, str]
+    sheet_views: list[SheetViewData]
+
+    @classmethod
+    def create_default(cls) -> "Sheet":
+        return cls(
+            number="FP-1.0",
+            name="Fire Suppression Layout",
+            paper_size="ANSI D",
+            title_block_fields=dict(DEFAULT_TITLE_BLOCK_FIELDS),
+            sheet_views=[],
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "number": self.number,
+            "name": self.name,
+            "paper_size": self.paper_size,
+            "title_block_fields": dict(self.title_block_fields),
+            "sheet_views": [sv.to_dict() for sv in self.sheet_views],
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Sheet":
+        return cls(
+            number=d["number"],
+            name=d["name"],
+            paper_size=d["paper_size"],
+            title_block_fields=d.get("title_block_fields",
+                                     dict(DEFAULT_TITLE_BLOCK_FIELDS)),
+            sheet_views=[SheetViewData.from_dict(sv)
+                         for sv in d.get("sheet_views", [])],
+        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -354,3 +354,82 @@ class TestScaleHelpers:
     def test_float_to_custom(self):
         from firepro3d.paper_space import float_to_scale_str
         assert float_to_scale_str(1 / 125) == "1:125"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SheetViewData
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSheetViewData:
+    def test_round_trip(self):
+        from firepro3d.paper_space import SheetViewData
+        svd = SheetViewData(
+            source_view_type="plan", source_view_name="Level 1",
+            title="Level 1 - Sprinkler Plan", scale=0.01,
+            x=25.0, y=25.0, w=400.0, h=300.0,
+        )
+        d = svd.to_dict()
+        restored = SheetViewData.from_dict(d)
+        assert restored.source_view_type == "plan"
+        assert restored.source_view_name == "Level 1"
+        assert restored.title == "Level 1 - Sprinkler Plan"
+        assert restored.scale == pytest.approx(0.01)
+        assert restored.x == pytest.approx(25.0)
+        assert restored.w == pytest.approx(400.0)
+
+    def test_to_dict_keys(self):
+        from firepro3d.paper_space import SheetViewData
+        svd = SheetViewData("plan", "Level 1", "Level 1", 0.01, 0, 0, 100, 100)
+        d = svd.to_dict()
+        assert set(d.keys()) == {
+            "source_view_type", "source_view_name", "title",
+            "scale", "x", "y", "w", "h",
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sheet
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSheet:
+    def _make_sheet(self):
+        from firepro3d.paper_space import Sheet, SheetViewData
+        return Sheet(
+            number="FP-1.0", name="Fire Suppression Layout",
+            paper_size="ANSI D",
+            title_block_fields={
+                "Company": "Test Corp", "Project": "Test Project",
+                "Title": "Level 1 Plan", "Scale": "1:100",
+                "Drawing No": "FP-001", "Rev": "A",
+                "Date": "10 May 2026", "Drawn By": "GV", "Checked By": "",
+            },
+            sheet_views=[
+                SheetViewData("plan", "Level 1", "Level 1", 0.01, 25, 25, 400, 300),
+            ],
+        )
+
+    def test_round_trip(self):
+        from firepro3d.paper_space import Sheet
+        sheet = self._make_sheet()
+        d = sheet.to_dict()
+        restored = Sheet.from_dict(d)
+        assert restored.number == "FP-1.0"
+        assert restored.name == "Fire Suppression Layout"
+        assert restored.paper_size == "ANSI D"
+        assert restored.title_block_fields["Company"] == "Test Corp"
+        assert len(restored.sheet_views) == 1
+        assert restored.sheet_views[0].source_view_name == "Level 1"
+
+    def test_empty_sheet_views(self):
+        from firepro3d.paper_space import Sheet
+        sheet = Sheet("FP-1", "Test", "ANSI D", {}, [])
+        d = sheet.to_dict()
+        restored = Sheet.from_dict(d)
+        assert restored.sheet_views == []
+
+    def test_default_fields(self):
+        from firepro3d.paper_space import Sheet, DEFAULT_TITLE_BLOCK_FIELDS
+        sheet = Sheet.create_default()
+        assert sheet.paper_size == "ANSI D"
+        assert "Company" in sheet.title_block_fields
+        assert sheet.sheet_views == []
