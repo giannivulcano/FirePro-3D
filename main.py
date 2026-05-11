@@ -22,7 +22,7 @@ from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.user_layer_manager import UserLayerManager, UserLayerWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
-from firepro3d.paper_space import PaperSpaceWidget, PAPER_SIZES
+from firepro3d.paper_space import PaperSpaceWidget, Sheet, ViewResolver, PAPER_SIZES
 from firepro3d.ribbon_bar import RibbonBar
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.array_dialog import ArrayDialog
@@ -257,7 +257,8 @@ class MainWindow(QMainWindow):
 
         # Central tab widget: Model Space | 3D View | Layout 1 (Paper Space)
         self._splash_progress(35, "Building 3D viewport...")
-        self.paper_space_widget = PaperSpaceWidget(self.scene)
+        # Paper space widget created after managers are initialised (see below)
+        self.paper_space_widget = None  # placeholder — set after ViewResolver
         self.view_3d = View3D(self.scene, self.level_mgr, self.scene.scale_manager)
         self.central_tabs = QTabWidget()
         self.central_tabs.setTabsClosable(True)
@@ -353,8 +354,20 @@ class MainWindow(QMainWindow):
         self.scene._detail_manager = self.detail_manager
         self.scene._on_detail_created = self._refresh_detail_browser
 
+        # Paper space — ViewResolver + Sheet + widget
+        self._sheet = Sheet.create_default()
+        self._view_resolver = ViewResolver(
+            self.scene, self.plan_view_mgr,
+            self.detail_manager, self.elevation_manager,
+        )
+        self.paper_space_widget = PaperSpaceWidget(
+            self._sheet, self._view_resolver)
+        self.paper_space_widget.navigate_to_view.connect(
+            self._navigate_to_source_view)
+
         self.model_browser = ModelBrowser()
         self.model_browser.set_scene(self.scene)
+        self.model_browser.set_view_resolver(self._view_resolver)
         self.model_browser.entitySelected.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.model_browser.sync_from_scene)
         self.scene.sceneModified.connect(self.model_browser.refresh)
@@ -606,10 +619,19 @@ class MainWindow(QMainWindow):
                 self.central_tabs.setCurrentIndex(i)
                 return
         # Create a new paper space tab
-        from firepro3d.paper_space import PaperSpaceWidget
-        ps = PaperSpaceWidget(self.scene)
+        ps = PaperSpaceWidget(self._sheet, self._view_resolver)
         idx = self.central_tabs.addTab(ps, name)
         self.central_tabs.setCurrentIndex(idx)
+
+    def _navigate_to_source_view(self, view_type: str, view_name: str):
+        """Navigate to a source view from a paper space viewport."""
+        if view_type == "plan":
+            level_name = view_name.replace("Plan: ", "", 1)
+            self._activate_plan_view(level_name)
+        elif view_type == "detail":
+            self.detail_manager.open_detail(view_name)
+        elif view_type == "elevation":
+            self.elevation_manager.open_elevation(view_name.lower())
 
     def _activate_plan_view(self, level_name: str):
         """Open or switch to a Plan: <level> tab.
@@ -2267,8 +2289,13 @@ class MainWindow(QMainWindow):
     # MENU BAR HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _sync_sheet_before_save(self):
+        """Push the current sheet to the scene so it's included in the save."""
+        self.scene._sheets = [self._sheet]
+
     def save_file(self):
         if self._current_file:
+            self._sync_sheet_before_save()
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
                 self._update_title()
@@ -2280,6 +2307,7 @@ class MainWindow(QMainWindow):
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if file:
             self._current_file = file
+            self._sync_sheet_before_save()
             if self.scene.save_to_file(file):
                 self._modified = False
                 self._update_title()
@@ -2319,6 +2347,17 @@ class MainWindow(QMainWindow):
             self._activate_plan_view(active)
         # Override display unit and precision with user's persistent preference
         self._apply_persistent_unit_prefs()
+        # Restore sheet from loaded project
+        if self.scene._sheets:
+            self._sheet = self.scene._sheets[0]
+        else:
+            self._sheet = Sheet.create_default()
+        self.paper_space_widget.paper_scene.update_from_sheet(self._sheet)
+        self._view_resolver = ViewResolver(
+            self.scene, self.plan_view_mgr,
+            self.detail_manager, self.elevation_manager,
+        )
+        self.model_browser.set_view_resolver(self._view_resolver)
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -2361,6 +2400,7 @@ class MainWindow(QMainWindow):
             return
         path = self._autosave_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        self._sync_sheet_before_save()
         self.scene.save_to_file(path)
 
     def _check_recovery(self):
