@@ -186,6 +186,14 @@ _Existing test gap tasks (hydraulic solver, auto-populate, geometry utilities) a
 - [x] Riser pass-through indicator in plan view — vertical pipes render a yin-yang SVG symbol at XY location. Shows when no visible endpoint has horizontal pipes. Vertical pipe `shape()` returns circular hit area for split_pipe. `pipe.py`, `riser_passthrough.svg` [type:Task] [P2] [subject:CAD] [done:2026-05-10]
 - [x] Fitting visibility when pipe is hidden — fittings group added to model browser with individual hide/show. `fitting.update()` respects `_display_overrides["visible"]`. `_hide_items`/`_show_items`/`_show_all_hidden` handle Fitting objects. `fitting.py`, `model_space.py`, `model_browser.py` [type:Task] [P2] [subject:CAD] [done:2026-05-10]
 
+## Paper Space Follow-Ups (from 2026-05-11 implementation)
+- [ ] Title block template editor — Revit-style editor where users can edit elements (text, lines, cells) that make up a title block template and save custom templates. DXF title blocks currently render text as curves (no TEXT/MTEXT entities); editor would define editable field regions with proper Qt text rendering. `paper_space.py` [type:Task] [P1] [subject:Architecture]
+- [ ] Title block field overlay with measured positions — overlay dynamic field values (Scale, Project, etc.) on DXF title block artwork at positions measured from actual DXF cell geometry. Depends on title block editor. `paper_space.py` [type:Task] [P2] [subject:Architecture]
+- [ ] PDF export — single sheet, batch multi-page, per-sheet separate files. Vector output via QPdfWriter. See `docs/specs/paper-space.md` §7. `paper_space.py` [type:Task] [P1] [subject:Architecture]
+- [ ] Print — system dialog, single + batch with mixed page sizes. See `docs/specs/paper-space.md` §7.4. `paper_space.py` [type:Task] [P2] [subject:Architecture]
+- [ ] Multi-sheet management — sheet tabs, create/delete/reorder, sheet numbering. `paper_space.py`, `project_browser.py` [type:Task] [P2] [subject:Architecture]
+- [ ] Toolbar "Add View" button — secondary placement method alongside drag-from-browser. `paper_space.py` [type:Task] [P3] [subject:CAD]
+
 ## NFPA 13 Compliance Gaps (from 2026-04-29 gap analysis)
 - [ ] Remote area selection mechanism — no way to designate the most-demanding remote area for hydraulic design. Currently uses all design sprinklers equally. Need UI to mark remote area + solver to validate it as most demanding. `hydraulic_solver.py`, `design_area.py` [type:Task] [P1] [subject:Hydraulic Calculator]
 - [ ] Paper space Phase 2 implementation — annotations layer, label/thin-line scaling, layer overrides per viewport, DXF export. Phase 1 (sheet management, sheet views, PDF print) is partial. See `docs/specs/paper-space.md` Phase 2. `paper_space.py` [type:Task] [P2] [subject:Architecture]
