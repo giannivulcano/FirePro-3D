@@ -10,14 +10,13 @@ an entity in the 2D scene, double-click to zoom-to-fit.
 
 from __future__ import annotations
 
-import json
 import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
     QAbstractItemView, QMenu, QMessageBox, QFileDialog,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QMimeData, QByteArray
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor, QBrush
 
 from . import theme as th
@@ -32,31 +31,6 @@ from .underlay_context_menu import UnderlayContextMenu
 
 _ROLE_ENTITY = Qt.ItemDataRole.UserRole  # stores Python id() of the entity
 _ROLE_UNDERLAY = Qt.ItemDataRole.UserRole + 1  # stores index into scene.underlays
-_ROLE_VIEW = Qt.ItemDataRole.UserRole + 2
-
-
-class _BrowserTree(QTreeWidget):
-    """QTreeWidget with drag support for view items."""
-
-    def mimeData(self, items):
-        mime = QMimeData()
-        for item in items:
-            view_data = item.data(0, _ROLE_VIEW)
-            if view_data:
-                view_type, view_name = view_data
-                payload = json.dumps({
-                    "view_type": view_type,
-                    "view_name": view_name,
-                })
-                mime.setData(
-                    "application/x-firepro3d-view",
-                    QByteArray(payload.encode("utf-8")),
-                )
-                break
-        return mime
-
-    def mimeTypes(self):
-        return ["application/x-firepro3d-view"]
 
 
 class ModelBrowser(QWidget):
@@ -90,10 +64,8 @@ class ModelBrowser(QWidget):
         layout.addWidget(hdr)
 
         # Tree widget
-        self._tree = _BrowserTree()
+        self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
-        self._tree.setDragEnabled(True)
-        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
         self._tree.setStyleSheet(
@@ -114,9 +86,6 @@ class ModelBrowser(QWidget):
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
-        self._view_resolver = None
-        self._placed_views: set[tuple[str, str]] = set()
-
         # Debounce timer for refresh
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -132,14 +101,6 @@ class ModelBrowser(QWidget):
             scene.sceneModified.connect(self.schedule_refresh)
             scene.underlaysChanged.connect(self.schedule_refresh)
         self.refresh()
-
-    def set_view_resolver(self, resolver):
-        """Set the ViewResolver for populating the Views group."""
-        self._view_resolver = resolver
-
-    def set_placed_views(self, placed: set[tuple[str, str]]):
-        """Set which views are currently placed on a sheet (shown italic)."""
-        self._placed_views = placed
 
     def sync_from_scene(self):
         """Highlight tree items matching the current scene selection.
@@ -221,36 +182,6 @@ class ModelBrowser(QWidget):
 
             f_bold = QFont()
             f_bold.setBold(True)
-
-            # ── Views group ──────────────────────────────────────────────
-            if self._view_resolver:
-                views_root = QTreeWidgetItem(self._tree, ["Views"])
-                _bold = QFont()
-                _bold.setBold(True)
-                views_root.setFont(0, _bold)
-                views_root.setExpanded(True)
-
-                available = self._view_resolver.available_views()
-                type_map = {
-                    "Floor Plans": "plan",
-                    "Details": "detail",
-                    "Elevations": "elevation",
-                }
-                for group_name, view_names in available.items():
-                    group_node = QTreeWidgetItem(views_root, [group_name])
-                    group_node.setFont(0, _bold)
-                    group_node.setExpanded(True)
-
-                    view_type = type_map.get(group_name, "plan")
-                    for name in view_names:
-                        item = QTreeWidgetItem(group_node, [name])
-                        item.setData(0, _ROLE_VIEW, (view_type, name))
-                        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
-
-                        if (view_type, name) in self._placed_views:
-                            italic_font = QFont()
-                            italic_font.setItalic(True)
-                            item.setFont(0, italic_font)
 
             # -- Walls --
             walls = getattr(self._scene, "_walls", [])

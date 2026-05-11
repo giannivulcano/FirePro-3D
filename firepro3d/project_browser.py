@@ -30,11 +30,13 @@ activatePaperSheet(name)  — user double-clicked a Paper Space sheet by name
 
 from __future__ import annotations
 
+import json
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
-    QMenu, QInputDialog,
+    QMenu, QInputDialog, QAbstractItemView,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QByteArray
 from PyQt6.QtGui import QFont, QColor, QBrush, QIcon
 from . import theme as th
 
@@ -45,6 +47,38 @@ from . import theme as th
 
 _ROLE_TYPE  = Qt.ItemDataRole.UserRole         # "model_root" | "ms_stub" | "paper_root" | "sheet" | "plan" | "elevation"
 _ROLE_NAME  = Qt.ItemDataRole.UserRole + 1     # str name for sheets / levels / elevations
+_ROLE_VIEW  = Qt.ItemDataRole.UserRole + 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drag-enabled tree
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ProjectTree(QTreeWidget):
+    """QTreeWidget with drag support for view items."""
+
+    def mimeData(self, items):
+        mime = QMimeData()
+        for item in items:
+            role_type = item.data(0, _ROLE_TYPE)
+            if role_type in ("plan", "elevation", "detail"):
+                view_name = item.data(0, _ROLE_NAME)
+                # For plan views, the ViewResolver expects "Plan: Level 1" format
+                if role_type == "plan":
+                    view_name = f"Plan: {view_name}"
+                payload = json.dumps({
+                    "view_type": role_type,
+                    "view_name": view_name,
+                })
+                mime.setData(
+                    "application/x-firepro3d-view",
+                    QByteArray(payload.encode("utf-8")),
+                )
+                break
+        return mime
+
+    def mimeTypes(self):
+        return ["application/x-firepro3d-view"]
 
 
 class ProjectBrowser(QWidget):
@@ -97,8 +131,10 @@ class ProjectBrowser(QWidget):
         layout.addWidget(hdr)
 
         # Tree
-        self._tree = QTreeWidget()
+        self._tree = _ProjectTree()
         self._tree.setHeaderHidden(True)
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
         self._tree.setStyleSheet(
@@ -114,6 +150,7 @@ class ProjectBrowser(QWidget):
         layout.addWidget(self._tree)
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self._placed_views: set[tuple[str, str]] = set()
         self._build_tree()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -139,6 +176,10 @@ class ProjectBrowser(QWidget):
             item.setData(0, _ROLE_NAME, name)
         self._paper_root.setExpanded(True)
 
+    def set_placed_views(self, placed: set[tuple[str, str]]):
+        """Set which views are currently placed on a sheet (shown italic)."""
+        self._placed_views = placed
+
     def set_level_manager(self, level_manager):
         """Set or replace the level manager and rebuild the Plans sub-tree."""
         self._level_manager = level_manager
@@ -155,6 +196,11 @@ class ProjectBrowser(QWidget):
                 item.setData(0, _ROLE_TYPE, "plan")
                 item.setData(0, _ROLE_NAME, lvl.name)
                 item.setToolTip(0, f"Plan view — {lvl.name}  (elev {self._fmt_elev(lvl.elevation)})")
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+                if ("plan", f"Plan: {lvl.name}") in self._placed_views:
+                    italic_font = QFont()
+                    italic_font.setItalic(True)
+                    item.setFont(0, italic_font)
         self._plans_root.setExpanded(True)
 
     def refresh_details(self, detail_names: list[str]):
@@ -167,6 +213,11 @@ class ProjectBrowser(QWidget):
             item.setData(0, _ROLE_TYPE, "detail")
             item.setData(0, _ROLE_NAME, name)
             item.setToolTip(0, f"Detail view — {name}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            if ("detail", name) in self._placed_views:
+                italic_font = QFont()
+                italic_font.setItalic(True)
+                item.setFont(0, italic_font)
         self._details_root.setExpanded(True)
 
     # ── Private ───────────────────────────────────────────────────────────────
@@ -202,6 +253,11 @@ class ProjectBrowser(QWidget):
             item.setData(0, _ROLE_TYPE, "elevation")
             item.setData(0, _ROLE_NAME, elev_name)
             item.setToolTip(0, f"Elevation view — {elev_name}")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            if ("elevation", elev_name) in self._placed_views:
+                italic_font = QFont()
+                italic_font.setItalic(True)
+                item.setFont(0, italic_font)
         self._elev_root = elev_root
 
         # ── Details (populated dynamically) ───────────────────────────────

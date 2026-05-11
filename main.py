@@ -367,7 +367,6 @@ class MainWindow(QMainWindow):
 
         self.model_browser = ModelBrowser()
         self.model_browser.set_scene(self.scene)
-        self.model_browser.set_view_resolver(self._view_resolver)
         self.model_browser.entitySelected.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.model_browser.sync_from_scene)
         self.scene.sceneModified.connect(self.model_browser.refresh)
@@ -400,6 +399,10 @@ class MainWindow(QMainWindow):
         )
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.prop_dock)
         self.prop_dock.setMinimumWidth(200)
+
+        # Keyboard shortcuts to toggle dock visibility (B = browser, P = properties)
+        self.browser_dock.toggleViewAction().setShortcut(QKeySequence("B"))
+        self.prop_dock.toggleViewAction().setShortcut(QKeySequence("P"))
 
         # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
         self.hydro_report = HydraulicReportWidget()
@@ -2357,7 +2360,6 @@ class MainWindow(QMainWindow):
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
         )
-        self.model_browser.set_view_resolver(self._view_resolver)
 
     # ── Recent files ──────────────────────────────────────────────────────
 
