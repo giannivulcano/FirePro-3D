@@ -19,10 +19,12 @@ import re
 from dataclasses import dataclass
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsItem, QGraphicsRectItem, QGraphicsPixmapItem, QComboBox, QPushButton, QLabel,
+    QGraphicsItem, QGraphicsRectItem, QGraphicsPixmapItem, QGraphicsObject,
+    QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
+    QMenu,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
     QPainterPath,
@@ -323,6 +325,237 @@ class ViewResolver:
         directions = ["North", "South", "East", "West"]
         result["Elevations"] = directions
         return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SheetViewport — live viewport on a paper sheet
+# ─────────────────────────────────────────────────────────────────────────────
+
+_GRIP_SIZE = 4.0
+_MIN_VIEWPORT_SIZE = 20.0
+
+
+class SheetViewport(QGraphicsObject):
+    """A viewport on a paper sheet that renders a source view at scale."""
+
+    navigate_requested = pyqtSignal(str, str)
+    delete_requested = pyqtSignal(object)
+    properties_requested = pyqtSignal(object)
+
+    def __init__(self, data: SheetViewData, resolver: ViewResolver, parent=None):
+        super().__init__(parent)
+        self._data = data
+        self._resolver = resolver
+        self._dirty = True
+        self._cache: QPixmap | None = None
+        self._placeholder = False
+        self._resizing = False
+        self._resize_handle: int = -1
+        self._resize_origin = QPointF()
+
+        self.setPos(data.x, data.y)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setZValue(5)
+
+        self._source_scene = None
+        self._source_rect = QRectF()
+        self._reconnect_source()
+
+    @property
+    def data(self) -> SheetViewData:
+        return self._data
+
+    def _reconnect_source(self):
+        if self._source_scene is not None:
+            try:
+                self._source_scene.changed.disconnect(self._on_source_changed)
+            except (TypeError, RuntimeError):
+                pass
+        result = self._resolver.resolve(self._data.source_view_type, self._data.source_view_name)
+        if result is None:
+            self._placeholder = True
+            self._source_scene = None
+            self._source_rect = QRectF()
+            return
+        self._placeholder = False
+        self._source_scene, self._source_rect = result
+        self._source_scene.changed.connect(self._on_source_changed)
+
+    def _on_source_changed(self, rects=None):
+        self.mark_dirty()
+
+    def mark_dirty(self):
+        self._dirty = True
+        self._cache = None
+        self.update()
+
+    def sync_data_from_item(self):
+        pos = self.pos()
+        self._data.x = pos.x()
+        self._data.y = pos.y()
+
+    def boundingRect(self) -> QRectF:
+        margin = _GRIP_SIZE if self.isSelected() else 0
+        return QRectF(-margin, -margin, self._data.w + 2 * margin, self._data.h + 2 * margin)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        w, h = self._data.w, self._data.h
+        vp_rect = QRectF(0, 0, w, h)
+        if self._placeholder:
+            painter.fillRect(vp_rect, QColor("#e0e0e0"))
+            painter.setPen(QPen(QColor("#888888"), 0.5))
+            painter.drawRect(vp_rect)
+            f = QFont("Arial", 3)
+            painter.setFont(f)
+            painter.setPen(Qt.GlobalColor.darkRed)
+            painter.drawText(vp_rect, Qt.AlignmentFlag.AlignCenter,
+                             f"View not found:\n{self._data.source_view_name}")
+            return
+        if self._dirty or self._cache is None:
+            self._render_to_cache()
+        if self._cache and not self._cache.isNull():
+            painter.drawPixmap(vp_rect.toRect(), self._cache)
+        else:
+            painter.fillRect(vp_rect, Qt.GlobalColor.white)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if self.isSelected():
+            painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
+        else:
+            painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
+        painter.drawRect(vp_rect)
+        if self.isSelected():
+            self._draw_grips(painter)
+
+    def _render_to_cache(self):
+        if self._source_scene is None:
+            self._cache = None
+            self._dirty = False
+            return
+        w, h = self._data.w, self._data.h
+        dpr = 2
+        px_w, px_h = int(w * dpr), int(h * dpr)
+        if px_w <= 0 or px_h <= 0:
+            self._cache = None
+            self._dirty = False
+            return
+        pixmap = QPixmap(px_w, px_h)
+        pixmap.setDevicePixelRatio(dpr)
+        pixmap.fill(Qt.GlobalColor.white)
+        p = QPainter(pixmap)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        target = QRectF(0, 0, w, h)
+        self._source_scene.render(p, target, self._source_rect)
+        p.end()
+        self._cache = pixmap
+        self._dirty = False
+
+    def _grip_rects(self) -> list[QRectF]:
+        w, h = self._data.w, self._data.h
+        g = _GRIP_SIZE
+        hg = g / 2
+        return [
+            QRectF(-hg, -hg, g, g),
+            QRectF(w / 2 - hg, -hg, g, g),
+            QRectF(w - hg, -hg, g, g),
+            QRectF(-hg, h / 2 - hg, g, g),
+            QRectF(w - hg, h / 2 - hg, g, g),
+            QRectF(-hg, h - hg, g, g),
+            QRectF(w / 2 - hg, h - hg, g, g),
+            QRectF(w - hg, h - hg, g, g),
+        ]
+
+    def _draw_grips(self, painter: QPainter):
+        painter.setPen(QPen(QColor("#0055ff"), 0.3))
+        painter.setBrush(QBrush(Qt.GlobalColor.white))
+        for r in self._grip_rects():
+            painter.drawRect(r)
+
+    def _hit_grip(self, pos: QPointF) -> int:
+        for i, r in enumerate(self._grip_rects()):
+            if r.contains(pos):
+                return i
+        return -1
+
+    def mousePressEvent(self, event):
+        if self.isSelected() and event.button() == Qt.MouseButton.LeftButton:
+            grip = self._hit_grip(event.pos())
+            if grip >= 0:
+                self._resizing = True
+                self._resize_handle = grip
+                self._resize_origin = event.pos()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            delta = event.pos() - self._resize_origin
+            self._apply_grip_resize(self._resize_handle, delta)
+            self._resize_origin = event.pos()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resizing:
+            self._resizing = False
+            self._resize_handle = -1
+            self.sync_data_from_item()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _apply_grip_resize(self, handle: int, delta: QPointF):
+        dx, dy = delta.x(), delta.y()
+        x, y = self._data.x, self._data.y
+        w, h = self._data.w, self._data.h
+        if handle in (0, 3, 5):
+            new_w = max(w - dx, _MIN_VIEWPORT_SIZE)
+            actual_dx = w - new_w
+            self._data.x = x + actual_dx
+            self._data.w = new_w
+        if handle in (2, 4, 7):
+            self._data.w = max(w + dx, _MIN_VIEWPORT_SIZE)
+        if handle in (0, 1, 2):
+            new_h = max(h - dy, _MIN_VIEWPORT_SIZE)
+            actual_dy = h - new_h
+            self._data.y = y + actual_dy
+            self._data.h = new_h
+        if handle in (5, 6, 7):
+            self._data.h = max(h + dy, _MIN_VIEWPORT_SIZE)
+        self.setPos(self._data.x, self._data.y)
+        self.mark_dirty()
+        self.prepareGeometryChange()
+
+    def mouseDoubleClickEvent(self, event):
+        self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
+
+    def contextMenuEvent(self, event: QGraphicsSceneContextMenuEvent):
+        menu = QMenu()
+        props_action = menu.addAction("Properties...")
+        goto_action = menu.addAction("Go to View")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete")
+        action = menu.exec(event.screenPos())
+        if action == props_action:
+            self.properties_requested.emit(self)
+        elif action == goto_action:
+            self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
+        elif action == delete_action:
+            self.delete_requested.emit(self)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
+            self.sync_data_from_item()
+        return super().itemChange(change, value)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_requested.emit(self)
+        else:
+            super().keyPressEvent(event)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

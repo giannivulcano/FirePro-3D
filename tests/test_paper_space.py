@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QRectF, QPointF, Qt
 
 from firepro3d.paper_space import (
     PAPER_SIZES, MARGIN, INNER_MARGIN, TITLE_H,
@@ -512,3 +512,63 @@ class TestViewResolver:
         assert resolver.resolve("detail", "Nonexistent") is None
         assert resolver.resolve("elevation", "Nonexistent") is None
         assert resolver.resolve("unknown_type", "Foo") is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SheetViewport
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSheetViewport:
+    def _make_viewport(self, qapp):
+        from firepro3d.paper_space import SheetViewData, SheetViewport
+        data = SheetViewData("plan", "Level 1", "Level 1", 0.01, 50, 50, 400, 300)
+        model_scene = QGraphicsScene()
+        model_scene.addRect(0, 0, 40000, 30000)
+        resolver = MagicMock()
+        resolver.resolve.return_value = (model_scene, QRectF(0, 0, 40000, 30000))
+        vp = SheetViewport(data, resolver)
+        return vp, data, resolver, model_scene
+
+    def test_rect_matches_data(self, qapp):
+        vp, data, _, _ = self._make_viewport(qapp)
+        assert vp.boundingRect().width() == pytest.approx(400, abs=20)
+        assert vp.boundingRect().height() == pytest.approx(300, abs=20)
+
+    def test_movable_and_selectable(self, qapp):
+        vp, _, _, _ = self._make_viewport(qapp)
+        flags = vp.flags()
+        from PyQt6.QtWidgets import QGraphicsItem
+        assert flags & QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        assert flags & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+
+    def test_dirty_flag_initial(self, qapp):
+        vp, _, _, _ = self._make_viewport(qapp)
+        assert vp._dirty is True
+
+    def test_mark_dirty(self, qapp):
+        vp, _, _, _ = self._make_viewport(qapp)
+        vp._dirty = False
+        vp.mark_dirty()
+        assert vp._dirty is True
+
+    def test_update_data_from_position(self, qapp):
+        vp, data, _, _ = self._make_viewport(qapp)
+        vp.setPos(100, 200)
+        vp.sync_data_from_item()
+        assert data.x == pytest.approx(100)
+        assert data.y == pytest.approx(200)
+
+    def test_placeholder_on_missing_view(self, qapp):
+        from firepro3d.paper_space import SheetViewData, SheetViewport
+        data = SheetViewData("plan", "Deleted View", "Deleted", 0.01, 50, 50, 400, 300)
+        resolver = MagicMock()
+        resolver.resolve.return_value = None
+        vp = SheetViewport(data, resolver)
+        assert vp._placeholder is True
+
+    def test_dirty_flag_on_source_change(self, qapp):
+        vp, _, _, model_scene = self._make_viewport(qapp)
+        vp._dirty = False
+        model_scene.addRect(500, 500, 100, 100)
+        qapp.processEvents()
+        assert vp._dirty is True
