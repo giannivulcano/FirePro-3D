@@ -459,13 +459,10 @@ class SheetViewport(QGraphicsObject):
 
         # View title below viewport (Revit-style)
         title_y = h + 0.5
-        # Horizontal line spanning viewport width
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
-        painter.drawLine(QPointF(0, title_y), QPointF(w, title_y))
 
-        # Bubble with view number
-        bubble_r = 3.0  # radius in mm
-        bubble_cx = bubble_r + 1.0  # center x
+        # Bubble
+        bubble_r = 3.0
+        bubble_cx = bubble_r + 1.0
         bubble_cy = title_y + bubble_r + 1.0
         painter.setPen(QPen(Qt.GlobalColor.black, 0.25))
         painter.setBrush(QBrush(Qt.GlobalColor.white))
@@ -481,18 +478,25 @@ class SheetViewport(QGraphicsObject):
                          Qt.AlignmentFlag.AlignCenter,
                          self._data.view_number or "1")
 
-        # Title text — ALL CAPS, bold, right of bubble
-        text_x = bubble_cx + bubble_r + 2.0
+        # Horizontal line from bubble right perimeter to viewport edge
+        line_x_start = bubble_cx + bubble_r
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
+        painter.drawLine(QPointF(line_x_start, bubble_cy),
+                         QPointF(w, bubble_cy))
+
+        # Title text — ALL CAPS, bold, ABOVE the line
+        text_x = line_x_start + 1.5
         f_title = QFont("Arial")
         f_title.setPointSizeF(2.2)
         f_title.setBold(True)
         painter.setFont(f_title)
         painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
-        painter.drawText(QRectF(text_x, title_y + 0.5, w - text_x, 4.0),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        title_rect_above = QRectF(text_x, title_y, w - text_x, bubble_cy - title_y - 0.3)
+        painter.drawText(title_rect_above,
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
                          self._data.title.upper())
 
-        # Scale text below title
+        # Scale text below the line
         if self._data.scale == 0.0:
             scale_text = "NTS"
         else:
@@ -501,8 +505,9 @@ class SheetViewport(QGraphicsObject):
         f_scale.setPointSizeF(1.6)
         painter.setFont(f_scale)
         painter.setPen(QPen(QColor("#444444"), 0.1))
-        painter.drawText(QRectF(text_x, title_y + 4.0, w - text_x, 3.0),
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        title_rect_below = QRectF(text_x, bubble_cy + 0.3, w - text_x, bubble_r + 0.5)
+        painter.drawText(title_rect_below,
+                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
                          scale_text)
 
         # Resize grips when selected
@@ -655,11 +660,10 @@ class SheetViewPropertiesDialog(QDialog):
         layout.addRow("", self._border_check)
 
         if data:
-            from .constants import format_length, parse_dimension
-            self._x_edit = QLineEdit(format_length(data.x))
-            self._y_edit = QLineEdit(format_length(data.y))
-            self._w_edit = QLineEdit(format_length(data.w))
-            self._h_edit = QLineEdit(format_length(data.h))
+            self._x_edit = QLineEdit(f"{data.x:.1f}")
+            self._y_edit = QLineEdit(f"{data.y:.1f}")
+            self._w_edit = QLineEdit(f"{data.w:.1f}")
+            self._h_edit = QLineEdit(f"{data.h:.1f}")
             layout.addRow("Position X:", self._x_edit)
             layout.addRow("Position Y:", self._y_edit)
             layout.addRow("Width:", self._w_edit)
@@ -688,20 +692,20 @@ class SheetViewPropertiesDialog(QDialog):
     def get_position(self) -> "tuple[float, float] | None":
         if self._data is None:
             return None
-        from .constants import parse_dimension
-        x = parse_dimension(self._x_edit.text())
-        y = parse_dimension(self._y_edit.text())
-        if x is None or y is None:
+        try:
+            x = float(self._x_edit.text())
+            y = float(self._y_edit.text())
+        except ValueError:
             return (self._data.x, self._data.y)
         return (x, y)
 
     def get_size(self) -> "tuple[float, float] | None":
         if self._data is None:
             return None
-        from .constants import parse_dimension
-        w = parse_dimension(self._w_edit.text())
-        h = parse_dimension(self._h_edit.text())
-        if w is None or h is None:
+        try:
+            w = float(self._w_edit.text())
+            h = float(self._h_edit.text())
+        except ValueError:
             return (self._data.w, self._data.h)
         return (max(w, _MIN_VIEWPORT_SIZE), max(h, _MIN_VIEWPORT_SIZE))
 
