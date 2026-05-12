@@ -812,6 +812,14 @@ class PaperGraphicsView(QGraphicsView):
 
     # ── Delete key handling ────────────────────────────────────────────
 
+    def event(self, event):
+        from PyQt6.QtCore import QEvent
+        if event.type() == QEvent.Type.ShortcutOverride:
+            if event.key() == Qt.Key.Key_Delete:
+                event.accept()
+                return True
+        return super().event(event)
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
             scene = self._paper_scene
@@ -909,6 +917,7 @@ class PaperGraphicsView(QGraphicsView):
         self.translate(delta.x(), delta.y())
 
     def mousePressEvent(self, event):
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
