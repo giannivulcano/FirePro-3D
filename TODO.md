@@ -188,6 +188,7 @@ _Existing test gap tasks (hydraulic solver, auto-populate, geometry utilities) a
 
 ## Paper Space Follow-Ups (from 2026-05-11 implementation)
 - [ ] Title block template editor — Revit-style editor where users can edit elements (text, lines, cells) that make up a title block template and save custom templates. DXF title blocks currently render text as curves (no TEXT/MTEXT entities); editor would define editable field regions with proper Qt text rendering. `paper_space.py` [type:Task] [P1] [subject:Architecture]
+- [ ] Paper space display manager tab — add a second tab to Display Manager for paper space overrides (line weight, colour, fill per category). AutoCAD-style per-category display control separate from plan view display. Drives B&W rendering in viewports via category color overrides rather than grayscale conversion. `display_manager.py`, `paper_space.py` [type:Task] [P1] [subject:Architecture]
 - [ ] Title block field overlay with measured positions — overlay dynamic field values (Scale, Project, etc.) on DXF title block artwork at positions measured from actual DXF cell geometry. Depends on title block editor. `paper_space.py` [type:Task] [P2] [subject:Architecture]
 - [ ] PDF export — single sheet, batch multi-page, per-sheet separate files. Vector output via QPdfWriter. See `docs/specs/paper-space.md` §7. `paper_space.py` [type:Task] [P1] [subject:Architecture]
 - [ ] Print — system dialog, single + batch with mixed page sizes. See `docs/specs/paper-space.md` §7.4. `paper_space.py` [type:Task] [P2] [subject:Architecture]
