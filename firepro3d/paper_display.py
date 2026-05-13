@@ -339,6 +339,34 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
         item.setOpacity(cat["opacity"] / 100.0)
         item.update()
 
+    # Handle Fittings separately (wrappers, not QGraphicsItems)
+    if hasattr(scene, "sprinkler_system"):
+        for node in scene.sprinkler_system.nodes:
+            f = node.fitting
+            if f is None or f.symbol is None or not f.symbol.isVisible():
+                continue
+            # Check if fitting symbol is within source_rect
+            if not source_rect.contains(f.symbol.scenePos()):
+                continue
+            cat = cats.get("Fitting")
+            if cat is None:
+                continue
+            entry = {
+                "item": f.symbol,
+                "fitting": f,
+                "display_color": getattr(f, "_display_color", None),
+                "display_fill_color": getattr(f, "_display_fill_color", None),
+                "opacity": f.symbol.opacity(),
+                "pen": None,
+            }
+            saved.append(entry)
+            lw_mm = resolve_line_weight_mm(cat["line_weight"])
+            if color_mode != PaperColorMode.FULL_COLOR:
+                _set_svg_tint(f.symbol, cat["color"], cat.get("fill"))
+                f._display_color = cat["color"]
+                f._display_fill_color = cat.get("fill")
+            f.symbol.setOpacity(cat["opacity"] / 100.0)
+
     return saved
 
 
@@ -365,4 +393,9 @@ def restore_model_display(saved: list[dict]):
             item.set_pipe_display()
         elif entry["pen"] is not None and hasattr(item, "setPen"):
             item.setPen(entry["pen"])
+        # Restore fitting wrapper attributes
+        fitting = entry.get("fitting")
+        if fitting is not None:
+            fitting._display_color = entry["display_color"]
+            fitting._display_fill_color = entry["display_fill_color"]
         item.update()
