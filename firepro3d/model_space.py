@@ -3584,6 +3584,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(0, label)
         all_layers = sorted({g.get("layer", "0") for g in geom_list})
         group.setData(2, all_layers)
+        if source_mtime is None:
+            group.setData(3, "source_missing")
         self.setItemIndexMethod(old_method)
 
         self._apply_underlay_display(group, record)
