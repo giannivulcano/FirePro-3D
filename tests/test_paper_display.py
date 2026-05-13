@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QSettings, QRectF
+from PyQt6.QtCore import QSettings, QRectF, QPointF
+from PyQt6.QtGui import QPen, QColor
 
 from firepro3d.paper_display import (
     LineWeightDef,
@@ -259,3 +260,89 @@ class TestLineWeightValidation:
 
     def test_accept_max_width(self):
         assert validate_line_weight_width(3.00) is True
+
+
+class TestViewportIntegration:
+    """Integration tests for viewport rendering with paper display overrides."""
+
+    @pytest.fixture
+    def scene_with_wall(self, qapp):
+        from firepro3d.wall import WallSegment
+        scene = QGraphicsScene()
+        wall = WallSegment(QPointF(0, 0), QPointF(200, 0), thickness_mm=100)
+        scene.addItem(wall)
+        wall._display_color = "#666666"
+        return scene, wall
+
+    def test_bw_mode_sets_wall_black(self, scene_with_wall):
+        scene, wall = scene_with_wall
+        save_paper_color_mode(PaperColorMode.BW)
+        source_rect = QRectF(-10, -60, 220, 120)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert wall._display_color == "#000000"
+        restore_model_display(saved)
+        assert wall._display_color == "#666666"
+
+    def test_line_weight_applied(self, scene_with_wall):
+        scene, wall = scene_with_wall
+        cats = load_paper_categories()
+        cats["Wall"]["line_weight"] = "Heavy"
+        save_paper_categories(cats)
+        source_rect = QRectF(-10, -60, 220, 120)
+        saved = apply_paper_overrides(scene, source_rect)
+        pen = wall.pen()
+        assert pen.widthF() == pytest.approx(0.35, abs=0.01)
+        assert pen.isCosmetic() is False
+        restore_model_display(saved)
+
+    def test_full_color_preserves_model_colors(self, scene_with_wall):
+        scene, wall = scene_with_wall
+        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        source_rect = QRectF(-10, -60, 220, 120)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert wall._display_color == "#666666"  # unchanged
+        restore_model_display(saved)
+
+    def test_opacity_applied(self, scene_with_wall):
+        scene, wall = scene_with_wall
+        cats = load_paper_categories()
+        cats["Wall"]["opacity"] = 50
+        save_paper_categories(cats)
+        source_rect = QRectF(-10, -60, 220, 120)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert wall.opacity() == pytest.approx(0.5, abs=0.01)
+        restore_model_display(saved)
+        assert wall.opacity() == pytest.approx(1.0, abs=0.01)
+
+    def test_per_instance_override_ignored_in_paper_space(self, scene_with_wall):
+        """Paper-space category settings override model per-instance overrides."""
+        scene, wall = scene_with_wall
+        wall._display_overrides = {"color": "#ff0000"}
+        wall._display_color = "#ff0000"
+        save_paper_color_mode(PaperColorMode.BW)
+        source_rect = QRectF(-10, -60, 220, 120)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert wall._display_color == "#000000"
+        restore_model_display(saved)
+        assert wall._display_color == "#ff0000"
+
+
+class TestProjectRoundTrip:
+    def test_save_load_round_trip(self):
+        """Verify paper display survives project save -> load cycle."""
+        save_paper_color_mode(PaperColorMode.CUSTOM)
+        cats = load_paper_categories()
+        cats["Pipe"]["line_weight"] = "Heavy"
+        cats["Pipe"]["opacity"] = 75
+        save_paper_categories(cats)
+
+        saved_data = get_paper_display_for_save()
+
+        save_paper_color_mode(PaperColorMode.BW)
+        save_paper_categories(FACTORY_PAPER_CATEGORIES)
+
+        apply_paper_display_from_project(saved_data)
+        assert load_paper_color_mode() == PaperColorMode.CUSTOM
+        loaded = load_paper_categories()
+        assert loaded["Pipe"]["line_weight"] == "Heavy"
+        assert loaded["Pipe"]["opacity"] == 75
