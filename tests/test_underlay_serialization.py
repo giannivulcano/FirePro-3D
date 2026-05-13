@@ -453,3 +453,24 @@ class TestGetProperties:
         for key, entry in props.items():
             assert entry["type"] == "label", (
                 f"Property '{key}' has type '{entry['type']}', expected 'label'")
+
+
+# =====================================================================
+# Cache key
+# =====================================================================
+
+class TestUnderlayCacheKey:
+    def test_dxf_cache_key_deterministic(self):
+        u = Underlay(type="dxf", path="/plans/floor1.dxf")
+        assert u.cache_key() == u.cache_key()
+
+    def test_pdf_different_pages_different_keys(self):
+        u1 = Underlay(type="pdf", path="/plans/sheet.pdf", page=0)
+        u2 = Underlay(type="pdf", path="/plans/sheet.pdf", page=1)
+        assert u1.cache_key() != u2.cache_key()
+
+    def test_dxf_layer_selection_affects_key(self):
+        u1 = Underlay(type="dxf", path="/plans/floor.dxf", selected_layers=None)
+        u2 = Underlay(type="dxf", path="/plans/floor.dxf",
+                      selected_layers=["A-WALL"])
+        assert u1.cache_key() != u2.cache_key()

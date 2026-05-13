@@ -168,3 +168,9 @@ class Underlay:
                 "type": "label",
                 "value": ", ".join(self.hidden_layers)}
         return props
+
+    def cache_key(self) -> str:
+        """Return the cache filename for this underlay's geometry."""
+        from .underlay_cache import compute_cache_key
+        return compute_cache_key(
+            self.path, page=self.page, selected_layers=self.selected_layers)
