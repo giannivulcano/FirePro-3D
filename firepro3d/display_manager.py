@@ -832,6 +832,14 @@ class DisplayManager(QDialog):
         self._inst_data: dict[int, dict] = {}
 
         self._take_snapshot()
+
+        # Paper-space settings snapshot for cancel-revert
+        from .paper_display import load_paper_categories, load_paper_color_mode
+        self._paper_settings_snapshot = {
+            "categories": load_paper_categories(self._settings),
+            "color_mode": load_paper_color_mode(self._settings).value,
+        }
+
         self._build_ui()
 
     def resizeEvent(self, event):
@@ -1202,8 +1210,14 @@ class DisplayManager(QDialog):
         # ── Tab widget ──────────────────────────────────────────────
         self._tabs = QTabWidget()
         self._tabs.addTab(self._tree, "Model")
+        self._paper_tab = self._build_paper_space_tab()
+        self._tabs.insertTab(1, self._paper_tab, "Paper Space")
         self._lw_tab = self._build_line_weights_tab()
         self._tabs.addTab(self._lw_tab, "Line Weights")
+
+        if self._active_context == "paper":
+            self._tabs.setCurrentIndex(1)  # Paper Space tab
+
         outer.addWidget(self._tabs)
 
         # ── Button box ───────────────────────────────────────────────
@@ -1700,7 +1714,17 @@ class DisplayManager(QDialog):
         self._apply_preview()
 
     def _reset_all(self):
-        """Reset all categories and instances to factory defaults."""
+        """Reset active tab to factory defaults."""
+        idx = self._tabs.currentIndex()
+        if idx == 0:
+            self._reset_model_tab()
+        elif idx == 1:
+            self._reset_paper_space_tab()
+        elif idx == 2:
+            self._reset_line_weights_tab()
+
+    def _reset_model_tab(self):
+        """Reset all Model tab categories and instances to factory defaults."""
         self._suppress = True
         try:
             for cat_def in _CATEGORIES:
@@ -1741,8 +1765,58 @@ class DisplayManager(QDialog):
             self._suppress = False
         self._apply_preview()
 
+    def _reset_paper_space_tab(self):
+        """Reset Paper Space tab to B&W factory defaults."""
+        from .paper_display import (
+            FACTORY_PAPER_CATEGORIES, save_paper_categories,
+            PaperColorMode, save_paper_color_mode, _HAS_FILL, _HAS_SECTION,
+        )
+        save_paper_color_mode(PaperColorMode.BW, self._settings)
+        save_paper_categories(FACTORY_PAPER_CATEGORIES, self._settings)
+        self._suppress = True
+        self._color_mode_combo.setCurrentIndex(1)  # B&W
+        for key, widgets in self._paper_cat_data.items():
+            factory = FACTORY_PAPER_CATEGORIES[key]
+            self._update_color_btn(widgets["color_btn"], factory["color"])
+            widgets["color_btn"].setProperty("_color", factory["color"])
+            if key in _HAS_FILL:
+                self._update_color_btn(widgets["fill_btn"], factory["fill"])
+                widgets["fill_btn"].setProperty("_color", factory["fill"])
+            if key in _HAS_SECTION:
+                self._update_color_btn(widgets["section_btn"],
+                                       factory["section_color"])
+                widgets["section_btn"].setProperty("_color",
+                                                    factory["section_color"])
+            idx = widgets["lw_combo"].findText(factory["line_weight"])
+            if idx >= 0:
+                widgets["lw_combo"].setCurrentIndex(idx)
+            widgets["opacity"].setValue(factory["opacity"])
+        self._suppress = False
+        self._apply_color_mode_ui(PaperColorMode.BW)
+        self._apply_paper_preview()
+
+    def _reset_line_weights_tab(self):
+        """Reset Line Weights tab to factory defaults."""
+        from .paper_display import FACTORY_LINE_WEIGHTS, save_line_weights, LineWeightDef
+        self._lw_defs = [LineWeightDef(d.name, d.width_mm)
+                         for d in FACTORY_LINE_WEIGHTS]
+        save_line_weights(self._lw_defs, self._settings)
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
     def _set_as_default(self):
-        """Save current category settings as defaults for new projects.
+        """Save current tab settings as defaults for new projects."""
+        idx = self._tabs.currentIndex()
+        if idx == 0:
+            self._set_model_as_default()
+        elif idx == 1:
+            self._settings.sync()  # paper space already in QSettings
+        elif idx == 2:
+            self._settings.sync()  # line weights already in QSettings
+
+    def _set_model_as_default(self):
+        """Save current Model tab category settings as defaults for new projects.
 
         Also saves to regular keys so the Display Manager shows them on
         next open, and calls sync() to force immediate persistence.
@@ -1905,6 +1979,329 @@ class DisplayManager(QDialog):
             elev_mgr = getattr(self._scene, "_elevation_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
                 elev_mgr.rebuild_all()
+
+    # ------------------------------------------------------------------
+    # Paper Space tab
+    # ------------------------------------------------------------------
+
+    # Paper-space tree column indices
+    _PS_COL_NAME    = 0
+    _PS_COL_COLOR   = 1
+    _PS_COL_FILL    = 2
+    _PS_COL_SECTION = 3
+    _PS_COL_LW      = 4
+    _PS_COL_OPACITY = 5
+
+    # Paper-space category groups
+    _PS_GROUPS = {
+        "Fire Suppression": [
+            "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
+            "Hydraulic Badge",
+        ],
+        "Architecture": ["Wall", "Roof", "Room", "Floor"],
+        "Grids & Levels": [
+            "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
+        ],
+    }
+
+    def _build_paper_space_tab(self) -> QWidget:
+        """Build the Paper Space display overrides tab."""
+        from .paper_display import (
+            load_line_weights, load_paper_categories, load_paper_color_mode,
+            save_paper_categories, save_paper_color_mode,
+            PaperColorMode, _HAS_FILL, _HAS_SECTION, _CATEGORY_KEYS,
+        )
+        _t = th.detect()
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        # ── Color mode dropdown ─────────────────────────────────────
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Color Mode:"))
+        self._color_mode_combo = QComboBox()
+        self._color_mode_combo.addItems(["Full Color", "B&&W", "Custom"])
+        mode = load_paper_color_mode(self._settings)
+        mode_index = {
+            PaperColorMode.FULL_COLOR: 0,
+            PaperColorMode.BW: 1,
+            PaperColorMode.CUSTOM: 2,
+        }.get(mode, 1)
+        self._color_mode_combo.setCurrentIndex(mode_index)
+        self._color_mode_combo.currentIndexChanged.connect(
+            self._on_color_mode_changed)
+        mode_row.addWidget(self._color_mode_combo)
+        mode_row.addStretch()
+        layout.addLayout(mode_row)
+
+        # ── Category tree ───────────────────────────────────────────
+        self._ps_tree = QTreeWidget()
+        self._ps_tree.setColumnCount(6)
+        self._ps_tree.setHeaderLabels(
+            ["Name", "Colour", "Fill", "Section", "Line Weight", "Opacity"])
+        self._ps_tree.setRootIsDecorated(True)
+        self._ps_tree.setIndentation(20)
+        self._ps_tree.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection)
+        self._ps_tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        hdr = self._ps_tree.header()
+        hdr.setSectionResizeMode(self._PS_COL_NAME,
+                                 QHeaderView.ResizeMode.Stretch)
+        for col in (self._PS_COL_COLOR, self._PS_COL_FILL,
+                    self._PS_COL_SECTION):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+            self._ps_tree.setColumnWidth(col, 60)
+        hdr.setSectionResizeMode(self._PS_COL_LW,
+                                 QHeaderView.ResizeMode.Fixed)
+        self._ps_tree.setColumnWidth(self._PS_COL_LW, 100)
+        hdr.setSectionResizeMode(self._PS_COL_OPACITY,
+                                 QHeaderView.ResizeMode.Fixed)
+        self._ps_tree.setColumnWidth(self._PS_COL_OPACITY, 90)
+
+        # Load data
+        cats = load_paper_categories(self._settings)
+        lw_defs = load_line_weights(self._settings)
+        lw_names = [d.name for d in lw_defs]
+
+        self._paper_cat_data: dict[str, dict] = {}
+
+        bold = QFont()
+        bold.setBold(True)
+        group_font = QFont()
+        group_font.setBold(True)
+        group_font.setPointSize(group_font.pointSize() + 1)
+
+        _disabled_ss = (
+            f"background: {_t.bg_sunken}; color: {_t.text_disabled}; "
+            f"border: 1px solid {_t.border_subtle}; border-radius: 2px;")
+
+        self._suppress = True
+
+        for grp_name, grp_keys in self._PS_GROUPS.items():
+            grp_item = QTreeWidgetItem(self._ps_tree)
+            grp_item.setText(self._PS_COL_NAME, grp_name)
+            grp_item.setFont(self._PS_COL_NAME, group_font)
+            grp_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            grp_item.setForeground(self._PS_COL_NAME,
+                                   QColor(_t.text_primary))
+            grp_item.setExpanded(True)
+
+            for key in grp_keys:
+                cat = cats.get(key, {})
+                tree_item = QTreeWidgetItem(grp_item)
+                tree_item.setText(self._PS_COL_NAME, key)
+                tree_item.setFont(self._PS_COL_NAME, bold)
+                tree_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+
+                # ── Colour swatch ────────────────────────────────────
+                color_btn = QPushButton()
+                color_btn.setFixedSize(40, 20)
+                color_val = cat.get("color", "#000000")
+                color_btn.setProperty("_color", color_val)
+                color_btn.setStyleSheet(
+                    f"background: {color_val}; "
+                    f"border: 1px solid {_t.border_subtle}; "
+                    f"border-radius: 2px;")
+                color_btn.clicked.connect(
+                    lambda _, k=key: self._on_paper_color_clicked(k, "color"))
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_COLOR,
+                                            color_btn)
+
+                # ── Fill swatch ──────────────────────────────────────
+                fill_btn = QPushButton()
+                fill_btn.setFixedSize(40, 20)
+                if key in _HAS_FILL:
+                    fill_val = cat.get("fill", "#ffffff")
+                    fill_btn.setProperty("_color", fill_val)
+                    fill_btn.setStyleSheet(
+                        f"background: {fill_val}; "
+                        f"border: 1px solid {_t.border_subtle}; "
+                        f"border-radius: 2px;")
+                    fill_btn.clicked.connect(
+                        lambda _, k=key: self._on_paper_color_clicked(
+                            k, "fill"))
+                else:
+                    fill_btn.setProperty("_color", "")
+                    fill_btn.setStyleSheet(_disabled_ss)
+                    fill_btn.setEnabled(False)
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_FILL,
+                                            fill_btn)
+
+                # ── Section swatch ───────────────────────────────────
+                section_btn = QPushButton()
+                section_btn.setFixedSize(40, 20)
+                if key in _HAS_SECTION:
+                    sec_val = cat.get("section_color", "#000000")
+                    section_btn.setProperty("_color", sec_val)
+                    section_btn.setStyleSheet(
+                        f"background: {sec_val}; "
+                        f"border: 1px solid {_t.border_subtle}; "
+                        f"border-radius: 2px;")
+                    section_btn.clicked.connect(
+                        lambda _, k=key: self._on_paper_color_clicked(
+                            k, "section_color"))
+                else:
+                    section_btn.setProperty("_color", "")
+                    section_btn.setStyleSheet(_disabled_ss)
+                    section_btn.setEnabled(False)
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_SECTION,
+                                            section_btn)
+
+                # ── Line Weight combo ────────────────────────────────
+                lw_combo = QComboBox()
+                lw_combo.addItems(lw_names)
+                cur_lw = cat.get("line_weight", "Medium")
+                idx = lw_combo.findText(cur_lw)
+                if idx >= 0:
+                    lw_combo.setCurrentIndex(idx)
+                lw_combo.currentTextChanged.connect(
+                    lambda t, k=key: self._on_paper_lw_changed(k, t))
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_LW,
+                                            lw_combo)
+
+                # ── Opacity spinbox ──────────────────────────────────
+                opacity_spin = QSpinBox()
+                opacity_spin.setRange(0, 100)
+                opacity_spin.setSingleStep(5)
+                opacity_spin.setValue(cat.get("opacity", 100))
+                opacity_spin.setSuffix("%")
+                opacity_spin.setFixedHeight(22)
+                opacity_spin.valueChanged.connect(
+                    lambda v, k=key: self._on_paper_opacity_changed(k, v))
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_OPACITY,
+                                            opacity_spin)
+
+                self._paper_cat_data[key] = {
+                    "tree_item": tree_item,
+                    "color_btn": color_btn,
+                    "fill_btn": fill_btn,
+                    "section_btn": section_btn,
+                    "lw_combo": lw_combo,
+                    "opacity": opacity_spin,
+                }
+
+        self._suppress = False
+
+        # Apply initial color mode UI state
+        self._apply_color_mode_ui(mode)
+
+        layout.addWidget(self._ps_tree)
+        return page
+
+    # ── Paper Space event handlers ───────────────────────────────────
+
+    def _on_color_mode_changed(self, index: int):
+        """Color mode dropdown changed."""
+        if self._suppress:
+            return
+        from .paper_display import (
+            PaperColorMode, save_paper_color_mode,
+            save_paper_categories, load_paper_categories,
+            _HAS_FILL, _HAS_SECTION,
+        )
+        mode_map = {0: PaperColorMode.FULL_COLOR,
+                    1: PaperColorMode.BW,
+                    2: PaperColorMode.CUSTOM}
+        mode = mode_map.get(index, PaperColorMode.BW)
+        save_paper_color_mode(mode, self._settings)
+
+        if mode == PaperColorMode.BW:
+            # Populate all colours with B&W values
+            cats = load_paper_categories(self._settings)
+            self._suppress = True
+            for key, widgets in self._paper_cat_data.items():
+                cats[key]["color"] = "#000000"
+                self._update_color_btn(widgets["color_btn"], "#000000")
+                widgets["color_btn"].setProperty("_color", "#000000")
+                if key in _HAS_FILL:
+                    cats[key]["fill"] = "#ffffff"
+                    self._update_color_btn(widgets["fill_btn"], "#ffffff")
+                    widgets["fill_btn"].setProperty("_color", "#ffffff")
+                if key in _HAS_SECTION:
+                    cats[key]["section_color"] = "#000000"
+                    self._update_color_btn(widgets["section_btn"], "#000000")
+                    widgets["section_btn"].setProperty("_color", "#000000")
+            save_paper_categories(cats, self._settings)
+            self._suppress = False
+
+        self._apply_color_mode_ui(mode)
+        self._apply_paper_preview()
+
+    def _apply_color_mode_ui(self, mode):
+        """Enable/disable colour columns based on color mode."""
+        from .paper_display import PaperColorMode, _HAS_FILL, _HAS_SECTION
+        disable = (mode == PaperColorMode.FULL_COLOR)
+        for key, widgets in self._paper_cat_data.items():
+            widgets["color_btn"].setEnabled(not disable)
+            if key in _HAS_FILL:
+                widgets["fill_btn"].setEnabled(not disable)
+            if key in _HAS_SECTION:
+                widgets["section_btn"].setEnabled(not disable)
+
+    def _on_paper_color_clicked(self, key: str, prop: str):
+        """Open QColorDialog for a paper-space category colour property."""
+        from .paper_display import (
+            PaperColorMode, save_paper_color_mode, load_paper_color_mode,
+            load_paper_categories, save_paper_categories,
+        )
+        widgets = self._paper_cat_data[key]
+        btn_key = {"color": "color_btn", "fill": "fill_btn",
+                   "section_color": "section_btn"}[prop]
+        btn = widgets[btn_key]
+        cur_hex = btn.property("_color") or "#000000"
+        color = QColorDialog.getColor(QColor(cur_hex), self,
+                                      f"{key} {prop}")
+        if not color.isValid():
+            return
+
+        hex_val = color.name()
+        self._update_color_btn(btn, hex_val)
+        btn.setProperty("_color", hex_val)
+
+        # Save to QSettings
+        cats = load_paper_categories(self._settings)
+        cats[key][prop] = hex_val
+        save_paper_categories(cats, self._settings)
+
+        # Auto-switch to Custom if currently in Full Color or B&W
+        current_mode = load_paper_color_mode(self._settings)
+        if current_mode in (PaperColorMode.FULL_COLOR, PaperColorMode.BW):
+            save_paper_color_mode(PaperColorMode.CUSTOM, self._settings)
+            self._suppress = True
+            self._color_mode_combo.setCurrentIndex(2)  # Custom
+            self._suppress = False
+            self._apply_color_mode_ui(PaperColorMode.CUSTOM)
+
+        self._apply_paper_preview()
+
+    def _on_paper_lw_changed(self, key: str, text: str):
+        """Line weight combo changed for a paper-space category."""
+        if self._suppress:
+            return
+        from .paper_display import load_paper_categories, save_paper_categories
+        cats = load_paper_categories(self._settings)
+        cats[key]["line_weight"] = text
+        save_paper_categories(cats, self._settings)
+        self._apply_paper_preview()
+
+    def _on_paper_opacity_changed(self, key: str, val: int):
+        """Opacity spinbox changed for a paper-space category."""
+        if self._suppress:
+            return
+        from .paper_display import load_paper_categories, save_paper_categories
+        cats = load_paper_categories(self._settings)
+        cats[key]["opacity"] = val
+        save_paper_categories(cats, self._settings)
+        self._apply_paper_preview()
+
+    def _apply_paper_preview(self):
+        """Trigger paper-space viewport refresh for live preview."""
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "paper_space_widget"):
+            ps_widget = parent.paper_space_widget
+            if ps_widget is not None and hasattr(ps_widget, "paper_scene"):
+                ps_widget.paper_scene.update()
 
     # ------------------------------------------------------------------
     # Line Weights tab
@@ -2106,6 +2503,15 @@ class DisplayManager(QDialog):
     def reject(self):
         """Cancel — revert all changes."""
         self._restore_snapshot()
+        if hasattr(self, "_paper_settings_snapshot"):
+            from .paper_display import (
+                save_paper_categories, save_paper_color_mode, PaperColorMode,
+            )
+            save_paper_categories(self._paper_settings_snapshot["categories"],
+                                  self._settings)
+            save_paper_color_mode(
+                PaperColorMode(self._paper_settings_snapshot["color_mode"]),
+                self._settings)
         super().reject()
 
 
