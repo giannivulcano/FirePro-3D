@@ -1202,6 +1202,8 @@ class DisplayManager(QDialog):
         # ── Tab widget ──────────────────────────────────────────────
         self._tabs = QTabWidget()
         self._tabs.addTab(self._tree, "Model")
+        self._lw_tab = self._build_line_weights_tab()
+        self._tabs.addTab(self._lw_tab, "Line Weights")
         outer.addWidget(self._tabs)
 
         # ── Button box ───────────────────────────────────────────────
@@ -1903,6 +1905,170 @@ class DisplayManager(QDialog):
             elev_mgr = getattr(self._scene, "_elevation_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
                 elev_mgr.rebuild_all()
+
+    # ------------------------------------------------------------------
+    # Line Weights tab
+    # ------------------------------------------------------------------
+
+    def _build_line_weights_tab(self) -> QWidget:
+        """Build the Line Weights definition tab."""
+        from .paper_display import (
+            load_line_weights, save_line_weights, LineWeightDef,
+            FACTORY_LINE_WEIGHTS, validate_line_weight_name,
+            validate_line_weight_width, load_paper_categories,
+        )
+        from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+
+        page = QWidget()
+        layout = QVBoxLayout(page)
+
+        self._lw_table = QTableWidget()
+        self._lw_table.setColumnCount(2)
+        self._lw_table.setHorizontalHeaderLabels(["Name", "Width (mm)"])
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch)
+        self._lw_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Fixed)
+        self._lw_table.setColumnWidth(1, 120)
+        self._lw_table.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows)
+        self._lw_table.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+
+        self._lw_defs = load_line_weights(self._settings)
+        self._lw_snapshot = [LineWeightDef(d.name, d.width_mm)
+                             for d in self._lw_defs]
+        self._populate_lw_table()
+
+        self._lw_table.cellChanged.connect(self._on_lw_cell_changed)
+        self._lw_table.currentCellChanged.connect(self._update_lw_remove_state)
+        layout.addWidget(self._lw_table)
+
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("Add")
+        add_btn.clicked.connect(self._on_lw_add)
+        self._lw_remove_btn = QPushButton("Remove")
+        self._lw_remove_btn.clicked.connect(self._on_lw_remove)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(self._lw_remove_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        return page
+
+    def _populate_lw_table(self):
+        self._suppress = True
+        self._lw_defs.sort(key=lambda d: d.width_mm)
+        self._lw_table.setRowCount(len(self._lw_defs))
+        for row, lw in enumerate(self._lw_defs):
+            from PyQt6.QtWidgets import QTableWidgetItem
+            name_item = QTableWidgetItem(lw.name)
+            width_item = QTableWidgetItem(f"{lw.width_mm:.2f}")
+            self._lw_table.setItem(row, 0, name_item)
+            self._lw_table.setItem(row, 1, width_item)
+        self._suppress = False
+
+    def _on_lw_cell_changed(self, row, col):
+        if self._suppress or row >= len(self._lw_defs):
+            return
+        from .paper_display import (
+            validate_line_weight_name, validate_line_weight_width,
+            save_line_weights, load_paper_categories, save_paper_categories,
+        )
+        old_def = self._lw_defs[row]
+        text = self._lw_table.item(row, col).text().strip()
+        if col == 0:  # Name changed
+            others = [d for i, d in enumerate(self._lw_defs) if i != row]
+            if not validate_line_weight_name(text, others):
+                self._suppress = True
+                self._lw_table.item(row, 0).setText(old_def.name)
+                self._suppress = False
+                return
+            old_name = old_def.name
+            old_def.name = text
+            cats = load_paper_categories(self._settings)
+            for cat_vals in cats.values():
+                if cat_vals.get("line_weight") == old_name:
+                    cat_vals["line_weight"] = text
+            save_paper_categories(cats, self._settings)
+        else:  # Width changed
+            try:
+                new_width = float(text)
+            except ValueError:
+                self._suppress = True
+                self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
+                self._suppress = False
+                return
+            if not validate_line_weight_width(new_width):
+                self._suppress = True
+                self._lw_table.item(row, 1).setText(f"{old_def.width_mm:.2f}")
+                self._suppress = False
+                return
+            old_def.width_mm = new_width
+        save_line_weights(self._lw_defs, self._settings)
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
+    def _on_lw_add(self):
+        from .paper_display import save_line_weights, LineWeightDef
+        idx = len(self._lw_defs) + 1
+        name = f"Custom {idx}"
+        while any(d.name == name for d in self._lw_defs):
+            idx += 1
+            name = f"Custom {idx}"
+        self._lw_defs.append(LineWeightDef(name, 0.20))
+        save_line_weights(self._lw_defs, self._settings)
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
+    def _on_lw_remove(self):
+        from .paper_display import save_line_weights, load_paper_categories
+        row = self._lw_table.currentRow()
+        if row < 0 or row >= len(self._lw_defs):
+            return
+        name = self._lw_defs[row].name
+        cats = load_paper_categories(self._settings)
+        if any(v.get("line_weight") == name for v in cats.values()):
+            return
+        self._lw_defs.pop(row)
+        save_line_weights(self._lw_defs, self._settings)
+        self._populate_lw_table()
+        if hasattr(self, "_paper_cat_data"):
+            self._refresh_lw_combos()
+
+    def _update_lw_remove_state(self, row, col, prev_row, prev_col):
+        """Disable Remove button if the selected weight is in use."""
+        from .paper_display import load_paper_categories
+        if row < 0 or row >= len(self._lw_defs):
+            self._lw_remove_btn.setEnabled(False)
+            return
+        name = self._lw_defs[row].name
+        cats = load_paper_categories(self._settings)
+        in_use = any(v.get("line_weight") == name for v in cats.values())
+        self._lw_remove_btn.setEnabled(not in_use)
+
+    def _refresh_lw_combos(self):
+        """Refresh line weight dropdowns after definitions change."""
+        from .paper_display import load_line_weights, load_paper_categories
+        lw_defs = load_line_weights(self._settings)
+        lw_names = [d.name for d in lw_defs]
+        cats = load_paper_categories(self._settings)
+        self._suppress = True
+        for key, widgets in self._paper_cat_data.items():
+            combo = widgets["lw_combo"]
+            cur = combo.currentText()
+            combo.clear()
+            combo.addItems(lw_names)
+            idx = combo.findText(cur)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            else:
+                cat_lw = cats[key].get("line_weight", "Medium")
+                idx = combo.findText(cat_lw)
+                combo.setCurrentIndex(max(0, idx))
+        self._suppress = False
 
     # ------------------------------------------------------------------
     # Accept / Reject

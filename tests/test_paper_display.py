@@ -21,6 +21,8 @@ from firepro3d.paper_display import (
     apply_paper_overrides,
     restore_model_display,
     resolve_line_weight_mm,
+    validate_line_weight_name,
+    validate_line_weight_width,
 )
 
 
@@ -228,3 +230,32 @@ class TestResolveLineWeight:
     def test_unknown_weight_returns_default(self):
         mm = resolve_line_weight_mm("Nonexistent")
         assert mm == 0.25
+
+
+class TestLineWeightValidation:
+    def test_reject_empty_name(self):
+        existing = [LineWeightDef("Light", 0.18)]
+        assert validate_line_weight_name("", existing) is False
+
+    def test_reject_duplicate_name(self):
+        existing = [LineWeightDef("Light", 0.18)]
+        assert validate_line_weight_name("Light", existing) is False
+
+    def test_accept_unique_name(self):
+        existing = [LineWeightDef("Light", 0.18)]
+        assert validate_line_weight_name("Heavy", existing) is True
+
+    def test_reject_zero_width(self):
+        assert validate_line_weight_width(0.0) is False
+
+    def test_reject_negative_width(self):
+        assert validate_line_weight_width(-0.1) is False
+
+    def test_reject_over_max(self):
+        assert validate_line_weight_width(3.01) is False
+
+    def test_accept_valid_width(self):
+        assert validate_line_weight_width(0.25) is True
+
+    def test_accept_max_width(self):
+        assert validate_line_weight_width(3.00) is True

@@ -60,6 +60,19 @@ def save_line_weights(defs: list[LineWeightDef],
     settings.sync()
 
 
+def validate_line_weight_name(name: str,
+                              existing: list[LineWeightDef]) -> bool:
+    """Return True if *name* is valid (non-empty, unique)."""
+    if not name or not name.strip():
+        return False
+    return all(lw.name != name.strip() for lw in existing)
+
+
+def validate_line_weight_width(width_mm: float) -> bool:
+    """Return True if *width_mm* is valid (positive, <= 3.0)."""
+    return 0.0 < width_mm <= 3.0
+
+
 # ---------------------------------------------------------------------------
 # Color mode
 # ---------------------------------------------------------------------------
