@@ -2506,12 +2506,16 @@ class DisplayManager(QDialog):
         if hasattr(self, "_paper_settings_snapshot"):
             from .paper_display import (
                 save_paper_categories, save_paper_color_mode, PaperColorMode,
+                save_line_weights,
             )
             save_paper_categories(self._paper_settings_snapshot["categories"],
                                   self._settings)
             save_paper_color_mode(
                 PaperColorMode(self._paper_settings_snapshot["color_mode"]),
                 self._settings)
+        if hasattr(self, "_lw_snapshot"):
+            from .paper_display import save_line_weights
+            save_line_weights(self._lw_snapshot, self._settings)
         super().reject()
 
 
