@@ -235,6 +235,9 @@ class SceneIOMixin:
                                     if getattr(self, "_detail_manager", None) else []),
             "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
         }
+        # Ensure all underlays have cache entries
+        self._ensure_underlay_caches(os.path.abspath(filename))
+
         bak_path = filename + ".bak"
         if os.path.exists(filename):
             shutil.copy2(filename, bak_path)

@@ -142,6 +142,44 @@ class DxfImportWorker(QThread):
         self.finished_data.emit(geometries)
 
     # ─────────────────────────────────────────────────────────────────
+    # Synchronous extraction (for cache population on save)
+    # ─────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def extract_file_sync(file_path: str,
+                          layers: list[str] | None = None) -> list[dict]:
+        """Synchronous geometry extraction for cache population.
+
+        Same logic as ``run()`` but without threading or progress signals.
+        """
+        clean_path = _sanitize_dxf(file_path)
+        try:
+            doc = ezdxf.readfile(clean_path)
+            msp = doc.modelspace()
+        finally:
+            if clean_path != file_path and os.path.exists(clean_path):
+                os.remove(clean_path)
+
+        worker = DxfImportWorker.__new__(DxfImportWorker)
+        geoms = []
+        for entity in msp:
+            if layers is not None:
+                entity_layer = (entity.dxf.get("layer", "0")
+                                if hasattr(entity.dxf, "get") else "0")
+                if entity_layer not in layers:
+                    continue
+            try:
+                result = worker._extract_geometry(entity)
+                if result is not None:
+                    if isinstance(result, list):
+                        geoms.extend(result)
+                    else:
+                        geoms.append(result)
+            except Exception:
+                pass
+        return geoms
+
+    # ─────────────────────────────────────────────────────────────────
     # Geometry extraction — returns plain dicts, no Qt objects
     # ─────────────────────────────────────────────────────────────────
 

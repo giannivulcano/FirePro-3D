@@ -3500,6 +3500,46 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
         return QColor("#ffffff"), 1.5
 
+    def _ensure_underlay_caches(self, project_path: str):
+        """Ensure every underlay with a reachable source file has a cache entry.
+
+        Called on save.  If a cache entry is missing (e.g. underlay was
+        imported before first save), re-parse the source file and write
+        the cache.
+        """
+        from .underlay_cache import cache_dir_for_project, read_cache
+        cache_dir = cache_dir_for_project(project_path)
+
+        for record, _item in self.underlays:
+            if not os.path.isfile(record.path):
+                continue
+            key = record.cache_key()
+            mtime = os.path.getmtime(record.path)
+            cached = read_cache(cache_dir, key, source_mtime=mtime)
+            if cached is not None:
+                continue  # already fresh
+
+            # Re-parse and cache
+            try:
+                if record.type == "dxf":
+                    from .dxf_import_worker import DxfImportWorker
+                    geom_list = DxfImportWorker.extract_file_sync(
+                        record.path, record.selected_layers)
+                elif record.type == "pdf" and record.import_mode != "raster":
+                    from .pdf_import_worker import extract_pdf_vectors_sync
+                    geom_list, _ = extract_pdf_vectors_sync(
+                        record.path, page=record.page)
+                else:
+                    continue  # raster PDFs have no geometry to cache
+            except Exception:
+                continue
+
+            if geom_list:
+                self._write_underlay_cache(
+                    record.path, geom_list,
+                    page=record.page,
+                    selected_layers=record.selected_layers)
+
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.
 
