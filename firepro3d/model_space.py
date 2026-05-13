@@ -3500,6 +3500,97 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
         return QColor("#ffffff"), 1.5
 
+    def _load_underlay_from_cache(self, record, source_mtime):
+        """Try to load an underlay from the geometry cache.
+
+        Returns True if the cache was used, False if the caller should
+        fall back to parsing the source file.
+        """
+        project_path = getattr(self, "_project_path", None)
+        if not project_path:
+            return False
+
+        from .underlay_cache import cache_dir_for_project, read_cache
+        cache_dir = cache_dir_for_project(project_path)
+        key = record.cache_key()
+
+        geom_list = read_cache(cache_dir, key, source_mtime=source_mtime)
+        if geom_list is None:
+            return False
+
+        # Apply import transform (same logic as _on_dxf_finished reload path)
+        if (record.import_scale != 1.0
+                or record.import_base_x != 0.0
+                or record.import_base_y != 0.0):
+            s = record.import_scale
+            bx, by = record.import_base_x, record.import_base_y
+            transformed = []
+            for g in geom_list:
+                kind = g.get("kind")
+                t = dict(g)
+                if kind == "line":
+                    t["x1"] = (g["x1"] - bx) * s
+                    t["y1"] = (g["y1"] - by) * s
+                    t["x2"] = (g["x2"] - bx) * s
+                    t["y2"] = (g["y2"] - by) * s
+                elif kind in ("circle", "arc"):
+                    xk = "x" if kind == "circle" else "rx"
+                    yk = "y" if kind == "circle" else "ry"
+                    wk = "w" if kind == "circle" else "rw"
+                    hk = "h" if kind == "circle" else "rh"
+                    t[xk] = (g[xk] - bx) * s
+                    t[yk] = (g[yk] - by) * s
+                    t[wk] = g[wk] * s
+                    t[hk] = g[hk] * s
+                elif kind == "ellipse_full":
+                    t["pos_cx"] = (g["pos_cx"] - bx) * s
+                    t["pos_cy"] = (g["pos_cy"] - by) * s
+                    t["x"] = g["x"] * s
+                    t["y"] = g["y"] * s
+                    t["w"] = g["w"] * s
+                    t["h"] = g["h"] * s
+                elif kind == "path_points":
+                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
+                                   for p in g["points"]]
+                elif kind == "text":
+                    t["x"] = (g["x"] - bx) * s
+                    t["y"] = (g["y"] - by) * s
+                transformed.append(t)
+            geom_list = transformed
+
+        # Build Qt items (same as _on_dxf_finished / _import_pdf_vectors)
+        ul = record.user_layer
+        color, lw = self._underlay_color_lw(ul)
+        pen = QPen(color, lw)
+        pen.setCosmetic(True)
+
+        items = []
+        for geom in geom_list:
+            item = self._geom_to_item(geom, pen, color)
+            if item is not None:
+                items.append(item)
+
+        if not items:
+            return False
+
+        old_method = self.itemIndexMethod()
+        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+        for item in items:
+            self.addItem(item)
+        group = self.createItemGroup(items)
+        group.setZValue(Z_UNDERLAY)
+        group.setPos(record.x, record.y)
+        label = "PDF Underlay" if record.type == "pdf" else "DXF Underlay"
+        group.setData(0, label)
+        all_layers = sorted({g.get("layer", "0") for g in geom_list})
+        group.setData(2, all_layers)
+        self.setItemIndexMethod(old_method)
+
+        self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
+        self.underlays.append((record, group))
+        return True
+
     def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
                               page: int = 0,
                               selected_layers: list[str] | None = None):

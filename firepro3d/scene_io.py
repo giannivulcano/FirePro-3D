@@ -442,10 +442,22 @@ class SceneIOMixin:
         for entry in payload.get("underlays", []):
             udata = Underlay.from_dict(entry)
             resolved = Underlay.resolve_path(udata.path, project_dir)
+
+            if resolved is not None:
+                udata.path = resolved
+                source_mtime = os.path.getmtime(resolved)
+            else:
+                source_mtime = None
+
+            # Try cache first (fast path)
+            if self._load_underlay_from_cache(udata, source_mtime):
+                continue
+
+            # Cache miss — fall back to source file parsing
             if resolved is None:
                 missing_underlays.append(udata)
                 continue
-            udata.path = resolved
+
             if udata.type == "pdf":
                 self.import_pdf(udata.path, dpi=udata.dpi, page=udata.page,
                                 x=udata.x, y=udata.y, _record=udata,
