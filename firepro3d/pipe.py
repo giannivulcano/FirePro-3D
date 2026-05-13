@@ -612,7 +612,10 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
 
         # Pen width = Main/Branch display width in scene units (mm).
         # Non-cosmetic: the line scales with zoom just like real geometry.
-        line_weight = self.display_width_mm() * self._display_scale
+        # Paper-space rendering may override with a named line weight.
+        line_weight = getattr(self, "_paper_pen_width", None)
+        if line_weight is None:
+            line_weight = self.display_width_mm() * self._display_scale
 
         # Determine which ends get rounded caps (not cap fittings / dead ends)
         n1_is_cap = (self.node1 and hasattr(self.node1, "fitting")

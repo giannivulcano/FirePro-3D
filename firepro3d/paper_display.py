@@ -291,16 +291,101 @@ def _category_for_item(item) -> str | None:
     return None
 
 
+def _apply_generic(item, cat, color_mode, lw_mm):
+    """Apply paper overrides to a generic item (Wall, Room, Floor, Roof)."""
+    if color_mode != PaperColorMode.FULL_COLOR:
+        item._display_color = cat["color"]
+        if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
+            item._display_fill_color = cat["fill"]
+        if hasattr(item, "_display_section_color") and cat["section_color"] is not None:
+            item._display_section_color = cat["section_color"]
+    if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
+        pen = item.pen()
+        pen.setWidthF(lw_mm)
+        pen.setCosmetic(False)
+        item.setPen(pen)
+    item.setOpacity(cat["opacity"] / 100.0)
+    item.update()
+
+
+def _apply_pipe(pipe, cat, color_mode, lw_mm):
+    """Apply paper overrides to a Pipe — uses _paper_pen_width hook."""
+    if color_mode != PaperColorMode.FULL_COLOR:
+        pipe._display_color = cat["color"]
+    pipe._paper_pen_width = lw_mm
+    pipe.setOpacity(cat["opacity"] / 100.0)
+    pipe.update()
+
+
+def _apply_gridline(gl, cat, color_mode, lw_mm):
+    """Apply paper overrides to a GridlineItem — sets _grid_color + bubbles."""
+    from PyQt6.QtGui import QColor, QBrush, QPen
+    if color_mode != PaperColorMode.FULL_COLOR:
+        gl._grid_color = QColor(cat["color"])
+        for bubble in (gl.bubble1, gl.bubble2):
+            bp = bubble.pen()
+            bp.setColor(QColor(cat["color"]))
+            bubble.setPen(bp)
+            bubble._label.setDefaultTextColor(QColor(cat["color"]))
+        if cat["fill"] is not None:
+            gl.bubble1.setBrush(QBrush(QColor(cat["fill"])))
+            gl.bubble2.setBrush(QBrush(QColor(cat["fill"])))
+    gl.setOpacity(cat["opacity"] / 100.0)
+    gl.update()
+
+
+def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color"):
+    """Apply paper overrides to an elevation/detail marker."""
+    from PyQt6.QtGui import QColor, QBrush, QPen
+    if color_mode != PaperColorMode.FULL_COLOR:
+        setattr(marker, color_attr, QColor(cat["color"]))
+        pen = marker.pen()
+        pen.setColor(QColor(cat["color"]))
+        marker.setPen(pen)
+        if cat["fill"] is not None and hasattr(marker, "_fill_color"):
+            marker._fill_color = QColor(cat["fill"])
+            marker.setBrush(QBrush(QColor(cat["fill"])))
+    marker.setOpacity(cat["opacity"] / 100.0)
+    marker.update()
+
+
+def _save_gridline_state(gl) -> dict:
+    """Capture gridline state for restore."""
+    return {
+        "grid_color": gl._grid_color.name(),
+        "bubble_pen": gl.bubble1.pen().color().name(),
+        "bubble_brush": gl.bubble1.brush().color().name(),
+        "label_color": gl.bubble1._label.defaultTextColor().name(),
+    }
+
+
+def _save_marker_state(marker, color_attr="_marker_color") -> dict:
+    """Capture marker state for restore."""
+    from PyQt6.QtGui import QColor
+    c = getattr(marker, color_attr, None)
+    fill = getattr(marker, "_fill_color", None)
+    return {
+        "color_attr": color_attr,
+        "marker_color": c.name() if isinstance(c, QColor) else c,
+        "fill_color": fill.name() if isinstance(fill, QColor) else fill,
+        "pen": marker.pen(),
+        "brush": marker.brush(),
+    }
+
+
 def apply_paper_overrides(scene, source_rect) -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
 
-    Returns a list of saved-state dicts for restore_model_display().
+    Type-aware: each item type is handled according to how its paint()
+    method reads display properties. Returns a list of saved-state dicts
+    for ``restore_model_display()``.
     """
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .pipe import Pipe
+    from .gridline import GridlineItem
 
     color_mode = load_paper_color_mode()
     cats = load_paper_categories()
@@ -317,8 +402,10 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
         if cat is None:
             continue
 
+        # --- Save current state ---
         entry: dict = {
             "item": item,
+            "cat_key": cat_key,
             "display_color": getattr(item, "_display_color", None),
             "display_fill_color": getattr(item, "_display_fill_color", None),
             "display_section_color": getattr(item, "_display_section_color", None),
@@ -326,97 +413,147 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
             "visible": item.isVisible(),
             "pen": item.pen() if hasattr(item, "pen") else None,
         }
+
+        # Type-specific extra state
+        if isinstance(item, Pipe):
+            entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
+        elif isinstance(item, GridlineItem):
+            entry["gridline"] = _save_gridline_state(item)
+        elif cat_key == "Elevation Marker":
+            entry["marker"] = _save_marker_state(item, "_marker_color")
+        elif cat_key == "Detail Marker":
+            entry["marker"] = _save_marker_state(item, "_tag_color")
+
         saved.append(entry)
 
-        # Visibility override — hide if paper-space category says not visible
+        # --- Visibility override ---
         if not cat.get("visible", True):
             item.setVisible(False)
             continue
 
+        # --- Apply type-specific overrides ---
         lw_mm = resolve_line_weight_mm(cat["line_weight"])
 
-        if color_mode != PaperColorMode.FULL_COLOR:
-            item._display_color = cat["color"]
-            if hasattr(item, "_display_fill_color") and cat["fill"] is not None:
-                item._display_fill_color = cat["fill"]
-            if hasattr(item, "_display_section_color") and cat["section_color"] is not None:
-                item._display_section_color = cat["section_color"]
-            if isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
-                _set_svg_tint(item, cat["color"], cat.get("fill"))
-
         if isinstance(item, Pipe):
-            item.set_pipe_display()
-            pen = item.pen()
-            pen.setWidthF(lw_mm)
-            pen.setCosmetic(False)
-            item.setPen(pen)
-        elif hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
-            pen = item.pen()
-            pen.setWidthF(lw_mm)
-            pen.setCosmetic(False)
-            item.setPen(pen)
-
-        item.setOpacity(cat["opacity"] / 100.0)
-        item.update()
-
-    # Handle Fittings separately (wrappers, not QGraphicsItems)
-    if hasattr(scene, "sprinkler_system"):
-        for node in scene.sprinkler_system.nodes:
-            f = node.fitting
-            if f is None or f.symbol is None or not f.symbol.isVisible():
-                continue
-            # Check if fitting symbol is within source_rect
-            if not source_rect.contains(f.symbol.scenePos()):
-                continue
-            cat = cats.get("Fitting")
-            if cat is None:
-                continue
-            entry = {
-                "item": f.symbol,
-                "fitting": f,
-                "display_color": getattr(f, "_display_color", None),
-                "display_fill_color": getattr(f, "_display_fill_color", None),
-                "opacity": f.symbol.opacity(),
-                "pen": None,
-            }
-            saved.append(entry)
-            lw_mm = resolve_line_weight_mm(cat["line_weight"])
+            _apply_pipe(item, cat, color_mode, lw_mm)
+        elif isinstance(item, GridlineItem):
+            _apply_gridline(item, cat, color_mode, lw_mm)
+        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             if color_mode != PaperColorMode.FULL_COLOR:
-                _set_svg_tint(f.symbol, cat["color"], cat.get("fill"))
-                f._display_color = cat["color"]
-                f._display_fill_color = cat.get("fill")
-            f.symbol.setOpacity(cat["opacity"] / 100.0)
+                _set_svg_tint(item, cat["color"], cat.get("fill"))
+            item.setOpacity(cat["opacity"] / 100.0)
+        elif cat_key == "Elevation Marker":
+            _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
+        elif cat_key == "Detail Marker":
+            _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+        else:
+            _apply_generic(item, cat, color_mode, lw_mm)
+
+    # --- Fittings (wrappers, not QGraphicsItems) ---
+    if hasattr(scene, "sprinkler_system"):
+        fitting_cat = cats.get("Fitting")
+        if fitting_cat is not None:
+            for node in scene.sprinkler_system.nodes:
+                f = node.fitting
+                if f is None or f.symbol is None or not f.symbol.isVisible():
+                    continue
+                if not source_rect.contains(f.symbol.scenePos()):
+                    continue
+                entry = {
+                    "item": f.symbol,
+                    "cat_key": "Fitting",
+                    "fitting": f,
+                    "display_color": getattr(f, "_display_color", None),
+                    "display_fill_color": getattr(f, "_display_fill_color", None),
+                    "opacity": f.symbol.opacity(),
+                    "visible": f.symbol.isVisible(),
+                    "pen": None,
+                }
+                saved.append(entry)
+                if not fitting_cat.get("visible", True):
+                    f.symbol.setVisible(False)
+                    continue
+                if color_mode != PaperColorMode.FULL_COLOR:
+                    _set_svg_tint(f.symbol, fitting_cat["color"],
+                                  fitting_cat.get("fill"))
+                    f._display_color = fitting_cat["color"]
+                    f._display_fill_color = fitting_cat.get("fill")
+                f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
     return saved
 
 
 def restore_model_display(saved: list[dict]):
-    """Restore items to their pre-override state."""
+    """Restore items to their pre-override state.
+
+    Type-aware restore matching the type-aware apply.
+    """
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .pipe import Pipe
+    from .gridline import GridlineItem
+    from PyQt6.QtGui import QColor, QBrush, QPen
 
     for entry in saved:
         item = entry["item"]
-        item._display_color = entry["display_color"]
-        if hasattr(item, "_display_fill_color"):
-            item._display_fill_color = entry["display_fill_color"]
-        if hasattr(item, "_display_section_color"):
-            item._display_section_color = entry["display_section_color"]
-        item.setOpacity(entry["opacity"])
-        item.setVisible(entry.get("visible", True))
+        cat_key = entry.get("cat_key")
 
-        if isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
-            _set_svg_tint(item, entry["display_color"], entry["display_fill_color"])
+        # Restore visibility and opacity (common to all)
+        item.setVisible(entry.get("visible", True))
+        item.setOpacity(entry["opacity"])
+
         if isinstance(item, Pipe):
-            item.set_pipe_display()
-        elif entry["pen"] is not None and hasattr(item, "setPen"):
-            item.setPen(entry["pen"])
+            item._display_color = entry["display_color"]
+            item._paper_pen_width = entry.get("paper_pen_width")
+            item.update()
+
+        elif isinstance(item, GridlineItem):
+            gs = entry.get("gridline", {})
+            item._grid_color = QColor(gs["grid_color"])
+            for bubble in (item.bubble1, item.bubble2):
+                bp = bubble.pen()
+                bp.setColor(QColor(gs["bubble_pen"]))
+                bubble.setPen(bp)
+                bubble._label.setDefaultTextColor(QColor(gs["label_color"]))
+            item.bubble1.setBrush(QBrush(QColor(gs["bubble_brush"])))
+            item.bubble2.setBrush(QBrush(QColor(gs["bubble_brush"])))
+            item.update()
+
+        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
+            _set_svg_tint(item, entry["display_color"],
+                          entry.get("display_fill_color"))
+            item.update()
+
+        elif cat_key in ("Elevation Marker", "Detail Marker"):
+            ms = entry.get("marker", {})
+            color_attr = ms.get("color_attr", "_marker_color")
+            mc = ms.get("marker_color")
+            if mc is not None:
+                setattr(item, color_attr, QColor(mc))
+            fc = ms.get("fill_color")
+            if fc is not None and hasattr(item, "_fill_color"):
+                item._fill_color = QColor(fc)
+            if ms.get("pen") is not None:
+                item.setPen(ms["pen"])
+            if ms.get("brush") is not None:
+                item.setBrush(ms["brush"])
+            item.update()
+
+        else:
+            # Generic (Wall, Room, Floor, Roof)
+            item._display_color = entry["display_color"]
+            if hasattr(item, "_display_fill_color"):
+                item._display_fill_color = entry.get("display_fill_color")
+            if hasattr(item, "_display_section_color"):
+                item._display_section_color = entry.get("display_section_color")
+            if entry.get("pen") is not None and hasattr(item, "setPen"):
+                item.setPen(entry["pen"])
+            item.update()
+
         # Restore fitting wrapper attributes
         fitting = entry.get("fitting")
         if fitting is not None:
             fitting._display_color = entry["display_color"]
-            fitting._display_fill_color = entry["display_fill_color"]
-        item.update()
+            fitting._display_fill_color = entry.get("display_fill_color")
