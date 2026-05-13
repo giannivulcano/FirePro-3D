@@ -261,7 +261,6 @@ class SceneIOMixin:
 
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
-        self._project_path = os.path.abspath(filename)
         from .node import Node
         from .pipe import Pipe
         from .sprinkler import Sprinkler
@@ -292,6 +291,7 @@ class SceneIOMixin:
 
         version = payload.get("version", 1)
         self._clear_scene()
+        self._project_path = os.path.abspath(filename)
 
         # --- Display settings ---
         self._loaded_display_settings = payload.get("display_settings", None)
