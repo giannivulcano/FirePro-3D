@@ -817,10 +817,13 @@ class DisplayManager(QDialog):
         self._active_context = active_context
         self._settings = QSettings("GV", "FirePro3D")
 
-        # Restore last window size
+        # Restore last window geometry (size + position)
         saved_size = self._settings.value("display_manager/window_size")
         if saved_size is not None:
             self.resize(saved_size)
+        saved_pos = self._settings.value("display_manager/window_pos")
+        if saved_pos is not None:
+            self.move(saved_pos)
         self._suppress = False  # guard against recursive signal loops
 
         # {id(item): {visible, opacity, color, scale, effect}} — for revert
@@ -845,6 +848,10 @@ class DisplayManager(QDialog):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._settings.setValue("display_manager/window_size", self.size())
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._settings.setValue("display_manager/window_pos", self.pos())
 
     # ------------------------------------------------------------------
     # Snapshot / revert

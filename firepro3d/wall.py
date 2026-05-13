@@ -271,9 +271,9 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if self._fill_mode == FILL_SOLID:
             if self._display_fill_color:
                 fill_color = QColor(self._display_fill_color)
-                fill_color.setAlpha(80)
             else:
                 fill_color = QColor(self._color)
+            if not getattr(self, "_paper_fill_opaque", False):
                 fill_color.setAlpha(80)
             fill_brush = QBrush(fill_color)
 
