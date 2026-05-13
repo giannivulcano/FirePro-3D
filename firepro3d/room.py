@@ -397,7 +397,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         option.state &= ~QStyle.StateFlag.State_Selected
 
         fill_col = QColor(self._display_fill_color or self._color.name())
-        fill_col.setAlpha(50)
+        if not getattr(self, "_paper_fill_opaque", False):
+            fill_col.setAlpha(50)
         line_col = QColor(self._display_color or self._color.name())
 
         pen = QPen(line_col, 1, Qt.PenStyle.DashLine)

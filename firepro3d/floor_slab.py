@@ -138,9 +138,9 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
 
         if self._display_fill_color:
             fill_color = QColor(self._display_fill_color)
-            fill_color.setAlpha(_FILL_ALPHA)
         else:
             fill_color = QColor(self._color)
+        if not getattr(self, "_paper_fill_opaque", False):
             fill_color.setAlpha(_FILL_ALPHA)
         painter.setBrush(QBrush(fill_color))
 

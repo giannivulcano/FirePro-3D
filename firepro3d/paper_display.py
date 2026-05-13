@@ -299,6 +299,10 @@ def _apply_generic(item, cat, color_mode, lw_mm):
             item._display_fill_color = cat["fill"]
         if hasattr(item, "_display_section_color") and cat["section_color"] is not None:
             item._display_section_color = cat["section_color"]
+    # Paper-space fill should render opaque (not semi-transparent like model).
+    # Items like FloorSlab/Room use alpha 50 in model-space paint(); setting
+    # _paper_fill_opaque tells them to skip the alpha reduction.
+    item._paper_fill_opaque = True
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         pen.setWidthF(lw_mm)
@@ -548,6 +552,8 @@ def restore_model_display(saved: list[dict]):
                 item._display_fill_color = entry.get("display_fill_color")
             if hasattr(item, "_display_section_color"):
                 item._display_section_color = entry.get("display_section_color")
+            if hasattr(item, "_paper_fill_opaque"):
+                del item._paper_fill_opaque
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             item.update()
