@@ -145,12 +145,14 @@ class DxfImportWorker(QThread):
     # Synchronous extraction (for cache population on save)
     # ─────────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def extract_file_sync(file_path: str,
+    @classmethod
+    def extract_file_sync(cls, file_path: str,
                           layers: list[str] | None = None) -> list[dict]:
         """Synchronous geometry extraction for cache population.
 
         Same logic as ``run()`` but without threading or progress signals.
+        Uses a minimal instance for ``_extract_geometry`` (which recurses
+        via ``self`` for INSERT/DIMENSION/HATCH entities).
         """
         clean_path = _sanitize_dxf(file_path)
         try:
@@ -160,7 +162,9 @@ class DxfImportWorker(QThread):
             if clean_path != file_path and os.path.exists(clean_path):
                 os.remove(clean_path)
 
-        worker = DxfImportWorker.__new__(DxfImportWorker)
+        # Create a minimal instance — _extract_geometry only uses self
+        # for recursive calls, not for instance state.
+        worker = cls(file_path, layers)
         geoms = []
         for entity in msp:
             if layers is not None:

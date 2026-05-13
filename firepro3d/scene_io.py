@@ -450,6 +450,10 @@ class SceneIOMixin:
                 udata.path = resolved
                 source_mtime = os.path.getmtime(resolved)
             else:
+                # Resolve path for cache key even though file is gone
+                if not os.path.isabs(udata.path):
+                    udata.path = os.path.normpath(
+                        os.path.join(project_dir, udata.path))
                 source_mtime = None
 
             # Try cache first (fast path)
@@ -476,6 +480,9 @@ class SceneIOMixin:
         # Handle missing underlay files
         for udata in missing_underlays:
             self._create_underlay_placeholder(udata)
+
+        if self.underlays:
+            self.underlaysChanged.emit()
 
         if missing_underlays:
             from PyQt6.QtWidgets import QMessageBox

@@ -129,7 +129,7 @@ def read_cache(
 
     if source_mtime is not None:
         cached_mtime = payload.get("source_mtime")
-        if cached_mtime is None or source_mtime > cached_mtime:
+        if cached_mtime is None or source_mtime != cached_mtime:
             return None
 
     geoms = payload.get("geoms")
