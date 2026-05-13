@@ -34,6 +34,7 @@ class SceneIOMixin:
 
     def save_to_file(self, filename: str):
         """Serialise the full scene to JSON."""
+        self._project_path = os.path.abspath(filename)
         from .display_manager import get_display_settings_for_save
 
         # --- Nodes (assign temp IDs) ---
@@ -257,6 +258,7 @@ class SceneIOMixin:
 
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
+        self._project_path = os.path.abspath(filename)
         from .node import Node
         from .pipe import Pipe
         from .sprinkler import Sprinkler
@@ -607,6 +609,7 @@ class SceneIOMixin:
         from .scale_manager import ScaleManager
         from .gridline import reset_grid_counters
 
+        self._project_path = None
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
         self.underlays = []

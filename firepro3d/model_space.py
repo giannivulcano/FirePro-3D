@@ -1979,6 +1979,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.set_mode(None)
             return
 
+        # Write geometry cache (raw, pre-transform)
+        self._write_underlay_cache(
+            params.file_path, params.geom_list,
+            page=getattr(params, "pdf_page", 0),
+            selected_layers=getattr(params, "selected_layers", None))
+
         s = params.scale
         bx, by = params.base_x, params.base_y
 
@@ -2127,6 +2133,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             progress.close()
             self._cleanup_dxf_worker()
             return
+
+        # Write geometry cache (raw, pre-transform)
+        self._write_underlay_cache(params["file_path"], geom_list,
+                                   page=0,
+                                   selected_layers=params.get("layers"))
 
         # Derive colour from user_layer if available, otherwise use params["color"]
         ul = params.get("user_layer", DEFAULT_USER_LAYER)
@@ -2455,6 +2466,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         (scale + base-point shift), convert to QGraphicsItems via
         ``_geom_to_item()``, group, and register the underlay.
         """
+        # Write geometry cache (raw, pre-transform)
+        self._write_underlay_cache(
+            file_path, geom_list, page=page,
+            selected_layers=None)
+
         # Derive colour/lineweight from user_layer
         ul = _record.user_layer if _record else DEFAULT_USER_LAYER
         color, lw = self._underlay_color_lw(ul)
@@ -3483,6 +3499,29 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if ldef:
                 return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
         return QColor("#ffffff"), 1.5
+
+    def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
+                              page: int = 0,
+                              selected_layers: list[str] | None = None):
+        """Write geometry dicts to the project cache directory.
+
+        No-op if the project has not been saved yet (no project path).
+        """
+        project_path = getattr(self, "_project_path", None)
+        if not project_path:
+            return
+        try:
+            source_mtime = os.path.getmtime(source_path)
+        except OSError:
+            return
+        from .underlay_cache import cache_dir_for_project, compute_cache_key, write_cache
+        cache_dir = cache_dir_for_project(project_path)
+        key = compute_cache_key(source_path, page=page,
+                                selected_layers=selected_layers)
+        try:
+            write_cache(cache_dir, key, geom_list, source_mtime=source_mtime)
+        except OSError:
+            pass  # non-fatal — cache is an optimisation
 
     # ─────────────────────────────────────────────────────────────────────────
 
