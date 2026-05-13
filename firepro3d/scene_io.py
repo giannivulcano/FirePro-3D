@@ -196,6 +196,8 @@ class SceneIOMixin:
 
         # --- Display settings (per-project) ---
         display_settings_data = get_display_settings_for_save()
+        from .paper_display import get_paper_display_for_save
+        paper_display_data = get_paper_display_for_save()
 
         # --- Assemble and write ---
         payload = {
@@ -203,6 +205,7 @@ class SceneIOMixin:
             "project_info":        self._project_info,
             "scale":               self.scale_manager.to_dict(),
             "display_settings":    display_settings_data,
+            "paper_display":       paper_display_data,
             "user_layers":         layers_data,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
@@ -287,6 +290,7 @@ class SceneIOMixin:
 
         # --- Display settings ---
         self._loaded_display_settings = payload.get("display_settings", None)
+        self._loaded_paper_display = payload.get("paper_display", None)
 
         # --- Scale ---
         if "scale" in payload:

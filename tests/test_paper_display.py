@@ -148,6 +148,30 @@ class TestProjectPersistence:
         assert cats["Pipe"]["line_weight"] == "Medium"
 
 
+class TestProjectFilePersistence:
+    """Integration tests for project-file save/load round-trip."""
+
+    def test_save_includes_paper_display(self):
+        save_paper_color_mode(PaperColorMode.CUSTOM)
+        cats = load_paper_categories()
+        cats["Pipe"]["line_weight"] = "Heavy"
+        save_paper_categories(cats)
+        result = get_paper_display_for_save()
+        assert result["color_mode"] == "custom"
+        assert result["categories"]["Pipe"]["line_weight"] == "Heavy"
+
+    def test_load_missing_paper_display_uses_factory(self):
+        apply_paper_display_from_project({})
+        assert load_paper_color_mode() == PaperColorMode.BW
+        cats = load_paper_categories()
+        assert cats["Pipe"]["line_weight"] == "Medium"
+
+    def test_backward_compat_no_paper_display_key(self):
+        """Simulates loading a project file that predates paper_display."""
+        apply_paper_display_from_project(None)
+        assert load_paper_color_mode() == PaperColorMode.BW
+
+
 class TestApplyRestore:
     """Verify temporary mutation round-trips cleanly."""
 

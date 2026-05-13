@@ -2343,6 +2343,10 @@ class MainWindow(QMainWindow):
         else:
             from firepro3d.display_manager import apply_saved_display_settings
             apply_saved_display_settings(self.scene)
+        # Apply paper-space display settings from project file
+        from firepro3d.paper_display import apply_paper_display_from_project
+        paper_ds = getattr(self.scene, '_loaded_paper_display', None)
+        apply_paper_display_from_project(paper_ds)
         # Rebuild elevation markers (cleared during scene load)
         self._create_elevation_markers()
         # Refresh detail views in project browser
