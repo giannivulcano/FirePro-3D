@@ -1791,6 +1791,7 @@ class DisplayManager(QDialog):
             if idx >= 0:
                 widgets["lw_combo"].setCurrentIndex(idx)
             widgets["opacity"].setValue(factory["opacity"])
+            widgets["vis"].setChecked(factory.get("visible", True))
         self._suppress = False
         self._apply_color_mode_ui(PaperColorMode.BW)
         self._apply_paper_preview()
@@ -1986,11 +1987,12 @@ class DisplayManager(QDialog):
 
     # Paper-space tree column indices
     _PS_COL_NAME    = 0
-    _PS_COL_COLOR   = 1
-    _PS_COL_FILL    = 2
-    _PS_COL_SECTION = 3
-    _PS_COL_LW      = 4
-    _PS_COL_OPACITY = 5
+    _PS_COL_VIS     = 1
+    _PS_COL_COLOR   = 2
+    _PS_COL_FILL    = 3
+    _PS_COL_SECTION = 4
+    _PS_COL_LW      = 5
+    _PS_COL_OPACITY = 6
 
     # Paper-space category groups
     _PS_GROUPS = {
@@ -2020,7 +2022,7 @@ class DisplayManager(QDialog):
         mode_row = QHBoxLayout()
         mode_row.addWidget(QLabel("Color Mode:"))
         self._color_mode_combo = QComboBox()
-        self._color_mode_combo.addItems(["Full Color", "B&&W", "Custom"])
+        self._color_mode_combo.addItems(["Full Color", "B&W", "Custom"])
         mode = load_paper_color_mode(self._settings)
         mode_index = {
             PaperColorMode.FULL_COLOR: 0,
@@ -2036,9 +2038,10 @@ class DisplayManager(QDialog):
 
         # ── Category tree ───────────────────────────────────────────
         self._ps_tree = QTreeWidget()
-        self._ps_tree.setColumnCount(6)
+        self._ps_tree.setColumnCount(7)
         self._ps_tree.setHeaderLabels(
-            ["Name", "Colour", "Fill", "Section", "Line Weight", "Opacity"])
+            ["Name", "Vis", "Colour", "Fill", "Section", "Line Weight",
+             "Opacity"])
         self._ps_tree.setRootIsDecorated(True)
         self._ps_tree.setIndentation(20)
         self._ps_tree.setSelectionMode(
@@ -2048,15 +2051,16 @@ class DisplayManager(QDialog):
         hdr = self._ps_tree.header()
         hdr.setSectionResizeMode(self._PS_COL_NAME,
                                  QHeaderView.ResizeMode.Stretch)
-        for col in (self._PS_COL_COLOR, self._PS_COL_FILL,
+        for col in (self._PS_COL_VIS, self._PS_COL_COLOR, self._PS_COL_FILL,
                     self._PS_COL_SECTION):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
             self._ps_tree.setColumnWidth(col, 60)
+        self._ps_tree.setColumnWidth(self._PS_COL_VIS, 40)
         hdr.setSectionResizeMode(self._PS_COL_LW,
-                                 QHeaderView.ResizeMode.Fixed)
+                                 QHeaderView.ResizeMode.Interactive)
         self._ps_tree.setColumnWidth(self._PS_COL_LW, 100)
         hdr.setSectionResizeMode(self._PS_COL_OPACITY,
-                                 QHeaderView.ResizeMode.Fixed)
+                                 QHeaderView.ResizeMode.Interactive)
         self._ps_tree.setColumnWidth(self._PS_COL_OPACITY, 90)
 
         # Load data
@@ -2093,6 +2097,15 @@ class DisplayManager(QDialog):
                 tree_item.setText(self._PS_COL_NAME, key)
                 tree_item.setFont(self._PS_COL_NAME, bold)
                 tree_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+
+                # ── Visibility checkbox ──────────────────────────────
+                vis_cb = QCheckBox()
+                vis_cb.setChecked(cat.get("visible", True))
+                vis_cb.stateChanged.connect(
+                    lambda state, k=key: self._on_paper_vis_changed(
+                        k, state == Qt.CheckState.Checked.value))
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_VIS,
+                                            vis_cb)
 
                 # ── Colour swatch ────────────────────────────────────
                 color_btn = QPushButton()
@@ -2174,6 +2187,7 @@ class DisplayManager(QDialog):
 
                 self._paper_cat_data[key] = {
                     "tree_item": tree_item,
+                    "vis": vis_cb,
                     "color_btn": color_btn,
                     "fill_btn": fill_btn,
                     "section_btn": section_btn,
@@ -2282,6 +2296,16 @@ class DisplayManager(QDialog):
         from .paper_display import load_paper_categories, save_paper_categories
         cats = load_paper_categories(self._settings)
         cats[key]["line_weight"] = text
+        save_paper_categories(cats, self._settings)
+        self._apply_paper_preview()
+
+    def _on_paper_vis_changed(self, key: str, checked: bool):
+        """Visibility checkbox changed for a paper-space category."""
+        if self._suppress:
+            return
+        from .paper_display import load_paper_categories, save_paper_categories
+        cats = load_paper_categories(self._settings)
+        cats[key]["visible"] = checked
         save_paper_categories(cats, self._settings)
         self._apply_paper_preview()
 

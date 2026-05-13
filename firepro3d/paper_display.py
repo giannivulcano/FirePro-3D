@@ -141,6 +141,7 @@ def _make_factory_category(key: str) -> dict:
         "section_color": "#000000" if key in _HAS_SECTION else None,
         "line_weight": _FACTORY_LW[key],
         "opacity": 100,
+        "visible": True,
     }
 
 
@@ -157,10 +158,21 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
     for key in _CATEGORY_KEYS:
         factory = FACTORY_PAPER_CATEGORIES[key]
         entry: dict = {}
-        for prop in ("color", "fill", "section_color", "line_weight", "opacity"):
+        for prop in ("color", "fill", "section_color", "line_weight",
+                     "opacity", "visible"):
             raw = settings.value(f"paper/categories/{key}/{prop}")
             if raw is not None:
-                entry[prop] = int(float(raw)) if prop == "opacity" else raw
+                if prop == "opacity":
+                    entry[prop] = int(float(raw))
+                elif prop == "visible":
+                    if isinstance(raw, bool):
+                        entry[prop] = raw
+                    elif isinstance(raw, str):
+                        entry[prop] = raw.lower() not in ("false", "0")
+                    else:
+                        entry[prop] = bool(raw)
+                else:
+                    entry[prop] = raw
             else:
                 entry[prop] = factory[prop]
         result[key] = entry
@@ -174,10 +186,12 @@ def save_paper_categories(cats: dict[str, dict],
         settings = QSettings("GV", "FirePro3D")
     for key in _CATEGORY_KEYS:
         entry = cats.get(key, FACTORY_PAPER_CATEGORIES[key])
-        for prop in ("color", "fill", "section_color", "line_weight", "opacity"):
+        for prop in ("color", "fill", "section_color", "line_weight",
+                     "opacity", "visible"):
             val = entry.get(prop)
             if val is not None:
-                settings.setValue(f"paper/categories/{key}/{prop}", val)
+                settings.setValue(f"paper/categories/{key}/{prop}",
+                                 str(val).lower() if prop == "visible" else val)
             else:
                 settings.remove(f"paper/categories/{key}/{prop}")
     settings.sync()
@@ -309,9 +323,15 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
             "display_fill_color": getattr(item, "_display_fill_color", None),
             "display_section_color": getattr(item, "_display_section_color", None),
             "opacity": item.opacity(),
+            "visible": item.isVisible(),
             "pen": item.pen() if hasattr(item, "pen") else None,
         }
         saved.append(entry)
+
+        # Visibility override — hide if paper-space category says not visible
+        if not cat.get("visible", True):
+            item.setVisible(False)
+            continue
 
         lw_mm = resolve_line_weight_mm(cat["line_weight"])
 
@@ -386,6 +406,7 @@ def restore_model_display(saved: list[dict]):
         if hasattr(item, "_display_section_color"):
             item._display_section_color = entry["display_section_color"]
         item.setOpacity(entry["opacity"])
+        item.setVisible(entry.get("visible", True))
 
         if isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             _set_svg_tint(item, entry["display_color"], entry["display_fill_color"])
