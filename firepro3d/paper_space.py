@@ -436,9 +436,14 @@ class SheetViewport(QGraphicsObject):
         # Clip to viewport bounds
         painter.setClipRect(vp_rect)
 
-        # Render source scene directly (vector output)
+        # Render source scene with paper-space display overrides
         if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
-            self._source_scene.render(painter, vp_rect, self._source_rect)
+            from .paper_display import apply_paper_overrides, restore_model_display
+            saved = apply_paper_overrides(self._source_scene, self._source_rect)
+            try:
+                self._source_scene.render(painter, vp_rect, self._source_rect)
+            finally:
+                restore_model_display(saved)
 
         # Release clip
         painter.setClipping(False)

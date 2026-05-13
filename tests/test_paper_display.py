@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QSettings
+from PyQt6.QtWidgets import QGraphicsScene
+from PyQt6.QtCore import QSettings, QRectF
 
 from firepro3d.paper_display import (
     LineWeightDef,
@@ -17,6 +18,9 @@ from firepro3d.paper_display import (
     save_paper_color_mode,
     get_paper_display_for_save,
     apply_paper_display_from_project,
+    apply_paper_overrides,
+    restore_model_display,
+    resolve_line_weight_mm,
 )
 
 
@@ -142,3 +146,61 @@ class TestProjectPersistence:
         apply_paper_display_from_project({})
         cats = load_paper_categories()
         assert cats["Pipe"]["line_weight"] == "Medium"
+
+
+class TestApplyRestore:
+    """Verify temporary mutation round-trips cleanly."""
+
+    @pytest.fixture
+    def scene_with_pipe(self, qapp):
+        """Scene with a minimal Pipe mock."""
+        from firepro3d.pipe import Pipe
+        from firepro3d.node import Node
+        scene = QGraphicsScene()
+        n1 = Node(0, 0)
+        n2 = Node(100, 0)
+        scene.addItem(n1)
+        scene.addItem(n2)
+        pipe = Pipe(n1, n2)
+        scene.addItem(pipe)
+        pipe._display_color = "#4488ff"
+        pipe._display_scale = 1.0
+        return scene, pipe
+
+    def test_apply_bw_changes_pipe_color(self, scene_with_pipe):
+        scene, pipe = scene_with_pipe
+        save_paper_color_mode(PaperColorMode.BW)
+        source_rect = QRectF(0, 0, 200, 200)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert pipe._display_color == "#000000"
+        restore_model_display(saved)
+        assert pipe._display_color == "#4488ff"
+
+    def test_apply_full_color_keeps_model_colors(self, scene_with_pipe):
+        scene, pipe = scene_with_pipe
+        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        source_rect = QRectF(0, 0, 200, 200)
+        saved = apply_paper_overrides(scene, source_rect)
+        assert pipe._display_color == "#4488ff"
+        restore_model_display(saved)
+
+    def test_restore_returns_exact_original_state(self, scene_with_pipe):
+        scene, pipe = scene_with_pipe
+        original_color = pipe._display_color
+        original_opacity = pipe.opacity()
+        save_paper_color_mode(PaperColorMode.BW)
+        source_rect = QRectF(0, 0, 200, 200)
+        saved = apply_paper_overrides(scene, source_rect)
+        restore_model_display(saved)
+        assert pipe._display_color == original_color
+        assert pipe.opacity() == original_opacity
+
+
+class TestResolveLineWeight:
+    def test_known_weight(self):
+        mm = resolve_line_weight_mm("Medium")
+        assert mm == 0.25
+
+    def test_unknown_weight_returns_default(self):
+        mm = resolve_line_weight_mm("Nonexistent")
+        assert mm == 0.25
