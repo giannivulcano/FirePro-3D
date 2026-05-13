@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
     QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
-    QAbstractItemView,
+    QAbstractItemView, QTabWidget,
 )
 from PyQt6.QtGui import QColor, QFont, QBrush, QPen, QPainter, QPixmap, QIcon
 from PyQt6.QtCore import Qt, QSettings, QByteArray
@@ -809,11 +809,12 @@ class DisplayManager(QDialog):
     """Modal dialog providing Revit-style display settings for fire-
     suppression model items."""
 
-    def __init__(self, scene, parent=None):
+    def __init__(self, scene, parent=None, active_context: str = "model"):
         super().__init__(parent)
         self.setWindowTitle("Display Manager")
         self.setMinimumSize(850, 420)
         self._scene = scene
+        self._active_context = active_context
         self._settings = QSettings("GV", "FirePro3D")
 
         # Restore last window size
@@ -1198,7 +1199,10 @@ class DisplayManager(QDialog):
             for j in range(grp.childCount()):
                 grp.child(j).setExpanded(False)
         self._suppress = False
-        outer.addWidget(self._tree)
+        # ── Tab widget ──────────────────────────────────────────────
+        self._tabs = QTabWidget()
+        self._tabs.addTab(self._tree, "Model")
+        outer.addWidget(self._tabs)
 
         # ── Button box ───────────────────────────────────────────────
         bbox = QDialogButtonBox(

@@ -2211,7 +2211,10 @@ class MainWindow(QMainWindow):
     def _open_display_manager(self):
         """Open the Display Manager dialog (replaces FSVisibilityDialog)."""
         from firepro3d.display_manager import DisplayManager
-        dlg = DisplayManager(self.scene, parent=self)
+        from firepro3d.paper_space import PaperSpaceWidget
+        ctx = "paper" if isinstance(self.central_tabs.currentWidget(),
+                                     PaperSpaceWidget) else "model"
+        dlg = DisplayManager(self.scene, parent=self, active_context=ctx)
         dlg.exec()  # live preview handles apply/revert internally
 
     def _open_level_dialog(self):
