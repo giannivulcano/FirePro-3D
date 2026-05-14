@@ -314,13 +314,14 @@ class UnderlayImportDialog(QDialog):
     ]
 
     def __init__(self, parent=None, file_path: str = "",
-                 scale_manager=None):
+                 scale_manager=None, default_dir: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Import Underlay — Preview")
         self.resize(1100, 700)
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
         self._sm = scale_manager
+        self._default_dir = default_dir
         self._file_type: str = ""          # "dxf" or "pdf"
         self._all_geoms: list[dict] = []
         self._layers: list[str] = []
@@ -609,8 +610,9 @@ class UnderlayImportDialog(QDialog):
     # ── File loading ──────────────────────────────────────────────────────────
 
     def _browse_file(self):
+        start_dir = self._default_dir or ""
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select Underlay File", "",
+            self, "Select Underlay File", start_dir,
             "All Supported (*.dxf *.dwg *.pdf);;DWG Files (*.dwg);;DXF Files (*.dxf);;PDF Files (*.pdf);;All Files (*)"
         )
         if path:
@@ -740,13 +742,20 @@ class UnderlayImportDialog(QDialog):
 
         oda_path = find_oda_converter()
         if oda_path is None:
-            QMessageBox.warning(
-                self, "ODA File Converter Required",
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("ODA File Converter Required")
+            msg.setText(
                 "DWG import requires ODA File Converter (free download).\n\n"
-                f"Download from:\n{ODA_DOWNLOAD_URL}\n\n"
-                "After installing, restart FirePro3D or set the path in\n"
-                "Edit \u2192 Preferences \u2192 DWG Converter Path.")
-            return
+                f"Download from:\n{ODA_DOWNLOAD_URL}")
+            msg.addButton(QMessageBox.StandardButton.Cancel)
+            locate_btn = msg.addButton("Locate ODA\u2026",
+                                       QMessageBox.ButtonRole.ActionRole)
+            msg.exec()
+            if msg.clickedButton() == locate_btn:
+                oda_path = self._browse_for_oda()
+            if oda_path is None:
+                return
 
         self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
         QApplication.processEvents()
@@ -790,6 +799,19 @@ class UnderlayImportDialog(QDialog):
         layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
         self._info_lbl.setText(
             f"{n} entities loaded from {os.path.basename(path)}{layout_label}")
+
+    def _browse_for_oda(self) -> str | None:
+        """Let the user manually locate ODAFileConverter.exe and save to QSettings."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Locate ODA File Converter",
+            os.environ.get("ProgramFiles", ""),
+            "ODA File Converter (ODAFileConverter.exe);;All Files (*)")
+        if path and os.path.isfile(path):
+            from PyQt6.QtCore import QSettings
+            s = QSettings("GV", "FirePro3D")
+            s.setValue("dwg/oda_converter_path", path)
+            return path
+        return None
 
     def _load_dxf_with_layout(self, dxf_path: str, layout_name: str):
         """Load entities from a specific layout of a DXF file.

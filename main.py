@@ -2480,10 +2480,15 @@ class MainWindow(QMainWindow):
         self.scene.delete_selected_items()
 
     def open_import_dialog(self, file_path: str = ""):
-        """Open the unified underlay import dialog (PDF + DXF)."""
+        """Open the unified underlay import dialog (PDF, DXF, DWG)."""
+        # Default browse directory = project file directory
+        default_dir = ""
+        if self._current_file:
+            default_dir = os.path.dirname(self._current_file)
         dialog = UnderlayImportDialog(
             self, file_path=file_path,
             scale_manager=self.scene.scale_manager,
+            default_dir=default_dir,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             params = dialog.get_import_params()
