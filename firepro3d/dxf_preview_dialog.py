@@ -61,7 +61,6 @@ from .dxf_import_worker import _sanitize_dxf
 from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
 from .scale_manager import ScaleManager
 from .dimension_edit import DimensionEdit
-from .constants import DEFAULT_USER_LAYER
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,7 +91,6 @@ class ImportParams:
         self.scale: float = 1.0            # multiplier applied to all coordinates
         self.base_x: float = 0.0           # base point (subtracted before scaling)
         self.base_y: float = 0.0
-        self.user_layer: str = DEFAULT_USER_LAYER   # destination layer (colour derived from it)
         self.selected_layers: list[str] | None = None  # None = all
         self.rotation: float = 0.0         # degrees (applied to final group)
         self.insert_at_origin: bool = True
@@ -315,13 +313,12 @@ class UnderlayImportDialog(QDialog):
     ]
 
     def __init__(self, parent=None, file_path: str = "",
-                 user_layer_manager=None, scale_manager=None):
+                 scale_manager=None):
         super().__init__(parent)
         self.setWindowTitle("Import Underlay — Preview")
         self.resize(1100, 700)
         self.setWindowState(Qt.WindowState.WindowMaximized)
 
-        self._user_layer_manager = user_layer_manager
         self._sm = scale_manager
         self._file_type: str = ""          # "dxf" or "pdf"
         self._all_geoms: list[dict] = []
@@ -531,23 +528,6 @@ class UnderlayImportDialog(QDialog):
         base_form.addRow(pick_base_btn)
         right_lay.addWidget(base_grp)
 
-        # Destination layer (replaces old colour picker)
-        dest_grp = QGroupBox("Destination Layer")
-        dest_lay = QVBoxLayout(dest_grp)
-        self._dest_layer_combo = QComboBox()
-        if self._user_layer_manager is not None:
-            for lyr in self._user_layer_manager.layers:
-                self._dest_layer_combo.addItem(lyr.name)
-        else:
-            self._dest_layer_combo.addItem(DEFAULT_USER_LAYER)
-        dest_lay.addWidget(self._dest_layer_combo)
-        self._layer_colour_lbl = QLabel("")
-        self._layer_colour_lbl.setStyleSheet("font-size: 11px; color: #aaa;")
-        dest_lay.addWidget(self._layer_colour_lbl)
-        self._dest_layer_combo.currentTextChanged.connect(self._on_dest_layer_changed)
-        self._on_dest_layer_changed()
-        right_lay.addWidget(dest_grp)
-
         # PDF options (DPI + import mode)
         self._pdf_opts_grp = QGroupBox("PDF Options")
         pdf_form = QFormLayout(self._pdf_opts_grp)
@@ -588,18 +568,6 @@ class UnderlayImportDialog(QDialog):
         bot.addWidget(buttons)
         outer.addLayout(bot)
 
-    # ── Destination layer ────────────────────────────────────────────────────
-
-    def _on_dest_layer_changed(self):
-        name = self._dest_layer_combo.currentText()
-        if self._user_layer_manager:
-            ldef = self._user_layer_manager.get(name)
-            if ldef:
-                self._layer_colour_lbl.setText(
-                    f"Colour: {ldef.color}  •  Lineweight: {ldef.lineweight} mm")
-                return
-        self._layer_colour_lbl.setText("")
-
     # ── Persist settings between sessions ──────────────────────────────────
 
     _SETTINGS_KEY = "UnderlayImport"
@@ -624,15 +592,6 @@ class UnderlayImportDialog(QDialog):
         self._rotation_edit.blockSignals(True)
         self._rotation_edit.setText(f"{rotation:.1f}°")
         self._rotation_edit.blockSignals(False)
-        # Destination layer
-        layer = s.value(f"{pfx}dest_layer", "", type=str)
-        if layer:
-            idx = self._dest_layer_combo.findText(layer)
-            if idx >= 0:
-                self._dest_layer_combo.blockSignals(True)
-                self._dest_layer_combo.setCurrentIndex(idx)
-                self._dest_layer_combo.blockSignals(False)
-                self._on_dest_layer_changed()
         # Insert at origin
         origin = s.value(f"{pfx}insert_at_origin", True, type=bool)
         self._origin_cb.setChecked(origin)
@@ -644,7 +603,6 @@ class UnderlayImportDialog(QDialog):
         s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
         s.setValue(f"{pfx}custom_scale", self._get_custom_scale())
         s.setValue(f"{pfx}rotation", self._get_rotation())
-        s.setValue(f"{pfx}dest_layer", self._dest_layer_combo.currentText())
         s.setValue(f"{pfx}insert_at_origin", self._origin_cb.isChecked())
 
     # ── File loading ──────────────────────────────────────────────────────────
@@ -1358,7 +1316,6 @@ class UnderlayImportDialog(QDialog):
         p.base_x = self._base_x_edit.value_mm()
         p.base_y = self._base_y_edit.value_mm()
         p.rotation = self._get_rotation()
-        p.user_layer = self._dest_layer_combo.currentText()
         p.selected_layers = (
             list(self._active_layers())
             if self._active_layers() is not None

@@ -44,7 +44,6 @@ from .roof import RoofItem
 from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .constraints import Constraint as ConstraintBase
-from .user_layer_manager import lw_mm_to_cosmetic_px
 from . import geometry_intersect as gi
 import os
 
@@ -102,7 +101,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._radiation_selecting = False                      # True during radiation surface selection
         self.design_areas: list = []                          # list[DesignArea]
         self.active_design_area = None                        # DesignArea | None
-        self.active_user_layer: str = DEFAULT_USER_LAYER                  # Sprint 4A active layer
         self.active_level: str = DEFAULT_LEVEL                     # floor level
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
@@ -122,7 +120,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_from_center: bool = False                # center vs corner rectangle
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
-        # Draw colour/lineweight now derived from active layer (see _get_draw_color/_get_draw_lineweight)
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
@@ -1155,7 +1152,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         node = self.find_nearby_node(x, y, z_hint=z_hint)
         if not node:
             node = Node(x, y)
-            node.user_layer = self.active_user_layer
             node.level = self.active_level
             node.ceiling_level = self.active_level
 
@@ -1207,7 +1203,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def add_pipe(self, n1, n2, template=None, _propagate_ceiling=True):
         pipe = Pipe(n1, n2)
-        pipe.user_layer = self.active_user_layer
         # Apply template first so non-level properties are copied
         if template:
             pipe.set_properties(template)
@@ -1565,7 +1560,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ey = existing_node.scenePos().y()
 
         intermediate = Node(ex, ey)
-        intermediate.user_layer = self.active_user_layer
         intermediate.level = self.active_level
 
         ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
@@ -1595,7 +1589,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ey = existing_node.scenePos().y()
 
         node = Node(ex, ey)
-        node.user_layer = self.active_user_layer
         node.level = self.active_level
 
         ceiling_lvl = getattr(template, "node2_ceiling_level", None) or DEFAULT_LEVEL
@@ -1678,7 +1671,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         xy = pipe.node1.scenePos()
         mid = Node(xy.x(), xy.y())
-        mid.user_layer = self.active_user_layer
         mid.level = self.active_level
 
         ceiling_lvl = getattr(template, "node1_ceiling_level", None) or DEFAULT_LEVEL
@@ -1699,7 +1691,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         node_b = pipe.node2
         for (na, nb) in ((node_a, mid), (mid, node_b)):
             seg = Pipe(na, nb)
-            seg.user_layer = pipe.user_layer
             seg.level = pipe.level
             for key in ("Diameter", "Schedule", "C-Factor",
                         "Material", "Colour", "Phase", "Line Type"):
@@ -1874,7 +1865,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             node = Node(pt.x(), pt.y())
             self.addItem(node)
             self.sprinkler_system.add_node(node)
-            node.user_layer = self.active_user_layer
             # Set level, ceiling, and room assignment
             node.level = level
             node._room_name = room.name
@@ -2020,9 +2010,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 t["y"] = (g["y"] - by) * s
             transformed.append(t)
 
-        # Derive colour/lineweight from user_layer
-        color, lw = self._underlay_color_lw(
-            getattr(params, "user_layer", DEFAULT_USER_LAYER))
+        color, lw = QColor("#ffffff"), 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
 
@@ -2050,7 +2038,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(2, all_layers)
         self.setItemIndexMethod(old_method)
 
-        user_layer = getattr(params, "user_layer", DEFAULT_USER_LAYER)
         rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
             type=file_type, path=params.file_path,
@@ -2058,7 +2045,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             rotation=rotation,
             colour=color.name(),
             line_weight=lw,
-            user_layer=user_layer,
             import_scale=s,
             import_base_x=bx,
             import_base_y=by,
@@ -2073,8 +2059,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.set_mode(None)
 
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
-                   x=0.0, y=0.0, layers=None, _record: Underlay = None,
-                   user_layer: str = DEFAULT_USER_LAYER):
+                   x=0.0, y=0.0, layers=None, _record: Underlay = None):
         """
         Import a DXF file as an underlay using a background thread.
 
@@ -2105,7 +2090,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._dxf_import_params = {
             "file_path": file_path, "color": color, "line_weight": line_weight,
             "x": x, "y": y, "layers": layers, "_record": _record,
-            "user_layer": user_layer,
         }
 
         # Wire signals
@@ -2139,13 +2123,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                                    page=0,
                                    selected_layers=params.get("layers"))
 
-        # Derive colour from user_layer if available, otherwise use params["color"]
-        ul = params.get("user_layer", DEFAULT_USER_LAYER)
-        color, lw = self._underlay_color_lw(ul)
-        # Fall back to explicit color if the layer lookup returned default white
-        if params.get("color") and ul == DEFAULT_USER_LAYER:
-            color = params["color"]
-            lw = 1.5
+        color = params.get("color", QColor("#ffffff"))
+        lw = 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
 
@@ -2218,7 +2197,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             x=params["x"], y=params["y"],
             colour=color.name(),
             line_weight=params.get("line_weight", lw),
-            user_layer=ul,
             level=self.active_level,
         )
 
@@ -2471,9 +2449,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             file_path, geom_list, page=page,
             selected_layers=None)
 
-        # Derive colour/lineweight from user_layer
-        ul = _record.user_layer if _record else DEFAULT_USER_LAYER
-        color, lw = self._underlay_color_lw(ul)
+        color = QColor("#ffffff")
+        lw = 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
 
@@ -2686,7 +2663,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 data.path, color=QColor(data.colour),
                 line_weight=data.line_weight,
                 x=data.x, y=data.y, layers=data.selected_layers,
-                _record=data, user_layer=data.user_layer,
+                _record=data,
             )
 
         self._show_status(f"Refreshed underlay: {data.path}")
@@ -3310,22 +3287,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             node.prepareGeometryChange()
             node.update()
 
-    def _get_draw_color(self) -> str:
-        """Return the active layer's colour for new geometry."""
-        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            ldef = self._user_layer_manager.get(self.active_user_layer)
-            if ldef:
-                return ldef.color
-        return "#ffffff"
-
-    def _get_draw_lineweight(self) -> float:
-        """Return the active layer's lineweight as cosmetic screen px."""
-        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            ldef = self._user_layer_manager.get(self.active_user_layer)
-            if ldef:
-                return lw_mm_to_cosmetic_px(ldef.lineweight)
-        return 2.0
-
     # -------------------------------------------------------------------------
     # GEOMETRY HELPERS
 
@@ -3478,27 +3439,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         from .construction_geometry import GeometryTemplate
         if self._geometry_template is None:
             self._geometry_template = GeometryTemplate()
-            self._geometry_template.user_layer = self.active_user_layer
         # Sync with active level
         self._geometry_template.level = self.active_level
         return self._geometry_template
 
     def _geom_color_lw(self):
-        """Return (color, lineweight) derived from the geometry template's layer."""
-        tmpl = self._get_geometry_template()
-        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            ldef = self._user_layer_manager.get(tmpl.user_layer)
-            if ldef:
-                return ldef.color, lw_mm_to_cosmetic_px(ldef.lineweight)
+        """Return (color, lineweight) for new geometry."""
         return "#ffffff", 2.0
-
-    def _underlay_color_lw(self, user_layer: str = DEFAULT_USER_LAYER):
-        """Return (QColor, lineweight_px) derived from a user layer name."""
-        if hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            ldef = self._user_layer_manager.get(user_layer)
-            if ldef:
-                return QColor(ldef.color), lw_mm_to_cosmetic_px(ldef.lineweight)
-        return QColor("#ffffff"), 1.5
 
     def _ensure_underlay_caches(self, project_path: str):
         """Ensure every underlay with a reachable source file has a cache entry.
@@ -3599,8 +3546,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             geom_list = transformed
 
         # Build Qt items (same as _on_dxf_finished / _import_pdf_vectors)
-        ul = record.user_layer
-        color, lw = self._underlay_color_lw(ul)
+        color, lw = QColor("#ffffff"), 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
 
@@ -4115,7 +4061,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             gl = GridlineItem(p1, p2, label=label)
             gl._locked = spec.get("locked", False)
-            gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
@@ -4179,7 +4124,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             else:
                 gl = GridlineItem(p1, p2, label=label)
                 gl._locked = locked
-                gl.user_layer = self.active_user_layer
                 self.addItem(gl)
                 apply_category_defaults(gl)
                 self._gridlines.append(gl)
@@ -5734,7 +5678,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             # Create gridline from anchor to snapped
             gl = GridlineItem(self._gridline_anchor, snapped)
-            gl.user_layer = self.active_user_layer
             self.addItem(gl)
             apply_category_defaults(gl)
             self._gridlines.append(gl)
@@ -6243,7 +6186,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._room_manual_active is None:
             room = Room(boundary=[snapped])
             room.level = self.active_level
-            room.user_layer = self.active_user_layer
             if self._level_manager:
                 levels = self._level_manager.levels
                 active_idx = next(
@@ -6725,7 +6667,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
             wall._top_level = getattr(_tmpl, "_top_level", "")
             wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
-            wall.user_layer = self.active_user_layer
             # Keep scene alignment in sync with template
             self._wall_alignment = _tmpl._alignment
             self.addItem(wall)
@@ -6796,7 +6737,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
                 wall._top_level = getattr(_tmpl, "_top_level", "")
                 wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
-                wall.user_layer = self.active_user_layer
                 self._wall_alignment = _tmpl._alignment
                 self.addItem(wall)
                 self._walls.append(wall)
@@ -6832,7 +6772,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._next_floor_num += 1
             slab._thickness_mm = _ftmpl._thickness_mm
             slab.level = _ftmpl.level if _ftmpl.level else self.active_level
-            slab.user_layer = self.active_user_layer
             slab.add_point(snapped)
             self.addItem(slab)
             self._floor_slabs.append(slab)
@@ -6904,7 +6843,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._next_floor_num += 1
             slab._thickness_mm = _ftmpl._thickness_mm
             slab.level = _ftmpl.level if _ftmpl.level else self.active_level
-            slab.user_layer = self.active_user_layer
             self.addItem(slab)
             self._floor_slabs.append(slab)
             apply_category_defaults(slab)
@@ -6987,7 +6925,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             roof._eave_height_mm = _rtmpl._eave_height_mm
             roof._overhang_mm = _rtmpl._overhang_mm
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
-            roof.user_layer = self.active_user_layer
             roof.add_point(snapped)
             self.addItem(roof)
             self._roofs.append(roof)
@@ -7096,7 +7033,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             roof._eave_height_mm = _rtmpl._eave_height_mm
             roof._overhang_mm = _rtmpl._overhang_mm
             roof.level = _rtmpl.level if _rtmpl.level else self.active_level
-            roof.user_layer = self.active_user_layer
             self.addItem(roof)
             self._roofs.append(roof)
 
@@ -7971,7 +7907,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "draw_line":
                 item = LineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_lines.append(item)
@@ -7979,7 +7914,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "draw_rectangle":
                 item = RectangleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_rects.append(item)
@@ -7987,7 +7921,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "draw_circle":
                 item = CircleItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_circles.append(item)
@@ -7995,7 +7928,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "arc":
                 item = ArcItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
                 self._draw_arcs.append(item)
@@ -8003,7 +7935,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif obj_type == "polyline":
                 item = PolylineItem.from_dict(obj)
                 item.translate(offset.x(), offset.y())
-                item.user_layer = self.active_user_layer
                 item.level = self.active_level
                 self.addItem(item)
                 self._polylines.append(item)
