@@ -668,7 +668,8 @@ class UnderlayImportDialog(QDialog):
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
-    def _load_dxf(self, path: str, _skip_rebuild: bool = False):
+    def _load_dxf(self, path: str, _skip_rebuild: bool = False,
+                  _exclude_types: set[str] | None = None):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -713,7 +714,7 @@ class UnderlayImportDialog(QDialog):
         from .dxf_import_worker import DxfImportWorker
         geoms = []
         all_ents = list(msp)
-        prog = QProgressDialog("Loading preview…", "Cancel", 0, len(all_ents), self)
+        prog = QProgressDialog("Loading preview\u2026", "Cancel", 0, len(all_ents), self)
         prog.setMinimumDuration(500)
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
@@ -723,6 +724,9 @@ class UnderlayImportDialog(QDialog):
             if i % 200 == 0:
                 prog.setValue(i)
                 QApplication.processEvents()
+            # Skip excluded entity types (DWG entity filter)
+            if _exclude_types and ent.dxftype() in _exclude_types:
+                continue
             try:
                 g = worker_ref._extract_geometry(ent)
                 if g is not None:
@@ -839,9 +843,19 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
+        # Scan entity types and let user choose which to import
+        self._set_loading("Scanning entity types\u2026")
+        excluded = self._show_entity_type_dialog(dxf_path)
+        if excluded is None:
+            # User cancelled
+            cleanup_converted_dxf(dxf_path)
+            self._clear_loading()
+            return
+
         # Load model space geometry (skip preview rebuild — filter first)
-        self._set_loading(f"Extracting geometry\u2026")
-        self._load_dxf(dxf_path, _skip_rebuild=True)
+        self._set_loading("Extracting geometry\u2026")
+        self._load_dxf(dxf_path, _skip_rebuild=True,
+                        _exclude_types=excluded)
 
         if selected_layout != "Model":
             # Filter to geometry visible through the layout's viewports
@@ -864,8 +878,10 @@ class UnderlayImportDialog(QDialog):
         self._file_type = "dwg"
         n = len(self._all_geoms)
         layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
+        cap_label = (f"  \u2022  Preview: {self._PREVIEW_CAP:,} of {n:,}"
+                     if getattr(self, "_preview_capped", False) else "")
         self._info_lbl.setText(
-            f"{n} entities loaded from {os.path.basename(path)}{layout_label}")
+            f"{n:,} entities from {os.path.basename(path)}{layout_label}{cap_label}")
 
     def _browse_for_oda(self) -> str | None:
         """Let the user manually locate ODAFileConverter.exe and save to QSettings."""
@@ -879,6 +895,100 @@ class UnderlayImportDialog(QDialog):
             s.setValue("dwg/oda_converter_path", path)
             return path
         return None
+
+    def _show_entity_type_dialog(self, dxf_path: str) -> set[str] | None:
+        """Scan DXF entity types and let user choose which to import.
+
+        Returns a set of entity type names to EXCLUDE, or an empty set
+        if the user wants everything.  Returns ``None`` if cancelled.
+        """
+        clean = _sanitize_dxf(dxf_path)
+        try:
+            doc = ezdxf.readfile(clean)
+        except Exception:
+            return set()  # can't scan — import everything
+        finally:
+            if clean != dxf_path and os.path.exists(clean):
+                os.remove(clean)
+
+        msp = doc.modelspace()
+        counts: dict[str, int] = {}
+        for ent in msp:
+            etype = ent.dxftype()
+            counts[etype] = counts.get(etype, 0) + 1
+
+        total = sum(counts.values())
+
+        # Small files — skip the dialog
+        if total < 50000:
+            return set()
+
+        # Build the dialog
+        dlg = QDialog(self)
+        dlg.setWindowTitle("DWG Entity Types")
+        dlg.resize(420, 360)
+        lay = QVBoxLayout(dlg)
+
+        lay.addWidget(QLabel(
+            f"This file contains {total:,} entities in Model space.\n"
+            "Deselect types you don't need to speed up import.\n"
+            "INSERT (blocks) and HATCH often expand to many sub-entities."))
+
+        # Group types for display
+        _EXPAND_TYPES = {"INSERT", "DIMENSION", "HATCH"}
+        _DISPLAY_ORDER = [
+            "LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC",
+            "ELLIPSE", "SPLINE", "TEXT", "MTEXT",
+            "INSERT", "DIMENSION", "HATCH",
+        ]
+
+        from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["Entity Type", "Count", "Note"])
+        tree.setColumnWidth(0, 160)
+        tree.setColumnWidth(1, 70)
+        tree.setRootIsDecorated(False)
+
+        items_map: dict[str, QTreeWidgetItem] = {}
+        # Known types in order
+        for etype in _DISPLAY_ORDER:
+            if etype not in counts:
+                continue
+            c = counts.pop(etype)
+            item = QTreeWidgetItem([etype, f"{c:,}"])
+            if etype in _EXPAND_TYPES:
+                item.setText(2, "expands on import")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(0, Qt.CheckState.Checked)
+            tree.addTopLevelItem(item)
+            items_map[etype] = item
+        # Remaining types
+        for etype in sorted(counts.keys()):
+            c = counts[etype]
+            item = QTreeWidgetItem([etype, f"{c:,}"])
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(0, Qt.CheckState.Checked)
+            tree.addTopLevelItem(item)
+            items_map[etype] = item
+
+        lay.addWidget(tree, 1)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel)
+        btns.button(QDialogButtonBox.StandardButton.Ok).setText("Import Selected")
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return None
+
+        excluded = set()
+        for etype, item in items_map.items():
+            if item.checkState(0) != Qt.CheckState.Checked:
+                excluded.add(etype)
+        return excluded
 
     def _load_dxf_with_layout(self, dxf_path: str, layout_name: str):
         """Load entities from a specific layout of a DXF file.
@@ -1131,6 +1241,10 @@ class UnderlayImportDialog(QDialog):
         if path and os.path.exists(path):
             self._load_pdf_page(path, row)
 
+    # ── Preview cap ────────────────────────────────────────────────────────
+
+    _PREVIEW_CAP = 25000
+
     # ── Common helpers ───────────────────────────────────────────────────────
 
     def _populate_layer_list(self):
@@ -1159,9 +1273,20 @@ class UnderlayImportDialog(QDialog):
         pen_dim = QPen(QColor("#444444"), 0)
         pen_dim.setCosmetic(True)
 
+        total = len(self._all_geoms)
+        capped = total > self._PREVIEW_CAP
+        # Evenly sample when capped so the preview covers the full drawing
+        if capped:
+            step = total / self._PREVIEW_CAP
+            preview_indices = {int(i * step) for i in range(self._PREVIEW_CAP)}
+        else:
+            preview_indices = None  # render all
+
         geom_items: list[QGraphicsItem] = []
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
+            if preview_indices is not None and idx not in preview_indices:
+                continue
             layer_key = g.get("layer", "0")
             is_active_layer = (active_layers is None or layer_key in active_layers)
             is_selected = (self._selected_indices is None or idx in self._selected_indices)
@@ -1192,6 +1317,7 @@ class UnderlayImportDialog(QDialog):
                 self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
                 Qt.AspectRatioMode.KeepAspectRatio
             )
+        self._preview_capped = capped
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
