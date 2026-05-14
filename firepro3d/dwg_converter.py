@@ -383,3 +383,140 @@ def _geom_in_any_bound(
             if bx0 <= px <= bx1 and by0 <= py <= by1:
                 return True
     return False
+
+
+def extract_layout_entities(
+    dxf_path: str, layout_name: str,
+) -> list[dict]:
+    """Extract paper-layout entities transformed to model-space coordinates.
+
+    Paper-space layouts contain annotations (gridline bubbles, title
+    block, notes) positioned at sheet scale.  This function reads them,
+    runs them through the geometry extractor, and transforms the
+    resulting coordinates into model space using the viewport mapping so
+    they align with viewport-filtered model-space geometry.
+
+    Args:
+        dxf_path: Path to the converted DXF file.
+        layout_name: Name of the paper-space layout.
+
+    Returns:
+        List of geometry dicts in model-space coordinates (Y negated),
+        or an empty list on any error.
+    """
+    if layout_name == "Model":
+        return []
+
+    try:
+        import ezdxf
+        doc = ezdxf.readfile(dxf_path)
+        layout = doc.layouts.get(layout_name)
+    except Exception:
+        return []
+
+    # Find the main viewport (id != 1) to get the transform
+    vp_paper_cx = vp_paper_cy = 0.0
+    vp_model_cx = vp_model_cy = 0.0
+    ps_to_ms = 1.0
+    found_vp = False
+
+    for ent in layout:
+        if ent.dxftype() != "VIEWPORT":
+            continue
+        if ent.dxf.get("id", 0) == 1:
+            continue
+        try:
+            pc = ent.dxf.center
+            mc = ent.dxf.view_center_point
+            vh = ent.dxf.view_height
+            vhp = ent.dxf.height
+            if vh <= 0 or vhp <= 0:
+                continue
+            vp_paper_cx, vp_paper_cy = float(pc[0]), float(pc[1])
+            vp_model_cx, vp_model_cy = float(mc[0]), float(mc[1])
+            ps_to_ms = vh / vhp
+            found_vp = True
+            break  # use first real viewport
+        except AttributeError:
+            continue
+
+    if not found_vp:
+        return []
+
+    # Extract geometry from layout entities (exclude viewports)
+    from .dxf_import_worker import DxfImportWorker
+    worker = DxfImportWorker.__new__(DxfImportWorker)
+    worker._cancelled = False
+
+    raw_geoms = []
+    for ent in layout:
+        if ent.dxftype() in ("VIEWPORT", "OLE2FRAME"):
+            continue
+        try:
+            g = worker._extract_geometry(ent)
+            if g is not None:
+                if isinstance(g, list):
+                    raw_geoms.extend(g)
+                else:
+                    raw_geoms.append(g)
+        except Exception:
+            pass
+
+    if not raw_geoms:
+        return []
+
+    # Transform paper-space coordinates to model-space coordinates.
+    # The extractor already negated Y, so we work in negated-Y space.
+    # Paper-space Y was also negated by the extractor, so:
+    #   model_x = (paper_x - vp_paper_cx) * ps_to_ms + vp_model_cx
+    #   model_y_neg = (paper_y_neg - (-vp_paper_cy)) * ps_to_ms + (-vp_model_cy)
+    #              = (paper_y_neg + vp_paper_cy) * ps_to_ms - vp_model_cy
+    def _tx(px: float) -> float:
+        return (px - vp_paper_cx) * ps_to_ms + vp_model_cx
+
+    def _ty(py_neg: float) -> float:
+        return (py_neg + vp_paper_cy) * ps_to_ms - vp_model_cy
+
+    transformed = []
+    for g in raw_geoms:
+        t = dict(g)
+        kind = g.get("kind")
+        if kind == "line":
+            t["x1"] = _tx(g["x1"]); t["y1"] = _ty(g["y1"])
+            t["x2"] = _tx(g["x2"]); t["y2"] = _ty(g["y2"])
+        elif kind == "circle":
+            cx_old = g["x"] + g["w"] / 2
+            cy_old = g["y"] + g["h"] / 2
+            new_cx = _tx(cx_old)
+            new_cy = _ty(cy_old)
+            new_w = g["w"] * ps_to_ms
+            new_h = g["h"] * ps_to_ms
+            t["x"] = new_cx - new_w / 2
+            t["y"] = new_cy - new_h / 2
+            t["w"] = new_w; t["h"] = new_h
+        elif kind == "arc":
+            cx_old = g["rx"] + g["rw"] / 2
+            cy_old = g["ry"] + g["rh"] / 2
+            new_cx = _tx(cx_old)
+            new_cy = _ty(cy_old)
+            new_w = g["rw"] * ps_to_ms
+            new_h = g["rh"] * ps_to_ms
+            t["rx"] = new_cx - new_w / 2
+            t["ry"] = new_cy - new_h / 2
+            t["rw"] = new_w; t["rh"] = new_h
+        elif kind == "path_points":
+            t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
+        elif kind == "text":
+            t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
+        elif kind == "ellipse_full":
+            t["pos_cx"] = _tx(g["pos_cx"])
+            t["pos_cy"] = _ty(g["pos_cy"])
+            t["w"] = g["w"] * ps_to_ms
+            t["h"] = g["h"] * ps_to_ms
+            t["x"] = g["x"] * ps_to_ms
+            t["y"] = g["y"] * ps_to_ms
+        else:
+            continue
+        transformed.append(t)
+
+    return transformed

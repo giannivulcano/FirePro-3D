@@ -860,12 +860,21 @@ class UnderlayImportDialog(QDialog):
         if selected_layout != "Model":
             # Filter to geometry visible through the layout's viewports
             self._set_loading(f"Filtering to '{selected_layout}' viewports\u2026")
-            from .dwg_converter import get_viewport_bounds, filter_geoms_by_bounds
+            from .dwg_converter import (
+                get_viewport_bounds, filter_geoms_by_bounds,
+                extract_layout_entities,
+            )
             vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
             if vp_bounds:
                 self._all_geoms = filter_geoms_by_bounds(
                     self._all_geoms, vp_bounds)
                 self._selected_indices = None
+
+            # Add paper-layout entities (gridlines, title block)
+            # transformed to model-space coordinates
+            layout_geoms = extract_layout_entities(dxf_path, selected_layout)
+            if layout_geoms:
+                self._all_geoms.extend(layout_geoms)
 
         # Now rebuild preview once with the final (possibly filtered) set
         self._set_loading(f"Building preview ({len(self._all_geoms)} entities)\u2026")
