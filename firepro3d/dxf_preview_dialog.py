@@ -887,10 +887,8 @@ class UnderlayImportDialog(QDialog):
         self._file_type = "dwg"
         n = len(self._all_geoms)
         layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
-        cap_label = (f"  \u2022  Preview: {self._PREVIEW_CAP:,} of {n:,}"
-                     if getattr(self, "_preview_capped", False) else "")
         self._info_lbl.setText(
-            f"{n:,} entities from {os.path.basename(path)}{layout_label}{cap_label}")
+            f"{n:,} entities from {os.path.basename(path)}{layout_label}")
 
     def _browse_for_oda(self) -> str | None:
         """Let the user manually locate ODAFileConverter.exe and save to QSettings."""
@@ -1250,10 +1248,6 @@ class UnderlayImportDialog(QDialog):
         if path and os.path.exists(path):
             self._load_pdf_page(path, row)
 
-    # ── Preview cap ────────────────────────────────────────────────────────
-
-    _PREVIEW_CAP = 25000
-
     # ── Common helpers ───────────────────────────────────────────────────────
 
     def _populate_layer_list(self):
@@ -1282,20 +1276,9 @@ class UnderlayImportDialog(QDialog):
         pen_dim = QPen(QColor("#444444"), 0)
         pen_dim.setCosmetic(True)
 
-        total = len(self._all_geoms)
-        capped = total > self._PREVIEW_CAP
-        # Evenly sample when capped so the preview covers the full drawing
-        if capped:
-            step = total / self._PREVIEW_CAP
-            preview_indices = {int(i * step) for i in range(self._PREVIEW_CAP)}
-        else:
-            preview_indices = None  # render all
-
         geom_items: list[QGraphicsItem] = []
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
-            if preview_indices is not None and idx not in preview_indices:
-                continue
             layer_key = g.get("layer", "0")
             is_active_layer = (active_layers is None or layer_key in active_layers)
             is_selected = (self._selected_indices is None or idx in self._selected_indices)
@@ -1326,7 +1309,6 @@ class UnderlayImportDialog(QDialog):
                 self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
                 Qt.AspectRatioMode.KeepAspectRatio
             )
-        self._preview_capped = capped
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
