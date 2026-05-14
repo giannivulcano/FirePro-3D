@@ -932,7 +932,8 @@ class UnderlayImportDialog(QDialog):
         clean = _sanitize_dxf(dxf_path)
         try:
             doc = ezdxf.readfile(clean)
-        except Exception:
+        except Exception as e:
+            print(f"[DWG] Entity scan failed: {e}")
             return set()  # can't scan — import everything
         finally:
             if clean != dxf_path and os.path.exists(clean):
@@ -948,6 +949,8 @@ class UnderlayImportDialog(QDialog):
             counts[etype] = counts.get(etype, 0) + 1
 
         total = sum(counts.values())
+        print(f"[DWG] Entity scan: {total} entities in {len(counts)} types"
+              f" (vp_bounds={'yes' if vp_bounds else 'no'})")
 
         # Small files — skip the dialog
         if total < 5000:
