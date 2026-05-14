@@ -46,6 +46,8 @@ from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, 
 
 try:
     import ezdxf
+    import logging as _logging
+    _logging.getLogger("ezdxf").setLevel(_logging.ERROR)
     _HAS_EZDXF = True
 except ImportError:
     _HAS_EZDXF = False
