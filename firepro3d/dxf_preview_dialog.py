@@ -668,7 +668,55 @@ class UnderlayImportDialog(QDialog):
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
-    def _load_dxf(self, path: str, _skip_rebuild: bool = False):
+    @staticmethod
+    def _entity_in_viewport(ent, bounds) -> bool:
+        """Check if a DXF entity falls within viewport bounds.
+
+        Checks ALL coordinates (not sampled) for accurate pre-filtering.
+        INSERT/HATCH/DIMENSION always pass since their explosion produces
+        geometry at unpredictable locations.
+        """
+        etype = ent.dxftype()
+
+        # Types that explode — can't pre-filter
+        if etype in ("INSERT", "HATCH", "DIMENSION"):
+            return True
+
+        try:
+            if etype == "LINE":
+                pts = [(ent.dxf.start[0], -ent.dxf.start[1]),
+                       (ent.dxf.end[0], -ent.dxf.end[1])]
+            elif etype in ("CIRCLE", "ARC"):
+                c = ent.dxf.center
+                pts = [(c.x, -c.y)]
+            elif etype == "ELLIPSE":
+                c = ent.dxf.center
+                pts = [(c.x, -c.y)]
+            elif etype in ("LWPOLYLINE", "POLYLINE"):
+                pts = [(p[0], -p[1]) for p in ent.get_points()]
+            elif etype == "SPLINE":
+                pts = [(cp[0], -cp[1]) for cp in ent.control_points]
+            elif etype in ("TEXT", "MTEXT"):
+                ins = ent.dxf.insert
+                pts = [(ins[0], -ins[1])]
+            else:
+                return True  # unknown — include
+        except (AttributeError, IndexError, TypeError):
+            return True
+
+        if not pts:
+            return True
+
+        for bx0, by0, bx1, by1 in bounds:
+            if by0 > by1:
+                by0, by1 = by1, by0
+            for px, py in pts:
+                if bx0 <= px <= bx1 and by0 <= py <= by1:
+                    return True
+        return False
+
+    def _load_dxf(self, path: str, _skip_rebuild: bool = False,
+                  _vp_bounds=None):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -723,6 +771,11 @@ class UnderlayImportDialog(QDialog):
             if i % 200 == 0:
                 prog.setValue(i)
                 QApplication.processEvents()
+            # Pre-filter by viewport bounds when loading for a specific
+            # layout.  Checks ALL coordinates (not sampled).
+            # INSERT/HATCH/DIMENSION always pass (explosion is unpredictable).
+            if _vp_bounds and not self._entity_in_viewport(ent, _vp_bounds):
+                continue
             try:
                 g = worker_ref._extract_geometry(ent)
                 if g is not None:
@@ -839,13 +892,21 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
-        # Step 1: Extract all model space geometry
-        self._set_loading("Extracting geometry\u2026")
-        self._load_dxf(dxf_path, _skip_rebuild=True)
-
-        # Step 2: Viewport filter (if paper layout selected)
+        # Step 1: Extract geometry (pre-filtered by viewport if layout selected)
+        vp_bounds = None
         if selected_layout != "Model":
-            self._set_loading(f"Filtering to '{selected_layout}' viewport\u2026")
+            from .dwg_converter import (
+                get_viewport_bounds, filter_geoms_by_bounds,
+                extract_layout_entities,
+            )
+            vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
+
+        self._set_loading("Extracting geometry\u2026")
+        self._load_dxf(dxf_path, _skip_rebuild=True, _vp_bounds=vp_bounds)
+
+        # Step 2: Post-extraction viewport filter for INSERT/HATCH sub-entities
+        # (pre-filter let them through since their explosion is unpredictable)
+        if selected_layout != "Model":
             from .dwg_converter import (
                 get_viewport_bounds, filter_geoms_by_bounds,
                 extract_layout_entities,
