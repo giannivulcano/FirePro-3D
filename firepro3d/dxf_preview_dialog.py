@@ -929,7 +929,6 @@ class UnderlayImportDialog(QDialog):
         Returns a set of entity type names to EXCLUDE, or an empty set
         if the user wants everything.  Returns ``None`` if cancelled.
         """
-        print(f"[DWG] Scanning: {dxf_path}")
         try:
             doc = ezdxf.readfile(dxf_path)
         except Exception as e:
@@ -950,15 +949,9 @@ class UnderlayImportDialog(QDialog):
             counts[etype] = counts.get(etype, 0) + 1
 
         total = sum(counts.values())
-        print(f"[DWG] Entity scan: checked={total_checked} passed={total}"
-              f" rejected={rejected} types={len(counts)}"
-              f" (vp_bounds={'yes' if vp_bounds else 'no'})")
-        if vp_bounds:
-            print(f"[DWG] Bounds: {vp_bounds}")
-        print(f"[DWG] Counts: {counts}")
 
-        # Small files — skip the dialog
-        if total < 5000:
+        # Nothing to import
+        if total == 0:
             return set()
 
         # Build the dialog
