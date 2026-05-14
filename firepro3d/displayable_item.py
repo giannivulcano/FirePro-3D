@@ -9,7 +9,7 @@ Usage — add to the MRO alongside the Qt graphics item base class::
     class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         def __init__(self, ...):
             QGraphicsPathItem.__init__(self)
-            self.init_displayable()   # sets level, user_layer, display overrides
+            self.init_displayable()   # sets level, display overrides
             ...
 
 The mixin deliberately does **not** call ``super().__init__()`` to avoid
@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform, QPolygonF
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL
 
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
 
@@ -110,21 +110,18 @@ class DisplayableItemMixin:
     Attributes set by ``init_displayable()``:
 
     * ``level``              — floor level name (str)
-    * ``user_layer``         — user-defined layer name (str)
     * ``_display_color``     — pen/stroke colour override (str | None)
     * ``_display_fill_color``— fill/brush colour override (str | None)
     * ``_display_overrides`` — per-instance overrides from Display Manager (dict)
     * ``_scale_manager_ref`` — fallback ScaleManager for items not in a scene
     """
 
-    def init_displayable(self, level: str = DEFAULT_LEVEL,
-                         user_layer: str = DEFAULT_USER_LAYER):
+    def init_displayable(self, level: str = DEFAULT_LEVEL):
         """Initialise the shared display attributes.
 
         Call this early in ``__init__`` after the Qt base class constructor.
         """
         self.level: str = level
-        self.user_layer: str = user_layer
         self._display_color: str | None = None
         self._display_fill_color: str | None = None
         self._display_overrides: dict = {}

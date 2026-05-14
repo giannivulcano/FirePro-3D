@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass, field
 from typing import Literal
-from .constants import DEFAULT_USER_LAYER, DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL
 
 
 @dataclass
@@ -26,8 +26,6 @@ class Underlay:
     # DXF-specific — store colour as hex string e.g. "#ffffff"
     colour: str = "#ffffff"
     line_weight: float = 0.0
-    # Layer assignment (colour/lineweight derived from this layer at runtime)
-    user_layer: str = DEFAULT_USER_LAYER
     # New fields (Revision 2)
     level: str = DEFAULT_LEVEL
     visible: bool = True
@@ -57,7 +55,6 @@ class Underlay:
         elif self.type == "dxf":
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
-        d["user_layer"] = self.user_layer
         d["level"] = self.level
         d["visible"] = self.visible
         d["hidden_layers"] = list(self.hidden_layers)
@@ -83,7 +80,6 @@ class Underlay:
             dpi         = d.get("dpi", 150),
             colour      = d.get("colour", "#ffffff"),
             line_weight = d.get("line_weight", 0),
-            user_layer    = d.get("user_layer", DEFAULT_USER_LAYER),
             level         = d.get("level", DEFAULT_LEVEL),
             visible       = d.get("visible", True),
             hidden_layers = d.get("hidden_layers", []),
