@@ -3495,11 +3495,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 continue  # already fresh
 
             # Re-parse and cache
+            source_path = record.path
             try:
                 if record.type == "dxf":
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
                         record.path, record.selected_layers)
+                elif record.type == "dwg":
+                    from .dwg_converter import (
+                        find_oda_converter, convert_dwg_to_dxf,
+                        cleanup_converted_dxf,
+                    )
+                    oda = find_oda_converter()
+                    if oda is None:
+                        continue
+                    converted = convert_dwg_to_dxf(oda, record.path)
+                    if converted is None:
+                        continue
+                    from .dxf_import_worker import DxfImportWorker
+                    geom_list = DxfImportWorker.extract_file_sync(
+                        converted, record.selected_layers)
+                    cleanup_converted_dxf(converted)
                 elif record.type == "pdf" and record.import_mode != "raster":
                     from .pdf_import_worker import extract_pdf_vectors_sync
                     geom_list, _ = extract_pdf_vectors_sync(
@@ -3511,9 +3527,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             if geom_list:
                 self._write_underlay_cache(
-                    record.path, geom_list,
+                    source_path, geom_list,
                     page=record.page,
-                    selected_layers=record.selected_layers)
+                    selected_layers=record.selected_layers,
+                    layout=record.layout)
 
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.

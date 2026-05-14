@@ -431,7 +431,7 @@ class UnderlayImportDialog(QDialog):
 
         left_lay.addWidget(self._preview_view, 1)
 
-        self._info_lbl = QLabel("Load a PDF or DXF file to see a preview.")
+        self._info_lbl = QLabel("Load a PDF, DXF, or DWG file to see a preview.")
         self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_lay.addWidget(self._info_lbl)
         splitter.addWidget(left)

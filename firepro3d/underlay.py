@@ -53,7 +53,7 @@ class Underlay:
         if self.type == "pdf":
             d["page"] = self.page
             d["dpi"]  = self.dpi
-        elif self.type == "dxf":
+        elif self.type in ("dxf", "dwg"):
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
         d["level"] = self.level
