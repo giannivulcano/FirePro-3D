@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker
-from .constants import DEFAULT_USER_LAYER, Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION
+from .constants import Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -355,8 +355,6 @@ class GridlineItem(QGraphicsLineItem):
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
 
-        # User layer
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.paper_height_mm: float = 3.0
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
@@ -625,7 +623,6 @@ class GridlineItem(QGraphicsLineItem):
             "label": self._label_text,
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
-            "user_layer": self.user_layer,
             "locked": self._locked,
             "paper_height_mm": self.paper_height_mm,
         }
@@ -648,7 +645,6 @@ class GridlineItem(QGraphicsLineItem):
         b2_vis = d.get("bubble2_vis", d.get("bubble_end", True))
         item.bubble1.setVisible(b1_vis)
         item.bubble2.setVisible(b2_vis)
-        item.user_layer = d.get("user_layer", DEFAULT_USER_LAYER)
         item._locked = d.get("locked", False)
         item.paper_height_mm = d.get("paper_height_mm", 3.0)
         item._display_overrides = d.get("display_overrides", {})

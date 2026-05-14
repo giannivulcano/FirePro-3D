@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF
-from .constants import DEFAULT_USER_LAYER, DEFAULT_LEVEL, Z_CONSTRUCTION
+from .constants import DEFAULT_LEVEL, Z_CONSTRUCTION
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,7 +221,6 @@ class PolylineItem(QGraphicsPathItem):
                  lineweight: float = 1.0):
         super().__init__()
         self._points: list[QPointF] = [start]
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
@@ -244,12 +243,10 @@ class PolylineItem(QGraphicsPathItem):
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Vertices": {"type": "label", "value": str(len(self._points))},
-            "Layer": {"type": "label", "value": self.user_layer},
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = value
+        pass
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -317,7 +314,6 @@ class PolylineItem(QGraphicsPathItem):
             "color":      pen_color,
             "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
-            "user_layer": self.user_layer,
             "level":      self.level,
         }
 
@@ -329,7 +325,6 @@ class PolylineItem(QGraphicsPathItem):
         obj = cls(pts[0], color, lw)
         for p in pts[1:]:
             obj.append_point(p)
-        obj.user_layer = data.get("user_layer", "0")
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 
@@ -383,7 +378,6 @@ class LineItem(QGraphicsLineItem):
         super().__init__()
         self._pt1 = pt1
         self._pt2 = pt2
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
@@ -405,12 +399,10 @@ class LineItem(QGraphicsLineItem):
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
-            "Layer": {"type": "label", "value": self.user_layer},
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = value
+        pass
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -421,7 +413,6 @@ class LineItem(QGraphicsLineItem):
             "pt2":         [self._pt2.x(), self._pt2.y()],
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "user_layer":  self.user_layer,
             "level":       self.level,
         }
 
@@ -431,7 +422,6 @@ class LineItem(QGraphicsLineItem):
         pt2 = QPointF(data["pt2"][0], data["pt2"][1])
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
-        obj.user_layer = data.get("user_layer", "0")
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 
@@ -516,7 +506,6 @@ class RectangleItem(QGraphicsRectItem):
                  color: str | QColor = "#ffffff", lineweight: float = 1.0):
         rect = QRectF(pt1, pt2).normalized()
         super().__init__(rect)
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
@@ -539,12 +528,10 @@ class RectangleItem(QGraphicsRectItem):
             "Height": {"type": "label", "value": f"{r.height():.1f}"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
-            "Layer": {"type": "label", "value": self.user_layer},
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = value
+        pass
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -558,7 +545,6 @@ class RectangleItem(QGraphicsRectItem):
             "h":           r.height(),
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "user_layer":  self.user_layer,
             "level":       self.level,
         }
 
@@ -568,7 +554,6 @@ class RectangleItem(QGraphicsRectItem):
         pt2 = QPointF(data["x"] + data["w"], data["y"] + data["h"])
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
-        obj.user_layer = data.get("user_layer", "0")
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 
@@ -671,7 +656,6 @@ class CircleItem(QGraphicsEllipseItem):
         self._radius = radius
         r = radius
         super().__init__(center.x() - r, center.y() - r, 2 * r, 2 * r)
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
@@ -693,12 +677,10 @@ class CircleItem(QGraphicsEllipseItem):
             "Radius": {"type": "label", "value": f"{self._radius:.1f}"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
-            "Layer": {"type": "label", "value": self.user_layer},
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = value
+        pass
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -710,7 +692,6 @@ class CircleItem(QGraphicsEllipseItem):
             "radius":      self._radius,
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "user_layer":  self.user_layer,
             "level":       self.level,
         }
 
@@ -719,7 +700,6 @@ class CircleItem(QGraphicsEllipseItem):
         center = QPointF(data["cx"], data["cy"])
         obj = cls(center, data["radius"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
-        obj.user_layer = data.get("user_layer", "0")
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 
@@ -810,7 +790,6 @@ class ArcItem(QGraphicsPathItem):
         self._radius = max(radius, 0.01)
         self._start_deg = start_deg
         self._span_deg = span_deg
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
         pen = QPen(QColor(color), lineweight)
         pen.setCosmetic(True)
@@ -842,7 +821,6 @@ class ArcItem(QGraphicsPathItem):
             "span_deg":   self._span_deg,
             "color":      self.pen().color().name(),
             "lineweight": self.pen().widthF(),
-            "user_layer": self.user_layer,
             "level":      self.level,
         }
 
@@ -851,7 +829,6 @@ class ArcItem(QGraphicsPathItem):
         center = QPointF(data["cx"], data["cy"])
         obj = cls(center, data["radius"], data["start_deg"], data["span_deg"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
-        obj.user_layer = data.get("user_layer", "0")
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 
@@ -936,18 +913,14 @@ class GeometryTemplate:
 
     def __init__(self):
         self.level: str = DEFAULT_LEVEL
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.name: str = "(Template)"
 
     def get_properties(self) -> dict:
         return {
             "Type":  {"type": "label",     "value": "Geometry"},
-            "Layer": {"type": "layer_ref", "value": self.user_layer},
             "Level": {"type": "level_ref", "value": self.level},
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = str(value)
-        elif key == "Level":
+        if key == "Level":
             self.level = str(value)

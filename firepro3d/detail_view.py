@@ -79,7 +79,6 @@ class DetailMarker(QGraphicsPathItem):
 
         # For display manager categorization
         self.level = level_name
-        self.user_layer: str = "Default"
         self._display_overrides: dict = {}
 
         # Bubble position (defaults to below center of rect)

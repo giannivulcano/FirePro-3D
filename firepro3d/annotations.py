@@ -60,7 +60,6 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         self.setPos(x, y)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, True)
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         # Enable word wrap if width was specified
@@ -68,7 +67,6 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
             self.setTextWidth(text_width)
 
         self._properties.update({
-            "Layer":     {"type": "label", "value": DEFAULT_USER_LAYER},
             "Text":      {"type": "string", "value": text},
             "Color":     {"type": "enum",
                           "options": ["White", "Black", "Red", "Blue"],
@@ -85,9 +83,7 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
 
     def set_property(self, key, value):
         super().set_property(key, value)
-        if key == "Layer":
-            self.user_layer = value
-        elif key == "Text":
+        if key == "Text":
             self.setPlainText(value)
         elif key == "Color":
             _color_map = {"Black": "#000000", "Red": "#ff0000",
@@ -148,12 +144,10 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def __init__(self, p1: QPointF, p2: QPointF):
         super().__init__(p1.x(), p1.y(), p2.x(), p2.y())
 
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
         # Properties
         self._properties = {
-            "Layer": {"type": "label", "value": DEFAULT_USER_LAYER},
             "Text Size": {"type": "string", "value": "10"},
             "Colour": {"type": "enum", "options": ["Black", "Red", "Blue", "White"], "value": "White"},
             "Line Weight": {"type": "enum", "options": ["2", "4", "6"], "value": "2"},
@@ -276,9 +270,7 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     def set_property(self, key, value):
         if key in self._properties:
             self._properties[key]["value"] = value
-        if key == "Layer":
-            self.user_layer = value
-        elif key == "Text Size":
+        if key == "Text Size":
             # Text size is now fixed in model-space (12"); rebuild label HTML
             self.update_label()
         elif key == "Colour":
@@ -493,7 +485,6 @@ class HatchItem(QGraphicsPathItem):
         self.setZValue(0)  # sits between geometry and annotations
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
-        self.user_layer: str = DEFAULT_USER_LAYER
         self.level: str = DEFAULT_LEVEL
 
     # ── Public properties ────────────────────────────────────────────────────
@@ -555,7 +546,6 @@ class HatchItem(QGraphicsPathItem):
     def get_properties(self) -> dict:
         return {
             "Type":    {"type": "label",  "value": "Hatch"},
-            "Layer":   {"type": "label",  "value": self.user_layer},
             "Pattern": {"type": "enum",   "options": ["diagonal", "cross", "solid"],
                         "value": self._pattern_type},
             "Angle":   {"type": "string", "value": f"{self._angle:.1f}"},
@@ -564,9 +554,7 @@ class HatchItem(QGraphicsPathItem):
         }
 
     def set_property(self, key: str, value):
-        if key == "Layer":
-            self.user_layer = value
-        elif key == "Pattern":
+        if key == "Pattern":
             self.pattern_type = value
         elif key == "Angle":
             try:
@@ -602,7 +590,6 @@ class HatchItem(QGraphicsPathItem):
             "angle":        self._angle,
             "spacing":      self._spacing,
             "colour":       self._colour,
-            "user_layer":   self.user_layer,
             "level":        self.level,
         }
 
@@ -621,7 +608,6 @@ class HatchItem(QGraphicsPathItem):
             spacing=data.get("spacing", 8.0),
             colour=data.get("colour", "#888888"),
         )
-        obj.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         obj.level = data.get("level", DEFAULT_LEVEL)
         return obj
 

@@ -22,7 +22,7 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from .wall_opening import WallOpening
 
-from .constants import (DEFAULT_LEVEL, DEFAULT_USER_LAYER,
+from .constants import (DEFAULT_LEVEL,
                        MITER_TOL, MAX_MITER_FACTOR)
 
 # ── Constants ────────────────────────────────────────────────────────────────
@@ -639,7 +639,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             "base_offset_mm": self._base_offset_mm,
             "top_offset_mm":  self._top_offset_mm,
             "level":         self.level,
-            "user_layer":    self.user_layer,
             "name":          self.name,
             "join_mode_pt1": self._join_mode_pt1,
             "join_mode_pt2": self._join_mode_pt2,
@@ -689,7 +688,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         else:
             wall._top_offset_mm = 0.0
         wall.level = data.get("level", DEFAULT_LEVEL)
-        wall.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         wall.name = data.get("name", "")
         # Per-endpoint join modes (backward compat: old "join_mode" applies to both)
         legacy = data.get("join_mode", "Auto")

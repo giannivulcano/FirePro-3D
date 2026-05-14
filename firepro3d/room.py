@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QPen, QColor, QBrush, QPolygonF, QFont, QPainterPath, QPainter
 from PyQt6.QtCore import Qt, QPointF
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_OVERLAY
+from .constants import DEFAULT_LEVEL, Z_OVERLAY
 
 if TYPE_CHECKING:
     from .scale_manager import ScaleManager
@@ -511,7 +511,6 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "level":            self.level,
             "ceiling_level":    self._ceiling_level,
             "ceiling_offset":   self._ceiling_offset,
-            "user_layer":       self.user_layer,
             "hazard_class":     self._hazard_class,
             "compartment_type": self._compartment_type,
             "ceiling_type":     self._ceiling_type,
@@ -528,7 +527,6 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         room.level = data.get("level", DEFAULT_LEVEL)
         room._ceiling_level = data.get("ceiling_level", "Level 2")
         room._ceiling_offset = float(data.get("ceiling_offset", 0.0))
-        room.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         room._hazard_class = data.get("hazard_class", "Light Hazard")
         room._compartment_type = data.get("compartment_type", "Room")
         room._ceiling_type = data.get("ceiling_type", "Noncombustible unobstructed")

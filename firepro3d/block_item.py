@@ -22,7 +22,6 @@ class BlockItem(QGraphicsItemGroup):
         # Make the group itself selectable and moveable; children inherit movement
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.user_layer: str = "0"
         for item in self._child_refs:
             self.addToGroup(item)
 
@@ -47,7 +46,6 @@ class BlockItem(QGraphicsItemGroup):
             "pos":        [self.pos().x(), self.pos().y()],
             "children":   [c.to_dict() for c in self._child_refs
                            if hasattr(c, "to_dict")],
-            "user_layer": self.user_layer,
         }
 
     @classmethod
@@ -61,5 +59,4 @@ class BlockItem(QGraphicsItemGroup):
                 children.append(child)
         blk = cls(children, data.get("block_name", ""))
         blk.setPos(QPointF(*data.get("pos", [0.0, 0.0])))
-        blk.user_layer = data.get("user_layer", "0")
         return blk

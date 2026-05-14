@@ -18,7 +18,7 @@ import math
 
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_DESIGN_AREA
+from .constants import DEFAULT_LEVEL, Z_DESIGN_AREA
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
 
 HAZARD_OPTIONS = [
@@ -345,7 +345,6 @@ class DesignArea(QGraphicsRectItem):
         self.setZValue(Z_DESIGN_AREA)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.level: str = DEFAULT_LEVEL
-        self.user_layer: str = DEFAULT_USER_LAYER
         self._update_rect()
 
     # ------------------------------------------------------------------

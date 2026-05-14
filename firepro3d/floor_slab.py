@@ -20,7 +20,7 @@ from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -295,7 +295,6 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "color":             self._color.name(),
             "thickness_mm":      self._thickness_mm,
             "level":             self.level,
-            "user_layer":        self.user_layer,
             "name":              self.name,
         }
         if self._level_offset_mm != 0.0:
@@ -312,7 +311,6 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         else:
             slab._thickness_mm = data.get("thickness_ft", DEFAULT_THICKNESS_MM / 304.8) * 304.8
         slab.level = data.get("level", DEFAULT_LEVEL)
-        slab.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         slab.name = data.get("name", "")
         slab._level_offset_mm = data.get("level_offset_mm", 0.0)
         return slab

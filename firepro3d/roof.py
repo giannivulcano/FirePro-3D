@@ -20,7 +20,7 @@ from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_ROOF
+from .constants import DEFAULT_LEVEL, Z_ROOF
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
@@ -547,7 +547,6 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
             "ridge_direction": self._ridge_direction,
             "ridge_position":  self._ridge_position,
             "level":           self.level,
-            "user_layer":      self.user_layer,
             "name":            self.name,
         }
 
@@ -580,7 +579,6 @@ class RoofItem(DisplayableItemMixin, QGraphicsPathItem):
         roof._ridge_direction = data.get("ridge_direction", "auto")
         roof._ridge_position = data.get("ridge_position", 0.5)
         roof.level = data.get("level", DEFAULT_LEVEL)
-        roof.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         roof.name = data.get("name", "")
         return roof
 
