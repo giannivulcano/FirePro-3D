@@ -1973,7 +1973,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._write_underlay_cache(
             params.file_path, params.geom_list,
             page=getattr(params, "pdf_page", 0),
-            selected_layers=getattr(params, "selected_layers", None))
+            selected_layers=getattr(params, "selected_layers", None),
+            layout=getattr(params, "layout", ""))
 
         s = params.scale
         bx, by = params.base_x, params.base_y
@@ -2032,8 +2033,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setZValue(Z_UNDERLAY)
         group.setPos(insert_pt)
         file_type = getattr(params, "file_type", "dxf")
-        label = "PDF Underlay" if file_type == "pdf" else "DXF Underlay"
-        group.setData(0, label)
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
         all_layers = sorted({g.get("layer", "0") for g in transformed})
         group.setData(2, all_layers)
         self.setItemIndexMethod(old_method)
@@ -2051,6 +2052,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             selected_layers=getattr(params, "selected_layers", None),
             level=self.active_level,
             import_mode=getattr(params, "import_mode", "auto"),
+            layout=getattr(params, "layout", ""),
         )
         self._apply_underlay_display(group, record)
         self.underlays.append((record, group))
@@ -2119,9 +2121,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
 
         # Write geometry cache (raw, pre-transform)
-        self._write_underlay_cache(params["file_path"], geom_list,
+        cache_source = params.get("_dwg_source_path", params["file_path"])
+        self._write_underlay_cache(cache_source, geom_list,
                                    page=0,
-                                   selected_layers=params.get("layers"))
+                                   selected_layers=params.get("layers"),
+                                   layout=params.get("layout", ""))
 
         color = params.get("color", QColor("#ffffff"))
         lw = 1.5
@@ -2190,15 +2194,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group = self.createItemGroup(items)
         group.setZValue(Z_UNDERLAY)
         group.setPos(params["x"], params["y"])
-        group.setData(0, "DXF Underlay")
-
         record = params["_record"] or Underlay(
-            type="dxf", path=params["file_path"],
+            type=params.get("file_type", "dxf"), path=params["file_path"],
             x=params["x"], y=params["y"],
             colour=color.name(),
             line_weight=params.get("line_weight", lw),
             level=self.active_level,
+            layout=params.get("layout", ""),
         )
+
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
 
         # Apply saved display settings
         self._apply_underlay_display(group, record)
@@ -2214,6 +2220,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         progress.close()
         self._cleanup_dxf_worker()
+
+        # Clean up temp DWG->DXF conversion output (async-safe)
+        dwg_cleanup = params.get("_dwg_cleanup_path")
+        if dwg_cleanup:
+            from .dwg_converter import cleanup_converted_dxf
+            cleanup_converted_dxf(dwg_cleanup)
+
         self.underlaysChanged.emit()
         self.push_undo_state()
         self._show_status(f"Imported DXF: {params['file_path']} ({len(items)} items)")
@@ -2658,13 +2671,36 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 x=data.x, y=data.y, _record=data,
                 import_mode=data.import_mode,
             )
-        elif data.type == "dxf":
+        elif data.type in ("dxf", "dwg"):
+            dxf_path = data.path
+            if data.type == "dwg":
+                from .dwg_converter import (
+                    find_oda_converter, convert_dwg_to_dxf,
+                )
+                oda = find_oda_converter()
+                if oda is None:
+                    self._create_underlay_placeholder(data)
+                    self._show_status("DWG refresh failed: ODA File Converter not found")
+                    return
+                converted = convert_dwg_to_dxf(oda, data.path)
+                if converted is None:
+                    self._create_underlay_placeholder(data)
+                    self._show_status(f"DWG refresh failed: conversion error for {data.path}")
+                    return
+                dxf_path = converted
+
             self.import_dxf(
-                data.path, color=QColor(data.colour),
+                dxf_path, color=QColor(data.colour),
                 line_weight=data.line_weight,
                 x=data.x, y=data.y, layers=data.selected_layers,
                 _record=data,
             )
+
+            # Store DWG metadata on import params for async cleanup
+            if data.type == "dwg" and hasattr(self, '_dxf_import_params') and self._dxf_import_params:
+                self._dxf_import_params["_dwg_source_path"] = data.path
+                self._dxf_import_params["_dwg_cleanup_path"] = dxf_path
+                self._dxf_import_params["layout"] = data.layout
 
         self._show_status(f"Refreshed underlay: {data.path}")
 
@@ -3558,8 +3594,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group = self.createItemGroup(items)
         group.setZValue(Z_UNDERLAY)
         group.setPos(record.x, record.y)
-        label = "PDF Underlay" if record.type == "pdf" else "DXF Underlay"
-        group.setData(0, label)
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         all_layers = sorted({g.get("layer", "0") for g in geom_list})
         group.setData(2, all_layers)
         if source_mtime is None:
@@ -3573,7 +3609,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
                               page: int = 0,
-                              selected_layers: list[str] | None = None):
+                              selected_layers: list[str] | None = None,
+                              layout: str = ""):
         """Write geometry dicts to the project cache directory.
 
         No-op if the project has not been saved yet (no project path).
@@ -3588,7 +3625,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         from .underlay_cache import cache_dir_for_project, compute_cache_key, write_cache
         cache_dir = cache_dir_for_project(project_path)
         key = compute_cache_key(source_path, page=page,
-                                selected_layers=selected_layers)
+                                selected_layers=selected_layers,
+                                layout=layout)
         try:
             write_cache(cache_dir, key, geom_list, source_mtime=source_mtime)
         except OSError:

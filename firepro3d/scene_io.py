@@ -453,6 +453,28 @@ class SceneIOMixin:
                                 x=udata.x, y=udata.y,
                                 layers=udata.selected_layers,
                                 _record=udata)
+            elif udata.type == "dwg":
+                from .dwg_converter import (
+                    find_oda_converter, convert_dwg_to_dxf,
+                )
+                oda = find_oda_converter()
+                if oda is None:
+                    missing_underlays.append(udata)
+                    continue
+                converted = convert_dwg_to_dxf(oda, udata.path)
+                if converted is None:
+                    missing_underlays.append(udata)
+                    continue
+                self.import_dxf(converted, color=QColor(udata.colour),
+                                line_weight=udata.line_weight,
+                                x=udata.x, y=udata.y,
+                                layers=udata.selected_layers,
+                                _record=udata)
+                # Store DWG metadata for async cleanup in _on_dxf_finished
+                if hasattr(self, '_dxf_import_params') and self._dxf_import_params:
+                    self._dxf_import_params["_dwg_cleanup_path"] = converted
+                    self._dxf_import_params["_dwg_source_path"] = udata.path
+                    self._dxf_import_params["layout"] = udata.layout
 
         # Handle missing underlay files
         for udata in missing_underlays:
