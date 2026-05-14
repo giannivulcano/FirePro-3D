@@ -19,7 +19,6 @@ from firepro3d.property_manager import PropertyManager
 from firepro3d.scale_manager import DisplayUnit
 from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
-from firepro3d.user_layer_manager import UserLayerManager, UserLayerWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import PaperSpaceWidget, Sheet, ViewResolver, PAPER_SIZES
@@ -241,14 +240,6 @@ class MainWindow(QMainWindow):
 
         # Draw tool style defaults (white pen in dark theme, 1px cosmetic)
         _t = th.detect()
-        # Draw colour / lineweight now driven entirely by the active layer
-        # (no per-item overrides — see Fix 2 Sprint V)
-
-        # User layer manager — shared between scene and UI
-        self._splash_progress(25, "Setting up layers...")
-        self.user_layer_mgr = UserLayerManager()
-        self.scene._user_layer_manager = self.user_layer_mgr   # for save/load
-
         # Level manager — shared between scene and UI
         self.level_mgr = LevelManager()
         self.scene._level_manager = self.level_mgr
@@ -287,25 +278,9 @@ class MainWindow(QMainWindow):
         self._splash_progress(65, "Setting up panels...")
         self.prop_manager = PropertyManager()
         self.prop_manager.set_level_manager(self.level_mgr)
-        self.prop_manager.set_user_layer_manager(self.user_layer_mgr)
         self.scene.requestPropertyUpdate.connect(self.prop_manager.show_properties)
         self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
         self.scene.selectionChanged.connect(self.update_property_manager)
-
-        # Combined left-side dock: User Layers | Project Browser | Model Browser
-        self.user_layer_widget = UserLayerWidget(
-            self.user_layer_mgr, scene=self.scene
-        )
-        self.user_layer_widget.activeLayerChanged.connect(
-            lambda name: setattr(self.scene, "active_user_layer", name)
-        )
-        self.user_layer_widget.layersChanged.connect(
-            lambda: self.level_mgr.apply_to_scene(self.scene)
-        )
-        self.user_layer_widget.layersChanged.connect(
-            self._refresh_modify_layer_combo
-        )
-        # (Layer group removed — layer assignment is via item properties panel)
 
         # Level widget (floor levels)
         self.level_widget = LevelWidget(self.level_mgr, scene=self.scene)
@@ -375,7 +350,6 @@ class MainWindow(QMainWindow):
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
-        self._left_tabs.addTab(self.user_layer_widget, "User Layers")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -522,7 +496,6 @@ class MainWindow(QMainWindow):
         # New-project setup — mirrors new_file() without the save prompt
         self.scene._clear_scene()
         self.level_widget.populate()
-        self.user_layer_widget.populate()
         pass  # level indicator removed
         self._place_default_gridlines()
         self._create_elevation_markers()
@@ -1418,14 +1391,6 @@ class MainWindow(QMainWindow):
                   "constraint_dimensional", large=False).setToolTip(
             "Fix the distance between two points")
 
-        # --- Layer ---
-        g_layer = modify_page.add_group("Layer")
-        self._modify_layer_combo = QComboBox()
-        self._modify_layer_combo.setMinimumWidth(120)
-        self._modify_layer_combo.addItems([l.name for l in self.user_layer_mgr.layers])
-        self._modify_layer_combo.currentTextChanged.connect(self._assign_layer_to_selection)
-        g_layer._btn_row.addWidget(self._modify_layer_combo)
-
         # --- Text Formatting (shown when text is selected) ---
         g_text = modify_page.add_group("Text")
         self._text_format_group = g_text
@@ -1921,7 +1886,6 @@ class MainWindow(QMainWindow):
         for item in selected:
             self.scene.removeItem(item)
         blk = BlockItem(selected, block_name=name)
-        blk.user_layer = self.scene.active_user_layer
         self.scene.addItem(blk)
         blk.setSelected(True)
 
@@ -2060,14 +2024,6 @@ class MainWindow(QMainWindow):
         self._btn_paste.setEnabled(bool(self.scene.clipboard_data()))
         if sel and self.scene.mode not in self._DRAW_MODES:
             self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
-            # Update layer combo to show selected item's layer
-            if hasattr(sel[0], "user_layer"):
-                layer = getattr(sel[0], "user_layer", "0")
-                idx = self._modify_layer_combo.findText(layer)
-                if idx >= 0:
-                    self._modify_layer_combo.blockSignals(True)
-                    self._modify_layer_combo.setCurrentIndex(idx)
-                    self._modify_layer_combo.blockSignals(False)
             # Show/hide text formatting group
             has_text = any(isinstance(i, NoteAnnotation) for i in sel)
             self._text_format_group.setVisible(has_text)
@@ -2099,24 +2055,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Select an item first", 3000)
             return
         action()
-
-    def _refresh_modify_layer_combo(self):
-        """Re-populate the Modify ribbon's layer dropdown after layers change."""
-        combo = self._modify_layer_combo
-        combo.blockSignals(True)
-        current = combo.currentText()
-        combo.clear()
-        combo.addItems([l.name for l in self.user_layer_mgr.layers])
-        idx = combo.findText(current)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        combo.blockSignals(False)
-
-    def _assign_layer_to_selection(self, layer_name: str):
-        """Assign a user layer to all selected items."""
-        for item in self.scene.selectedItems():
-            if hasattr(item, "user_layer"):
-                item.user_layer = layer_name
 
     # ── Text formatting handlers ──────────────────────────────────────────
 
@@ -2333,7 +2271,6 @@ class MainWindow(QMainWindow):
         self._current_file = file
         self.scene.load_from_file(file)
         self.level_widget.populate()
-        self.user_layer_widget.populate()
         pass  # level indicator removed
         self._modified = False
         self._update_title()
@@ -2428,7 +2365,6 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self.scene.load_from_file(path)
             self.level_widget.populate()
-            self.user_layer_widget.populate()
             self._modified = True
             self._update_title()
             self._apply_persistent_unit_prefs()
@@ -2463,7 +2399,6 @@ class MainWindow(QMainWindow):
         self._current_file = None
         self.scene._clear_scene()
         self.level_widget.populate()
-        self.user_layer_widget.populate()
         pass  # level indicator removed
 
         # Place a default 3 × 3 grid (3 vertical + 3 horizontal)
@@ -2548,7 +2483,6 @@ class MainWindow(QMainWindow):
         """Open the unified underlay import dialog (PDF + DXF)."""
         dialog = UnderlayImportDialog(
             self, file_path=file_path,
-            user_layer_manager=self.user_layer_mgr,
             scale_manager=self.scene.scale_manager,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
@@ -2563,7 +2497,6 @@ class MainWindow(QMainWindow):
                     dpi=params.pdf_dpi, page=params.pdf_page,
                     rotation=params.rotation,
                     scale=params.scale,
-                    user_layer=params.user_layer,
                     import_mode=params.import_mode,
                 )
                 self.scene.import_pdf(
