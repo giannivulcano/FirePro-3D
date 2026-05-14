@@ -108,6 +108,27 @@ Key points:
 
 Lines, polylines (including lwpolyline), circles, arcs, text, mtext, hatches, and block inserts are converted to geometry descriptors.
 
+## DWG import
+
+DWG files are converted to DXF via ODA File Converter (external CLI tool) and then processed through the existing DXF import pipeline.
+
+### Module
+
+`dwg_converter.py` handles ODA discovery, conversion, layout listing, viewport bounds extraction, and paper-layout entity transformation.
+
+### Flow
+
+1. **ODA discovery** — finds `ODAFileConverter.exe` via QSettings, PATH, or common install directories
+2. **Conversion** — copies DWG to temp input dir, runs ODA, output DXF saved to `<project_dir>/UNDERLAY_REF/` for reuse across sessions
+3. **Cache check** — skips re-conversion if existing DXF is newer than source DWG
+4. **Layout selection** — for multi-layout DWGs, reads VIEWPORT entities from paper layouts to determine model-space clip regions
+5. **Viewport filtering** — pre-filters entities during extraction (all coordinates checked for LINE/POLYLINE/etc.; INSERT/HATCH always pass since explosion is unpredictable); post-extraction `filter_geoms_by_bounds()` catches INSERT sub-entities
+6. **Paper layout merge** — gridline bubbles, title block, annotations from the selected paper layout are transformed to model-space coordinates via the viewport's scale mapping and merged with model-space geometry
+
+### Performance
+
+The 175MB converted DXF is read once via `read_dxf()` and the `doc` object is passed to all stages. Entity type dialog shows post-filter geometry counts so the user can deselect heavy types before preview rebuild.
+
 ## PDF import
 
 `PdfImportWorker` extracts vector geometry from PDF files using PyMuPDF (fitz).

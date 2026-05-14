@@ -9,6 +9,7 @@ For full documentation, see `docs/` or run `mkdocs serve`.
 - **Python 3.x** with **PyQt6** (UI framework)
 - **ezdxf** for DXF import/export
 - **PyMuPDF** for PDF import
+- **ODA File Converter** (external CLI) for DWG→DXF conversion
 - **numpy** for numerical computation
 - **vispy** / **PyVista** for 3D visualization
 

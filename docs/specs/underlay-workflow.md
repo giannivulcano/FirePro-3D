@@ -1,9 +1,9 @@
 # Underlay Workflow — Specification
 
 > **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
-> **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/calibrate_dialog.py`, `main.py`
+> **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 3 (post-implementation review — spec updated to match delivered code)
+> **Revision:** 4 (added DWG import via ODA File Converter, underlay caching)
 
 ---
 
@@ -27,8 +27,10 @@ Underlays are the primary reference material for fire protection design — ever
 
 ### 2.1 In scope (this spec)
 
-- The `Underlay` data model and new fields (`level`, `visible`, `hidden_layers`, `import_mode`).
+- The `Underlay` data model and new fields (`level`, `visible`, `hidden_layers`, `import_mode`, `import_scale`, `import_base_x/y`, `selected_layers`, `layout`).
 - Import dialog: PDF DPI selection, PDF import mode toggle (vector/raster/auto).
+- DWG import via ODA File Converter (DWG→DXF conversion, layout selection, viewport-based spatial filtering, paper layout entity transform).
+- Underlay geometry caching (`underlay_cache.py`) for fast project reload.
 - Placement: origin vs interactive click-to-place (existing, documented).
 - Path storage: relative vs absolute strategy.
 - File-not-found handling: warning, placeholder, relink.
@@ -60,7 +62,7 @@ Underlays are the primary reference material for fire protection design — ever
 ```python
 @dataclass
 class Underlay:
-    type: Literal["pdf", "dxf"]   # File type
+    type: Literal["pdf", "dxf", "dwg"]  # File type
     path: str                      # File path (see §4 for resolution rules)
     x: float = 0.0                # Scene position X
     y: float = 0.0                # Scene position Y
@@ -82,6 +84,13 @@ class Underlay:
     visible: bool = True              # User's explicit visibility toggle
     hidden_layers: list[str] = field(default_factory=list)  # Hidden source DXF layer names
     import_mode: str = "auto"         # PDF only: "auto" | "vector" | "raster"
+    # Import transform params (Revision 3)
+    import_scale: float = 1.0         # Scale applied during import (for reload)
+    import_base_x: float = 0.0        # Base point X subtracted during import
+    import_base_y: float = 0.0        # Base point Y subtracted during import
+    selected_layers: list[str] | None = None  # DXF layers imported (None = all)
+    # DWG support (Revision 4)
+    layout: str = ""                   # DWG layout name (empty = Model space)
 ```
 
 **Behavior:**
@@ -90,6 +99,7 @@ class Underlay:
 - `visible` — user's explicit hide/show toggle, independent of level filtering. An underlay is visible in the scene only when both `visible == True` AND (level matches active level OR level is `"*"`).
 - `hidden_layers` — source DXF layer names toggled off post-import. Empty for PDFs. Persisted and reapplied on refresh/reload.
 - `import_mode` — only meaningful for PDFs. `"auto"` tries vectors first, falls back to raster. `"vector"` forces vector extraction. `"raster"` skips vectors and renders as pixmap. DXF always uses vector.
+- `layout` — DWG only. Name of the paper-space layout selected at import time. Empty string means Model space. Used for viewport-based spatial filtering and cache key differentiation.
 
 ### 3.3 Serialization
 
@@ -101,6 +111,11 @@ class Underlay:
 | `visible` | `True` |
 | `hidden_layers` | `[]` |
 | `import_mode` | `"auto"` |
+| `import_scale` | `1.0` |
+| `import_base_x` | `0.0` |
+| `import_base_y` | `0.0` |
+| `selected_layers` | `None` |
+| `layout` | `""` |
 
 ---
 
@@ -379,6 +394,51 @@ File selected
   → Record + scene item appended to self.underlays
   → underlaysChanged emitted → browser tree refreshes
 ```
+
+---
+
+## 10B. DWG Import (Revision 4)
+
+### 10B.1 Overview
+
+DWG files are imported via ODA File Converter, a free external CLI tool that converts DWG to DXF. The converted DXF feeds into the existing DXF import pipeline.
+
+### 10B.2 ODA File Converter
+
+- **Discovery order:** QSettings (`dwg/oda_converter_path`) → system PATH → common install directories (`C:\Program Files\ODA\ODAFileConverter *\`)
+- **Not installed:** Error dialog with download link + "Locate ODA…" button to browse for the executable. Path saved to QSettings for future use.
+- **Conversion:** `ODAFileConverter <in_dir> <out_dir> ACAD2018 DXF 0 1`. Runs in temp input directory (source DWG copied in). GUI suppressed via `STARTF_USESHOWWINDOW`.
+- **Output:** Converted DXF saved to `<project_dir>/UNDERLAY_REF/` for reuse. Skips re-conversion if existing DXF is newer than source DWG.
+- **Module:** `firepro3d/dwg_converter.py`
+
+### 10B.3 Layout Selection
+
+DWG files can contain multiple paper-space layouts (e.g., "Ground Floor", "Second Floor"). When a DWG has 2+ layouts, a layout picker dialog is shown:
+
+- **"Model"** — imports all model-space geometry (no spatial filter)
+- **Paper layouts** — extracts viewport definitions from the layout, filters model-space geometry to entities within viewport bounds, and merges paper-layout entities (gridline bubbles, title block) transformed to model-space coordinates via the viewport's scale mapping
+
+### 10B.4 Import Flow
+
+1. ODA converts DWG → DXF (or uses cached DXF from UNDERLAY_REF/)
+2. DXF read once via `ezdxf.readfile()`, doc object shared across all stages
+3. Layout picker (if 2+ layouts)
+4. Viewport bounds computed from selected layout's VIEWPORT entities
+5. Geometry extraction with pre-filter (LINE/CIRCLE/ARC/etc. filtered by viewport bounds; INSERT/HATCH/DIMENSION always extracted since explosion is unpredictable)
+6. Post-extraction viewport filter via `filter_geoms_by_bounds()` (catches INSERT sub-entities outside viewport)
+7. Paper layout entities (gridlines, title block) transformed to model-space and merged
+8. Entity type dialog — shows actual post-filter geometry counts by kind (lines, polylines, circles, arcs, text); user can deselect types
+9. Preview rebuild
+
+### 10B.5 Underlay Record
+
+DWG underlays are stored with `type="dwg"`, preserving the original `.dwg` path and layout name. The `layout` field is included in the cache key so multiple layouts from the same DWG file get independent cache entries.
+
+### 10B.6 Refresh & Reload
+
+- **Cache hit:** Geometry loaded from `.fpd.cache/` (fast)
+- **Cache miss:** ODA re-converts DWG → DXF, geometry re-extracted
+- **`_ensure_underlay_caches`:** On save, DWG underlays trigger ODA conversion if cache entry is missing
 
 ---
 
