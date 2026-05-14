@@ -668,7 +668,7 @@ class UnderlayImportDialog(QDialog):
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
-    def _load_dxf(self, path: str):
+    def _load_dxf(self, path: str, _skip_rebuild: bool = False):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -736,10 +736,11 @@ class UnderlayImportDialog(QDialog):
 
         self._all_geoms = geoms
         self._selected_indices = None
-        self._rebuild_preview()
-        n = len(self._all_geoms)
-        self._info_lbl.setText(f"{n} entities loaded from {os.path.basename(path)}")
-        self._update_status()
+        if not _skip_rebuild:
+            self._rebuild_preview()
+            n = len(self._all_geoms)
+            self._info_lbl.setText(f"{n} entities loaded from {os.path.basename(path)}")
+            self._update_status()
 
     def _detect_dxf_units(self, doc):
         """Read $INSUNITS from DXF header and pre-fill scale if known."""
@@ -838,20 +839,23 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
-        # Load model space, optionally filtered by layout viewports
-        self._set_loading(f"Loading '{selected_layout}'\u2026")
-        self._load_dxf(dxf_path)  # always reads model space
+        # Load model space geometry (skip preview rebuild — filter first)
+        self._set_loading(f"Extracting geometry\u2026")
+        self._load_dxf(dxf_path, _skip_rebuild=True)
 
         if selected_layout != "Model":
             # Filter to geometry visible through the layout's viewports
+            self._set_loading(f"Filtering to '{selected_layout}' viewports\u2026")
             from .dwg_converter import get_viewport_bounds, filter_geoms_by_bounds
             vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
             if vp_bounds:
-                before = len(self._all_geoms)
                 self._all_geoms = filter_geoms_by_bounds(
                     self._all_geoms, vp_bounds)
                 self._selected_indices = None
-                self._rebuild_preview()
+
+        # Now rebuild preview once with the final (possibly filtered) set
+        self._set_loading(f"Building preview ({len(self._all_geoms)} entities)\u2026")
+        self._rebuild_preview()
         self._clear_loading()
 
         # Don't clean up UNDERLAY_REF DXFs (they persist for reuse)
