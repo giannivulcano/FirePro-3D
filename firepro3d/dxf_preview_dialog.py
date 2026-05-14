@@ -761,15 +761,29 @@ class UnderlayImportDialog(QDialog):
         QApplication.processEvents()
 
         dxf_path = convert_dwg_to_dxf(oda_path, path)
-        if dxf_path is None:
+        while dxf_path is None:
             from .dwg_converter import get_last_error
             diag = get_last_error()
             detail = f"\n\nDiagnostics:\n{diag}" if diag else ""
-            QMessageBox.warning(
-                self, "Conversion Failed",
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Warning)
+            msg.setWindowTitle("Conversion Failed")
+            msg.setText(
                 f"ODA File Converter could not convert this DWG file.\n"
                 f"ODA path: {oda_path}{detail}")
-            return
+            msg.addButton(QMessageBox.StandardButton.Cancel)
+            change_btn = msg.addButton("Change ODA Path\u2026",
+                                       QMessageBox.ButtonRole.ActionRole)
+            msg.exec()
+            if msg.clickedButton() != change_btn:
+                return
+            new_path = self._browse_for_oda()
+            if new_path is None:
+                return
+            oda_path = new_path
+            self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
+            QApplication.processEvents()
+            dxf_path = convert_dwg_to_dxf(oda_path, path)
 
         # Layout selection
         layouts = list_dwg_layouts(dxf_path)
