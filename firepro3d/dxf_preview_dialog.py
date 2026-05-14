@@ -929,15 +929,11 @@ class UnderlayImportDialog(QDialog):
         Returns a set of entity type names to EXCLUDE, or an empty set
         if the user wants everything.  Returns ``None`` if cancelled.
         """
-        clean = _sanitize_dxf(dxf_path)
         try:
-            doc = ezdxf.readfile(clean)
+            doc = ezdxf.readfile(dxf_path)
         except Exception as e:
             print(f"[DWG] Entity scan failed: {e}")
             return set()  # can't scan — import everything
-        finally:
-            if clean != dxf_path and os.path.exists(clean):
-                os.remove(clean)
 
         msp = doc.modelspace()
         counts: dict[str, int] = {}
