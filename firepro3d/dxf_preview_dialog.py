@@ -669,7 +669,8 @@ class UnderlayImportDialog(QDialog):
     # ── DXF loading ──────────────────────────────────────────────────────────
 
     def _load_dxf(self, path: str, _skip_rebuild: bool = False,
-                  _exclude_types: set[str] | None = None):
+                  _exclude_types: set[str] | None = None,
+                  _vp_bounds=None):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -726,6 +727,9 @@ class UnderlayImportDialog(QDialog):
                 QApplication.processEvents()
             # Skip excluded entity types (DWG entity filter)
             if _exclude_types and ent.dxftype() in _exclude_types:
+                continue
+            # Skip entities outside viewport bounds (layout spatial filter)
+            if _vp_bounds and not self._entity_in_bounds(ent, _vp_bounds):
                 continue
             try:
                 g = worker_ref._extract_geometry(ent)
@@ -843,9 +847,19 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
+        # Compute viewport bounds early so the entity dialog can filter
+        vp_bounds = None
+        if selected_layout != "Model":
+            from .dwg_converter import (
+                get_viewport_bounds, filter_geoms_by_bounds,
+                extract_layout_entities,
+            )
+            vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
+
         # Scan entity types and let user choose which to import
         self._set_loading("Scanning entity types\u2026")
-        excluded = self._show_entity_type_dialog(dxf_path)
+        excluded = self._show_entity_type_dialog(dxf_path,
+                                                  vp_bounds=vp_bounds)
         if excluded is None:
             # User cancelled
             cleanup_converted_dxf(dxf_path)
@@ -855,7 +869,8 @@ class UnderlayImportDialog(QDialog):
         # Load model space geometry (skip preview rebuild — filter first)
         self._set_loading("Extracting geometry\u2026")
         self._load_dxf(dxf_path, _skip_rebuild=True,
-                        _exclude_types=excluded)
+                        _exclude_types=excluded,
+                        _vp_bounds=vp_bounds)
 
         if selected_layout != "Model":
             # Filter to geometry visible through the layout's viewports
@@ -903,8 +918,14 @@ class UnderlayImportDialog(QDialog):
             return path
         return None
 
-    def _show_entity_type_dialog(self, dxf_path: str) -> set[str] | None:
+    def _show_entity_type_dialog(self, dxf_path: str,
+                                 vp_bounds=None) -> set[str] | None:
         """Scan DXF entity types and let user choose which to import.
+
+        Args:
+            dxf_path: Path to the DXF file.
+            vp_bounds: Viewport bounds from :func:`get_viewport_bounds`.
+                When set, only entities within these bounds are counted.
 
         Returns a set of entity type names to EXCLUDE, or an empty set
         if the user wants everything.  Returns ``None`` if cancelled.
@@ -921,6 +942,9 @@ class UnderlayImportDialog(QDialog):
         msp = doc.modelspace()
         counts: dict[str, int] = {}
         for ent in msp:
+            # Quick spatial filter using viewport bounds
+            if vp_bounds and not self._entity_in_bounds(ent, vp_bounds):
+                continue
             etype = ent.dxftype()
             counts[etype] = counts.get(etype, 0) + 1
 
@@ -931,13 +955,16 @@ class UnderlayImportDialog(QDialog):
             return set()
 
         # Build the dialog
+        layout_note = getattr(self, "_dwg_layout", "Model")
+        scope = (f"layout '{layout_note}'" if layout_note != "Model"
+                 else "Model space")
         dlg = QDialog(self)
         dlg.setWindowTitle("DWG Entity Types")
         dlg.resize(420, 360)
         lay = QVBoxLayout(dlg)
 
         lay.addWidget(QLabel(
-            f"This file contains {total:,} entities in Model space.\n"
+            f"{total:,} entities in {scope}.\n"
             "Deselect types you don't need to speed up import.\n"
             "INSERT (blocks) and HATCH often expand to many sub-entities."))
 
@@ -996,6 +1023,64 @@ class UnderlayImportDialog(QDialog):
             if item.checkState(0) != Qt.CheckState.Checked:
                 excluded.add(etype)
         return excluded
+
+    @staticmethod
+    def _entity_in_bounds(ent, bounds) -> bool:
+        """Quick check if a DXF entity has any coordinate within viewport bounds.
+
+        Uses raw DXF coordinates with Y negated to match geometry dict
+        convention.  Only checks representative points — fast enough for
+        scanning tens of thousands of entities.
+        """
+        etype = ent.dxftype()
+        points = []
+        try:
+            if etype == "LINE":
+                s, e = ent.dxf.start, ent.dxf.end
+                points = [(s[0], -s[1]), (e[0], -e[1])]
+            elif etype in ("CIRCLE", "ARC"):
+                c = ent.dxf.center
+                points = [(c.x, -c.y)]
+            elif etype == "ELLIPSE":
+                c = ent.dxf.center
+                points = [(c.x, -c.y)]
+            elif etype in ("LWPOLYLINE", "POLYLINE"):
+                for pt in ent.get_points():
+                    points.append((pt[0], -pt[1]))
+                    if len(points) >= 4:
+                        break  # sample a few, don't iterate thousands
+            elif etype == "SPLINE":
+                cps = ent.control_points
+                for cp in cps[:4]:
+                    points.append((cp[0], -cp[1]))
+            elif etype in ("TEXT", "MTEXT"):
+                ins = ent.dxf.insert
+                points = [(ins[0], -ins[1])]
+            elif etype == "INSERT":
+                ins = ent.dxf.insert
+                points = [(ins.x, -ins.y)]
+            elif etype == "HATCH":
+                # Hatch can be large — check if it has a seed point
+                seeds = getattr(ent, "seeds", [])
+                if seeds:
+                    points = [(s[0], -s[1]) for s in seeds[:2]]
+                else:
+                    return True  # can't check — include it
+            else:
+                return True  # unknown type — include it
+        except (AttributeError, IndexError, TypeError):
+            return True  # can't read coords — include it
+
+        if not points:
+            return True  # no coords to check — include it
+
+        for bx0, by0, bx1, by1 in bounds:
+            if by0 > by1:
+                by0, by1 = by1, by0
+            for px, py in points:
+                if bx0 <= px <= bx1 and by0 <= py <= by1:
+                    return True
+        return False
 
     def _load_dxf_with_layout(self, dxf_path: str, layout_name: str):
         """Load entities from a specific layout of a DXF file.
