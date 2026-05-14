@@ -99,6 +99,7 @@ class ImportParams:
         self.pdf_dpi: int = 150
         self.has_vectors: bool = True      # False → raster fallback
         self.import_mode: str = "auto"    # "auto" | "vectors" | "raster"
+        self.layout: str = ""            # DWG layout name (empty = Model)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -610,7 +611,7 @@ class UnderlayImportDialog(QDialog):
     def _browse_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Select Underlay File", "",
-            "All Supported (*.dxf *.pdf);;DXF Files (*.dxf);;PDF Files (*.pdf);;All Files (*)"
+            "All Supported (*.dxf *.dwg *.pdf);;DWG Files (*.dwg);;DXF Files (*.dxf);;PDF Files (*.pdf);;All Files (*)"
         )
         if path:
             self._file_edit.setText(path)
@@ -626,10 +627,12 @@ class UnderlayImportDialog(QDialog):
             self._load_pdf(path)
         elif ext == ".dxf":
             self._load_dxf(path)
+        elif ext == ".dwg":
+            self._load_dwg(path)
         else:
             QMessageBox.warning(self, "Unsupported file",
                                 f"File type '{ext}' is not supported.\n"
-                                "Please select a PDF or DXF file.")
+                                "Please select a PDF, DXF, or DWG file.")
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
@@ -725,6 +728,152 @@ class UnderlayImportDialog(QDialog):
             self._custom_scale_edit.setText(f"{factor:.5g}")
         else:
             self._units_info_lbl.setVisible(False)
+
+    # ── DWG loading ──────────────────────────────────────────────────────────
+
+    def _load_dwg(self, path: str):
+        """Load a DWG file by converting to DXF via ODA File Converter."""
+        from .dwg_converter import (
+            find_oda_converter, convert_dwg_to_dxf,
+            list_dwg_layouts, cleanup_converted_dxf, ODA_DOWNLOAD_URL,
+        )
+
+        oda_path = find_oda_converter()
+        if oda_path is None:
+            QMessageBox.warning(
+                self, "ODA File Converter Required",
+                "DWG import requires ODA File Converter (free download).\n\n"
+                f"Download from:\n{ODA_DOWNLOAD_URL}\n\n"
+                "After installing, restart FirePro3D or set the path in\n"
+                "Edit \u2192 Preferences \u2192 DWG Converter Path.")
+            return
+
+        self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
+        QApplication.processEvents()
+
+        dxf_path = convert_dwg_to_dxf(oda_path, path)
+        if dxf_path is None:
+            QMessageBox.warning(
+                self, "Conversion Failed",
+                "ODA File Converter could not convert this DWG file.\n"
+                "The file may be corrupt or use an unsupported DWG version.")
+            return
+
+        # Layout selection
+        layouts = list_dwg_layouts(dxf_path)
+        selected_layout = "Model"
+
+        if len(layouts) > 1:
+            from PyQt6.QtWidgets import QInputDialog
+            choice, ok = QInputDialog.getItem(
+                self, "Select Layout",
+                "This DWG file contains multiple layouts.\n"
+                "Select which layout to import:",
+                layouts, 0, False)
+            if not ok:
+                cleanup_converted_dxf(dxf_path)
+                return
+            selected_layout = choice
+
+        # Store layout and original DWG path for ImportParams
+        self._dwg_layout = selected_layout
+        self._dwg_source_path = path
+
+        # Load the selected layout from the converted DXF
+        self._load_dxf_with_layout(dxf_path, selected_layout)
+
+        # Clean up temp DXF after geometry is extracted into memory
+        cleanup_converted_dxf(dxf_path)
+
+        self._file_type = "dwg"
+        n = len(self._all_geoms)
+        layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
+        self._info_lbl.setText(
+            f"{n} entities loaded from {os.path.basename(path)}{layout_label}")
+
+    def _load_dxf_with_layout(self, dxf_path: str, layout_name: str):
+        """Load entities from a specific layout of a DXF file.
+
+        For ``"Model"`` layout, delegates to the standard ``_load_dxf()``
+        pipeline.  For paper-space layouts, reads entities from the
+        named layout instead of modelspace.
+        """
+        if layout_name == "Model":
+            self._load_dxf(dxf_path)
+            return
+
+        # Paper-space layout — same logic as _load_dxf but from named layout
+        self._file_type = "dwg"
+        self._pdf_opts_grp.setVisible(False)
+        self._thumb_list.setVisible(False)
+        self._has_vectors = True
+
+        if not _HAS_EZDXF:
+            QMessageBox.warning(self, "Missing dependency",
+                                "ezdxf is required for DWG import.\n"
+                                "Install it with: pip install ezdxf")
+            return
+
+        self._info_lbl.setText(f"Loading layout '{layout_name}'\u2026")
+        QApplication.processEvents()
+
+        clean = _sanitize_dxf(dxf_path)
+        try:
+            doc = ezdxf.readfile(clean)
+        except Exception as e:
+            self._info_lbl.setText(f"Error: {e}")
+            return
+        finally:
+            if clean != dxf_path and os.path.exists(clean):
+                os.remove(clean)
+
+        try:
+            layout = doc.layouts.get(layout_name)
+        except KeyError:
+            self._info_lbl.setText(f"Layout '{layout_name}' not found")
+            return
+
+        layers_set: set[str] = {"0"}
+        for layer in doc.layers:
+            layers_set.add(layer.dxf.name)
+        for entity in layout:
+            layers_set.add(
+                entity.dxf.get("layer", "0")
+                if hasattr(entity.dxf, "get") else "0"
+            )
+
+        self._layers = sorted(layers_set)
+        self._populate_layer_list()
+
+        # Extract geometry synchronously
+        from .dxf_import_worker import DxfImportWorker
+        geoms = []
+        all_ents = list(layout)
+        prog = QProgressDialog("Loading preview\u2026", "Cancel", 0, len(all_ents), self)
+        prog.setMinimumDuration(500)
+        worker_ref = DxfImportWorker.__new__(DxfImportWorker)
+        worker_ref._cancelled = False
+        for i, ent in enumerate(all_ents):
+            if prog.wasCanceled():
+                break
+            if i % 200 == 0:
+                prog.setValue(i)
+                QApplication.processEvents()
+            try:
+                g = worker_ref._extract_geometry(ent)
+                if g is not None:
+                    if isinstance(g, list):
+                        geoms.extend(g)
+                    else:
+                        geoms.append(g)
+            except Exception:
+                pass
+        prog.close()
+
+        self._all_geoms = geoms
+        self._selected_indices = None
+        self._rebuild_preview()
+        self._update_status()
 
     # ── PDF loading ──────────────────────────────────────────────────────────
 
@@ -1336,6 +1485,12 @@ class UnderlayImportDialog(QDialog):
                 continue
             geoms.append(g)
         p.geom_list = geoms
+
+        # DWG-specific: preserve original .dwg path and layout
+        if self._file_type == "dwg":
+            p.file_path = getattr(self, "_dwg_source_path", p.file_path)
+            p.layout = getattr(self, "_dwg_layout", "")
+
         self._save_settings()
         return p
 
