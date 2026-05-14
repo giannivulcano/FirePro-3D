@@ -2,7 +2,7 @@
 Underlay Context Menu
 =====================
 Right-click context menu for underlay items (PDF / DXF) in the scene.
-Provides: Scale, Rotate, Opacity, Change Layer, Lock/Unlock, Refresh from disk, Remove.
+Provides: Scale, Rotate, Opacity, Lock/Unlock, Refresh from disk, Remove.
 """
 
 from PyQt6.QtWidgets import (
@@ -43,15 +43,6 @@ class UnderlayContextMenu:
             lambda: UnderlayContextMenu._set_opacity(scene, underlay_data, underlay_item)
         )
         menu.addAction(opacity_action)
-
-        # ── Change Layer ─────────────────────────────────────────────
-        layer_action = QAction(
-            f"Change Layer… (current: {underlay_data.user_layer})", menu)
-        layer_action.triggered.connect(
-            lambda: UnderlayContextMenu._change_layer(
-                scene, underlay_data, underlay_item)
-        )
-        menu.addAction(layer_action)
 
         menu.addSeparator()
 
@@ -141,42 +132,6 @@ class UnderlayContextMenu:
             scene.push_undo_state()
 
     @staticmethod
-    def _change_layer(scene, data: Underlay, item: QGraphicsItem):
-        """Let the user pick a new layer for this underlay."""
-        # Layer names are stored on the scene's display manager
-        layer_names = ["Default"]
-
-        current_idx = 0
-        if data.user_layer in layer_names:
-            current_idx = layer_names.index(data.user_layer)
-
-        parent = scene.views()[0] if scene.views() else None
-        new_layer, ok = QInputDialog.getItem(
-            parent,
-            "Change Underlay Layer",
-            "Select layer:",
-            layer_names,
-            current_idx,
-            False,  # not editable
-        )
-        if ok and new_layer:
-            data.user_layer = new_layer
-            # Derive new colour/lineweight from the chosen layer
-            color, lw = scene._underlay_color_lw(new_layer)
-            data.colour = color.name()
-            data.line_weight = lw
-            # Update all child items in the group
-            pen = QPen(color, lw)
-            pen.setCosmetic(True)
-            if isinstance(item, QGraphicsItemGroup):
-                for child in item.childItems():
-                    if hasattr(child, "setPen"):
-                        child.setPen(pen)
-                    if hasattr(child, "setDefaultTextColor"):
-                        child.setDefaultTextColor(color)
-            scene.push_undo_state()
-
-    @staticmethod
     def _toggle_lock(scene, data: Underlay, item: QGraphicsItem):
         data.locked = not data.locked
         if data.locked:
@@ -208,7 +163,6 @@ class UnderlayContextMenu:
             opacity=data.opacity, locked=False,
             page=data.page, dpi=data.dpi,
             colour=data.colour, line_weight=data.line_weight,
-            user_layer=data.user_layer,
             level=data.level, visible=data.visible,
             hidden_layers=list(data.hidden_layers),
             import_mode=data.import_mode,
@@ -223,6 +177,6 @@ class UnderlayContextMenu:
                 data.path, color=QColor(data.colour),
                 line_weight=data.line_weight,
                 x=new_data.x, y=new_data.y,
-                _record=new_data, user_layer=data.user_layer,
+                _record=new_data,
             )
         scene.push_undo_state()

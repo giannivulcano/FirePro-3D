@@ -157,7 +157,6 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
 
         # Ensure this level attribute exists for display manager categorization
         self.level = DEFAULT_LEVEL
-        self.user_layer: str = "Default"
 
     @property
     def direction(self) -> str:

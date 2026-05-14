@@ -23,7 +23,7 @@ from PyQt6.QtGui import (
 if TYPE_CHECKING:
     from .wall import WallSegment
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL
 
 
 # ── Preset libraries ─────────────────────────────────────────────────────────
@@ -85,7 +85,6 @@ class WallOpening(QGraphicsPathItem):
         self._offset_along: float = offset_along  # scene units from wall pt1
 
         self.level: str = DEFAULT_LEVEL
-        self.user_layer: str = DEFAULT_USER_LAYER
 
         self.setZValue(-45)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -202,7 +201,6 @@ class WallOpening(QGraphicsPathItem):
             "sill_mm":       self._sill_mm,
             "offset_along":  self._offset_along,
             "level":         self.level,
-            "user_layer":    self.user_layer,
         }
 
     @classmethod
@@ -224,7 +222,6 @@ class WallOpening(QGraphicsPathItem):
                 offset_along=data.get("offset_along", 0),
             )
         obj.level = data.get("level", DEFAULT_LEVEL)
-        obj.user_layer = data.get("user_layer", DEFAULT_USER_LAYER)
         return obj
 
     # ── Translate ────────────────────────────────────────────────────────────
