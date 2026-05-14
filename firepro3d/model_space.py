@@ -2690,7 +2690,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "y":              node.scenePos().y(),
                 "elevation":      node.z_pos,
                 "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
-                "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
                 "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
@@ -2717,7 +2716,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
                 "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
-                "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":     getattr(pipe, "level", DEFAULT_LEVEL),
             }
             pipe_ovr = getattr(pipe, "_display_overrides", {})
@@ -2733,7 +2731,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "offset_dist": getattr(dim, "_offset_dist", 10),
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
-                "user_layer": getattr(dim, "user_layer", DEFAULT_USER_LAYER),
                 "level":     getattr(dim, "level", DEFAULT_LEVEL),
             })
         for note in self.annotations.notes:
@@ -2743,7 +2740,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "y":    note.scenePos().y(),
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
-                "user_layer": getattr(note, "user_layer", DEFAULT_USER_LAYER),
                 "level":     getattr(note, "level", DEFAULT_LEVEL),
             })
         ws = self.water_supply_node
@@ -2864,7 +2860,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         "sprinkler_display_overrides", {})
                 node._fitting_display_overrides_pending = entry.get(
                     "fitting_display_overrides", {})
-                node.user_layer = entry.get("user_layer", "0")
                 node.level = entry.get("level", DEFAULT_LEVEL)
                 node._room_name = entry.get("room_name", "")
                 node.ceiling_level = entry.get("ceiling_level", node.level)
@@ -2901,7 +2896,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                             "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
                         )
                         pipe.set_pipe_display()
-                    pipe.user_layer = entry.get("user_layer", "0")
                     pipe.level = entry.get("level", DEFAULT_LEVEL)
                     pipe._display_overrides = entry.get("display_overrides", {})
                     apply_category_defaults(pipe)
@@ -2928,7 +2922,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     for key, value in entry.get("properties", {}).items():
                         dim.set_property(key, value)
                     dim.update_geometry()
-                    dim.user_layer = entry.get("user_layer", DEFAULT_USER_LAYER)
                     dim.level = entry.get("level", DEFAULT_LEVEL)
                 elif ann_type == "note":
                     note = NoteAnnotation(x=entry["x"], y=entry["y"])
@@ -2936,7 +2929,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.annotations.add_note(note)
                     for key, value in entry.get("properties", {}).items():
                         note.set_property(key, value)
-                    note.user_layer = entry.get("user_layer", DEFAULT_USER_LAYER)
                     note.level = entry.get("level", DEFAULT_LEVEL)
 
             # Restore water supply
@@ -3873,7 +3865,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = LineItem(anchor, tip, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_lines.append(item)
@@ -3946,7 +3937,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = RectangleItem(pt1, pt2, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_rects.append(item)
@@ -3998,7 +3988,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = CircleItem(self._draw_circle_center, r, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_circles.append(item)
@@ -5504,7 +5493,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._remove_dim_preview()
                 dim = DimensionAnnotation(center_pt, edge_pt)
                 dim.is_radius = True
-                dim.user_layer = "Annotations"
                 self.addItem(dim)
                 self.annotations.add_dimension(dim)
                 self.requestPropertyUpdate.emit(dim)
@@ -5553,7 +5541,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._dim_line1 = None  # reset
             self._remove_dim_preview()
             dim = DimensionAnnotation(p1, p2)
-            dim.user_layer = "Annotations"
             self.addItem(dim)
             self.annotations.add_dimension(dim)
             self.requestPropertyUpdate.emit(dim)
@@ -5580,7 +5567,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             note = NoteAnnotation(
                 text="Text", x=rect.x(), y=rect.y(),
                 text_width=text_width)
-            note.user_layer = "Annotations"
             note.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextEditorInteraction)
             self.addItem(note)
@@ -5651,7 +5637,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             _c, _lw = self._geom_color_lw()
             item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
                            self._draw_arc_start_deg, span, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_arcs.append(item)
@@ -6465,7 +6450,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             pl = PolylineItem(snapped, _c, _lw)
-            pl.user_layer = tmpl.user_layer
             pl.level = tmpl.level
             self.addItem(pl)
             self._polylines.append(pl)
@@ -6501,7 +6485,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = LineItem(self._draw_line_anchor, tip, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_lines.append(item)
@@ -6575,7 +6558,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tmpl = self._get_geometry_template()
             _c, _lw = self._geom_color_lw()
             item = RectangleItem(pt1, pt2, _c, _lw)
-            item.user_layer = tmpl.user_layer
             item.level = tmpl.level
             self.addItem(item)
             self._draw_rects.append(item)
@@ -6617,7 +6599,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 tmpl = self._get_geometry_template()
                 _c, _lw = self._geom_color_lw()
                 item = CircleItem(self._draw_circle_center, r, _c, _lw)
-                item.user_layer = tmpl.user_layer
                 item.level = tmpl.level
                 self.addItem(item)
                 self._draw_circles.append(item)
@@ -7090,7 +7071,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             offset = self._offset_along_wall(wall, snapped)
             door = DoorOpening(wall=wall, offset_along=offset)
             door.level = wall.level
-            door.user_layer = wall.user_layer
             wall.openings.append(door)
             self.addItem(door)
             self.push_undo_state()
@@ -7103,7 +7083,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             offset = self._offset_along_wall(wall, snapped)
             win = WindowOpening(wall=wall, offset_along=offset)
             win.level = wall.level
-            win.user_layer = wall.user_layer
             wall.openings.append(win)
             self.addItem(win)
             self.push_undo_state()
@@ -7831,7 +7810,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "ceiling_level": getattr(item, "ceiling_level", DEFAULT_LEVEL),
                     "ceiling_offset_mm": getattr(item, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
                     "level": getattr(item, "level", DEFAULT_LEVEL),
-                    "user_layer": getattr(item, "user_layer", DEFAULT_USER_LAYER),
                     "sprinkler": sprinkler,
                     "pipes": pipes,
                 })
@@ -7873,8 +7851,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     node1._properties["Ceiling Offset"]["value"] = str(obj["z_offset"])
                 if "level" in obj:
                     node1.level = obj["level"]
-                if "user_layer" in obj:
-                    node1.user_layer = obj["user_layer"]
                 # Recompute z_pos from ceiling level + offset
                 if self._level_manager:
                     lvl = self._level_manager.get(node1.ceiling_level)

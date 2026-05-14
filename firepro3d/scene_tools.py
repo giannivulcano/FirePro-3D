@@ -398,7 +398,6 @@ class SceneToolsMixin:
             new_p1 = QPointF(p1.x() + signed_dist * nx, p1.y() + signed_dist * ny)
             new_p2 = QPointF(p2.x() + signed_dist * nx, p2.y() + signed_dist * ny)
             item = LineItem(new_p1, new_p2, color, lw)
-            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -410,7 +409,6 @@ class SceneToolsMixin:
             item = PolylineItem(new_pts[0], color, lw)
             for p in new_pts[1:]:
                 item.append_point(p)
-            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -424,7 +422,6 @@ class SceneToolsMixin:
             cx = scene_rect.center().x()
             cy = scene_rect.center().y()
             item = CircleItem(QPointF(cx, cy), new_r, color, lw)
-            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -434,7 +431,6 @@ class SceneToolsMixin:
             if new_r.width() <= 0 or new_r.height() <= 0:
                 return None
             item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
-            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -444,7 +440,6 @@ class SceneToolsMixin:
                 return None
             item = ArcItem(source._center, new_r,
                            source._start_deg, source._span_deg, color, lw)
-            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
         return None
@@ -625,7 +620,6 @@ class SceneToolsMixin:
                 for pt in rotated[1:]:
                     pl.append_point(pt)
                 pl.finalize()
-                pl.user_layer = getattr(item, "user_layer", "0")
                 pl.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(pl)
                 self._polylines.append(pl)
@@ -692,7 +686,6 @@ class SceneToolsMixin:
                 p2 = mp(item._pt2, axis_p1, axis_p2)
                 ln = LineItem(p1, p2, color=item.pen().color().name(),
                               lineweight=item.pen().widthF())
-                ln.user_layer = getattr(item, "user_layer", "0")
                 ln.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(ln)
                 self._draw_lines.append(ln)
@@ -704,7 +697,6 @@ class SceneToolsMixin:
                 for pt in pts[1:]:
                     pl.append_point(pt)
                 pl.finalize()
-                pl.user_layer = getattr(item, "user_layer", "0")
                 pl.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(pl)
                 self._polylines.append(pl)
@@ -713,7 +705,6 @@ class SceneToolsMixin:
                 c = mp(item._center, axis_p1, axis_p2)
                 ci = CircleItem(c, item._radius, color=item.pen().color().name(),
                                 lineweight=item.pen().widthF())
-                ci.user_layer = getattr(item, "user_layer", "0")
                 ci.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(ci)
                 self._draw_circles.append(ci)
@@ -724,7 +715,6 @@ class SceneToolsMixin:
                 br = mp(rect.bottomRight(), axis_p1, axis_p2)
                 ri = RectangleItem(tl, br, color=item.pen().color().name(),
                                    lineweight=item.pen().widthF())
-                ri.user_layer = getattr(item, "user_layer", "0")
                 ri.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(ri)
                 self._draw_rects.append(ri)
@@ -735,7 +725,6 @@ class SceneToolsMixin:
                 ai = ArcItem(c, item._radius, item._start_deg,
                              -item._span_deg, color=item.pen().color().name(),
                              lineweight=item.pen().widthF())
-                ai.user_layer = getattr(item, "user_layer", "0")
                 ai.level = getattr(item, "level", DEFAULT_LEVEL)
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
@@ -799,7 +788,6 @@ class SceneToolsMixin:
         for pt in chain[1:]:
             pl.append_point(pt)
         pl.finalize()
-        pl.user_layer = getattr(items[0], "user_layer", "0")
         pl.level = getattr(items[0], "level", DEFAULT_LEVEL)
         # Remove originals
         for item in items:
@@ -825,13 +813,11 @@ class SceneToolsMixin:
         for item in items:
             color = item.pen().color().name()
             lw = item.pen().widthF()
-            layer = getattr(item, "user_layer", "0")
             if isinstance(item, PolylineItem):
                 pts = item._points
                 for i in range(len(pts) - 1):
                     ln = LineItem(QPointF(pts[i]), QPointF(pts[i+1]),
                                   color=color, lineweight=lw)
-                    ln.user_layer = layer
                     self.addItem(ln)
                     self._draw_lines.append(ln)
                 if item.scene() is self:
@@ -845,7 +831,6 @@ class SceneToolsMixin:
                 for i in range(4):
                     ln = LineItem(QPointF(corners[i]), QPointF(corners[(i+1)%4]),
                                   color=color, lineweight=lw)
-                    ln.user_layer = layer
                     self.addItem(ln)
                     self._draw_lines.append(ln)
                 if item.scene() is self:
@@ -872,10 +857,8 @@ class SceneToolsMixin:
                             item._pt1.y() + t2*(item._pt2.y()-item._pt1.y()))
             color = item.pen().color().name()
             lw = item.pen().widthF()
-            layer = getattr(item, "user_layer", "0")
             l1 = LineItem(QPointF(item._pt1), proj1, color=color, lineweight=lw)
             l2 = LineItem(proj2, QPointF(item._pt2), color=color, lineweight=lw)
-            l1.user_layer = layer; l2.user_layer = layer
             if item.scene() is self:
                 self.removeItem(item)
             if item in self._draw_lines:
@@ -891,7 +874,6 @@ class SceneToolsMixin:
             arc = ArcItem(QPointF(item._center), item._radius, a2, span,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
-            arc.user_layer = getattr(item, "user_layer", "0")
             arc.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self:
                 self.removeItem(item)
@@ -908,10 +890,8 @@ class SceneToolsMixin:
                            item._pt1.y() + t*(item._pt2.y()-item._pt1.y()))
             color = item.pen().color().name()
             lw = item.pen().widthF()
-            layer = getattr(item, "user_layer", "0")
             l1 = LineItem(QPointF(item._pt1), proj, color=color, lineweight=lw)
             l2 = LineItem(proj, QPointF(item._pt2), color=color, lineweight=lw)
-            l1.user_layer = layer; l2.user_layer = layer
             if item.scene() is self:
                 self.removeItem(item)
             if item in self._draw_lines:
@@ -925,7 +905,6 @@ class SceneToolsMixin:
                           a + 0.5, 359.0,
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
-            arc.user_layer = getattr(item, "user_layer", "0")
             arc.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self:
                 self.removeItem(item)
@@ -948,8 +927,6 @@ class SceneToolsMixin:
                          item._start_deg + rel, s - rel,
                          color=item.pen().color().name(),
                          lineweight=item.pen().widthF())
-            a1.user_layer = getattr(item, "user_layer", "0")
-            a2.user_layer = getattr(item, "user_layer", "0")
             a1.level = getattr(item, "level", DEFAULT_LEVEL)
             a2.level = getattr(item, "level", DEFAULT_LEVEL)
             if item.scene() is self:
@@ -1018,7 +995,6 @@ class SceneToolsMixin:
         arc = ArcItem(data["center"], data["radius"], data["start"], data["span"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
-        arc.user_layer = getattr(data["item1"], "user_layer", "0")
         arc.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
         self.addItem(arc)
         self._draw_arcs.append(arc)
@@ -1059,7 +1035,6 @@ class SceneToolsMixin:
         ln = LineItem(data["cp1"], data["cp2"],
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
-        ln.user_layer = getattr(data["item1"], "user_layer", "0")
         ln.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
         self.addItem(ln)
         self._draw_lines.append(ln)
@@ -1369,7 +1344,6 @@ class SceneToolsMixin:
                 color = item.pen().color().name()
                 lw = item.pen().widthF()
                 arc = ArcItem(center, r, start, span, color, lw)
-                arc.user_layer = getattr(item, 'user_layer', 'Default')
                 arc.level = getattr(item, 'level', 'Level 1')
                 self.addItem(arc)
                 self._draw_arcs.append(arc)
@@ -1513,7 +1487,6 @@ class SceneToolsMixin:
         self.addItem(hatch)
         self._hatch_items.append(hatch)
         hatch.setSelected(True)
-        hatch.user_layer = getattr(item, "user_layer", "0")
         hatch.level = getattr(item, "level", self.active_level)
         self.push_undo_state()
         self._show_status("Hatch applied")

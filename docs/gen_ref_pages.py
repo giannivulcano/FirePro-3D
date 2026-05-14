@@ -18,7 +18,7 @@ TIERS = {
     ],
     "Managers": [
         "display_manager", "level_manager", "scale_manager", "layer_manager",
-        "user_layer_manager", "elevation_manager",
+        "elevation_manager",
     ],
     "Analysis": [
         "hydraulic_solver", "hydraulic_report", "hydraulic_node_badge",
