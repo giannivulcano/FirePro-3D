@@ -461,7 +461,9 @@ class SceneIOMixin:
                 if oda is None:
                     missing_underlays.append(udata)
                     continue
-                converted = convert_dwg_to_dxf(oda, udata.path)
+                converted = convert_dwg_to_dxf(
+                    oda, udata.path,
+                    project_dir=os.path.dirname(os.path.abspath(filename)))
                 if converted is None:
                     missing_underlays.append(udata)
                     continue

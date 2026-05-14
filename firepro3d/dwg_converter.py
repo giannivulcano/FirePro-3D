@@ -97,16 +97,40 @@ def find_oda_converter() -> str | None:
     return None
 
 
-def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
+def _ref_dir_for_project(project_dir: str | None) -> str | None:
+    """Return the UNDERLAY_REF directory for a project, creating if needed.
+
+    Args:
+        project_dir: Directory containing the ``.fpd`` project file,
+            or ``None`` if the project has not been saved yet.
+
+    Returns:
+        Absolute path to ``<project_dir>/UNDERLAY_REF/``, or ``None``
+        if no project directory is available.
+    """
+    if not project_dir:
+        return None
+    ref_dir = os.path.join(project_dir, "UNDERLAY_REF")
+    os.makedirs(ref_dir, exist_ok=True)
+    return ref_dir
+
+
+def convert_dwg_to_dxf(oda_path: str, dwg_path: str,
+                        project_dir: str | None = None) -> str | None:
     """Convert a DWG file to DXF using ODA File Converter.
 
-    The conversion runs in a temporary directory pair.  On success the
-    output DXF is left in a temp directory and the caller is responsible
-    for cleaning it up (or letting the OS reclaim ``%TEMP%``).
+    When *project_dir* is given the converted DXF is saved to
+    ``<project_dir>/UNDERLAY_REF/<stem>.dxf`` so it persists across
+    sessions.  If the DXF already exists and is newer than the source
+    DWG, the conversion is skipped entirely.
+
+    When *project_dir* is ``None`` (project not saved yet), a temporary
+    directory is used instead.
 
     Args:
         oda_path: Absolute path to ODAFileConverter.exe.
         dwg_path: Absolute path to the source ``.dwg`` file.
+        project_dir: Directory containing the ``.fpd`` project file.
 
     Returns:
         Absolute path to the converted ``.dxf`` file, or ``None`` on
@@ -118,9 +142,22 @@ def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
     basename = os.path.basename(dwg_path)
     stem = os.path.splitext(basename)[0]
 
+    # Determine output directory
+    ref_dir = _ref_dir_for_project(project_dir)
+    if ref_dir:
+        out_dir = ref_dir
+        is_temp = False
+        # Skip conversion if a fresh DXF already exists
+        existing = os.path.join(out_dir, f"{stem}.dxf")
+        if os.path.isfile(existing):
+            if os.path.getmtime(existing) >= os.path.getmtime(dwg_path):
+                return existing
+    else:
+        out_dir = tempfile.mkdtemp(prefix="fpro_dwg_out_")
+        is_temp = True
+
     # ODA operates on directories — isolate the source file
     in_dir = tempfile.mkdtemp(prefix="fpro_dwg_in_")
-    out_dir = tempfile.mkdtemp(prefix="fpro_dwg_out_")
 
     last_error = ""
     try:
@@ -128,24 +165,35 @@ def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
 
         # ODA args: input_dir output_dir version output_type recurse audit
         cmd = [oda_path, in_dir, out_dir, "ACAD2018", "DXF", "0", "1"]
+
+        # Suppress the ODA GUI window on Windows
+        startupinfo = None
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+
         result = subprocess.run(cmd, timeout=120, capture_output=True,
-                                text=True)
+                                text=True, startupinfo=startupinfo)
         last_error = (f"ODA exit code {result.returncode}\n"
                       f"stdout: {(result.stdout or '')[:500]}\n"
                       f"stderr: {(result.stderr or '')[:500]}")
         if result.returncode != 0:
             _set_last_error(last_error)
-            shutil.rmtree(out_dir, ignore_errors=True)
+            if is_temp:
+                shutil.rmtree(out_dir, ignore_errors=True)
             return None
     except subprocess.TimeoutExpired:
         _set_last_error("ODA conversion timed out after 120 seconds")
         shutil.rmtree(in_dir, ignore_errors=True)
-        shutil.rmtree(out_dir, ignore_errors=True)
+        if is_temp:
+            shutil.rmtree(out_dir, ignore_errors=True)
         return None
     except OSError as e:
         _set_last_error(f"OSError launching ODA: {e}")
         shutil.rmtree(in_dir, ignore_errors=True)
-        shutil.rmtree(out_dir, ignore_errors=True)
+        if is_temp:
+            shutil.rmtree(out_dir, ignore_errors=True)
         return None
     finally:
         shutil.rmtree(in_dir, ignore_errors=True)
@@ -165,20 +213,20 @@ def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
             return os.path.join(out_dir, f)
 
     # No DXF produced — store diagnostics
-    _last_conversion_error = (
+    _set_last_error(
         last_error or
         f"No DXF produced. Output dir contents: {out_files}\n"
         f"cmd: {cmd}")
-    _set_last_error(_last_conversion_error)
-    shutil.rmtree(out_dir, ignore_errors=True)
+    if is_temp:
+        shutil.rmtree(out_dir, ignore_errors=True)
     return None
 
 
 def cleanup_converted_dxf(dxf_path: str) -> None:
-    """Remove the temp directory containing a converted DXF.
+    """Remove a converted DXF only if it lives in a temp directory.
 
-    Safe to call with any path — only removes the parent directory
-    if it looks like a temp directory created by :func:`convert_dwg_to_dxf`.
+    DXFs in ``UNDERLAY_REF/`` are kept for reuse across sessions.
+    Only temp directories created when no project is saved are cleaned up.
     """
     if not dxf_path:
         return

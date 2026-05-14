@@ -760,7 +760,8 @@ class UnderlayImportDialog(QDialog):
         self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
         QApplication.processEvents()
 
-        dxf_path = convert_dwg_to_dxf(oda_path, path)
+        dxf_path = convert_dwg_to_dxf(oda_path, path,
+                                       project_dir=self._default_dir or None)
         while dxf_path is None:
             from .dwg_converter import get_last_error
             diag = get_last_error()
@@ -783,7 +784,8 @@ class UnderlayImportDialog(QDialog):
             oda_path = new_path
             self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
             QApplication.processEvents()
-            dxf_path = convert_dwg_to_dxf(oda_path, path)
+            dxf_path = convert_dwg_to_dxf(oda_path, path,
+                                           project_dir=self._default_dir or None)
 
         # Layout selection
         layouts = list_dwg_layouts(dxf_path)

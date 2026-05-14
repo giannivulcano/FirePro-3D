@@ -2682,7 +2682,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._create_underlay_placeholder(data)
                     self._show_status("DWG refresh failed: ODA File Converter not found")
                     return
-                converted = convert_dwg_to_dxf(oda, data.path)
+                proj = getattr(self, "_project_path", None)
+                proj_dir = os.path.dirname(proj) if proj else None
+                converted = convert_dwg_to_dxf(oda, data.path, project_dir=proj_dir)
                 if converted is None:
                     self._create_underlay_placeholder(data)
                     self._show_status(f"DWG refresh failed: conversion error for {data.path}")
@@ -3509,7 +3511,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     oda = find_oda_converter()
                     if oda is None:
                         continue
-                    converted = convert_dwg_to_dxf(oda, record.path)
+                    proj_dir = os.path.dirname(project_path)
+                    converted = convert_dwg_to_dxf(oda, record.path,
+                                                   project_dir=proj_dir)
                     if converted is None:
                         continue
                     from .dxf_import_worker import DxfImportWorker
