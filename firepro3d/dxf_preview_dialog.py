@@ -948,17 +948,18 @@ class UnderlayImportDialog(QDialog):
 
         # Build the dialog
         layout_note = getattr(self, "_dwg_layout", "Model")
-        scope = (f"layout '{layout_note}'" if layout_note != "Model"
-                 else "Model space")
         dlg = QDialog(self)
         dlg.setWindowTitle("DWG Entity Types")
         dlg.resize(420, 360)
         lay = QVBoxLayout(dlg)
 
-        lay.addWidget(QLabel(
-            f"{total:,} entities in {scope}.\n"
-            "Deselect types you don't need to speed up import.\n"
-            "INSERT (blocks) and HATCH often expand to many sub-entities."))
+        desc = f"{total:,} entities in Model space (all floors)."
+        if layout_note != "Model":
+            desc += (f"\nOnly entities within '{layout_note}' viewport"
+                     " will be imported.")
+        desc += ("\nDeselect types you don't need to speed up extraction.\n"
+                 "INSERT (blocks) and HATCH often expand to many sub-entities.")
+        lay.addWidget(QLabel(desc))
 
         # Group types for display
         _EXPAND_TYPES = {"INSERT", "DIMENSION", "HATCH"}
