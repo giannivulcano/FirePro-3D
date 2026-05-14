@@ -841,8 +841,11 @@ class UnderlayImportDialog(QDialog):
             if oda_path is None:
                 return
 
-        self._set_loading("Converting DWG \u2192 DXF\u2026")
+        import time as _time
+        _t0 = _time.perf_counter()
 
+        # ── Stage 1: ODA conversion ──────────────────────────────────────
+        self._set_loading("Converting DWG \u2192 DXF\u2026")
         dxf_path = convert_dwg_to_dxf(oda_path, path,
                                        project_dir=self._default_dir or None)
         while dxf_path is None:
@@ -870,11 +873,16 @@ class UnderlayImportDialog(QDialog):
             dxf_path = convert_dwg_to_dxf(oda_path, path,
                                            project_dir=self._default_dir or None)
 
-        # Layout selection
+        _t1 = _time.perf_counter()
+        print(f"[DWG perf] ODA conversion: {_t1-_t0:.2f}s")
+
+        # ── Stage 2: Layout listing ──────────────────────────────────────
         self._clear_loading()
         layouts = list_dwg_layouts(dxf_path)
-        selected_layout = "Model"
+        _t2 = _time.perf_counter()
+        print(f"[DWG perf] Layout listing: {_t2-_t1:.2f}s ({len(layouts)} layouts)")
 
+        selected_layout = "Model"
         if len(layouts) > 1:
             from PyQt6.QtWidgets import QInputDialog
             choice, ok = QInputDialog.getItem(
@@ -892,7 +900,7 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
-        # Step 1: Extract geometry (pre-filtered by viewport if layout selected)
+        # ── Stage 3: Viewport bounds ─────────────────────────────────────
         vp_bounds = None
         if selected_layout != "Model":
             from .dwg_converter import (
@@ -900,31 +908,43 @@ class UnderlayImportDialog(QDialog):
                 extract_layout_entities,
             )
             vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
+        _t3 = _time.perf_counter()
+        print(f"[DWG perf] Viewport bounds: {_t3-_t2:.2f}s"
+              f" (bounds={'yes' if vp_bounds else 'none'})")
 
+        # ── Stage 4: Geometry extraction ─────────────────────────────────
         self._set_loading("Extracting geometry\u2026")
         self._load_dxf(dxf_path, _skip_rebuild=True, _vp_bounds=vp_bounds)
+        _t4 = _time.perf_counter()
+        print(f"[DWG perf] Extraction: {_t4-_t3:.2f}s"
+              f" ({len(self._all_geoms)} geoms)")
 
-        # Step 2: Post-extraction viewport filter for INSERT/HATCH sub-entities
-        # (pre-filter let them through since their explosion is unpredictable)
+        # ── Stage 5: Post-extraction viewport filter ─────────────────────
+        if selected_layout != "Model" and vp_bounds:
+            before = len(self._all_geoms)
+            self._all_geoms = filter_geoms_by_bounds(
+                self._all_geoms, vp_bounds)
+            self._selected_indices = None
+            _t5 = _time.perf_counter()
+            print(f"[DWG perf] Viewport filter: {_t5-_t4:.2f}s"
+                  f" ({before} -> {len(self._all_geoms)} geoms)")
+        else:
+            _t5 = _t4
+
+        # ── Stage 6: Paper layout entities ───────────────────────────────
         if selected_layout != "Model":
-            from .dwg_converter import (
-                get_viewport_bounds, filter_geoms_by_bounds,
-                extract_layout_entities,
-            )
-            vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
-            if vp_bounds:
-                self._all_geoms = filter_geoms_by_bounds(
-                    self._all_geoms, vp_bounds)
-                self._selected_indices = None
-
-            # Add paper-layout entities (gridlines, title block)
             layout_geoms = extract_layout_entities(dxf_path, selected_layout)
             if layout_geoms:
                 self._all_geoms.extend(layout_geoms)
+            _t6 = _time.perf_counter()
+            print(f"[DWG perf] Layout entities: {_t6-_t5:.2f}s"
+                  f" (+{len(layout_geoms) if layout_geoms else 0})")
+        else:
+            _t6 = _t5
 
         self._clear_loading()
 
-        # Step 3: Entity type dialog — shows ACTUAL post-filter counts
+        # ── Stage 7: Entity type dialog ──────────────────────────────────
         excluded_kinds = self._show_geom_type_dialog()
         if excluded_kinds is None:
             cleanup_converted_dxf(dxf_path)
@@ -932,11 +952,16 @@ class UnderlayImportDialog(QDialog):
         if excluded_kinds:
             self._all_geoms = [g for g in self._all_geoms
                                if g.get("kind") not in excluded_kinds]
+        _t7 = _time.perf_counter()
 
-        # Now rebuild preview once with the final (possibly filtered) set
+        # ── Stage 8: Preview rebuild ─────────────────────────────────────
         self._set_loading(f"Building preview ({len(self._all_geoms)} entities)\u2026")
         self._rebuild_preview()
         self._clear_loading()
+        _t8 = _time.perf_counter()
+        print(f"[DWG perf] Preview rebuild: {_t8-_t7:.2f}s"
+              f" ({len(self._all_geoms)} items)")
+        print(f"[DWG perf] TOTAL: {_t8-_t0:.2f}s")
 
         # Don't clean up UNDERLAY_REF DXFs (they persist for reuse)
         cleanup_converted_dxf(dxf_path)
