@@ -528,7 +528,7 @@ class PropertyManager(QWidget):
                     lvl = self._level_manager.get(new_level)
                     if lvl:
                         node.z_pos = lvl.elevation + node.ceiling_offset
-                scene = t.scene()
+                scene = t.scene() if hasattr(t, "scene") else None
                 if scene:
                     self._level_manager.apply_to_scene(scene)
         # Refresh to update absolute elevation display
