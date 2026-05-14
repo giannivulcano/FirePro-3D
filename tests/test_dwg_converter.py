@@ -199,3 +199,62 @@ def test_cache_key_backward_compat():
     key_new = compute_cache_key("test.dxf", page=0, layout="")
     key_old = compute_cache_key("test.dxf", page=0)
     assert key_new == key_old
+
+
+def test_import_params_dwg_layout():
+    """ImportParams carries DWG layout through to Underlay record."""
+    from firepro3d.dxf_preview_dialog import ImportParams
+    from firepro3d.underlay import Underlay
+
+    p = ImportParams()
+    p.file_path = r"C:\drawings\floor.dwg"
+    p.file_type = "dwg"
+    p.layout = "Sheet 1"
+    p.scale = 1.0
+    p.geom_list = [{"kind": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0, "layer": "0"}]
+
+    # Simulate what _commit_place_import does
+    record = Underlay(
+        type=p.file_type, path=p.file_path,
+        import_scale=p.scale,
+        layout=p.layout,
+    )
+    assert record.type == "dwg"
+    assert record.layout == "Sheet 1"
+
+    # Verify cache key differs from same file with different layout
+    record2 = Underlay(
+        type=p.file_type, path=p.file_path,
+        import_scale=p.scale,
+        layout="Model",
+    )
+    assert record.cache_key() != record2.cache_key()
+
+
+def test_underlay_dwg_serialization_roundtrip():
+    """Full DWG underlay serialize -> deserialize round-trip."""
+    from firepro3d.underlay import Underlay
+
+    original = Underlay(
+        type="dwg",
+        path=r"C:\drawings\floor.dwg",
+        x=100.0, y=200.0,
+        scale=0.5,
+        rotation=90.0,
+        layout="24x36 Sheet",
+        import_scale=25.4,
+        import_base_x=10.0,
+        import_base_y=20.0,
+        selected_layers=["0", "Walls"],
+        colour="#ff0000",
+    )
+    d = original.to_dict()
+    restored = Underlay.from_dict(d)
+
+    assert restored.type == "dwg"
+    assert restored.path == original.path
+    assert restored.layout == "24x36 Sheet"
+    assert restored.import_scale == 25.4
+    assert restored.selected_layers == ["0", "Walls"]
+    assert restored.x == 100.0
+    assert restored.rotation == 90.0
