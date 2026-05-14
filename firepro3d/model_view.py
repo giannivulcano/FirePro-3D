@@ -12,7 +12,7 @@ from .snap_engine import SNAP_COLORS, SNAP_MARKERS
 _DETAIL_BORDER_COLOR = "#4488cc"
 
 class Model_View(QGraphicsView):
-    # Emitted when a PDF/DXF file is dropped onto the canvas
+    # Emitted when a PDF/DXF/DWG file is dropped onto the canvas
     drop_import_requested = pyqtSignal(str)
 
     def __init__(self, scene, parent=None):
@@ -524,7 +524,7 @@ class Model_View(QGraphicsView):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 path = url.toLocalFile().lower()
-                if path.endswith(('.pdf', '.dxf')):
+                if path.endswith(('.pdf', '.dxf', '.dwg')):
                     event.acceptProposedAction()
                     self._drop_highlight = True
                     self.viewport().update()
@@ -534,7 +534,7 @@ class Model_View(QGraphicsView):
     def dragMoveEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith(('.pdf', '.dxf')):
+                if url.toLocalFile().lower().endswith(('.pdf', '.dxf', '.dwg')):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -550,7 +550,7 @@ class Model_View(QGraphicsView):
         self.viewport().update()
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if path.lower().endswith(('.pdf', '.dxf')):
+            if path.lower().endswith(('.pdf', '.dxf', '.dwg')):
                 if os.path.isfile(path):
                     self.drop_import_requested.emit(path)
                     event.acceptProposedAction()

@@ -979,7 +979,7 @@ class MainWindow(QMainWindow):
         g_imp = manage_page.add_group("Import")
         _btn = g_imp.add_large_button(
             "Import\nUnderlay", _I("import_icon.svg"), self.open_import_dialog)
-        _btn.setToolTip("Import a PDF or DXF underlay")
+        _btn.setToolTip("Import a PDF, DXF, or DWG underlay")
         _btn = g_imp.add_small_button(
             "Refresh All",
             _I("placeholder_icon.svg"),
