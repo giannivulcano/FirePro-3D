@@ -56,7 +56,6 @@ _LAZY: dict[str, tuple[str, str]] = {
     "ScaleManager":      (".scale_manager",     "ScaleManager"),
     "DisplayUnit":       (".scale_manager",     "DisplayUnit"),
     "DisplayManager":    (".display_manager",   "DisplayManager"),
-    "UserLayerManager":  (".user_layer_manager", "UserLayerManager"),
     # Snap engine
     "SnapEngine":        (".snap_engine",       "SnapEngine"),
     "OsnapResult":       (".snap_engine",       "OsnapResult"),

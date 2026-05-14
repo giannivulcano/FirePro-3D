@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from .fitting import Fitting
 from .sprinkler import Sprinkler
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM, Z_NODE
+from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE
 from .displayable_item import DisplayableItemMixin
 
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):

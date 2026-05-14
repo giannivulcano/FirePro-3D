@@ -5,7 +5,7 @@ from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath, QPainterPathStroker
 from PyQt6.QtCore import Qt, QPointF
 from .cad_math import CAD_Math
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, Z_PIPE, Z_OVERLAY
+from .constants import DEFAULT_LEVEL, Z_PIPE, Z_OVERLAY
 from .displayable_item import DisplayableItemMixin
 from .assets import asset_path
 

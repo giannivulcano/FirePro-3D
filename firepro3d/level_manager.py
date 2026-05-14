@@ -602,9 +602,5 @@ class LevelManager:
             for marker in dm._markers.values():
                 _apply_elev_z(marker)
 
-        # ── Re-apply user-layer visibility on top ─────────────────────────
-        ulm = getattr(scene, "_user_layer_manager", None)
-        if ulm is not None:
-            ulm.apply_to_scene(scene)
 
 
