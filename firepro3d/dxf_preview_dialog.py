@@ -227,6 +227,8 @@ class _PreviewView(QGraphicsView):
 
     def drawForeground(self, painter: QPainter, rect):
         """Draw snap glyph and source-item trace over the preview."""
+        if not painter.isActive():
+            return
         super().drawForeground(painter, rect)
         dlg = getattr(self, "_dialog", None)
         if dlg is None:
@@ -570,6 +572,32 @@ class UnderlayImportDialog(QDialog):
         bot.addWidget(buttons)
         outer.addLayout(bot)
 
+    # ── Loading state ─────────────────────────────────────────────────────
+
+    def _set_loading(self, message: str):
+        """Disable controls and show a loading message."""
+        self._info_lbl.setText(message)
+        self._preview_view.setEnabled(False)
+        # Disable the right-side controls panel
+        splitter = self.findChild(QSplitter)
+        if splitter and splitter.count() > 1:
+            splitter.widget(1).setEnabled(False)
+        # Disable bottom bar buttons
+        btns = self.findChild(QDialogButtonBox)
+        if btns:
+            btns.setEnabled(False)
+        QApplication.processEvents()
+
+    def _clear_loading(self):
+        """Re-enable controls after loading completes."""
+        self._preview_view.setEnabled(True)
+        splitter = self.findChild(QSplitter)
+        if splitter and splitter.count() > 1:
+            splitter.widget(1).setEnabled(True)
+        btns = self.findChild(QDialogButtonBox)
+        if btns:
+            btns.setEnabled(True)
+
     # ── Persist settings between sessions ──────────────────────────────────
 
     _SETTINGS_KEY = "UnderlayImport"
@@ -757,12 +785,12 @@ class UnderlayImportDialog(QDialog):
             if oda_path is None:
                 return
 
-        self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
-        QApplication.processEvents()
+        self._set_loading("Converting DWG \u2192 DXF\u2026")
 
         dxf_path = convert_dwg_to_dxf(oda_path, path,
                                        project_dir=self._default_dir or None)
         while dxf_path is None:
+            self._clear_loading()
             from .dwg_converter import get_last_error
             diag = get_last_error()
             detail = f"\n\nDiagnostics:\n{diag}" if diag else ""
@@ -782,12 +810,12 @@ class UnderlayImportDialog(QDialog):
             if new_path is None:
                 return
             oda_path = new_path
-            self._info_lbl.setText("Converting DWG \u2192 DXF\u2026")
-            QApplication.processEvents()
+            self._set_loading("Converting DWG \u2192 DXF\u2026")
             dxf_path = convert_dwg_to_dxf(oda_path, path,
                                            project_dir=self._default_dir or None)
 
         # Layout selection
+        self._clear_loading()
         layouts = list_dwg_layouts(dxf_path)
         selected_layout = "Model"
 
@@ -808,7 +836,9 @@ class UnderlayImportDialog(QDialog):
         self._dwg_source_path = path
 
         # Load the selected layout from the converted DXF
+        self._set_loading(f"Loading layout '{selected_layout}'\u2026")
         self._load_dxf_with_layout(dxf_path, selected_layout)
+        self._clear_loading()
 
         # Clean up temp DXF after geometry is extracted into memory
         cleanup_converted_dxf(dxf_path)
