@@ -929,7 +929,7 @@ class UnderlayImportDialog(QDialog):
         total = sum(counts.values())
 
         # Small files — skip the dialog
-        if total < 50000:
+        if total < 5000:
             return set()
 
         # Build the dialog
