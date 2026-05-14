@@ -668,8 +668,7 @@ class UnderlayImportDialog(QDialog):
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
-    def _load_dxf(self, path: str, _skip_rebuild: bool = False,
-                  _exclude_types: set[str] | None = None):
+    def _load_dxf(self, path: str, _skip_rebuild: bool = False):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -724,9 +723,6 @@ class UnderlayImportDialog(QDialog):
             if i % 200 == 0:
                 prog.setValue(i)
                 QApplication.processEvents()
-            # Skip excluded entity types (DWG entity filter)
-            if _exclude_types and ent.dxftype() in _exclude_types:
-                continue
             try:
                 g = worker_ref._extract_geometry(ent)
                 if g is not None:
@@ -843,38 +839,13 @@ class UnderlayImportDialog(QDialog):
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
-        # Compute viewport bounds early so the entity dialog can filter
-        vp_bounds = None
-        if selected_layout != "Model":
-            from .dwg_converter import (
-                get_viewport_bounds, filter_geoms_by_bounds,
-                extract_layout_entities,
-            )
-            vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
-
-        # Scan entity types and let user choose which to import.
-        # Show FULL model space counts — the dialog controls which TYPES
-        # to extract, not spatial filtering (handled by filter_geoms_by_bounds).
-        self._set_loading("Scanning entity types\u2026")
-        excluded = self._show_entity_type_dialog(dxf_path)
-        if excluded is None:
-            # User cancelled
-            cleanup_converted_dxf(dxf_path)
-            self._clear_loading()
-            return
-
-        # Load model space geometry (skip preview rebuild — filter first)
-        # Note: spatial filtering happens AFTER extraction via
-        # filter_geoms_by_bounds, not during extraction. Entity-level
-        # bounds checks are unreliable for INSERTs whose explosion can
-        # produce sub-entities outside the viewport.
+        # Step 1: Extract all model space geometry
         self._set_loading("Extracting geometry\u2026")
-        self._load_dxf(dxf_path, _skip_rebuild=True,
-                        _exclude_types=excluded)
+        self._load_dxf(dxf_path, _skip_rebuild=True)
 
+        # Step 2: Viewport filter (if paper layout selected)
         if selected_layout != "Model":
-            # Filter to geometry visible through the layout's viewports
-            self._set_loading(f"Filtering to '{selected_layout}' viewports\u2026")
+            self._set_loading(f"Filtering to '{selected_layout}' viewport\u2026")
             from .dwg_converter import (
                 get_viewport_bounds, filter_geoms_by_bounds,
                 extract_layout_entities,
@@ -886,10 +857,20 @@ class UnderlayImportDialog(QDialog):
                 self._selected_indices = None
 
             # Add paper-layout entities (gridlines, title block)
-            # transformed to model-space coordinates
             layout_geoms = extract_layout_entities(dxf_path, selected_layout)
             if layout_geoms:
                 self._all_geoms.extend(layout_geoms)
+
+        self._clear_loading()
+
+        # Step 3: Entity type dialog — shows ACTUAL post-filter counts
+        excluded_kinds = self._show_geom_type_dialog()
+        if excluded_kinds is None:
+            cleanup_converted_dxf(dxf_path)
+            return
+        if excluded_kinds:
+            self._all_geoms = [g for g in self._all_geoms
+                               if g.get("kind") not in excluded_kinds]
 
         # Now rebuild preview once with the final (possibly filtered) set
         self._set_loading(f"Building preview ({len(self._all_geoms)} entities)\u2026")
@@ -918,85 +899,73 @@ class UnderlayImportDialog(QDialog):
             return path
         return None
 
-    def _show_entity_type_dialog(self, dxf_path: str) -> set[str] | None:
-        """Scan DXF entity types and let user choose which to import.
+    def _show_geom_type_dialog(self) -> set[str] | None:
+        """Show geometry type counts from ``_all_geoms`` and let user deselect.
 
-        Shows full model-space entity counts regardless of layout
-        selection.  Spatial filtering is handled separately by
-        :func:`filter_geoms_by_bounds` after extraction.
+        Called AFTER extraction and viewport filtering so counts reflect
+        what will actually be imported.
 
-        Returns a set of entity type names to EXCLUDE, or an empty set
-        if the user wants everything.  Returns ``None`` if cancelled.
+        Returns a set of geometry ``kind`` values to EXCLUDE, an empty
+        set to keep everything, or ``None`` if cancelled.
         """
-        try:
-            doc = ezdxf.readfile(dxf_path)
-        except Exception as e:
-            print(f"[DWG] Entity scan failed: {e}")
-            return set()  # can't scan — import everything
+        if not self._all_geoms:
+            return set()
 
-        msp = doc.modelspace()
         counts: dict[str, int] = {}
-        for ent in msp:
-            etype = ent.dxftype()
-            counts[etype] = counts.get(etype, 0) + 1
+        for g in self._all_geoms:
+            kind = g.get("kind", "unknown")
+            counts[kind] = counts.get(kind, 0) + 1
 
         total = sum(counts.values())
 
-        # Nothing to import
-        if total == 0:
-            return set()
-
-        # Build the dialog
         layout_note = getattr(self, "_dwg_layout", "Model")
         dlg = QDialog(self)
-        dlg.setWindowTitle("DWG Entity Types")
-        dlg.resize(420, 360)
+        dlg.setWindowTitle("Import Entity Types")
+        dlg.resize(400, 320)
         lay = QVBoxLayout(dlg)
 
-        desc = f"{total:,} entities in Model space (all floors)."
-        if layout_note != "Model":
-            desc += (f"\nOnly entities within '{layout_note}' viewport"
-                     " will be imported.")
-        desc += ("\nDeselect types you don't need to speed up extraction.\n"
-                 "INSERT (blocks) and HATCH often expand to many sub-entities.")
-        lay.addWidget(QLabel(desc))
+        scope = (f"'{layout_note}' viewport" if layout_note != "Model"
+                 else "Model space")
+        lay.addWidget(QLabel(
+            f"{total:,} geometry items in {scope}.\n"
+            "Deselect types you don't need."))
 
-        # Group types for display
-        _EXPAND_TYPES = {"INSERT", "DIMENSION", "HATCH"}
-        _DISPLAY_ORDER = [
-            "LINE", "LWPOLYLINE", "POLYLINE", "CIRCLE", "ARC",
-            "ELLIPSE", "SPLINE", "TEXT", "MTEXT",
-            "INSERT", "DIMENSION", "HATCH",
-        ]
+        _KIND_LABELS = {
+            "line": "Lines",
+            "path_points": "Polylines / Splines",
+            "circle": "Circles",
+            "arc": "Arcs",
+            "ellipse_full": "Ellipses",
+            "text": "Text",
+        }
+        _DISPLAY_ORDER = ["line", "path_points", "circle", "arc",
+                          "ellipse_full", "text"]
 
         from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
         tree = QTreeWidget()
-        tree.setHeaderLabels(["Entity Type", "Count", "Note"])
-        tree.setColumnWidth(0, 160)
-        tree.setColumnWidth(1, 70)
+        tree.setHeaderLabels(["Type", "Count"])
+        tree.setColumnWidth(0, 200)
         tree.setRootIsDecorated(False)
 
         items_map: dict[str, QTreeWidgetItem] = {}
-        # Known types in order
-        for etype in _DISPLAY_ORDER:
-            if etype not in counts:
+        remaining = dict(counts)
+        for kind in _DISPLAY_ORDER:
+            if kind not in remaining:
                 continue
-            c = counts.pop(etype)
-            item = QTreeWidgetItem([etype, f"{c:,}"])
-            if etype in _EXPAND_TYPES:
-                item.setText(2, "expands on import")
+            c = remaining.pop(kind)
+            label = _KIND_LABELS.get(kind, kind)
+            item = QTreeWidgetItem([label, f"{c:,}"])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(0, Qt.CheckState.Checked)
             tree.addTopLevelItem(item)
-            items_map[etype] = item
-        # Remaining types
-        for etype in sorted(counts.keys()):
-            c = counts[etype]
-            item = QTreeWidgetItem([etype, f"{c:,}"])
+            items_map[kind] = item
+        for kind in sorted(remaining.keys()):
+            c = remaining[kind]
+            item = QTreeWidgetItem([kind, f"{c:,}"])
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(0, Qt.CheckState.Checked)
             tree.addTopLevelItem(item)
-            items_map[etype] = item
+            items_map[kind] = item
 
         lay.addWidget(tree, 1)
 
@@ -1012,9 +981,9 @@ class UnderlayImportDialog(QDialog):
             return None
 
         excluded = set()
-        for etype, item in items_map.items():
+        for kind, item in items_map.items():
             if item.checkState(0) != Qt.CheckState.Checked:
-                excluded.add(etype)
+                excluded.add(kind)
         return excluded
 
     def _load_dxf_with_layout(self, dxf_path: str, layout_name: str):
