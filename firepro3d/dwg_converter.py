@@ -235,19 +235,40 @@ def cleanup_converted_dxf(dxf_path: str) -> None:
         shutil.rmtree(parent, ignore_errors=True)
 
 
-def list_dwg_layouts(dxf_path: str) -> list[str]:
+def read_dxf(dxf_path: str):
+    """Read a DXF file and return the ezdxf document.
+
+    Call once and pass the result to :func:`list_dwg_layouts`,
+    :func:`get_viewport_bounds`, and :func:`extract_layout_entities`
+    to avoid re-reading large files multiple times.
+
+    Returns:
+        An ezdxf document object, or ``None`` on read failure.
+    """
+    try:
+        import ezdxf
+        return ezdxf.readfile(dxf_path)
+    except Exception:
+        return None
+
+
+def list_dwg_layouts(dxf_path: str = "", doc=None) -> list[str]:
     """Read layout names from a converted DXF file.
 
     Args:
-        dxf_path: Path to a DXF file (output of :func:`convert_dwg_to_dxf`).
+        dxf_path: Path to a DXF file (ignored if *doc* is provided).
+        doc: Pre-read ezdxf document from :func:`read_dxf`.
 
     Returns:
         List of layout names with ``"Model"`` always first.
         Returns ``["Model"]`` on any error.
     """
+    if doc is None:
+        doc = read_dxf(dxf_path)
+    if doc is None:
+        return ["Model"]
+
     try:
-        import ezdxf
-        doc = ezdxf.readfile(dxf_path)
         names = list(doc.layouts.names())
     except Exception:
         return ["Model"]
@@ -259,7 +280,7 @@ def list_dwg_layouts(dxf_path: str) -> list[str]:
 
 
 def get_viewport_bounds(
-    dxf_path: str, layout_name: str,
+    dxf_path: str = "", layout_name: str = "", doc=None,
 ) -> list[tuple[float, float, float, float]] | None:
     """Extract model-space bounding boxes from viewports in a paper layout.
 
@@ -269,8 +290,9 @@ def get_viewport_bounds(
     geometry dict coordinate convention (Y-down).
 
     Args:
-        dxf_path: Path to the converted DXF file.
+        dxf_path: Path to the converted DXF file (ignored if *doc* given).
         layout_name: Name of the paper-space layout.
+        doc: Pre-read ezdxf document from :func:`read_dxf`.
 
     Returns:
         List of ``(min_x, min_y, max_x, max_y)`` tuples in geometry-dict
@@ -280,9 +302,12 @@ def get_viewport_bounds(
     if layout_name == "Model":
         return None
 
+    if doc is None:
+        doc = read_dxf(dxf_path)
+    if doc is None:
+        return None
+
     try:
-        import ezdxf
-        doc = ezdxf.readfile(dxf_path)
         layout = doc.layouts.get(layout_name)
     except Exception:
         return None
@@ -386,7 +411,7 @@ def _geom_in_any_bound(
 
 
 def extract_layout_entities(
-    dxf_path: str, layout_name: str,
+    dxf_path: str = "", layout_name: str = "", doc=None,
 ) -> list[dict]:
     """Extract paper-layout entities transformed to model-space coordinates.
 
@@ -397,8 +422,9 @@ def extract_layout_entities(
     they align with viewport-filtered model-space geometry.
 
     Args:
-        dxf_path: Path to the converted DXF file.
+        dxf_path: Path to the converted DXF file (ignored if *doc* given).
         layout_name: Name of the paper-space layout.
+        doc: Pre-read ezdxf document from :func:`read_dxf`.
 
     Returns:
         List of geometry dicts in model-space coordinates (Y negated),
@@ -407,9 +433,12 @@ def extract_layout_entities(
     if layout_name == "Model":
         return []
 
+    if doc is None:
+        doc = read_dxf(dxf_path)
+    if doc is None:
+        return []
+
     try:
-        import ezdxf
-        doc = ezdxf.readfile(dxf_path)
         layout = doc.layouts.get(layout_name)
     except Exception:
         return []
