@@ -814,24 +814,52 @@ class UnderlayImportDialog(QDialog):
             dxf_path = convert_dwg_to_dxf(oda_path, path,
                                            project_dir=self._default_dir or None)
 
-        # Always import Model space — paper space layouts only contain
-        # title blocks and viewports (references into model space).
-        # Resolving viewport content would require a full CAD renderer.
-        self._dwg_layout = "Model"
+        # Layout selection
+        self._clear_loading()
+        layouts = list_dwg_layouts(dxf_path)
+        selected_layout = "Model"
+
+        if len(layouts) > 1:
+            from PyQt6.QtWidgets import QInputDialog
+            choice, ok = QInputDialog.getItem(
+                self, "Select Layout",
+                "Select which layout to import:\n\n"
+                "\u2022 'Model' imports all model-space geometry.\n"
+                "\u2022 Paper layouts import only the geometry\n"
+                "  visible through that layout's viewports.",
+                layouts, 0, False)
+            if not ok:
+                cleanup_converted_dxf(dxf_path)
+                return
+            selected_layout = choice
+
+        self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
-        # Load Model space from the converted DXF
-        self._set_loading("Loading Model space\u2026")
-        self._load_dxf(dxf_path)
+        # Load model space, optionally filtered by layout viewports
+        self._set_loading(f"Loading '{selected_layout}'\u2026")
+        self._load_dxf(dxf_path)  # always reads model space
+
+        if selected_layout != "Model":
+            # Filter to geometry visible through the layout's viewports
+            from .dwg_converter import get_viewport_bounds, filter_geoms_by_bounds
+            vp_bounds = get_viewport_bounds(dxf_path, selected_layout)
+            if vp_bounds:
+                before = len(self._all_geoms)
+                self._all_geoms = filter_geoms_by_bounds(
+                    self._all_geoms, vp_bounds)
+                self._selected_indices = None
+                self._rebuild_preview()
         self._clear_loading()
 
-        # Clean up temp DXF after geometry is extracted into memory
+        # Don't clean up UNDERLAY_REF DXFs (they persist for reuse)
         cleanup_converted_dxf(dxf_path)
 
         self._file_type = "dwg"
         n = len(self._all_geoms)
+        layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
         self._info_lbl.setText(
-            f"{n} entities loaded from {os.path.basename(path)}")
+            f"{n} entities loaded from {os.path.basename(path)}{layout_label}")
 
     def _browse_for_oda(self) -> str | None:
         """Let the user manually locate ODAFileConverter.exe and save to QSettings."""

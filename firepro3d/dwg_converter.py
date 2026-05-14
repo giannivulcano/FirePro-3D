@@ -256,3 +256,130 @@ def list_dwg_layouts(dxf_path: str) -> list[str]:
     if "Model" in names:
         names.remove("Model")
     return ["Model"] + sorted(names)
+
+
+def get_viewport_bounds(
+    dxf_path: str, layout_name: str,
+) -> list[tuple[float, float, float, float]] | None:
+    """Extract model-space bounding boxes from viewports in a paper layout.
+
+    Each viewport in a paper-space layout defines a window into model
+    space.  This function reads those viewport definitions and returns
+    the model-space regions they display — with Y negated to match the
+    geometry dict coordinate convention (Y-down).
+
+    Args:
+        dxf_path: Path to the converted DXF file.
+        layout_name: Name of the paper-space layout.
+
+    Returns:
+        List of ``(min_x, min_y, max_x, max_y)`` tuples in geometry-dict
+        coordinates (Y negated), or ``None`` if *layout_name* is
+        ``"Model"`` or no viewports are found.
+    """
+    if layout_name == "Model":
+        return None
+
+    try:
+        import ezdxf
+        doc = ezdxf.readfile(dxf_path)
+        layout = doc.layouts.get(layout_name)
+    except Exception:
+        return None
+
+    bounds: list[tuple[float, float, float, float]] = []
+    for entity in layout:
+        if entity.dxftype() != "VIEWPORT":
+            continue
+        # Viewport #1 is the paper-space background — skip it
+        vp_id = entity.dxf.get("id", 0)
+        if vp_id == 1:
+            continue
+        # Viewport might be off
+        status = entity.dxf.get("status", 1)
+        if status == 0:
+            continue
+
+        try:
+            vc = entity.dxf.view_center_point  # model-space center (x, y)
+            vh = entity.dxf.view_height         # model-space height
+            vp_w = entity.dxf.width             # paper-space width
+            vp_h = entity.dxf.height            # paper-space height
+        except AttributeError:
+            continue
+
+        if vh <= 0 or vp_h <= 0:
+            continue
+
+        # Model-space width derived from aspect ratio
+        vw = vh * (vp_w / vp_h)
+
+        cx, cy = float(vc[0]), float(vc[1])
+
+        # Negate Y to match geometry dict convention (DxfImportWorker
+        # negates all Y coordinates during extraction).
+        bounds.append((
+            cx - vw / 2,          # min_x
+            -cy - vh / 2,         # min_y (negated)
+            cx + vw / 2,          # max_x
+            -cy + vh / 2,         # max_y (negated)
+        ))
+
+    return bounds if bounds else None
+
+
+def filter_geoms_by_bounds(
+    geoms: list[dict],
+    bounds: list[tuple[float, float, float, float]] | None,
+) -> list[dict]:
+    """Filter geometry dicts to those within any viewport bounds.
+
+    Args:
+        geoms: List of geometry dicts from the DXF extraction pipeline.
+        bounds: Viewport bounds from :func:`get_viewport_bounds`, or
+            ``None`` to return all geometry unchanged.
+
+    Returns:
+        Filtered list of geometry dicts.
+    """
+    if bounds is None:
+        return geoms
+
+    filtered = []
+    for g in geoms:
+        if _geom_in_any_bound(g, bounds):
+            filtered.append(g)
+    return filtered
+
+
+def _geom_in_any_bound(
+    g: dict,
+    bounds: list[tuple[float, float, float, float]],
+) -> bool:
+    """Check if any representative point of a geometry dict falls
+    within any of the bounding boxes."""
+    kind = g.get("kind")
+    points: list[tuple[float, float]] = []
+
+    if kind == "line":
+        points = [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
+    elif kind == "circle":
+        # Center of the bounding rect
+        points = [(g["x"] + g["w"] / 2, g["y"] + g["h"] / 2)]
+    elif kind == "arc":
+        points = [(g["rx"] + g["rw"] / 2, g["ry"] + g["rh"] / 2)]
+    elif kind == "ellipse_full":
+        points = [(g["pos_cx"], g["pos_cy"])]
+    elif kind == "path_points":
+        points = [(p[0], p[1]) for p in g.get("points", [])]
+    elif kind == "text":
+        points = [(g["x"], g["y"])]
+
+    for bx0, by0, bx1, by1 in bounds:
+        # Normalise in case min/max are swapped from Y negation
+        if by0 > by1:
+            by0, by1 = by1, by0
+        for px, py in points:
+            if bx0 <= px <= bx1 and by0 <= py <= by1:
+                return True
+    return False
