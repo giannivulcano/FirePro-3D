@@ -22,6 +22,19 @@ import shutil
 import subprocess
 import tempfile
 
+_last_error: str = ""
+
+
+def _set_last_error(msg: str) -> None:
+    global _last_error
+    _last_error = msg
+
+
+def get_last_error() -> str:
+    """Return diagnostic info from the last failed conversion."""
+    return _last_error
+
+
 _COMMON_ODA_DIRS: list[str] = [
     os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
                  "ODA", "ODAFileConverter 26.3.0"),
@@ -107,15 +120,28 @@ def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
     in_dir = tempfile.mkdtemp(prefix="fpro_dwg_in_")
     out_dir = tempfile.mkdtemp(prefix="fpro_dwg_out_")
 
+    last_error = ""
     try:
         shutil.copy2(dwg_path, os.path.join(in_dir, basename))
 
         # ODA args: input_dir output_dir version output_type recurse audit
         cmd = [oda_path, in_dir, out_dir, "ACAD2018", "DXF", "0", "1"]
-        subprocess.run(cmd, check=True, timeout=120,
-                       capture_output=True)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            OSError):
+        result = subprocess.run(cmd, timeout=120, capture_output=True,
+                                text=True)
+        last_error = (f"ODA exit code {result.returncode}\n"
+                      f"stdout: {(result.stdout or '')[:500]}\n"
+                      f"stderr: {(result.stderr or '')[:500]}")
+        if result.returncode != 0:
+            _set_last_error(last_error)
+            shutil.rmtree(out_dir, ignore_errors=True)
+            return None
+    except subprocess.TimeoutExpired:
+        _set_last_error("ODA conversion timed out after 120 seconds")
+        shutil.rmtree(in_dir, ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return None
+    except OSError as e:
+        _set_last_error(f"OSError launching ODA: {e}")
         shutil.rmtree(in_dir, ignore_errors=True)
         shutil.rmtree(out_dir, ignore_errors=True)
         return None
@@ -128,10 +154,20 @@ def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
         return expected
 
     # Fallback: pick the first .dxf in the output directory
-    for f in os.listdir(out_dir):
+    try:
+        out_files = os.listdir(out_dir)
+    except OSError:
+        out_files = []
+    for f in out_files:
         if f.lower().endswith(".dxf"):
             return os.path.join(out_dir, f)
 
+    # No DXF produced — store diagnostics
+    _last_conversion_error = (
+        last_error or
+        f"No DXF produced. Output dir contents: {out_files}\n"
+        f"cmd: {cmd}")
+    _set_last_error(_last_conversion_error)
     shutil.rmtree(out_dir, ignore_errors=True)
     return None
 

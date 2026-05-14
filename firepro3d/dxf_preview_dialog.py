@@ -762,10 +762,13 @@ class UnderlayImportDialog(QDialog):
 
         dxf_path = convert_dwg_to_dxf(oda_path, path)
         if dxf_path is None:
+            from .dwg_converter import get_last_error
+            diag = get_last_error()
+            detail = f"\n\nDiagnostics:\n{diag}" if diag else ""
             QMessageBox.warning(
                 self, "Conversion Failed",
-                "ODA File Converter could not convert this DWG file.\n"
-                "The file may be corrupt or use an unsupported DWG version.")
+                f"ODA File Converter could not convert this DWG file.\n"
+                f"ODA path: {oda_path}{detail}")
             return
 
         # Layout selection

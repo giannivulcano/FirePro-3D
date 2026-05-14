@@ -21,7 +21,9 @@ def test_find_oda_from_path():
     from firepro3d.dwg_converter import find_oda_converter
     sentinel = r"C:\Program Files\ODA\ODAFileConverter.exe"
     with mock.patch("shutil.which", return_value=sentinel), \
-         mock.patch("os.path.isfile", return_value=True):
+         mock.patch("os.path.isfile", return_value=True), \
+         mock.patch("firepro3d.dwg_converter._oda_path_from_settings",
+                    return_value=None):
         assert find_oda_converter() == sentinel
 
 
@@ -78,7 +80,8 @@ def test_convert_dwg_oda_failure(tmp_path):
     dwg_file.write_bytes(b"fake dwg content")
 
     with mock.patch("subprocess.run",
-                    side_effect=subprocess.CalledProcessError(1, "oda")):
+                    return_value=subprocess.CompletedProcess([], 1,
+                                                            stdout="", stderr="error")):
         result = convert_dwg_to_dxf(r"C:\oda.exe", str(dwg_file))
         assert result is None
 
