@@ -13,7 +13,6 @@ Property types recognised from ``get_properties()`` dict:
     combo      — alias for enum
     color      — colour swatch + QColorDialog picker
     level_ref  — QComboBox populated from LevelManager
-    layer_ref  — QComboBox populated from UserLayerManager
     button     — QPushButton that calls meta["callback"] when clicked
     dimension  — DimensionEdit for mm-based values (requires value_mm in meta)
 """
@@ -90,7 +89,6 @@ class PropertyManager(QWidget):
 
         # State
         self._level_manager = None
-        self._user_layer_manager = None
         self._targets: list = []
         self._refreshing = False   # guard against re-entrant refresh
 
@@ -104,9 +102,6 @@ class PropertyManager(QWidget):
 
     def set_level_manager(self, lm):
         self._level_manager = lm
-
-    def set_user_layer_manager(self, ulm):
-        self._user_layer_manager = ulm
 
     def show_properties(self, item):
         """Display properties for *item* (single entity, list, or None)."""
@@ -201,18 +196,6 @@ class PropertyManager(QWidget):
                 if self._level_manager is not None:
                     for lv in self._level_manager.levels:
                         combo.addItem(lv.name)
-                combo.setCurrentText(str(meta["value"]))
-                combo.currentTextChanged.connect(
-                    lambda val, k=key: self._apply_property(k, val)
-                )
-                widget = combo
-
-            # ── layer_ref (user-layer dropdown from UserLayerManager) ──────
-            elif prop_type == "layer_ref":
-                combo = QComboBox()
-                if self._user_layer_manager is not None:
-                    for lyr in self._user_layer_manager.layers:
-                        combo.addItem(lyr.name)
                 combo.setCurrentText(str(meta["value"]))
                 combo.currentTextChanged.connect(
                     lambda val, k=key: self._apply_property(k, val)

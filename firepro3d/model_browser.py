@@ -192,7 +192,7 @@ class ModelBrowser(QWidget):
                 label = wall.name if wall.name else "Wall"
                 item = QTreeWidgetItem(walls_root, [label])
                 item.setData(0, _ROLE_ENTITY, id(wall))
-                item.setToolTip(0, f"Level: {wall.level}  Layer: {wall.user_layer}")
+                item.setToolTip(0, f"Level: {wall.level}")
                 self._style_hidden(item, wall)
 
             # -- Floors --
@@ -270,7 +270,7 @@ class ModelBrowser(QWidget):
                 label = f"Pipe {i}  ({dia})"
                 item = QTreeWidgetItem(pipes_root, [label])
                 item.setData(0, _ROLE_ENTITY, id(pipe))
-                item.setToolTip(0, f"Level: {pipe.level}  Layer: {pipe.user_layer}")
+                item.setToolTip(0, f"Level: {pipe.level}")
                 self._style_hidden(item, pipe)
 
             # -- Sprinklers --
@@ -289,7 +289,7 @@ class ModelBrowser(QWidget):
                 label = f"Sprinkler {i}  ({mfr} {orient})"
                 item = QTreeWidgetItem(sprinklers_root, [label])
                 item.setData(0, _ROLE_ENTITY, id(node))
-                item.setToolTip(0, f"Level: {node.level}  Layer: {node.user_layer}")
+                item.setToolTip(0, f"Level: {node.level}")
                 self._style_hidden(item, node)
 
             # -- Fittings --

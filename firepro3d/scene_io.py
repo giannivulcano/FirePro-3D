@@ -21,7 +21,7 @@ import shutil
 
 from PyQt6.QtCore import QPointF
 
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from .underlay import Underlay
 
 
@@ -48,7 +48,6 @@ class SceneIOMixin:
                 "x":              node.scenePos().x(),
                 "y":              node.scenePos().y(),
                 "elevation":      node.z_pos,
-                "user_layer":     getattr(node, "user_layer", "0"),
                 "level":          getattr(node, "level", DEFAULT_LEVEL),
                 "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
                 "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
@@ -78,7 +77,6 @@ class SceneIOMixin:
             pipe_entry = {
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
-                "user_layer": getattr(pipe, "user_layer", "0"),
                 "level":      getattr(pipe, "level", DEFAULT_LEVEL),
                 "properties": raw_props,
             }
@@ -97,7 +95,6 @@ class SceneIOMixin:
                 "offset_dist": getattr(dim, "_offset_dist", 10),
                 "witness_ext_override": getattr(dim, "_witness_ext_override", None),
                 "properties": {k: v["value"] for k, v in dim.get_properties().items()},
-                "user_layer": getattr(dim, "user_layer", DEFAULT_USER_LAYER),
                 "level":      getattr(dim, "level", DEFAULT_LEVEL),
             })
         for note in self.annotations.notes:
@@ -107,7 +104,6 @@ class SceneIOMixin:
                 "y":    note.scenePos().y(),
                 "text_width": note.textWidth(),
                 "properties": {k: v["value"] for k, v in note.get_properties().items()},
-                "user_layer": getattr(note, "user_layer", DEFAULT_USER_LAYER),
                 "level":      getattr(note, "level", DEFAULT_LEVEL),
             })
 
@@ -168,13 +164,6 @@ class SceneIOMixin:
                 "is_active": da is self.active_design_area,
             })
 
-        # --- User layers ---
-        layers_data = (
-            self._user_layer_manager.to_list()
-            if hasattr(self, "_user_layer_manager") and self._user_layer_manager
-            else []
-        )
-
         # --- Levels ---
         levels_data = (
             self._level_manager.to_list()
@@ -207,7 +196,6 @@ class SceneIOMixin:
             "scale":               self.scale_manager.to_dict(),
             "display_settings":    display_settings_data,
             "paper_display":       paper_display_data,
-            "user_layers":         layers_data,
             "levels":              levels_data,
             "plan_views":          (self._plan_view_manager.to_list()
                                     if self._plan_view_manager else []),
@@ -304,11 +292,6 @@ class SceneIOMixin:
         else:
             self.scale_manager = ScaleManager()
 
-        # --- User layers ---
-        layers_data = payload.get("user_layers", [])
-        if layers_data and hasattr(self, "_user_layer_manager") and self._user_layer_manager:
-            self._user_layer_manager.from_list(layers_data)
-
         # --- Levels ---
         levels_data = payload.get("levels", [])
         if levels_data and self._level_manager:
@@ -338,12 +321,10 @@ class SceneIOMixin:
         id_to_node: dict[int, Node] = {}
         for entry in payload.get("nodes", []):
             node = Node(entry["x"], entry["y"])
-            node.user_layer = self.active_user_layer
             node.level = self.active_level
             self.addItem(node)
             self.sprinkler_system.add_node(node)
             id_to_node[entry["id"]] = node
-            node.user_layer = entry.get("user_layer", "0")
             node.level = entry.get("level", DEFAULT_LEVEL)
             node._room_name = entry.get("room_name", "")
             node.ceiling_level = entry.get("ceiling_level", node.level)
@@ -389,7 +370,6 @@ class SceneIOMixin:
             n2 = id_to_node.get(entry["node2_id"])
             if n1 and n2:
                 pipe = self.add_pipe(n1, n2, _propagate_ceiling=False)
-                pipe.user_layer = entry.get("user_layer", "0")
                 pipe.level = entry.get("level", DEFAULT_LEVEL)
                 for key, value in entry.get("properties", {}).items():
                     pipe.set_property(key, value)
@@ -425,7 +405,6 @@ class SceneIOMixin:
                 for key, value in entry.get("properties", {}).items():
                     dim.set_property(key, value)
                 dim.update_geometry()
-                dim.user_layer = entry.get("user_layer", DEFAULT_USER_LAYER)
                 dim.level = entry.get("level", DEFAULT_LEVEL)
             elif ann_type == "note":
                 tw = entry.get("text_width", -1)
@@ -436,7 +415,6 @@ class SceneIOMixin:
                 self.annotations.add_note(note)
                 for key, value in entry.get("properties", {}).items():
                     note.set_property(key, value)
-                note.user_layer = entry.get("user_layer", DEFAULT_USER_LAYER)
                 note.level = entry.get("level", DEFAULT_LEVEL)
 
         # --- Underlays ---
@@ -474,8 +452,7 @@ class SceneIOMixin:
                                 line_weight=udata.line_weight,
                                 x=udata.x, y=udata.y,
                                 layers=udata.selected_layers,
-                                _record=udata,
-                                user_layer=udata.user_layer)
+                                _record=udata)
 
         # Handle missing underlay files
         for udata in missing_underlays:
