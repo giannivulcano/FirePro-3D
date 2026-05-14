@@ -805,7 +805,7 @@ class UnderlayImportDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(
             self, "Locate ODA File Converter",
             os.environ.get("ProgramFiles", ""),
-            "ODA File Converter (ODAFileConverter.exe);;All Files (*)")
+            "Executables (*.exe);;All Files (*)")
         if path and os.path.isfile(path):
             from PyQt6.QtCore import QSettings
             s = QSettings("GV", "FirePro3D")
