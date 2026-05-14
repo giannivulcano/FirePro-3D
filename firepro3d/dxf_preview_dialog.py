@@ -916,6 +916,7 @@ class UnderlayImportDialog(QDialog):
                 return
             selected_layout = choice
 
+        _t3 = _time.perf_counter()  # reset after user dialog
         self._dwg_layout = selected_layout
         self._dwg_source_path = path
 
