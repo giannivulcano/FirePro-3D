@@ -814,30 +814,15 @@ class UnderlayImportDialog(QDialog):
             dxf_path = convert_dwg_to_dxf(oda_path, path,
                                            project_dir=self._default_dir or None)
 
-        # Layout selection
-        self._clear_loading()
-        layouts = list_dwg_layouts(dxf_path)
-        selected_layout = "Model"
-
-        if len(layouts) > 1:
-            from PyQt6.QtWidgets import QInputDialog
-            choice, ok = QInputDialog.getItem(
-                self, "Select Layout",
-                "This DWG file contains multiple layouts.\n"
-                "Select which layout to import:",
-                layouts, 0, False)
-            if not ok:
-                cleanup_converted_dxf(dxf_path)
-                return
-            selected_layout = choice
-
-        # Store layout and original DWG path for ImportParams
-        self._dwg_layout = selected_layout
+        # Always import Model space — paper space layouts only contain
+        # title blocks and viewports (references into model space).
+        # Resolving viewport content would require a full CAD renderer.
+        self._dwg_layout = "Model"
         self._dwg_source_path = path
 
-        # Load the selected layout from the converted DXF
-        self._set_loading(f"Loading layout '{selected_layout}'\u2026")
-        self._load_dxf_with_layout(dxf_path, selected_layout)
+        # Load Model space from the converted DXF
+        self._set_loading("Loading Model space\u2026")
+        self._load_dxf(dxf_path)
         self._clear_loading()
 
         # Clean up temp DXF after geometry is extracted into memory
@@ -845,9 +830,8 @@ class UnderlayImportDialog(QDialog):
 
         self._file_type = "dwg"
         n = len(self._all_geoms)
-        layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
         self._info_lbl.setText(
-            f"{n} entities loaded from {os.path.basename(path)}{layout_label}")
+            f"{n} entities loaded from {os.path.basename(path)}")
 
     def _browse_for_oda(self) -> str | None:
         """Let the user manually locate ODAFileConverter.exe and save to QSettings."""
