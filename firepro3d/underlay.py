@@ -12,7 +12,7 @@ class Underlay:
     Only the *path* is stored — the file is re-read from disk on every load
     so external edits are picked up automatically (linked-file workflow).
     """
-    type: Literal["pdf", "dxf"]
+    type: Literal["pdf", "dxf", "dwg"]
     path: str
     x: float = 0.0
     y: float = 0.0
@@ -37,6 +37,7 @@ class Underlay:
     import_base_x: float = 0.0
     import_base_y: float = 0.0
     selected_layers: list[str] | None = None
+    layout: str = ""  # DWG layout name (empty = Model space)
 
     def to_dict(self) -> dict:
         d = {
@@ -63,6 +64,7 @@ class Underlay:
         d["import_base_x"] = self.import_base_x
         d["import_base_y"] = self.import_base_y
         d["selected_layers"] = list(self.selected_layers) if self.selected_layers is not None else None
+        d["layout"] = self.layout
         return d
 
     @staticmethod
@@ -88,6 +90,7 @@ class Underlay:
             import_base_x   = d.get("import_base_x", 0.0),
             import_base_y   = d.get("import_base_y", 0.0),
             selected_layers = d.get("selected_layers", None),
+            layout = d.get("layout", ""),
         )
 
     @staticmethod
@@ -159,6 +162,8 @@ class Underlay:
             props["DPI"] = {"type": "label", "value": str(self.dpi)}
             props["Page"] = {"type": "label", "value": str(self.page + 1)}
             props["Import Mode"] = {"type": "label", "value": self.import_mode}
+        if self.type == "dwg" and self.layout:
+            props["Layout"] = {"type": "label", "value": self.layout}
         if self.hidden_layers:
             props["Hidden Layers"] = {
                 "type": "label",
@@ -169,4 +174,5 @@ class Underlay:
         """Return the cache filename for this underlay's geometry."""
         from .underlay_cache import compute_cache_key
         return compute_cache_key(
-            self.path, page=self.page, selected_layers=self.selected_layers)
+            self.path, page=self.page, selected_layers=self.selected_layers,
+            layout=self.layout)

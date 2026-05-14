@@ -135,3 +135,67 @@ def test_list_layouts_error():
     with mock.patch("ezdxf.readfile", side_effect=Exception("corrupt")):
         result = list_dwg_layouts("/tmp/test.dxf")
         assert result == ["Model"]
+
+
+def test_underlay_dwg_type_roundtrip():
+    """Underlay with type='dwg' and layout field serializes correctly."""
+    from firepro3d.underlay import Underlay
+
+    u = Underlay(type="dwg", path="test.dwg", layout="Sheet 1")
+    d = u.to_dict()
+    assert d["type"] == "dwg"
+    assert d["layout"] == "Sheet 1"
+
+    u2 = Underlay.from_dict(d)
+    assert u2.type == "dwg"
+    assert u2.layout == "Sheet 1"
+
+
+def test_underlay_layout_default_empty():
+    """Underlay layout defaults to empty string (backward compat)."""
+    from firepro3d.underlay import Underlay
+
+    u = Underlay(type="dxf", path="test.dxf")
+    assert u.layout == ""
+    d = u.to_dict()
+    assert d["layout"] == ""
+
+
+def test_underlay_from_dict_missing_layout():
+    """Old project files without layout field load cleanly."""
+    from firepro3d.underlay import Underlay
+
+    d = {"type": "dxf", "path": "test.dxf"}
+    u = Underlay.from_dict(d)
+    assert u.layout == ""
+
+
+def test_underlay_dwg_properties_show_layout():
+    """get_properties() shows Layout for DWG underlays."""
+    from firepro3d.underlay import Underlay
+
+    u = Underlay(type="dwg", path="test.dwg", layout="Level 1 Plan")
+    props = u.get_properties()
+    assert "Layout" in props
+    assert props["Layout"]["value"] == "Level 1 Plan"
+
+
+def test_cache_key_includes_layout():
+    """compute_cache_key() produces different keys for different layouts."""
+    from firepro3d.underlay_cache import compute_cache_key
+
+    key_model = compute_cache_key("test.dwg", layout="Model")
+    key_sheet = compute_cache_key("test.dwg", layout="Sheet 1")
+    key_none = compute_cache_key("test.dwg", layout="")
+
+    assert key_model != key_sheet
+    assert key_model != key_none
+
+
+def test_cache_key_backward_compat():
+    """compute_cache_key() with default layout matches old behavior."""
+    from firepro3d.underlay_cache import compute_cache_key
+
+    key_new = compute_cache_key("test.dxf", page=0, layout="")
+    key_old = compute_cache_key("test.dxf", page=0)
+    assert key_new == key_old

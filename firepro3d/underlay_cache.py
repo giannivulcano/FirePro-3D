@@ -37,6 +37,7 @@ def compute_cache_key(
     source_path: str,
     page: int = 0,
     selected_layers: list[str] | None = None,
+    layout: str = "",
 ) -> str:
     """Return a deterministic cache filename for the given source parameters.
 
@@ -55,7 +56,7 @@ def compute_cache_key(
     """
     norm_path = os.path.normpath(os.path.abspath(source_path))
     layers_repr = "|".join(sorted(selected_layers)) if selected_layers else ""
-    raw = f"{norm_path}|{page}|{layers_repr}"
+    raw = f"{norm_path}|{page}|{layers_repr}|{layout}"
     hex16 = hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     base = os.path.basename(norm_path)
