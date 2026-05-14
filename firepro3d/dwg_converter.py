@@ -1,0 +1,172 @@
+"""
+dwg_converter.py
+================
+DWG to DXF conversion via ODA File Converter.
+
+ODA File Converter is a free tool from Open Design Alliance that converts
+between DWG and DXF formats.  This module handles finding the ODA executable,
+running the conversion, and listing layouts from the resulting DXF.
+
+ODA CLI usage::
+
+    ODAFileConverter <input_dir> <output_dir> <version> <type> <recurse> <audit>
+
+The converter operates on directories, not individual files, so we copy
+the source DWG into a temp input directory and read the output DXF from
+a temp output directory.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+
+_COMMON_ODA_DIRS: list[str] = [
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "ODA", "ODAFileConverter 26.3.0"),
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "ODA", "ODAFileConverter 25.12.0"),
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "ODA", "ODAFileConverter 25.6.0"),
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "ODA", "ODAFileConverter"),
+]
+
+_ODA_EXE = "ODAFileConverter.exe"
+
+# Download page for error dialogs
+ODA_DOWNLOAD_URL = "https://www.opendesign.com/guestfiles/oda_file_converter"
+
+
+def _oda_path_from_settings() -> str | None:
+    """Read the ODA converter path from QSettings, if set."""
+    try:
+        from PyQt6.QtCore import QSettings
+        s = QSettings("GV", "FirePro3D")
+        path = s.value("dwg/oda_converter_path", None)
+        if path and os.path.isfile(path):
+            return path
+    except Exception:
+        pass
+    return None
+
+
+def find_oda_converter() -> str | None:
+    """Locate the ODA File Converter executable.
+
+    Search order:
+    1. QSettings (user-configured path)
+    2. System PATH (shutil.which)
+    3. Common install directories
+
+    Returns:
+        Absolute path to ODAFileConverter.exe, or None if not found.
+    """
+    # 1. QSettings
+    path = _oda_path_from_settings()
+    if path:
+        return path
+
+    # 2. PATH
+    which = shutil.which(_ODA_EXE)
+    if which and os.path.isfile(which):
+        return which
+
+    # 3. Common install directories
+    for d in _COMMON_ODA_DIRS:
+        candidate = os.path.join(d, _ODA_EXE)
+        if os.path.isfile(candidate):
+            return candidate
+
+    return None
+
+
+def convert_dwg_to_dxf(oda_path: str, dwg_path: str) -> str | None:
+    """Convert a DWG file to DXF using ODA File Converter.
+
+    The conversion runs in a temporary directory pair.  On success the
+    output DXF is left in a temp directory and the caller is responsible
+    for cleaning it up (or letting the OS reclaim ``%TEMP%``).
+
+    Args:
+        oda_path: Absolute path to ODAFileConverter.exe.
+        dwg_path: Absolute path to the source ``.dwg`` file.
+
+    Returns:
+        Absolute path to the converted ``.dxf`` file, or ``None`` on
+        failure (ODA crash, no output produced, source file missing).
+    """
+    if not os.path.isfile(dwg_path):
+        return None
+
+    basename = os.path.basename(dwg_path)
+    stem = os.path.splitext(basename)[0]
+
+    # ODA operates on directories — isolate the source file
+    in_dir = tempfile.mkdtemp(prefix="fpro_dwg_in_")
+    out_dir = tempfile.mkdtemp(prefix="fpro_dwg_out_")
+
+    try:
+        shutil.copy2(dwg_path, os.path.join(in_dir, basename))
+
+        # ODA args: input_dir output_dir version output_type recurse audit
+        cmd = [oda_path, in_dir, out_dir, "ACAD2018", "DXF", "0", "1"]
+        subprocess.run(cmd, check=True, timeout=120,
+                       capture_output=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            OSError):
+        shutil.rmtree(in_dir, ignore_errors=True)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        return None
+    finally:
+        shutil.rmtree(in_dir, ignore_errors=True)
+
+    # Find the output DXF
+    expected = os.path.join(out_dir, f"{stem}.dxf")
+    if os.path.isfile(expected):
+        return expected
+
+    # Fallback: pick the first .dxf in the output directory
+    for f in os.listdir(out_dir):
+        if f.lower().endswith(".dxf"):
+            return os.path.join(out_dir, f)
+
+    shutil.rmtree(out_dir, ignore_errors=True)
+    return None
+
+
+def cleanup_converted_dxf(dxf_path: str) -> None:
+    """Remove the temp directory containing a converted DXF.
+
+    Safe to call with any path — only removes the parent directory
+    if it looks like a temp directory created by :func:`convert_dwg_to_dxf`.
+    """
+    if not dxf_path:
+        return
+    parent = os.path.dirname(dxf_path)
+    if os.path.basename(parent).startswith("fpro_dwg_out_"):
+        shutil.rmtree(parent, ignore_errors=True)
+
+
+def list_dwg_layouts(dxf_path: str) -> list[str]:
+    """Read layout names from a converted DXF file.
+
+    Args:
+        dxf_path: Path to a DXF file (output of :func:`convert_dwg_to_dxf`).
+
+    Returns:
+        List of layout names with ``"Model"`` always first.
+        Returns ``["Model"]`` on any error.
+    """
+    try:
+        import ezdxf
+        doc = ezdxf.readfile(dxf_path)
+        names = list(doc.layouts.names())
+    except Exception:
+        return ["Model"]
+
+    # Ensure "Model" is first
+    if "Model" in names:
+        names.remove("Model")
+    return ["Model"] + sorted(names)
