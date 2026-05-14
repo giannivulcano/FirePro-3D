@@ -37,6 +37,8 @@ def get_last_error() -> str:
 
 _COMMON_ODA_DIRS: list[str] = [
     os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 "ODA", "ODAFileConverter 27.1.0"),
+    os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
                  "ODA", "ODAFileConverter 26.3.0"),
     os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"),
                  "ODA", "ODAFileConverter 25.12.0"),
