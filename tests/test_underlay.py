@@ -4,7 +4,7 @@ import tempfile
 
 import pytest
 from firepro3d.underlay import Underlay
-from firepro3d.constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from firepro3d.constants import DEFAULT_LEVEL
 
 
 class TestUnderlayFields:
@@ -58,7 +58,6 @@ class TestUnderlaySerialization:
             type="dxf", path="plans/floor1.dxf",
             x=10.0, y=20.0, scale=2.5, rotation=45.0, opacity=0.8,
             locked=True, colour="#ff0000", line_weight=0.5,
-            user_layer="Underlay",
             level="Level 2", visible=False,
             hidden_layers=["A-FURN", "A-ELEC"], import_mode="auto",
         )

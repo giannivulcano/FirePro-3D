@@ -398,7 +398,7 @@ class SceneToolsMixin:
             new_p1 = QPointF(p1.x() + signed_dist * nx, p1.y() + signed_dist * ny)
             new_p2 = QPointF(p2.x() + signed_dist * nx, p2.y() + signed_dist * ny)
             item = LineItem(new_p1, new_p2, color, lw)
-            item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -410,7 +410,7 @@ class SceneToolsMixin:
             item = PolylineItem(new_pts[0], color, lw)
             for p in new_pts[1:]:
                 item.append_point(p)
-            item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -424,7 +424,7 @@ class SceneToolsMixin:
             cx = scene_rect.center().x()
             cy = scene_rect.center().y()
             item = CircleItem(QPointF(cx, cy), new_r, color, lw)
-            item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -434,7 +434,7 @@ class SceneToolsMixin:
             if new_r.width() <= 0 or new_r.height() <= 0:
                 return None
             item = RectangleItem(new_r.topLeft(), new_r.bottomRight(), color, lw)
-            item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 
@@ -444,7 +444,7 @@ class SceneToolsMixin:
                 return None
             item = ArcItem(source._center, new_r,
                            source._start_deg, source._span_deg, color, lw)
-            item.user_layer = getattr(source, "user_layer", self.active_user_layer)
+            item.user_layer = getattr(source, "user_layer", "0")
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
         return None
@@ -1513,7 +1513,7 @@ class SceneToolsMixin:
         self.addItem(hatch)
         self._hatch_items.append(hatch)
         hatch.setSelected(True)
-        hatch.user_layer = getattr(item, "user_layer", self.active_user_layer)
+        hatch.user_layer = getattr(item, "user_layer", "0")
         hatch.level = getattr(item, "level", self.active_level)
         self.push_undo_state()
         self._show_status("Hatch applied")

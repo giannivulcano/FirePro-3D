@@ -12,7 +12,7 @@ import os
 import pytest
 
 from firepro3d.underlay import Underlay
-from firepro3d.constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from firepro3d.constants import DEFAULT_LEVEL
 
 
 # =====================================================================
@@ -36,7 +36,6 @@ class TestUnderlayFullConstruction:
             dpi=150,
             colour="#00ff00",
             line_weight=1.5,
-            user_layer="Underlay",
             level="Level 2",
             visible=False,
             hidden_layers=["A-FURN"],
@@ -56,7 +55,6 @@ class TestUnderlayFullConstruction:
         assert u.locked is True
         assert u.colour == "#00ff00"
         assert u.line_weight == 1.5
-        assert u.user_layer == "Underlay"
         assert u.level == "Level 2"
         assert u.visible is False
         assert u.hidden_layers == ["A-FURN"]
@@ -80,7 +78,6 @@ class TestUnderlayFullConstruction:
             dpi=300,
             colour="#ffffff",
             line_weight=0.0,
-            user_layer="Plans",
             level="*",
             visible=True,
             hidden_layers=[],
@@ -139,7 +136,7 @@ class TestToDictTypeSpecific:
             u = Underlay(type=utype, path=f"test.{utype}")
             d = u.to_dict()
             for key in ("type", "path", "x", "y", "scale", "rotation",
-                        "opacity", "locked", "user_layer", "level",
+                        "opacity", "locked", "level",
                         "visible", "hidden_layers", "import_mode",
                         "import_scale", "import_base_x", "import_base_y",
                         "selected_layers"):
@@ -184,7 +181,6 @@ class TestFromDictBackwardCompat:
         assert u.dpi == 150
         assert u.colour == "#ffffff"
         assert u.line_weight == 0
-        assert u.user_layer == DEFAULT_USER_LAYER
         assert u.level == DEFAULT_LEVEL
         assert u.visible is True
         assert u.hidden_layers == []
@@ -213,7 +209,6 @@ class TestFromDictBackwardCompat:
         assert u.x == 5.0
         assert u.page == 1
         assert u.dpi == 200
-        assert u.user_layer == "Plans"
         # Rev 2+ fields fall back to defaults
         assert u.level == DEFAULT_LEVEL
         assert u.visible is True

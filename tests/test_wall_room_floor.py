@@ -19,7 +19,7 @@ from firepro3d.wall import (
 )
 from firepro3d.room import Room
 from firepro3d.floor_slab import FloorSlab
-from firepro3d.constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from firepro3d.constants import DEFAULT_LEVEL
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -387,7 +387,6 @@ class TestWallSerialization:
         w._join_mode_pt1 = "Butt"
         w._join_mode_pt2 = "Solid"
         w.level = "Level 1"
-        w.user_layer = "Walls"
         scene.addItem(w)
 
         d = w.to_dict()
@@ -404,7 +403,6 @@ class TestWallSerialization:
         assert restored._join_mode_pt1 == "Butt"
         assert restored._join_mode_pt2 == "Solid"
         assert restored.level == "Level 1"
-        assert restored.user_layer == "Walls"
 
     def test_legacy_thickness_in_migration(self, qapp):
         """Old files stored thickness_in; from_dict should convert."""
@@ -569,7 +567,6 @@ class TestRoomSerialization:
         square_room._ceiling_type = "Combustible obstructed - exposed members >= 3ft (910 mm) O/C"
         square_room._ceiling_level = "Level 3"
         square_room._ceiling_offset = 25.4
-        square_room.user_layer = "Rooms"
 
         d = square_room.to_dict()
         assert d["type"] == "room"
@@ -586,7 +583,6 @@ class TestRoomSerialization:
         assert restored._ceiling_type == "Combustible obstructed - exposed members >= 3ft (910 mm) O/C"
         assert restored._ceiling_level == "Level 3"
         assert restored._ceiling_offset == pytest.approx(25.4)
-        assert restored.user_layer == "Rooms"
         assert len(restored.boundary) == 4
 
     def test_defaults_on_minimal_data(self, qapp):
@@ -660,9 +656,6 @@ class TestFloorSlabConstruction:
     def test_default_level(self, triangle_slab):
         assert triangle_slab.level == DEFAULT_LEVEL
 
-    def test_default_layer(self, triangle_slab):
-        assert triangle_slab.user_layer == DEFAULT_USER_LAYER
-
     def test_empty_slab(self, qapp):
         slab = FloorSlab(points=[])
         assert len(slab.points) == 0
@@ -733,7 +726,6 @@ class TestFloorSlabSerialization:
         triangle_slab.name = "Slab-1"
         triangle_slab._thickness_mm = 200.0
         triangle_slab._level_offset_mm = 10.0
-        triangle_slab.user_layer = "Floors"
 
         d = triangle_slab.to_dict()
         assert d["type"] == "floor_slab"
@@ -746,7 +738,6 @@ class TestFloorSlabSerialization:
         assert restored.name == "Slab-1"
         assert restored._thickness_mm == pytest.approx(200.0)
         assert restored._level_offset_mm == pytest.approx(10.0)
-        assert restored.user_layer == "Floors"
         assert len(restored.points) == 3
 
     def test_level_offset_omitted_when_zero(self, triangle_slab):

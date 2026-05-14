@@ -64,7 +64,6 @@ class _StubScene(SceneToolsMixin, QGraphicsScene):
         self._align_ghost = None
         self._align_padlocks: list = []
         self._grip_tolerance_px = 12
-        self.active_user_layer = "Default"
         self.active_level = "Level 1"
 
     def _show_status(self, msg, timeout=0):
