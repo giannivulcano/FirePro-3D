@@ -669,8 +669,7 @@ class UnderlayImportDialog(QDialog):
     # ── DXF loading ──────────────────────────────────────────────────────────
 
     def _load_dxf(self, path: str, _skip_rebuild: bool = False,
-                  _exclude_types: set[str] | None = None,
-                  _vp_bounds=None):
+                  _exclude_types: set[str] | None = None):
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -727,9 +726,6 @@ class UnderlayImportDialog(QDialog):
                 QApplication.processEvents()
             # Skip excluded entity types (DWG entity filter)
             if _exclude_types and ent.dxftype() in _exclude_types:
-                continue
-            # Skip entities outside viewport bounds (layout spatial filter)
-            if _vp_bounds and not self._entity_in_bounds(ent, _vp_bounds):
                 continue
             try:
                 g = worker_ref._extract_geometry(ent)
@@ -867,10 +863,13 @@ class UnderlayImportDialog(QDialog):
             return
 
         # Load model space geometry (skip preview rebuild — filter first)
+        # Note: spatial filtering happens AFTER extraction via
+        # filter_geoms_by_bounds, not during extraction. Entity-level
+        # bounds checks are unreliable for INSERTs whose explosion can
+        # produce sub-entities outside the viewport.
         self._set_loading("Extracting geometry\u2026")
         self._load_dxf(dxf_path, _skip_rebuild=True,
-                        _exclude_types=excluded,
-                        _vp_bounds=vp_bounds)
+                        _exclude_types=excluded)
 
         if selected_layout != "Model":
             # Filter to geometry visible through the layout's viewports
