@@ -8,6 +8,9 @@ from PyQt6.QtGui import QTransform, QPainterPath
 from PyQt6.QtSvgWidgets import QGraphicsSvgItem
 
 
+_SQRT2 = math.sqrt(2)
+
+
 class _TintedSvg(QGraphicsSvgItem):
     """QGraphicsSvgItem subclass that stores ``_svg_source_path`` for
     direct SVG recolouring via ``_set_svg_tint``."""
@@ -373,11 +376,11 @@ class Fitting():
         center = bounds.center()
         self.symbol.setTransformOriginPoint(center)
 
-        # Scale fitting to 4× the largest connected pipe display width
-        # Branch (75mm) → 300mm, Main (150mm) → 600mm
+        # Scale fitting: Branch (75mm) → 300mm, Main → 75×4×√2 ≈ 424mm
         svg_natural = max(bounds.width(), bounds.height())
         if svg_natural > 0:
-            target_mm = self._max_connected_width_mm() * 4 * self._display_scale
+            base = min(self._max_connected_width_mm(), 75.0 * _SQRT2)
+            target_mm = base * 4 * self._display_scale
             self.symbol_scale = target_mm / svg_natural
         else:
             self.symbol_scale = 1.0
