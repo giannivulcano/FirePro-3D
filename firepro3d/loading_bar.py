@@ -34,8 +34,6 @@ _BAR_STYLE = """
         background: #e0e0e0;
         border: none;
         border-radius: 4px;
-        min-height: 18px;
-        max-height: 18px;
     }
     QProgressBar::chunk {
         background: #3399ff;
