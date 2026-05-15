@@ -1225,8 +1225,7 @@ class UnderlayImportDialog(QDialog):
                                 "Install it with: pip install PyMuPDF")
             return
 
-        self._info_lbl.setText("Loading PDF…")
-        QApplication.processEvents()
+        self._set_loading("Reading PDF file…")
 
         try:
             doc = fitz.open(path)
@@ -1270,12 +1269,12 @@ class UnderlayImportDialog(QDialog):
             self._populate_layer_list()
             self._selected_indices = None
             self._show_raster_preview(path, page, dpi)
+            self._clear_loading()
             self._info_lbl.setText(
                 f"Raster import of page {page + 1} at {dpi} DPI.")
         else:
             from .pdf_import_worker import extract_pdf_vectors_sync
-            self._info_lbl.setText(f"Extracting vectors from page {page + 1}…")
-            QApplication.processEvents()
+            self._set_loading(f"Extracting vectors from page {page + 1}…")
             geoms, layers = extract_pdf_vectors_sync(path, page)
 
             if geoms:
@@ -1309,7 +1308,9 @@ class UnderlayImportDialog(QDialog):
                     self._base_x_edit.blockSignals(False)
                     self._base_y_edit.blockSignals(False)
 
+                self._set_loading("Building preview…")
                 self._rebuild_preview()
+                self._clear_loading()
                 n = len(geoms)
                 self._info_lbl.setText(
                     f"{n} vector entities from page {page + 1} of "
@@ -1324,6 +1325,7 @@ class UnderlayImportDialog(QDialog):
                 self._base_markers = []
                 self._pick_markers = []
                 self._create_overlay_items()
+                self._clear_loading()
                 self._info_lbl.setText(
                     f"No vector geometry found on page {page + 1}.")
                 self._status_lbl.setText(
@@ -1335,6 +1337,7 @@ class UnderlayImportDialog(QDialog):
                 self._populate_layer_list()
                 self._selected_indices = None
                 self._show_raster_preview(path, page, dpi)
+                self._clear_loading()
                 self._info_lbl.setText(
                     f"No vector geometry found on page {page + 1} — "
                     f"will import as raster image.")
