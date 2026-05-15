@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QComboBox, QColorDialog,
     QListWidget, QListWidgetItem, QGroupBox,
     QFileDialog, QLineEdit, QFormLayout,
-    QDialogButtonBox, QProgressBar, QApplication,
+    QDialogButtonBox, QApplication,
     QCheckBox, QWidget, QSizePolicy, QScrollArea,
     QMessageBox, QInputDialog, QAbstractItemView,
 )
@@ -60,6 +60,7 @@ except ImportError:
     _HAS_FITZ = False
 
 from .dxf_import_worker import _sanitize_dxf
+from .loading_bar import LoadingBar
 from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
 from .scale_manager import ScaleManager
 from .dimension_edit import DimensionEdit
@@ -340,7 +341,6 @@ class UnderlayImportDialog(QDialog):
         self._snap_result: OsnapResult | None = None
         self._pdf_page: int = 0
         self._pdf_page_count: int = 0
-        self._load_cancelled = False
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
@@ -559,20 +559,8 @@ class UnderlayImportDialog(QDialog):
         outer.addWidget(splitter, 1)
 
         # Progress bar (hidden by default)
-        self._progress_row = QWidget()
-        prog_lay = QHBoxLayout(self._progress_row)
-        prog_lay.setContentsMargins(0, 0, 0, 0)
-        prog_lay.setSpacing(6)
-        self._progress_lbl = QLabel("")
-        prog_lay.addWidget(self._progress_lbl)
-        self._progress_bar = QProgressBar()
-        self._progress_bar.setTextVisible(True)
-        prog_lay.addWidget(self._progress_bar, 1)
-        self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.clicked.connect(self._on_cancel_load)
-        prog_lay.addWidget(self._cancel_btn)
-        self._progress_row.setVisible(False)
-        outer.addWidget(self._progress_row)
+        self._loading_bar = LoadingBar(self, cancel=True)
+        outer.addWidget(self._loading_bar)
 
         # Bottom bar
         bot = QHBoxLayout()
@@ -595,11 +583,7 @@ class UnderlayImportDialog(QDialog):
 
     def _set_loading(self, message: str):
         """Disable controls and show a loading message with indeterminate progress."""
-        self._load_cancelled = False
-        self._progress_lbl.setText(message)
-        self._progress_bar.setRange(0, 0)  # indeterminate
-        self._progress_row.setVisible(True)
-        self._cancel_btn.setEnabled(False)  # only enabled during extraction
+        self._loading_bar.start(message)
         self._preview_view.setEnabled(False)
         # Disable the right-side controls panel
         splitter = self.findChild(QSplitter)
@@ -609,25 +593,18 @@ class UnderlayImportDialog(QDialog):
         btns = self.findChild(QDialogButtonBox)
         if btns:
             btns.setEnabled(False)
-        QApplication.processEvents()
 
     def _set_extracting(self, total: int):
         """Switch progress bar to determinate mode for entity extraction."""
-        self._load_cancelled = False
-        self._progress_bar.setRange(0, total)
-        self._progress_bar.setValue(0)
-        self._cancel_btn.setEnabled(True)
+        self._loading_bar.start_determinate(total, "Extracting entities…")
 
     def _update_progress(self, current: int, total: int, message: str = ""):
         """Update progress bar value and optional message."""
-        self._progress_bar.setValue(current)
-        if message:
-            self._progress_lbl.setText(message)
-        QApplication.processEvents()
+        self._loading_bar.update(current, message)
 
     def _clear_loading(self):
         """Re-enable controls and hide progress bar."""
-        self._progress_row.setVisible(False)
+        self._loading_bar.finish()
         self._preview_view.setEnabled(True)
         splitter = self.findChild(QSplitter)
         if splitter and splitter.count() > 1:
@@ -635,10 +612,6 @@ class UnderlayImportDialog(QDialog):
         btns = self.findChild(QDialogButtonBox)
         if btns:
             btns.setEnabled(True)
-
-    def _on_cancel_load(self):
-        """Set the cancel flag so the extraction loop stops."""
-        self._load_cancelled = True
 
     # ── Persist settings between sessions ──────────────────────────────────
 
@@ -804,12 +777,11 @@ class UnderlayImportDialog(QDialog):
         geoms = []
         all_ents = list(msp)
         self._set_extracting(len(all_ents))
-        self._progress_lbl.setText("Extracting entities\u2026")
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
         worker_ref._layer_colors = _build_layer_colors(doc)
         for i, ent in enumerate(all_ents):
-            if self._load_cancelled:
+            if self._loading_bar.cancelled:
                 break
             if i % 200 == 0:
                 self._update_progress(i, len(all_ents))
