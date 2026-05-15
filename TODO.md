@@ -189,7 +189,8 @@ _Existing test gap tasks (hydraulic solver, auto-populate, geometry utilities) a
 
 ## Import
 - [x] DWG import with layout selection — .dwg files import via ODA File Converter (DWG→DXF conversion) through existing DXF pipeline. Always imports Model space (paper layouts are viewport references, not geometry). Converted DXFs saved to UNDERLAY_REF/. ODA auto-detected from PATH/QSettings/common dirs. ODA GUI suppressed. `dwg_converter.py`, `underlay.py`, `dxf_preview_dialog.py`, `model_space.py`, `scene_io.py`, `model_view.py` [type:Task] [P2] [subject:CAD] [done:2026-05-14]
-- [ ] Import dialog loading progress bar — multi-step progress bar at bottom of import dialog: ODA conversion step, entity extraction step (with %), viewport filtering step, preview rendering step. Blue bar with percentage and current status text. Replace modal QProgressDialog with inline progress. `dxf_preview_dialog.py` [type:Task] [P2] [subject:CAD]
+- [x] Import dialog loading progress bar — reusable `LoadingBar` widget (`loading_bar.py`) with shared blue style, indeterminate/determinate modes, cancel button. Replaces modal QProgressDialog for DXF, drives DWG multi-stage progress, wraps PDF extraction. Splash screen shares same style. `loading_bar.py`, `dxf_preview_dialog.py`, `main.py` [type:Task] [P2] [subject:CAD] [done:2026-05-15]
+- [ ] DWG import: text placement and gridline/dimension extraction — details TBD. `dxf_preview_dialog.py`, `dxf_import_worker.py` [type:Bug] [P2] [subject:CAD]
 
 ## Paper Space Follow-Ups (from 2026-05-11 implementation)
 - [ ] Title block template editor — Revit-style editor where users can edit elements (text, lines, cells) that make up a title block template and save custom templates. DXF title blocks currently render text as curves (no TEXT/MTEXT entities); editor would define editable field regions with proper Qt text rendering. `paper_space.py` [type:Task] [P1] [subject:Architecture]
