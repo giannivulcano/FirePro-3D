@@ -473,9 +473,10 @@ def extract_layout_entities(
         return []
 
     # Extract geometry from layout entities (exclude viewports)
-    from .dxf_import_worker import DxfImportWorker
+    from .dxf_import_worker import DxfImportWorker, _build_layer_colors
     worker = DxfImportWorker.__new__(DxfImportWorker)
     worker._cancelled = False
+    worker._layer_colors = _build_layer_colors(doc)
 
     raw_geoms = []
     for ent in layout:

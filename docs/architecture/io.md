@@ -93,7 +93,8 @@ sequenceDiagram
     UI->>W: start() with file path
     W->>W: _sanitize_dxf() -- clean BOM, line endings
     W->>W: ezdxf.readfile() -- parse DXF entities
-    W->>W: Convert to geometry dicts (lines, arcs, circles, polylines, text)
+    W->>W: Convert to geometry dicts (lines, circles, polylines, text)
+    W->>W: Resolve per-entity colour (true_color → ACI → BYLAYER)
     W-->>UI: finished signal with geometry list
     UI->>UI: _geom_to_item() -- create QGraphicsItems on main thread
 ```
@@ -103,10 +104,20 @@ Key points:
 - QGraphicsItems are built on the main thread after the signal is received
 - A `_sanitize_dxf()` pre-pass handles common DXF file issues: BOM markers, `\r\r\n` line endings, trailing whitespace after group codes
 - The sanitized file is written to a temp file for ezdxf to parse
+- **Per-entity colour** is resolved from DXF attributes: `true_color` (24-bit RGB) takes priority, then ACI index (1-255), then BYLAYER lookup from the layer table. The hex colour is stored in each geometry dict.
+- **OCS normalisation** via `ezdxf.upright.upright()` is applied to each simple entity before coordinate extraction, fixing mirrored INSERT blocks with extrusion `(0,0,-1)`. Composite entities (INSERT/DIMENSION/HATCH) are skipped to avoid corrupting their transform for `virtual_entities()`.
 
 ### Supported DXF entities
 
-Lines, polylines (including lwpolyline), circles, arcs, text, mtext, hatches, and block inserts are converted to geometry descriptors.
+Lines, polylines (including lwpolyline), circles, ellipses, splines, text, mtext, hatches, and block inserts are converted to geometry descriptors. ARC entities are converted to polyline points via trigonometry to avoid angle-convention mismatches between `QGraphicsEllipseItem` and `QPainterPath.arcTo`. TEXT/MTEXT entities include the DXF text height (`dxf.height` / `dxf.char_height`) as a `"size"` field; empty text strings are filtered out.
+
+### Preview rendering
+
+The DXF preview dialog (`dxf_preview_dialog.py`) batches all geometry into a small number of `QPainterPath` objects (one per pen style) rather than creating individual `QGraphicsItem` instances. This reduces 293K+ items to ~6, enabling interactive preview of large files. Text is rendered as `QPainterPath.addText()` to avoid `QWindowsFontEngineDirectWrite` warning spam on Windows.
+
+### Underlay cache
+
+Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache.py`). The cache version (currently 3) is checked on load; stale caches are automatically re-extracted synchronously during project load. For DWG files, this triggers ODA re-conversion.
 
 ## DWG import
 

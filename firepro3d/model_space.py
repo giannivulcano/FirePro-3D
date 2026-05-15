@@ -2009,15 +2009,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif kind == "text":
                 t["x"] = (g["x"] - bx) * s
                 t["y"] = (g["y"] - by) * s
+                if "size" in g:
+                    t["size"] = g["size"] * s
             transformed.append(t)
 
-        color, lw = QColor("#ffffff"), 1.5
+        color, lw = QColor("#c0c0c0"), 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
+        pen_cache = None  # uniform colour for underlay
 
         items = []
         for geom in transformed:
-            item = self._geom_to_item(geom, pen, color)
+            item = self._geom_to_item(geom, pen, color, pen_cache)
             if item is not None:
                 items.append(item)
 
@@ -2127,10 +2130,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                                    selected_layers=params.get("layers"),
                                    layout=params.get("layout", ""))
 
-        color = params.get("color", QColor("#ffffff"))
+        color = params.get("color", QColor("#c0c0c0"))
         lw = 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
+
+        # Build per-colour pen cache from geometry dicts
+        pen_cache = None  # uniform colour for underlay
 
         # Apply import transform if reloading from a record with baked params
         record = params.get("_record")
@@ -2168,12 +2174,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 elif kind == "text":
                     t["x"] = (g["x"] - bx) * s
                     t["y"] = (g["y"] - by) * s
+                    if "size" in g:
+                        t["size"] = g["size"] * s
                 transformed.append(t)
             geom_list = transformed
 
         items = []
         for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color)
+            item = self._geom_to_item(geom, pen, color, pen_cache)
             if item is not None:
                 items.append(item)
 
@@ -2231,20 +2239,45 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.push_undo_state()
         self._show_status(f"Imported DXF: {params['file_path']} ({len(items)} items)")
 
-    def _geom_to_item(self, geom: dict, pen: QPen, color: QColor):
+    @staticmethod
+    def _build_pen_cache(geom_list: list[dict], line_width: float) -> dict:
+        """Build a ``{hex_color: (QPen, QColor)}`` cache from geometry dicts."""
+        cache: dict[str, tuple] = {}
+        for g in geom_list:
+            c = g.get("color")
+            if c and c not in cache:
+                qc = QColor(c)
+                p = QPen(qc, line_width)
+                p.setCosmetic(True)
+                cache[c] = (p, qc)
+        return cache
+
+    def _geom_to_item(self, geom: dict, pen: QPen, color: QColor,
+                      pen_cache: dict | None = None):
         """Convert a geometry dict (from DxfImportWorker) into a QGraphicsItem.
-        Must be called on the main thread."""
+        Must be called on the main thread.
+
+        If *pen_cache* is provided it maps ``'#rrggbb'`` → ``(QPen, QColor)``
+        and is used for per-entity colouring from the DXF source.
+        """
         kind = geom["kind"]
         layer = geom.get("layer", "0")
 
+        # Resolve per-entity colour (falls back to uniform pen/color)
+        geom_hex = geom.get("color")
+        if geom_hex and pen_cache is not None and geom_hex in pen_cache:
+            item_pen, item_color = pen_cache[geom_hex]
+        else:
+            item_pen, item_color = pen, color
+
         if kind == "line":
             item = QGraphicsLineItem(geom["x1"], geom["y1"], geom["x2"], geom["y2"])
-            item.setPen(pen)
+            item.setPen(item_pen)
             item.setZValue(Z_UNDERLAY)
 
         elif kind == "circle":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
-            item.setPen(pen)
+            item.setPen(item_pen)
             item.setZValue(Z_UNDERLAY)
 
         elif kind == "arc":
@@ -2253,12 +2286,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             path.arcMoveTo(rect, geom["start"])
             path.arcTo(rect, geom["start"], geom["span"])
             item = QGraphicsPathItem(path)
-            item.setPen(pen)
+            item.setPen(item_pen)
             item.setZValue(Z_UNDERLAY)
 
         elif kind == "ellipse_full":
             item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
-            item.setPen(pen)
+            item.setPen(item_pen)
             item.setZValue(Z_UNDERLAY)
             item.setPos(geom["pos_cx"], geom["pos_cy"])
             item.setRotation(geom["rotation"])
@@ -2274,17 +2307,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if geom.get("closed"):
                 path.closeSubpath()
             item = QGraphicsPathItem(path)
-            item.setPen(pen)
+            item.setPen(item_pen)
             item.setZValue(Z_UNDERLAY)
 
         elif kind == "text":
-            item = QGraphicsTextItem(geom["text"])
-            item.setPos(geom["x"], geom["y"])
-            item.setDefaultTextColor(color)
+            # Render text as QPainterPath to avoid DirectWrite font
+            # engine warnings (QWindowsFontEngineDirectWrite) that spam
+            # stderr and freeze the app on every repaint.
+            f = QFont("Arial")
+            f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
             if "size" in geom:
-                f = QFont()
-                f.setPointSizeF(geom["size"])
-                item.setFont(f)
+                f.setPointSizeF(max(0.5, geom["size"]))
+            path = QPainterPath()
+            path.addText(0, 0, f, geom["text"])
+            item = QGraphicsPathItem(path)
+            item.setPos(geom["x"], geom["y"])
+            item.setBrush(QBrush(item_color))
+            item.setPen(QPen(Qt.PenStyle.NoPen))
             item.setZValue(Z_UNDERLAY)
 
         else:
@@ -2462,7 +2501,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             file_path, geom_list, page=page,
             selected_layers=None)
 
-        color = QColor("#ffffff")
+        color = QColor("#c0c0c0")
         lw = 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
@@ -2502,12 +2541,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 elif kind == "text":
                     t["x"] = (g["x"] - bx) * s
                     t["y"] = (g["y"] - by) * s
+                    if "size" in g:
+                        t["size"] = g["size"] * s
                 transformed.append(t)
             geom_list = transformed
 
+        pen_cache = None  # uniform colour for underlay
+
         items = []
         for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color)
+            item = self._geom_to_item(geom, pen, color, pen_cache)
             if item is not None:
                 items.append(item)
 
@@ -3539,8 +3582,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.
 
-        Returns True if the cache was used, False if the caller should
-        fall back to parsing the source file.
+        When the cache is stale but the source file exists, re-extracts
+        synchronously and rebuilds the cache before proceeding.
+
+        Returns True if the underlay was loaded, False if the caller
+        should fall back to async parsing.
         """
         project_path = getattr(self, "_project_path", None)
         if not project_path:
@@ -3552,7 +3598,45 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         geom_list = read_cache(cache_dir, key, source_mtime=source_mtime)
         if geom_list is None:
-            return False
+            # Cache stale — try synchronous re-extraction from source
+            if source_mtime is None:
+                return False
+            try:
+                if record.type == "dxf":
+                    from .dxf_import_worker import DxfImportWorker
+                    geom_list = DxfImportWorker.extract_file_sync(
+                        record.path, record.selected_layers)
+                elif record.type == "dwg":
+                    from .dwg_converter import (
+                        find_oda_converter, convert_dwg_to_dxf,
+                        cleanup_converted_dxf,
+                    )
+                    oda = find_oda_converter()
+                    if oda is None:
+                        return False
+                    proj_dir = os.path.dirname(project_path)
+                    converted = convert_dwg_to_dxf(
+                        oda, record.path, project_dir=proj_dir)
+                    if converted is None:
+                        return False
+                    from .dxf_import_worker import DxfImportWorker
+                    geom_list = DxfImportWorker.extract_file_sync(
+                        converted, record.selected_layers)
+                    cleanup_converted_dxf(converted)
+                else:
+                    return False
+            except Exception as e:
+                log.warning("Sync re-extraction failed for %s: %s",
+                            record.path, e)
+                return False
+            if not geom_list:
+                return False
+            # Write fresh cache
+            self._write_underlay_cache(
+                record.path, geom_list,
+                page=record.page,
+                selected_layers=record.selected_layers,
+                layout=record.layout)
 
         # Apply import transform (same logic as _on_dxf_finished reload path)
         if (record.import_scale != 1.0
@@ -3591,17 +3675,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 elif kind == "text":
                     t["x"] = (g["x"] - bx) * s
                     t["y"] = (g["y"] - by) * s
+                    if "size" in g:
+                        t["size"] = g["size"] * s
                 transformed.append(t)
             geom_list = transformed
 
         # Build Qt items (same as _on_dxf_finished / _import_pdf_vectors)
-        color, lw = QColor("#ffffff"), 1.5
+        color, lw = QColor("#c0c0c0"), 1.5
         pen = QPen(color, lw)
         pen.setCosmetic(True)
+        pen_cache = None  # uniform colour for underlay
 
         items = []
         for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color)
+            item = self._geom_to_item(geom, pen, color, pen_cache)
             if item is not None:
                 items.append(item)
 

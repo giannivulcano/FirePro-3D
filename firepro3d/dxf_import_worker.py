@@ -14,8 +14,67 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 try:
     import ezdxf
+    from ezdxf.colors import DXF_DEFAULT_COLORS
+    from ezdxf.upright import upright
 except ImportError:
     ezdxf = None
+    DXF_DEFAULT_COLORS = None
+    upright = None
+
+
+def _aci_to_hex(aci: int) -> str:
+    """Convert an AutoCAD Color Index (1–255) to a ``#rrggbb`` hex string."""
+    if DXF_DEFAULT_COLORS is not None and 0 < aci < len(DXF_DEFAULT_COLORS):
+        val = DXF_DEFAULT_COLORS[aci]
+        return f"#{(val >> 16) & 0xFF:02x}{(val >> 8) & 0xFF:02x}{val & 0xFF:02x}"
+    return "#ffffff"
+
+
+def _build_layer_colors(doc) -> dict[str, str]:
+    """Return ``{layer_name: '#rrggbb'}`` from the DXF layer table."""
+    layer_colors: dict[str, str] = {}
+    try:
+        for layer in doc.layers:
+            name = layer.dxf.name
+            # True-color on layer takes priority
+            if layer.dxf.hasattr("true_color"):
+                tc = layer.dxf.true_color
+                layer_colors[name] = (
+                    f"#{(tc >> 16) & 0xFF:02x}{(tc >> 8) & 0xFF:02x}"
+                    f"{tc & 0xFF:02x}")
+            else:
+                aci = layer.dxf.get("color", 7)
+                if 0 < aci < 256:
+                    layer_colors[name] = _aci_to_hex(aci)
+    except Exception:
+        pass
+    return layer_colors
+
+
+def _resolve_entity_color(entity, layer_colors: dict[str, str]) -> str:
+    """Resolve an entity's display colour to ``#rrggbb``.
+
+    Priority: true_color → ACI (1-255) → BYLAYER (256) → fallback white.
+    Never raises — returns ``#ffffff`` on any failure.
+    """
+    try:
+        # 1) True-color RGB override
+        if entity.dxf.hasattr("true_color"):
+            tc = entity.dxf.true_color
+            return (f"#{(tc >> 16) & 0xFF:02x}{(tc >> 8) & 0xFF:02x}"
+                    f"{tc & 0xFF:02x}")
+
+        aci = entity.dxf.get("color", 256)  # default = BYLAYER
+
+        # 2) Explicit ACI colour
+        if 0 < aci < 256:
+            return _aci_to_hex(aci)
+
+        # 3) BYLAYER (256) — look up from layer table
+        layer_name = entity.dxf.get("layer", "0")
+        return layer_colors.get(layer_name, "#ffffff")
+    except Exception:
+        return "#ffffff"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -100,6 +159,9 @@ class DxfImportWorker(QThread):
             if clean_path != self.file_path and os.path.exists(clean_path):
                 os.remove(clean_path)
 
+        # ── Build layer colour map ──────────────────────────────────
+        self._layer_colors = _build_layer_colors(doc)
+
         # ── Collect entities to process ──────────────────────────────
         self.status.emit("Counting entities…")
         all_entities = list(msp)
@@ -163,8 +225,9 @@ class DxfImportWorker(QThread):
                 os.remove(clean_path)
 
         # Create a minimal instance — _extract_geometry only uses self
-        # for recursive calls, not for instance state.
+        # for recursive calls and _layer_colors, not for other state.
         worker = cls(file_path, layers)
+        worker._layer_colors = _build_layer_colors(doc)
         geoms = []
         for entity in msp:
             if layers is not None:
@@ -189,11 +252,24 @@ class DxfImportWorker(QThread):
 
     def _extract_geometry(self, entity) -> dict | None:
         etype = entity.dxftype()
+
+        # Fix OCS (Object Coordinate System) → WCS before reading coords.
+        # Only for simple entities — calling upright() on composite entities
+        # (INSERT/DIMENSION/HATCH) corrupts their transform and breaks
+        # virtual_entities().  Sub-entities get upright() via recursion.
+        if (upright is not None
+                and etype not in ("INSERT", "DIMENSION", "HATCH")):
+            try:
+                upright(entity)
+            except Exception:
+                pass
         layer = entity.dxf.get("layer", "0") if hasattr(entity.dxf, "get") else "0"
+        lc = getattr(self, "_layer_colors", {})
+        color = _resolve_entity_color(entity, lc)
 
         if etype == "LINE":
             return {
-                "kind": "line", "layer": layer,
+                "kind": "line", "layer": layer, "color": color,
                 "x1": entity.dxf.start[0], "y1": -entity.dxf.start[1],
                 "x2": entity.dxf.end[0],   "y2": -entity.dxf.end[1],
             }
@@ -201,23 +277,28 @@ class DxfImportWorker(QThread):
         elif etype == "CIRCLE":
             r = entity.dxf.radius
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
-            return {"kind": "circle", "layer": layer, "x": cx - r, "y": -cy - r, "w": 2 * r, "h": 2 * r}
+            return {"kind": "circle", "layer": layer, "color": color,
+                    "x": cx - r, "y": -cy - r, "w": 2 * r, "h": 2 * r}
 
         elif etype == "ARC":
+            # Convert arc to polyline points to avoid angle-convention
+            # mismatches between DXF, QGraphicsEllipseItem, and
+            # QPainterPath.arcTo (which disagree on Y-flip semantics).
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
             r = entity.dxf.radius
-            start_angle = entity.dxf.start_angle
-            end_angle = entity.dxf.end_angle
-            qt_start = -start_angle
-            qt_end = -end_angle
-            span = qt_end - qt_start
-            if span > 0:
-                span -= 360
-            return {
-                "kind": "arc", "layer": layer,
-                "rx": cx - r, "ry": -cy - r, "rw": 2 * r, "rh": 2 * r,
-                "start": qt_start, "span": span,
-            }
+            start_deg = entity.dxf.start_angle
+            end_deg = entity.dxf.end_angle
+            # DXF arcs go CCW from start to end
+            sweep = end_deg - start_deg
+            if sweep <= 0:
+                sweep += 360
+            steps = max(16, int(sweep / 2))
+            points = []
+            for i in range(steps + 1):
+                a = math.radians(start_deg + sweep * i / steps)
+                points.append((cx + r * math.cos(a), -(cy + r * math.sin(a))))
+            return {"kind": "path_points", "layer": layer, "color": color,
+                    "points": points, "closed": False}
 
         elif etype == "ELLIPSE":
             cx, cy = entity.dxf.center.x, entity.dxf.center.y
@@ -232,7 +313,7 @@ class DxfImportWorker(QThread):
 
             if is_full:
                 return {
-                    "kind": "ellipse_full", "layer": layer,
+                    "kind": "ellipse_full", "layer": layer, "color": color,
                     "x": -major_len, "y": -minor_len, "w": 2 * major_len, "h": 2 * minor_len,
                     "pos_cx": cx, "pos_cy": -cy, "rotation": -rotation,
                 }
@@ -251,7 +332,8 @@ class DxfImportWorker(QThread):
                     rx = px * cos_r - py * sin_r + cx
                     ry = -(px * sin_r + py * cos_r + cy)
                     points.append((rx, ry))
-                return {"kind": "path_points", "layer": layer, "points": points, "closed": False}
+                return {"kind": "path_points", "layer": layer, "color": color,
+                        "points": points, "closed": False}
 
         elif etype in ("LWPOLYLINE", "POLYLINE"):
             pts = list(entity.get_points())
@@ -259,7 +341,7 @@ class DxfImportWorker(QThread):
                 return None
             closed = bool(hasattr(entity.dxf, "flags") and entity.dxf.flags & 1)
             return {
-                "kind": "path_points", "layer": layer,
+                "kind": "path_points", "layer": layer, "color": color,
                 "points": [(pt[0], -pt[1]) for pt in pts],
                 "closed": closed,
             }
@@ -269,19 +351,34 @@ class DxfImportWorker(QThread):
             if not pts:
                 return None
             return {
-                "kind": "path_points", "layer": layer,
+                "kind": "path_points", "layer": layer, "color": color,
                 "points": [(pt.x, -pt.y) for pt in pts],
                 "closed": False,
             }
 
         elif etype == "TEXT":
+            text_str = entity.dxf.text
+            if not text_str or not text_str.strip():
+                return None
             pos = entity.dxf.insert
-            return {"kind": "text", "layer": layer, "x": pos[0], "y": -pos[1], "text": entity.dxf.text}
+            result = {"kind": "text", "layer": layer, "color": color,
+                      "x": pos[0], "y": -pos[1], "text": text_str}
+            height = entity.dxf.get("height", 0)
+            if height > 0:
+                result["size"] = height
+            return result
 
         elif etype == "MTEXT":
             plain = entity.plain_text() if hasattr(entity, "plain_text") else entity.text
+            if not plain or not plain.strip():
+                return None
             insert = entity.dxf.insert
-            return {"kind": "text", "layer": layer, "x": insert.x, "y": -insert.y, "text": plain}
+            result = {"kind": "text", "layer": layer, "color": color,
+                      "x": insert.x, "y": -insert.y, "text": plain}
+            height = entity.dxf.get("char_height", 0)
+            if height > 0:
+                result["size"] = height
+            return result
 
         elif etype in ("INSERT", "DIMENSION", "HATCH"):
             # Explode block references, dimensions, and hatches into

@@ -47,7 +47,7 @@ Underlays are the primary reference material for fire protection design — ever
 | Feature | Reason for deferral |
 |---|---|
 | Batch multi-page PDF import | Low priority; one-page-at-a-time is adequate and each page needs independent placement |
-| Preserve source DXF colours | Adds complexity (colour mapping, dark-on-dark issues); uniform colour from user layer is cleaner for MVP |
+| ~~Preserve source DXF colours~~ | Implemented — per-entity colour extracted (ACI/true_color/BYLAYER) but currently disabled in rendering; uniform gray used for MVP clarity |
 | Undoable underlay operations | Performance concern (serializing large geometry groups on every undo capture); underlays change infrequently |
 | ScaleManager cleanup | Stable, out of scope; not broken |
 | Separate underlay manager panel | Browser tree integration covers management needs; revisit if it proves insufficient |
@@ -72,7 +72,7 @@ class Underlay:
     locked: bool = False          # Lock state
     page: int = 0                 # PDF page index (0-based)
     dpi: int = 150                # PDF rasterization DPI
-    colour: str = "#ffffff"       # DXF colour as hex string
+    colour: str = "#c0c0c0"       # DXF uniform colour as hex string (gray default)
     line_weight: float = 0.0      # DXF lineweight in mm
     user_layer: str = DEFAULT_USER_LAYER  # Destination layer
 ```

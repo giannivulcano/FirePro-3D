@@ -761,13 +761,14 @@ class UnderlayImportDialog(QDialog):
         self._populate_layer_list()
 
         # Extract geometry synchronously
-        from .dxf_import_worker import DxfImportWorker
+        from .dxf_import_worker import DxfImportWorker, _build_layer_colors
         geoms = []
         all_ents = list(msp)
         prog = QProgressDialog("Loading preview\u2026", "Cancel", 0, len(all_ents), self)
         prog.setMinimumDuration(500)
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
+        worker_ref._layer_colors = _build_layer_colors(doc)
         for i, ent in enumerate(all_ents):
             if prog.wasCanceled():
                 break
@@ -1146,13 +1147,14 @@ class UnderlayImportDialog(QDialog):
         self._populate_layer_list()
 
         # Extract geometry synchronously
-        from .dxf_import_worker import DxfImportWorker
+        from .dxf_import_worker import DxfImportWorker, _build_layer_colors
         geoms = []
         all_ents = list(layout)
         prog = QProgressDialog("Loading preview\u2026", "Cancel", 0, len(all_ents), self)
         prog.setMinimumDuration(500)
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
+        worker_ref._layer_colors = _build_layer_colors(doc)
         for i, ent in enumerate(all_ents):
             if prog.wasCanceled():
                 break
@@ -1370,20 +1372,50 @@ class UnderlayImportDialog(QDialog):
         pen_dim = QPen(QColor("#444444"), 0)
         pen_dim.setCosmetic(True)
 
-        geom_items: list[QGraphicsItem] = []
+        # Batch all geometry into one QPainterPath per pen style
+        # instead of one QGraphicsItem per geometry (293K → ~6 items).
+        # Text needs separate paths (filled, no outline) from geometry
+        # (outlined, no fill).
+        pens = (pen_sel, pen_normal, pen_dim)
+        geom_paths = {id(p): QPainterPath() for p in pens}
+        text_paths = {id(p): QPainterPath() for p in pens}
+        pen_map = {id(p): p for p in pens}
+
         active_layers = self._active_layers()
         for idx, g in enumerate(self._all_geoms):
             layer_key = g.get("layer", "0")
-            is_active_layer = (active_layers is None or layer_key in active_layers)
-            is_selected = (self._selected_indices is None or idx in self._selected_indices)
-            if is_active_layer and is_selected:
+            is_active = active_layers is None or layer_key in active_layers
+            is_sel = self._selected_indices is None or idx in self._selected_indices
+            if is_active and is_sel:
                 pen = pen_sel
-            elif is_active_layer:
+            elif is_active:
                 pen = pen_normal
             else:
                 pen = pen_dim
-            item = self._add_preview_geom(g, pen)
-            if item is not None:
+            pid = id(pen)
+            if g.get("kind") == "text":
+                self._append_geom_to_path(text_paths[pid], g)
+            else:
+                self._append_geom_to_path(geom_paths[pid], g)
+
+        geom_items: list[QGraphicsItem] = []
+        for pid in [id(p) for p in pens]:
+            pen = pen_map[pid]
+            # Geometry: stroked outline, no fill
+            gp = geom_paths[pid]
+            if not gp.isEmpty():
+                item = QGraphicsPathItem(gp)
+                item.setPen(pen)
+                item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                self._preview_scene.addItem(item)
+                geom_items.append(item)
+            # Text: filled, no outline
+            tp = text_paths[pid]
+            if not tp.isEmpty():
+                item = QGraphicsPathItem(tp)
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+                item.setBrush(QBrush(pen.color()))
+                self._preview_scene.addItem(item)
                 geom_items.append(item)
 
         # Group geometry items and apply rotation around the base point
@@ -1403,6 +1435,40 @@ class UnderlayImportDialog(QDialog):
                 self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
                 Qt.AspectRatioMode.KeepAspectRatio
             )
+
+    @staticmethod
+    def _append_geom_to_path(path: QPainterPath, g: dict):
+        """Append a single geometry dict to a batched QPainterPath."""
+        kind = g.get("kind")
+        if kind == "line":
+            path.moveTo(g["x1"], g["y1"])
+            path.lineTo(g["x2"], g["y2"])
+        elif kind == "circle":
+            path.addEllipse(g["x"], g["y"], g["w"], g["h"])
+        elif kind == "arc":
+            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
+            path.arcMoveTo(rect, g["start"])
+            path.arcTo(rect, g["start"], g["span"])
+        elif kind == "ellipse_full":
+            path.addEllipse(
+                g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
+                g["w"], g["h"])
+        elif kind == "path_points":
+            pts = g["points"]
+            if len(pts) < 2:
+                return
+            path.moveTo(pts[0][0], pts[0][1])
+            for p in pts[1:]:
+                path.lineTo(p[0], p[1])
+            if g.get("closed") and len(pts) >= 3:
+                path.closeSubpath()
+        elif kind == "text":
+            txt = g.get("text", "")
+            if txt:
+                f = QFont("Arial")
+                f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+                f.setPointSizeF(max(0.5, g.get("size", 6)))
+                path.addText(g["x"], g["y"], f, txt)
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
@@ -1445,13 +1511,18 @@ class UnderlayImportDialog(QDialog):
             item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             self._preview_scene.addItem(item)
         elif kind == "text":
-            item = QGraphicsTextItem(g.get("text", ""))
-            item.setDefaultTextColor(pen.color())
-            f = QFont()
-            f.setPointSizeF(g.get("size", 6))
-            item.setFont(f)
-            item.setPos(g["x"], g["y"])
-            self._preview_scene.addItem(item)
+            txt = g.get("text", "")
+            if txt:
+                f = QFont("Arial")
+                f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+                f.setPointSizeF(max(0.5, g.get("size", 6)))
+                path = QPainterPath()
+                path.addText(0, 0, f, txt)
+                item = QGraphicsPathItem(path)
+                item.setBrush(QBrush(pen.color()))
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+                item.setPos(g["x"], g["y"])
+                self._preview_scene.addItem(item)
         return item
 
     def _draw_base_marker(self):

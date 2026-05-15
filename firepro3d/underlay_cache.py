@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-_CACHE_VERSION = 1
+_CACHE_VERSION = 3
 
 
 def cache_dir_for_project(project_path: str) -> str:

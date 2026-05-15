@@ -24,7 +24,7 @@ class Underlay:
     page: int = 0
     dpi: int = 150
     # DXF-specific — store colour as hex string e.g. "#ffffff"
-    colour: str = "#ffffff"
+    colour: str = "#c0c0c0"
     line_weight: float = 0.0
     # New fields (Revision 2)
     level: str = DEFAULT_LEVEL
