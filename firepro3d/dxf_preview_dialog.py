@@ -771,8 +771,7 @@ class UnderlayImportDialog(QDialog):
         if _doc is not None:
             doc = _doc
         else:
-            self._info_lbl.setText("Loading DXF\u2026")
-            QApplication.processEvents()
+            self._set_loading("Reading DXF file\u2026")
 
             clean = _sanitize_dxf(path)
             try:
@@ -804,20 +803,16 @@ class UnderlayImportDialog(QDialog):
         from .dxf_import_worker import DxfImportWorker, _build_layer_colors
         geoms = []
         all_ents = list(msp)
-        prog = QProgressDialog("Loading preview\u2026", "Cancel", 0, len(all_ents), self)
-        prog.setMinimumDuration(500)
+        self._set_extracting(len(all_ents))
+        self._progress_lbl.setText("Extracting entities\u2026")
         worker_ref = DxfImportWorker.__new__(DxfImportWorker)
         worker_ref._cancelled = False
         worker_ref._layer_colors = _build_layer_colors(doc)
         for i, ent in enumerate(all_ents):
-            if prog.wasCanceled():
+            if self._load_cancelled:
                 break
             if i % 200 == 0:
-                prog.setValue(i)
-                QApplication.processEvents()
-            # Pre-filter by viewport bounds when loading for a specific
-            # layout.  Checks ALL coordinates (not sampled).
-            # INSERT/HATCH/DIMENSION always pass (explosion is unpredictable).
+                self._update_progress(i, len(all_ents))
             if _vp_bounds and not self._entity_in_viewport(ent, _vp_bounds):
                 continue
             try:
@@ -829,12 +824,13 @@ class UnderlayImportDialog(QDialog):
                         geoms.append(g)
             except Exception:
                 pass
-        prog.close()
 
         self._all_geoms = geoms
         self._selected_indices = None
         if not _skip_rebuild:
+            self._set_loading("Building preview\u2026")
             self._rebuild_preview()
+            self._clear_loading()
             n = len(self._all_geoms)
             self._info_lbl.setText(f"{n} entities loaded from {os.path.basename(path)}")
             self._update_status()
