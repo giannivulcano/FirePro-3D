@@ -1412,10 +1412,31 @@ class UnderlayImportDialog(QDialog):
                 f.setPointSizeF(max(0.5, g.get("size", 6)))
                 path = QPainterPath()
                 path.addText(0, 0, f, txt)
+                # Apply alignment offset (same logic as model_space)
+                ha = g.get("halign", 0)
+                va = g.get("valign", 3)
+                if ha != 0 or va != 3:
+                    br = path.boundingRect()
+                    dx = 0.0
+                    if ha == 1:
+                        dx = -(br.left() + br.right()) / 2
+                    elif ha == 2:
+                        dx = -br.right()
+                    dy = 0.0
+                    if va == 0:
+                        dy = -br.top()
+                    elif va == 1:
+                        dy = -(br.top() + br.bottom()) / 2
+                    elif va == 2:
+                        dy = -br.bottom()
+                    path.translate(dx, dy)
                 item = QGraphicsPathItem(path)
                 item.setBrush(QBrush(pen.color()))
                 item.setPen(QPen(Qt.PenStyle.NoPen))
                 item.setPos(g["x"], g["y"])
+                rotation = g.get("rotation", 0)
+                if rotation:
+                    item.setRotation(rotation)
                 self._preview_scene.addItem(item)
         return item
 

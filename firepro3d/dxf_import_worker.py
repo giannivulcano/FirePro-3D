@@ -15,11 +15,52 @@ from PyQt6.QtCore import QThread, pyqtSignal
 try:
     import ezdxf
     from ezdxf.colors import DXF_DEFAULT_COLORS
+    from ezdxf.enums import TextEntityAlignment
     from ezdxf.upright import upright
 except ImportError:
     ezdxf = None
     DXF_DEFAULT_COLORS = None
+    TextEntityAlignment = None
     upright = None
+
+
+# ── Text alignment mappings ─────────────────────────────────────────────────
+# halign: 0=left, 1=center, 2=right
+# valign: 0=top, 1=middle, 2=bottom, 3=baseline (default)
+
+def _text_align_to_hv(align) -> tuple[int, int]:
+    """Map ezdxf TextEntityAlignment → (halign, valign) for rendering."""
+    if TextEntityAlignment is None:
+        return (0, 3)
+    _MAP = {
+        TextEntityAlignment.LEFT:           (0, 3),
+        TextEntityAlignment.CENTER:         (1, 3),
+        TextEntityAlignment.RIGHT:          (2, 3),
+        TextEntityAlignment.ALIGNED:        (1, 3),
+        TextEntityAlignment.MIDDLE:         (1, 1),
+        TextEntityAlignment.FIT:            (1, 3),
+        TextEntityAlignment.BOTTOM_LEFT:    (0, 2),
+        TextEntityAlignment.BOTTOM_CENTER:  (1, 2),
+        TextEntityAlignment.BOTTOM_RIGHT:   (2, 2),
+        TextEntityAlignment.MIDDLE_LEFT:    (0, 1),
+        TextEntityAlignment.MIDDLE_CENTER:  (1, 1),
+        TextEntityAlignment.MIDDLE_RIGHT:   (2, 1),
+        TextEntityAlignment.TOP_LEFT:       (0, 0),
+        TextEntityAlignment.TOP_CENTER:     (1, 0),
+        TextEntityAlignment.TOP_RIGHT:      (2, 0),
+    }
+    return _MAP.get(align, (0, 3))
+
+
+def _mtext_attach_to_hv(attachment_point: int) -> tuple[int, int]:
+    """Map MTEXT attachment_point (1-9) → (halign, valign).
+
+    Attachment points are arranged like a numpad:
+    1=TL, 2=TC, 3=TR, 4=ML, 5=MC, 6=MR, 7=BL, 8=BC, 9=BR
+    """
+    _H = {1: 0, 2: 1, 3: 2, 4: 0, 5: 1, 6: 2, 7: 0, 8: 1, 9: 2}
+    _V = {1: 0, 2: 0, 3: 0, 4: 1, 5: 1, 6: 1, 7: 2, 8: 2, 9: 2}
+    return (_H.get(attachment_point, 0), _V.get(attachment_point, 0))
 
 
 def _aci_to_hex(aci: int) -> str:
@@ -257,8 +298,9 @@ class DxfImportWorker(QThread):
         # Only for simple entities — calling upright() on composite entities
         # (INSERT/DIMENSION/HATCH) corrupts their transform and breaks
         # virtual_entities().  Sub-entities get upright() via recursion.
-        if (upright is not None
-                and etype not in ("INSERT", "DIMENSION", "HATCH")):
+        _COMPOSITE = ("INSERT", "DIMENSION", "HATCH",
+                      "LEADER", "MULTILEADER", "MLEADER")
+        if (upright is not None and etype not in _COMPOSITE):
             try:
                 upright(entity)
             except Exception:
@@ -356,16 +398,30 @@ class DxfImportWorker(QThread):
                 "closed": False,
             }
 
-        elif etype == "TEXT":
-            text_str = entity.dxf.text
+        elif etype in ("TEXT", "ATTRIB", "ATTDEF"):
+            text_str = entity.dxf.get("text", "")
             if not text_str or not text_str.strip():
                 return None
-            pos = entity.dxf.insert
+            # get_placement() returns (align_enum, p1, p2) — p1 is the
+            # correct reference position for any alignment.
+            try:
+                align, p1, _p2 = entity.get_placement()
+                pos = p1
+                ha, va = _text_align_to_hv(align)
+            except Exception:
+                pos = entity.dxf.insert
+                ha, va = 0, 3  # left-baseline
             result = {"kind": "text", "layer": layer, "color": color,
                       "x": pos[0], "y": -pos[1], "text": text_str}
             height = entity.dxf.get("height", 0)
             if height > 0:
                 result["size"] = height
+            rotation = entity.dxf.get("rotation", 0)
+            if rotation:
+                result["rotation"] = -rotation  # DXF CCW → Qt CW
+            if ha != 0 or va != 3:
+                result["halign"] = ha
+                result["valign"] = va
             return result
 
         elif etype == "MTEXT":
@@ -378,11 +434,22 @@ class DxfImportWorker(QThread):
             height = entity.dxf.get("char_height", 0)
             if height > 0:
                 result["size"] = height
+            rotation = entity.dxf.get("rotation", 0)
+            if rotation:
+                result["rotation"] = -rotation
+            ap = entity.dxf.get("attachment_point", 1)
+            ha, va = _mtext_attach_to_hv(ap)
+            # Always set for MTEXT — its default (top-left) differs
+            # from TEXT default (baseline-left), so the renderer
+            # must know which convention applies.
+            result["halign"] = ha
+            result["valign"] = va
             return result
 
-        elif etype in ("INSERT", "DIMENSION", "HATCH"):
-            # Explode block references, dimensions, and hatches into
-            # constituent geometry via ezdxf's virtual_entities().
+        elif etype in ("INSERT", "DIMENSION", "HATCH",
+                       "LEADER", "MULTILEADER", "MLEADER"):
+            # Explode block references, dimensions, hatches, and leaders
+            # into constituent geometry via ezdxf's virtual_entities().
             results = []
             try:
                 for sub_entity in entity.virtual_entities():
@@ -394,6 +461,52 @@ class DxfImportWorker(QThread):
                             results.append(sub_geom)
             except Exception:
                 pass
+            # INSERT blocks have ATTRIB text not included in
+            # virtual_entities() — extract separately.
+            if etype == "INSERT" and hasattr(entity, "attribs"):
+                try:
+                    for attrib in entity.attribs:
+                        if getattr(attrib, "is_invisible", False):
+                            continue
+                        attrib_geom = self._extract_geometry(attrib)
+                        if attrib_geom is not None:
+                            if isinstance(attrib_geom, list):
+                                results.extend(attrib_geom)
+                            else:
+                                results.append(attrib_geom)
+                except Exception:
+                    pass
             return results if results else None
+
+        elif etype == "SOLID":
+            # SOLID is a filled triangle or quadrilateral.
+            try:
+                pts = [entity.dxf.vtx0, entity.dxf.vtx1,
+                       entity.dxf.vtx2]
+                # vtx3 may equal vtx2 for triangles
+                v3 = entity.dxf.get("vtx3", None)
+                if v3 is not None and (v3.x != pts[2].x or v3.y != pts[2].y):
+                    pts.append(v3)
+                return {
+                    "kind": "path_points", "layer": layer, "color": color,
+                    "points": [(p.x, -p.y) for p in pts],
+                    "closed": True,
+                }
+            except Exception:
+                return None
+
+        elif etype == "POINT":
+            # Render as a tiny cross marker.
+            try:
+                px, py = entity.dxf.location.x, -entity.dxf.location.y
+                d = 0.5  # half-size in drawing units
+                return [
+                    {"kind": "line", "layer": layer, "color": color,
+                     "x1": px - d, "y1": py, "x2": px + d, "y2": py},
+                    {"kind": "line", "layer": layer, "color": color,
+                     "x1": px, "y1": py - d, "x2": px, "y2": py + d},
+                ]
+            except Exception:
+                return None
 
         return None

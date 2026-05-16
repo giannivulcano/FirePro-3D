@@ -2320,8 +2320,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f.setPointSizeF(max(0.5, geom["size"]))
             path = QPainterPath()
             path.addText(0, 0, f, geom["text"])
+
+            # Offset path so the DXF anchor point aligns correctly.
+            # addText(0,0) places text at left-baseline by default.
+            ha = geom.get("halign", 0)   # 0=left, 1=center, 2=right
+            va = geom.get("valign", 3)   # 0=top, 1=middle, 2=bottom, 3=baseline
+            if ha != 0 or va != 3:
+                br = path.boundingRect()
+                dx = 0.0
+                if ha == 1:
+                    dx = -(br.left() + br.right()) / 2
+                elif ha == 2:
+                    dx = -br.right()
+                dy = 0.0
+                if va == 0:      # top
+                    dy = -br.top()
+                elif va == 1:    # middle
+                    dy = -(br.top() + br.bottom()) / 2
+                elif va == 2:    # bottom
+                    dy = -br.bottom()
+                # va == 3 (baseline): dy stays 0
+                path.translate(dx, dy)
+
             item = QGraphicsPathItem(path)
             item.setPos(geom["x"], geom["y"])
+            rotation = geom.get("rotation", 0)
+            if rotation:
+                item.setRotation(rotation)
             item.setBrush(QBrush(item_color))
             item.setPen(QPen(Qt.PenStyle.NoPen))
             item.setZValue(Z_UNDERLAY)
