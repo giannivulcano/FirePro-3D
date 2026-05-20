@@ -538,6 +538,8 @@ def extract_layout_entities(
             t["points"] = [(_tx(p[0]), _ty(p[1])) for p in g["points"]]
         elif kind == "text":
             t["x"] = _tx(g["x"]); t["y"] = _ty(g["y"])
+            if "size" in g:
+                t["size"] = g["size"] * ps_to_ms
         elif kind == "ellipse_full":
             t["pos_cx"] = _tx(g["pos_cx"])
             t["pos_cy"] = _ty(g["pos_cy"])
