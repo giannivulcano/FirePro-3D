@@ -261,3 +261,31 @@ def test_underlay_dwg_serialization_roundtrip():
     assert restored.selected_layers == ["0", "Walls"]
     assert restored.x == 100.0
     assert restored.rotation == 90.0
+
+
+def test_import_params_dxf_layout():
+    """ImportParams carries layout for DXF files with paper layouts."""
+    from firepro3d.dxf_preview_dialog import ImportParams
+    from firepro3d.underlay import Underlay
+
+    p = ImportParams()
+    p.file_path = r"C:\drawings\floor.dxf"
+    p.file_type = "dxf"
+    p.layout = "Sheet 1"
+    p.scale = 1.0
+    p.geom_list = [{"kind": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0,
+                     "layer": "0", "color": "#ffffff"}]
+
+    record = Underlay(
+        type=p.file_type, path=p.file_path,
+        import_scale=p.scale, layout=p.layout,
+    )
+    assert record.type == "dxf"
+    assert record.layout == "Sheet 1"
+
+    # Cache key differs from same file without layout
+    record_model = Underlay(
+        type=p.file_type, path=p.file_path,
+        import_scale=p.scale, layout="",
+    )
+    assert record.cache_key() != record_model.cache_key()

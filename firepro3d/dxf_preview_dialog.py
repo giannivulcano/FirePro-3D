@@ -1055,7 +1055,7 @@ class UnderlayImportDialog(QDialog):
 
         total = sum(counts.values())
 
-        layout_note = getattr(self, "_dwg_layout", "Model")
+        layout_note = getattr(self, "_selected_layout", "Model")
         dlg = QDialog(self)
         dlg.setWindowTitle("Import Entity Types")
         dlg.resize(400, 320)
@@ -1827,10 +1827,13 @@ class UnderlayImportDialog(QDialog):
             geoms.append(g)
         p.geom_list = geoms
 
-        # DWG-specific: preserve original .dwg path and layout
+        # Preserve original .dwg path for DWG files
         if self._file_type == "dwg":
             p.file_path = getattr(self, "_dwg_source_path", p.file_path)
-            p.layout = getattr(self, "_dwg_layout", "")
+
+        # Include selected layout for any file type (empty string = Model)
+        selected = getattr(self, "_selected_layout", "")
+        p.layout = "" if selected == "Model" else selected
 
         self._save_settings()
         return p
