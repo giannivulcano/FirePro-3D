@@ -392,7 +392,9 @@ class UnderlayImportDialog(QDialog):
 
         # Layout selector (hidden by default, shown for multi-layout DXF/DWG)
         layout_bar = QHBoxLayout()
-        layout_bar.addWidget(QLabel("Layout:"))
+        self._layout_label = QLabel("Layout:")
+        self._layout_label.setVisible(False)
+        layout_bar.addWidget(self._layout_label)
         self._layout_combo = QComboBox()
         self._layout_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -789,6 +791,7 @@ class UnderlayImportDialog(QDialog):
             self._layout_combo.clear()
             self._layout_combo.blockSignals(False)
             self._layout_combo.setVisible(False)
+            self._layout_label.setVisible(False)
             self._clear_loading()
             self._extract_for_layout("Model")
         else:
@@ -800,6 +803,7 @@ class UnderlayImportDialog(QDialog):
             self._layout_combo.setCurrentIndex(-1)  # no selection
             self._layout_combo.blockSignals(False)
             self._layout_combo.setVisible(True)
+            self._layout_label.setVisible(True)
             self._clear_loading()
             self._info_lbl.setText("Select a layout to preview.")
             self._update_status()
