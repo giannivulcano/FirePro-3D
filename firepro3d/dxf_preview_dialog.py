@@ -39,8 +39,8 @@ from PyQt6.QtWidgets import (
     QMessageBox, QInputDialog, QAbstractItemView,
 )
 from PyQt6.QtGui import (
-    QPen, QColor, QBrush, QPainterPath, QFont, QCursor, QPainter,
-    QPixmap, QIcon,
+    QPen, QColor, QBrush, QPainterPath, QFont, QFontMetricsF,
+    QCursor, QPainter, QPixmap, QIcon,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, pyqtSignal
 
@@ -1417,7 +1417,22 @@ class UnderlayImportDialog(QDialog):
                 f = QFont("Arial")
                 f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
                 f.setPointSizeF(max(0.5, g.get("size", 6)))
-                path.addText(g["x"], g["y"], f, txt)
+                tx, ty = g["x"], g["y"]
+                ha = g.get("halign", 0)
+                va = g.get("valign", 3)
+                if ha != 0 or va != 3:
+                    fm = QFontMetricsF(f)
+                    if ha == 1:    # center
+                        tx -= fm.horizontalAdvance(txt) / 2
+                    elif ha == 2:  # right
+                        tx -= fm.horizontalAdvance(txt)
+                    if va == 0:    # top — addText y is baseline
+                        ty += fm.ascent()
+                    elif va == 1:  # middle
+                        ty += fm.ascent() - fm.height() / 2
+                    elif va == 2:  # bottom
+                        ty -= fm.descent()
+                path.addText(tx, ty, f, txt)
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
