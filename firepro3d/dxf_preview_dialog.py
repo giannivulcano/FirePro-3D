@@ -390,6 +390,17 @@ class UnderlayImportDialog(QDialog):
         file_bar.addWidget(reload_btn)
         outer.addLayout(file_bar)
 
+        # Layout selector (hidden by default, shown for multi-layout DXF/DWG)
+        layout_bar = QHBoxLayout()
+        layout_bar.addWidget(QLabel("Layout:"))
+        self._layout_combo = QComboBox()
+        self._layout_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._layout_combo.currentIndexChanged.connect(self._on_layout_changed)
+        layout_bar.addWidget(self._layout_combo, 1)
+        self._layout_combo.setVisible(False)
+        outer.addLayout(layout_bar)
+
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
         self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
@@ -728,8 +739,15 @@ class UnderlayImportDialog(QDialog):
                     return True
         return False
 
-    def _load_dxf(self, path: str, _skip_rebuild: bool = False,
-                  _vp_bounds=None, _doc=None):
+    def _load_dxf(self, path: str, _doc=None):
+        """Load a DXF file with layout detection and deferred extraction.
+
+        Args:
+            path: Path to the DXF file.
+            _doc: Pre-read ezdxf document (skips sanitization/read).
+                  Used by _load_dwg() to pass ODA-converted docs that
+                  must not go through _sanitize_dxf().
+        """
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
         self._thumb_list.setVisible(False)
@@ -745,66 +763,45 @@ class UnderlayImportDialog(QDialog):
             doc = _doc
         else:
             self._set_loading("Reading DXF file\u2026")
-
             clean = _sanitize_dxf(path)
             try:
                 doc = ezdxf.readfile(clean)
             except Exception as e:
+                self._clear_loading()
                 self._info_lbl.setText(f"Error: {e}")
                 return
             finally:
                 if clean != path and os.path.exists(clean):
                     os.remove(clean)
 
+        self._doc = doc
+
         # Auto-detect DXF units ($INSUNITS)
         self._detect_dxf_units(doc)
 
-        msp = doc.modelspace()
-        layers_set: set[str] = {"0"}
-        for layer in doc.layers:
-            layers_set.add(layer.dxf.name)
-        for entity in msp:
-            layers_set.add(
-                entity.dxf.get("layer", "0")
-                if hasattr(entity.dxf, "get") else "0"
-            )
+        # Detect layouts
+        from .dwg_converter import list_layouts
+        layouts = list_layouts(doc=doc)
 
-        self._layers = sorted(layers_set)
-        self._populate_layer_list()
-
-        # Extract geometry synchronously
-        from .dxf_import_worker import DxfImportWorker, _build_layer_colors
-        geoms = []
-        all_ents = list(msp)
-        self._set_extracting(len(all_ents))
-        worker_ref = DxfImportWorker.__new__(DxfImportWorker)
-        worker_ref._cancelled = False
-        worker_ref._layer_colors = _build_layer_colors(doc)
-        for i, ent in enumerate(all_ents):
-            if self._loading_bar.cancelled:
-                break
-            if i % 200 == 0:
-                self._update_progress(i, len(all_ents))
-            if _vp_bounds and not self._entity_in_viewport(ent, _vp_bounds):
-                continue
-            try:
-                g = worker_ref._extract_geometry(ent)
-                if g is not None:
-                    if isinstance(g, list):
-                        geoms.extend(g)
-                    else:
-                        geoms.append(g)
-            except Exception:
-                pass
-
-        self._all_geoms = geoms
-        self._selected_indices = None
-        if not _skip_rebuild:
-            self._set_loading("Building preview\u2026")
-            self._rebuild_preview()
+        if len(layouts) <= 1:
+            # Single layout — hide combo, extract immediately
+            self._layout_combo.blockSignals(True)
+            self._layout_combo.clear()
+            self._layout_combo.blockSignals(False)
+            self._layout_combo.setVisible(False)
             self._clear_loading()
-            n = len(self._all_geoms)
-            self._info_lbl.setText(f"{n} entities loaded from {os.path.basename(path)}")
+            self._extract_for_layout("Model")
+        else:
+            # Multiple layouts — show combo, defer extraction
+            self._layout_combo.blockSignals(True)
+            self._layout_combo.clear()
+            for name in layouts:
+                self._layout_combo.addItem(name)
+            self._layout_combo.setCurrentIndex(-1)  # no selection
+            self._layout_combo.blockSignals(False)
+            self._layout_combo.setVisible(True)
+            self._clear_loading()
+            self._info_lbl.setText("Select a layout to preview.")
             self._update_status()
 
     def _detect_dxf_units(self, doc):
@@ -826,6 +823,125 @@ class UnderlayImportDialog(QDialog):
             self._custom_scale_edit.setText(f"{factor:.5g}")
         else:
             self._units_info_lbl.setVisible(False)
+
+    def _on_layout_changed(self, index: int):
+        """Handle layout combo selection — extract geometry for the chosen layout."""
+        if index < 0 or not hasattr(self, "_doc") or self._doc is None:
+            return
+        layout_name = self._layout_combo.currentText()
+        self._extract_for_layout(layout_name)
+
+    def _extract_for_layout(self, layout_name: str):
+        """Run the full extraction pipeline for a layout and rebuild the preview.
+
+        For Model: extracts all model-space geometry.
+        For paper layouts: viewport-filtered model geometry + paper annotations.
+        """
+        doc = self._doc
+        path = self._file_edit.text().strip()
+        self._selected_layout = layout_name
+
+        # ── Viewport bounds (paper layouts only) ─────────────────────────
+        vp_bounds = None
+        if layout_name != "Model":
+            from .dwg_converter import get_viewport_bounds
+            vp_bounds = get_viewport_bounds(
+                layout_name=layout_name, doc=doc)
+
+        # ── Extract model-space geometry ─────────────────────────────────
+        from .dxf_import_worker import DxfImportWorker, _build_layer_colors
+        msp = doc.modelspace()
+        all_ents = list(msp)
+
+        # Collect layer names from doc + entity attributes
+        layers_set: set[str] = {"0"}
+        for layer in doc.layers:
+            layers_set.add(layer.dxf.name)
+        for entity in msp:
+            layers_set.add(
+                entity.dxf.get("layer", "0")
+                if hasattr(entity.dxf, "get") else "0"
+            )
+
+        self._set_extracting(len(all_ents))
+        worker_ref = DxfImportWorker.__new__(DxfImportWorker)
+        worker_ref._cancelled = False
+        worker_ref._layer_colors = _build_layer_colors(doc)
+
+        geoms: list[dict] = []
+        for i, ent in enumerate(all_ents):
+            if self._loading_bar.cancelled:
+                break
+            if i % 200 == 0:
+                self._update_progress(i, len(all_ents))
+            # Pre-filter by viewport bounds at entity level
+            if vp_bounds and not self._entity_in_viewport(ent, vp_bounds):
+                continue
+            try:
+                g = worker_ref._extract_geometry(ent)
+                if g is not None:
+                    if isinstance(g, list):
+                        geoms.extend(g)
+                    else:
+                        geoms.append(g)
+            except Exception:
+                pass
+
+        self._all_geoms = geoms
+
+        # ── Post-extraction viewport filter (catches INSERT/HATCH) ───────
+        if vp_bounds:
+            from .dwg_converter import filter_geoms_by_bounds
+            self._all_geoms = filter_geoms_by_bounds(
+                self._all_geoms, vp_bounds)
+
+        # ── Paper layout annotations ─────────────────────────────────────
+        if layout_name != "Model":
+            from .dwg_converter import extract_layout_entities
+            layout_geoms = extract_layout_entities(
+                layout_name=layout_name, doc=doc)
+            if layout_geoms:
+                self._all_geoms.extend(layout_geoms)
+
+        # ── Entity type dialog (DWG files only, first extraction) ────────
+        if getattr(self, "_show_entity_type_filter", False):
+            self._show_entity_type_filter = False
+            self._clear_loading()
+            excluded = self._show_geom_type_dialog()
+            if excluded is None:
+                # User cancelled — clean up and bail
+                from .dwg_converter import cleanup_converted_dxf
+                cleanup_converted_dxf(
+                    getattr(self, "_converted_dxf_path", ""))
+                self._all_geoms = []
+                self._rebuild_preview()
+                self._info_lbl.setText(
+                    "Import cancelled.")
+                return
+            if excluded:
+                self._all_geoms = [
+                    g for g in self._all_geoms
+                    if g.get("kind") not in excluded
+                ]
+
+        # ── Populate layers from combined geometry ───────────────────────
+        geom_layers = {g.get("layer", "0") for g in self._all_geoms}
+        self._layers = sorted(layers_set | geom_layers)
+        self._populate_layer_list()
+        self._selected_indices = None
+
+        # ── Rebuild preview ──────────────────────────────────────────────
+        self._set_loading("Building preview\u2026")
+        self._rebuild_preview()
+        self._clear_loading()
+
+        n = len(self._all_geoms)
+        layout_label = (f" (layout: {layout_name})"
+                        if layout_name != "Model" else "")
+        self._info_lbl.setText(
+            f"{n:,} entities loaded from "
+            f"{os.path.basename(path)}{layout_label}")
+        self._update_status()
 
     # ── DWG loading ──────────────────────────────────────────────────────────
 
