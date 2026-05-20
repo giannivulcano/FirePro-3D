@@ -953,7 +953,7 @@ class UnderlayImportDialog(QDialog):
         """Load a DWG file by converting to DXF via ODA File Converter."""
         from .dwg_converter import (
             find_oda_converter, convert_dwg_to_dxf,
-            list_dwg_layouts, cleanup_converted_dxf, ODA_DOWNLOAD_URL,
+            cleanup_converted_dxf, read_dxf, ODA_DOWNLOAD_URL,
         )
 
         oda_path = find_oda_converter()
@@ -1002,91 +1002,26 @@ class UnderlayImportDialog(QDialog):
             dxf_path = convert_dwg_to_dxf(oda_path, path,
                                            project_dir=self._default_dir or None)
 
-        # ── Stage 2: Read DXF once ───────────────────────────────────────
+        # ── Stage 2: Read converted DXF (bypasses _sanitize_dxf) ────────
         self._set_loading("Reading DXF\u2026")
-        from .dwg_converter import (
-            read_dxf, list_dwg_layouts as _list_layouts,
-            get_viewport_bounds, filter_geoms_by_bounds,
-            extract_layout_entities,
-        )
         doc = read_dxf(dxf_path)
         if doc is None:
             self._clear_loading()
             QMessageBox.warning(self, "Read Error",
                                 f"Could not read converted DXF:\n{dxf_path}")
             return
-
-        # ── Stage 3: Layout listing + selection ──────────────────────────
         self._clear_loading()
-        layouts = _list_layouts(doc=doc)
 
-        selected_layout = "Model"
-        if len(layouts) > 1:
-            from PyQt6.QtWidgets import QInputDialog
-            choice, ok = QInputDialog.getItem(
-                self, "Select Layout",
-                "Select which layout to import:\n\n"
-                "\u2022 'Model' imports all model-space geometry.\n"
-                "\u2022 Paper layouts import only the geometry\n"
-                "  visible through that layout's viewports.",
-                layouts, 0, False)
-            if not ok:
-                cleanup_converted_dxf(dxf_path)
-                return
-            selected_layout = choice
-
-        self._dwg_layout = selected_layout
+        # ── Stage 3: Hand off to unified DXF path ───────────────────────
         self._dwg_source_path = path
-
-        # ── Stage 4: Viewport bounds ─────────────────────────────────────
-        vp_bounds = None
-        if selected_layout != "Model":
-            vp_bounds = get_viewport_bounds(
-                layout_name=selected_layout, doc=doc)
-
-        # ── Stage 5: Geometry extraction ─────────────────────────────────
-        self._set_loading("Extracting geometry\u2026")
-        self._load_dxf(dxf_path, _skip_rebuild=True,
-                        _vp_bounds=vp_bounds, _doc=doc)
-
-        # ── Stage 6: Post-extraction viewport filter ─────────────────────
-        if selected_layout != "Model" and vp_bounds:
-            before = len(self._all_geoms)
-            self._all_geoms = filter_geoms_by_bounds(
-                self._all_geoms, vp_bounds)
-            self._selected_indices = None
-
-        # ── Stage 7: Paper layout entities ───────────────────────────────
-        if selected_layout != "Model":
-            layout_geoms = extract_layout_entities(
-                layout_name=selected_layout, doc=doc)
-            if layout_geoms:
-                self._all_geoms.extend(layout_geoms)
-
-        self._clear_loading()
-
-        # ── Stage 8: Entity type dialog ──────────────────────────────────
-        excluded_kinds = self._show_geom_type_dialog()
-        if excluded_kinds is None:
-            cleanup_converted_dxf(dxf_path)
-            return
-        if excluded_kinds:
-            self._all_geoms = [g for g in self._all_geoms
-                               if g.get("kind") not in excluded_kinds]
-
-        # ── Stage 9: Preview rebuild ─────────────────────────────────────
-        self._set_loading(f"Building preview ({len(self._all_geoms)} entities)\u2026")
-        self._rebuild_preview()
-        self._clear_loading()
-
-        # Don't clean up UNDERLAY_REF DXFs (they persist for reuse)
-        cleanup_converted_dxf(dxf_path)
-
+        self._converted_dxf_path = dxf_path
+        self._show_entity_type_filter = True
+        self._load_dxf(dxf_path, _doc=doc)
         self._file_type = "dwg"
-        n = len(self._all_geoms)
-        layout_label = f" (layout: {selected_layout})" if selected_layout != "Model" else ""
-        self._info_lbl.setText(
-            f"{n:,} entities from {os.path.basename(path)}{layout_label}")
+
+        # Clean up temp DXFs (UNDERLAY_REF DXFs are preserved).
+        # Safe because the ezdxf doc is in memory as self._doc.
+        cleanup_converted_dxf(dxf_path)
 
     def _browse_for_oda(self) -> str | None:
         """Let the user manually locate ODAFileConverter.exe and save to QSettings."""
