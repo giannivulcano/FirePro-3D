@@ -1420,19 +1420,28 @@ class UnderlayImportDialog(QDialog):
                 tx, ty = g["x"], g["y"]
                 ha = g.get("halign", 0)
                 va = g.get("valign", 3)
-                if ha != 0 or va != 3:
-                    fm = QFontMetricsF(f)
-                    if ha == 1:    # center
-                        tx -= fm.horizontalAdvance(txt) / 2
-                    elif ha == 2:  # right
-                        tx -= fm.horizontalAdvance(txt)
-                    if va == 0:    # top — addText y is baseline
-                        ty += fm.ascent()
-                    elif va == 1:  # middle
-                        ty += fm.ascent() - fm.height() / 2
-                    elif va == 2:  # bottom
-                        ty -= fm.descent()
-                path.addText(tx, ty, f, txt)
+                lines = txt.split("\n")
+                fm = QFontMetricsF(f)
+                line_h = fm.height()
+                total_h = line_h * len(lines)
+                # Vertical anchor for the text block
+                if va == 0:       # top
+                    base_y = ty + fm.ascent()
+                elif va == 1:     # middle
+                    base_y = ty + fm.ascent() - total_h / 2
+                elif va == 2:     # bottom
+                    base_y = ty + fm.ascent() - total_h
+                else:             # baseline (single-line default)
+                    base_y = ty
+                for i, line in enumerate(lines):
+                    if not line.strip():
+                        continue
+                    lx = tx
+                    if ha == 1:   # center
+                        lx -= fm.horizontalAdvance(line) / 2
+                    elif ha == 2: # right
+                        lx -= fm.horizontalAdvance(line)
+                    path.addText(lx, base_y + i * line_h, f, line)
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
