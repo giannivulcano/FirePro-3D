@@ -377,32 +377,6 @@ class UnderlayImportDialog(QDialog):
         outer.setContentsMargins(6, 6, 6, 6)
         outer.setSpacing(4)
 
-        # File bar
-        file_bar = QHBoxLayout()
-        file_bar.addWidget(QLabel("File:"))
-        self._file_edit = QLineEdit()
-        file_bar.addWidget(self._file_edit, 1)
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse_file)
-        file_bar.addWidget(browse_btn)
-        reload_btn = QPushButton("↺ Reload")
-        reload_btn.clicked.connect(self._load_file)
-        file_bar.addWidget(reload_btn)
-        outer.addLayout(file_bar)
-
-        # Layout selector (hidden by default, shown for multi-layout DXF/DWG)
-        layout_bar = QHBoxLayout()
-        self._layout_label = QLabel("Layout:")
-        self._layout_label.setVisible(False)
-        layout_bar.addWidget(self._layout_label)
-        self._layout_combo = QComboBox()
-        self._layout_combo.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._layout_combo.currentIndexChanged.connect(self._on_layout_changed)
-        layout_bar.addWidget(self._layout_combo, 1)
-        self._layout_combo.setVisible(False)
-        outer.addLayout(layout_bar)
-
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
         self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
@@ -422,13 +396,59 @@ class UnderlayImportDialog(QDialog):
         # Preview + controls splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
-        # Left: preview
+        # Left: preview only
         left = QWidget()
         left_lay = QVBoxLayout(left)
         left_lay.setContentsMargins(0, 0, 0, 0)
         left_lay.setSpacing(2)
+        left_lay.addWidget(self._preview_view, 1)
 
-        mode_bar = QHBoxLayout()
+        self._info_lbl = QLabel("Load a PDF, DXF, or DWG file to see a preview.")
+        self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        left_lay.addWidget(self._info_lbl)
+        splitter.addWidget(left)
+
+        # Right: all controls
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setMinimumWidth(260)
+        right_scroll.setMaximumWidth(340)
+        right_w = QWidget()
+        right_lay = QVBoxLayout(right_w)
+        right_lay.setContentsMargins(4, 4, 4, 4)
+        right_lay.setSpacing(6)
+
+        # File bar
+        file_grp = QGroupBox("File")
+        file_vlay = QVBoxLayout(file_grp)
+        self._file_edit = QLineEdit()
+        file_vlay.addWidget(self._file_edit)
+        file_btn_row = QHBoxLayout()
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_file)
+        file_btn_row.addWidget(browse_btn)
+        reload_btn = QPushButton("↺ Reload")
+        reload_btn.clicked.connect(self._load_file)
+        file_btn_row.addWidget(reload_btn)
+        file_btn_row.addStretch()
+        file_vlay.addLayout(file_btn_row)
+        right_lay.addWidget(file_grp)
+
+        # Layout selector (hidden by default, shown for multi-layout DXF/DWG)
+        self._layout_label = QLabel("Layout:")
+        self._layout_label.setVisible(False)
+        right_lay.addWidget(self._layout_label)
+        self._layout_combo = QComboBox()
+        self._layout_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._layout_combo.currentIndexChanged.connect(self._on_layout_changed)
+        self._layout_combo.setVisible(False)
+        right_lay.addWidget(self._layout_combo)
+
+        # Preview mode buttons
+        mode_grp = QGroupBox("Preview")
+        mode_vlay = QVBoxLayout(mode_grp)
+        mode_row1 = QHBoxLayout()
         self._pan_btn = QPushButton("Pan / Zoom")
         self._pan_btn.setCheckable(True)
         self._pan_btn.setChecked(True)
@@ -440,30 +460,13 @@ class UnderlayImportDialog(QDialog):
             "\nDrag outside or click 'Clear Selection' to reset."
         )
         self._rb_btn.clicked.connect(lambda: self._set_view_mode("rubber_band"))
+        mode_row1.addWidget(self._pan_btn)
+        mode_row1.addWidget(self._rb_btn)
+        mode_vlay.addLayout(mode_row1)
         self._clear_sel_btn = QPushButton("Clear Selection")
         self._clear_sel_btn.clicked.connect(self._clear_selection)
-        mode_bar.addWidget(self._pan_btn)
-        mode_bar.addWidget(self._rb_btn)
-        mode_bar.addWidget(self._clear_sel_btn)
-        mode_bar.addStretch()
-        left_lay.addLayout(mode_bar)
-
-        left_lay.addWidget(self._preview_view, 1)
-
-        self._info_lbl = QLabel("Load a PDF, DXF, or DWG file to see a preview.")
-        self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        left_lay.addWidget(self._info_lbl)
-        splitter.addWidget(left)
-
-        # Right: controls
-        right_scroll = QScrollArea()
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setMinimumWidth(240)
-        right_scroll.setMaximumWidth(320)
-        right_w = QWidget()
-        right_lay = QVBoxLayout(right_w)
-        right_lay.setContentsMargins(4, 4, 4, 4)
-        right_lay.setSpacing(6)
+        mode_vlay.addWidget(self._clear_sel_btn)
+        right_lay.addWidget(mode_grp)
 
         # Source layers
         layer_grp = QGroupBox("Source Layers")
