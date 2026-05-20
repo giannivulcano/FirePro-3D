@@ -378,7 +378,12 @@ class DxfImportWorker(QThread):
                         "points": points, "closed": False}
 
         elif etype in ("LWPOLYLINE", "POLYLINE"):
-            pts = list(entity.get_points())
+            if hasattr(entity, "get_points"):
+                pts = list(entity.get_points())
+            else:
+                # POLYLINE (3D) uses .vertices instead of .get_points()
+                pts = [(v.dxf.location.x, v.dxf.location.y)
+                       for v in entity.vertices]
             if len(pts) < 2:
                 return None
             closed = bool(hasattr(entity.dxf, "flags") and entity.dxf.flags & 1)
@@ -452,15 +457,19 @@ class DxfImportWorker(QThread):
             # into constituent geometry via ezdxf's virtual_entities().
             results = []
             try:
-                for sub_entity in entity.virtual_entities():
+                sub_entities = list(entity.virtual_entities())
+            except Exception:
+                sub_entities = []
+            for sub_entity in sub_entities:
+                try:
                     sub_geom = self._extract_geometry(sub_entity)
                     if sub_geom is not None:
                         if isinstance(sub_geom, list):
                             results.extend(sub_geom)
                         else:
                             results.append(sub_geom)
-            except Exception:
-                pass
+                except Exception:
+                    pass
             # INSERT blocks have ATTRIB text not included in
             # virtual_entities() — extract separately.
             if etype == "INSERT" and hasattr(entity, "attribs"):
