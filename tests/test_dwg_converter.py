@@ -107,36 +107,36 @@ def test_convert_dwg_source_missing():
 
 
 def test_list_layouts_model_only():
-    """list_dwg_layouts() returns ['Model'] for single-layout DXF."""
-    from firepro3d.dwg_converter import list_dwg_layouts
+    """list_layouts() returns ['Model'] for single-layout DXF."""
+    from firepro3d.dwg_converter import list_layouts
 
     mock_doc = mock.MagicMock()
     mock_doc.layouts.names.return_value = ["Model"]
 
     with mock.patch("ezdxf.readfile", return_value=mock_doc):
-        result = list_dwg_layouts("/tmp/test.dxf")
+        result = list_layouts("/tmp/test.dxf")
         assert result == ["Model"]
 
 
 def test_list_layouts_multiple():
-    """list_dwg_layouts() returns all layout names, Model first."""
-    from firepro3d.dwg_converter import list_dwg_layouts
+    """list_layouts() returns all layout names, Model first."""
+    from firepro3d.dwg_converter import list_layouts
 
     mock_doc = mock.MagicMock()
     mock_doc.layouts.names.return_value = ["Model", "Sheet 1", "24x36 Plan"]
 
     with mock.patch("ezdxf.readfile", return_value=mock_doc):
-        result = list_dwg_layouts("/tmp/test.dxf")
+        result = list_layouts("/tmp/test.dxf")
         assert result[0] == "Model"
         assert set(result) == {"Model", "Sheet 1", "24x36 Plan"}
 
 
 def test_list_layouts_error():
-    """list_dwg_layouts() returns ['Model'] on read failure."""
-    from firepro3d.dwg_converter import list_dwg_layouts
+    """list_layouts() returns ['Model'] on read failure."""
+    from firepro3d.dwg_converter import list_layouts
 
     with mock.patch("ezdxf.readfile", side_effect=Exception("corrupt")):
-        result = list_dwg_layouts("/tmp/test.dxf")
+        result = list_layouts("/tmp/test.dxf")
         assert result == ["Model"]
 
 

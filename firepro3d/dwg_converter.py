@@ -238,7 +238,7 @@ def cleanup_converted_dxf(dxf_path: str) -> None:
 def read_dxf(dxf_path: str):
     """Read a DXF file and return the ezdxf document.
 
-    Call once and pass the result to :func:`list_dwg_layouts`,
+    Call once and pass the result to :func:`list_layouts`,
     :func:`get_viewport_bounds`, and :func:`extract_layout_entities`
     to avoid re-reading large files multiple times.
 
@@ -252,8 +252,8 @@ def read_dxf(dxf_path: str):
         return None
 
 
-def list_dwg_layouts(dxf_path: str = "", doc=None) -> list[str]:
-    """Read layout names from a converted DXF file.
+def list_layouts(dxf_path: str = "", doc=None) -> list[str]:
+    """Read layout names from a DXF file.
 
     Args:
         dxf_path: Path to a DXF file (ignored if *doc* is provided).
