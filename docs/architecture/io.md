@@ -109,11 +109,13 @@ Key points:
 
 ### Supported DXF entities
 
-Lines, polylines (including lwpolyline), circles, ellipses, splines, text, mtext, hatches, and block inserts are converted to geometry descriptors. ARC entities are converted to polyline points via trigonometry to avoid angle-convention mismatches between `QGraphicsEllipseItem` and `QPainterPath.arcTo`. TEXT/MTEXT entities include the DXF text height (`dxf.height` / `dxf.char_height`) as a `"size"` field; empty text strings are filtered out.
+Lines, polylines (LWPOLYLINE via `get_points()`, POLYLINE via `.vertices`), circles, ellipses, splines, text, mtext, hatches, and block inserts are converted to geometry descriptors. ARC entities are converted to polyline points via trigonometry to avoid angle-convention mismatches between `QGraphicsEllipseItem` and `QPainterPath.arcTo`. TEXT/MTEXT entities include the DXF text height (`dxf.height` / `dxf.char_height`) as a `"size"` field, alignment (`halign`/`valign` from alignment mode or MTEXT attachment_point), and plain text with newlines preserved; empty text strings are filtered out.
+
+INSERT block explosion uses per-entity exception handling: the `virtual_entities()` generator is materialized to a list first, then each sub-entity is extracted in its own `try/except`. This prevents one unsupported entity type from silently dropping all subsequent entities in the block. ATTRIB text on INSERT blocks is extracted separately after the virtual entities loop.
 
 ### Preview rendering
 
-The DXF preview dialog (`dxf_preview_dialog.py`) batches all geometry into a small number of `QPainterPath` objects (one per pen style) rather than creating individual `QGraphicsItem` instances. This reduces 293K+ items to ~6, enabling interactive preview of large files. Text is rendered as `QPainterPath.addText()` to avoid `QWindowsFontEngineDirectWrite` warning spam on Windows.
+The DXF preview dialog (`dxf_preview_dialog.py`) batches all geometry into a small number of `QPainterPath` objects (one per pen style) rather than creating individual `QGraphicsItem` instances. This reduces 293K+ items to ~6, enabling interactive preview of large files. Text is rendered as `QPainterPath.addText()` with multiline support (splits on `\n`, renders each line at vertical offset) and alignment offsets computed via `QFontMetricsF` (halign: left/center/right; valign: top/middle/bottom/baseline).
 
 ### Underlay cache
 
@@ -121,24 +123,28 @@ Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache
 
 ## DWG import
 
-DWG files are converted to DXF via ODA File Converter (external CLI tool) and then processed through the existing DXF import pipeline.
+DWG files are converted to DXF via ODA File Converter (external CLI tool) and then follow the unified DXF import path. `_load_dwg()` is a thin wrapper: convert → `read_dxf()` → `_load_dxf(_doc=doc)`.
 
 ### Module
 
-`dwg_converter.py` handles ODA discovery, conversion, layout listing, viewport bounds extraction, and paper-layout entity transformation.
+`dwg_converter.py` handles ODA discovery, conversion, layout listing (`list_layouts()`), viewport bounds extraction, geometry filtering, and paper-layout entity transformation.
 
-### Flow
+### Flow (unified DXF/DWG)
 
-1. **ODA discovery** — finds `ODAFileConverter.exe` via QSettings, PATH, or common install directories
-2. **Conversion** — copies DWG to temp input dir, runs ODA, output DXF saved to `<project_dir>/UNDERLAY_REF/` for reuse across sessions
-3. **Cache check** — skips re-conversion if existing DXF is newer than source DWG
-4. **Layout selection** — for multi-layout DWGs, reads VIEWPORT entities from paper layouts to determine model-space clip regions
-5. **Viewport filtering** — pre-filters entities during extraction (all coordinates checked for LINE/POLYLINE/etc.; INSERT/HATCH always pass since explosion is unpredictable); post-extraction `filter_geoms_by_bounds()` catches INSERT sub-entities
-6. **Paper layout merge** — gridline bubbles, title block, annotations from the selected paper layout are transformed to model-space coordinates via the viewport's scale mapping and merged with model-space geometry
+1. **DWG only: ODA conversion** — finds `ODAFileConverter.exe` via QSettings/PATH/common dirs, converts to DXF in `UNDERLAY_REF/` for reuse, skips if cached DXF is fresh
+2. **DXF read** — `ezdxf.readfile()` (DWG path bypasses `_sanitize_dxf()` via `_doc` parameter), doc stored as `self._doc`
+3. **Layout detection** — `list_layouts(doc)` enumerates layouts; combo shown in right panel if 2+ layouts, extraction deferred until selection
+4. **`_extract_for_layout()`** — unified extraction pipeline:
+   a. Viewport bounds from VIEWPORT entities (paper layouts only)
+   b. Model-space extraction with entity pre-filter
+   c. Post-extraction `filter_geoms_by_bounds()`
+   d. Paper layout entity transform (position + text size scaled by `ps_to_ms`, alignment preserved)
+   e. DWG first extraction: entity type dialog
+5. **Preview rebuild** — layers populated, QPainterPath-batched preview rendered
 
 ### Performance
 
-The 175MB converted DXF is read once via `read_dxf()` and the `doc` object is passed to all stages. Entity type dialog shows post-filter geometry counts so the user can deselect heavy types before preview rebuild.
+The DXF is read once and the `doc` object is shared across layout switches. Entity type dialog (DWG only) shows post-filter geometry counts so the user can deselect heavy types before preview rebuild.
 
 ## PDF import
 

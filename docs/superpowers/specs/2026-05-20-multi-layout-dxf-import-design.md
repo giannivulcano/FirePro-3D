@@ -1,7 +1,8 @@
 # Multi-Layout DXF/DWG Import Design
 
 **Date:** 2026-05-20
-**Status:** Approved
+**Status:** Implemented
+**Revision:** 2 (post-implementation findings: UI restructure, extraction bug fixes)
 
 ## Problem
 
@@ -28,11 +29,15 @@ should use the identical pipeline with only a conversion step prepended.
 
 ### Import Dialog UI Changes
 
-A `QComboBox` labeled "Layout:" is added to `UnderlayImportDialog`, positioned in a new
-row below the file path bar.
+All controls (file picker, layout combo, preview mode buttons, layer/scale/rotation/
+base point) live in a scrollable right panel. The left side is preview-only, maximizing
+the viewport area.
+
+A `QComboBox` labeled "Layout:" is added to the right panel, below the file picker
+group and above the preview mode buttons.
 
 **Visibility rules:**
-- Hidden by default.
+- Hidden by default (both label and combo).
 - Shown only when the opened file has 2+ layouts.
 - Hidden for PDF files (no layout concept).
 
@@ -69,7 +74,24 @@ selection (combo signal or auto-select for single-layout files).
 6. Populate layer checkboxes from combined list.
 7. Render preview.
 
-This is the same pipeline the DWG path uses today — it moves into a shared method.
+This is the same pipeline the DWG path uses today — it moves into a shared method
+(`_extract_for_layout()`).
+
+### Paper-Space Entity Transform Details
+
+`extract_layout_entities()` transforms paper-space annotations to model-space
+coordinates using the largest viewport's scale mapping. Key behaviors:
+
+- **Text size scaling:** Paper-space text height is multiplied by `ps_to_ms`
+  (viewport model-height / viewport paper-height) so annotations render at the
+  correct scale relative to model geometry.
+- **Multiline MTEXT:** Line breaks (`\n` from `plain_text()`) are preserved in
+  geometry dicts and rendered as separate lines in the preview, each individually
+  aligned per `halign`.
+- **Text alignment:** MTEXT `attachment_point` (1-9) is mapped to `halign`/`valign`
+  fields and used by the preview renderer to offset from the insertion point.
+  `QPainterPath.addText()` always places at baseline-left, so center/right/middle
+  alignments require computed offsets via `QFontMetricsF`.
 
 ### DWG Path Simplification
 
@@ -136,16 +158,60 @@ Different layouts of the same file get separate cache entries.
 ### What Does NOT Change
 
 - PDF import path.
-- `DxfImportWorker` internals (still extracts model space, still sync in dialog).
 - `Underlay` dataclass (no new fields).
 - Cache system.
 - Scene-side import (`model_space.py`) — receives the same `ImportParams`.
-- Entity type filtering, scale calibration, base point pick, rotation.
+- Scale calibration, base point pick, rotation.
+
+## Implementation Findings
+
+Bugs discovered and fixed during implementation testing with real DWG files:
+
+### INSERT explosion exception handling
+
+The `try/except` around the `virtual_entities()` loop in `_extract_geometry()`
+wrapped the **entire** `for` loop. A single exception from any sub-entity (e.g.,
+a `POLYLINE` with no `get_points()` method) would silently stop processing **all
+remaining** entities in the block. In one test file, a POLYLINE at index 4217 of
+5068 virtual entities caused 851 entities to be dropped — including all gridlines,
+grid bubbles, and grid dimensions.
+
+**Fix:** Materialize the generator first (`list(entity.virtual_entities())`), then
+wrap each individual entity's extraction in its own `try/except`. One bad entity
+no longer kills the rest.
+
+### POLYLINE vs LWPOLYLINE
+
+ezdxf's `POLYLINE` (3D polyline, often from block explosions) does not have a
+`get_points()` method — that is `LWPOLYLINE`-only. The extraction code assumed
+both had `get_points()`, causing `AttributeError` on POLYLINE entities. Fixed with
+a `hasattr` check that falls back to reading `entity.vertices` directly.
+
+### Paper-space text size not scaled
+
+`extract_layout_entities()` transformed text position (`x`, `y`) but not the
+`size` field. Paper-space text at 2.5mm height stayed at 2.5 units in model space
+(where the building spans thousands of units), making all paper-space annotations
+invisible. Fixed by multiplying `size` by `ps_to_ms`.
+
+### Preview text alignment ignored
+
+The preview renderer used `QPainterPath.addText(x, y, font, text)` which always
+places at baseline-left. MTEXT with center/middle alignment (71 of 94 entities in
+one test file) had their insertion point treated as top-left, causing significant
+position errors magnified by `ps_to_ms`. Fixed with `QFontMetricsF`-based offsets.
+
+### Multiline MTEXT on single line
+
+`QPainterPath.addText()` ignores `\n` characters. MTEXT with line breaks (e.g.,
+"PRODUCTION PLANT\nGROUND FLOOR") rendered as a single concatenated line. Fixed by
+splitting on `\n` and rendering each line at the correct vertical offset.
 
 ## Files Modified
 
 | File | Change |
 |---|---|
-| `firepro3d/dxf_preview_dialog.py` | Add layout combo, deferred extraction, shared extraction method, simplify `_load_dwg()` |
-| `firepro3d/dwg_converter.py` | Rename `list_dwg_layouts()` → `list_layouts()` |
-| `tests/test_dwg_converter.py` | Update test references for renamed function |
+| `firepro3d/dxf_preview_dialog.py` | Layout combo, deferred extraction, shared `_extract_for_layout()`, simplified `_load_dwg()`, updated `get_import_params()`, UI restructured (controls in right panel), text alignment + multiline rendering |
+| `firepro3d/dwg_converter.py` | Rename `list_dwg_layouts()` → `list_layouts()`, text size scaling in paper-to-model transform |
+| `firepro3d/dxf_import_worker.py` | Per-entity exception handling in INSERT explosion, POLYLINE `.vertices` fallback |
+| `tests/test_dwg_converter.py` | Update test references for renamed function, add DXF layout test |

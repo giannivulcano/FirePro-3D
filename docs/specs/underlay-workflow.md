@@ -3,7 +3,7 @@
 > **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 4 (added DWG import via ODA File Converter, underlay caching)
+> **Revision:** 5 (multi-layout DXF support, unified DXF/DWG path, extraction robustness fixes)
 
 ---
 
@@ -89,8 +89,8 @@ class Underlay:
     import_base_x: float = 0.0        # Base point X subtracted during import
     import_base_y: float = 0.0        # Base point Y subtracted during import
     selected_layers: list[str] | None = None  # DXF layers imported (None = all)
-    # DWG support (Revision 4)
-    layout: str = ""                   # DWG layout name (empty = Model space)
+    # Layout support (Revision 4: DWG, Revision 5: DXF)
+    layout: str = ""                   # Layout name (empty = Model space)
 ```
 
 **Behavior:**
@@ -99,7 +99,7 @@ class Underlay:
 - `visible` — user's explicit hide/show toggle, independent of level filtering. An underlay is visible in the scene only when both `visible == True` AND (level matches active level OR level is `"*"`).
 - `hidden_layers` — source DXF layer names toggled off post-import. Empty for PDFs. Persisted and reapplied on refresh/reload.
 - `import_mode` — only meaningful for PDFs. `"auto"` tries vectors first, falls back to raster. `"vector"` forces vector extraction. `"raster"` skips vectors and renders as pixmap. DXF always uses vector.
-- `layout` — DWG only. Name of the paper-space layout selected at import time. Empty string means Model space. Used for viewport-based spatial filtering and cache key differentiation.
+- `layout` — DXF and DWG. Name of the paper-space layout selected at import time. Empty string means Model space. Used for viewport-based spatial filtering and cache key differentiation. DXF files with multiple layouts now show a layout picker (Revision 5).
 
 ### 3.3 Serialization
 
@@ -326,19 +326,22 @@ Underlay groups are **not selectable or movable** in the scene — they are refe
 
 ## 10. Import Dialog
 
-### 10.1 Existing behavior (unchanged, documented for reference)
+### 10.1 Dialog Layout (Revision 5)
 
-`UnderlayImportDialog` (in `firepro3d/dxf_preview_dialog.py`, 1249 LOC) provides:
+`UnderlayImportDialog` (in `firepro3d/dxf_preview_dialog.py`) uses a two-panel layout:
 
-- File browse / drag-drop for DXF and PDF.
-- Preview scene with pan/zoom.
-- Source layer filtering via checkboxes (DXF).
-- Scale selection: preset dropdown (1:1 through 1:1000, Custom), pick-2-pts calibration, DXF unit auto-detection from `$INSUNITS`.
-- Base point pick.
-- Destination layer selection.
-- PDF page selection via thumbnail strip.
-- Rubber-band spatial subset selection.
-- Insert-at-origin checkbox vs interactive placement.
+- **Left panel:** Preview-only (QGraphicsView with pan/zoom, info label).
+- **Right panel** (scrollable, 260-340px): All controls stacked vertically:
+  - File group (path field, Browse/Reload buttons)
+  - Layout combo (hidden until multi-layout file; see §10B)
+  - Preview mode (Pan/Zoom, Select Area, Clear Selection)
+  - Source layer filtering (checkboxes, All/None buttons)
+  - Scale (preset dropdown, custom edit, pick-2-pts, DXF unit auto-detection)
+  - Rotation (angle field, ±90°/180° buttons)
+  - Base/Insertion Point (X/Y, pick on preview)
+  - PDF Options (DPI, import mode — hidden for DXF/DWG)
+- **Bottom bar:** Status label, insert-at-origin checkbox, Import/Cancel buttons.
+- **PDF thumbnail strip** above the splitter (visible only for multi-page PDFs).
 
 ### 10.2 New: PDF DPI dropdown (P2 — not yet implemented)
 
@@ -375,9 +378,11 @@ Reads `$INSUNITS` from the DXF header. Maps known unit codes (1=inches, 2=feet, 
 | HATCH | Boundary paths via `virtual_entities()` | Implemented |
 | DIMENSION | Explode to lines + text via `virtual_entities()` | Implemented |
 
-**INSERT (block references)** is the highest-impact addition — architectural floor plans are primarily composed of blocks (doors, fixtures, symbols). Without INSERT support, large portions of the plan are missing from the underlay. `ezdxf`'s `virtual_entities()` explodes block references into constituent geometry with transforms applied, which can be fed recursively through `_extract_geometry()`.
+**INSERT (block references)** is the highest-impact addition — architectural floor plans are primarily composed of blocks (doors, fixtures, symbols). Without INSERT support, large portions of the plan are missing from the underlay. `ezdxf`'s `virtual_entities()` explodes block references into constituent geometry with transforms applied, which can be fed recursively through `_extract_geometry()`. ATTRIB text on INSERT blocks is extracted separately (not included in `virtual_entities()` output). Exception handling is **per-entity**: the generator is materialized to a list first, then each sub-entity is wrapped in its own `try/except` so one bad entity cannot silently drop the rest of the block.
 
-**HATCH** and **DIMENSION** use the same `virtual_entities()` pattern. All other entity types (SOLID, POINT, LEADER, 3DFACE) are deferred — uncommon in plan views and low impact.
+**POLYLINE vs LWPOLYLINE:** Both map to `path_points`. LWPOLYLINE uses `get_points()`, while POLYLINE (3D polyline, common in block explosions) uses `.vertices` to extract vertex locations. A `hasattr` check selects the correct accessor.
+
+**HATCH** and **DIMENSION** use the same `virtual_entities()` pattern. LEADER, MULTILEADER, and MLEADER are also exploded. SOLID and POINT are extracted directly. All other entity types (3DFACE, etc.) are skipped.
 
 ### 10.6 Import flow
 
@@ -397,11 +402,13 @@ File selected
 
 ---
 
-## 10B. DWG Import (Revision 4)
+## 10B. Multi-Layout Import & DWG Support (Revision 4 + 5)
 
 ### 10B.1 Overview
 
-DWG files are imported via ODA File Converter, a free external CLI tool that converts DWG to DXF. The converted DXF feeds into the existing DXF import pipeline.
+Both DXF and DWG files can contain multiple paper-space layouts. When a file has 2+ layouts, a layout combo box appears in the import dialog's right panel. The user picks a layout before extraction begins (deferred extraction — no geometry loaded until a layout is selected). Single-layout files auto-extract immediately with the combo hidden.
+
+DWG files are imported via ODA File Converter, a free external CLI tool that converts DWG to DXF. The converted DXF then follows the identical DXF layout selection flow. `_load_dwg()` is a thin wrapper: convert → `read_dxf()` → `_load_dxf()`.
 
 ### 10B.2 ODA File Converter
 
@@ -410,34 +417,49 @@ DWG files are imported via ODA File Converter, a free external CLI tool that con
 - **Conversion:** `ODAFileConverter <in_dir> <out_dir> ACAD2018 DXF 0 1`. Runs in temp input directory (source DWG copied in). GUI suppressed via `STARTF_USESHOWWINDOW`.
 - **Output:** Converted DXF saved to `<project_dir>/UNDERLAY_REF/` for reuse. Skips re-conversion if existing DXF is newer than source DWG.
 - **Module:** `firepro3d/dwg_converter.py`
+- **Sanitization bypass:** Converted DXFs are read via `read_dxf()` and passed to `_load_dxf(_doc=doc)` to bypass `_sanitize_dxf()`, which can corrupt large ODA-produced files.
 
 ### 10B.3 Layout Selection
 
-DWG files can contain multiple paper-space layouts (e.g., "Ground Floor", "Second Floor"). When a DWG has 2+ layouts, a layout picker dialog is shown:
+DXF and DWG files can contain multiple paper-space layouts (e.g., "Ground Floor", "Second Floor"). Layout names are enumerated via `list_layouts(doc=doc)` (metadata read, no extraction). When 2+ layouts exist, a combo box is shown in the right panel:
 
 - **"Model"** — imports all model-space geometry (no spatial filter)
 - **Paper layouts** — extracts viewport definitions from the layout, filters model-space geometry to entities within viewport bounds, and merges paper-layout entities (gridline bubbles, title block) transformed to model-space coordinates via the viewport's scale mapping
 
-### 10B.4 Import Flow
+### 10B.4 Unified Import Flow (DXF and DWG)
 
-1. ODA converts DWG → DXF (or uses cached DXF from UNDERLAY_REF/)
-2. DXF read once via `ezdxf.readfile()`, doc object shared across all stages
-3. Layout picker (if 2+ layouts)
-4. Viewport bounds computed from selected layout's VIEWPORT entities
-5. Geometry extraction with pre-filter (LINE/CIRCLE/ARC/etc. filtered by viewport bounds; INSERT/HATCH/DIMENSION always extracted since explosion is unpredictable)
-6. Post-extraction viewport filter via `filter_geoms_by_bounds()` (catches INSERT sub-entities outside viewport)
-7. Paper layout entities (gridlines, title block) transformed to model-space and merged
-8. Entity type dialog — shows actual post-filter geometry counts by kind (lines, polylines, circles, arcs, text); user can deselect types
-9. Preview rebuild
+1. DWG only: ODA converts DWG → DXF (or uses cached DXF from UNDERLAY_REF/)
+2. DXF read once via `ezdxf.readfile()` (or `_sanitize_dxf()` + `readfile()` for plain DXF), doc stored as `self._doc`
+3. `list_layouts(doc)` enumerates layouts; combo shown if 2+ layouts, deferred extraction
+4. User picks layout (or auto-select for single-layout files)
+5. `_extract_for_layout(layout_name)` runs the unified extraction pipeline:
+   a. Viewport bounds computed from selected layout's VIEWPORT entities (paper layouts only)
+   b. Geometry extraction with entity-level pre-filter (LINE/CIRCLE/ARC/etc. filtered by viewport bounds; INSERT/HATCH/DIMENSION always pass)
+   c. Post-extraction viewport filter via `filter_geoms_by_bounds()` (catches INSERT sub-entities outside viewport)
+   d. Paper layout entities transformed to model-space and merged (text size scaled by `ps_to_ms`, alignment preserved)
+   e. DWG only, first extraction: entity type dialog shown (geometry counts by kind; user can deselect types)
+6. Layers populated from combined geometry, preview rebuilt
 
-### 10B.5 Underlay Record
+### 10B.5 Paper-Space Entity Transform
 
-DWG underlays are stored with `type="dwg"`, preserving the original `.dwg` path and layout name. The `layout` field is included in the cache key so multiple layouts from the same DWG file get independent cache entries.
+`extract_layout_entities()` transforms paper-space annotations to model-space coordinates using the viewport's scale mapping (`ps_to_ms = view_height / paper_height`):
 
-### 10B.6 Refresh & Reload
+- **Position:** `model_x = (paper_x - vp_paper_cx) * ps_to_ms + vp_model_cx`
+- **Text size:** `model_size = paper_size * ps_to_ms`
+- **Circle/arc size:** Radius and bounding box dimensions scaled by `ps_to_ms`
+- **Multiline MTEXT:** `plain_text()` preserves `\n` line breaks; renderer splits and renders each line at correct vertical offset
+- **Text alignment:** MTEXT `attachment_point` (1-9) mapped to `halign`/`valign`; renderer uses `QFontMetricsF` to compute baseline-left offsets for center/right/middle alignments
+
+### 10B.6 Underlay Record
+
+DWG underlays are stored with `type="dwg"`, DXF with `type="dxf"`. Both preserve the layout name. The `layout` field is included in the cache key so multiple layouts from the same file get independent cache entries. Empty layout string means Model space.
+
+### 10B.7 Refresh & Reload
 
 - **Cache hit:** Geometry loaded from `.fpd.cache/` (fast)
-- **Cache miss:** ODA re-converts DWG → DXF, geometry re-extracted
+- **Cache miss (DWG):** ODA re-converts DWG → DXF, geometry re-extracted
+- **Cache miss (DXF):** Geometry re-extracted from source file
+- **Layout:** Saved layout name used silently for re-extraction; falls back to Model if layout no longer exists
 - **`_ensure_underlay_caches`:** On save, DWG underlays trigger ODA conversion if cache entry is missing
 
 ---
