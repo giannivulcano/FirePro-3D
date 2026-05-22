@@ -1397,6 +1397,15 @@ class UnderlayImportDialog(QDialog):
             by = self._base_y_edit.value_mm() if hasattr(self, "_base_y_edit") else 0.0
             group.setTransformOriginPoint(bx, by)
             group.setRotation(rotation)
+            # Add invisible individual items for snap detection.
+            # The batched QPainterPaths handle rendering; these items
+            # have NoPen/NoBrush so they draw nothing but participate
+            # in Qt's spatial index for the snap engine.
+            for g in self._all_geoms:
+                snap_item = self._create_snap_item(g)
+                if snap_item is not None:
+                    self._preview_scene.addItem(snap_item)
+                    group.addToGroup(snap_item)
             self._preview_geom_group = group
 
         self._draw_base_marker()
@@ -1463,6 +1472,63 @@ class UnderlayImportDialog(QDialog):
                     elif ha == 2: # right
                         lx -= fm.horizontalAdvance(line)
                     path.addText(lx, base_y + i * line_h, f, line)
+
+    @staticmethod
+    def _create_snap_item(g: dict) -> QGraphicsItem | None:
+        """Create an invisible item for snap detection from a geometry dict.
+
+        Mirrors ``ModelSpace._geom_to_item()`` item types so the snap
+        engine's ``_collect()`` and ``_geometric_snaps()`` handle them
+        identically to plan-view underlays.  Text is skipped (N/A per
+        snap spec S5).
+        """
+        kind = g.get("kind")
+        no_pen = QPen(Qt.PenStyle.NoPen)
+        no_brush = QBrush(Qt.BrushStyle.NoBrush)
+
+        if kind == "line":
+            item = QGraphicsLineItem(g["x1"], g["y1"], g["x2"], g["y2"])
+            item.setPen(no_pen)
+            return item
+
+        if kind == "circle":
+            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
+            item.setPen(no_pen)
+            item.setBrush(no_brush)
+            return item
+
+        if kind == "arc":
+            path = QPainterPath()
+            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
+            path.arcMoveTo(rect, g["start"])
+            path.arcTo(rect, g["start"], g["span"])
+            item = QGraphicsPathItem(path)
+            item.setPen(no_pen)
+            return item
+
+        if kind == "ellipse_full":
+            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
+            item.setPen(no_pen)
+            item.setBrush(no_brush)
+            item.setPos(g["pos_cx"], g["pos_cy"])
+            return item
+
+        if kind == "path_points":
+            pts = g.get("points", [])
+            if len(pts) < 2:
+                return None
+            path = QPainterPath()
+            path.moveTo(pts[0][0], pts[0][1])
+            for p in pts[1:]:
+                path.lineTo(p[0], p[1])
+            if g.get("closed") and len(pts) >= 3:
+                path.closeSubpath()
+            item = QGraphicsPathItem(path)
+            item.setPen(no_pen)
+            return item
+
+        # "text" and unknown kinds -- no snap targets
+        return None
 
     def _add_preview_geom(self, g: dict, pen: QPen) -> QGraphicsItem | None:
         kind = g.get("kind")
