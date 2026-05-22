@@ -96,6 +96,7 @@ class _SplashScreen(QWidget):
 
         bar_container = QWidget()
         bar_container.setFixedHeight(28)
+        bar_container.setStyleSheet("background: #ffffff; border-radius: 4px;")
         stack = QStackedLayout(bar_container)
         stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
         stack.setContentsMargins(0, 0, 0, 0)
