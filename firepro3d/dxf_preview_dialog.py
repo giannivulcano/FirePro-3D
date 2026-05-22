@@ -1483,7 +1483,11 @@ class UnderlayImportDialog(QDialog):
         snap spec S5).
         """
         kind = g.get("kind")
-        no_pen = QPen(Qt.PenStyle.NoPen)
+        # Transparent cosmetic pen — draws nothing visible but gives
+        # Qt a non-degenerate boundingRect (NoPen produces zero-width/
+        # height rects that scene.items() silently skips).
+        no_pen = QPen(QColor(0, 0, 0, 0), 0)
+        no_pen.setCosmetic(True)
         no_brush = QBrush(Qt.BrushStyle.NoBrush)
 
         if kind == "line":

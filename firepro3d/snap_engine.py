@@ -44,7 +44,6 @@ from .wall import WallSegment
 
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
 SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
-_PHASE4_MAX_ITEMS = 64      # skip phase-4 intersection pairing above this item count
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 # Geometry primitive epsilons (used in snap math helpers)
@@ -254,12 +253,10 @@ class SnapEngine:
         # Phase 3 — Gridline point + edge snaps
         self._check_gridline_snaps(ctx, gl_items)
 
-        # Phase 4 — Geometry-to-geometry intersections (skip when search
-        # rect captures too many items — O(n²) pairing is not useful then)
-        _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+        # Phase 4 — Geometry-to-geometry intersections
+        # (_PHASE4_MAX_SEGMENTS inside the method caps the O(n²) pairing)
         if self.snap_intersection:
-            if len(scene.items(search_rect, _bbox)) <= _PHASE4_MAX_ITEMS:
-                self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
+            self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
 
         return ctx.best_result
 
@@ -283,13 +280,14 @@ class SnapEngine:
 
             parent = item.parentItem()
             if parent is not None:
-                # Children of underlay groups — collect snaps.
-                # Skip if parent has a pre-computed snap grid (batched
-                # paths); the grid is queried on the group item below.
+                # Children of underlay groups — collect + geometric snaps
                 if (isinstance(parent, QGraphicsItemGroup)
                         and parent.data(0) in _underlay_tags):
                     for snap_type, scene_pt, name in self._collect(item):
                         ctx.check(snap_type, scene_pt, item, name)
+                    for snap_type, pt in self._geometric_snaps(
+                            ctx.cursor, item):
+                        ctx.check(snap_type, pt, item)
                 continue
 
             if item.zValue() > 150:
@@ -417,6 +415,9 @@ class SnapEngine:
             elif isinstance(item, QGraphicsPathItem):
                 # Generic path items (DXF imports). Skip HatchItem —
                 # intentionally all-N/A per snap spec §5.
+                # Filter each segment against the search rect — polyline
+                # bounding rects are large but only a few segments are
+                # actually near the cursor.
                 if not isinstance(item, _hatch_type):
                     path = item.path()
                     n = path.elementCount()
@@ -425,11 +426,16 @@ class SnapEngine:
                         if e2.type == QPainterPath.ElementType.MoveToElement:
                             continue  # sub-path boundary, no segment
                         e1 = path.elementAt(j)
-                        _segments.append((
-                            item.mapToScene(QPointF(e1.x, e1.y)),
-                            item.mapToScene(QPointF(e2.x, e2.y)),
-                            item,
-                        ))
+                        p1 = item.mapToScene(QPointF(e1.x, e1.y))
+                        p2 = item.mapToScene(QPointF(e2.x, e2.y))
+                        seg_r = QRectF(
+                            min(p1.x(), p2.x()) - 0.5,
+                            min(p1.y(), p2.y()) - 0.5,
+                            abs(p2.x() - p1.x()) + 1.0,
+                            abs(p2.y() - p1.y()) + 1.0,
+                        )
+                        if search_rect.intersects(seg_r):
+                            _segments.append((p1, p2, item))
 
         # Bail out if segment extraction exploded (batched DXF paths
         # have hundreds of segments per item; O(n²) pairing on 3000+
@@ -458,10 +464,6 @@ class SnapEngine:
         for i, (sa1, sa2, src1) in enumerate(_segments):
             for sb1, sb2, src2 in _segments[i + 1:]:
                 if src1 is src2:
-                    # Same-parent intersection filter — §6.3 Change A,
-                    # already present in the original implementation.
-                    # Dropped candidates are wall-internal face×face
-                    # crossings, rectangle edge self-crossings, etc.
                     continue
                 ix = self._line_line_intersect(sa1, sa2, sb1, sb2)
                 if ix is not None:
