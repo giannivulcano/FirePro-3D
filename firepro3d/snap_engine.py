@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore  import QLineF, QPointF, QRectF
+from PyQt6.QtCore  import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtGui   import QPainterPath, QTransform
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
@@ -45,6 +45,7 @@ from .wall import WallSegment
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
 SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
 _PHASE4_MAX_ITEMS = 64      # skip phase-4 intersection pairing above this item count
+_PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 # Geometry primitive epsilons (used in snap math helpers)
 _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
@@ -255,8 +256,9 @@ class SnapEngine:
 
         # Phase 4 — Geometry-to-geometry intersections (skip when search
         # rect captures too many items — O(n²) pairing is not useful then)
+        _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
         if self.snap_intersection:
-            if len(scene.items(search_rect)) <= _PHASE4_MAX_ITEMS:
+            if len(scene.items(search_rect, _bbox)) <= _PHASE4_MAX_ITEMS:
                 self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
 
         return ctx.best_result
@@ -272,13 +274,18 @@ class SnapEngine:
 
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
-        for item in scene.items(search_rect):
+        _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+        _items = scene.items(search_rect, _bbox)
+
+        for item in _items:
             if exclude is not None and item is exclude:
                 continue
 
             parent = item.parentItem()
             if parent is not None:
-                # Children of underlay groups — collect snaps
+                # Children of underlay groups — collect snaps.
+                # Skip if parent has a pre-computed snap grid (batched
+                # paths); the grid is queried on the group item below.
                 if (isinstance(parent, QGraphicsItemGroup)
                         and parent.data(0) in _underlay_tags):
                     for snap_type, scene_pt, name in self._collect(item):
@@ -294,8 +301,6 @@ class SnapEngine:
             if self.skip_pipes and isinstance(item, Pipe):
                 continue
 
-            # DXF/PDF underlay groups — skip the group itself;
-            # children are yielded directly by scene.items() above.
             if (isinstance(item, QGraphicsItemGroup)
                     and item.data(0) in _underlay_tags):
                 continue
@@ -357,14 +362,14 @@ class SnapEngine:
             sceneBoundingRect checks — Qt correctly handles cosmetic
             pens and group transforms that boundingRect misses.
             """
-            for item in scene.items(search_rect):
+            _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+            for item in scene.items(search_rect, _bbox):
                 if exclude is not None and item is exclude:
                     continue
                 if item.zValue() > 150:
                     continue
                 parent = item.parentItem()
                 if parent is not None:
-                    # Yield children of underlay groups directly
                     if (isinstance(parent, QGraphicsItemGroup)
                             and parent.data(0) in _underlay_tags):
                         yield item
@@ -425,6 +430,12 @@ class SnapEngine:
                             item.mapToScene(QPointF(e2.x, e2.y)),
                             item,
                         ))
+
+        # Bail out if segment extraction exploded (batched DXF paths
+        # have hundreds of segments per item; O(n²) pairing on 3000+
+        # segments freezes the UI).
+        if len(_segments) > _PHASE4_MAX_SEGMENTS:
+            return
 
         # Endpoint protection band — §6.3 Change B. Intersection
         # candidates within this radius of any in-tolerance endpoint

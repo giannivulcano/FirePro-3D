@@ -287,13 +287,31 @@ class _PreviewView(QGraphicsView):
                 QPoint(int(x) - s, int(y) + s),
             ])
             painter.drawPolygon(poly)
-        elif marker == "x_cross":
+        elif marker == "diamond":
+            from PyQt6.QtGui import QPolygon
+            from PyQt6.QtCore import QPoint
+            poly = QPolygon([
+                QPoint(int(x),     int(y) - s),
+                QPoint(int(x) + s, int(y)),
+                QPoint(int(x),     int(y) + s),
+                QPoint(int(x) - s, int(y)),
+            ])
+            painter.drawPolygon(poly)
+        elif marker == "cross":
             painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-            painter.drawLine(int(x) - s, int(y) + s, int(x) + s, int(y) - s)
-        else:
-            # Fallback: crosshair
-            painter.drawLine(int(x) - s, int(y), int(x) + s, int(y))
-            painter.drawLine(int(x), int(y) - s, int(x), int(y) + s)
+            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+        elif marker == "right_angle":
+            painter.drawLine(int(x) - s, int(y), int(x), int(y))
+            painter.drawLine(int(x), int(y), int(x), int(y) - s)
+            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        elif marker == "tangent_circle":
+            painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
+            painter.drawLine(int(x) - s - 2, int(y) + s,
+                             int(x) + s + 2, int(y) + s)
+        elif marker == "x_cross":
+            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+            painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
+            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
         painter.restore()
 
 
