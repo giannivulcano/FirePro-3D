@@ -51,7 +51,7 @@ Underlays are the primary reference material for fire protection design — ever
 | Undoable underlay operations | Performance concern (serializing large geometry groups on every undo capture); underlays change infrequently |
 | ScaleManager cleanup | Stable, out of scope; not broken |
 | Separate underlay manager panel | Browser tree integration covers management needs; revisit if it proves insufficient |
-| OSNAP in import dialogs | Tracked separately in snap engine roadmap |
+| ~~OSNAP in import dialogs~~ | **Implemented 2026-05-22.** Hybrid architecture: invisible individual items (transparent cosmetic pen) alongside batched QPainterPaths for rendering. Snap engine processes preview items identically to plan-view underlays. Supports endpoint, midpoint, center, quadrant, nearest, perpendicular, intersection. See `docs/superpowers/plans/2026-05-22-hybrid-snap-preview.md`. |
 
 ---
 
