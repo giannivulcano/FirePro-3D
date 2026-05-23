@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
                               QHBoxLayout, QVBoxLayout, QLabel, QLineEdit)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
-                          QCursor, QDoubleValidator, QImage, QPolygonF)
+                          QCursor, QDoubleValidator, QImage, QPolygonF,
+                          QFontMetricsF)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from .node import Node
 from .pipe import Pipe
@@ -2357,6 +2358,289 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Tag each item with its DXF layer so LayerManager can toggle visibility
         item.setData(1, layer)
         return item
+
+    @staticmethod
+    def _append_geom_to_path(path: QPainterPath, g: dict):
+        """Append a single geometry dict to a batched QPainterPath.
+
+        Mirrors UnderlayImportDialog._append_geom_to_path — used for
+        batched underlay rendering where one QPainterPath per layer
+        replaces one QGraphicsItem per geometry.
+        """
+        kind = g.get("kind")
+        if kind == "line":
+            path.moveTo(g["x1"], g["y1"])
+            path.lineTo(g["x2"], g["y2"])
+        elif kind == "circle":
+            path.addEllipse(g["x"], g["y"], g["w"], g["h"])
+        elif kind == "arc":
+            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
+            path.arcMoveTo(rect, g["start"])
+            path.arcTo(rect, g["start"], g["span"])
+        elif kind == "ellipse_full":
+            path.addEllipse(
+                g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
+                g["w"], g["h"])
+        elif kind == "path_points":
+            pts = g["points"]
+            if len(pts) < 2:
+                return
+            path.moveTo(pts[0][0], pts[0][1])
+            for p in pts[1:]:
+                path.lineTo(p[0], p[1])
+            if g.get("closed") and len(pts) >= 3:
+                path.closeSubpath()
+        elif kind == "text":
+            txt = g.get("text", "")
+            if txt:
+                f = QFont("Arial")
+                f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+                f.setPointSizeF(max(0.5, g.get("size", 6)))
+                tx, ty = g["x"], g["y"]
+                ha = g.get("halign", 0)
+                va = g.get("valign", 3)
+                lines = txt.split("\n")
+                fm = QFontMetricsF(f)
+                line_h = fm.height()
+                total_h = line_h * len(lines)
+                if va == 0:       # top
+                    base_y = ty + fm.ascent()
+                elif va == 1:     # middle
+                    base_y = ty + fm.ascent() - total_h / 2
+                elif va == 2:     # bottom
+                    base_y = ty + fm.ascent() - total_h
+                else:             # baseline (single-line default)
+                    base_y = ty
+                for i, line in enumerate(lines):
+                    if not line.strip():
+                        continue
+                    lx = tx
+                    if ha == 1:   # center
+                        lx -= fm.horizontalAdvance(line) / 2
+                    elif ha == 2: # right
+                        lx -= fm.horizontalAdvance(line)
+                    path.addText(lx, base_y + i * line_h, f, line)
+
+    @staticmethod
+    def _create_snap_item(g: dict, layer: str = "0") -> QGraphicsItem | None:
+        """Create an invisible item for snap detection from a geometry dict.
+
+        Mirrors UnderlayImportDialog._create_snap_item.  Uses a
+        transparent cosmetic pen (not NoPen) so Qt's spatial index
+        reports a non-degenerate boundingRect.  Text is skipped.
+
+        The item is tagged with ``data(1) = layer`` so
+        ``_apply_underlay_hidden_layers`` can hide snap targets on
+        hidden layers.
+        """
+        kind = g.get("kind")
+        no_pen = QPen(QColor(0, 0, 0, 0), 0)
+        no_pen.setCosmetic(True)
+        no_brush = QBrush(Qt.BrushStyle.NoBrush)
+
+        item: QGraphicsItem | None = None
+
+        if kind == "line":
+            item = QGraphicsLineItem(g["x1"], g["y1"], g["x2"], g["y2"])
+            item.setPen(no_pen)
+        elif kind == "circle":
+            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
+            item.setPen(no_pen)
+            item.setBrush(no_brush)
+        elif kind == "arc":
+            path = QPainterPath()
+            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
+            path.arcMoveTo(rect, g["start"])
+            path.arcTo(rect, g["start"], g["span"])
+            item = QGraphicsPathItem(path)
+            item.setPen(no_pen)
+        elif kind == "ellipse_full":
+            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
+            item.setPen(no_pen)
+            item.setBrush(no_brush)
+            item.setPos(g["pos_cx"], g["pos_cy"])
+        elif kind == "path_points":
+            pts = g.get("points", [])
+            if len(pts) < 2:
+                return None
+            path = QPainterPath()
+            path.moveTo(pts[0][0], pts[0][1])
+            for p in pts[1:]:
+                path.lineTo(p[0], p[1])
+            if g.get("closed") and len(pts) >= 3:
+                path.closeSubpath()
+            item = QGraphicsPathItem(path)
+            item.setPen(no_pen)
+
+        if item is not None:
+            item.setData(1, layer)
+        return item
+
+    def _build_batched_underlay_group(
+        self,
+        geom_list: list[dict],
+        color: QColor,
+        line_weight: float,
+    ) -> tuple[QGraphicsItemGroup, list[str]] | None:
+        """Build a batched underlay group from geometry dicts.
+
+        Instead of one QGraphicsItem per geometry (which freezes on large
+        files), batches all geometry into one QPainterPath per DXF layer.
+        Each layer gets up to two path items: one for stroked geometry
+        (lines, arcs, circles, polylines) and one for filled text.
+
+        Returns ``(group, sorted_layer_list)`` or ``None`` if no items.
+        """
+        # Group geometry by layer
+        by_layer: dict[str, list[dict]] = {}
+        for g in geom_list:
+            layer = g.get("layer", "0")
+            by_layer.setdefault(layer, []).append(g)
+
+        pen = QPen(color, line_weight)
+        pen.setCosmetic(True)
+
+        items: list[QGraphicsItem] = []
+
+        for layer, geoms in by_layer.items():
+            geom_path = QPainterPath()
+            text_path = QPainterPath()
+
+            for g in geoms:
+                if g.get("kind") == "text":
+                    self._append_geom_to_path(text_path, g)
+                else:
+                    self._append_geom_to_path(geom_path, g)
+
+            if not geom_path.isEmpty():
+                item = QGraphicsPathItem(geom_path)
+                item.setPen(pen)
+                item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                item.setZValue(Z_UNDERLAY)
+                item.setData(1, layer)  # layer tag for visibility toggling
+                items.append(item)
+
+            if not text_path.isEmpty():
+                item = QGraphicsPathItem(text_path)
+                item.setPen(QPen(Qt.PenStyle.NoPen))
+                item.setBrush(QBrush(color))
+                item.setZValue(Z_UNDERLAY)
+                item.setData(1, layer)
+                items.append(item)
+
+        if not items:
+            return None
+
+        old_method = self.itemIndexMethod()
+        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+        for item in items:
+            self.addItem(item)
+        group = self.createItemGroup(items)
+        group.setZValue(Z_UNDERLAY)
+        self.setItemIndexMethod(old_method)
+
+        all_layers = sorted(by_layer.keys())
+        return group, all_layers
+
+    # Deferred snap item creation — batch size per timer tick
+    _SNAP_BATCH_SIZE = 500
+
+    def _start_deferred_snap_items(
+        self,
+        group: QGraphicsItemGroup,
+        geom_list: list[dict],
+        record: Underlay,
+    ):
+        """Begin deferred creation of invisible snap items for an underlay.
+
+        Items are created in batches of ``_SNAP_BATCH_SIZE`` per timer
+        tick (~16 ms) so the UI stays responsive.  The underlay is
+        already visible (batched render paths); snap targets ramp up
+        over the next few seconds.
+        """
+        # Cancel any in-progress deferred snap for this group
+        self._cancel_deferred_snap(group)
+
+        hidden_set = set(record.hidden_layers) if record.hidden_layers else set()
+
+        # Store state for the timer callback
+        if not hasattr(self, "_deferred_snap_jobs"):
+            self._deferred_snap_jobs: dict[int, dict] = {}
+
+        job = {
+            "group": group,
+            "geom_list": geom_list,
+            "index": 0,
+            "hidden_set": hidden_set,
+            "timer": None,
+        }
+        job_id = id(group)
+
+        timer = QTimer(self)
+        timer.setInterval(16)  # ~60 fps
+        timer.timeout.connect(lambda: self._snap_timer_tick(job_id))
+        job["timer"] = timer
+
+        self._deferred_snap_jobs[job_id] = job
+
+        # Disable BSP during bulk snap-item insertion
+        self._deferred_snap_old_index = self.itemIndexMethod()
+        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
+
+        timer.start()
+
+    def _snap_timer_tick(self, job_id: int):
+        """Process one batch of snap items for a deferred job."""
+        jobs = getattr(self, "_deferred_snap_jobs", {})
+        job = jobs.get(job_id)
+        if job is None:
+            return
+
+        group = job["group"]
+        geom_list = job["geom_list"]
+        hidden_set = job["hidden_set"]
+        idx = job["index"]
+        end = min(idx + self._SNAP_BATCH_SIZE, len(geom_list))
+
+        # Guard: group may have been removed from scene
+        if group.scene() is not self:
+            self._cancel_deferred_snap(group)
+            return
+
+        for i in range(idx, end):
+            g = geom_list[i]
+            layer = g.get("layer", "0")
+            snap_item = self._create_snap_item(g, layer)
+            if snap_item is not None:
+                self.addItem(snap_item)
+                group.addToGroup(snap_item)
+                if layer in hidden_set:
+                    snap_item.setVisible(False)
+
+        job["index"] = end
+
+        if end >= len(geom_list):
+            # Done — clean up
+            self._cancel_deferred_snap(group)
+            # Restore BSP indexing if no other jobs remain
+            if not getattr(self, "_deferred_snap_jobs", {}):
+                old = getattr(self, "_deferred_snap_old_index",
+                              QGraphicsScene.ItemIndexMethod.BspTreeIndex)
+                self.setItemIndexMethod(old)
+
+    def _cancel_deferred_snap(self, group: QGraphicsItemGroup):
+        """Cancel deferred snap item creation for a specific underlay group."""
+        jobs = getattr(self, "_deferred_snap_jobs", {})
+        job_id = id(group)
+        job = jobs.pop(job_id, None)
+        if job is not None and job["timer"] is not None:
+            job["timer"].stop()
+            job["timer"].deleteLater()
+        # Restore BSP indexing if no other jobs remain
+        if not jobs:
+            old = getattr(self, "_deferred_snap_old_index",
+                          QGraphicsScene.ItemIndexMethod.BspTreeIndex)
+            self.setItemIndexMethod(old)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
         progress.close()
