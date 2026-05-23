@@ -2220,112 +2220,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 cache[c] = (p, qc)
         return cache
 
-    def _geom_to_item(self, geom: dict, pen: QPen, color: QColor,
-                      pen_cache: dict | None = None):
-        """Convert a geometry dict (from DxfImportWorker) into a QGraphicsItem.
-        Must be called on the main thread.
-
-        If *pen_cache* is provided it maps ``'#rrggbb'`` → ``(QPen, QColor)``
-        and is used for per-entity colouring from the DXF source.
-        """
-        kind = geom["kind"]
-        layer = geom.get("layer", "0")
-
-        # Resolve per-entity colour (falls back to uniform pen/color)
-        geom_hex = geom.get("color")
-        if geom_hex and pen_cache is not None and geom_hex in pen_cache:
-            item_pen, item_color = pen_cache[geom_hex]
-        else:
-            item_pen, item_color = pen, color
-
-        if kind == "line":
-            item = QGraphicsLineItem(geom["x1"], geom["y1"], geom["x2"], geom["y2"])
-            item.setPen(item_pen)
-            item.setZValue(Z_UNDERLAY)
-
-        elif kind == "circle":
-            item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
-            item.setPen(item_pen)
-            item.setZValue(Z_UNDERLAY)
-
-        elif kind == "arc":
-            path = QPainterPath()
-            rect = QRectF(geom["rx"], geom["ry"], geom["rw"], geom["rh"])
-            path.arcMoveTo(rect, geom["start"])
-            path.arcTo(rect, geom["start"], geom["span"])
-            item = QGraphicsPathItem(path)
-            item.setPen(item_pen)
-            item.setZValue(Z_UNDERLAY)
-
-        elif kind == "ellipse_full":
-            item = QGraphicsEllipseItem(geom["x"], geom["y"], geom["w"], geom["h"])
-            item.setPen(item_pen)
-            item.setZValue(Z_UNDERLAY)
-            item.setPos(geom["pos_cx"], geom["pos_cy"])
-            item.setRotation(geom["rotation"])
-
-        elif kind == "path_points":
-            points = geom["points"]
-            if len(points) < 2:
-                return None
-            path = QPainterPath()
-            path.moveTo(points[0][0], points[0][1])
-            for pt in points[1:]:
-                path.lineTo(pt[0], pt[1])
-            if geom.get("closed"):
-                path.closeSubpath()
-            item = QGraphicsPathItem(path)
-            item.setPen(item_pen)
-            item.setZValue(Z_UNDERLAY)
-
-        elif kind == "text":
-            # Render text as QPainterPath to avoid DirectWrite font
-            # engine warnings (QWindowsFontEngineDirectWrite) that spam
-            # stderr and freeze the app on every repaint.
-            f = QFont("Arial")
-            f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-            if "size" in geom:
-                f.setPointSizeF(max(0.5, geom["size"]))
-            path = QPainterPath()
-            path.addText(0, 0, f, geom["text"])
-
-            # Offset path so the DXF anchor point aligns correctly.
-            # addText(0,0) places text at left-baseline by default.
-            ha = geom.get("halign", 0)   # 0=left, 1=center, 2=right
-            va = geom.get("valign", 3)   # 0=top, 1=middle, 2=bottom, 3=baseline
-            if ha != 0 or va != 3:
-                br = path.boundingRect()
-                dx = 0.0
-                if ha == 1:
-                    dx = -(br.left() + br.right()) / 2
-                elif ha == 2:
-                    dx = -br.right()
-                dy = 0.0
-                if va == 0:      # top
-                    dy = -br.top()
-                elif va == 1:    # middle
-                    dy = -(br.top() + br.bottom()) / 2
-                elif va == 2:    # bottom
-                    dy = -br.bottom()
-                # va == 3 (baseline): dy stays 0
-                path.translate(dx, dy)
-
-            item = QGraphicsPathItem(path)
-            item.setPos(geom["x"], geom["y"])
-            rotation = geom.get("rotation", 0)
-            if rotation:
-                item.setRotation(rotation)
-            item.setBrush(QBrush(item_color))
-            item.setPen(QPen(Qt.PenStyle.NoPen))
-            item.setZValue(Z_UNDERLAY)
-
-        else:
-            return None
-
-        # Tag each item with its DXF layer so LayerManager can toggle visibility
-        item.setData(1, layer)
-        return item
-
     @staticmethod
     def _append_geom_to_path(path: QPainterPath, g: dict):
         """Append a single geometry dict to a batched QPainterPath.
@@ -2770,7 +2664,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         Mirrors the DXF reload path: apply stored import transform
         (scale + base-point shift), convert to QGraphicsItems via
-        ``_geom_to_item()``, group, and register the underlay.
+        ``_build_batched_underlay_group()``, and register the underlay.
         """
         # Write geometry cache (raw, pre-transform)
         self._write_underlay_cache(
