@@ -2015,33 +2015,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             transformed.append(t)
 
         color, lw = QColor("#c0c0c0"), 1.5
-        pen = QPen(color, lw)
-        pen.setCosmetic(True)
-        pen_cache = None  # uniform colour for underlay
 
-        items = []
-        for geom in transformed:
-            item = self._geom_to_item(geom, pen, color, pen_cache)
-            if item is not None:
-                items.append(item)
-
-        if not items:
+        result = self._build_batched_underlay_group(transformed, color, lw)
+        if result is None:
             self.set_mode(None)
             return
 
-        old_method = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-        for item in items:
-            self.addItem(item)
-        group = self.createItemGroup(items)
-        group.setZValue(Z_UNDERLAY)
+        group, all_layers = result
         group.setPos(insert_pt)
         file_type = getattr(params, "file_type", "dxf")
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
-        all_layers = sorted({g.get("layer", "0") for g in transformed})
         group.setData(2, all_layers)
-        self.setItemIndexMethod(old_method)
 
         rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
@@ -2059,9 +2044,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             layout=getattr(params, "layout", ""),
         )
         self._apply_underlay_display(group, record)
+        self._apply_underlay_hidden_layers(group, record)
         self.underlays.append((record, group))
         self.underlaysChanged.emit()
         self.push_undo_state()
+
+        # Start deferred snap item creation (non-blocking)
+        self._start_deferred_snap_items(group, transformed, record)
+
         self.set_mode(None)
 
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
@@ -2116,8 +2106,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Receives raw geometry dicts from the worker and creates QGraphicsItems
         on the main thread (required by Qt)."""
         params = self._dxf_import_params
-        progress.setLabelText(f"Building {len(geom_list)} items…")
-        QApplication.processEvents()
 
         if not geom_list:
             progress.close()
@@ -2133,11 +2121,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         color = params.get("color", QColor("#c0c0c0"))
         lw = 1.5
-        pen = QPen(color, lw)
-        pen.setCosmetic(True)
-
-        # Build per-colour pen cache from geometry dicts
-        pen_cache = None  # uniform colour for underlay
 
         # Apply import transform if reloading from a record with baked params
         record = params.get("_record")
@@ -2180,28 +2163,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        items = []
-        for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color, pen_cache)
-            if item is not None:
-                items.append(item)
+        result = self._build_batched_underlay_group(geom_list, color, lw)
 
-        if not items:
+        if result is None:
             progress.close()
             self._cleanup_dxf_worker()
             return
 
-        progress.setLabelText(f"Adding {len(items)} items to scene…")
-        QApplication.processEvents()
-
-        # Temporarily disable BSP indexing for bulk insertion
-        old_method = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-
-        for item in items:
-            self.addItem(item)
-        group = self.createItemGroup(items)
-        group.setZValue(Z_UNDERLAY)
+        group, all_layers = result
         group.setPos(params["x"], params["y"])
         record = params["_record"] or Underlay(
             type=params.get("file_type", "dxf"), path=params["file_path"],
@@ -2215,17 +2184,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
 
-        # Apply saved display settings
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
-        # Store sorted layer list on the group for the LayerManager
-        all_layers = sorted({geom.get("layer", "0") for geom in geom_list})
         group.setData(2, all_layers)
 
         self.underlays.append((record, group))
-
-        # Restore indexing
-        self.setItemIndexMethod(old_method)
 
         progress.close()
         self._cleanup_dxf_worker()
@@ -2238,7 +2201,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self.underlaysChanged.emit()
         self.push_undo_state()
-        self._show_status(f"Imported DXF: {params['file_path']} ({len(items)} items)")
+
+        # Start deferred snap item creation (non-blocking)
+        self._start_deferred_snap_items(group, geom_list, record)
+
+        self._show_status(f"Imported DXF: {params['file_path']}")
 
     @staticmethod
     def _build_pen_cache(geom_list: list[dict], line_width: float) -> dict:
@@ -2812,8 +2779,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         color = QColor("#c0c0c0")
         lw = 1.5
-        pen = QPen(color, lw)
-        pen.setCosmetic(True)
 
         # Apply import transform if reloading from a record with baked params
         if _record is not None and (_record.import_scale != 1.0
@@ -2855,24 +2820,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        pen_cache = None  # uniform colour for underlay
+        result = self._build_batched_underlay_group(geom_list, color, lw)
 
-        items = []
-        for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color, pen_cache)
-            if item is not None:
-                items.append(item)
-
-        if not items:
+        if result is None:
             log.warning("PDF vector extraction yielded 0 items for %s", file_path)
             return
 
-        old_method = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-        for item in items:
-            self.addItem(item)
-        group = self.createItemGroup(items)
-        group.setZValue(Z_UNDERLAY)
+        group, all_layers = result
         group.setPos(x, y)
         group.setFlags(
             QGraphicsItem.GraphicsItemFlag.ItemIsSelectable |
@@ -2890,16 +2844,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
-        all_layers = sorted({g.get("layer", "0") for g in geom_list})
         group.setData(2, all_layers)
 
         self.underlays.append((record, group))
-
-        self.setItemIndexMethod(old_method)
         self.underlaysChanged.emit()
         self.push_undo_state()
+
+        # Start deferred snap item creation (non-blocking)
+        self._start_deferred_snap_items(group, geom_list, record)
+
         self._show_status(
-            f"Imported PDF '{file_path}' page {page} as vectors ({len(items)} items)")
+            f"Imported PDF '{file_path}' page {page} as vectors")
 
     # -------------------------------------------------------------------------
     # UNDERLAYS — MANAGEMENT
@@ -2972,6 +2927,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def remove_underlay(self, data: Underlay, item: QGraphicsItem):
         """Remove an underlay from the scene and the tracking list."""
+        # Cancel any in-progress deferred snap creation
+        if isinstance(item, QGraphicsItemGroup):
+            self._cancel_deferred_snap(item)
         pair = (data, item)
         if pair in self.underlays:
             self.underlays.remove(pair)
@@ -3013,6 +2971,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # DXF import is async (worker thread) — if we clean up after,
         # the duplicate check races with _on_dxf_finished appending.
         self.underlays = [(d, it) for d, it in self.underlays if d is not data]
+        if isinstance(item, QGraphicsItemGroup):
+            self._cancel_deferred_snap(item)
         if item.scene() is self:
             self.removeItem(item)
 
@@ -3989,39 +3949,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        # Build Qt items (same as _on_dxf_finished / _import_pdf_vectors)
+        # Build batched render items (same as _commit_place_import)
         color, lw = QColor("#c0c0c0"), 1.5
-        pen = QPen(color, lw)
-        pen.setCosmetic(True)
-        pen_cache = None  # uniform colour for underlay
 
-        items = []
-        for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color, pen_cache)
-            if item is not None:
-                items.append(item)
-
-        if not items:
+        result = self._build_batched_underlay_group(geom_list, color, lw)
+        if result is None:
             return False
 
-        old_method = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-        for item in items:
-            self.addItem(item)
-        group = self.createItemGroup(items)
-        group.setZValue(Z_UNDERLAY)
+        group, all_layers = result
         group.setPos(record.x, record.y)
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
-        all_layers = sorted({g.get("layer", "0") for g in geom_list})
         group.setData(2, all_layers)
         if source_mtime is None:
             group.setData(3, "source_missing")
-        self.setItemIndexMethod(old_method)
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
         self.underlays.append((record, group))
+
+        # Start deferred snap item creation (non-blocking)
+        self._start_deferred_snap_items(group, geom_list, record)
+
         return True
 
     def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
