@@ -155,6 +155,47 @@ def _sanitize_dxf(file_path: str) -> str:
     return tmp_path
 
 
+def _entity_in_viewport(ent, bounds) -> bool:
+    """Check if a DXF entity falls within viewport bounds.
+
+    INSERT/HATCH/DIMENSION always pass since their explosion produces
+    geometry at unpredictable locations.
+    """
+    etype = ent.dxftype()
+    if etype in ("INSERT", "HATCH", "DIMENSION"):
+        return True
+    try:
+        if etype == "LINE":
+            pts = [(ent.dxf.start[0], -ent.dxf.start[1]),
+                   (ent.dxf.end[0], -ent.dxf.end[1])]
+        elif etype in ("CIRCLE", "ARC"):
+            c = ent.dxf.center
+            pts = [(c.x, -c.y)]
+        elif etype == "ELLIPSE":
+            c = ent.dxf.center
+            pts = [(c.x, -c.y)]
+        elif etype in ("LWPOLYLINE", "POLYLINE"):
+            pts = [(p[0], -p[1]) for p in ent.get_points()]
+        elif etype == "SPLINE":
+            pts = [(cp[0], -cp[1]) for cp in ent.control_points]
+        elif etype in ("TEXT", "MTEXT"):
+            ins = ent.dxf.insert
+            pts = [(ins[0], -ins[1])]
+        else:
+            return True
+    except (AttributeError, IndexError, TypeError):
+        return True
+    if not pts:
+        return True
+    for bx0, by0, bx1, by1 in bounds:
+        if by0 > by1:
+            by0, by1 = by1, by0
+        for px, py in pts:
+            if bx0 <= px <= bx1 and by0 <= py <= by1:
+                return True
+    return False
+
+
 class DxfImportWorker(QThread):
     """
     Parses a DXF file and extracts geometry descriptors off the main thread.
@@ -171,10 +212,12 @@ class DxfImportWorker(QThread):
     finished_data = pyqtSignal(list)
     error = pyqtSignal(str)
 
-    def __init__(self, file_path: str, layers: list | None = None, parent=None):
+    def __init__(self, file_path: str, layers: list | None = None,
+                 layout: str = "", parent=None):
         super().__init__(parent)
         self.file_path = file_path
         self.layers = layers
+        self.layout = layout
         self._cancelled = False
 
     def cancel(self):
@@ -200,6 +243,13 @@ class DxfImportWorker(QThread):
             if clean_path != self.file_path and os.path.exists(clean_path):
                 os.remove(clean_path)
 
+        # ── Viewport bounds (paper layouts only) ────────────────────
+        vp_bounds = None
+        if self.layout and self.layout != "Model":
+            from .dwg_converter import get_viewport_bounds
+            vp_bounds = get_viewport_bounds(
+                layout_name=self.layout, doc=doc)
+
         # ── Build layer colour map ──────────────────────────────────
         self._layer_colors = _build_layer_colors(doc)
 
@@ -223,6 +273,10 @@ class DxfImportWorker(QThread):
                 if entity_layer not in self.layers:
                     continue
 
+            # Pre-filter by viewport bounds at entity level
+            if vp_bounds and not _entity_in_viewport(entity, vp_bounds):
+                continue
+
             try:
                 result = self._extract_geometry(entity)
                 if result is not None:
@@ -237,6 +291,19 @@ class DxfImportWorker(QThread):
             if i % 500 == 0 or i == total - 1:
                 self.progress.emit(i + 1, total)
 
+        # ── Post-extraction viewport filter ─────────────────────────
+        if vp_bounds:
+            from .dwg_converter import filter_geoms_by_bounds
+            geometries = filter_geoms_by_bounds(geometries, vp_bounds)
+
+        # ── Paper layout annotations ────────────────────────────────
+        if self.layout and self.layout != "Model":
+            from .dwg_converter import extract_layout_entities
+            layout_geoms = extract_layout_entities(
+                layout_name=self.layout, doc=doc)
+            if layout_geoms:
+                geometries.extend(layout_geoms)
+
         if skipped > 0:
             self.status.emit(f"Done — {len(geometries)} geometries, {skipped} skipped")
         else:
@@ -250,12 +317,13 @@ class DxfImportWorker(QThread):
 
     @classmethod
     def extract_file_sync(cls, file_path: str,
-                          layers: list[str] | None = None) -> list[dict]:
+                          layers: list[str] | None = None,
+                          layout: str = "") -> list[dict]:
         """Synchronous geometry extraction for cache population.
 
         Same logic as ``run()`` but without threading or progress signals.
-        Uses a minimal instance for ``_extract_geometry`` (which recurses
-        via ``self`` for INSERT/DIMENSION/HATCH entities).
+        When *layout* names a paper layout, applies viewport filtering
+        and merges paper-layout annotations.
         """
         clean_path = _sanitize_dxf(file_path)
         try:
@@ -265,9 +333,14 @@ class DxfImportWorker(QThread):
             if clean_path != file_path and os.path.exists(clean_path):
                 os.remove(clean_path)
 
-        # Create a minimal instance — _extract_geometry only uses self
-        # for recursive calls and _layer_colors, not for other state.
-        worker = cls(file_path, layers)
+        # Viewport bounds for paper layouts
+        vp_bounds = None
+        if layout and layout != "Model":
+            from .dwg_converter import get_viewport_bounds
+            vp_bounds = get_viewport_bounds(
+                layout_name=layout, doc=doc)
+
+        worker = cls(file_path, layers, layout=layout)
         worker._layer_colors = _build_layer_colors(doc)
         geoms = []
         for entity in msp:
@@ -276,6 +349,8 @@ class DxfImportWorker(QThread):
                                 if hasattr(entity.dxf, "get") else "0")
                 if entity_layer not in layers:
                     continue
+            if vp_bounds and not _entity_in_viewport(entity, vp_bounds):
+                continue
             try:
                 result = worker._extract_geometry(entity)
                 if result is not None:
@@ -285,6 +360,18 @@ class DxfImportWorker(QThread):
                         geoms.append(result)
             except Exception:
                 pass
+
+        # Post-filter + paper annotations
+        if vp_bounds:
+            from .dwg_converter import filter_geoms_by_bounds
+            geoms = filter_geoms_by_bounds(geoms, vp_bounds)
+        if layout and layout != "Model":
+            from .dwg_converter import extract_layout_entities
+            layout_geoms = extract_layout_entities(
+                layout_name=layout, doc=doc)
+            if layout_geoms:
+                geoms.extend(layout_geoms)
+
         return geoms
 
     # ─────────────────────────────────────────────────────────────────
