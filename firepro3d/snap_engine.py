@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .annotations import DimensionAnnotation, NoteAnnotation
+from .underlay_snap_index import UnderlaySnapIndex
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem,
     PolylineItem, ConstructionLine,
@@ -274,20 +275,22 @@ class SnapEngine:
         _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
         _items = scene.items(search_rect, _bbox)
 
+        _queried_underlays: set[int] = set()
+
         for item in _items:
             if exclude is not None and item is exclude:
                 continue
 
             parent = item.parentItem()
             if parent is not None:
-                # Children of underlay groups — collect + geometric snaps
+                # Child of an underlay group — the group-level handler
+                # below queries the snap index directly; skip children.
                 if (isinstance(parent, QGraphicsItemGroup)
                         and parent.data(0) in _underlay_tags):
-                    for snap_type, scene_pt, name in self._collect(item):
-                        ctx.check(snap_type, scene_pt, item, name)
-                    for snap_type, pt in self._geometric_snaps(
-                            ctx.cursor, item):
-                        ctx.check(snap_type, pt, item)
+                    gid = id(parent)
+                    if gid not in _queried_underlays:
+                        _queried_underlays.add(gid)
+                        self._query_underlay_snaps(ctx, parent, search_rect)
                 continue
 
             if item.zValue() > 150:
@@ -299,8 +302,13 @@ class SnapEngine:
             if self.skip_pipes and isinstance(item, Pipe):
                 continue
 
+            # Underlay group itself — query its snap index
             if (isinstance(item, QGraphicsItemGroup)
                     and item.data(0) in _underlay_tags):
+                gid = id(item)
+                if gid not in _queried_underlays:
+                    _queried_underlays.add(gid)
+                    self._query_underlay_snaps(ctx, item, search_rect)
                 continue
 
             for snap_type, pt, name in self._collect(item):
@@ -354,12 +362,7 @@ class SnapEngine:
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
         def _phase4_items():
-            """Yield items for segment extraction, descending into DXF groups.
-
-            Uses Qt's scene.items() spatial index instead of manual
-            sceneBoundingRect checks — Qt correctly handles cosmetic
-            pens and group transforms that boundingRect misses.
-            """
+            """Yield items for segment extraction — skip underlay groups entirely."""
             _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
             for item in scene.items(search_rect, _bbox):
                 if exclude is not None and item is exclude:
@@ -370,9 +373,8 @@ class SnapEngine:
                 if parent is not None:
                     if (isinstance(parent, QGraphicsItemGroup)
                             and parent.data(0) in _underlay_tags):
-                        yield item
+                        continue
                     continue
-                # Skip the group itself (children already yielded above)
                 if (isinstance(item, QGraphicsItemGroup)
                         and item.data(0) in _underlay_tags):
                     continue
@@ -436,6 +438,62 @@ class SnapEngine:
                         )
                         if search_rect.intersects(seg_r):
                             _segments.append((p1, p2, item))
+
+        # Extract segments from underlay snap indices
+        _queried_groups: set[int] = set()
+        _bbox_mode = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+        for item in scene.items(search_rect, _bbox_mode):
+            parent = item.parentItem()
+            grp = None
+            if parent is not None and isinstance(parent, QGraphicsItemGroup):
+                if parent.data(0) in _underlay_tags:
+                    grp = parent
+            elif (isinstance(item, QGraphicsItemGroup)
+                  and item.data(0) in _underlay_tags):
+                grp = item
+            if grp is None:
+                continue
+            gid = id(grp)
+            if gid in _queried_groups:
+                continue
+            _queried_groups.add(gid)
+
+            index = grp.data(4)
+            if not isinstance(index, UnderlaySnapIndex):
+                continue
+            xf = grp.sceneTransform()
+            inv_xf, ok = xf.inverted()
+            if not ok:
+                continue
+            local_rect = inv_xf.mapRect(search_rect)
+            for g in index.query(local_rect.x(), local_rect.y(),
+                                 local_rect.width(), local_rect.height()):
+                kind = g.get("kind")
+                if kind == "line":
+                    p1 = xf.map(QPointF(g["x1"], g["y1"]))
+                    p2 = xf.map(QPointF(g["x2"], g["y2"]))
+                    seg_r = QRectF(
+                        min(p1.x(), p2.x()) - 0.5,
+                        min(p1.y(), p2.y()) - 0.5,
+                        abs(p2.x() - p1.x()) + 1.0,
+                        abs(p2.y() - p1.y()) + 1.0,
+                    )
+                    if search_rect.intersects(seg_r):
+                        _segments.append((p1, p2, grp))
+                elif kind == "path_points":
+                    points = g.get("points", [])
+                    for j in range(min(len(points) - 1, 511)):
+                        a, b = points[j], points[j + 1]
+                        p1 = xf.map(QPointF(a[0], a[1]))
+                        p2 = xf.map(QPointF(b[0], b[1]))
+                        seg_r = QRectF(
+                            min(p1.x(), p2.x()) - 0.5,
+                            min(p1.y(), p2.y()) - 0.5,
+                            abs(p2.x() - p1.x()) + 1.0,
+                            abs(p2.y() - p1.y()) + 1.0,
+                        )
+                        if search_rect.intersects(seg_r):
+                            _segments.append((p1, p2, grp))
 
         # Bail out if segment extraction exploded (batched DXF paths
         # have hundreds of segments per item; O(n²) pairing on 3000+
@@ -742,6 +800,178 @@ class SnapEngine:
             if 0.0 <= t <= 1.0:
                 pts.append(QPointF(seg_a.x() + t * dx, seg_a.y() + t * dy))
         return pts
+
+    # ── Geometry-dict snap methods (underlay snap index) ───────────────────
+
+    def _collect_from_geom(
+        self, g: dict, xf: QTransform,
+    ) -> list[tuple[str, QPointF, str | None]]:
+        """Return (snap_type, scene_pos, name) triples from a geometry dict.
+
+        Like ``_collect`` but works on raw geometry dicts instead of
+        QGraphicsItems.  *xf* is the underlay group's sceneTransform
+        used to map local coordinates to scene space.
+        """
+        pts: list[tuple[str, QPointF, str | None]] = []
+        kind = g.get("kind")
+
+        if kind == "line":
+            p1 = xf.map(QPointF(g["x1"], g["y1"]))
+            p2 = xf.map(QPointF(g["x2"], g["y2"]))
+            if self.snap_endpoint:
+                pts.append(("endpoint", p1, None))
+                pts.append(("endpoint", p2, None))
+            if self.snap_midpoint:
+                pts.append(("midpoint", QPointF(
+                    (p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2), None))
+
+        elif kind == "circle":
+            cx = g["x"] + g["w"] / 2
+            cy = g["y"] + g["h"] / 2
+            center = xf.map(QPointF(cx, cy))
+            if self.snap_center:
+                pts.append(("center", center, None))
+            if self.snap_quadrant:
+                rx, ry = g["w"] / 2, g["h"] / 2
+                pts.append(("quadrant", xf.map(QPointF(cx + rx, cy)), None))
+                pts.append(("quadrant", xf.map(QPointF(cx - rx, cy)), None))
+                pts.append(("quadrant", xf.map(QPointF(cx, cy - ry)), None))
+                pts.append(("quadrant", xf.map(QPointF(cx, cy + ry)), None))
+
+        elif kind == "arc":
+            cx = g["rx"] + g["rw"] / 2
+            cy = g["ry"] + g["rh"] / 2
+            rx = g["rw"] / 2
+            start = g["start"]
+            span = g["span"]
+            if self.snap_center:
+                pts.append(("center", xf.map(QPointF(cx, cy)), None))
+            if self.snap_endpoint:
+                sa = math.radians(start)
+                ea = math.radians(start + span)
+                pts.append(("endpoint", xf.map(QPointF(
+                    cx + rx * math.cos(sa), cy - rx * math.sin(sa))), None))
+                pts.append(("endpoint", xf.map(QPointF(
+                    cx + rx * math.cos(ea), cy - rx * math.sin(ea))), None))
+            if self.snap_midpoint:
+                ma = math.radians(start + span / 2)
+                pts.append(("midpoint", xf.map(QPointF(
+                    cx + rx * math.cos(ma), cy - rx * math.sin(ma))), None))
+
+        elif kind == "ellipse_full":
+            cx = g["pos_cx"] + g["x"] + g["w"] / 2
+            cy = g["pos_cy"] + g["y"] + g["h"] / 2
+            if self.snap_center:
+                pts.append(("center", xf.map(QPointF(cx, cy)), None))
+
+        elif kind == "path_points":
+            points = g.get("points", [])
+            if self.snap_endpoint:
+                for p in points[:512]:
+                    pts.append(("endpoint", xf.map(QPointF(p[0], p[1])), None))
+            if self.snap_midpoint:
+                for i in range(min(len(points) - 1, 511)):
+                    a, b = points[i], points[i + 1]
+                    mid = QPointF((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+                    pts.append(("midpoint", xf.map(mid), None))
+
+        # "text" — no snap targets
+        return pts
+
+    def _geometric_snaps_from_geom(
+        self, cursor: QPointF, g: dict, xf: QTransform,
+    ) -> list[tuple[str, QPointF]]:
+        """Perpendicular and nearest snap points from a geometry dict.
+
+        Like ``_geometric_snaps`` but works on raw geometry dicts.
+        *xf* is the underlay group's sceneTransform.
+        """
+        pts: list[tuple[str, QPointF]] = []
+        kind = g.get("kind")
+
+        def _seg_snap(p1: QPointF, p2: QPointF):
+            foot = self._project_to_segment(cursor, p1, p2)
+            if foot is not None:
+                if self.snap_perpendicular:
+                    pts.append(("perpendicular", foot))
+                if self.snap_nearest:
+                    pts.append(("nearest", foot))
+
+        if kind == "line":
+            _seg_snap(xf.map(QPointF(g["x1"], g["y1"])),
+                      xf.map(QPointF(g["x2"], g["y2"])))
+
+        elif kind == "circle":
+            cx = g["x"] + g["w"] / 2
+            cy = g["y"] + g["h"] / 2
+            center = xf.map(QPointF(cx, cy))
+            r = abs(xf.map(QPointF(cx + g["w"] / 2, cy)).x() - center.x())
+            if r < _EPS_DEGENERATE:
+                return pts
+            d = math.hypot(cursor.x() - center.x(),
+                           cursor.y() - center.y())
+            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
+                foot = QPointF(
+                    center.x() + r * (cursor.x() - center.x()) / d,
+                    center.y() + r * (cursor.y() - center.y()) / d,
+                )
+                if self.snap_perpendicular:
+                    pts.append(("perpendicular", foot))
+                if self.snap_nearest:
+                    pts.append(("nearest", foot))
+
+        elif kind == "path_points":
+            points = g.get("points", [])
+            for i in range(min(len(points) - 1, 511)):
+                a, b = points[i], points[i + 1]
+                _seg_snap(xf.map(QPointF(a[0], a[1])),
+                          xf.map(QPointF(b[0], b[1])))
+
+        elif kind == "arc":
+            cx = g["rx"] + g["rw"] / 2
+            cy = g["ry"] + g["rh"] / 2
+            center = xf.map(QPointF(cx, cy))
+            r = abs(xf.map(QPointF(cx + g["rw"] / 2, cy)).x() - center.x())
+            if r < _EPS_DEGENERATE:
+                return pts
+            d = math.hypot(cursor.x() - center.x(),
+                           cursor.y() - center.y())
+            if (self.snap_perpendicular or self.snap_nearest) and d > _EPS_COINCIDENT:
+                foot = QPointF(
+                    center.x() + r * (cursor.x() - center.x()) / d,
+                    center.y() + r * (cursor.y() - center.y()) / d,
+                )
+                if self.snap_perpendicular:
+                    pts.append(("perpendicular", foot))
+                if self.snap_nearest:
+                    pts.append(("nearest", foot))
+
+        return pts
+
+    def _query_underlay_snaps(self, ctx: "_SnapCtx",
+                               group: QGraphicsItemGroup,
+                               search_rect: QRectF):
+        """Query an underlay's snap index for nearby geometry and compute snaps."""
+        index = group.data(4)
+        if not isinstance(index, UnderlaySnapIndex):
+            return
+
+        # Map search_rect from scene space to group-local space
+        xf = group.sceneTransform()
+        inv_xf, ok = xf.inverted()
+        if not ok:
+            return
+        local_rect = inv_xf.mapRect(search_rect)
+
+        nearby = index.query(local_rect.x(), local_rect.y(),
+                             local_rect.width(), local_rect.height())
+
+        for g in nearby:
+            for snap_type, scene_pt, name in self._collect_from_geom(g, xf):
+                ctx.check(snap_type, scene_pt, group, name)
+            for snap_type, pt in self._geometric_snaps_from_geom(
+                    ctx.cursor, g, xf):
+                ctx.check(snap_type, pt, group)
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
 

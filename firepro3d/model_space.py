@@ -2045,12 +2045,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         )
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, transformed, record)
         self.underlays.append((record, group))
         self.underlaysChanged.emit()
         self.push_undo_state()
-
-        # Start deferred snap item creation (non-blocking)
-        self._start_deferred_snap_items(group, transformed, record)
 
         self.set_mode(None)
 
@@ -2186,6 +2184,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, geom_list, record)
         group.setData(2, all_layers)
 
         self.underlays.append((record, group))
@@ -2201,9 +2200,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self.underlaysChanged.emit()
         self.push_undo_state()
-
-        # Start deferred snap item creation (non-blocking)
-        self._start_deferred_snap_items(group, geom_list, record)
 
         self._show_status(f"Imported DXF: {params['file_path']}")
 
@@ -2282,61 +2278,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         lx -= fm.horizontalAdvance(line)
                     path.addText(lx, base_y + i * line_h, f, line)
 
-    @staticmethod
-    def _create_snap_item(g: dict, layer: str = "0") -> QGraphicsItem | None:
-        """Create an invisible item for snap detection from a geometry dict.
-
-        Mirrors UnderlayImportDialog._create_snap_item.  Uses a
-        transparent cosmetic pen (not NoPen) so Qt's spatial index
-        reports a non-degenerate boundingRect.  Text is skipped.
-
-        The item is tagged with ``data(1) = layer`` so
-        ``_apply_underlay_hidden_layers`` can hide snap targets on
-        hidden layers.
-        """
-        kind = g.get("kind")
-        no_pen = QPen(QColor(0, 0, 0, 0), 0)
-        no_pen.setCosmetic(True)
-        no_brush = QBrush(Qt.BrushStyle.NoBrush)
-
-        item: QGraphicsItem | None = None
-
-        if kind == "line":
-            item = QGraphicsLineItem(g["x1"], g["y1"], g["x2"], g["y2"])
-            item.setPen(no_pen)
-        elif kind == "circle":
-            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
-            item.setPen(no_pen)
-            item.setBrush(no_brush)
-        elif kind == "arc":
-            path = QPainterPath()
-            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
-            path.arcMoveTo(rect, g["start"])
-            path.arcTo(rect, g["start"], g["span"])
-            item = QGraphicsPathItem(path)
-            item.setPen(no_pen)
-        elif kind == "ellipse_full":
-            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
-            item.setPen(no_pen)
-            item.setBrush(no_brush)
-            item.setPos(g["pos_cx"], g["pos_cy"])
-        elif kind == "path_points":
-            pts = g.get("points", [])
-            if len(pts) < 2:
-                return None
-            path = QPainterPath()
-            path.moveTo(pts[0][0], pts[0][1])
-            for p in pts[1:]:
-                path.lineTo(p[0], p[1])
-            if g.get("closed") and len(pts) >= 3:
-                path.closeSubpath()
-            item = QGraphicsPathItem(path)
-            item.setPen(no_pen)
-
-        if item is not None:
-            item.setData(1, layer)
-        return item
-
     def _build_batched_underlay_group(
         self,
         geom_list: list[dict],
@@ -2403,105 +2344,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         all_layers = sorted(by_layer.keys())
         return group, all_layers
 
-    # Deferred snap item creation — batch size per timer tick
-    _SNAP_BATCH_SIZE = 500
+    def _attach_snap_index(self, group: QGraphicsItemGroup,
+                           geom_list: list[dict], record: Underlay):
+        """Build a spatial snap index and attach it to the underlay group.
 
-    def _start_deferred_snap_items(
-        self,
-        group: QGraphicsItemGroup,
-        geom_list: list[dict],
-        record: Underlay,
-    ):
-        """Begin deferred creation of invisible snap items for an underlay.
-
-        Items are created in batches of ``_SNAP_BATCH_SIZE`` per timer
-        tick (~16 ms) so the UI stays responsive.  The underlay is
-        already visible (batched render paths); snap targets ramp up
-        over the next few seconds.
+        The index stores geometry dicts for lazy snap queries by the snap
+        engine, replacing invisible QGraphicsItems in the scene BSP.
         """
-        # Cancel any in-progress deferred snap for this group
-        self._cancel_deferred_snap(group)
-
-        hidden_set = set(record.hidden_layers) if record.hidden_layers else set()
-
-        # Store state for the timer callback
-        if not hasattr(self, "_deferred_snap_jobs"):
-            self._deferred_snap_jobs: dict[int, dict] = {}
-
-        job = {
-            "group": group,
-            "geom_list": geom_list,
-            "index": 0,
-            "hidden_set": hidden_set,
-            "timer": None,
-        }
-        job_id = id(group)
-
-        timer = QTimer(self)
-        timer.setInterval(16)  # ~60 fps
-        timer.timeout.connect(lambda: self._snap_timer_tick(job_id))
-        job["timer"] = timer
-
-        self._deferred_snap_jobs[job_id] = job
-
-        # Disable BSP during bulk snap-item insertion
-        self._deferred_snap_old_index = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-
-        timer.start()
-
-    def _snap_timer_tick(self, job_id: int):
-        """Process one batch of snap items for a deferred job."""
-        jobs = getattr(self, "_deferred_snap_jobs", {})
-        job = jobs.get(job_id)
-        if job is None:
-            return
-
-        group = job["group"]
-        geom_list = job["geom_list"]
-        hidden_set = job["hidden_set"]
-        idx = job["index"]
-        end = min(idx + self._SNAP_BATCH_SIZE, len(geom_list))
-
-        # Guard: group may have been removed from scene
-        if group.scene() is not self:
-            self._cancel_deferred_snap(group)
-            return
-
-        for i in range(idx, end):
-            g = geom_list[i]
-            layer = g.get("layer", "0")
-            snap_item = self._create_snap_item(g, layer)
-            if snap_item is not None:
-                self.addItem(snap_item)
-                group.addToGroup(snap_item)
-                if layer in hidden_set:
-                    snap_item.setVisible(False)
-
-        job["index"] = end
-
-        if end >= len(geom_list):
-            # Done — clean up
-            self._cancel_deferred_snap(group)
-            # Restore BSP indexing if no other jobs remain
-            if not getattr(self, "_deferred_snap_jobs", {}):
-                old = getattr(self, "_deferred_snap_old_index",
-                              QGraphicsScene.ItemIndexMethod.BspTreeIndex)
-                self.setItemIndexMethod(old)
-
-    def _cancel_deferred_snap(self, group: QGraphicsItemGroup):
-        """Cancel deferred snap item creation for a specific underlay group."""
-        jobs = getattr(self, "_deferred_snap_jobs", {})
-        job_id = id(group)
-        job = jobs.pop(job_id, None)
-        if job is not None and job["timer"] is not None:
-            job["timer"].stop()
-            job["timer"].deleteLater()
-        # Restore BSP indexing if no other jobs remain
-        if not jobs:
-            old = getattr(self, "_deferred_snap_old_index",
-                          QGraphicsScene.ItemIndexMethod.BspTreeIndex)
-            self.setItemIndexMethod(old)
+        from .underlay_snap_index import UnderlaySnapIndex
+        index = UnderlaySnapIndex(geom_list, record.hidden_layers)
+        group.setData(4, index)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
         progress.close()
@@ -2738,14 +2590,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, geom_list, record)
         group.setData(2, all_layers)
 
         self.underlays.append((record, group))
         self.underlaysChanged.emit()
         self.push_undo_state()
-
-        # Start deferred snap item creation (non-blocking)
-        self._start_deferred_snap_items(group, geom_list, record)
 
         self._show_status(
             f"Imported PDF '{file_path}' page {page} as vectors")
@@ -2821,9 +2671,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def remove_underlay(self, data: Underlay, item: QGraphicsItem):
         """Remove an underlay from the scene and the tracking list."""
-        # Cancel any in-progress deferred snap creation
-        if isinstance(item, QGraphicsItemGroup):
-            self._cancel_deferred_snap(item)
         pair = (data, item)
         if pair in self.underlays:
             self.underlays.remove(pair)
@@ -2865,8 +2712,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # DXF import is async (worker thread) — if we clean up after,
         # the duplicate check races with _on_dxf_finished appending.
         self.underlays = [(d, it) for d, it in self.underlays if d is not data]
-        if isinstance(item, QGraphicsItemGroup):
-            self._cancel_deferred_snap(item)
         if item.scene() is self:
             self.removeItem(item)
 
@@ -3860,10 +3705,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
+        self._attach_snap_index(group, geom_list, record)
         self.underlays.append((record, group))
-
-        # Start deferred snap item creation (non-blocking)
-        self._start_deferred_snap_items(group, geom_list, record)
 
         return True
 
