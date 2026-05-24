@@ -1,8 +1,8 @@
 # Multi-Layout DXF/DWG Import Design
 
 **Date:** 2026-05-20
-**Status:** Implemented
-**Revision:** 2 (post-implementation findings: UI restructure, extraction bug fixes)
+**Status:** Implemented (reload path incomplete — see Implementation Findings)
+**Revision:** 3 (rev 2: UI restructure + extraction bugs; rev 3: reload layout gap identified)
 
 ## Problem
 
@@ -206,6 +206,25 @@ position errors magnified by `ps_to_ms`. Fixed with `QFontMetricsF`-based offset
 `QPainterPath.addText()` ignores `\n` characters. MTEXT with line breaks (e.g.,
 "PRODUCTION PLANT\nGROUND FLOOR") rendered as a single concatenated line. Fixed by
 splitting on `\n` and rendering each line at the correct vertical offset.
+
+### Reload path does not use layout for re-extraction (Rev 3)
+
+**Bug discovered 2026-05-24.** The first import via the dialog works correctly —
+`_extract_for_layout()` applies viewport filtering and paper-layout annotation
+merging. The geometry is cached with the correct layout-keyed cache key. However,
+all three re-extraction paths ignore the layout:
+
+1. **`DxfImportWorker.run()`** — hardcodes `doc.modelspace()`, no layout parameter.
+2. **`DxfImportWorker.extract_file_sync()`** — same.
+3. **`scene_io.py` DXF reload path** — calls `import_dxf()` without passing layout.
+   (DWG path adds `layout` to `_dxf_import_params` but the worker still reads
+   modelspace.)
+
+**Impact:** On cache miss (stale source file, cleared cache, new machine), the
+underlay reloads from modelspace instead of the saved paper layout. All geometry
+shows up instead of viewport-filtered content.
+
+**Fix plan:** `docs/superpowers/plans/2026-05-24-layout-aware-reload.md`
 
 ## Files Modified
 

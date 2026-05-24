@@ -459,7 +459,7 @@ DWG underlays are stored with `type="dwg"`, DXF with `type="dxf"`. Both preserve
 - **Cache hit:** Geometry loaded from `.fpd.cache/` (fast)
 - **Cache miss (DWG):** ODA re-converts DWG → DXF, geometry re-extracted
 - **Cache miss (DXF):** Geometry re-extracted from source file
-- **Layout:** Saved layout name used silently for re-extraction; falls back to Model if layout no longer exists
+- **Layout:** Saved layout name used silently for re-extraction; falls back to Model if layout no longer exists. **Important:** re-extraction must replicate the viewport-filtering pipeline from `_extract_for_layout()` — not just read modelspace. This means: compute viewport bounds via `get_viewport_bounds()`, pre-filter entities, post-filter geometry via `filter_geoms_by_bounds()`, and merge paper layout entities via `extract_layout_entities()`. All three re-extraction paths (`DxfImportWorker.run()`, `extract_file_sync()`, and the `scene_io.py` reload call to `import_dxf()`) must accept and use the layout parameter.
 - **`_ensure_underlay_caches`:** On save, DWG underlays trigger ODA conversion if cache entry is missing
 
 ---
@@ -505,7 +505,7 @@ In `scene_io.py`, when deserializing:
 1. For each entry in `payload["underlays"]`, call `Underlay.from_dict(entry)` with backward-compatible defaults (§3.3).
 2. Resolve path per §4.2 rules.
 3. Attempt re-import:
-   - **DXF:** `import_dxf()` with stored colour, lineweight, user_layer.
+   - **DXF:** `import_dxf()` with stored colour, lineweight, user_layer, **and layout**. The worker must use layout-aware extraction (viewport filtering + paper annotations) when a non-empty layout is saved.
    - **PDF:** `import_pdf()` with stored DPI, page, using `import_mode` to select vector/raster path.
    - **Missing file:** Create placeholder (§5).
 4. Apply hidden_layers to successfully loaded DXF underlays.
