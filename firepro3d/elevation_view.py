@@ -31,7 +31,7 @@ class ElevationView(QGraphicsView):
             self.renderHints() | QPainter.RenderHint.Antialiasing
         )
         self.setViewportUpdateMode(
-            QGraphicsView.ViewportUpdateMode.FullViewportUpdate
+            QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate
         )
 
         # No scrollbars — pan via middle mouse
