@@ -715,53 +715,6 @@ class UnderlayImportDialog(QDialog):
 
     # ── DXF loading ──────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _entity_in_viewport(ent, bounds) -> bool:
-        """Check if a DXF entity falls within viewport bounds.
-
-        Checks ALL coordinates (not sampled) for accurate pre-filtering.
-        INSERT/HATCH/DIMENSION always pass since their explosion produces
-        geometry at unpredictable locations.
-        """
-        etype = ent.dxftype()
-
-        # Types that explode — can't pre-filter
-        if etype in ("INSERT", "HATCH", "DIMENSION"):
-            return True
-
-        try:
-            if etype == "LINE":
-                pts = [(ent.dxf.start[0], -ent.dxf.start[1]),
-                       (ent.dxf.end[0], -ent.dxf.end[1])]
-            elif etype in ("CIRCLE", "ARC"):
-                c = ent.dxf.center
-                pts = [(c.x, -c.y)]
-            elif etype == "ELLIPSE":
-                c = ent.dxf.center
-                pts = [(c.x, -c.y)]
-            elif etype in ("LWPOLYLINE", "POLYLINE"):
-                pts = [(p[0], -p[1]) for p in ent.get_points()]
-            elif etype == "SPLINE":
-                pts = [(cp[0], -cp[1]) for cp in ent.control_points]
-            elif etype in ("TEXT", "MTEXT"):
-                ins = ent.dxf.insert
-                pts = [(ins[0], -ins[1])]
-            else:
-                return True  # unknown — include
-        except (AttributeError, IndexError, TypeError):
-            return True
-
-        if not pts:
-            return True
-
-        for bx0, by0, bx1, by1 in bounds:
-            if by0 > by1:
-                by0, by1 = by1, by0
-            for px, py in pts:
-                if bx0 <= px <= bx1 and by0 <= py <= by1:
-                    return True
-        return False
-
     def _load_dxf(self, path: str, _doc=None):
         """Load a DXF file with layout detection and deferred extraction.
 
@@ -874,7 +827,9 @@ class UnderlayImportDialog(QDialog):
                 layout_name=layout_name, doc=doc)
 
         # ── Extract model-space geometry ─────────────────────────────────
-        from .dxf_import_worker import DxfImportWorker, _build_layer_colors
+        from .dxf_import_worker import (
+            DxfImportWorker, _build_layer_colors, _entity_in_viewport,
+        )
         msp = doc.modelspace()
         all_ents = list(msp)
 
@@ -900,7 +855,7 @@ class UnderlayImportDialog(QDialog):
             if i % 200 == 0:
                 self._update_progress(i, len(all_ents))
             # Pre-filter by viewport bounds at entity level
-            if vp_bounds and not self._entity_in_viewport(ent, vp_bounds):
+            if vp_bounds and not _entity_in_viewport(ent, vp_bounds):
                 continue
             try:
                 g = worker_ref._extract_geometry(ent)
