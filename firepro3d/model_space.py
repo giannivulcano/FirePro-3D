@@ -2014,7 +2014,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     t["size"] = g["size"] * s
             transformed.append(t)
 
-        color, lw = QColor("#c0c0c0"), 1.5
+        color, lw = QColor("#c0c0c0"), 1.5 * s
 
         result = self._build_batched_underlay_group(transformed, color, lw)
         if result is None:
@@ -2118,7 +2118,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                                    layout=params.get("layout", ""))
 
         color = params.get("color", QColor("#c0c0c0"))
-        lw = 1.5
 
         # Apply import transform if reloading from a record with baked params
         record = params.get("_record")
@@ -2160,6 +2159,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         t["size"] = g["size"] * s
                 transformed.append(t)
             geom_list = transformed
+
+        # Scale pen width proportionally to import scale
+        _scale = record.import_scale if record is not None else 1.0
+        lw = 1.5 * _scale
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
 
@@ -2300,7 +2303,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             by_layer.setdefault(layer, []).append(g)
 
         pen = QPen(color, line_weight)
-        pen.setCosmetic(True)
 
         items: list[QGraphicsItem] = []
 
@@ -2524,7 +2526,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             selected_layers=None)
 
         color = QColor("#c0c0c0")
-        lw = 1.5
 
         # Apply import transform if reloading from a record with baked params
         if _record is not None and (_record.import_scale != 1.0
@@ -2565,6 +2566,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         t["size"] = g["size"] * s
                 transformed.append(t)
             geom_list = transformed
+
+        _scale = _record.import_scale if _record is not None else 1.0
+        lw = 1.5 * _scale
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
 
@@ -3689,7 +3693,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             geom_list = transformed
 
         # Build batched render items (same as _commit_place_import)
-        color, lw = QColor("#c0c0c0"), 1.5
+        color = QColor("#c0c0c0")
+        lw = 1.5 * record.import_scale
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
         if result is None:

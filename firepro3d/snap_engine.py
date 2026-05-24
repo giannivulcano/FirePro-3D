@@ -283,14 +283,24 @@ class SnapEngine:
 
             parent = item.parentItem()
             if parent is not None:
-                # Child of an underlay group — the group-level handler
-                # below queries the snap index directly; skip children.
                 if (isinstance(parent, QGraphicsItemGroup)
                         and parent.data(0) in _underlay_tags):
-                    gid = id(parent)
-                    if gid not in _queried_underlays:
-                        _queried_underlays.add(gid)
-                        self._query_underlay_snaps(ctx, parent, search_rect)
+                    if isinstance(parent.data(4), UnderlaySnapIndex):
+                        # Lazy snap index — query once per group
+                        gid = id(parent)
+                        if gid not in _queried_underlays:
+                            _queried_underlays.add(gid)
+                            self._query_underlay_snaps(
+                                ctx, parent, search_rect)
+                    else:
+                        # No snap index (import dialog) — process
+                        # invisible child items directly
+                        for snap_type, scene_pt, name in self._collect(
+                                item):
+                            ctx.check(snap_type, scene_pt, item, name)
+                        for snap_type, pt in self._geometric_snaps(
+                                ctx.cursor, item):
+                            ctx.check(snap_type, pt, item)
                 continue
 
             if item.zValue() > 150:
@@ -373,7 +383,9 @@ class SnapEngine:
                 if parent is not None:
                     if (isinstance(parent, QGraphicsItemGroup)
                             and parent.data(0) in _underlay_tags):
-                        continue
+                        if isinstance(parent.data(4), UnderlaySnapIndex):
+                            continue  # segments from index below
+                        yield item  # no index — process directly
                     continue
                 if (isinstance(item, QGraphicsItemGroup)
                         and item.data(0) in _underlay_tags):
