@@ -452,7 +452,8 @@ class SceneIOMixin:
                                 line_weight=udata.line_weight,
                                 x=udata.x, y=udata.y,
                                 layers=udata.selected_layers,
-                                _record=udata)
+                                _record=udata,
+                                layout=udata.layout)
             elif udata.type == "dwg":
                 from .dwg_converter import (
                     find_oda_converter, convert_dwg_to_dxf,
@@ -471,12 +472,12 @@ class SceneIOMixin:
                                 line_weight=udata.line_weight,
                                 x=udata.x, y=udata.y,
                                 layers=udata.selected_layers,
-                                _record=udata)
+                                _record=udata,
+                                layout=udata.layout)
                 # Store DWG metadata for async cleanup in _on_dxf_finished
                 if hasattr(self, '_dxf_import_params') and self._dxf_import_params:
                     self._dxf_import_params["_dwg_cleanup_path"] = converted
                     self._dxf_import_params["_dwg_source_path"] = udata.path
-                    self._dxf_import_params["layout"] = udata.layout
 
         # Handle missing underlay files
         for udata in missing_underlays:
