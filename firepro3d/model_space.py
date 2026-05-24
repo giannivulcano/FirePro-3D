@@ -2053,7 +2053,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.set_mode(None)
 
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
-                   x=0.0, y=0.0, layers=None, _record: Underlay = None):
+                   x=0.0, y=0.0, layers=None, _record: Underlay = None,
+                   layout: str = ""):
         """
         Import a DXF file as an underlay using a background thread.
 
@@ -2076,7 +2077,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         progress.setValue(0)
 
         # Create and configure worker (no Qt objects passed — created on main thread later)
-        worker = DxfImportWorker(file_path, layers)
+        worker = DxfImportWorker(file_path, layers, layout=layout)
 
         # Store references so they don't get garbage-collected
         self._dxf_worker = worker
@@ -2084,6 +2085,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._dxf_import_params = {
             "file_path": file_path, "color": color, "line_weight": line_weight,
             "x": x, "y": y, "layers": layers, "_record": _record,
+            "layout": layout,
         }
 
         # Wire signals
@@ -3557,7 +3559,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if record.type == "dxf":
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
-                        record.path, record.selected_layers)
+                        record.path, record.selected_layers,
+                        layout=record.layout)
                 elif record.type == "dwg":
                     from .dwg_converter import (
                         find_oda_converter, convert_dwg_to_dxf,
@@ -3573,7 +3576,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         continue
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
-                        converted, record.selected_layers)
+                        converted, record.selected_layers,
+                        layout=record.layout)
                     cleanup_converted_dxf(converted)
                 elif record.type == "pdf" and record.import_mode != "raster":
                     from .pdf_import_worker import extract_pdf_vectors_sync
@@ -3617,7 +3621,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if record.type == "dxf":
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
-                        record.path, record.selected_layers)
+                        record.path, record.selected_layers,
+                        layout=record.layout)
                 elif record.type == "dwg":
                     from .dwg_converter import (
                         find_oda_converter, convert_dwg_to_dxf,
@@ -3633,7 +3638,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return False
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
-                        converted, record.selected_layers)
+                        converted, record.selected_layers,
+                        layout=record.layout)
                     cleanup_converted_dxf(converted)
                 else:
                     return False
