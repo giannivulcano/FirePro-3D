@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
 from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, pyqtSignal
 from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont
 from . import theme as th
@@ -17,6 +18,7 @@ class Model_View(QGraphicsView):
 
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
+        self.setViewport(QOpenGLWidget())
         self.setRenderHints(self.renderHints() | QPainter.RenderHint.Antialiasing)
         self.setViewportUpdateMode(
             QGraphicsView.ViewportUpdateMode.MinimalViewportUpdate)
