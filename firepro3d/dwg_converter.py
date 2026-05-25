@@ -353,6 +353,49 @@ def get_viewport_bounds(
     return bounds if bounds else None
 
 
+def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
+    """Compute the bounding box of geometry dicts' representative points.
+
+    Uses the same point logic as :func:`_geom_in_any_bound` so the
+    returned bounds can be fed back to :func:`filter_geoms_by_bounds`
+    for consistent round-trip filtering.
+
+    Returns ``[min_x, min_y, max_x, max_y]`` or ``None`` if *geoms*
+    is empty or contains no locatable geometry.
+    """
+    if not geoms:
+        return None
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
+    for g in geoms:
+        kind = g.get("kind")
+        points: list[tuple[float, float]] = []
+        if kind == "line":
+            points = [(g["x1"], g["y1"]), (g["x2"], g["y2"])]
+        elif kind == "circle":
+            points = [(g["x"] + g["w"] / 2, g["y"] + g["h"] / 2)]
+        elif kind == "arc":
+            points = [(g["rx"] + g["rw"] / 2, g["ry"] + g["rh"] / 2)]
+        elif kind == "ellipse_full":
+            points = [(g["pos_cx"], g["pos_cy"])]
+        elif kind == "path_points":
+            points = [(p[0], p[1]) for p in g.get("points", [])]
+        elif kind == "text":
+            points = [(g["x"], g["y"])]
+        for px, py in points:
+            if px < min_x:
+                min_x = px
+            if px > max_x:
+                max_x = px
+            if py < min_y:
+                min_y = py
+            if py > max_y:
+                max_y = py
+    if min_x == float("inf"):
+        return None
+    return [min_x, min_y, max_x, max_y]
+
+
 def filter_geoms_by_bounds(
     geoms: list[dict],
     bounds: list[tuple[float, float, float, float]] | None,

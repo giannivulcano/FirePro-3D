@@ -437,7 +437,6 @@ class SceneIOMixin:
             # Try cache first (fast path)
             if self._load_underlay_from_cache(udata, source_mtime):
                 continue
-
             # Cache miss — fall back to source file parsing
             if resolved is None:
                 missing_underlays.append(udata)

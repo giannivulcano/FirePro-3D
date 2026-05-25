@@ -16,11 +16,11 @@ import os
 
 import pytest
 from PyQt6.QtCore import Qt, QRectF
-from PyQt6.QtGui import QPen, QColor, QBrush
+from PyQt6.QtGui import QPen, QColor, QBrush, QPainterPath
 from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsItemGroup,
-    QGraphicsLineItem,
+    QGraphicsPathItem,
     QGraphicsRectItem,
     QGraphicsScene,
 )
@@ -37,12 +37,22 @@ def _make_scene(qapp) -> Model_Space:
     return Model_Space()
 
 
-def _build_line_item(scene: Model_Space, layer: str = "0") -> QGraphicsLineItem:
-    """Create a tagged line item like _geom_to_item would produce."""
-    pen = QPen(QColor("#ffffff"), 1.5)
+def _build_layer_path_item(layer: str = "0") -> QGraphicsPathItem:
+    """Create a batched path item tagged by layer.
+
+    Mirrors the per-layer QPainterPathItems created by
+    _build_batched_underlay_group in production code.
+    """
+    path = QPainterPath()
+    path.moveTo(0, 0)
+    path.lineTo(100, 100)
+    item = QGraphicsPathItem(path)
+    pen = QPen(QColor("#c0c0c0"), 1.5)
     pen.setCosmetic(True)
-    geom = {"kind": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 100, "layer": layer}
-    item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
+    item.setPen(pen)
+    item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+    item.setZValue(Z_UNDERLAY)
+    item.setData(1, layer)
     return item
 
 
@@ -52,16 +62,16 @@ def _build_underlay_group(
     x: float = 0.0,
     y: float = 0.0,
 ) -> QGraphicsItemGroup:
-    """Build a DXF-like underlay group with child items tagged by layer.
+    """Build a DXF-like underlay group with batched path items per layer.
 
-    Mirrors the structure created by _on_dxf_finished.
+    Mirrors the structure created by _build_batched_underlay_group.
     """
     if layers is None:
         layers = ["A-WALL", "A-DOOR", "A-FURN"]
 
     items = []
     for layer_name in layers:
-        item = _build_line_item(scene, layer=layer_name)
+        item = _build_layer_path_item(layer=layer_name)
         scene.addItem(item)
         items.append(item)
 
@@ -577,72 +587,6 @@ class TestFindUnderlayForItem:
 # =====================================================================
 # 10. _geom_to_item produces correctly tagged items
 # =====================================================================
-
-class TestGeomToItem:
-    """_geom_to_item converts geometry dicts into QGraphicsItems."""
-
-    def test_line_item(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        geom = {"kind": "line", "x1": 0, "y1": 0, "x2": 50, "y2": 50,
-                 "layer": "A-WALL"}
-
-        item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
-
-        assert isinstance(item, QGraphicsLineItem)
-        assert item.data(1) == "A-WALL"
-        assert item.zValue() == Z_UNDERLAY
-
-    def test_circle_item(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        geom = {"kind": "circle", "x": 10, "y": 20, "w": 30, "h": 30,
-                 "layer": "A-SPRK"}
-
-        item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
-
-        assert item is not None
-        assert item.data(1) == "A-SPRK"
-
-    def test_unknown_kind_returns_none(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        geom = {"kind": "unknown_geometry_type", "layer": "0"}
-
-        item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
-
-        assert item is None
-
-    def test_default_layer_is_zero(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        geom = {"kind": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 10}
-
-        item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
-
-        assert item.data(1) == "0"
-
-    def test_path_points_with_fewer_than_2_returns_none(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        geom = {"kind": "path_points", "points": [(0, 0)], "layer": "0"}
-
-        item = scene._geom_to_item(geom, pen, QColor("#ffffff"))
-
-        assert item is None
-
-    def test_text_item(self, qapp):
-        scene = _make_scene(qapp)
-        pen = QPen(QColor("#ffffff"), 1.5)
-        color = QColor("#00ff00")
-        geom = {"kind": "text", "text": "Hello", "x": 5, "y": 10,
-                 "size": 12.0, "layer": "A-TEXT"}
-
-        item = scene._geom_to_item(geom, pen, color)
-
-        assert item is not None
-        assert item.data(1) == "A-TEXT"
-
 
 # =====================================================================
 # 11. PDF import_pdf — file-not-found early return

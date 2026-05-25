@@ -15,9 +15,10 @@
 | File | Action | Responsibility |
 |------|--------|---------------|
 | `firepro3d/underlay_cache.py` | **Create** | Cache I/O: write geometry dicts, read geometry dicts, check freshness, delete stale entries, compute cache key |
-| `firepro3d/underlay.py` | **Modify** | Add `cache_key()` method to Underlay dataclass |
-| `firepro3d/model_space.py` | **Modify** | Write cache after import; read cache on reload; handle cache-hit for missing source files |
+| `firepro3d/underlay.py` | **Modify** | Add `cache_key()` method to Underlay dataclass; add `import_bounds` field for area-selection persistence |
+| `firepro3d/model_space.py` | **Modify** | Write cache after import; read cache on reload; handle cache-hit for missing source files; store raw geom on groups via `data(5)` |
 | `firepro3d/scene_io.py` | **Modify** | On load, try cache before calling `import_dxf`/`import_pdf`; on save, write cache for all underlays; pass project dir for cache directory resolution |
+| `firepro3d/dwg_converter.py` | **Modify** | Add `compute_geom_bounds()` for bounding-box computation from geometry dicts |
 | `tests/test_underlay_cache.py` | **Create** | Unit tests for cache module |
 | `tests/test_underlay_cache_integration.py` | **Create** | Integration tests for cache-aware load/save |
 
@@ -427,6 +428,8 @@ git commit -m "feat(cache): add cache_key() method to Underlay dataclass"
 
 Wire cache writes into the two DXF import paths: direct import (`_on_dxf_finished`) and interactive placement (`_commit_place_import`). Cache is written after geometry dicts are received but **before** the import transform is applied (raw geometry is cached, transform is re-applied from Underlay record on reload).
 
+> **Revision note (2026-05-24):** In the implemented version, `_on_dxf_finished` applies the `import_bounds` spatial filter (via `filter_geoms_by_bounds`) *before* the cache write, so the cached geometry reflects the user's area selection. The raw pre-transform geometry is also stored on the group item via `group.setData(5, _raw_geom)` for use by `_ensure_underlay_caches` on save.
+
 The import functions need to know the project file path for the cache directory. `Model_Space` already has access to the current filename via `self._current_filename` (set by `save_to_file` / `load_from_file`).
 
 - [ ] **Step 1: Verify `_current_filename` exists on Model_Space**
@@ -578,6 +581,8 @@ git commit -m "feat(cache): write underlay geometry cache on PDF vector import"
 
 This is the main payoff: on project load, check the cache before calling `import_dxf` / `import_pdf`. If the cache is fresh, skip source file parsing entirely and build Qt items directly from cached geometry dicts.
 
+> **Revision note (2026-05-24):** The implemented version differs from the original plan in three ways: (1) on cache miss with a valid source file, it performs sync re-extraction and rebuilds the cache rather than falling back to async import; (2) when `record.import_bounds` is set, the re-extracted geometry is filtered through `filter_geoms_by_bounds()` before caching; (3) the raw (pre-transform) geometry is stored on the group via `data(5)` so `_ensure_underlay_caches` can write it on save without re-extraction.
+
 - [ ] **Step 1: Add `_load_underlay_from_cache` to Model_Space**
 
 Add this method near `_write_underlay_cache`:
@@ -587,8 +592,11 @@ Add this method near `_write_underlay_cache`:
                                   source_mtime: float | None) -> bool:
         """Try to load an underlay from the geometry cache.
 
-        Returns True if the cache was used, False if the caller should
-        fall back to parsing the source file.
+        When the cache is stale but the source file exists, re-extracts
+        synchronously and rebuilds the cache before proceeding.
+
+        Returns True if the underlay was loaded, False if the caller
+        should fall back to async parsing.
         """
         project_path = getattr(self, "_project_path", None)
         if not project_path:
@@ -600,73 +608,50 @@ Add this method near `_write_underlay_cache`:
 
         geom_list = read_cache(cache_dir, key, source_mtime=source_mtime)
         if geom_list is None:
-            return False
+            # Cache stale — try synchronous re-extraction from source
+            if source_mtime is None:
+                return False
+            try:
+                if record.type == "dxf":
+                    from .dxf_import_worker import DxfImportWorker
+                    geom_list = DxfImportWorker.extract_file_sync(
+                        record.path, record.selected_layers,
+                        layout=record.layout)
+                elif record.type == "dwg":
+                    # ... ODA convert + extract_file_sync ...
+                else:
+                    return False
+            except Exception:
+                return False
+            if not geom_list:
+                return False
+            # Apply spatial bounds filter (area selection at import time)
+            if record.import_bounds is not None:
+                from .dwg_converter import filter_geoms_by_bounds
+                geom_list = filter_geoms_by_bounds(
+                    geom_list, [tuple(record.import_bounds)])
+            # Write fresh cache
+            self._write_underlay_cache(
+                record.path, geom_list,
+                page=record.page,
+                selected_layers=record.selected_layers,
+                layout=record.layout)
+
+        # Snapshot raw geom for cache-on-save
+        _raw_geom = geom_list
 
         # Apply import transform (same logic as _on_dxf_finished reload path)
         if (record.import_scale != 1.0
                 or record.import_base_x != 0.0
                 or record.import_base_y != 0.0):
-            s = record.import_scale
-            bx, by = record.import_base_x, record.import_base_y
-            transformed = []
-            for g in geom_list:
-                kind = g.get("kind")
-                t = dict(g)
-                if kind == "line":
-                    t["x1"] = (g["x1"] - bx) * s
-                    t["y1"] = (g["y1"] - by) * s
-                    t["x2"] = (g["x2"] - bx) * s
-                    t["y2"] = (g["y2"] - by) * s
-                elif kind in ("circle", "arc"):
-                    xk = "x" if kind == "circle" else "rx"
-                    yk = "y" if kind == "circle" else "ry"
-                    wk = "w" if kind == "circle" else "rw"
-                    hk = "h" if kind == "circle" else "rh"
-                    t[xk] = (g[xk] - bx) * s
-                    t[yk] = (g[yk] - by) * s
-                    t[wk] = g[wk] * s
-                    t[hk] = g[hk] * s
-                elif kind == "ellipse_full":
-                    t["pos_cx"] = (g["pos_cx"] - bx) * s
-                    t["pos_cy"] = (g["pos_cy"] - by) * s
-                    t["x"] = g["x"] * s; t["y"] = g["y"] * s
-                    t["w"] = g["w"] * s; t["h"] = g["h"] * s
-                elif kind == "path_points":
-                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
-                                   for p in g["points"]]
-                elif kind == "text":
-                    t["x"] = (g["x"] - bx) * s
-                    t["y"] = (g["y"] - by) * s
-                transformed.append(t)
-            geom_list = transformed
+            # ... base-point shift + scale transform ...
 
         # Build Qt items (same as _on_dxf_finished / _import_pdf_vectors)
-        ul = record.user_layer
-        color, lw = self._underlay_color_lw(ul)
-        pen = QPen(color, lw)
-        pen.setCosmetic(True)
+        # ... batched QPainterPath rendering ...
 
-        items = []
-        for geom in geom_list:
-            item = self._geom_to_item(geom, pen, color)
-            if item is not None:
-                items.append(item)
-
-        if not items:
-            return False
-
-        old_method = self.itemIndexMethod()
-        self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
-        for item in items:
-            self.addItem(item)
-        group = self.createItemGroup(items)
-        group.setZValue(Z_UNDERLAY)
-        group.setPos(record.x, record.y)
-        label = "PDF Underlay" if record.type == "pdf" else "DXF Underlay"
-        group.setData(0, label)
-        all_layers = sorted({g.get("layer", "0") for g in geom_list})
-        group.setData(2, all_layers)
-        self.setItemIndexMethod(old_method)
+        group.setData(5, _raw_geom)  # raw pre-transform geom for cache
+        if source_mtime is None:
+            group.setData(3, "source_missing")
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
@@ -847,7 +832,7 @@ On project save, ensure every underlay with a valid source file has an up-to-dat
 1. Underlays imported before the project was ever saved (no cache dir existed at import time)
 2. Source files that were refreshed-from-disk since last save
 
-We can't re-extract geometry from the Qt items at this point — the geometry dicts aren't stored on the scene items. Instead, we check if a cache entry exists for each underlay. If not, we re-parse the source file and write the cache. This is done in a helper method to keep `save_to_file` clean.
+> **Revision note (2026-05-24):** The original plan proposed a freshness-check + sync re-extraction approach. This was replaced with a simpler design: all import paths now store the raw (pre-transform) geometry list on the group item via `data(5)`. `_ensure_underlay_caches` reads directly from `data(5)` and writes unconditionally, avoiding both the freshness check and the expensive sync re-extraction that froze the UI on large DXF files. This also guarantees that area-selection filtering (`import_bounds`) is preserved in the cache, since `data(5)` already reflects the filtered geometry.
 
 - [ ] **Step 1: Add `_ensure_underlay_caches` method to Model_Space**
 
@@ -855,44 +840,27 @@ Add near `_write_underlay_cache`:
 
 ```python
     def _ensure_underlay_caches(self, project_path: str):
-        """Ensure every underlay with a reachable source file has a cache entry.
+        """Ensure every underlay has a cache entry.
 
-        Called on save.  If a cache entry is missing (e.g. underlay was
-        imported before first save), re-parse the source file and write
-        the cache.
+        Called on save.  Reads the raw geometry stored on each group's
+        ``data(5)`` — this is the exact geometry that was imported
+        (including area selection filtering), avoiding expensive
+        re-extraction from the source file.
         """
-        from .underlay_cache import cache_dir_for_project, read_cache
-        cache_dir = cache_dir_for_project(project_path)
-
-        for record, _item in self.underlays:
+        for record, item in self.underlays:
             if not os.path.isfile(record.path):
                 continue
-            key = record.cache_key()
-            mtime = os.path.getmtime(record.path)
-            cached = read_cache(cache_dir, key, source_mtime=mtime)
-            if cached is not None:
-                continue  # already fresh
-
-            # Re-parse and cache
-            try:
-                if record.type == "dxf":
-                    from .dxf_import_worker import DxfImportWorker
-                    geom_list = DxfImportWorker.extract_file_sync(
-                        record.path, record.selected_layers)
-                elif record.type == "pdf" and record.import_mode != "raster":
-                    from .pdf_import_worker import extract_pdf_vectors_sync
-                    geom_list, _ = extract_pdf_vectors_sync(
-                        record.path, page=record.page)
-                else:
-                    continue  # raster PDFs have no geometry to cache
-            except Exception:
+            # data(5) is the authoritative raw geometry from the live
+            # scene — always write it, overriding any stale cache that
+            # may have been written before area-selection filtering.
+            geom_list = item.data(5) if item is not None else None
+            if not geom_list:
                 continue
-
-            if geom_list:
-                self._write_underlay_cache(
-                    record.path, geom_list,
-                    page=record.page,
-                    selected_layers=record.selected_layers)
+            self._write_underlay_cache(
+                record.path, geom_list,
+                page=record.page,
+                selected_layers=record.selected_layers,
+                layout=record.layout)
 ```
 
 - [ ] **Step 2: Check if `DxfImportWorker.extract_file_sync` exists**
@@ -1100,12 +1068,15 @@ git commit -m "test(cache): add edge case tests for geometry cache roundtrip"
 2. Skip re-parsing on reload — Task 5 (`_load_underlay_from_cache`)
 3. Timestamp-based invalidation — Task 1 (`read_cache` freshness check), Task 8 (verification)
 4. Missing source renders from cache — Task 6
-5. Cache on import + save — Tasks 3-4 (import), Task 7 (save)
+5. Cache on import + save — Tasks 3-4 (import), Task 7 (save via `data(5)`)
 6. Works for DXF and PDF — Tasks 3-4 (DXF and PDF write paths), Task 5 (unified read)
 7. Unit tests — Tasks 1, 2, 6, 8, 9
+8. Area-selection persistence — `import_bounds` filter applied on sync re-extraction (Task 5), preserved through `data(5)` on save (Task 7)
 
 **Placeholder scan:** No TBD/TODO/placeholder steps found.
 
 **Type consistency:** `compute_cache_key`, `write_cache`, `read_cache`, `delete_cache`, `cache_dir_for_project` — names consistent across all tasks. `Underlay.cache_key()` delegates to `compute_cache_key`. `_write_underlay_cache` and `_load_underlay_from_cache` on Model_Space — consistent naming pattern.
 
 **Note on transform duplication:** The import transform code (base-point shift + scale) is duplicated in 4 places (`_commit_place_import`, `_on_dxf_finished`, `_import_pdf_vectors`, `_load_underlay_from_cache`). This is existing technical debt — this plan matches the existing pattern rather than refactoring, which would be scope creep.
+
+**Note on `data(5)` convention:** All import paths (`_on_dxf_finished`, `_import_pdf_vectors`, `_load_underlay_from_cache`, `_commit_place_import`) store the raw pre-transform geometry list on the group item via `group.setData(5, _raw_geom)`. This is read by `_ensure_underlay_caches` on save, eliminating the need for sync re-extraction from source files at save time.

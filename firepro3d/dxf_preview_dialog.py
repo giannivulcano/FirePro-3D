@@ -103,6 +103,7 @@ class ImportParams:
         self.has_vectors: bool = True      # False → raster fallback
         self.import_mode: str = "auto"    # "auto" | "vectors" | "raster"
         self.layout: str = ""            # DWG layout name (empty = Model)
+        self.import_bounds: list[float] | None = None  # area selection bounds
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1820,6 +1821,11 @@ class UnderlayImportDialog(QDialog):
                 continue
             geoms.append(g)
         p.geom_list = geoms
+
+        # Compute import bounds when area selection was used
+        if self._selected_indices is not None and geoms:
+            from .dwg_converter import compute_geom_bounds
+            p.import_bounds = compute_geom_bounds(geoms)
 
         # Preserve original .dwg path for DWG files
         if self._file_type == "dwg":

@@ -3,7 +3,7 @@
 > **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 5 (multi-layout DXF support, unified DXF/DWG path, extraction robustness fixes)
+> **Revision:** 6 (import_bounds persistence, data(5) caching, save-time freeze fix)
 
 ---
 
@@ -27,7 +27,7 @@ Underlays are the primary reference material for fire protection design — ever
 
 ### 2.1 In scope (this spec)
 
-- The `Underlay` data model and new fields (`level`, `visible`, `hidden_layers`, `import_mode`, `import_scale`, `import_base_x/y`, `selected_layers`, `layout`).
+- The `Underlay` data model and new fields (`level`, `visible`, `hidden_layers`, `import_mode`, `import_scale`, `import_base_x/y`, `selected_layers`, `layout`, `import_bounds`).
 - Import dialog: PDF DPI selection, PDF import mode toggle (vector/raster/auto).
 - DWG import via ODA File Converter (DWG→DXF conversion, layout selection, viewport-based spatial filtering, paper layout entity transform).
 - Underlay geometry caching (`underlay_cache.py`) for fast project reload.
@@ -91,6 +91,8 @@ class Underlay:
     selected_layers: list[str] | None = None  # DXF layers imported (None = all)
     # Layout support (Revision 4: DWG, Revision 5: DXF)
     layout: str = ""                   # Layout name (empty = Model space)
+    # Area selection persistence (Revision 6)
+    import_bounds: list[float] | None = None  # [min_x, min_y, max_x, max_y]
 ```
 
 **Behavior:**
@@ -100,6 +102,7 @@ class Underlay:
 - `hidden_layers` — source DXF layer names toggled off post-import. Empty for PDFs. Persisted and reapplied on refresh/reload.
 - `import_mode` — only meaningful for PDFs. `"auto"` tries vectors first, falls back to raster. `"vector"` forces vector extraction. `"raster"` skips vectors and renders as pixmap. DXF always uses vector.
 - `layout` — DXF and DWG. Name of the paper-space layout selected at import time. Empty string means Model space. Used for viewport-based spatial filtering and cache key differentiation. DXF files with multiple layouts now show a layout picker (Revision 5).
+- `import_bounds` — bounding box of area-selected geometry in raw DXF coordinates (`[min_x, min_y, max_x, max_y]`). `None` means no area selection was applied (full import). When set, re-extraction from source (cache miss or refresh) applies `filter_geoms_by_bounds()` using this rectangle before building Qt items. Computed by `compute_geom_bounds()` in the import dialog when `_selected_indices` is set.
 
 ### 3.3 Serialization
 
@@ -116,6 +119,7 @@ class Underlay:
 | `import_base_y` | `0.0` |
 | `selected_layers` | `None` |
 | `layout` | `""` |
+| `import_bounds` | `None` |
 
 ---
 
@@ -460,7 +464,8 @@ DWG underlays are stored with `type="dwg"`, DXF with `type="dxf"`. Both preserve
 - **Cache miss (DWG):** ODA re-converts DWG → DXF, geometry re-extracted
 - **Cache miss (DXF):** Geometry re-extracted from source file
 - **Layout:** Saved layout name used silently for re-extraction; falls back to Model if layout no longer exists. **Important:** re-extraction must replicate the viewport-filtering pipeline from `_extract_for_layout()` — not just read modelspace. This means: compute viewport bounds via `get_viewport_bounds()`, pre-filter entities, post-filter geometry via `filter_geoms_by_bounds()`, and merge paper layout entities via `extract_layout_entities()`. All three re-extraction paths (`DxfImportWorker.run()`, `extract_file_sync()`, and the `scene_io.py` reload call to `import_dxf()`) must accept and use the layout parameter.
-- **`_ensure_underlay_caches`:** On save, DWG underlays trigger ODA conversion if cache entry is missing
+- **`import_bounds` on re-extraction:** When a cache miss triggers sync re-extraction and `record.import_bounds` is set, the re-extracted geometry is filtered through `filter_geoms_by_bounds()` using the saved bounds before building Qt items and writing the cache. This reproduces the area selection the user made at import time.
+- **`_ensure_underlay_caches` (save-time):** Reads raw geometry from each underlay group's `data(5)` (the pre-transform geometry list stored at import time) and writes it to the cache. This approach avoids re-extracting from the source file on save, which previously caused UI freezes with large DXF files. The `data(5)` value is authoritative — it already reflects area-selection filtering — so the cache write is unconditional (no freshness check). DWG underlays no longer trigger ODA conversion at save time.
 
 ---
 
@@ -474,7 +479,7 @@ Context menu → "Refresh from Disk", or browser tree right-click → "Refresh".
 
 1. Sync current transform state from scene item back to `Underlay` record (position, scale, rotation, opacity).
 2. Remove old scene item.
-3. Re-import the file using `data.import_mode` (PDF) or standard vector import (DXF).
+3. Re-import the file using `data.import_mode` (PDF) or standard vector import (DXF/DWG). DXF and DWG re-import passes `layout=data.layout` to `import_dxf` so layout-aware extraction is preserved.
 4. If file is missing → replace with placeholder (§5), warn user. Stop.
 5. Recalculate transform origin: `setTransformOriginPoint(boundingRect().center())`.
 6. Apply display settings via `_apply_underlay_display()`.

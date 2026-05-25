@@ -38,6 +38,9 @@ class Underlay:
     import_base_y: float = 0.0
     selected_layers: list[str] | None = None
     layout: str = ""  # DWG layout name (empty = Model space)
+    # Spatial bounds of area-selected geometry (raw DXF coordinates).
+    # Stored so re-extraction can reproduce the same spatial filter.
+    import_bounds: list[float] | None = None  # [min_x, min_y, max_x, max_y]
 
     def to_dict(self) -> dict:
         d = {
@@ -65,6 +68,8 @@ class Underlay:
         d["import_base_y"] = self.import_base_y
         d["selected_layers"] = list(self.selected_layers) if self.selected_layers is not None else None
         d["layout"] = self.layout
+        if self.import_bounds is not None:
+            d["import_bounds"] = list(self.import_bounds)
         return d
 
     @staticmethod
@@ -91,6 +96,7 @@ class Underlay:
             import_base_y   = d.get("import_base_y", 0.0),
             selected_layers = d.get("selected_layers", None),
             layout = d.get("layout", ""),
+            import_bounds = d.get("import_bounds", None),
         )
 
     @staticmethod

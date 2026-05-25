@@ -2027,6 +2027,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
         group.setData(2, all_layers)
+        group.setData(5, params.geom_list)  # raw pre-transform geom for cache
 
         rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
@@ -2042,6 +2043,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             level=self.active_level,
             import_mode=getattr(params, "import_mode", "auto"),
             layout=getattr(params, "layout", ""),
+            import_bounds=getattr(params, "import_bounds", None),
         )
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
@@ -2112,17 +2114,26 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._cleanup_dxf_worker()
             return
 
-        # Write geometry cache (raw, pre-transform)
+        color = params.get("color", QColor("#c0c0c0"))
+
+        # Apply spatial bounds filter (area selection at import time)
+        record = params.get("_record")
+        if record is not None and record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            geom_list = filter_geoms_by_bounds(
+                geom_list, [tuple(record.import_bounds)])
+
+        # Write geometry cache (filtered, pre-transform)
         cache_source = params.get("_dwg_source_path", params["file_path"])
         self._write_underlay_cache(cache_source, geom_list,
                                    page=0,
                                    selected_layers=params.get("layers"),
                                    layout=params.get("layout", ""))
 
-        color = params.get("color", QColor("#c0c0c0"))
+        # Snapshot raw geom for cache-on-save (before transform mutates)
+        _raw_geom = geom_list
 
         # Apply import transform if reloading from a record with baked params
-        record = params.get("_record")
         if record is not None and (record.import_scale != 1.0
                                     or record.import_base_x != 0.0
                                     or record.import_base_y != 0.0):
@@ -2186,6 +2197,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
+        group.setData(5, _raw_geom)  # raw pre-transform geom for cache
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
@@ -2529,6 +2541,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         color = QColor("#c0c0c0")
 
+        # Snapshot raw geom for cache-on-save (before transform mutates)
+        _raw_geom = geom_list
+
         # Apply import transform if reloading from a record with baked params
         if _record is not None and (_record.import_scale != 1.0
                                      or _record.import_base_x != 0.0
@@ -2585,6 +2600,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             QGraphicsItem.GraphicsItemFlag.ItemIsMovable
         )
         group.setData(0, "PDF Underlay")
+        group.setData(5, _raw_geom)  # raw pre-transform geom for cache
 
         record = _record or Underlay(
             type="pdf", path=file_path,
@@ -2753,6 +2769,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 line_weight=data.line_weight,
                 x=data.x, y=data.y, layers=data.selected_layers,
                 _record=data,
+                layout=data.layout,
             )
 
             # Store DWG metadata on import params for async cleanup
@@ -3535,65 +3552,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return "#ffffff", 2.0
 
     def _ensure_underlay_caches(self, project_path: str):
-        """Ensure every underlay with a reachable source file has a cache entry.
+        """Ensure every underlay has a cache entry.
 
-        Called on save.  If a cache entry is missing (e.g. underlay was
-        imported before first save), re-parse the source file and write
-        the cache.
+        Called on save.  Reads the raw geometry stored on each group's
+        ``data(5)`` — this is the exact geometry that was imported
+        (including area selection filtering), avoiding expensive
+        re-extraction from the source file.
         """
-        from .underlay_cache import cache_dir_for_project, read_cache
-        cache_dir = cache_dir_for_project(project_path)
-
-        for record, _item in self.underlays:
+        for record, item in self.underlays:
             if not os.path.isfile(record.path):
                 continue
-            key = record.cache_key()
-            mtime = os.path.getmtime(record.path)
-            cached = read_cache(cache_dir, key, source_mtime=mtime)
-            if cached is not None:
-                continue  # already fresh
-
-            # Re-parse and cache
-            source_path = record.path
-            try:
-                if record.type == "dxf":
-                    from .dxf_import_worker import DxfImportWorker
-                    geom_list = DxfImportWorker.extract_file_sync(
-                        record.path, record.selected_layers,
-                        layout=record.layout)
-                elif record.type == "dwg":
-                    from .dwg_converter import (
-                        find_oda_converter, convert_dwg_to_dxf,
-                        cleanup_converted_dxf,
-                    )
-                    oda = find_oda_converter()
-                    if oda is None:
-                        continue
-                    proj_dir = os.path.dirname(project_path)
-                    converted = convert_dwg_to_dxf(oda, record.path,
-                                                   project_dir=proj_dir)
-                    if converted is None:
-                        continue
-                    from .dxf_import_worker import DxfImportWorker
-                    geom_list = DxfImportWorker.extract_file_sync(
-                        converted, record.selected_layers,
-                        layout=record.layout)
-                    cleanup_converted_dxf(converted)
-                elif record.type == "pdf" and record.import_mode != "raster":
-                    from .pdf_import_worker import extract_pdf_vectors_sync
-                    geom_list, _ = extract_pdf_vectors_sync(
-                        record.path, page=record.page)
-                else:
-                    continue  # raster PDFs have no geometry to cache
-            except Exception:
+            # data(5) is the authoritative raw geometry from the live
+            # scene — always write it, overriding any stale cache that
+            # may have been written before area-selection filtering.
+            geom_list = item.data(5) if item is not None else None
+            if not geom_list:
                 continue
-
-            if geom_list:
-                self._write_underlay_cache(
-                    source_path, geom_list,
-                    page=record.page,
-                    selected_layers=record.selected_layers,
-                    layout=record.layout)
+            self._write_underlay_cache(
+                record.path, geom_list,
+                page=record.page,
+                selected_layers=record.selected_layers,
+                layout=record.layout)
 
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.
@@ -3649,12 +3628,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return False
             if not geom_list:
                 return False
+            # Apply spatial bounds filter (area selection at import time)
+            if record.import_bounds is not None:
+                from .dwg_converter import filter_geoms_by_bounds
+                geom_list = filter_geoms_by_bounds(
+                    geom_list, [tuple(record.import_bounds)])
             # Write fresh cache
             self._write_underlay_cache(
                 record.path, geom_list,
                 page=record.page,
                 selected_layers=record.selected_layers,
                 layout=record.layout)
+
+        # Snapshot raw geom for cache-on-save
+        _raw_geom = geom_list
 
         # Apply import transform (same logic as _on_dxf_finished reload path)
         if (record.import_scale != 1.0
@@ -3711,6 +3698,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(2, all_layers)
+        group.setData(5, _raw_geom)  # raw pre-transform geom for cache
         if source_mtime is None:
             group.setData(3, "source_missing")
 
