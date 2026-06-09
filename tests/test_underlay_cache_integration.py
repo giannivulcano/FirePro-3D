@@ -100,6 +100,77 @@ class TestEnsureUnderlayCachesDirtyFlag:
         assert os.path.isfile(cache_file)
 
 
+class TestStaleCacheFallsBackToAsync:
+    """A stale or missing cache must NOT re-extract synchronously on the
+    GUI thread — _load_underlay_from_cache returns False so the caller
+    (scene_io load) falls back to the async import path with progress UI.
+    """
+
+    def _make_scene(self, tmp_path):
+        from firepro3d.model_space import Model_Space
+
+        scene = Model_Space()
+        project = tmp_path / "proj.fpd"
+        project.touch()
+        scene._project_path = str(project)
+
+        src = tmp_path / "floor.dxf"
+        src.write_text("dummy dxf content")
+        record = Underlay(type="dxf", path=str(src))
+        return scene, record
+
+    def test_missing_cache_returns_false_without_sync_extraction(
+            self, qapp, tmp_path, monkeypatch):
+        scene, record = self._make_scene(tmp_path)
+
+        calls = []
+        from firepro3d.dxf_import_worker import DxfImportWorker
+        monkeypatch.setattr(
+            DxfImportWorker, "extract_file_sync",
+            classmethod(lambda cls, *a, **kw: (calls.append(a),
+                                               list(SAMPLE_GEOMS))[1]))
+
+        result = scene._load_underlay_from_cache(record, source_mtime=1000.0)
+        assert result is False
+        assert calls == [], ("stale cache must not trigger synchronous "
+                             "re-extraction on the GUI thread")
+        assert scene.underlays == []
+
+    def test_stale_cache_returns_false_without_sync_extraction(
+            self, qapp, tmp_path, monkeypatch):
+        scene, record = self._make_scene(tmp_path)
+
+        # Write a cache entry whose mtime no longer matches the source
+        cache_dir = cache_dir_for_project(scene._project_path)
+        write_cache(cache_dir, record.cache_key(), SAMPLE_GEOMS,
+                    source_mtime=1000.0)
+
+        calls = []
+        from firepro3d.dxf_import_worker import DxfImportWorker
+        monkeypatch.setattr(
+            DxfImportWorker, "extract_file_sync",
+            classmethod(lambda cls, *a, **kw: (calls.append(a),
+                                               list(SAMPLE_GEOMS))[1]))
+
+        result = scene._load_underlay_from_cache(record, source_mtime=2000.0)
+        assert result is False
+        assert calls == []
+
+    def test_fresh_cache_still_loads(self, qapp, tmp_path):
+        scene, record = self._make_scene(tmp_path)
+
+        cache_dir = cache_dir_for_project(scene._project_path)
+        write_cache(cache_dir, record.cache_key(), SAMPLE_GEOMS,
+                    source_mtime=1000.0)
+
+        result = scene._load_underlay_from_cache(record, source_mtime=1000.0)
+        assert result is True
+        assert len(scene.underlays) == 1
+        _rec, group = scene.underlays[0]
+        assert group.data(5) is not None
+        assert not group.data(6), "cache-hit load must start clean"
+
+
 class TestCacheForMissingSource:
     """When source file is gone but cache exists, underlay should render."""
 

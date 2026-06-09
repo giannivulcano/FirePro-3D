@@ -3600,11 +3600,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.
 
-        When the cache is stale but the source file exists, re-extracts
-        synchronously and rebuilds the cache before proceeding.
-
-        Returns True if the underlay was loaded, False if the caller
-        should fall back to async parsing.
+        Returns True if the underlay was loaded from a fresh cache entry,
+        False if the caller should fall back to async parsing (cache
+        stale, missing, or project never saved).
         """
         project_path = getattr(self, "_project_path", None)
         if not project_path:
@@ -3616,57 +3614,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         geom_list = read_cache(cache_dir, key, source_mtime=source_mtime)
         if geom_list is None:
-            # Cache stale — try synchronous re-extraction from source
-            if source_mtime is None:
-                return False
-            try:
-                if record.type == "dxf":
-                    from .dxf_import_worker import DxfImportWorker
-                    geom_list = DxfImportWorker.extract_file_sync(
-                        record.path, record.selected_layers,
-                        layout=record.layout)
-                elif record.type == "dwg":
-                    from .dwg_converter import (
-                        find_oda_converter, convert_dwg_to_dxf,
-                        cleanup_converted_dxf,
-                    )
-                    oda = find_oda_converter()
-                    if oda is None:
-                        return False
-                    proj_dir = os.path.dirname(project_path)
-                    converted = convert_dwg_to_dxf(
-                        oda, record.path, project_dir=proj_dir)
-                    if converted is None:
-                        return False
-                    from .dxf_import_worker import DxfImportWorker
-                    geom_list = DxfImportWorker.extract_file_sync(
-                        converted, record.selected_layers,
-                        layout=record.layout,
-                        skip_sanitize=True)  # ODA output is always clean
-                    cleanup_converted_dxf(converted)
-                else:
-                    return False
-            except Exception as e:
-                log.warning("Sync re-extraction failed for %s: %s",
-                            record.path, e)
-                return False
-            if not geom_list:
-                return False
-            # Apply spatial bounds filter (area selection at import time)
-            if record.import_bounds is not None:
-                from .dwg_converter import filter_geoms_by_bounds
-                geom_list = filter_geoms_by_bounds(
-                    geom_list, [tuple(record.import_bounds)])
-            # Write fresh cache
-            _cache_written = self._write_underlay_cache(
-                record.path, geom_list,
-                page=record.page,
-                selected_layers=record.selected_layers,
-                layout=record.layout,
-                import_bounds=record.import_bounds)
-            _cache_dirty = not _cache_written
-        else:
-            _cache_dirty = False  # geometry came straight from the cache
+            # Cache stale or missing — fall back to the async import path
+            # (scene_io load) rather than re-extracting synchronously on
+            # the GUI thread.  The async path handles _record / layout /
+            # import_bounds and rewrites the cache when it finishes.
+            return False
 
         # Snapshot raw geom for cache-on-save
         _raw_geom = geom_list
@@ -3727,7 +3679,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(2, all_layers)
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
-        group.setData(6, _cache_dirty)
+        group.setData(6, False)  # geometry came straight from the cache
         if source_mtime is None:
             group.setData(3, "source_missing")
 
