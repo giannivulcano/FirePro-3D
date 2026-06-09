@@ -186,6 +186,70 @@ class TestPhase1WithIndex:
         assert abs(result.point.y() - 0) < ABS_TOL
 
 
+# ── Per-mousemove cost tests ─────────────────────────────────────────────────
+
+class TestQueryOncePerFind:
+    """Phase 1 and Phase 4 must share one index.query() per group per
+    find() call instead of querying twice per mousemove."""
+
+    def test_index_queried_once_per_find(self, qapp, monkeypatch):
+        scene = _scene()
+        _make_underlay_group_with_index(scene)
+        engine = _engine()
+
+        calls = []
+        real = UnderlaySnapIndex.query
+        monkeypatch.setattr(
+            UnderlaySnapIndex, "query",
+            lambda self, *a: (calls.append(1), real(self, *a))[1])
+
+        result = _find(engine, scene, QPointF(OFFSET, 0))
+        assert result is not None
+        assert len(calls) == 1, (
+            f"index.query() ran {len(calls)}x in one find() — "
+            "Phase 4 must reuse Phase 1's result")
+
+
+class TestLocalBoundsPreFilter:
+    """Polyline points/segments far outside the search rect must be
+    rejected in local space before any xf.map / QPointF construction."""
+
+    def test_collect_from_geom_filters_far_polyline_points(self, qapp):
+        engine = _engine()
+        g = {"kind": "path_points",
+             "points": [(0.0, 0.0), (5.0, 0.0),
+                        (500.0, 500.0), (505.0, 500.0)],
+             "layer": "0"}
+        pts = engine._collect_from_geom(
+            g, QTransform(), (-10.0, -10.0, 10.0, 10.0))
+        assert pts, "near points must still produce snap candidates"
+        for _t, p, _n in pts:
+            assert -10 <= p.x() <= 10 and -10 <= p.y() <= 10, (
+                f"candidate {p} lies outside the local bounds")
+
+    def test_geometric_snaps_from_geom_filters_far_segments(self, qapp):
+        engine = _engine()
+        g = {"kind": "path_points",
+             "points": [(0.0, 5.0), (10.0, 5.0),
+                        (500.0, 500.0), (510.0, 500.0)],
+             "layer": "0"}
+        pts = engine._geometric_snaps_from_geom(
+            QPointF(5, 0), g, QTransform(), (-10.0, -10.0, 20.0, 20.0))
+        assert pts, "near segment must still produce feet"
+        for _t, p in pts:
+            assert abs(p.y() - 5) < 1e-6, (
+                f"foot {p} came from a segment outside the local bounds")
+
+    def test_no_bounds_keeps_full_behavior(self, qapp):
+        engine = _engine()
+        g = {"kind": "path_points",
+             "points": [(0.0, 0.0), (5.0, 0.0), (500.0, 500.0)],
+             "layer": "0"}
+        pts = engine._collect_from_geom(g, QTransform())
+        endpoints = [p for t, p, _ in pts if t == "endpoint"]
+        assert len(endpoints) == 3
+
+
 # ── Phase 4 tests ────────────────────────────────────────────────────────────
 
 class TestPhase4NoIndex:

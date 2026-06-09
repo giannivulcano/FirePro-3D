@@ -11,6 +11,8 @@ cursor is near an underlay group.
 
 from __future__ import annotations
 
+from array import array
+
 _GRID_SIZE = 64  # cells per axis — 64x64 = 4096 cells
 
 
@@ -30,6 +32,7 @@ class UnderlaySnapIndex:
     __slots__ = (
         "_geom_list", "_hidden_layers", "_cells",
         "_ox", "_oy", "_cw", "_ch", "_nx", "_ny",
+        "_bx0", "_by0", "_bx1", "_by1",
     )
 
     def __init__(self, geom_list: list[dict],
@@ -37,15 +40,23 @@ class UnderlaySnapIndex:
         self._geom_list = geom_list
         self._hidden_layers = hidden_layers
 
-        # Compute bounding rect of all geometry
+        # Single bounds pass: compute per-geom bboxes once, keep them as
+        # compact double arrays (32 bytes/geom) for the query-time bbox
+        # filter and the cell-assignment pass below.
+        bx0 = array("d"); by0 = array("d")
+        bx1 = array("d"); by1 = array("d")
         min_x = min_y = float("inf")
         max_x = max_y = float("-inf")
         for g in geom_list:
             gmin_x, gmin_y, gmax_x, gmax_y = _geom_bounds(g)
+            bx0.append(gmin_x); by0.append(gmin_y)
+            bx1.append(gmax_x); by1.append(gmax_y)
             if gmin_x < min_x: min_x = gmin_x
             if gmin_y < min_y: min_y = gmin_y
             if gmax_x > max_x: max_x = gmax_x
             if gmax_y > max_y: max_y = gmax_y
+        self._bx0 = bx0; self._by0 = by0
+        self._bx1 = bx1; self._by1 = by1
 
         if min_x > max_x:
             # Empty geometry list
@@ -68,12 +79,11 @@ class UnderlaySnapIndex:
 
         # Assign each geometry to its overlapping cells
         cells: dict[int, list[int]] = {}
-        for idx, g in enumerate(geom_list):
-            gmin_x, gmin_y, gmax_x, gmax_y = _geom_bounds(g)
-            c0 = max(0, int((gmin_x - self._ox) / self._cw))
-            c1 = min(self._nx - 1, int((gmax_x - self._ox) / self._cw))
-            r0 = max(0, int((gmin_y - self._oy) / self._ch))
-            r1 = min(self._ny - 1, int((gmax_y - self._oy) / self._ch))
+        for idx in range(len(geom_list)):
+            c0 = max(0, int((bx0[idx] - self._ox) / self._cw))
+            c1 = min(self._nx - 1, int((bx1[idx] - self._ox) / self._cw))
+            r0 = max(0, int((by0[idx] - self._oy) / self._ch))
+            r1 = min(self._ny - 1, int((by1[idx] - self._oy) / self._ch))
             for r in range(r0, r1 + 1):
                 for c in range(c0, c1 + 1):
                     key = r * self._nx + c
@@ -105,6 +115,8 @@ class UnderlaySnapIndex:
 
         seen: set[int] = set()
         result: list[dict] = []
+        bx0 = self._bx0; by0 = self._by0
+        bx1 = self._bx1; by1 = self._by1
         for r in range(r0, r1 + 1):
             for c in range(c0, c1 + 1):
                 cell = self._cells.get(r * self._nx + c)
@@ -114,6 +126,12 @@ class UnderlaySnapIndex:
                     if idx in seen:
                         continue
                     seen.add(idx)
+                    # Cells are >=100 units wide — reject candidates whose
+                    # bbox misses the query rect or every cell occupant
+                    # fans out into the per-mousemove snap checks.
+                    if (bx0[idx] > x2 or bx1[idx] < x1
+                            or by0[idx] > y2 or by1[idx] < y1):
+                        continue
                     g = self._geom_list[idx]
                     layer = g.get("layer", "0")
                     if layer in hidden:

@@ -153,7 +153,7 @@ class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "tol", "priority_band",
                  "best_dist", "best_prio", "best_result",
-                 "endpoint_candidates")
+                 "endpoint_candidates", "underlay_geoms")
 
     def __init__(self, cursor: QPointF, tol: float, priority_band: float):
         self.cursor = cursor
@@ -166,6 +166,10 @@ class _SnapCtx:
         # far. Phase 4 uses this to suppress intersection candidates
         # that land inside the endpoint protection band (§6.3 Change B).
         self.endpoint_candidates: list[QPointF] = []
+        # Per-underlay-group UnderlaySnapIndex.query() results, keyed by
+        # id(group). Phase 1 fills it; Phase 4 reuses it so each group
+        # is queried once per find(), not twice per mousemove.
+        self.underlay_geoms: dict[int, list[dict]] = {}
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
               name: str | None = None, *,
@@ -450,6 +454,10 @@ class SnapEngine:
                         )
                         if search_rect.intersects(seg_r):
                             _segments.append((p1, p2, item))
+                    # Abort during extraction — once over the cap the
+                    # phase bails anyway (see check below).
+                    if len(_segments) > _PHASE4_MAX_SEGMENTS:
+                        return
 
         # Extract segments from underlay snap indices
         _queried_groups: set[int] = set()
@@ -478,12 +486,31 @@ class SnapEngine:
             if not ok:
                 continue
             local_rect = inv_xf.mapRect(search_rect)
-            for g in index.query(local_rect.x(), local_rect.y(),
-                                 local_rect.width(), local_rect.height()):
+            lx1 = local_rect.x()
+            ly1 = local_rect.y()
+            lx2 = lx1 + local_rect.width()
+            ly2 = ly1 + local_rect.height()
+
+            # Reuse Phase 1's query result for this group (same
+            # search_rect) instead of querying twice per mousemove.
+            nearby = ctx.underlay_geoms.get(gid)
+            if nearby is None:
+                nearby = index.query(lx1, ly1, local_rect.width(),
+                                     local_rect.height())
+                ctx.underlay_geoms[gid] = nearby
+
+            for g in nearby:
                 kind = g.get("kind")
                 if kind == "line":
-                    p1 = xf.map(QPointF(g["x1"], g["y1"]))
-                    p2 = xf.map(QPointF(g["x2"], g["y2"]))
+                    ax = g["x1"]; ay = g["y1"]
+                    bx = g["x2"]; by = g["y2"]
+                    # Segment-bbox rejection in local space before any
+                    # xf.map / QPointF construction.
+                    if (max(ax, bx) < lx1 or min(ax, bx) > lx2
+                            or max(ay, by) < ly1 or min(ay, by) > ly2):
+                        continue
+                    p1 = xf.map(QPointF(ax, ay))
+                    p2 = xf.map(QPointF(bx, by))
                     seg_r = QRectF(
                         min(p1.x(), p2.x()) - 0.5,
                         min(p1.y(), p2.y()) - 0.5,
@@ -496,6 +523,10 @@ class SnapEngine:
                     points = g.get("points", [])
                     for j in range(min(len(points) - 1, 511)):
                         a, b = points[j], points[j + 1]
+                        if (max(a[0], b[0]) < lx1 or min(a[0], b[0]) > lx2
+                                or max(a[1], b[1]) < ly1
+                                or min(a[1], b[1]) > ly2):
+                            continue
                         p1 = xf.map(QPointF(a[0], a[1]))
                         p2 = xf.map(QPointF(b[0], b[1]))
                         seg_r = QRectF(
@@ -506,6 +537,10 @@ class SnapEngine:
                         )
                         if search_rect.intersects(seg_r):
                             _segments.append((p1, p2, grp))
+                # Abort during extraction — once over the cap the phase
+                # bails anyway, so don't keep extracting thousands more.
+                if len(_segments) > _PHASE4_MAX_SEGMENTS:
+                    return
 
         # Bail out if segment extraction exploded (batched DXF paths
         # have hundreds of segments per item; O(n²) pairing on 3000+
@@ -817,12 +852,17 @@ class SnapEngine:
 
     def _collect_from_geom(
         self, g: dict, xf: QTransform,
+        local_bounds: tuple[float, float, float, float] | None = None,
     ) -> list[tuple[str, QPointF, str | None]]:
         """Return (snap_type, scene_pos, name) triples from a geometry dict.
 
         Like ``_collect`` but works on raw geometry dicts instead of
         QGraphicsItems.  *xf* is the underlay group's sceneTransform
-        used to map local coordinates to scene space.
+        used to map local coordinates to scene space.  *local_bounds*
+        is the search rect as (x1, y1, x2, y2) in group-local space —
+        polyline points outside it are rejected with raw float compares
+        before any ``xf.map``/``QPointF`` construction (a candidate
+        outside the search rect can never be within snap tolerance).
         """
         pts: list[tuple[str, QPointF, str | None]] = []
         kind = g.get("kind")
@@ -878,25 +918,39 @@ class SnapEngine:
 
         elif kind == "path_points":
             points = g.get("points", [])
+            if local_bounds is not None:
+                lx1, ly1, lx2, ly2 = local_bounds
             if self.snap_endpoint:
                 for p in points[:512]:
+                    if local_bounds is not None and not (
+                            lx1 <= p[0] <= lx2 and ly1 <= p[1] <= ly2):
+                        continue
                     pts.append(("endpoint", xf.map(QPointF(p[0], p[1])), None))
             if self.snap_midpoint:
                 for i in range(min(len(points) - 1, 511)):
                     a, b = points[i], points[i + 1]
-                    mid = QPointF((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-                    pts.append(("midpoint", xf.map(mid), None))
+                    mx = (a[0] + b[0]) / 2
+                    my = (a[1] + b[1]) / 2
+                    if local_bounds is not None and not (
+                            lx1 <= mx <= lx2 and ly1 <= my <= ly2):
+                        continue
+                    pts.append(("midpoint", xf.map(QPointF(mx, my)), None))
 
         # "text" — no snap targets
         return pts
 
     def _geometric_snaps_from_geom(
         self, cursor: QPointF, g: dict, xf: QTransform,
+        local_bounds: tuple[float, float, float, float] | None = None,
     ) -> list[tuple[str, QPointF]]:
         """Perpendicular and nearest snap points from a geometry dict.
 
         Like ``_geometric_snaps`` but works on raw geometry dicts.
-        *xf* is the underlay group's sceneTransform.
+        *xf* is the underlay group's sceneTransform.  *local_bounds*
+        is the search rect as (x1, y1, x2, y2) in group-local space —
+        polyline segments whose bbox misses it are skipped (the foot
+        of a perpendicular is clamped onto the segment, so a segment
+        outside the search rect cannot yield an in-tolerance foot).
         """
         pts: list[tuple[str, QPointF]] = []
         kind = g.get("kind")
@@ -934,8 +988,14 @@ class SnapEngine:
 
         elif kind == "path_points":
             points = g.get("points", [])
+            if local_bounds is not None:
+                lx1, ly1, lx2, ly2 = local_bounds
             for i in range(min(len(points) - 1, 511)):
                 a, b = points[i], points[i + 1]
+                if local_bounds is not None and (
+                        max(a[0], b[0]) < lx1 or min(a[0], b[0]) > lx2
+                        or max(a[1], b[1]) < ly1 or min(a[1], b[1]) > ly2):
+                    continue
                 _seg_snap(xf.map(QPointF(a[0], a[1])),
                           xf.map(QPointF(b[0], b[1])))
 
@@ -974,15 +1034,23 @@ class SnapEngine:
         if not ok:
             return
         local_rect = inv_xf.mapRect(search_rect)
+        local_bounds = (local_rect.x(), local_rect.y(),
+                        local_rect.x() + local_rect.width(),
+                        local_rect.y() + local_rect.height())
 
-        nearby = index.query(local_rect.x(), local_rect.y(),
-                             local_rect.width(), local_rect.height())
+        gid = id(group)
+        nearby = ctx.underlay_geoms.get(gid)
+        if nearby is None:
+            nearby = index.query(local_rect.x(), local_rect.y(),
+                                 local_rect.width(), local_rect.height())
+            ctx.underlay_geoms[gid] = nearby
 
         for g in nearby:
-            for snap_type, scene_pt, name in self._collect_from_geom(g, xf):
+            for snap_type, scene_pt, name in self._collect_from_geom(
+                    g, xf, local_bounds):
                 ctx.check(snap_type, scene_pt, group, name)
             for snap_type, pt in self._geometric_snaps_from_geom(
-                    ctx.cursor, g, xf):
+                    ctx.cursor, g, xf, local_bounds):
                 ctx.check(snap_type, pt, group)
 
     # ── Perpendicular / Tangent snaps ─────────────────────────────────────
