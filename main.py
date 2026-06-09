@@ -2482,37 +2482,45 @@ class MainWindow(QMainWindow):
             scale_manager=self.scene.scale_manager,
             default_dir=default_dir,
         )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            params = dialog.get_import_params()
-            # PDF with no vectors → raster fallback
-            if (not params.geom_list
-                    and params.file_type == "pdf"
-                    and not params.has_vectors):
-                from firepro3d.underlay import Underlay
-                record = Underlay(
-                    type="pdf", path=params.file_path,
-                    dpi=params.pdf_dpi, page=params.pdf_page,
-                    rotation=params.rotation,
-                    scale=params.scale,
-                    import_mode=params.import_mode,
-                )
-                self.scene.import_pdf(
-                    params.file_path,
-                    dpi=params.pdf_dpi,
-                    page=params.pdf_page,
-                    _record=record,
-                    import_mode=params.import_mode,
-                )
-                return
-            if not params.geom_list:
-                return
-            # Switch to model space (plan view)
-            self._activate_plan_view(self.scene.active_level)
-            if params.insert_at_origin:
-                self.scene._place_import_params = params
-                self.scene._commit_place_import(QPointF(0, 0))
-            else:
-                self.scene.begin_place_import(params)
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            params = dialog.get_import_params() if accepted else None
+        finally:
+            # The dialog is parented to this window — without an explicit
+            # deleteLater() every import leaks the dialog (geometry list,
+            # preview scene) until the window closes.
+            dialog.deleteLater()
+        if params is None:
+            return
+        # PDF with no vectors → raster fallback
+        if (not params.geom_list
+                and params.file_type == "pdf"
+                and not params.has_vectors):
+            from firepro3d.underlay import Underlay
+            record = Underlay(
+                type="pdf", path=params.file_path,
+                dpi=params.pdf_dpi, page=params.pdf_page,
+                rotation=params.rotation,
+                scale=params.scale,
+                import_mode=params.import_mode,
+            )
+            self.scene.import_pdf(
+                params.file_path,
+                dpi=params.pdf_dpi,
+                page=params.pdf_page,
+                _record=record,
+                import_mode=params.import_mode,
+            )
+            return
+        if not params.geom_list:
+            return
+        # Switch to model space (plan view)
+        self._activate_plan_view(self.scene.active_level)
+        if params.insert_at_origin:
+            self.scene._place_import_params = params
+            self.scene._commit_place_import(QPointF(0, 0))
+        else:
+            self.scene.begin_place_import(params)
 
     def _on_drop_import(self, path: str):
         """Handle a file dropped onto the canvas."""

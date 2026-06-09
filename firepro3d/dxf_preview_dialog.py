@@ -360,6 +360,8 @@ class UnderlayImportDialog(QDialog):
         self._snap_result: OsnapResult | None = None
         self._pdf_page: int = 0
         self._pdf_page_count: int = 0
+        self._doc = None          # ezdxf document (DXF/DWG only)
+        self._extracting = False  # re-entrancy guard for extraction
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
@@ -616,22 +618,30 @@ class UnderlayImportDialog(QDialog):
 
     # ── Loading state ─────────────────────────────────────────────────────
 
+    def _set_controls_enabled(self, enabled: bool):
+        """Enable/disable the preview, controls panel, and bottom buttons.
+
+        Disabled during loading AND extraction — the progress bar pumps
+        processEvents, so enabled controls would let layer toggles or
+        Import clicks land on a half-built ``_all_geoms``.
+        """
+        self._preview_view.setEnabled(enabled)
+        splitter = self.findChild(QSplitter)
+        if splitter and splitter.count() > 1:
+            splitter.widget(1).setEnabled(enabled)
+        btns = self.findChild(QDialogButtonBox)
+        if btns:
+            btns.setEnabled(enabled)
+
     def _set_loading(self, message: str):
         """Disable controls and show a loading message with indeterminate progress."""
         self._loading_bar.start(message)
-        self._preview_view.setEnabled(False)
-        # Disable the right-side controls panel
-        splitter = self.findChild(QSplitter)
-        if splitter and splitter.count() > 1:
-            splitter.widget(1).setEnabled(False)
-        # Disable bottom bar buttons
-        btns = self.findChild(QDialogButtonBox)
-        if btns:
-            btns.setEnabled(False)
+        self._set_controls_enabled(False)
 
     def _set_extracting(self, total: int):
         """Switch progress bar to determinate mode for entity extraction."""
         self._loading_bar.start_determinate(total, "Extracting entities…")
+        self._set_controls_enabled(False)
 
     def _update_progress(self, current: int, total: int, message: str = ""):
         """Update progress bar value and optional message."""
@@ -640,13 +650,7 @@ class UnderlayImportDialog(QDialog):
     def _clear_loading(self):
         """Re-enable controls and hide progress bar."""
         self._loading_bar.finish()
-        self._preview_view.setEnabled(True)
-        splitter = self.findChild(QSplitter)
-        if splitter and splitter.count() > 1:
-            splitter.widget(1).setEnabled(True)
-        btns = self.findChild(QDialogButtonBox)
-        if btns:
-            btns.setEnabled(True)
+        self._set_controls_enabled(True)
 
     # ── Persist settings between sessions ──────────────────────────────────
 
@@ -816,6 +820,18 @@ class UnderlayImportDialog(QDialog):
         For Model: extracts all model-space geometry.
         For paper layouts: viewport-filtered model geometry + paper annotations.
         """
+        # Re-entrancy guard — the progress bar pumps processEvents, so a
+        # queued layout-combo change could re-enter mid-extraction and
+        # interleave two extractions into _all_geoms.
+        if self._extracting:
+            return
+        self._extracting = True
+        try:
+            self._extract_for_layout_inner(layout_name)
+        finally:
+            self._extracting = False
+
+    def _extract_for_layout_inner(self, layout_name: str):
         doc = self._doc
         path = self._file_edit.text().strip()
         self._selected_layout = layout_name
@@ -834,11 +850,12 @@ class UnderlayImportDialog(QDialog):
         msp = doc.modelspace()
         all_ents = list(msp)
 
-        # Collect layer names from doc + entity attributes
+        # Collect layer names from doc + entity attributes (reuse the
+        # entity list — re-walking the ezdxf entity DB doubles the pass)
         layers_set: set[str] = {"0"}
         for layer in doc.layers:
             layers_set.add(layer.dxf.name)
-        for entity in msp:
+        for entity in all_ents:
             layers_set.add(
                 entity.dxf.get("layer", "0")
                 if hasattr(entity.dxf, "get") else "0"
@@ -1786,11 +1803,27 @@ class UnderlayImportDialog(QDialog):
     # ── Accept / result ───────────────────────────────────────────────────────
 
     def _on_accept(self):
+        if self._extracting:
+            return  # half-built _all_geoms — ignore queued Import clicks
         if not self._all_geoms and self._has_vectors:
             QMessageBox.warning(self, "Nothing to import",
                                 "Load a file before importing.")
             return
         self.accept()
+
+    def done(self, result: int):
+        """Release heavy references when the dialog closes.
+
+        The dialog is parented to the main window, so it outlives close
+        until deleteLater(); dropping the ezdxf document and preview
+        scene items (~293K invisible snap items on large drawings) here
+        frees the bulk of the memory immediately.  ``get_import_params()``
+        — called after ``exec()`` returns — reads only widgets and
+        ``_all_geoms``, both of which stay valid.
+        """
+        self._doc = None
+        self._preview_scene.clear()
+        super().done(result)
 
     def get_import_params(self) -> ImportParams:
         """Call after dialog.exec() == Accepted."""
