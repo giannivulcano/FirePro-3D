@@ -62,6 +62,7 @@ except ImportError:
 from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
 from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
+from .underlay_snap_index import UnderlaySnapIndex
 from .scale_manager import ScaleManager
 from .dimension_edit import DimensionEdit
 
@@ -362,6 +363,12 @@ class UnderlayImportDialog(QDialog):
         self._pdf_page_count: int = 0
         self._doc = None          # ezdxf document (DXF/DWG only)
         self._extracting = False  # re-entrancy guard for extraction
+        self._preview_geom_group = None
+        self._snap_index: UnderlaySnapIndex | None = None
+        self._snap_index_src: list | None = None  # identity of indexed geoms
+        # Per-layout extraction memo: layout name -> (geoms, layers).
+        # Revisiting Model→Layout1→Model previously re-extracted thrice.
+        self._layout_cache: dict[str, tuple[list[dict], list[str]]] = {}
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
@@ -756,6 +763,7 @@ class UnderlayImportDialog(QDialog):
                     os.remove(clean)
 
         self._doc = doc
+        self._layout_cache.clear()  # new document — memo entries are stale
 
         # Auto-detect DXF units ($INSUNITS)
         self._detect_dxf_units(doc)
@@ -835,6 +843,25 @@ class UnderlayImportDialog(QDialog):
         doc = self._doc
         path = self._file_edit.text().strip()
         self._selected_layout = layout_name
+
+        # ── Memoized layout — skip re-extraction entirely ────────────────
+        cached = self._layout_cache.get(layout_name)
+        if cached is not None:
+            self._all_geoms, layers = cached
+            self._layers = list(layers)
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._set_loading("Building preview…")
+            self._rebuild_preview()
+            self._clear_loading()
+            n = len(self._all_geoms)
+            layout_label = (f" (layout: {layout_name})"
+                            if layout_name != "Model" else "")
+            self._info_lbl.setText(
+                f"{n:,} entities loaded from "
+                f"{os.path.basename(path)}{layout_label}")
+            self._update_status()
+            return
 
         # ── Viewport bounds (paper layouts only) ─────────────────────────
         vp_bounds = None
@@ -927,6 +954,12 @@ class UnderlayImportDialog(QDialog):
         self._layers = sorted(layers_set | geom_layers)
         self._populate_layer_list()
         self._selected_indices = None
+
+        # ── Memoize (complete extractions only — a cancelled run holds
+        # a partial geometry list) ───────────────────────────────────────
+        if not self._loading_bar.cancelled:
+            self._layout_cache[layout_name] = (
+                self._all_geoms, list(self._layers))
 
         # ── Rebuild preview ──────────────────────────────────────────────
         self._set_loading("Building preview\u2026")
@@ -1253,6 +1286,7 @@ class UnderlayImportDialog(QDialog):
         """Show a raster rendering of the PDF page as a fallback preview."""
         self._preview_scene.clear()
         self._base_marker = None
+        self._preview_geom_group = None  # destroyed by clear()
         self._pick_markers = []
         self._create_overlay_items()
 
@@ -1350,6 +1384,8 @@ class UnderlayImportDialog(QDialog):
                 item = QGraphicsPathItem(gp)
                 item.setPen(pen)
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                item.setCacheMode(
+                    QGraphicsItem.CacheMode.DeviceCoordinateCache)
                 self._preview_scene.addItem(item)
                 geom_items.append(item)
             # Text: filled, no outline
@@ -1358,6 +1394,8 @@ class UnderlayImportDialog(QDialog):
                 item = QGraphicsPathItem(tp)
                 item.setPen(QPen(Qt.PenStyle.NoPen))
                 item.setBrush(QBrush(pen.color()))
+                item.setCacheMode(
+                    QGraphicsItem.CacheMode.DeviceCoordinateCache)
                 self._preview_scene.addItem(item)
                 geom_items.append(item)
 
@@ -1365,20 +1403,23 @@ class UnderlayImportDialog(QDialog):
         rotation = self._get_rotation()
         if geom_items:
             group = self._preview_scene.createItemGroup(geom_items)
-            group.setData(0, "DXF Underlay")  # snap engine descends into tagged groups
+            group.setData(0, "DXF Underlay")  # snap engine recognises tagged groups
             bx = self._base_x_edit.value_mm() if hasattr(self, "_base_x_edit") else 0.0
             by = self._base_y_edit.value_mm() if hasattr(self, "_base_y_edit") else 0.0
             group.setTransformOriginPoint(bx, by)
             group.setRotation(rotation)
-            # Add invisible individual items for snap detection.
-            # The batched QPainterPaths handle rendering; these items
-            # have NoPen/NoBrush so they draw nothing but participate
-            # in Qt's spatial index for the snap engine.
-            for g in self._all_geoms:
-                snap_item = self._create_snap_item(g)
-                if snap_item is not None:
-                    self._preview_scene.addItem(snap_item)
-                    group.addToGroup(snap_item)
+            # Lazy snap index instead of one invisible QGraphicsItem per
+            # geometry (~293K items on large drawings, rebuilt on every
+            # layer toggle).  Geometry dicts are in group-local coords;
+            # the engine maps queries through the group's sceneTransform,
+            # so rotation needs no index rebuild.  Empty hidden-layers
+            # list = snap on all layers, matching the old invisible-item
+            # behaviour.  Rebuilt only when _all_geoms is a new list.
+            if (self._snap_index is None
+                    or self._snap_index_src is not self._all_geoms):
+                self._snap_index = UnderlaySnapIndex(self._all_geoms, [])
+                self._snap_index_src = self._all_geoms
+            group.setData(4, self._snap_index)
             self._preview_geom_group = group
 
         self._draw_base_marker()
@@ -1445,67 +1486,6 @@ class UnderlayImportDialog(QDialog):
                     elif ha == 2: # right
                         lx -= fm.horizontalAdvance(line)
                     path.addText(lx, base_y + i * line_h, f, line)
-
-    @staticmethod
-    def _create_snap_item(g: dict) -> QGraphicsItem | None:
-        """Create an invisible item for snap detection from a geometry dict.
-
-        Mirrors ``ModelSpace._geom_to_item()`` item types so the snap
-        engine's ``_collect()`` and ``_geometric_snaps()`` handle them
-        identically to plan-view underlays.  Text is skipped (N/A per
-        snap spec S5).
-        """
-        kind = g.get("kind")
-        # Transparent cosmetic pen — draws nothing visible but gives
-        # Qt a non-degenerate boundingRect (NoPen produces zero-width/
-        # height rects that scene.items() silently skips).
-        no_pen = QPen(QColor(0, 0, 0, 0), 0)
-        no_pen.setCosmetic(True)
-        no_brush = QBrush(Qt.BrushStyle.NoBrush)
-
-        if kind == "line":
-            item = QGraphicsLineItem(g["x1"], g["y1"], g["x2"], g["y2"])
-            item.setPen(no_pen)
-            return item
-
-        if kind == "circle":
-            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
-            item.setPen(no_pen)
-            item.setBrush(no_brush)
-            return item
-
-        if kind == "arc":
-            path = QPainterPath()
-            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
-            path.arcMoveTo(rect, g["start"])
-            path.arcTo(rect, g["start"], g["span"])
-            item = QGraphicsPathItem(path)
-            item.setPen(no_pen)
-            return item
-
-        if kind == "ellipse_full":
-            item = QGraphicsEllipseItem(g["x"], g["y"], g["w"], g["h"])
-            item.setPen(no_pen)
-            item.setBrush(no_brush)
-            item.setPos(g["pos_cx"], g["pos_cy"])
-            return item
-
-        if kind == "path_points":
-            pts = g.get("points", [])
-            if len(pts) < 2:
-                return None
-            path = QPainterPath()
-            path.moveTo(pts[0][0], pts[0][1])
-            for p in pts[1:]:
-                path.lineTo(p[0], p[1])
-            if g.get("closed") and len(pts) >= 3:
-                path.closeSubpath()
-            item = QGraphicsPathItem(path)
-            item.setPen(no_pen)
-            return item
-
-        # "text" and unknown kinds -- no snap targets
-        return None
 
     def _draw_base_marker(self):
         # Remove previous base marker items (guard against deleted C++ objects)
@@ -1758,8 +1738,25 @@ class UnderlayImportDialog(QDialog):
         self._load_pdf_page(path, self._pdf_page)
 
     def _on_rotation_changed(self):
-        """Rebuild preview to reflect the new rotation angle."""
-        self._rebuild_preview()
+        """Apply rotation to the existing preview group — no rebuild.
+
+        Rotation is a group transform; the batched paths and the snap
+        index both live in group-local coordinates, so neither needs
+        rebuilding (a full rebuild froze the dialog for seconds on
+        large drawings).
+        """
+        group = self._preview_geom_group
+        if group is None:
+            return
+        try:
+            bx = self._base_x_edit.value_mm()
+            by = self._base_y_edit.value_mm()
+            group.setTransformOriginPoint(bx, by)
+            group.setRotation(self._get_rotation())
+        except RuntimeError:
+            # C++ object deleted (scene was cleared) — rebuild from data
+            self._preview_geom_group = None
+            self._rebuild_preview()
 
     def _get_rotation(self) -> float:
         text = self._rotation_edit.text().strip().rstrip("°").strip()
@@ -1822,6 +1819,10 @@ class UnderlayImportDialog(QDialog):
         ``_all_geoms``, both of which stay valid.
         """
         self._doc = None
+        self._snap_index = None
+        self._snap_index_src = None
+        self._layout_cache.clear()
+        self._preview_geom_group = None
         self._preview_scene.clear()
         super().done(result)
 
