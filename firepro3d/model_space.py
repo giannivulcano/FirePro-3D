@@ -1971,11 +1971,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
 
         # Write geometry cache (raw, pre-transform)
-        self._write_underlay_cache(
+        _cache_written = self._write_underlay_cache(
             params.file_path, params.geom_list,
             page=getattr(params, "pdf_page", 0),
             selected_layers=getattr(params, "selected_layers", None),
-            layout=getattr(params, "layout", ""))
+            layout=getattr(params, "layout", ""),
+            import_bounds=getattr(params, "import_bounds", None))
 
         s = params.scale
         bx, by = params.base_x, params.base_y
@@ -2028,6 +2029,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
         group.setData(2, all_layers)
         group.setData(5, params.geom_list)  # raw pre-transform geom for cache
+        group.setData(6, not _cache_written)  # dirty until cached on save
 
         rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
@@ -2056,7 +2058,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def import_dxf(self, file_path, color=QColor("white"), line_weight=0,
                    x=0.0, y=0.0, layers=None, _record: Underlay = None,
-                   layout: str = ""):
+                   layout: str = "", skip_sanitize: bool = False):
         """
         Import a DXF file as an underlay using a background thread.
 
@@ -2079,7 +2081,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         progress.setValue(0)
 
         # Create and configure worker (no Qt objects passed — created on main thread later)
-        worker = DxfImportWorker(file_path, layers, layout=layout)
+        worker = DxfImportWorker(file_path, layers, layout=layout,
+                                 skip_sanitize=skip_sanitize)
 
         # Store references so they don't get garbage-collected
         self._dxf_worker = worker
@@ -2125,10 +2128,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Write geometry cache (filtered, pre-transform)
         cache_source = params.get("_dwg_source_path", params["file_path"])
-        self._write_underlay_cache(cache_source, geom_list,
-                                   page=0,
-                                   selected_layers=params.get("layers"),
-                                   layout=params.get("layout", ""))
+        _cache_written = self._write_underlay_cache(
+            cache_source, geom_list,
+            page=0,
+            selected_layers=params.get("layers"),
+            layout=params.get("layout", ""),
+            import_bounds=(record.import_bounds
+                           if record is not None else None))
 
         # Snapshot raw geom for cache-on-save (before transform mutates)
         _raw_geom = geom_list
@@ -2198,6 +2204,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
+        group.setData(6, not _cache_written)  # dirty until cached on save
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
@@ -2535,9 +2542,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ``_build_batched_underlay_group()``, and register the underlay.
         """
         # Write geometry cache (raw, pre-transform)
-        self._write_underlay_cache(
+        _cache_written = self._write_underlay_cache(
             file_path, geom_list, page=page,
-            selected_layers=None)
+            selected_layers=None,
+            import_bounds=(_record.import_bounds
+                           if _record is not None else None))
 
         color = QColor("#c0c0c0")
 
@@ -2601,6 +2610,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         )
         group.setData(0, "PDF Underlay")
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
+        group.setData(6, not _cache_written)  # dirty until cached on save
 
         record = _record or Underlay(
             type="pdf", path=file_path,
@@ -2770,6 +2780,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 x=data.x, y=data.y, layers=data.selected_layers,
                 _record=data,
                 layout=data.layout,
+                skip_sanitize=(data.type == "dwg"),  # ODA output is clean
             )
 
             # Store DWG metadata on import params for async cleanup
@@ -3558,21 +3569,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ``data(5)`` — this is the exact geometry that was imported
         (including area selection filtering), avoiding expensive
         re-extraction from the source file.
+
+        The JSON write is skipped when the geometry is unchanged since
+        the last write (``data(6)`` dirty flag is falsy) AND the cache
+        file already exists — serialising hundreds of thousands of geoms
+        on every Ctrl+S froze the UI for seconds.  The existence check
+        keeps Save-As (new cache directory) and externally-deleted cache
+        files self-healing.
         """
+        from .underlay_cache import cache_dir_for_project, write_cache
+        cache_dir = cache_dir_for_project(project_path)
         for record, item in self.underlays:
-            if not os.path.isfile(record.path):
+            if item is None or not os.path.isfile(record.path):
                 continue
-            # data(5) is the authoritative raw geometry from the live
-            # scene — always write it, overriding any stale cache that
-            # may have been written before area-selection filtering.
-            geom_list = item.data(5) if item is not None else None
+            key = record.cache_key()
+            if (not item.data(6)
+                    and os.path.isfile(os.path.join(cache_dir, key))):
+                continue
+            geom_list = item.data(5)
             if not geom_list:
                 continue
-            self._write_underlay_cache(
-                record.path, geom_list,
-                page=record.page,
-                selected_layers=record.selected_layers,
-                layout=record.layout)
+            try:
+                source_mtime = os.path.getmtime(record.path)
+                write_cache(cache_dir, key, geom_list,
+                            source_mtime=source_mtime)
+            except OSError:
+                continue  # non-fatal — cache is an optimisation
+            item.setData(6, False)
 
     def _load_underlay_from_cache(self, record, source_mtime):
         """Try to load an underlay from the geometry cache.
@@ -3618,7 +3641,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     from .dxf_import_worker import DxfImportWorker
                     geom_list = DxfImportWorker.extract_file_sync(
                         converted, record.selected_layers,
-                        layout=record.layout)
+                        layout=record.layout,
+                        skip_sanitize=True)  # ODA output is always clean
                     cleanup_converted_dxf(converted)
                 else:
                     return False
@@ -3634,11 +3658,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 geom_list = filter_geoms_by_bounds(
                     geom_list, [tuple(record.import_bounds)])
             # Write fresh cache
-            self._write_underlay_cache(
+            _cache_written = self._write_underlay_cache(
                 record.path, geom_list,
                 page=record.page,
                 selected_layers=record.selected_layers,
-                layout=record.layout)
+                layout=record.layout,
+                import_bounds=record.import_bounds)
+            _cache_dirty = not _cache_written
+        else:
+            _cache_dirty = False  # geometry came straight from the cache
 
         # Snapshot raw geom for cache-on-save
         _raw_geom = geom_list
@@ -3699,6 +3727,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(2, all_layers)
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
+        group.setData(6, _cache_dirty)
         if source_mtime is None:
             group.setData(3, "source_missing")
 
@@ -3712,27 +3741,35 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _write_underlay_cache(self, source_path: str, geom_list: list[dict],
                               page: int = 0,
                               selected_layers: list[str] | None = None,
-                              layout: str = ""):
+                              layout: str = "",
+                              import_bounds: list[float] | None = None,
+                              ) -> bool:
         """Write geometry dicts to the project cache directory.
 
         No-op if the project has not been saved yet (no project path).
+
+        Returns:
+            True if the cache entry was written — callers use this to
+            decide whether the group's dirty flag (``data(6)``) is set.
         """
         project_path = getattr(self, "_project_path", None)
         if not project_path:
-            return
+            return False
         try:
             source_mtime = os.path.getmtime(source_path)
         except OSError:
-            return
+            return False
         from .underlay_cache import cache_dir_for_project, compute_cache_key, write_cache
         cache_dir = cache_dir_for_project(project_path)
         key = compute_cache_key(source_path, page=page,
                                 selected_layers=selected_layers,
-                                layout=layout)
+                                layout=layout,
+                                import_bounds=import_bounds)
         try:
             write_cache(cache_dir, key, geom_list, source_mtime=source_mtime)
         except OSError:
-            pass  # non-fatal — cache is an optimisation
+            return False  # non-fatal — cache is an optimisation
+        return True
 
     # ─────────────────────────────────────────────────────────────────────────
 

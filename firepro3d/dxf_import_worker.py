@@ -8,6 +8,7 @@ QGraphicsItems are built on the main thread after the signal is received.
 
 import math
 import os
+import re
 import tempfile
 
 from PyQt6.QtCore import QThread, pyqtSignal
@@ -122,6 +123,55 @@ def _resolve_entity_color(entity, layer_colors: dict[str, str]) -> str:
 # DXF sanitiser (moved here from the deleted dxf_import_dialog.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Read size for the streaming clean-file scan (module-level so tests can
+# shrink it to exercise chunk-boundary handling).
+_SCAN_CHUNK = 4 * 1024 * 1024
+
+# Defects the sanitiser repairs: a bare \r (incl. \r\r\n — Python's
+# universal newlines would turn it into a blank line, breaking group-code
+# pairing) or trailing whitespace before a line ending.
+_DIRTY_RX = re.compile(rb"\r(?!\n)|[ \t](?=[\r\n])")
+
+
+def _dxf_needs_sanitize(file_path: str) -> bool:
+    """Streaming scan for the defects ``_sanitize_dxf`` repairs.
+
+    Detects a UTF-8 BOM, bare ``\\r`` (including ``\\r\\r\\n``), and
+    trailing whitespace before a line ending or at EOF — without loading
+    the whole file into memory.  Plain ``\\r\\n`` line endings are fine
+    (ezdxf opens files with universal newlines).
+
+    Returns ``True`` when the file needs the full sanitise pass, or when
+    it cannot be read (the sanitiser's own error handling takes over).
+    """
+    try:
+        with open(file_path, "rb") as fh:
+            carry = b""
+            first = True
+            while True:
+                chunk = fh.read(_SCAN_CHUNK)
+                if not chunk:
+                    break
+                if first:
+                    if chunk.startswith(b"\xef\xbb\xbf"):
+                        return True
+                    first = False
+                buf = carry + chunk
+                last = len(buf) - 1
+                for m in _DIRTY_RX.finditer(buf):
+                    if m.start() < last:
+                        return True
+                # A match at the final byte can only be a bare \r whose
+                # follower (possibly \n) is in the next chunk — defer it.
+                # Likewise a trailing space/tab may precede a newline in
+                # the next chunk.
+                carry = buf[-1:]
+        # Bare \r or trailing whitespace at EOF needs cleaning too.
+        return carry in (b"\r", b" ", b"\t")
+    except Exception:
+        return True
+
+
 def _sanitize_dxf(file_path: str) -> str:
     """
     Some DXF files have stray whitespace, BOM markers, or \\r\\r\\n line
@@ -129,9 +179,15 @@ def _sanitize_dxf(file_path: str) -> str:
     the line endings, strips trailing whitespace from every line, and
     writes a temp copy that ezdxf can parse.
 
+    Clean files — the overwhelmingly common case — are detected with a
+    streaming scan and returned untouched, avoiding a whole-file decode
+    and rewrite (multi-second / multi-GB for large DXFs).
+
     Returns the path to the cleaned temp file (caller should delete when done),
     or the original path if no cleaning was needed.
     """
+    if not _dxf_needs_sanitize(file_path):
+        return file_path
     try:
         raw = open(file_path, "rb").read()
     except Exception:
@@ -213,11 +269,15 @@ class DxfImportWorker(QThread):
     error = pyqtSignal(str)
 
     def __init__(self, file_path: str, layers: list | None = None,
-                 layout: str = "", parent=None):
+                 layout: str = "", parent=None,
+                 skip_sanitize: bool = False):
         super().__init__(parent)
         self.file_path = file_path
         self.layers = layers
         self.layout = layout
+        # ODA-converted DXFs are machine-generated and never need the
+        # sanitise pass — skipping avoids re-reading huge files.
+        self.skip_sanitize = skip_sanitize
         self._cancelled = False
 
     def cancel(self):
@@ -229,8 +289,11 @@ class DxfImportWorker(QThread):
             return
 
         # ── Sanitize and open ────────────────────────────────────────
-        self.status.emit("Cleaning DXF file…")
-        clean_path = _sanitize_dxf(self.file_path)
+        if self.skip_sanitize:
+            clean_path = self.file_path
+        else:
+            self.status.emit("Cleaning DXF file…")
+            clean_path = _sanitize_dxf(self.file_path)
 
         try:
             self.status.emit("Reading DXF…")
@@ -318,14 +381,16 @@ class DxfImportWorker(QThread):
     @classmethod
     def extract_file_sync(cls, file_path: str,
                           layers: list[str] | None = None,
-                          layout: str = "") -> list[dict]:
+                          layout: str = "",
+                          skip_sanitize: bool = False) -> list[dict]:
         """Synchronous geometry extraction for cache population.
 
         Same logic as ``run()`` but without threading or progress signals.
         When *layout* names a paper layout, applies viewport filtering
-        and merges paper-layout annotations.
+        and merges paper-layout annotations.  Pass ``skip_sanitize=True``
+        for machine-generated (ODA-converted) DXFs.
         """
-        clean_path = _sanitize_dxf(file_path)
+        clean_path = file_path if skip_sanitize else _sanitize_dxf(file_path)
         try:
             doc = ezdxf.readfile(clean_path)
             msp = doc.modelspace()

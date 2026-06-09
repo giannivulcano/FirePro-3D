@@ -18,7 +18,7 @@ import json
 import os
 import re
 
-_CACHE_VERSION = 3
+_CACHE_VERSION = 4
 
 
 def cache_dir_for_project(project_path: str) -> str:
@@ -38,25 +38,34 @@ def compute_cache_key(
     page: int = 0,
     selected_layers: list[str] | None = None,
     layout: str = "",
+    import_bounds: list[float] | tuple[float, ...] | None = None,
 ) -> str:
     """Return a deterministic cache filename for the given source parameters.
 
     The key is built from a SHA-256 hash of the normalised absolute path,
-    the page number, and the sorted layer list.  The basename is sanitised
-    so the result is a safe filename on all platforms.
+    the page number, the sorted layer list, the layout name, and the
+    import bounds (area selection).  The basename is sanitised so the
+    result is a safe filename on all platforms.
 
     Args:
         source_path: Path to the source DXF or PDF file.
         page: Page/sheet index (0-based).  Defaults to ``0``.
         selected_layers: Optional list of layer names to include.  Order
             is irrelevant — the list is sorted before hashing.
+        import_bounds: Optional ``[min_x, min_y, max_x, max_y]`` area
+            selection.  Two underlays of the same file with different
+            crops must not share a cache entry.
 
     Returns:
         A filename of the form ``<sanitised_basename>_<hex16>.json``.
     """
     norm_path = os.path.normpath(os.path.abspath(source_path))
     layers_repr = "|".join(sorted(selected_layers)) if selected_layers else ""
-    raw = f"{norm_path}|{page}|{layers_repr}|{layout}"
+    # repr(float) is exact and container/numeric-type independent, so a
+    # JSON roundtrip (tuple -> list, int -> float) yields the same key.
+    bounds_repr = (",".join(repr(float(b)) for b in import_bounds)
+                   if import_bounds is not None else "")
+    raw = f"{norm_path}|{page}|{layers_repr}|{layout}|{bounds_repr}"
     hex16 = hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     base = os.path.basename(norm_path)

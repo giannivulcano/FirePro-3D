@@ -472,7 +472,8 @@ class SceneIOMixin:
                                 x=udata.x, y=udata.y,
                                 layers=udata.selected_layers,
                                 _record=udata,
-                                layout=udata.layout)
+                                layout=udata.layout,
+                                skip_sanitize=True)  # ODA output is clean
                 # Store DWG metadata for async cleanup in _on_dxf_finished
                 if hasattr(self, '_dxf_import_params') and self._dxf_import_params:
                     self._dxf_import_params["_dwg_cleanup_path"] = converted

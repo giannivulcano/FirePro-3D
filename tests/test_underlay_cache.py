@@ -67,6 +67,41 @@ class TestCacheKey:
         assert k1 == k2
 
 
+class TestCacheKeyImportBounds:
+    def test_different_bounds_different_key(self):
+        k1 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=[0.0, 0.0, 100.0, 50.0])
+        k2 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=[10.0, 0.0, 100.0, 50.0])
+        assert k1 != k2
+
+    def test_bounds_vs_no_bounds_different_key(self):
+        k1 = compute_cache_key("/plans/floor.dxf")
+        k2 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=[0.0, 0.0, 100.0, 50.0])
+        assert k1 != k2
+
+    def test_same_bounds_same_key(self):
+        k1 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=[0.0, 0.0, 100.0, 50.0])
+        k2 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=[0.0, 0.0, 100.0, 50.0])
+        assert k1 == k2
+
+    def test_none_bounds_same_as_omitted(self):
+        k1 = compute_cache_key("/plans/floor.dxf", import_bounds=None)
+        k2 = compute_cache_key("/plans/floor.dxf")
+        assert k1 == k2
+
+    def test_list_tuple_and_int_bounds_normalised(self):
+        # JSON roundtrip turns tuples into lists and may preserve ints;
+        # the key must not depend on the container or numeric type.
+        k1 = compute_cache_key("/plans/floor.dxf", import_bounds=[0, 0, 100, 50])
+        k2 = compute_cache_key("/plans/floor.dxf",
+                               import_bounds=(0.0, 0.0, 100.0, 50.0))
+        assert k1 == k2
+
+
 class TestWriteAndReadCache:
     def test_roundtrip(self, tmp_path):
         cache_dir = str(tmp_path / "proj.fpd.cache")

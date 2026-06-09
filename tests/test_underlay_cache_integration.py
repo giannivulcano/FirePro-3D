@@ -19,6 +19,87 @@ SAMPLE_GEOMS = [
 ]
 
 
+class TestRecordCacheKeyIncludesBounds:
+    """Same source file cropped differently must not share a cache entry."""
+
+    def test_same_file_different_crop_distinct_keys(self):
+        a = Underlay(type="dxf", path="/plans/floor.dxf",
+                     import_bounds=[0.0, 0.0, 100.0, 100.0])
+        b = Underlay(type="dxf", path="/plans/floor.dxf",
+                     import_bounds=[200.0, 200.0, 300.0, 300.0])
+        assert a.cache_key() != b.cache_key()
+
+    def test_crop_vs_full_distinct_keys(self):
+        a = Underlay(type="dxf", path="/plans/floor.dxf")
+        b = Underlay(type="dxf", path="/plans/floor.dxf",
+                     import_bounds=[0.0, 0.0, 100.0, 100.0])
+        assert a.cache_key() != b.cache_key()
+
+    def test_key_survives_serialisation_roundtrip(self):
+        a = Underlay(type="dxf", path="/plans/floor.dxf",
+                     import_bounds=[0.5, 1.5, 100.25, 100.75])
+        b = Underlay.from_dict(a.to_dict())
+        assert a.cache_key() == b.cache_key()
+
+
+class TestEnsureUnderlayCachesDirtyFlag:
+    """Save-time cache writes are skipped when geometry is unchanged."""
+
+    def _make_scene(self, tmp_path, dirty):
+        from PyQt6.QtWidgets import QGraphicsItemGroup
+        from firepro3d.model_space import Model_Space
+
+        scene = Model_Space()
+        project = tmp_path / "proj.fpd"
+        project.touch()
+        scene._project_path = str(project)
+
+        src = tmp_path / "floor.dxf"
+        src.write_text("dummy dxf content")
+
+        record = Underlay(type="dxf", path=str(src))
+        group = QGraphicsItemGroup()
+        scene.addItem(group)
+        group.setData(5, SAMPLE_GEOMS)
+        group.setData(6, dirty)
+        scene.underlays.append((record, group))
+        return scene, record, group, str(project)
+
+    def test_dirty_underlay_written_and_flag_cleared(self, qapp, tmp_path):
+        scene, record, group, project = self._make_scene(tmp_path, dirty=True)
+        scene._ensure_underlay_caches(project)
+
+        cache_file = os.path.join(cache_dir_for_project(project),
+                                  record.cache_key())
+        assert os.path.isfile(cache_file)
+        assert not group.data(6), "dirty flag must be cleared after write"
+
+    def test_clean_underlay_with_cache_skips_write(self, qapp, tmp_path,
+                                                   monkeypatch):
+        scene, record, group, project = self._make_scene(tmp_path, dirty=True)
+        scene._ensure_underlay_caches(project)  # initial write
+
+        calls = []
+        import firepro3d.underlay_cache as uc
+        real_write = uc.write_cache
+        monkeypatch.setattr(
+            uc, "write_cache",
+            lambda *a, **kw: (calls.append(a), real_write(*a, **kw)))
+
+        scene._ensure_underlay_caches(project)  # clean second save
+        assert calls == [], "clean underlay with existing cache must not rewrite"
+
+    def test_clean_underlay_with_missing_cache_heals(self, qapp, tmp_path):
+        # Save-As to a new location: flags are clean but the new cache
+        # directory is empty — the entry must still be written.
+        scene, record, group, project = self._make_scene(tmp_path, dirty=False)
+        scene._ensure_underlay_caches(project)
+
+        cache_file = os.path.join(cache_dir_for_project(project),
+                                  record.cache_key())
+        assert os.path.isfile(cache_file)
+
+
 class TestCacheForMissingSource:
     """When source file is gone but cache exists, underlay should render."""
 

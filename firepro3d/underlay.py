@@ -181,4 +181,4 @@ class Underlay:
         from .underlay_cache import compute_cache_key
         return compute_cache_key(
             self.path, page=self.page, selected_layers=self.selected_layers,
-            layout=self.layout)
+            layout=self.layout, import_bounds=self.import_bounds)
