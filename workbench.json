@@ -13,9 +13,9 @@
   ],
   "defaultType": "In Progress",
   "viewPreferences": {
-    "groupBy": "subject",
+    "groupBy": "type",
     "hideDone": true,
     "sortKey": "priority",
-    "sortDir": "desc"
+    "sortDir": "asc"
   }
 }
