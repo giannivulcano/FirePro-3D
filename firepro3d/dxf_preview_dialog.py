@@ -42,7 +42,10 @@ from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPainterPath, QFont, QFontMetricsF,
     QCursor, QPainter, QPixmap, QIcon,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, pyqtSignal
+from PyQt6.QtCore import (
+    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread,
+    pyqtSignal,
+)
 
 try:
     import ezdxf
@@ -321,6 +324,147 @@ class _PreviewView(QGraphicsView):
 # Unified import dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ── Background workers ────────────────────────────────────────────────────────
+
+# Strong refs to unparented worker threads.  Workers must not be parented
+# to the dialog (deleteLater() would destroy a running QThread), so they
+# are kept alive here until their run() exits.
+_LIVE_WORKERS: set = set()
+
+
+def _keepalive(worker: QThread):
+    _LIVE_WORKERS.add(worker)
+    worker.finished.connect(lambda: _LIVE_WORKERS.discard(worker))
+
+
+class _DialogReadWorker(QThread):
+    """Sanitize + parse a DXF file off the GUI thread."""
+
+    finished_doc = pyqtSignal(object)  # ezdxf document
+    error = pyqtSignal(str)
+
+    def __init__(self, path: str, parent=None):
+        super().__init__(parent)
+        self._path = path
+
+    def run(self):
+        try:
+            clean = _sanitize_dxf(self._path)
+            try:
+                doc = ezdxf.readfile(clean)
+            finally:
+                if clean != self._path and os.path.exists(clean):
+                    os.remove(clean)
+        except Exception as e:
+            self.error.emit(str(e))
+            return
+        self.finished_doc.emit(doc)
+
+
+class _DialogExtractWorker(QThread):
+    """Per-entity geometry extraction off the GUI thread.
+
+    Holds the in-memory ezdxf document and never re-reads the file, so
+    DWG temp-file cleanup while extraction runs is safe.  The GUI must
+    not touch the document while this runs (dialog controls are
+    disabled for the duration).
+    """
+
+    progress = pyqtSignal(int, int)          # (current, total)
+    finished_geoms = pyqtSignal(list, list)  # (geom dicts, layer names)
+    aborted = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, doc, layout_name: str, parent=None):
+        super().__init__(parent)
+        self._doc = doc
+        self._layout = layout_name
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            self._run_inner()
+        except Exception as e:
+            self.error.emit(str(e))
+
+    def _run_inner(self):
+        doc = self._doc
+        layout_name = self._layout
+
+        # ── Viewport bounds (paper layouts only) ─────────────────────────
+        vp_bounds = None
+        if layout_name != "Model":
+            from .dwg_converter import get_viewport_bounds
+            vp_bounds = get_viewport_bounds(
+                layout_name=layout_name, doc=doc)
+
+        # ── Extract model-space geometry ─────────────────────────────────
+        from .dxf_import_worker import (
+            DxfImportWorker, _build_layer_colors, _entity_in_viewport,
+        )
+        msp = doc.modelspace()
+        all_ents = list(msp)
+
+        # Collect layer names from doc + entity attributes (reuse the
+        # entity list — re-walking the ezdxf entity DB doubles the pass)
+        layers_set: set[str] = {"0"}
+        for layer in doc.layers:
+            layers_set.add(layer.dxf.name)
+        for entity in all_ents:
+            layers_set.add(
+                entity.dxf.get("layer", "0")
+                if hasattr(entity.dxf, "get") else "0"
+            )
+
+        worker_ref = DxfImportWorker.__new__(DxfImportWorker)
+        worker_ref._cancelled = False
+        worker_ref._layer_colors = _build_layer_colors(doc)
+
+        total = len(all_ents)
+        self.progress.emit(0, total)
+        geoms: list[dict] = []
+        for i, ent in enumerate(all_ents):
+            if self._cancelled:
+                self.aborted.emit()
+                return
+            if i % 200 == 0:
+                self.progress.emit(i, total)
+            # Pre-filter by viewport bounds at entity level
+            if vp_bounds and not _entity_in_viewport(ent, vp_bounds):
+                continue
+            try:
+                g = worker_ref._extract_geometry(ent)
+                if g is not None:
+                    if isinstance(g, list):
+                        geoms.extend(g)
+                    else:
+                        geoms.append(g)
+            except Exception:
+                pass
+
+        # ── Post-extraction viewport filter (catches INSERT/HATCH) ───────
+        if vp_bounds:
+            from .dwg_converter import filter_geoms_by_bounds
+            geoms = filter_geoms_by_bounds(geoms, vp_bounds)
+
+        # ── Paper layout annotations ─────────────────────────────────────
+        if layout_name != "Model":
+            from .dwg_converter import extract_layout_entities
+            layout_geoms = extract_layout_entities(
+                layout_name=layout_name, doc=doc)
+            if layout_geoms:
+                geoms.extend(layout_geoms)
+
+        if self._cancelled:
+            self.aborted.emit()
+            return
+        geom_layers = {g.get("layer", "0") for g in geoms}
+        self.finished_geoms.emit(geoms, sorted(layers_set | geom_layers))
+
+
 class UnderlayImportDialog(QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
@@ -363,6 +507,10 @@ class UnderlayImportDialog(QDialog):
         self._pdf_page_count: int = 0
         self._doc = None          # ezdxf document (DXF/DWG only)
         self._extracting = False  # re-entrancy guard for extraction
+        self._extract_worker: _DialogExtractWorker | None = None
+        self._read_worker: _DialogReadWorker | None = None
+        self._extract_total: int | None = None
+        self._pending_read_path: str = ""
         self._preview_geom_group = None
         self._snap_index: UnderlaySnapIndex | None = None
         self._snap_index_src: list | None = None  # identity of indexed geoms
@@ -709,6 +857,8 @@ class UnderlayImportDialog(QDialog):
             self._load_file()
 
     def _load_file(self):
+        if self._extracting or self._read_worker is not None:
+            return  # a load is already in flight
         path = self._file_edit.text().strip()
         if not path or not os.path.exists(path):
             return
@@ -748,20 +898,35 @@ class UnderlayImportDialog(QDialog):
             return
 
         if _doc is not None:
-            doc = _doc
-        else:
-            self._set_loading("Reading DXF file\u2026")
-            clean = _sanitize_dxf(path)
-            try:
-                doc = ezdxf.readfile(clean)
-            except Exception as e:
-                self._clear_loading()
-                self._info_lbl.setText(f"Error: {e}")
-                return
-            finally:
-                if clean != path and os.path.exists(clean):
-                    os.remove(clean)
+            self._on_dxf_read(path, _doc)
+            return
 
+        # Read + parse off the GUI thread \u2014 readfile blocks for tens
+        # of seconds on large files.  Continues in _on_read_finished.
+        self._set_loading("Reading DXF file\u2026")
+        self._pending_read_path = path
+        w = _DialogReadWorker(path)
+        self._read_worker = w
+        w.finished_doc.connect(self._on_read_finished)
+        w.error.connect(self._on_read_error)
+        _keepalive(w)
+        w.start()
+
+    def _on_read_finished(self, doc):
+        if self._read_worker is None:
+            return  # dialog closed while reading \u2014 discard
+        self._read_worker = None
+        self._on_dxf_read(self._pending_read_path, doc)
+
+    def _on_read_error(self, msg: str):
+        if self._read_worker is None:
+            return
+        self._read_worker = None
+        self._clear_loading()
+        self._info_lbl.setText(f"Error: {msg}")
+
+    def _on_dxf_read(self, path: str, doc):
+        """Continue the DXF load once the document is available."""
         self._doc = doc
         self._layout_cache.clear()  # new document — memo entries are stale
 
@@ -823,25 +988,15 @@ class UnderlayImportDialog(QDialog):
         self._extract_for_layout(layout_name)
 
     def _extract_for_layout(self, layout_name: str):
-        """Run the full extraction pipeline for a layout and rebuild the preview.
+        """Extract geometry for a layout and rebuild the preview.
 
-        For Model: extracts all model-space geometry.
-        For paper layouts: viewport-filtered model geometry + paper annotations.
+        Memoized layouts restore synchronously; otherwise extraction
+        runs on a _DialogExtractWorker thread and continues in
+        _on_extract_finished — the GUI stays responsive and Cancel
+        genuinely aborts instead of committing a partial result.
         """
-        # Re-entrancy guard — the progress bar pumps processEvents, so a
-        # queued layout-combo change could re-enter mid-extraction and
-        # interleave two extractions into _all_geoms.
         if self._extracting:
             return
-        self._extracting = True
-        try:
-            self._extract_for_layout_inner(layout_name)
-        finally:
-            self._extracting = False
-
-    def _extract_for_layout_inner(self, layout_name: str):
-        doc = self._doc
-        path = self._file_edit.text().strip()
         self._selected_layout = layout_name
 
         # ── Memoized layout — skip re-extraction entirely ────────────────
@@ -854,79 +1009,52 @@ class UnderlayImportDialog(QDialog):
             self._set_loading("Building preview…")
             self._rebuild_preview()
             self._clear_loading()
-            n = len(self._all_geoms)
-            layout_label = (f" (layout: {layout_name})"
-                            if layout_name != "Model" else "")
-            self._info_lbl.setText(
-                f"{n:,} entities loaded from "
-                f"{os.path.basename(path)}{layout_label}")
-            self._update_status()
+            self._show_extract_summary(layout_name)
             return
 
-        # ── Viewport bounds (paper layouts only) ─────────────────────────
-        vp_bounds = None
-        if layout_name != "Model":
-            from .dwg_converter import get_viewport_bounds
-            vp_bounds = get_viewport_bounds(
-                layout_name=layout_name, doc=doc)
+        if self._doc is None:
+            return
 
-        # ── Extract model-space geometry ─────────────────────────────────
-        from .dxf_import_worker import (
-            DxfImportWorker, _build_layer_colors, _entity_in_viewport,
-        )
-        msp = doc.modelspace()
-        all_ents = list(msp)
+        self._extracting = True
+        self._extract_total = None
+        self._set_loading("Extracting entities…")
+        w = _DialogExtractWorker(self._doc, layout_name)
+        self._extract_worker = w
+        w.progress.connect(self._on_extract_progress)
+        w.finished_geoms.connect(self._on_extract_finished)
+        w.aborted.connect(self._on_extract_aborted)
+        w.error.connect(self._on_extract_error)
+        _keepalive(w)
+        w.start()
 
-        # Collect layer names from doc + entity attributes (reuse the
-        # entity list — re-walking the ezdxf entity DB doubles the pass)
-        layers_set: set[str] = {"0"}
-        for layer in doc.layers:
-            layers_set.add(layer.dxf.name)
-        for entity in all_ents:
-            layers_set.add(
-                entity.dxf.get("layer", "0")
-                if hasattr(entity.dxf, "get") else "0"
-            )
+    def _show_extract_summary(self, layout_name: str):
+        path = self._file_edit.text().strip()
+        n = len(self._all_geoms)
+        layout_label = (f" (layout: {layout_name})"
+                        if layout_name != "Model" else "")
+        self._info_lbl.setText(
+            f"{n:,} entities loaded from "
+            f"{os.path.basename(path)}{layout_label}")
+        self._update_status()
 
-        self._set_extracting(len(all_ents))
-        worker_ref = DxfImportWorker.__new__(DxfImportWorker)
-        worker_ref._cancelled = False
-        worker_ref._layer_colors = _build_layer_colors(doc)
+    def _on_extract_progress(self, current: int, total: int):
+        if self._extract_worker is None:
+            return
+        if self._loading_bar.cancelled:
+            self._extract_worker.cancel()
+            return
+        if total != self._extract_total:
+            self._extract_total = total
+            self._set_extracting(total)  # determinate bar + controls off
+        self._update_progress(current, total)
 
-        geoms: list[dict] = []
-        for i, ent in enumerate(all_ents):
-            if self._loading_bar.cancelled:
-                break
-            if i % 200 == 0:
-                self._update_progress(i, len(all_ents))
-            # Pre-filter by viewport bounds at entity level
-            if vp_bounds and not _entity_in_viewport(ent, vp_bounds):
-                continue
-            try:
-                g = worker_ref._extract_geometry(ent)
-                if g is not None:
-                    if isinstance(g, list):
-                        geoms.extend(g)
-                    else:
-                        geoms.append(g)
-            except Exception:
-                pass
-
+    def _on_extract_finished(self, geoms: list, layers: list):
+        if self._extract_worker is None:
+            return  # dialog closed mid-extraction — discard the result
+        self._extract_worker = None
+        self._extracting = False
+        layout_name = self._selected_layout
         self._all_geoms = geoms
-
-        # ── Post-extraction viewport filter (catches INSERT/HATCH) ───────
-        if vp_bounds:
-            from .dwg_converter import filter_geoms_by_bounds
-            self._all_geoms = filter_geoms_by_bounds(
-                self._all_geoms, vp_bounds)
-
-        # ── Paper layout annotations ─────────────────────────────────────
-        if layout_name != "Model":
-            from .dwg_converter import extract_layout_entities
-            layout_geoms = extract_layout_entities(
-                layout_name=layout_name, doc=doc)
-            if layout_geoms:
-                self._all_geoms.extend(layout_geoms)
 
         # ── Entity type dialog (DWG files only, first extraction) ────────
         if getattr(self, "_show_entity_type_filter", False):
@@ -940,8 +1068,7 @@ class UnderlayImportDialog(QDialog):
                     getattr(self, "_converted_dxf_path", ""))
                 self._all_geoms = []
                 self._rebuild_preview()
-                self._info_lbl.setText(
-                    "Import cancelled.")
+                self._info_lbl.setText("Import cancelled.")
                 return
             if excluded:
                 self._all_geoms = [
@@ -949,30 +1076,33 @@ class UnderlayImportDialog(QDialog):
                     if g.get("kind") not in excluded
                 ]
 
-        # ── Populate layers from combined geometry ───────────────────────
-        geom_layers = {g.get("layer", "0") for g in self._all_geoms}
-        self._layers = sorted(layers_set | geom_layers)
+        self._layers = list(layers)
         self._populate_layer_list()
         self._selected_indices = None
 
-        # ── Memoize (complete extractions only — a cancelled run holds
-        # a partial geometry list) ───────────────────────────────────────
-        if not self._loading_bar.cancelled:
-            self._layout_cache[layout_name] = (
-                self._all_geoms, list(self._layers))
+        # Memoize — only complete (non-aborted) extractions reach here
+        self._layout_cache[layout_name] = (
+            self._all_geoms, list(self._layers))
 
-        # ── Rebuild preview ──────────────────────────────────────────────
-        self._set_loading("Building preview\u2026")
+        self._set_loading("Building preview…")
         self._rebuild_preview()
         self._clear_loading()
+        self._show_extract_summary(layout_name)
 
-        n = len(self._all_geoms)
-        layout_label = (f" (layout: {layout_name})"
-                        if layout_name != "Model" else "")
-        self._info_lbl.setText(
-            f"{n:,} entities loaded from "
-            f"{os.path.basename(path)}{layout_label}")
+    def _on_extract_aborted(self):
+        self._extract_worker = None
+        self._extracting = False
+        self._clear_loading()
+        self._info_lbl.setText("Extraction cancelled.")
         self._update_status()
+
+    def _on_extract_error(self, msg: str):
+        if self._extract_worker is None:
+            return
+        self._extract_worker = None
+        self._extracting = False
+        self._clear_loading()
+        self._info_lbl.setText(f"Error: {msg}")
 
     # ── DWG loading ──────────────────────────────────────────────────────────
 
@@ -1818,6 +1948,18 @@ class UnderlayImportDialog(QDialog):
         — called after ``exec()`` returns — reads only widgets and
         ``_all_geoms``, both of which stay valid.
         """
+        # Detach in-flight workers: cancel extraction, orphan the read
+        # (readfile is not interruptible).  Slots guard on the worker
+        # attributes being None, so late signals are discarded; the
+        # _LIVE_WORKERS keepalive lets the threads finish safely.
+        w = self._extract_worker
+        if w is not None:
+            self._extract_worker = None
+            if hasattr(w, "cancel"):
+                w.cancel()
+        self._read_worker = None
+        self._extracting = False
+
         self._doc = None
         self._snap_index = None
         self._snap_index_src = None

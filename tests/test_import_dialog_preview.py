@@ -1,15 +1,30 @@
 """Tests for import dialog preview: snap index instead of invisible
-items, rotation without rebuild, and per-layout extraction memoization.
+items, rotation without rebuild, per-layout extraction memoization,
+and off-GUI-thread read/extraction workers.
 """
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.dxf_preview_dialog import UnderlayImportDialog
 from firepro3d.underlay_snap_index import UnderlaySnapIndex
+
+
+def _pump_until(condition, timeout=10.0) -> bool:
+    """Process Qt events until *condition* is true or timeout expires."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        QApplication.processEvents()
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
 
 
 def _line(x1=0.0, y1=0.0, x2=200.0, y2=0.0, layer="0"):
@@ -113,7 +128,8 @@ class TestLayoutMemoization:
     def test_repeat_layout_skips_extraction(self, qapp, monkeypatch):
         dlg = self._dialog_with_doc()
         dlg._extract_for_layout("Model")
-        assert len(dlg._all_geoms) == 1
+        assert _pump_until(lambda: len(dlg._all_geoms) == 1
+                           and not dlg._extracting), "extraction timed out"
 
         calls = []
         from firepro3d.dxf_import_worker import DxfImportWorker
@@ -122,31 +138,127 @@ class TestLayoutMemoization:
             DxfImportWorker, "_extract_geometry",
             lambda self, ent: (calls.append(1), real(self, ent))[1])
 
-        dlg._extract_for_layout("Model")  # revisit same layout
+        dlg._extract_for_layout("Model")  # revisit same layout — sync memo
         assert calls == [], "revisiting a layout must not re-extract"
         assert len(dlg._all_geoms) == 1
         assert "0" in dlg._layers
 
-    def test_cancelled_extraction_not_cached(self, qapp):
-        # Simulate the user clicking Cancel mid-extraction: the loop
-        # polls _loading_bar.cancelled between entities (the loading
-        # bar resets the flag on start, so it must be set during the
-        # run, exactly as the cancel button does).
-        dlg = self._dialog_with_doc()
-        for i in range(5):
-            dlg._doc.modelspace().add_line((0, i * 10), (100, i * 10))
-
-        def _cancel_on_progress(current, total, message=""):
-            dlg._loading_bar.cancelled = True
-
-        dlg._update_progress = _cancel_on_progress
-        dlg._extract_for_layout("Model")
-        assert "Model" not in dlg._layout_cache, (
-            "a cancelled (partial) extraction must not be memoized")
-
     def test_cache_cleared_on_close(self, qapp):
         dlg = self._dialog_with_doc()
         dlg._extract_for_layout("Model")
-        assert dlg._layout_cache
+        assert _pump_until(lambda: dlg._layout_cache), "extraction timed out"
         dlg.done(0)
         assert not dlg._layout_cache
+
+
+class TestExtractionWorkers:
+    """Off-GUI-thread read and extraction workers."""
+
+    def _doc(self, n_lines=1):
+        ezdxf = pytest.importorskip("ezdxf")
+        doc = ezdxf.new()
+        for i in range(n_lines):
+            doc.modelspace().add_line((0, i * 10), (100, i * 10))
+        return doc
+
+    def test_extract_worker_emits_geoms_and_layers(self, qapp):
+        from firepro3d.dxf_preview_dialog import _DialogExtractWorker
+        results = []
+        w = _DialogExtractWorker(self._doc(3), "Model")
+        w.finished_geoms.connect(lambda g, l: results.append((g, l)))
+        w.run()  # synchronous in tests — signals deliver directly
+        assert len(results) == 1
+        geoms, layers = results[0]
+        assert len(geoms) == 3
+        assert geoms[0]["kind"] == "line"
+        assert "0" in layers
+
+    def test_extract_worker_cancel_aborts_without_result(self, qapp):
+        from firepro3d.dxf_preview_dialog import _DialogExtractWorker
+        finished, aborted = [], []
+        w = _DialogExtractWorker(self._doc(5), "Model")
+        w.finished_geoms.connect(lambda g, l: finished.append(1))
+        w.aborted.connect(lambda: aborted.append(1))
+        w.cancel()
+        w.run()
+        assert finished == [], "cancelled worker must not emit results"
+        assert aborted == [1]
+
+    def test_read_worker_reads_doc(self, qapp, tmp_path):
+        ezdxf = pytest.importorskip("ezdxf")
+        doc = ezdxf.new()
+        doc.modelspace().add_line((0, 0), (50, 50))
+        dxf_path = str(tmp_path / "tiny.dxf")
+        doc.saveas(dxf_path)
+
+        from firepro3d.dxf_preview_dialog import _DialogReadWorker
+        docs = []
+        w = _DialogReadWorker(dxf_path)
+        w.finished_doc.connect(lambda d: docs.append(d))
+        w.run()
+        assert len(docs) == 1
+        assert len(list(docs[0].modelspace())) == 1
+
+    def test_read_worker_emits_error_for_bad_file(self, qapp, tmp_path):
+        bad = tmp_path / "bad.dxf"
+        bad.write_text("this is not a dxf")
+        from firepro3d.dxf_preview_dialog import _DialogReadWorker
+        errors, docs = [], []
+        w = _DialogReadWorker(str(bad))
+        w.finished_doc.connect(lambda d: docs.append(d))
+        w.error.connect(lambda m: errors.append(m))
+        w.run()
+        assert docs == []
+        assert len(errors) == 1
+
+    def test_aborted_extraction_not_cached_and_clears_busy(self, qapp):
+        dlg = UnderlayImportDialog()
+        dlg._extracting = True
+        dlg._extract_worker = object()
+        dlg._on_extract_aborted()
+        assert dlg._extracting is False
+        assert dlg._extract_worker is None
+        assert dlg._layout_cache == {}
+
+    def test_done_cancels_running_worker(self, qapp):
+        class _StubWorker:
+            def __init__(self):
+                self.cancelled = False
+                self.waited = False
+            def cancel(self):
+                self.cancelled = True
+            def wait(self, ms=0):
+                self.waited = True
+                return True
+
+        dlg = UnderlayImportDialog()
+        stub = _StubWorker()
+        dlg._extract_worker = stub
+        dlg.done(0)
+        assert stub.cancelled, "closing the dialog must cancel extraction"
+
+
+class TestAsyncLoadDxf:
+    """End-to-end async load: file → read worker → extract worker → preview."""
+
+    def test_load_dxf_populates_preview(self, qapp, tmp_path):
+        ezdxf = pytest.importorskip("ezdxf")
+        doc = ezdxf.new()
+        doc.modelspace().add_line((0, 0), (200, 0))
+        dxf_path = str(tmp_path / "one_line.dxf")
+        doc.saveas(dxf_path)
+
+        dlg = UnderlayImportDialog()
+        dlg._file_edit.setText(dxf_path)
+        dlg._load_dxf(dxf_path)
+        # Read worker finishes first (ezdxf.new() docs have Model +
+        # Layout1, so the dialog defers extraction to the layout combo).
+        assert _pump_until(lambda: dlg._doc is not None
+                           and dlg._read_worker is None), "read timed out"
+        dlg._extract_for_layout("Model")
+        assert _pump_until(lambda: len(dlg._all_geoms) == 1
+                           and not dlg._extracting), "extraction timed out"
+        assert dlg._preview_geom_group is not None
+        assert isinstance(dlg._preview_geom_group.data(4), UnderlaySnapIndex)
+        assert "Model" in dlg._layout_cache
+        dlg.done(0)
