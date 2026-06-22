@@ -9,6 +9,7 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QDialog
 
 from firepro3d import snap_engine
 
@@ -85,3 +86,30 @@ def test_indicator_click_toggles(main_window):
     assert main_window.scene._osnap_enabled is False
     QTest.mouseClick(label, Qt.MouseButton.LeftButton)
     assert main_window.scene._osnap_enabled is True
+
+
+def test_dialog_cancel_syncs_toolbar(main_window, monkeypatch):
+    """Open the Snap Settings dialog, change a type, cancel -> the OSNAP
+    toolbar reflects the reverted (pre-dialog) engine state.
+
+    Lives here (not in test_osnap_toolbar.py) so it reuses this module's
+    single shared MainWindow — building a second MainWindow in the suite
+    leaks a VTK GL context and crashes the later 3D-render tests.
+    """
+    win = main_window
+    eng = win.scene._snap_engine
+    eng.snap_endpoint = True
+    win.osnap_toolbar.refresh_from_engine()
+    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True
+
+    def fake_exec(self):
+        # Simulate the dialog's live setattr, then the user cancels.
+        eng.snap_endpoint = False
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    win._open_snap_tolerance_dialog()
+
+    # Cancel reverts the engine, and the toolbar must be re-synced.
+    assert eng.snap_endpoint is True
+    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True

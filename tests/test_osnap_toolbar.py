@@ -1,20 +1,20 @@
-"""Unit tests for the OSNAP toolbar (_OsnapToolbar). Tests 1-7 use a
-lightweight toolbar built against a fresh SnapEngine + stub MainWindow;
-test 8 (dialog sync) uses a real module-scoped MainWindow singleton.
+"""Unit tests for the OSNAP toolbar (_OsnapToolbar).
 
-Reuses the session-scoped ``qapp`` fixture from tests/conftest.py.
+These tests are intentionally lightweight: they build the toolbar against a
+fresh SnapEngine + a stub MainWindow, so they create NO real MainWindow (and
+therefore no View3D / pyvista plotter). The dialog-sync integration test lives
+in tests/test_osnap_ui.py, which already owns the single shared MainWindow —
+adding a second MainWindow to the suite leaks a VTK GL context and crashes the
+later 3D-render tests. Reuses the session-scoped ``qapp`` fixture from
+tests/conftest.py.
 """
 
 from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QSettings
-from PyQt6.QtWidgets import QDialog
 
-from firepro3d import snap_engine
 from firepro3d.snap_engine import SnapEngine
-
-import main as _main_module
 from main import _OsnapToolbar
 
 _ALL_ATTRS = [
@@ -104,58 +104,3 @@ def test_refresh_from_engine(toolbar):
     assert tb._actions["snap_center"].isChecked() is False
     # refresh must not write back to the engine
     assert engine.snap_center is False
-
-
-# ── Integration: dialog cancel re-syncs the toolbar ──────────────────────
-
-from firepro3d.view_3d import View3D  # heavy import, required before MainWindow()
-_main_module.View3D = View3D
-from main import MainWindow
-
-
-@pytest.fixture(scope="module")
-def _main_window_singleton(qapp):
-    """Module-scoped MainWindow (constructing several per process hangs).
-
-    MainWindow.restore_settings() reads QSettings ``snap/tolerance_px`` into
-    the module-level ``snap_engine.SNAP_TOLERANCE_PX``; save/restore it so
-    this fixture cannot leak that constant into other test modules (matches
-    the guard in tests/test_osnap_ui.py)."""
-    from PyQt6.QtTest import QTest
-    saved_tol = snap_engine.SNAP_TOLERANCE_PX
-    win = MainWindow()
-    win.show()
-    QTest.qWaitForWindowExposed(win)
-    yield win
-    win.close()
-    win.deleteLater()
-    snap_engine.SNAP_TOLERANCE_PX = saved_tol
-
-
-@pytest.fixture
-def main_window(_main_window_singleton):
-    win = _main_window_singleton
-    win.scene.toggle_osnap(True)
-    yield win
-
-
-def test_dialog_cancel_syncs_toolbar(main_window, monkeypatch):
-    """Open the Snap Settings dialog, change a type, cancel -> the
-    toolbar reflects the reverted (pre-dialog) engine state."""
-    win = main_window
-    eng = win.scene._snap_engine
-    eng.snap_endpoint = True
-    win.osnap_toolbar.refresh_from_engine()
-    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True
-
-    def fake_exec(self):
-        # Simulate the dialog's live setattr, then the user cancels.
-        eng.snap_endpoint = False
-        return QDialog.DialogCode.Rejected
-
-    monkeypatch.setattr(QDialog, "exec", fake_exec)
-    win._open_snap_tolerance_dialog()
-
-    # Cancel reverts the engine, and the toolbar must be re-synced.
-    assert eng.snap_endpoint is True
-    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True
