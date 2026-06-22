@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-28
 **Complexity:** Large
-**Status:** Approved
+**Status:** Implemented (2026-06-22) — see §6.4 / §10 for as-built deviations
 **Source tasks:** TODO.md — "Spec session: OSNAP toolbar — per-type toggle UI, dockable placement, indicator layout, interaction with status bar pill [ref:snap-spec§9.5]"
 
 ---
@@ -55,7 +55,7 @@ Dialog checkbox toggle
 | F3 interaction | Dim but preserve checked state | AutoCAD pattern. F3 is a master override, not a reset. |
 | Existing dialog | Keep synced | Two access points to the same state. Dialog still needed for tolerance controls. |
 | Bulk toggle | Right-click context menu | Enable All / Disable All / Snap Settings... — keeps toolbar compact. |
-| Default visibility | Visible on first launch | CAD users expect snap controls readily visible. |
+| Default visibility | **Hidden on first launch** *(as-built deviation, 2026-06-22)* | User preference — toolbar is opt-in via the Snap ribbon group's "OSNAP Bar" toggle button. The spec originally specced visible-on-first-launch, but the app has no menu bar (ribbon UI), so Qt's automatic View-menu toggle isn't available; an explicit ribbon toggle button is provided instead. |
 | Persistence | Existing `saveState()` + existing QSettings keys | No new persistence mechanism needed. |
 
 ## 5. Widget Structure
@@ -131,7 +131,13 @@ self.osnap_toolbar.refresh_from_engine()
 
 ### 6.4 Show/hide
 
-Qt automatically adds a toggle-visibility action to the View menu for `QToolBar` widgets. No additional show/hide mechanism needed.
+**As-built (2026-06-22):** The toolbar is hidden on first launch. Because the
+app uses a ribbon (no `QMenuBar`), Qt's automatic View-menu toggle action is
+not surfaced, so a dedicated checkable **"OSNAP Bar"** button is added to the
+Manage → Snap ribbon group. Its `toggled` handler (`_toggle_osnap_bar`) calls
+`osnap_toolbar.setVisible()`, and `osnap_toolbar.visibilityChanged` is connected
+back to the button's `setChecked` so the two stay in sync (including after
+`restoreState()` re-applies the user's saved visibility).
 
 ## 7. SVG Icons
 
@@ -189,15 +195,16 @@ Valid state. `SnapEngine.find()` returns no candidates when all per-type flags a
 
 ## 10. Acceptance Criteria
 
-- [ ] `_OsnapToolbar(QToolBar)` with 8 checkable toggle buttons appears docked at bottom by default
-- [ ] Each button shows an SVG icon and 3-letter abbreviation with tooltip for full name
-- [ ] Toggling a button immediately updates `SnapEngine.snap_*` attribute and persists to QSettings
-- [ ] Snap Settings dialog checkboxes reflect toolbar state and vice versa (bidirectional sync)
-- [ ] F3 / status bar pill dims toolbar buttons via `setEnabled(False)` without changing checked state
-- [ ] Right-click context menu provides Enable All, Disable All, Snap Settings...
-- [ ] Toolbar position and visibility persists across sessions via `saveState()` / `restoreState()`
-- [ ] 8 SVG icons created following §7 conventions
-- [ ] `_STATE_VERSION` bumped from 4 → 5
+- [x] `_OsnapToolbar(QToolBar)` with 8 checkable toggle buttons docks at the bottom (hidden on first launch — see §6.4 as-built; shown via the Snap-group "OSNAP Bar" button)
+- [x] Each button shows an SVG icon and 3-letter abbreviation with tooltip for full name
+- [x] Toggling a button immediately updates `SnapEngine.snap_*` attribute and persists to QSettings
+- [x] Snap Settings dialog checkboxes reflect toolbar state and vice versa (bidirectional sync)
+- [x] F3 / status bar pill dims toolbar buttons via `setEnabled(False)` without changing checked state
+- [x] Right-click context menu provides Enable All, Disable All, Snap Settings...
+- [x] Toolbar position and visibility persists across sessions via `saveState()` / `restoreState()`
+- [x] 8 SVG icons created following §7 conventions
+- [x] `_STATE_VERSION` bumped from 4 → 5
+- [x] **(as-built)** "OSNAP Bar" ribbon toggle button shows/hides the toolbar and stays in sync with its visibility
 
 ## 11. Test Strategy
 

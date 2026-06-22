@@ -546,6 +546,12 @@ class MainWindow(QMainWindow):
         self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.osnap_toolbar)
         self.scene.osnapToggled.connect(self.osnap_toolbar._on_osnap_toggled)
         self.osnap_toolbar._on_osnap_toggled(self.scene._osnap_enabled)
+        # Hidden on first launch; the Snap-group "OSNAP Bar" button toggles it.
+        # restoreState() (in restore_settings, below) re-applies the user's
+        # saved visibility, and visibilityChanged keeps the button in sync.
+        self.osnap_toolbar.hide()
+        self.osnap_toolbar.visibilityChanged.connect(self._osnap_bar_btn.setChecked)
+        self._osnap_bar_btn.setChecked(self.osnap_toolbar.isVisible())
 
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
@@ -1122,6 +1128,12 @@ class MainWindow(QMainWindow):
             _I("placeholder_icon.svg"),
             self._open_snap_tolerance_dialog)
         _btn.setToolTip("Adjust snap tolerance and type settings")
+        # Toggle for the OSNAP snap-type toolbar (hidden on first launch).
+        self._osnap_bar_btn = g_snap.add_small_button(
+            "OSNAP\nBar",
+            _I("placeholder_icon.svg"),
+            self._toggle_osnap_bar, checkable=True)
+        self._osnap_bar_btn.setToolTip("Show/hide the OSNAP snap-type toolbar")
 
         # --- Edit (Undo/Redo always accessible) ---
         g_edit = manage_page.add_group("Edit")
@@ -2030,6 +2042,10 @@ class MainWindow(QMainWindow):
     def _toggle_osnap(self, checked: bool):
         """Called when the OSNAP ribbon button is toggled (or F3 pressed)."""
         self.scene.toggle_osnap(checked)
+
+    def _toggle_osnap_bar(self, checked: bool):
+        """Show/hide the OSNAP snap-type toolbar (hidden by default)."""
+        self.osnap_toolbar.setVisible(checked)
 
     # ── Mode label (Sprint N) ────────────────────────────────────────────────
 

@@ -113,3 +113,15 @@ def test_dialog_cancel_syncs_toolbar(main_window, monkeypatch):
     # Cancel reverts the engine, and the toolbar must be re-synced.
     assert eng.snap_endpoint is True
     assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True
+
+
+def test_osnap_bar_button_toggles_toolbar(main_window):
+    """The Snap-group 'OSNAP Bar' button shows/hides the toolbar, and the
+    button stays in sync with the toolbar's visibility."""
+    win = main_window
+    win._osnap_bar_btn.setChecked(True)
+    assert win.osnap_toolbar.isVisible() is True
+    assert win._osnap_bar_btn.isChecked() is True
+    win._osnap_bar_btn.setChecked(False)
+    assert win.osnap_toolbar.isVisible() is False
+    assert win._osnap_bar_btn.isChecked() is False
