@@ -11,6 +11,7 @@ import pytest
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QDialog
 
+from firepro3d import snap_engine
 from firepro3d.snap_engine import SnapEngine
 
 import main as _main_module
@@ -114,14 +115,21 @@ from main import MainWindow
 
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp):
-    """Module-scoped MainWindow (constructing several per process hangs)."""
+    """Module-scoped MainWindow (constructing several per process hangs).
+
+    MainWindow.restore_settings() reads QSettings ``snap/tolerance_px`` into
+    the module-level ``snap_engine.SNAP_TOLERANCE_PX``; save/restore it so
+    this fixture cannot leak that constant into other test modules (matches
+    the guard in tests/test_osnap_ui.py)."""
     from PyQt6.QtTest import QTest
+    saved_tol = snap_engine.SNAP_TOLERANCE_PX
     win = MainWindow()
     win.show()
     QTest.qWaitForWindowExposed(win)
     yield win
     win.close()
     win.deleteLater()
+    snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
 @pytest.fixture
