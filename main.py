@@ -1,12 +1,12 @@
 import sys, os
-from PyQt6.QtWidgets import (QApplication, QMainWindow,
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QPushButton, QSpinBox, QDialogButtonBox, QLineEdit,
                               QTabWidget, QMenu, QWidget, QMessageBox,
                               QComboBox, QDoubleSpinBox, QFormLayout,
                               QProgressBar, QToolButton, QProgressDialog)
-from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont
+from PyQt6.QtGui import QPainter, QIcon, QColor, QPixmap, QKeySequence, QShortcut, QFont, QAction
 from PyQt6.QtCore import Qt, QSettings, QSize, QPointF, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QGraphicsTextItem
 from firepro3d.model_space import Model_Space
@@ -186,6 +186,90 @@ class _OsnapIndicatorLabel(QLabel):
             event.accept()
             return
         super().mousePressEvent(event)
+
+
+class _OsnapToolbar(QToolBar):
+    """Dockable toolbar of one-click toggles for the 8 OSNAP snap types.
+
+    The 8 ``SnapEngine.snap_*`` booleans are the single source of truth;
+    this toolbar and the Snap Settings dialog both read/write them. Per-type
+    state persists under the existing ``snap/{attr}`` QSettings keys.
+    """
+
+    # (abbreviation, full-name tooltip, SnapEngine attribute, icon filename)
+    _SNAP_TYPES = [
+        ("END", "Endpoint",      "snap_endpoint",      "snap_endpoint.svg"),
+        ("MID", "Midpoint",      "snap_midpoint",      "snap_midpoint.svg"),
+        ("INT", "Intersection",  "snap_intersection",  "snap_intersection.svg"),
+        ("CEN", "Center",        "snap_center",        "snap_center.svg"),
+        ("QUA", "Quadrant",      "snap_quadrant",      "snap_quadrant.svg"),
+        ("NEA", "Nearest",       "snap_nearest",       "snap_nearest.svg"),
+        ("PER", "Perpendicular", "snap_perpendicular", "snap_perpendicular.svg"),
+        ("TAN", "Tangent",       "snap_tangent",       "snap_tangent.svg"),
+    ]
+
+    def __init__(self, engine, main_window):
+        # Do NOT pass main_window as the Qt parent — addToolBar() reparents
+        # this widget, and tests use a non-QWidget stub window.
+        super().__init__("Object Snap")
+        self.setObjectName("OsnapToolbar")  # required for save/restoreState
+        self._engine = engine
+        self._main_window = main_window
+        self._actions: dict[str, QAction] = {}
+        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        self.setStyleSheet(
+            # Transparent 1px border on every button so checked/unchecked have
+            # the same box size — toggling no longer reflows the toolbar.
+            "QToolButton { padding: 2px 4px; border: 1px solid transparent;"
+            " border-radius: 3px; }"
+            "QToolButton:checked { background: #2a5a8a; border-color: #44aaff; }"
+            "QToolButton:disabled { color: #888; }"
+            # Dimmed-but-checked must stay legible (F3 master-off state).
+            "QToolButton:checked:disabled { background: #243a4e;"
+            " border-color: #3a607e; color: #99bbdd; }"
+        )
+        from firepro3d.assets import asset_path
+        for abbr, tip, attr, icon_file in self._SNAP_TYPES:
+            act = QAction(QIcon(asset_path("Ribbon", icon_file)), abbr, self)
+            act.setToolTip(tip)
+            act.setCheckable(True)
+            act.setChecked(bool(getattr(self._engine, attr)))
+            act.toggled.connect(
+                lambda checked, a=attr: self._on_toggle(a, checked))
+            self.addAction(act)
+            self._actions[attr] = act
+
+    def _on_toggle(self, attr: str, checked: bool) -> None:
+        setattr(self._engine, attr, checked)
+        self._main_window.settings.setValue(f"snap/{attr}", checked)
+
+    def _set_all(self, value: bool) -> None:
+        for attr in self._actions:
+            setattr(self._engine, attr, value)
+            self._main_window.settings.setValue(f"snap/{attr}", value)
+        self.refresh_from_engine()
+
+    def refresh_from_engine(self) -> None:
+        """Sync button checked states to the current engine attributes
+        without re-triggering the toggle handler."""
+        for attr, act in self._actions.items():
+            act.blockSignals(True)
+            act.setChecked(bool(getattr(self._engine, attr)))
+            act.blockSignals(False)
+
+    def _on_osnap_toggled(self, enabled: bool) -> None:
+        """F3 / status-bar pill master override: dim (but preserve) buttons."""
+        for act in self._actions.values():
+            act.setEnabled(bool(enabled))
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        menu.addAction("Enable All", lambda: self._set_all(True))
+        menu.addAction("Disable All", lambda: self._set_all(False))
+        menu.addSeparator()
+        menu.addAction("Snap Settings…",
+                       self._main_window._open_snap_tolerance_dialog)
+        menu.exec(event.globalPos())
 
 
 class MainWindow(QMainWindow):
@@ -459,12 +543,30 @@ class MainWindow(QMainWindow):
         self._splash_progress(80, "Wiring up controls...")
         self.init_ribbon()
 
+        # OSNAP toolbar — per-type snap toggles (osnap-toolbar spec).
+        # Must be created before restore_settings() so restoreState() can
+        # place it; refresh_from_engine() is called there once QSettings
+        # have been applied.
+        self.osnap_toolbar = _OsnapToolbar(self.scene._snap_engine, self)
+        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.osnap_toolbar)
+        self.scene.osnapToggled.connect(self.osnap_toolbar._on_osnap_toggled)
+        self.osnap_toolbar._on_osnap_toggled(self.scene._osnap_enabled)
+        # Hidden on first launch; the Snap-group "OSNAP Bar" button toggles it.
+        # restoreState() (in restore_settings, below) re-applies the user's
+        # saved visibility, and visibilityChanged keeps the button in sync.
+        self.osnap_toolbar.hide()
+        self.osnap_toolbar.visibilityChanged.connect(self._osnap_bar_btn.setChecked)
+        self._osnap_bar_btn.setChecked(self.osnap_toolbar.isVisible())
+
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
 
-        # F3 global OSNAP toggle is bound via the existing ribbon OSNAP
-        # QAction (see init_ribbon / _toggle_osnap). The status-bar
-        # indicator stays in sync via the osnapToggled signal.
+        # F3 global OSNAP toggle — a window-level shortcut so it fires from any
+        # ribbon tab (a QToolButton shortcut only fires when its ribbon page is
+        # the visible one). toggle_osnap() flips state; osnapToggled then syncs
+        # the ribbon button, status-bar pill, and OSNAP toolbar.
+        self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
+        self._f3_shortcut.activated.connect(self.scene.toggle_osnap)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         QShortcut(QKeySequence("Delete"), self).activated.connect(
@@ -544,6 +646,8 @@ class MainWindow(QMainWindow):
                 if isinstance(val, str):
                     val = val.lower() not in ("false", "0")
                 setattr(self.scene._snap_engine, attr, bool(val))
+        # Reflect the just-restored per-type snap state on the toolbar.
+        self.osnap_toolbar.refresh_from_engine()
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
@@ -1013,7 +1117,7 @@ class MainWindow(QMainWindow):
         self._osnap_btn = g_snap.add_large_button(
             "OSNAP",
             _I("placeholder_icon.svg"),
-            self._toggle_osnap, checkable=True, shortcut="F3")
+            self._toggle_osnap, checkable=True)
         self._osnap_btn.setChecked(True)
         self._osnap_btn.setToolTip("Object Snap  [F3]")
         _btn = g_snap.add_small_button(
@@ -1032,6 +1136,12 @@ class MainWindow(QMainWindow):
             _I("placeholder_icon.svg"),
             self._open_snap_tolerance_dialog)
         _btn.setToolTip("Adjust snap tolerance and type settings")
+        # Toggle for the OSNAP snap-type toolbar (hidden on first launch).
+        self._osnap_bar_btn = g_snap.add_small_button(
+            "OSNAP\nBar",
+            _I("placeholder_icon.svg"),
+            self._toggle_osnap_bar, checkable=True)
+        self._osnap_bar_btn.setToolTip("Show/hide the OSNAP snap-type toolbar")
 
         # --- Edit (Undo/Redo always accessible) ---
         g_edit = manage_page.add_group("Edit")
@@ -1765,6 +1875,9 @@ class MainWindow(QMainWindow):
             for attr, val in old_flags.items():
                 setattr(eng, attr, val)
 
+        # Keep the OSNAP toolbar in sync with whatever the dialog left set.
+        self.osnap_toolbar.refresh_from_engine()
+
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
     def _build_units_menu(self) -> QMenu:
@@ -1938,6 +2051,10 @@ class MainWindow(QMainWindow):
         """Called when the OSNAP ribbon button is toggled (or F3 pressed)."""
         self.scene.toggle_osnap(checked)
 
+    def _toggle_osnap_bar(self, checked: bool):
+        """Show/hide the OSNAP snap-type toolbar (hidden by default)."""
+        self.osnap_toolbar.setVisible(checked)
+
     # ── Mode label (Sprint N) ────────────────────────────────────────────────
 
     _MODE_INSTRUCTIONS = {
@@ -1965,6 +2082,14 @@ class MainWindow(QMainWindow):
 
     def _update_osnap_indicator(self, enabled: bool) -> None:
         self.osnap_indicator.setOsnapOn(enabled)
+        # Keep the ribbon OSNAP button in sync with external toggles (pill /
+        # F3) without re-entering _toggle_osnap. Guarded: this runs once during
+        # __init__ before init_ribbon() creates the button.
+        btn = getattr(self, "_osnap_btn", None)
+        if btn is not None:
+            btn.blockSignals(True)
+            btn.setChecked(enabled)
+            btn.blockSignals(False)
 
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout in the status bar."""
@@ -2821,7 +2946,7 @@ class MainWindow(QMainWindow):
         self._cleanup_autosave()
         super().closeEvent(event)
 
-    _STATE_VERSION = 4  # bump when dock layout changes between sprints
+    _STATE_VERSION = 5  # bump when dock layout changes between sprints
 
     def save_settings(self):
         self.settings.setValue("geometry", self.saveGeometry())
