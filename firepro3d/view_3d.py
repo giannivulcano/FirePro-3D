@@ -143,6 +143,29 @@ class View3D(QWidget):
         self._build_ui()
         self._connect_signals()
 
+    # ── Teardown ────────────────────────────────────────────────────────
+
+    def cleanup(self) -> None:
+        """Release the VTK/OpenGL render window so its GL context does not
+        leak past Qt teardown. Idempotent — safe to call more than once.
+
+        Qt does not deliver closeEvent to child widgets, so MainWindow must
+        call this explicitly when it closes (see MainWindow.closeEvent).
+        Leaked plotters accumulate GL contexts and crash later 3D renders.
+        """
+        plotter = getattr(self, "_plotter", None)
+        if plotter is not None:
+            try:
+                plotter.close()
+            except Exception:
+                pass
+            self._plotter = None
+
+    def closeEvent(self, event):
+        """Finalize the plotter if this view is ever closed directly."""
+        self.cleanup()
+        super().closeEvent(event)
+
     # ── Actor management ────────────────────────────────────────────────
 
     def _clear_actors(self, category: str):
