@@ -56,7 +56,7 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 |---|---|
 | Tolerance auto-tuning UX | Pain #2; meaningful only after recall is fixed. Future spec inherits a dataset from this work — see §13. |
 | New snap types (parallel, extension, from, apparent intersection) | Feature work, not review work. Belongs in subsystem-specific specs. |
-| OSNAP toolbar UI for per-type toggles | UX feature. The keyboard/marker contract here gives the future toolbar a target. |
+| OSNAP toolbar UI for per-type toggles | UX feature. The keyboard/marker contract here gave the toolbar a target. **Delivered 2026-06-22 — see `docs/specs/osnap-toolbar.md`.** |
 | Performance / O(n²) intersection scans | Only address if profiling reveals it as a *recall* bottleneck. Premature otherwise. |
 | 3D / multi-level snap behavior | Belongs in the views-relationship spec (separate P1 task). |
 | Polar tracking | Separate subsystem; AutoCAD treats it independently of OSNAP. |
@@ -78,9 +78,9 @@ The existing `snap_engine.py` is already AutoCAD-shaped: priority-banded picker,
 
 | Convention | How it lands in FirePro3D |
 |---|---|
-| **Running OSNAPs**, persistent until toggled | Per-type instance booleans on `SnapEngine` (already present). UI toggle surface deferred to a future toolbar spec. |
+| **Running OSNAPs**, persistent until toggled | Per-type instance booleans on `SnapEngine` (already present). **UI toggle surface delivered (2026-06-22):** the OSNAP toolbar + Snap Settings dialog toggle them, persisted to `QSettings`. See `docs/specs/osnap-toolbar.md`. |
 | **Single-key one-shot overrides** (`END`, `MID`, `INT`, `CEN`, `NEA`, `PER`, `TAN`, `QUA`) | Reserved as a future keybinding addition. Not delivered by this spec, but the snap-type names in §4 must match the AutoCAD short names so the future bindings are unambiguous. |
-| **F-key global toggle** for OSNAPs | F3 reserved (matches AutoCAD muscle memory). Currently no binding — added as a roadmap item. |
+| **F-key global toggle** for OSNAPs | F3 bound to a **window-level `QShortcut`** calling `Model_Space.toggle_osnap` (toggles `SnapEngine.enabled`). Window-level so it fires from any ribbon tab — a `QToolButton` shortcut on a ribbon page only fires when that tab is visible. |
 | **AutoSnap marker + tooltip** as the core UX surface | Markers are present (§9). Tooltips deferred — note the named-target decision in §8 uses marker variants instead. |
 | **Marker colors carry meaning** (each snap type its own color) | Current `SNAP_COLORS` dict already follows this. Locked. |
 | **Snap tolerance is a screen-pixel constant**, not a scene-unit one | Current `SNAP_TOLERANCE_PX = 40` follows this. Locked, even though tuning is deferred. |
@@ -309,22 +309,24 @@ When a snap result has a `source_item`, `Model_View.drawForeground()` draws a da
 
 ### 9.4 Keyboard contract
 
-Reserved bindings (not bound today, do not implement in this spec, but no other feature should claim them):
+Keyboard bindings (F3 is now bound — see below; the one-shot overrides remain reserved for a future command-line / toolbar spec, and no other feature should claim them):
 
 | Key | Function | Notes |
 |---|---|---|
-| **F3** | Toggle all OSNAPs on/off (matches AutoCAD) | Roadmap item §12 item 11 |
+| **F3** | Toggle all OSNAPs on/off (matches AutoCAD) | **Bound 2026-06-22** as a window-level `QShortcut` (a ribbon-button shortcut would be tab-scoped); drives `Model_Space.toggle_osnap` |
 | **`END`, `MID`, `INT`, `CEN`, `QUA`, `PER`, `TAN`, `NEA`** typed at the command prompt | One-shot snap override for the next pick | Deferred to the future OSNAP toolbar / command-line spec |
 
 ### 9.5 Status bar
 
 A future OSNAP toolbar (deferred — §2.3) is the natural home for per-type toggle indication. This spec only commits to: the status bar must, at minimum, show whether OSNAPs are globally on or off when F3 is bound.
 
-**2026-04-08 finding (roadmap item 12):** A code search of the project confirmed that no UI surface currently toggles the per-type `SnapEngine` booleans (`snap_endpoint`, `snap_midpoint`, `snap_intersection`, `snap_center`, `snap_quadrant`, `snap_nearest`, `snap_perpendicular`, `snap_tangent`). They remain reachable only by direct attribute access. The per-type toggle UI is therefore formally deferred to a dedicated OSNAP-toolbar spec session, which has been promoted from "deferred" to a P1 backlog task. The persistent OSNAP status-bar indicator delivered alongside this finding is the anchor the toolbar will later integrate with.
+**Delivered (2026-06-22):** the OSNAP toolbar now provides per-type toggle indication; the status-bar pill shows global on/off and stays in sync with F3 and the ribbon OSNAP button via the `osnapToggled` signal. See `docs/specs/osnap-toolbar.md`.
+
+**2026-04-08 finding (roadmap item 12):** A code search of the project confirmed that no UI surface currently toggles the per-type `SnapEngine` booleans (`snap_endpoint`, `snap_midpoint`, `snap_intersection`, `snap_center`, `snap_quadrant`, `snap_nearest`, `snap_perpendicular`, `snap_tangent`). They remain reachable only by direct attribute access. The per-type toggle UI is therefore formally deferred to a dedicated OSNAP-toolbar spec session, which has been promoted from "deferred" to a P1 backlog task. The persistent OSNAP status-bar indicator delivered alongside this finding is the anchor the toolbar will later integrate with. **Update (2026-06-22):** that OSNAP-toolbar spec was written and implemented — the per-type flags are now toggled by both the toolbar and the Snap Settings dialog, and the toolbar integrates with this status-bar pill via `osnapToggled`.
 
 ### 9.6 Settings persistence
 
-Per-type toggle state is currently held only in `SnapEngine` instance attributes and is lost on application restart. The future toolbar spec inherits the responsibility to persist toggle state to `QSettings`. Not delivered here.
+Per-type toggle state is held in `SnapEngine` instance attributes. **Delivered (2026-06-22):** the 8 `snap_*` flags persist to `QSettings` under `snap/{attr}` — written by the OSNAP toolbar and the Snap Settings dialog, restored on startup in `MainWindow.restore_settings`. (Originally out of scope for this spec; see `docs/specs/osnap-toolbar.md`.)
 
 ---
 
@@ -371,7 +373,7 @@ Single-line current-vs-target for each major section:
 - **§6 picker:** Priority-banded picker with `intersection=0` suppressing endpoints; no documentation → target algorithm specified (Changes A + B); current algorithm explicitly described as the root cause of §7 bugs.
 - **§7 case studies:** Two reproducible bugs, one with an actively misleading hypothesis → both reframed with shared root cause; misdiagnosis explicitly corrected.
 - **§8 named targets:** All wall corners and centerline ends render as identical yellow squares → glyph-variant scheme defined for walls; pipes-with-fittings flagged as a future spec.
-- **§9 UX surface:** Marker rendering only; no F-key, no tooltips, no toolbar → marker variants extended; F3 reserved; tooltip text deferred; toolbar deferred.
+- **§9 UX surface:** Marker rendering only; no F-key, no tooltips, no toolbar → marker variants extended; **F3 bound (window-level shortcut, 2026-06-22)**; tooltip text deferred; **OSNAP toolbar delivered (2026-06-22, `docs/specs/osnap-toolbar.md`)**.
 - **§10 test strategy:** Zero automated tests for `snap_engine.py` → three-layer test pyramid described (primitives, matrix fixtures, case-study regressions).
 - **§13 deferred subsystems:** Tolerance, OTRACK, inferred placement, snap-from, apparent intersection — all in the user's head, none written down → all named in §2.3 with deferral reasons; "next priority" identified as inferred/dimension-driven placement.
 
@@ -393,8 +395,8 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 | 8 | **P2** | Geometric primitive unit tests (§10.1) | `_line_line_intersect`, `_line_circle_intersect`, `_project_to_segment` covered by tests for every case in §10.1 tables | `[ref:snap-spec§10.1]` |
 | 9 | **P2** | Matrix fixture test harness (§10.2) | One headless `QGraphicsScene` fixture test per ✓-cell in §5; harness pattern documented for future cells | `[ref:snap-spec§10.2]` |
 | 10 | ~~done~~ | Case-study regression tests (§10.3) | Two regression tests pinned to §7.1 and §7.2 (in addition to the fixtures from item 1) | `[ref:snap-spec§10.3]` |
-| 11 | ~~done~~ | Bind F3 to global OSNAP on/off and surface state in status bar | F3 toggles `SnapEngine.enabled`; status bar reflects current state | `[ref:snap-spec§9.4-§9.5]` `[done:2026-04-08]` |
-| 12 | ~~done~~ | Confirm and (if absent) expose per-type OSNAP toggle UI surface | Verified absent; §9.5 amended and OSNAP toolbar spec promoted to P1 backlog task | `[ref:snap-spec§9.5]` `[done:2026-04-08]` |
+| 11 | ~~done~~ | Bind F3 to global OSNAP on/off and surface state in status bar | F3 toggles `SnapEngine.enabled`; status bar reflects current state. **Reworked 2026-06-22** into a window-level `QShortcut` (fires from any ribbon tab) with the ribbon OSNAP button synced via `osnapToggled` | `[ref:snap-spec§9.4-§9.5]` `[done:2026-04-08]` |
+| 12 | ~~done~~ | Confirm and (if absent) expose per-type OSNAP toggle UI surface | Verified absent; §9.5 amended and OSNAP toolbar spec promoted to P1 backlog task. **OSNAP toolbar implemented 2026-06-22** (`docs/specs/osnap-toolbar.md`) | `[ref:snap-spec§9.5]` `[done:2026-04-08]` |
 | 13 | **P2 spec** | Spec session: pipe-with-fitting named targets | Design doc for `Pipe`/`Fitting` named-target glyphs and `_collect()` emission rules; brainstorm session conducted | `[ref:snap-spec§8.3]` |
 | 14 | **P1 spec** | Spec session: inferred / dimension-driven placement (Revit subsystem) | Design doc for the next subsystem flagged in §2.3 as "next priority" | `[ref:snap-spec§2.3]` |
 
@@ -404,7 +406,7 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 
 ## 13. Open questions
 
-1. **Per-type toggle UI surface.** The boolean attributes `snap_endpoint`, `snap_midpoint`, etc. exist on `SnapEngine` but a code search did not turn up a UI that toggles them. Roadmap item 12 confirms or denies; if denied, the OSNAP toolbar spec becomes a higher priority than its current "deferred" tag suggests.
+1. ~~**Per-type toggle UI surface.**~~ **Resolved (2026-06-22):** the Snap Settings dialog and the OSNAP toolbar both toggle the per-type `SnapEngine` flags, persisted to `QSettings`. See `docs/specs/osnap-toolbar.md`.
 
 2. ~~**DXF underlay child item recall.**~~ **Resolved.** Both phases handle DXF/PDF underlay geometry via a dual-path strategy: in the main scene, the `UnderlaySnapIndex` is queried directly (no child-item descent); in the import dialog (no snap index), phases 1 and 4 fall back to processing invisible child items directly.
 

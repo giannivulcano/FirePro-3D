@@ -334,7 +334,7 @@ Current toggle states shown in the status bar alongside existing OSNAP indicator
 
 ### 10.4 Persistence
 
-Toggle states saved to `QSettings` and restored on app restart. Same pattern as OSNAP per-type toggles.
+Toggle states saved to `QSettings` and restored on app restart. Same pattern as the OSNAP per-type toggles — reference implementation in `_OsnapToolbar` (`snap/{attr}` keys, written on toggle, restored in `MainWindow.restore_settings`); see `docs/specs/osnap-toolbar.md`.
 
 ---
 

@@ -235,7 +235,7 @@ All tests headless (no GUI event loop required).
 | Component | File | Lines | Role |
 |---|---|---|---|
 | Per-type toggles | `snap_engine.py` | 194-201 | 8 boolean attributes (source of truth) |
-| F3 ribbon button | `main.py` | 1024-1029 | Checkable button with F3 shortcut |
+| OSNAP ribbon button | `main.py` | init_ribbon (Snap group) | Checkable OSNAP button driving `_toggle_osnap`. **As-built 2026-06-22:** F3 moved off this button to a window-level `QShortcut` (a ribbon-button shortcut was tab-scoped); the button now syncs from `osnapToggled`. |
 | Toggle handler | `main.py` | 1951-1953 | Routes to `scene.toggle_osnap()` |
 | Core toggle logic | `model_space.py` | 3188-3200 | Sets `enabled`, emits `osnapToggled` |
 | `osnapToggled` signal | `model_space.py` | 71 | `pyqtSignal(bool)` |
