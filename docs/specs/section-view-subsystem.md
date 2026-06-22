@@ -45,7 +45,7 @@ Property panel ← selected source entity
 - No new signals on `ModelSpace` beyond the existing `openViewRequested`
 - Projection math must produce identical results to `ElevationScene._world_to_elev()` for cardinal angles (regression safety)
 - All entities exposing `z_range_mm()` must be projectable
-- `_STATE_VERSION` must be bumped (to 6, after OSNAP toolbar bumps to 5)
+- `_STATE_VERSION` must be bumped to 6 (the OSNAP toolbar bumped it 4→5 on 2026-06-22, so current is 5)
 
 ## 4. Design Decisions
 
@@ -415,7 +415,7 @@ if "sections" in data:
 
 ### 13.6 State version
 
-`_STATE_VERSION`: bump to 6 (after OSNAP toolbar bumps to 5).
+`_STATE_VERSION`: bump to 6 (the OSNAP toolbar bumped it 4→5 on 2026-06-22, so current is 5 → next is 6).
 
 ## 14. Migration & Retirement
 
