@@ -21,9 +21,13 @@ from main import MainWindow
 
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp):
-    """Module-scoped MainWindow. Creating multiple MainWindow instances
-    in the same process hangs (View3D / splash / singleton managers are
-    not re-entrant), so we share one across this test module."""
+    """Module-scoped MainWindow, shared across this module for speed.
+
+    (Historically, creating multiple MainWindows in one process hung because
+    each View3D leaked its VTK GL context; that is now fixed by View3D.cleanup()
+    on MainWindow.closeEvent, so a shared singleton is an optimization, not a
+    hard requirement.) Save/restore SNAP_TOLERANCE_PX so building MainWindow
+    here doesn't leak the QSettings-derived value into other test modules."""
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
     win = MainWindow()
     win.show()

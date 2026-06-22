@@ -1812,7 +1812,7 @@ class MainWindow(QMainWindow):
         snap_types = [
             ("Endpoint",      "snap_endpoint"),
             ("Midpoint",      "snap_midpoint"),
-            ("Intersection",  "snap_endpoint"),  # intersections use endpoint flag gate
+            ("Intersection",  "snap_intersection"),
             ("Center",        "snap_center"),
             ("Quadrant",      "snap_quadrant"),
             ("Nearest",       "snap_nearest"),
@@ -1820,29 +1820,14 @@ class MainWindow(QMainWindow):
             ("Tangent",       "snap_tangent"),
         ]
 
-        # Intersection has its own toggle — add a dedicated attribute
-        if not hasattr(eng, "snap_intersection"):
-            eng.snap_intersection = True
-
         checkboxes: list[tuple[QCheckBox, str]] = []
         for label, attr in snap_types:
             cb = QCheckBox(label)
-            if label == "Intersection":
-                cb.setChecked(getattr(eng, "snap_intersection", True))
-            else:
-                cb.setChecked(getattr(eng, attr, True))
-
-            # Live update
-            if label == "Intersection":
-                cb.toggled.connect(
-                    lambda v: setattr(eng, "snap_intersection", v))
-            else:
-                _attr = attr  # capture
-                cb.toggled.connect(
-                    lambda v, a=_attr: setattr(eng, a, v))
-
+            cb.setChecked(getattr(eng, attr, True))
+            cb.toggled.connect(
+                lambda v, a=attr: setattr(eng, a, v))  # a=attr captures per-iter
             types_layout.addWidget(cb)
-            checkboxes.append((cb, attr if label != "Intersection" else "snap_intersection"))
+            checkboxes.append((cb, attr))
 
         outer.addWidget(types_group)
 
@@ -1858,8 +1843,6 @@ class MainWindow(QMainWindow):
         old_tol = snap_engine.SNAP_TOLERANCE_PX
         old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
         old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        if not hasattr(eng, "snap_intersection"):
-            old_flags["snap_intersection"] = True
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # Persist
@@ -2944,6 +2927,10 @@ class MainWindow(QMainWindow):
             return
         self.save_settings()
         self._cleanup_autosave()
+        # Child widgets don't receive closeEvent; release the 3D view's VTK
+        # render window explicitly so its GL context doesn't leak past teardown.
+        if hasattr(self, "view_3d"):
+            self.view_3d.cleanup()
         super().closeEvent(event)
 
     _STATE_VERSION = 5  # bump when dock layout changes between sprints

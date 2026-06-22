@@ -116,6 +116,29 @@ def view3d_calibrated(qapp):
 
 
 # ===================================================================
+# Teardown: plotter finalization (VTK GL-context leak guard)
+# ===================================================================
+
+class TestCleanup:
+    """View3D.cleanup() must release the VTK plotter (so its GL context does
+    not leak past Qt teardown and crash later 3D renders)."""
+
+    def test_cleanup_releases_plotter(self, view3d):
+        assert view3d._plotter is not None
+        view3d.cleanup()
+        assert view3d._plotter is None
+
+    def test_cleanup_is_idempotent(self, view3d):
+        view3d.cleanup()
+        view3d.cleanup()  # second call must not raise
+        assert view3d._plotter is None
+
+    def test_close_event_releases_plotter(self, view3d):
+        view3d.close()  # QWidget.close() -> closeEvent -> cleanup()
+        assert view3d._plotter is None
+
+
+# ===================================================================
 # Module-level helper: _mesh_from_faces
 # ===================================================================
 

@@ -2,11 +2,12 @@
 
 These tests are intentionally lightweight: they build the toolbar against a
 fresh SnapEngine + a stub MainWindow, so they create NO real MainWindow (and
-therefore no View3D / pyvista plotter). The dialog-sync integration test lives
-in tests/test_osnap_ui.py, which already owns the single shared MainWindow —
-adding a second MainWindow to the suite leaks a VTK GL context and crashes the
-later 3D-render tests. Reuses the session-scoped ``qapp`` fixture from
-tests/conftest.py.
+therefore no View3D / pyvista plotter) — fast and dependency-free. The
+dialog-sync integration test lives in tests/test_osnap_ui.py, which already
+owns a shared MainWindow. (The VTK GL-context leak that previously made a
+second MainWindow in the suite crash later 3D-render tests is now fixed by
+View3D.cleanup(); keeping these lightweight is still preferred for speed.)
+Reuses the session-scoped ``qapp`` fixture from tests/conftest.py.
 """
 
 from __future__ import annotations
