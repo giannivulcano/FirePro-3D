@@ -218,10 +218,15 @@ class _OsnapToolbar(QToolBar):
         self._actions: dict[str, QAction] = {}
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         self.setStyleSheet(
-            "QToolButton { padding: 2px 4px; }"
-            "QToolButton:checked { background: #2a5a8a; "
-            "border: 1px solid #44aaff; border-radius: 3px; }"
-            "QToolButton:disabled { color: #555; }"
+            # Transparent 1px border on every button so checked/unchecked have
+            # the same box size — toggling no longer reflows the toolbar.
+            "QToolButton { padding: 2px 4px; border: 1px solid transparent;"
+            " border-radius: 3px; }"
+            "QToolButton:checked { background: #2a5a8a; border-color: #44aaff; }"
+            "QToolButton:disabled { color: #888; }"
+            # Dimmed-but-checked must stay legible (F3 master-off state).
+            "QToolButton:checked:disabled { background: #243a4e;"
+            " border-color: #3a607e; color: #99bbdd; }"
         )
         from firepro3d.assets import asset_path
         for abbr, tip, attr, icon_file in self._SNAP_TYPES:
@@ -556,9 +561,12 @@ class MainWindow(QMainWindow):
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
 
-        # F3 global OSNAP toggle is bound via the existing ribbon OSNAP
-        # QAction (see init_ribbon / _toggle_osnap). The status-bar
-        # indicator stays in sync via the osnapToggled signal.
+        # F3 global OSNAP toggle — a window-level shortcut so it fires from any
+        # ribbon tab (a QToolButton shortcut only fires when its ribbon page is
+        # the visible one). toggle_osnap() flips state; osnapToggled then syncs
+        # the ribbon button, status-bar pill, and OSNAP toolbar.
+        self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
+        self._f3_shortcut.activated.connect(self.scene.toggle_osnap)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         QShortcut(QKeySequence("Delete"), self).activated.connect(
@@ -1109,7 +1117,7 @@ class MainWindow(QMainWindow):
         self._osnap_btn = g_snap.add_large_button(
             "OSNAP",
             _I("placeholder_icon.svg"),
-            self._toggle_osnap, checkable=True, shortcut="F3")
+            self._toggle_osnap, checkable=True)
         self._osnap_btn.setChecked(True)
         self._osnap_btn.setToolTip("Object Snap  [F3]")
         _btn = g_snap.add_small_button(
@@ -2074,6 +2082,14 @@ class MainWindow(QMainWindow):
 
     def _update_osnap_indicator(self, enabled: bool) -> None:
         self.osnap_indicator.setOsnapOn(enabled)
+        # Keep the ribbon OSNAP button in sync with external toggles (pill /
+        # F3) without re-entering _toggle_osnap. Guarded: this runs once during
+        # __init__ before init_ribbon() creates the button.
+        btn = getattr(self, "_osnap_btn", None)
+        if btn is not None:
+            btn.blockSignals(True)
+            btn.setChecked(enabled)
+            btn.blockSignals(False)
 
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout in the status bar."""

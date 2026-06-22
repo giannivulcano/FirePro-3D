@@ -42,26 +42,44 @@ def main_window(_main_window_singleton):
     yield win
 
 
-def test_ribbon_osnap_button_bound_to_f3(main_window):
-    """The ribbon OSNAP button owns the F3 shortcut and toggles state.
+def test_ribbon_osnap_button_click_toggles_and_syncs(main_window):
+    """The ribbon OSNAP button toggles OSNAP on click, AND stays in sync
+    when OSNAP is toggled from elsewhere (pill / F3).
 
-    F3 binding lives on the ribbon button (created in init_ribbon via
-    `shortcut="F3"`), not on a standalone QShortcut. This test asserts
-    the button exists, is checkable, carries the F3 shortcut, and that
-    its click path reaches Model_Space.toggle_osnap.
+    Regression: previously the button drove the toggle but did not listen
+    to osnapToggled, so an external toggle (pill) left it desynced — which
+    made the next F3 press a no-op.
     """
-    btn = main_window._osnap_btn
+    win = main_window
+    btn = win._osnap_btn
     assert btn is not None
     assert btn.isCheckable()
-    assert btn.shortcut() == QKeySequence("F3")
-    # Programmatic click drives the same path as F3 / mouse click.
-    # Start with both button and scene in the "on" state.
-    main_window.scene.toggle_osnap(True)
-    btn.setChecked(True)
-    btn.click()  # -> unchecked -> _toggle_osnap(False)
-    assert main_window.scene._osnap_enabled is False
-    btn.click()  # -> checked -> _toggle_osnap(True)
-    assert main_window.scene._osnap_enabled is True
+    # External toggle keeps the ribbon button in sync (the fix).
+    win.scene.toggle_osnap(False)
+    assert btn.isChecked() is False
+    win.scene.toggle_osnap(True)
+    assert btn.isChecked() is True
+    # Clicking the button still drives the toggle.
+    btn.click()  # checked -> unchecked -> _toggle_osnap(False)
+    assert win.scene._osnap_enabled is False
+    btn.click()  # unchecked -> checked -> _toggle_osnap(True)
+    assert win.scene._osnap_enabled is True
+
+
+def test_f3_shortcut_toggles_osnap_and_syncs(main_window):
+    """F3 is a window-level shortcut (fires from any ribbon tab) that
+    toggles OSNAP and keeps the ribbon button + pill in sync."""
+    win = main_window
+    assert win._f3_shortcut.key() == QKeySequence("F3")
+    win.scene.toggle_osnap(True)
+    win._f3_shortcut.activated.emit()
+    assert win.scene._osnap_enabled is False
+    assert win._osnap_btn.isChecked() is False
+    assert win.osnap_indicator.property("osnapOn") is False
+    win._f3_shortcut.activated.emit()
+    assert win.scene._osnap_enabled is True
+    assert win._osnap_btn.isChecked() is True
+    assert win.osnap_indicator.property("osnapOn") is True
 
 
 def test_indicator_exists_and_initial_state(main_window):
