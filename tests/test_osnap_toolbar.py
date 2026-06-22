@@ -103,3 +103,51 @@ def test_refresh_from_engine(toolbar):
     assert tb._actions["snap_center"].isChecked() is False
     # refresh must not write back to the engine
     assert engine.snap_center is False
+
+
+# ── Integration: dialog cancel re-syncs the toolbar ──────────────────────
+
+from firepro3d.view_3d import View3D  # heavy import, required before MainWindow()
+_main_module.View3D = View3D
+from main import MainWindow
+
+
+@pytest.fixture(scope="module")
+def _main_window_singleton(qapp):
+    """Module-scoped MainWindow (constructing several per process hangs)."""
+    from PyQt6.QtTest import QTest
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    win.close()
+    win.deleteLater()
+
+
+@pytest.fixture
+def main_window(_main_window_singleton):
+    win = _main_window_singleton
+    win.scene.toggle_osnap(True)
+    yield win
+
+
+def test_dialog_cancel_syncs_toolbar(main_window, monkeypatch):
+    """Open the Snap Settings dialog, change a type, cancel -> the
+    toolbar reflects the reverted (pre-dialog) engine state."""
+    win = main_window
+    eng = win.scene._snap_engine
+    eng.snap_endpoint = True
+    win.osnap_toolbar.refresh_from_engine()
+    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True
+
+    def fake_exec(self):
+        # Simulate the dialog's live setattr, then the user cancels.
+        eng.snap_endpoint = False
+        return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
+    win._open_snap_tolerance_dialog()
+
+    # Cancel reverts the engine, and the toolbar must be re-synced.
+    assert eng.snap_endpoint is True
+    assert win.osnap_toolbar._actions["snap_endpoint"].isChecked() is True

@@ -538,6 +538,15 @@ class MainWindow(QMainWindow):
         self._splash_progress(80, "Wiring up controls...")
         self.init_ribbon()
 
+        # OSNAP toolbar — per-type snap toggles (osnap-toolbar spec).
+        # Must be created before restore_settings() so restoreState() can
+        # place it; refresh_from_engine() is called there once QSettings
+        # have been applied.
+        self.osnap_toolbar = _OsnapToolbar(self.scene._snap_engine, self)
+        self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.osnap_toolbar)
+        self.scene.osnapToggled.connect(self.osnap_toolbar._on_osnap_toggled)
+        self.osnap_toolbar._on_osnap_toggled(self.scene._osnap_enabled)
+
         # Global keyboard shortcuts
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
 
@@ -623,6 +632,8 @@ class MainWindow(QMainWindow):
                 if isinstance(val, str):
                     val = val.lower() not in ("false", "0")
                 setattr(self.scene._snap_engine, attr, bool(val))
+        # Reflect the just-restored per-type snap state on the toolbar.
+        self.osnap_toolbar.refresh_from_engine()
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
@@ -1844,6 +1855,9 @@ class MainWindow(QMainWindow):
             for attr, val in old_flags.items():
                 setattr(eng, attr, val)
 
+        # Keep the OSNAP toolbar in sync with whatever the dialog left set.
+        self.osnap_toolbar.refresh_from_engine()
+
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
     def _build_units_menu(self) -> QMenu:
@@ -2900,7 +2914,7 @@ class MainWindow(QMainWindow):
         self._cleanup_autosave()
         super().closeEvent(event)
 
-    _STATE_VERSION = 4  # bump when dock layout changes between sprints
+    _STATE_VERSION = 5  # bump when dock layout changes between sprints
 
     def save_settings(self):
         self.settings.setValue("geometry", self.saveGeometry())
