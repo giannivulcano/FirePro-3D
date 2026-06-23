@@ -4,6 +4,7 @@
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
 > **Revision:** 7 (import-dialog UI cleanup: pill controls, merged Placement group, level-of-insertion selector, inline custom scale + "Calibrate", "Insert at origin" greys base point, hidden preview scrollbars; checkbox indicators styled globally in `firepro3d/theme.py`)
+> **Last verified:** 2026-06-23 (commit `3e5b01a`) — §3.1 data model (`user_layer` removed), §3.4 underlay render pen width (cosmetic, fixed px)
 
 ---
 
@@ -73,9 +74,10 @@ class Underlay:
     page: int = 0                 # PDF page index (0-based)
     dpi: int = 150                # PDF rasterization DPI
     colour: str = "#c0c0c0"       # DXF uniform colour as hex string (gray default)
-    line_weight: float = 0.0      # DXF lineweight in mm
-    user_layer: str = DEFAULT_USER_LAYER  # Destination layer
+    line_weight: float = 0.0      # DXF lineweight in mm (stored only; not used for rendering — see §3.4)
 ```
+
+> The per-item layer system has been removed; the old `user_layer` field on `Underlay` no longer exists (stale `user_layer`/`user_layers` keys are silently ignored on load).
 
 ### 3.2 New fields
 
@@ -120,6 +122,10 @@ class Underlay:
 | `selected_layers` | `None` |
 | `layout` | `""` |
 | `import_bounds` | `None` |
+
+### 3.4 Rendering (pen width)
+
+Underlay geometry is batched into one `QGraphicsPathItem` per DXF/PDF source layer (`_build_batched_underlay_group` in `model_space.py`). Stroked geometry uses a **cosmetic** pen whose width is a fixed device-pixel constant — `UNDERLAY_LINE_WIDTH_PX` (`constants.py`, currently `1.5`, matching the gridline on-screen width). Because the pen is cosmetic, underlay lines render at a constant on-screen thickness **independent of zoom level and `import_scale`**. The stored `Underlay.line_weight` (mm) is **not** consulted when rendering; all four build sites (interactive placement, DXF import, PDF vector import, reload-from-disk) pass the same fixed pixel width. Text is filled with the underlay colour and `NoPen`.
 
 ---
 

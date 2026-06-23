@@ -48,6 +48,12 @@ Z_CAT_NODE       = 0.5    # Node
 DEFAULT_GRIDLINE_SPACING_IN = 7315.2   # 288 in / 24 ft
 DEFAULT_GRIDLINE_LENGTH_IN  = 21945.6  # 864 in / 72 ft
 
+# ── Underlay rendering ───────────────────────────────────────────────────────
+# Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
+# lines stay a constant thickness regardless of zoom or import scale. Matches
+# the gridline on-screen width (GRID_WIDTH in gridline.py).
+UNDERLAY_LINE_WIDTH_PX = 1.5
+
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 
