@@ -1,5 +1,34 @@
 # TODO
 
+## 🎯 Current Focus — MVP: AHJ Package (decided 2026-06-23 grill; full rationale in `DOCS-REVIEW.md`)
+
+MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler Design core of the FPE suite (see `project-suite-vision` / `project-mvp-priority-model` memories). Build order:
+
+### A. Drift / correctness fixes (do FIRST — they keep the AI's specs trustworthy; cheap)
+- [ ] Fix broken fresh install — `requirements.txt` omits `pyvista`/`pyvistaqt`/`vtk` (hard-imported by `view_3d.py` at startup, so a clean clone crashes on launch); document ODA File Converter setup for DWG. `requirements.txt`, `docs/getting-started.md` [type:Bug] [P1] [subject:Documentation]
+- [ ] Sweep removed layer system from docs — purge `user_layer` from `architecture/{display-system,io,entities,level-system}.md` + `contributing/{guide,adding-entities}.md`; rename `DEFAULT_USER_LAYER → DEFAULT_ANNOTATION_GROUP` (it's only an annotation category now); document `hidden_layers` as distinct DXF source-layer visibility. (Levels-not-layers is committed.) [type:Task] [P1] [subject:Documentation]
+- [ ] Reconcile Z-order to one source of truth — `docs/specs/view-relationships.md §7.3` + `constants.py` are the home; make `display-system.md`/`guide.md`/`overview.md` LINK not restate (Rule A); add the runtime elevation-based ordering that's currently omitted. [type:Task] [P1] [subject:Documentation]
+- [ ] Fix fictional APIs in contributor how-tos — `_snap_or_raw`→`get_effective_position`/`find_snap_point`; `_geom_to_item()`→real DXF path; `SnapEngine.snap()`→`find()`; `apply_for_level`→`apply_to_scene`; `Model_Space.py`→`model_space.py`. `contributing/*`, `architecture/{overview,io,level-system}.md` [type:Task] [P1] [subject:Documentation]
+- [ ] Fix `architecture/io.md` — `.fp3d`→`.fpd`; cache version 3→4; remove fabricated version-migration logic; cross-link `underlay-workflow.md`. [type:Task] [P1] [subject:Documentation]
+
+### B. Paper-space AHJ output (the MVP blocker — most machinery already exists)
+- [ ] Paper-space PLOT step (sheet → PDF/print) — **the #1 MVP blocker.** Render + B&W/line-weight overrides (`paper_display.py`) + ANSI title blocks already exist; wire the output. See existing **"PDF export"** + **"Print"** under _Paper Space Follow-Ups_. [ref:paper-space§7] [type:Task] [P1] [subject:Architecture]
+- [ ] Sheet-space annotations (notes / legend / text on the sheet) — **elevated to MVP** from "Paper space Phase 2". Plan dimensions already render through viewports; this is sheet-level text on `PaperScene`. [type:Task] [P1] [subject:Architecture]
+- _Cardinal elevations on sheets: ALREADY WORKS (`ViewResolver`). Riser (MVP): cardinal elevation + imported standard detail — reuse, no build._
+
+### C. Hydraulic calc deliverable
+- [ ] Hydraulic report → 3-tab + Node Summary — see **"Consolidate report to 3 tabs"** under _Hydraulic Solver Follow-Ups_ (bumped to P1). [ref:hydraulic-spec§9,D7] [type:Task] [P1] [subject:Hydraulic Calculator]
+
+### Deferred OUT of the MVP (2026-06-23)
+- Arbitrary-angle section-view subsystem — see **"Implement section view subsystem"** (now P3, deferred). Cardinal elevations suffice.
+- [ ] Auto-generated one-line riser diagram from pipe/valve topology — desired POST-MVP differentiator (plays to the hydraulic/topology strength). `model_space.py`, new module [type:Task] [P3] [subject:Sprinkler Design]
+
+### Post-MVP order
+- [ ] **#1 post-MVP:** Implement selection-mode hub — hover pre-highlight + crossing rubber-band + Tab disambiguation of stacked items + label-only click. Spec done (`docs/specs/selection-mode.md`). [ref:selection-mode-spec] [type:Task] [P2] [subject:Architecture]
+- [ ] Doc reorg execution — `docs/specs/`→`docs/design/`, `docs/superpowers/`→`docs/_archive/` (excluded from build), backfill `status`/`applies-to` frontmatter on specs, add a Design nav tab. Milestone-level. See `DOCS-REVIEW.md` Part 3 + `docs/specs/SPEC-INDEX.md`. [type:Task] [P2] [subject:Documentation]
+
+_Architecture posture: arm's-length modules (read the model → emit results/overlays/reports; never entangle logic into `Model_Space`); let the platform/module seam emerge. Thermal radiation = first suite module (kept, NOT MVP)._
+
 ## Tasks
 - [x] Voronoi relaxation algorithm for auto-populate sprinkler placement [type:Recently Completed] [subject:Sprinkler Design]
 - [x] Level manager elevation enhancements (guard against deleted C++ objects) [type:Recently Completed] [subject:CAD]
@@ -63,7 +92,7 @@
 - [x] Extract plan-family Z-band magic numbers to named constants in `constants.py` — 18 named constants added (Z_CAT_*, Z_ELEV_SCALE, static Z bands); applied in level_manager.py, node.py, pipe.py, sprinkler.py, detail_view.py, water_supply.py, construction_geometry.py, view_marker.py, hydraulic_node_badge.py, design_area.py, gridline.py, room.py [ref:view-relationships§7.3] [type:Backlog] [P3] [subject:CAD] [done:2026-05-03]
 - [x] Investigate elevation marker persistence — resolved by section view subsystem spec: section markers persist via `to_dict()`/`from_dict()`, elevation views retired and replaced by section views. See `docs/specs/section-view-subsystem.md` §10.5, §14. [ref:view-relationships§6.3] [type:Backlog] [P2] [subject:CAD] [done:2026-04-29]
 - [x] Spec session: Section view subsystem — arbitrary-angle cut planes replacing cardinal-only elevation views. See `docs/specs/section-view-subsystem.md`. Covers projection math, cut/behind rendering, SectionMarker with grips, SectionScene/SectionView/SectionManager, elevation retirement, cardinal shortcuts. [ref:view-relationships§4.1] [type:Backlog] [P1] [subject:Architecture] [done:2026-04-29]
-- [ ] Implement section view subsystem — SectionScene, SectionView, SectionMarker, SectionManager, section placement tool, cardinal shortcuts, elevation system retirement. See `docs/specs/section-view-subsystem.md` [ref:section-view-spec] [type:Task] [P1] [subject:Architecture]
+- [ ] Implement section view subsystem — SectionScene, SectionView, SectionMarker, SectionManager, section placement tool, cardinal shortcuts, elevation system retirement. See `docs/specs/section-view-subsystem.md` **[DEFERRED 2026-06-23 grill — cardinal elevations already host on sheets (ViewResolver); arbitrary-angle sections not needed for the AHJ MVP. Spec stays a proposal.]** [ref:section-view-spec] [type:Task] [P3] [subject:Architecture]
 - [ ] Spec session: Drafting overrides / view templates — defines resolution rules on top of catalog [ref:view-relationships§7.4] [type:Backlog] [P2] [subject:Architecture]
 - [ ] Spec session: Cross-view selection / interaction sync [ref:view-relationships§1.3] [type:Backlog] [P2] [subject:Architecture]
 - [ ] Spec session: Paper-viewport-specific overrides (depends on view-templates spec landing first) [ref:view-relationships§7.4] [type:Backlog] [P3] [subject:Architecture]
@@ -111,7 +140,7 @@ _Grid system, scale calibration & underlay, wall/room/floor system, sprinkler co
 - [ ] Block hydraulic calculation when scale uncalibrated — REVISIT: `is_calibrated` only applies to underlay scaling; scene is always 1 px = 1 mm so pipes drawn directly have correct lengths. Guard would block valid calculations on projects without underlays. Need to rethink when/if this is needed. `hydraulic_solver.py` [ref:hydraulic-spec§7.3,D8] [type:Task] [P2] [subject:Hydraulic Calculator]
 - [x] Add loop detection warning — compares reachable pipe count vs BFS tree edges; warns with excluded pipe count and singular/plural grammar. `hydraulic_solver.py` [ref:hydraulic-spec§7.3,D1] [type:Task] [P2] [subject:Hydraulic Calculator] [done:2026-05-01]
 - [ ] Replace velocity color-coding with pipe hf heatmap — normalize friction loss to system max; color pipes green/orange/red by relative hf. `model_space.py`, `hydraulic_report.py` [ref:hydraulic-spec§11.2,D4] [type:Task] [P2] [subject:Hydraulic Calculator]
-- [ ] Consolidate report to 3 tabs — Summary (add project metadata + design criteria), Node Summary Table (NFPA format), Hydraulic Graph. Remove Pipe Results, Sprinkler Schedule, Pipe Schedule tabs. `hydraulic_report.py` [ref:hydraulic-spec§9,D7] [type:Task] [P2] [subject:Hydraulic Calculator]
+- [ ] Consolidate report to 3 tabs — Summary (add project metadata + design criteria), Node Summary Table (NFPA format), Hydraulic Graph. Remove Pipe Results, Sprinkler Schedule, Pipe Schedule tabs. `hydraulic_report.py` **[CONFIRMED MVP 2026-06-23 grill — part of the AHJ calc deliverable; build the node-oriented Node Summary; spec §9 is the TARGET → mark it `status: partial`, keep D7 active (do NOT rewrite §9 to match the 5-tab code).]** [ref:hydraulic-spec§9,D7] [type:Task] [P1] [subject:Hydraulic Calculator]
 - [x] Place WaterSupply on-node — change from proximity search to direct node placement (same as sprinklers). `model_space.py`, `hydraulic_solver.py` [ref:hydraulic-spec§7.2,D5] [type:Task] [P2] [subject:Hydraulic Calculator] [done:2026-05-06]
 - [ ] Multi-system hydraulic export — per-system sections in combined PDF. Depends on sprinkler spec D8. `hydraulic_report.py` [ref:hydraulic-spec§9.4,D9] [type:Task] [P3] [subject:Hydraulic Calculator]
 - [ ] Professional PDF templates — company logo, engineer stamp area, page numbers. `hydraulic_report.py` [ref:hydraulic-spec§9.4,D10] [type:Task] [P3] [subject:Hydraulic Calculator]
