@@ -3,7 +3,7 @@
 > **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 6 (import_bounds persistence, data(5) caching, save-time freeze fix)
+> **Revision:** 7 (import-dialog UI cleanup: pill controls, merged Placement group, level-of-insertion selector, inline custom scale + "Calibrate", "Insert at origin" greys base point, hidden preview scrollbars; checkbox indicators styled globally in `firepro3d/theme.py`)
 
 ---
 
@@ -245,7 +245,7 @@ Both Z-range (or level match when no view range is set) AND the user's explicit 
 
 ### 7.3 Import behavior
 
-New underlays default to the currently active level. The import dialog does not need a level picker — the user imports while viewing the relevant level, then reassigns via the browser tree if needed.
+New underlays default to the currently active level. The import dialog provides a **Level** selector (top of the Placement group, §10.1) populated from the project levels and defaulting to the active level. The chosen level is carried on `ImportParams.level`; `open_import_dialog()` activates that level's plan view before committing so the `Underlay` record is tagged with it (`main.py`). Level can still be reassigned afterward via the browser tree (§7.4).
 
 ### 7.4 Level reassignment
 
@@ -330,30 +330,34 @@ Underlay groups are **not selectable or movable** in the scene — they are refe
 
 ## 10. Import Dialog
 
-### 10.1 Dialog Layout (Revision 5)
+### 10.1 Dialog Layout (Revision 7)
 
 `UnderlayImportDialog` (in `firepro3d/dxf_preview_dialog.py`) uses a two-panel layout:
 
-- **Left panel:** Preview-only (QGraphicsView with pan/zoom, info label).
-- **Right panel** (scrollable, 260-340px): All controls stacked vertically:
-  - File group (path field, Browse/Reload buttons)
+- **Left panel:** Preview-only (QGraphicsView with pan/zoom, info label). Scrollbars are disabled (`ScrollBarAlwaysOff`) — panning is driven programmatically via the scrollbar values, so the bars are hidden without losing pan.
+- **Right panel** (scrollable, 260-340px; horizontal scrollbar disabled): controls stacked vertically, top to bottom:
+  - File group (path field, **Browse** / **Reload** pill buttons)
   - Layout combo (hidden until multi-layout file; see §10B)
-  - Preview mode (Pan/Zoom, Select Area, Clear Selection)
-  - Source layer filtering (checkboxes, All/None buttons)
-  - Scale (preset dropdown, custom edit, pick-2-pts, DXF unit auto-detection)
-  - Rotation (angle field, ±90°/180° buttons)
-  - Base/Insertion Point (X/Y, pick on preview)
+  - Preview mode — three pills in one segmented row (Pan/Zoom, Select Area, Clear Selection)
+  - **Placement** group (one bordered group, thin dividers between sub-rows; sits **above** Source Layers):
+    - **Level** — target floor, defaults to the active level (§7.3)
+    - **Scale** — compact preset combo (sized to its widest item) + an inline custom-factor field (shown only for "Custom…"; persists the last-used value via QSettings) + a **Calibrate** pill (two-point pick; DXF unit auto-detection in §10.4)
+    - **Rotation** — angle field + inline −90° / +90° / 180° pills
+    - **Base / Insertion Point** — X and Y fields side by side + an inline **Pick** pill
+  - Source layer filtering (All/None pills + per-layer checkboxes)
   - PDF Options (DPI, import mode — hidden for DXF/DWG)
-- **Bottom bar:** Status label, insert-at-origin checkbox, Import/Cancel buttons.
+- **Bottom bar:** Status label, **Insert at origin** checkbox, Import/Cancel buttons. While "Insert at origin" is checked the base-point fields and Pick pill are greyed out (the base point is unused in that mode).
 - **PDF thumbnail strip** above the splitter (visible only for multi-page PDFs).
 
-### 10.2 New: PDF DPI dropdown (P2 — not yet implemented)
+**Visual conventions:** action buttons use a compact rounded "pill" style; the former separate Scale / Rotation / Base group boxes are merged into one **Placement** group. Checkbox indicators (the layer list and the "Insert at origin" box) are styled globally by `theme.build_app_qss()` — empty box unchecked, accent fill + white tick (`firepro3d/graphics/checkmark.svg`) checked — so they read clearly on the dark theme. Two-point scale-calibration markers render as a green diamond with a constant-size centre dot at the picked point.
 
-`QComboBox` with options: 72, 150, 300. Visible only when file type is PDF. Default: 150. Value written to `ImportParams.pdf_dpi` (field already exists).
+### 10.2 PDF DPI dropdown
 
-### 10.3 New: PDF import mode toggle (P2 — not yet implemented)
+`QComboBox` with options: 72, 150, 300. Visible only when file type is PDF (the PDF Options group is hidden for DXF/DWG). Default: 150. Value written to `ImportParams.pdf_dpi`.
 
-`QComboBox` with options: "Auto", "Vectors", "Raster". Visible only when file type is PDF. Default: "Auto". Value written to a new `ImportParams.import_mode` field.
+### 10.3 PDF import mode toggle
+
+`QComboBox` with options: "Auto", "Vectors", "Raster". Visible only when file type is PDF. Default: "Auto". Value written to `ImportParams.import_mode`.
 
 - **Auto:** Current behavior — try vector extraction, fall back to raster if no vectors found.
 - **Vectors:** Force vector extraction. Show a warning if no vectors found.
@@ -394,11 +398,12 @@ Reads `$INSUNITS` from the DXF header. Maps known unit codes (1=inches, 2=feet, 
 File selected
   → Worker thread parses geometry (DxfImportWorker / PdfImportWorker)
   → Preview rendered in dialog
-  → User configures: layers, scale, base point, destination layer, DPI, import mode
+  → User configures: level, layers, scale, rotation, base point, DPI, import mode
   → "Import →" pressed
-  → ImportParams constructed
+  → ImportParams constructed (carries the chosen level)
+  → open_import_dialog() activates the chosen level's plan view
   → Scene placement: origin or interactive click-to-place
-  → Underlay record created (level = active level, import_mode from params)
+  → Underlay record created (level = ImportParams.level — defaults to active; import_mode from params)
   → _apply_underlay_display() sets transform origin, scale, rotation, opacity, lock
   → Record + scene item appended to self.underlays
   → underlaysChanged emitted → browser tree refreshes
@@ -527,7 +532,7 @@ Old project files lack the new fields. `from_dict()` applies defaults (§3.3). N
 
 ### 13.1 Must-have (MVP)
 
-1. Import dialog handles DXF and PDF with existing layer filtering, scale selection (preset, pick-2-pts, auto-detect), base point pick, and destination layer.
+1. Import dialog handles DXF and PDF with source-layer filtering, scale selection (preset combo, "Calibrate" two-point pick, DXF unit auto-detect), rotation, base-point pick, and a level-of-insertion selector (defaults to the active level).
 2. PDF: page selection via thumbnails, DPI dropdown (72/150/300), vector/raster/auto toggle.
 3. Placement: origin or interactive click-to-place.
 4. `Underlay` record stores all transform state plus `level`, `visible`, `hidden_layers`, `import_mode` fields.
@@ -536,7 +541,7 @@ Old project files lack the new fields. `from_dict()` applies defaults (§3.3). N
 7. Persistence: save/load with project file, re-read linked file from disk on load.
 8. File-not-found: warning on load, preserve record, placeholder in scene, relink action.
 9. Refresh from disk: re-import preserving position/scale/rotation/opacity/lock/hidden_layers/import_mode.
-10. Per-level visibility: underlay assigned to a level, auto-hides on level switch, "all levels" option.
+10. Per-level visibility: underlay assigned to a level (chosen in the import dialog, default active), auto-hides on level switch, "all levels" option.
 11. Per-source-layer visibility: toggle in browser tree, persisted across save/load/refresh.
 12. Browser tree: File → source layers hierarchy, right-click for all management actions.
 13. Underlays are never selectable/movable in the scene (reference geometry); fully manageable via browser tree. Lock additionally prevents browser-initiated transforms.
@@ -593,8 +598,8 @@ Tasks to add to `TODO.md` after this spec is approved:
 | P1 | Implement per-level underlay visibility | §7 |
 | P1 | Implement per-source-layer visibility | §8 |
 | P1 | Add underlay section to browser tree with context menus | §9 |
-| P2 | Add PDF DPI dropdown to import dialog | §10.2 |
-| P2 | Add PDF import mode toggle to import dialog | §10.3 |
+| ~~done~~ | ~~Add PDF DPI dropdown to import dialog~~ — implemented | §10.2 |
+| ~~done~~ | ~~Add PDF import mode toggle to import dialog~~ — implemented | §10.3 |
 | P2 | Update refresh-from-disk to preserve new state | §11 |
 | P2 | Write unit tests for underlay path resolution and serialization | §14.1 |
 | P2 | Write integration tests for file-not-found and refresh | §14.2 |
