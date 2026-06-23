@@ -47,3 +47,15 @@ mkdocs serve
 - Imports: relative within `firepro3d/` (`from .node import Node`), absolute from `main.py` (`from firepro3d.node import Node`)
 - Docstring style: Google
 - Module naming: lowercase_with_underscores (PEP 8)
+
+## Documentation governance (the leash)
+
+Docs exist to keep the AI grounded in the *intended* architecture — they are a control surface, not a manual. **A wrong spec is worse than none.** Audience: future-self + the AI loop, so accuracy/anti-drift beats publishing polish.
+
+- **Two layers.** `docs/architecture/` = cross-subsystem ripple map (orientation). `docs/design/` governing specs (currently `docs/specs/`) = per-subsystem contracts/invariants.
+- **Rule A — one fact, one home.** Architecture *links* to specs; never restate an owned fact (Z-order → `docs/specs/view-relationships.md §7.3` + `constants.py`; signatures, enums, defaults). Never cite line/LOC counts.
+- **Grounding:** before editing a subsystem, load its governing spec via the index → `docs/specs/SPEC-INDEX.md`.
+- **Orphans (no spec yet — forge on first touch):** thermal radiation, 3D view, `.fpd` scene-I/O.
+- **Enforcement:** the `/todo` skill clips the leash on — **Ground** (load specs, Phase 1b), **Forge** (blocking spec-creation + grill for ungoverned code), **Account** (re-audit + stamp specs at wrap-up). Full multi-agent doc audit → milestone-level.
+
+> Note (2026-06-22 audit): several conventions above still reflect pre-removal state — the **layer system is removed** ("default layer" is vestigial; `user_layer` is gone), ezdxf is **import-only** (no DXF export), and `vispy` was replaced by PyVista. These are tracked drift-fixes, not current truth; see `DOCS-REVIEW.md`.
