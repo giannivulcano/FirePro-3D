@@ -5,6 +5,7 @@
 > **Source tasks:** TODO.md "Spec & grill session: define and refine the relationship between views" (P1, Architecture)
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
+> **§7.3 (Z-order) last-verified:** 2026-06-23 against `constants.py` + `level_manager.apply_to_scene` (commit `59ad233`, Section-A drift fix). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
 
 ---
 
