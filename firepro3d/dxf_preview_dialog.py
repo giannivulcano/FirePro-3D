@@ -347,6 +347,7 @@ class _DialogReadWorker(QThread):
     """Sanitize + parse a DXF file off the GUI thread."""
 
     finished_doc = pyqtSignal(object)  # ezdxf document
+    status = pyqtSignal(str)            # phase description for the bar
     error = pyqtSignal(str)
 
     def __init__(self, path: str, parent=None):
@@ -355,8 +356,16 @@ class _DialogReadWorker(QThread):
 
     def run(self):
         try:
+            size_mb = 0.0
+            try:
+                size_mb = os.path.getsize(self._path) / (1024 * 1024)
+            except OSError:
+                pass
+            size_note = f" ({size_mb:,.0f} MB)" if size_mb >= 1 else ""
+            self.status.emit(f"Checking DXF formatting{size_note}…")
             clean = _sanitize_dxf(self._path)
             try:
+                self.status.emit(f"Parsing DXF{size_note} — this can take a while…")
                 doc = ezdxf.readfile(clean)
             finally:
                 if clean != self._path and os.path.exists(clean):
@@ -377,6 +386,7 @@ class _DialogExtractWorker(QThread):
     """
 
     progress = pyqtSignal(int, int)          # (current, total)
+    status = pyqtSignal(str)                  # phase description for the bar
     finished_geoms = pyqtSignal(list, list)  # (geom dicts, layer names)
     aborted = pyqtSignal()
     error = pyqtSignal(str)
@@ -399,10 +409,12 @@ class _DialogExtractWorker(QThread):
     def _run_inner(self):
         doc = self._doc
         layout_name = self._layout
+        scope = "Model space" if layout_name == "Model" else f"layout “{layout_name}”"
 
         # ── Viewport bounds (paper layouts only) ─────────────────────────
         vp_bounds = None
         if layout_name != "Model":
+            self.status.emit(f"Reading viewports for {scope}…")
             from .dwg_converter import get_viewport_bounds
             vp_bounds = get_viewport_bounds(
                 layout_name=layout_name, doc=doc)
@@ -411,6 +423,7 @@ class _DialogExtractWorker(QThread):
         from .dxf_import_worker import (
             DxfImportWorker, _build_layer_colors, _entity_in_viewport,
         )
+        self.status.emit("Scanning drawing entities…")
         msp = doc.modelspace()
         all_ents = list(msp)
 
@@ -430,14 +443,20 @@ class _DialogExtractWorker(QThread):
         worker_ref._layer_colors = _build_layer_colors(doc)
 
         total = len(all_ents)
+        self.status.emit(f"Extracting geometry from {total:,} entities…")
         self.progress.emit(0, total)
         geoms: list[dict] = []
         for i, ent in enumerate(all_ents):
             if self._cancelled:
                 self.aborted.emit()
                 return
-            if i % 200 == 0:
+            if i % 100 == 0:
                 self.progress.emit(i, total)
+                # Briefly yield the GIL so the GUI thread is scheduled to
+                # repaint the bar between chunks; without this the worker
+                # races ahead and the main thread drains many queued progress
+                # signals in one slice, so the bar appears to jump.
+                self.usleep(300)
             # Pre-filter by viewport bounds at entity level
             if vp_bounds and not _entity_in_viewport(ent, vp_bounds):
                 continue
@@ -453,11 +472,13 @@ class _DialogExtractWorker(QThread):
 
         # ── Post-extraction viewport filter (catches INSERT/HATCH) ───────
         if vp_bounds:
+            self.status.emit("Clipping geometry to the layout viewport…")
             from .dwg_converter import filter_geoms_by_bounds
             geoms = filter_geoms_by_bounds(geoms, vp_bounds)
 
         # ── Paper layout annotations ─────────────────────────────────────
         if layout_name != "Model":
+            self.status.emit("Reading sheet annotations…")
             from .dwg_converter import extract_layout_entities
             layout_geoms = extract_layout_entities(
                 layout_name=layout_name, doc=doc)
@@ -974,9 +995,15 @@ class UnderlayImportDialog(QDialog):
         w = _DialogReadWorker(path)
         self._read_worker = w
         w.finished_doc.connect(self._on_read_finished)
+        w.status.connect(self._on_read_status)
         w.error.connect(self._on_read_error)
         _keepalive(w)
         w.start()
+
+    def _on_read_status(self, message: str):
+        if self._read_worker is None:
+            return
+        self._loading_bar.busy(message)
 
     def _on_read_finished(self, doc):
         if self._read_worker is None:
@@ -1083,10 +1110,11 @@ class UnderlayImportDialog(QDialog):
 
         self._extracting = True
         self._extract_total = None
-        self._set_loading("Extracting entities…")
+        self._set_loading("Preparing extraction…")
         w = _DialogExtractWorker(self._doc, layout_name)
         self._extract_worker = w
         w.progress.connect(self._on_extract_progress)
+        w.status.connect(self._on_extract_status)
         w.finished_geoms.connect(self._on_extract_finished)
         w.aborted.connect(self._on_extract_aborted)
         w.error.connect(self._on_extract_error)
@@ -1112,7 +1140,19 @@ class UnderlayImportDialog(QDialog):
         if total != self._extract_total:
             self._extract_total = total
             self._set_extracting(total)  # determinate bar + controls off
-        self._update_progress(current, total)
+        pct = f"  {current:,} / {total:,}" if total else ""
+        self._update_progress(current, total, f"Extracting geometry…{pct}")
+
+    def _on_extract_status(self, message: str):
+        """Show a descriptive phase label for the un-counted extraction
+        phases (scan, viewport clip, sheet annotations) as an indeterminate
+        pulse so the bar never sits frozen at 100 %."""
+        if self._extract_worker is None:
+            return
+        if self._loading_bar.cancelled:
+            self._extract_worker.cancel()
+            return
+        self._loading_bar.busy(message)
 
     def _on_extract_finished(self, geoms: list, layers: list):
         if self._extract_worker is None:
