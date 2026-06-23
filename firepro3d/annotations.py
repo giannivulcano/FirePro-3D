@@ -15,14 +15,14 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtGui import QPen, QColor, QPolygonF, QFont, QPainter, QTextOption, QPainterPath, QPainterPathStroker, QBrush
 from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL, DEFAULT_ANNOTATION_GROUP
 
 class Annotation:
     """Base class for CAD annotations."""
 
     def __init__(self):
         self._properties = {
-            "Layer": {"type": "enum", "options": [DEFAULT_USER_LAYER, "Notes", "Dimensions"], "value": DEFAULT_USER_LAYER},
+            "Layer": {"type": "enum", "options": [DEFAULT_ANNOTATION_GROUP, "Notes", "Dimensions"], "value": DEFAULT_ANNOTATION_GROUP},
             "Color": {"type": "enum", "options": ["Black", "Red", "Blue"], "value": "Black"},
         }
         self.dimensions = [] #list of dimensions

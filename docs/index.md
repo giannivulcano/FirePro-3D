@@ -8,7 +8,7 @@ Fire protection sprinkler system design and analysis tool. Provides CAD-like 2D/
 - **3D visualization** — real-time 3D view via PyVista/VTK
 - **Hydraulic analysis** — Hazen-Williams pressure/flow calculations per NFPA 13
 - **Thermal radiation analysis** — fire dynamics and radiation heat transfer
-- **DXF/PDF import** — bring in architectural backgrounds and reference drawings
+- **DXF/DWG/PDF import** — bring in architectural backgrounds and reference drawings
 - **Multi-floor support** — elevation-based level system with cross-section views
 - **NFPA 13 compliance** — built-in coverage limits, hazard classifications, and spacing rules
 
@@ -17,7 +17,8 @@ Fire protection sprinkler system design and analysis tool. Provides CAD-like 2D/
 | Component | Technology |
 |-----------|-----------|
 | UI framework | PyQt6 |
-| DXF import/export | ezdxf |
+| DXF import (read-only) | ezdxf |
+| DWG import | ODA File Converter (external CLI, DWG→DXF) |
 | PDF import | PyMuPDF |
 | Numerical computation | numpy |
 | 3D visualization | PyVista / VTK |

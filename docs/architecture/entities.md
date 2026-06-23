@@ -20,7 +20,6 @@
 Every entity that participates in the Display Manager system inherits from `DisplayableItemMixin`. This mixin provides:
 
 - `level` -- floor level name (string, default "Level 1")
-- `user_layer` -- user-defined layer name (string, default "Default")
 - `_display_color` -- pen/stroke colour override
 - `_display_fill_color` -- fill/brush colour override
 - `_display_overrides` -- per-instance overrides from Display Manager (dict)
@@ -41,7 +40,6 @@ It also provides:
 classDiagram
     class DisplayableItemMixin {
         +level: str
-        +user_layer: str
         +_display_overrides: dict
         +init_displayable()
         +z_range_mm()
@@ -208,7 +206,7 @@ Non-printing geometric aids defined in `construction_geometry.py`:
 - `PolylineItem` -- connected line segments
 - `LineItem`, `RectangleItem`, `CircleItem`, `ArcItem` -- basic shapes
 
-These are drawn with user-layer colour/lineweight and participate in the snap engine.
+These are drawn with Display Manager colour/lineweight (the per-item layer system was removed) and participate in the snap engine.
 
 ## Property system
 

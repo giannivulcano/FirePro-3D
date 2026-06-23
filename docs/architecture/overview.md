@@ -87,7 +87,7 @@ User input (mouse/keyboard)
         v
    Entities (Node, Pipe, Sprinkler, Wall, Room, ...)
      - QGraphicsItem subclasses on the scene
-     - each carries level, user_layer, display overrides
+     - each carries level and display overrides
 ```
 
 ## Composition diagram
@@ -119,7 +119,6 @@ classDiagram
         +scale_manager: ScaleManager
         +mode: str
         +active_level: str
-        +active_user_layer: str
         -_snap_engine: SnapEngine
         -_level_manager: LevelManager
         -_walls: list
@@ -136,12 +135,12 @@ classDiagram
     class LevelManager {
         +levels: list~Level~
         +add_level()
-        +apply_for_level()
+        +apply_to_scene()
         +update_elevations()
     }
 
     class SnapEngine {
-        +snap(pos, items)
+        +find(cursor, scene, transform)
     }
 
     class SprinklerSystem {

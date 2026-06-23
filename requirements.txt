@@ -11,4 +11,8 @@ PyQt6-Qt6>=6.8
 PyQt6_sip>=13.8
 requests>=2.32
 scipy>=1.14
-vispy>=0.16
+
+# 3D view (hard-imported at startup by firepro3d/view_3d.py — required to launch)
+pyvista>=0.44
+pyvistaqt>=0.11
+vtk>=9.3

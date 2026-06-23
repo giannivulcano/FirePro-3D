@@ -5,6 +5,7 @@
 > **Source tasks:** TODO.md "Spec & grill session: define and refine the relationship between views" (P1, Architecture)
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
+> **§7.3 (Z-order) last-verified:** 2026-06-23 against `constants.py` + `level_manager.apply_to_scene` (commit `59ad233`, Section-A drift fix). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
 
 ---
 
@@ -268,7 +269,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 - `Z_UNDERLAY = -79` — underlays, DXF/PDF imports (initial value; overridden by elevation-based z-ordering at runtime)
 - `Z_ROOF = -75` — roof items
 
-**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * _Z_SCALE + category_offset`. Category offsets determine draw order within the same elevation:
+**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * Z_ELEV_SCALE + category_offset` (`Z_ELEV_SCALE = 1/100`). Category offsets (the `Z_CAT_*` constants in `constants.py`) determine draw order within the same elevation:
 
 | Category | Offset | Items |
 |---|---|---|

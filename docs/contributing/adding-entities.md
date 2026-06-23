@@ -10,7 +10,7 @@ Create `firepro3d/my_entity.py`. Your class must inherit from both `DisplayableI
 from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsItem
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPen, QBrush
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL
 from .displayable_item import DisplayableItemMixin
 
 
@@ -29,7 +29,7 @@ class MyEntity(DisplayableItemMixin, QGraphicsEllipseItem):
 
 Key points:
 
-- Call `self.init_displayable()` in `__init__` -- this sets `level`, `user_layer`, `_display_color`, and other shared attributes.
+- Call `self.init_displayable()` in `__init__` -- this sets `level`, `_display_color`, and other shared attributes.
 - Set an appropriate Z-value (see the [conventions guide](guide.md) for the Z-ordering table).
 - Enable `ItemIsSelectable` and `ItemSendsGeometryChanges` flags for interactive items.
 
@@ -149,7 +149,6 @@ for ent in self._get_my_entities():  # however you track them
     my_entities_data.append({
         "x": ent.scenePos().x(),
         "y": ent.scenePos().y(),
-        "user_layer": getattr(ent, "user_layer", DEFAULT_USER_LAYER),
         "level": getattr(ent, "level", DEFAULT_LEVEL),
         "properties": {k: v["value"] for k, v in ent._properties.items()},
     })
@@ -167,7 +166,6 @@ from .my_entity import MyEntity
 
 for entry in payload.get("my_entities", []):
     ent = MyEntity(entry["x"], entry["y"])
-    ent.user_layer = entry.get("user_layer", DEFAULT_USER_LAYER)
     ent.level = entry.get("level", DEFAULT_LEVEL)
     for key, value in entry.get("properties", {}).items():
         ent.set_property(key, value)
@@ -177,7 +175,7 @@ for entry in payload.get("my_entities", []):
 
 ## Step 6: Add a Creation Method in Model_Space
 
-Add a method to `firepro3d/Model_Space.py` that creates and adds your entity to the scene:
+Add a method to `firepro3d/model_space.py` (the `Model_Space` class) that creates and adds your entity to the scene:
 
 ```python
 def add_my_entity(self, x: float, y: float) -> "MyEntity":
@@ -186,7 +184,6 @@ def add_my_entity(self, x: float, y: float) -> "MyEntity":
 
     ent = MyEntity(x, y)
     ent.level = self.active_level
-    ent.user_layer = self.active_user_layer
     apply_category_defaults(ent)
     self.addItem(ent)
     return ent
@@ -207,11 +204,11 @@ _mode_btn(g_group, "My Entity", _I("my_entity_icon.svg"),
 
 ### Mouse Handler
 
-In `firepro3d/Model_Space.py`, handle the mode in `mousePressEvent`:
+In `firepro3d/model_space.py`, handle the mode in `mousePressEvent`:
 
 ```python
 if self.mode == "place_my_entity":
-    pos = self._snap_or_raw(event)
+    pos = self.get_effective_position(event.scenePos())
     self.add_my_entity(pos.x(), pos.y())
 ```
 
