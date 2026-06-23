@@ -58,6 +58,7 @@ nav:
     - Overview: architecture/overview.md
     - Entities: architecture/entities.md
     - Display System: architecture/display-system.md
+    - Theming & UI Style: architecture/theming.md
     - Level System: architecture/level-system.md
     - Analysis: architecture/analysis.md
     - I/O: architecture/io.md
