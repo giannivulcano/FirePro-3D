@@ -30,6 +30,8 @@ from dataclasses import dataclass
 from PyQt6.QtGui import QPalette, QColor
 from PyQt6.QtWidgets import QApplication
 
+from .assets import asset_path
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Token dataclass
@@ -166,6 +168,7 @@ def build_app_qss(t: Theme) -> str:
     All QSS here uses standard Qt widget selectors so it applies uniformly
     to every widget without needing per-widget stylesheets.
     """
+    check_url = asset_path("checkmark.svg").replace("\\", "/")
     return f"""
 /* ── Window & generic widgets ──────────────────────────────────────────── */
 QMainWindow, QDialog, QWidget {{
@@ -333,6 +336,27 @@ QCheckBox, QRadioButton {{
 }}
 QCheckBox:disabled, QRadioButton:disabled {{
     color: {t.text_disabled};
+}}
+/* Checkbox indicators — standalone checkboxes AND item-view check columns.
+   The default dark-palette indicator is near-invisible, so make checked
+   (accent fill + white tick) read clearly against unchecked (empty box). */
+QCheckBox::indicator, QAbstractItemView::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t.border_strong};
+    border-radius: 3px;
+    background: {t.bg_base};
+}}
+QCheckBox::indicator:hover, QAbstractItemView::indicator:hover {{
+    border-color: {t.accent_primary};
+}}
+QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {{
+    background: {t.accent_primary};
+    border-color: {t.accent_primary};
+    image: url("{check_url}");
+}}
+QCheckBox::indicator:disabled, QAbstractItemView::indicator:disabled {{
+    border-color: {t.border_subtle};
 }}
 
 /* ── Tab widgets (dialogs, docks — NOT the ribbon) ──────────────────────── */

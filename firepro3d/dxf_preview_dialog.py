@@ -68,6 +68,7 @@ from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
 from .underlay_snap_index import UnderlaySnapIndex
 from .scale_manager import ScaleManager
 from .dimension_edit import DimensionEdit
+from .assets import asset_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ class ImportParams:
         self.import_mode: str = "auto"    # "auto" | "vectors" | "raster"
         self.layout: str = ""            # DWG layout name (empty = Model)
         self.import_bounds: list[float] | None = None  # area selection bounds
+        self.level: str = ""             # target floor level (empty = current)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +129,10 @@ class _PreviewView(QGraphicsView):
     def __init__(self, scene: QGraphicsScene, parent=None):
         super().__init__(scene, parent)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        # Hide the scrollbars — panning is driven programmatically via
+        # the (still-functional) scrollbar values, so they're just clutter.
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
@@ -469,7 +475,7 @@ class UnderlayImportDialog(QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
     _SCALE_OPTIONS = [
-        ("1:1   (full size)",  1.0),
+        ("1:1",               1.0),
         ("1:2",               0.5),
         ("1:5",               0.2),
         ("1:10",              0.1),
@@ -483,7 +489,8 @@ class UnderlayImportDialog(QDialog):
     ]
 
     def __init__(self, parent=None, file_path: str = "",
-                 scale_manager=None, default_dir: str = ""):
+                 scale_manager=None, default_dir: str = "",
+                 levels: list[str] | None = None, current_level: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Import Underlay — Preview")
         self.resize(1100, 700)
@@ -491,6 +498,8 @@ class UnderlayImportDialog(QDialog):
 
         self._sm = scale_manager
         self._default_dir = default_dir
+        self._import_levels = list(levels) if levels else []
+        self._current_level = current_level
         self._file_type: str = ""          # "dxf" or "pdf"
         self._all_geoms: list[dict] = []
         self._layers: list[str] = []
@@ -587,6 +596,8 @@ class UnderlayImportDialog(QDialog):
         # Right: all controls
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         right_scroll.setMinimumWidth(260)
         right_scroll.setMaximumWidth(340)
         right_w = QWidget()
@@ -594,18 +605,40 @@ class UnderlayImportDialog(QDialog):
         right_lay.setContentsMargins(4, 4, 4, 4)
         right_lay.setSpacing(6)
 
+        # Compact "pill" button factory — rounded; optional icon, checkable,
+        # and expanding (to share a row as a segmented control). Used across the
+        # Preview, Source Layers, Scale, Rotation, and Base sections.
+        def _pill(text, slot, tip="", icon=None, checkable=False, expanding=False):
+            b = QPushButton(icon, text) if icon is not None else QPushButton(text)
+            b.setStyleSheet(
+                "QPushButton { padding: 3px 10px; border-radius: 11px; }")
+            b.setSizePolicy(
+                QSizePolicy.Policy.Expanding if expanding
+                else QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Fixed)
+            if checkable:
+                b.setCheckable(True)
+            if slot is not None:
+                b.clicked.connect(slot)
+            if tip:
+                b.setToolTip(tip)
+            return b
+
+        # Thin 1px horizontal divider.
+        def _sep():
+            line = QWidget()
+            line.setFixedHeight(1)
+            line.setStyleSheet("background: #3a3a3a;")
+            return line
+
         # File bar
         file_grp = QGroupBox("File")
         file_vlay = QVBoxLayout(file_grp)
         self._file_edit = QLineEdit()
         file_vlay.addWidget(self._file_edit)
         file_btn_row = QHBoxLayout()
-        browse_btn = QPushButton("Browse…")
-        browse_btn.clicked.connect(self._browse_file)
-        file_btn_row.addWidget(browse_btn)
-        reload_btn = QPushButton("↺ Reload")
-        reload_btn.clicked.connect(self._load_file)
-        file_btn_row.addWidget(reload_btn)
+        file_btn_row.addWidget(_pill("Browse", self._browse_file))
+        file_btn_row.addWidget(_pill("Reload", self._load_file))
         file_btn_row.addStretch()
         file_vlay.addLayout(file_btn_row)
         right_lay.addWidget(file_grp)
@@ -621,111 +654,142 @@ class UnderlayImportDialog(QDialog):
         self._layout_combo.setVisible(False)
         right_lay.addWidget(self._layout_combo)
 
-        # Preview mode buttons
+        # Preview mode buttons — three pills sharing one row (segmented control).
         mode_grp = QGroupBox("Preview")
-        mode_vlay = QVBoxLayout(mode_grp)
-        mode_row1 = QHBoxLayout()
-        self._pan_btn = QPushButton("Pan / Zoom")
-        self._pan_btn.setCheckable(True)
+        mode_row = QHBoxLayout(mode_grp)
+        self._pan_btn = _pill(
+            "Pan / Zoom", lambda: self._set_view_mode("pan"),
+            icon=QIcon(asset_path("Ribbon", "move_icon.svg")),
+            checkable=True, expanding=True)
         self._pan_btn.setChecked(True)
-        self._pan_btn.clicked.connect(lambda: self._set_view_mode("pan"))
-        self._rb_btn = QPushButton("✂ Select Area")
-        self._rb_btn.setCheckable(True)
-        self._rb_btn.setToolTip(
-            "Drag a rectangle on the preview to import only entities within that area."
-            "\nDrag outside or click 'Clear Selection' to reset."
-        )
-        self._rb_btn.clicked.connect(lambda: self._set_view_mode("rubber_band"))
-        mode_row1.addWidget(self._pan_btn)
-        mode_row1.addWidget(self._rb_btn)
-        mode_vlay.addLayout(mode_row1)
-        self._clear_sel_btn = QPushButton("Clear Selection")
-        self._clear_sel_btn.clicked.connect(self._clear_selection)
-        mode_vlay.addWidget(self._clear_sel_btn)
+        self._rb_btn = _pill(
+            "Select Area", lambda: self._set_view_mode("rubber_band"),
+            tip=("Drag a rectangle on the preview to import only entities within "
+                 "that area.\nDrag outside or click 'Clear Selection' to reset."),
+            icon=QIcon(asset_path("Ribbon", "cut_icon.svg")),
+            checkable=True, expanding=True)
+        self._clear_sel_btn = _pill(
+            "Clear Selection", self._clear_selection, expanding=True)
+        mode_row.addWidget(self._pan_btn, 1)
+        mode_row.addWidget(self._rb_btn, 1)
+        mode_row.addWidget(self._clear_sel_btn, 1)
         right_lay.addWidget(mode_grp)
 
         # Source layers
         layer_grp = QGroupBox("Source Layers")
         layer_vlay = QVBoxLayout(layer_grp)
         la_btn_row = QHBoxLayout()
-        all_btn = QPushButton("All")
-        all_btn.clicked.connect(self._select_all_layers)
-        none_btn = QPushButton("None")
-        none_btn.clicked.connect(self._deselect_all_layers)
-        la_btn_row.addWidget(all_btn)
-        la_btn_row.addWidget(none_btn)
+        la_btn_row.addWidget(_pill("All", self._select_all_layers))
+        la_btn_row.addWidget(_pill("None", self._deselect_all_layers))
         la_btn_row.addStretch()
         layer_vlay.addLayout(la_btn_row)
         self._layer_list = QListWidget()
         self._layer_list.setMaximumHeight(180)
+        # Checkbox indicators are styled globally in theme.build_app_qss().
         self._layer_list.itemChanged.connect(self._on_layer_changed)
         layer_vlay.addWidget(self._layer_list)
         right_lay.addWidget(layer_grp)
 
-        # Scale
-        scale_grp = QGroupBox("Scale")
-        scale_vlay = QVBoxLayout(scale_grp)
+        # ── Placement: Scale + Rotation + Base point in one group ────────────
+        # (was three separate group boxes; merged to cut visual noise).
+        place_grp = QGroupBox("Placement")
+        place_vlay = QVBoxLayout(place_grp)
+        place_vlay.setSpacing(6)
+
+        # -- Level: target floor for the import (defaults to current level) --
+        self._level_combo = QComboBox()
+        if self._import_levels:
+            self._level_combo.addItems(self._import_levels)
+            if self._current_level in self._import_levels:
+                self._level_combo.setCurrentText(self._current_level)
+            level_row = QHBoxLayout()
+            level_row.addWidget(QLabel("Level:"))
+            level_row.addWidget(self._level_combo, 1)
+            place_vlay.addLayout(level_row)
+            place_vlay.addWidget(_sep())
+
+        # -- Scale: small combo + inline custom factor + "Calibrate" pill --
+        scale_row = QHBoxLayout()
+        scale_row.addWidget(QLabel("Scale:"))
         self._scale_combo = QComboBox()
         for label, _ in self._SCALE_OPTIONS:
             self._scale_combo.addItem(label)
+        # Size to the widest item ("Custom…") instead of stretching full width.
+        self._scale_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents)
         self._scale_combo.currentIndexChanged.connect(self._on_scale_combo_changed)
-        scale_vlay.addWidget(self._scale_combo)
+        scale_row.addWidget(self._scale_combo)
+        # Custom factor field appears inline (only when "Custom…" is selected).
         self._custom_scale_edit = QLineEdit()
-        self._custom_scale_edit.setPlaceholderText("scale factor")
+        self._custom_scale_edit.setPlaceholderText("factor")
         self._custom_scale_edit.setText("1.0")
+        self._custom_scale_edit.setFixedWidth(80)
         self._custom_scale_edit.setVisible(False)
-        scale_vlay.addWidget(self._custom_scale_edit)
+        scale_row.addWidget(self._custom_scale_edit)
+        scale_row.addStretch()
+        scale_row.addWidget(_pill(
+            "Calibrate", self._start_pick2,
+            tip=("Click two points on the preview, then enter the real distance "
+                 "between them."),
+            icon=QIcon(asset_path("Ribbon", "dimension_icon.svg"))))
+        place_vlay.addLayout(scale_row)
         self._units_info_lbl = QLabel("")
         self._units_info_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         self._units_info_lbl.setVisible(False)
-        scale_vlay.addWidget(self._units_info_lbl)
+        place_vlay.addWidget(self._units_info_lbl)
         self._calibration_lbl = QLabel("")
         self._calibration_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
-        scale_vlay.addWidget(self._calibration_lbl)
-        pick2_btn = QPushButton("📐 Pick 2 pts on preview")
-        pick2_btn.setToolTip(
-            "Click two points on the preview, then enter the real distance between them."
-        )
-        pick2_btn.clicked.connect(self._start_pick2)
-        scale_vlay.addWidget(pick2_btn)
-        right_lay.addWidget(scale_grp)
+        place_vlay.addWidget(self._calibration_lbl)
 
-        # Rotation
-        rot_grp = QGroupBox("Rotation")
-        rot_vlay = QVBoxLayout(rot_grp)
-        rot_form = QFormLayout()
+        place_vlay.addWidget(_sep())
+
+        # -- Rotation: narrow Angle field + inline ±90° / 180° pills --
+        rot_row = QHBoxLayout()
+        rot_row.addWidget(QLabel("Angle:"))
         self._rotation_edit = QLineEdit()
         self._rotation_edit.setText("0.0°")
+        self._rotation_edit.setFixedWidth(58)
         self._rotation_edit.editingFinished.connect(self._on_rotation_changed)
-        rot_form.addRow("Angle:", self._rotation_edit)
-        rot_vlay.addLayout(rot_form)
-        rot_btn_lay = QHBoxLayout()
-        btn_ccw = QPushButton("⟲ −90°")
-        btn_ccw.clicked.connect(lambda: self._set_rotation(self._get_rotation() - 90.0))
-        btn_cw = QPushButton("⟳ +90°")
-        btn_cw.clicked.connect(lambda: self._set_rotation(self._get_rotation() + 90.0))
-        btn_180 = QPushButton("180°")
-        btn_180.clicked.connect(lambda: self._set_rotation(self._get_rotation() + 180.0))
-        rot_btn_lay.addWidget(btn_ccw)
-        rot_btn_lay.addWidget(btn_cw)
-        rot_btn_lay.addWidget(btn_180)
-        rot_vlay.addLayout(rot_btn_lay)
-        right_lay.addWidget(rot_grp)
+        rot_row.addWidget(self._rotation_edit)
+        rot_row.addStretch()
+        rot_row.addWidget(_pill(
+            "−90°", lambda: self._set_rotation(self._get_rotation() - 90.0)))
+        rot_row.addWidget(_pill(
+            "+90°", lambda: self._set_rotation(self._get_rotation() + 90.0)))
+        rot_row.addWidget(_pill(
+            "180°", lambda: self._set_rotation(self._get_rotation() + 180.0)))
+        place_vlay.addLayout(rot_row)
 
-        # Base point
-        base_grp = QGroupBox("Base / Insertion Point")
-        base_form = QFormLayout(base_grp)
+        place_vlay.addWidget(_sep())
+
+        # -- Base / Insertion Point: X and Y side by side + inline Pick pill --
+        base_row = QHBoxLayout()
+        base_x_lbl = QLabel("X:")
+        base_row.addWidget(base_x_lbl)
         self._base_x_edit = DimensionEdit(self._sm, initial_mm=0.0)
+        self._base_x_edit.setFixedWidth(68)
         self._base_x_edit.valueChanged.connect(self._on_base_changed)
+        base_row.addWidget(self._base_x_edit)
+        base_y_lbl = QLabel("Y:")
+        base_row.addWidget(base_y_lbl)
         self._base_y_edit = DimensionEdit(self._sm, initial_mm=0.0)
+        self._base_y_edit.setFixedWidth(68)
         self._base_y_edit.valueChanged.connect(self._on_base_changed)
-        base_form.addRow("X:", self._base_x_edit)
-        base_form.addRow("Y:", self._base_y_edit)
-        pick_base_btn = QPushButton("📍 Pick on preview")
-        pick_base_btn.clicked.connect(self._start_pick_base)
-        base_form.addRow(pick_base_btn)
-        right_lay.addWidget(base_grp)
+        base_row.addWidget(self._base_y_edit)
+        base_row.addStretch()
+        self._pick_base_btn = _pill(
+            "Pick", self._start_pick_base, tip="Pick base point on preview")
+        base_row.addWidget(self._pick_base_btn)
+        place_vlay.addLayout(base_row)
+
+        # Base point is ignored while "Insert at origin" is on — these widgets
+        # are greyed out in that state (see _update_base_enabled).
+        self._base_inputs = [base_x_lbl, self._base_x_edit,
+                             base_y_lbl, self._base_y_edit, self._pick_base_btn]
+
+        # Placement sits above Source Layers (which is added earlier).
+        right_lay.insertWidget(right_lay.indexOf(layer_grp), place_grp)
 
         # PDF options (DPI + import mode)
         self._pdf_opts_grp = QGroupBox("PDF Options")
@@ -760,7 +824,9 @@ class UnderlayImportDialog(QDialog):
         bot.addWidget(self._status_lbl, 1)
         self._origin_cb = QCheckBox("Insert at origin")
         self._origin_cb.setChecked(True)
+        self._origin_cb.toggled.connect(self._update_base_enabled)
         bot.addWidget(self._origin_cb)
+        self._update_base_enabled()  # base point starts disabled (origin on)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel
@@ -1770,6 +1836,16 @@ class UnderlayImportDialog(QDialog):
         diamond.setZValue(600)
         self._preview_scene.addItem(diamond)
         self._pick_markers.append(diamond)
+        # Constant-size filled dot marking the diamond's exact centre, so the
+        # picked point is unambiguous regardless of zoom.
+        dot = QGraphicsEllipseItem(-3, -3, 6, 6)
+        dot.setPos(pt)
+        dot.setBrush(QBrush(QColor("#00cc44")))
+        dot.setPen(QPen(Qt.PenStyle.NoPen))
+        dot.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        dot.setZValue(601)
+        self._preview_scene.addItem(dot)
+        self._pick_markers.append(dot)
         self._pick_pts.append(pt)
 
         if len(self._pick_pts) == 1:
@@ -1903,6 +1979,14 @@ class UnderlayImportDialog(QDialog):
     def _on_base_changed(self):
         self._draw_base_marker()
 
+    def _update_base_enabled(self, *_):
+        """Grey out the base-point inputs while 'Insert at origin' is active —
+        the X/Y base point is ignored in that mode, so editable fields would
+        be misleading."""
+        at_origin = self._origin_cb.isChecked()
+        for w in getattr(self, "_base_inputs", []):
+            w.setEnabled(not at_origin)
+
     # ── Status ────────────────────────────────────────────────────────────────
 
     def _update_status(self):
@@ -1987,6 +2071,7 @@ class UnderlayImportDialog(QDialog):
         p.pdf_dpi = int(self._dpi_combo.currentText())
         p.import_mode = self._mode_combo.currentText().lower()
         p.insert_at_origin = self._origin_cb.isChecked()
+        p.level = self._level_combo.currentText() or self._current_level
 
         active_layers = self._active_layers()
         geoms = []

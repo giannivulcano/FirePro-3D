@@ -2589,6 +2589,8 @@ class MainWindow(QMainWindow):
             self, file_path=file_path,
             scale_manager=self.scene.scale_manager,
             default_dir=default_dir,
+            levels=[l.name for l in self.level_mgr.levels],
+            current_level=self.scene.active_level,
         )
         try:
             accepted = dialog.exec() == QDialog.DialogCode.Accepted
@@ -2600,6 +2602,9 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
         if params is None:
             return
+        # Route the import to the chosen level (defaults to the current one),
+        # switching to its plan view so the underlay record is tagged with it.
+        self._activate_plan_view(params.level or self.scene.active_level)
         # PDF with no vectors → raster fallback
         if (not params.geom_list
                 and params.file_type == "pdf"
@@ -2622,8 +2627,7 @@ class MainWindow(QMainWindow):
             return
         if not params.geom_list:
             return
-        # Switch to model space (plan view)
-        self._activate_plan_view(self.scene.active_level)
+        # (Plan view already activated for the chosen level above.)
         if params.insert_at_origin:
             self.scene._place_import_params = params
             self.scene._commit_place_import(QPointF(0, 0))
