@@ -36,7 +36,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
                        sync_grid_counters, apply_duplicate_warnings)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
-                       DEFAULT_CEILING_OFFSET_MM,
+                       DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
@@ -2015,7 +2015,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     t["size"] = g["size"] * s
             transformed.append(t)
 
-        color, lw = QColor("#c0c0c0"), 1.5 * s
+        color, lw = QColor("#c0c0c0"), UNDERLAY_LINE_WIDTH_PX
 
         result = self._build_batched_underlay_group(transformed, color, lw)
         if result is None:
@@ -2179,9 +2179,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        # Scale pen width proportionally to import scale
-        _scale = record.import_scale if record is not None else 1.0
-        lw = 1.5 * _scale
+        # Fixed cosmetic pixel width (constant on-screen, independent of import scale)
+        lw = UNDERLAY_LINE_WIDTH_PX
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
 
@@ -2324,6 +2323,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             by_layer.setdefault(layer, []).append(g)
 
         pen = QPen(color, line_weight)
+        # Cosmetic: width is in device pixels, so underlay lines stay a constant
+        # thickness regardless of zoom or import scale (see UNDERLAY_LINE_WIDTH_PX).
+        pen.setCosmetic(True)
 
         items: list[QGraphicsItem] = []
 
@@ -2593,8 +2595,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        _scale = _record.import_scale if _record is not None else 1.0
-        lw = 1.5 * _scale
+        lw = UNDERLAY_LINE_WIDTH_PX
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
 
@@ -3667,7 +3668,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Build batched render items (same as _commit_place_import)
         color = QColor("#c0c0c0")
-        lw = 1.5 * record.import_scale
+        lw = UNDERLAY_LINE_WIDTH_PX
 
         result = self._build_batched_underlay_group(geom_list, color, lw)
         if result is None:
