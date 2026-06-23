@@ -17,27 +17,27 @@ label_text = self._fmt(self.ceiling_offset)  # e.g. "-2 in" or "-50.8 mm"
 All shared constants live in `firepro3d/constants.py`. Never use magic numbers or strings inline -- import from this module instead.
 
 ```python
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 ```
 
 ### Z-Ordering
 
-Z-values control draw order on the 2D canvas. Lower values draw behind higher values:
+Z-values control draw order on the 2D canvas (lower draws behind higher). Two
+mechanisms apply: static `Z_*` constants set in entity constructors, and a
+runtime elevation-based pass in `LevelManager.apply_to_scene()` that recomputes
+Z as `elevation_mm * Z_ELEV_SCALE + category_offset`.
 
-| Constant / Range     | Value  | Used For                            |
-|----------------------|--------|-------------------------------------|
-| `Z_BELOW_GEOMETRY`   | -100   | Underlays, PDF imports              |
-| `Z_ROOF`             | -75    | Roof items (above underlays)        |
-| Walls / Floors       | 0 - 50 | Architectural geometry              |
-| Nodes                | 10+    | Pipe junction points                |
-| Sprinklers           | 100    | Sprinkler symbols (topmost)         |
+Do **not** memorize or restate Z values here — they rot. The authoritative
+**order** lives in [`view-relationships.md §7.3`](../specs/view-relationships.md);
+the authoritative **values** are the `Z_*` / `Z_CAT_*` constants in
+`constants.py`.
 
 ### Default Values
 
 | Constant                     | Value       | Meaning                              |
 |------------------------------|-------------|--------------------------------------|
 | `DEFAULT_LEVEL`              | `"Level 1"` | Default floor level name            |
-| `DEFAULT_USER_LAYER`         | `"Default"` | Default drawing layer               |
+| `DEFAULT_ANNOTATION_GROUP`   | `"Default"` | Annotation grouping label (per-item layer system was removed) |
 | `DEFAULT_CEILING_OFFSET_MM`  | `-50.8`     | Sprinkler deflector 2 inches below ceiling |
 | `DEFAULT_GRIDLINE_SPACING_IN`| `7315.2`    | 24 ft grid spacing (in mm)          |
 
@@ -107,7 +107,7 @@ Use **relative imports** within the `firepro3d/` package:
 
 ```python
 # Inside firepro3d/node.py
-from .constants import DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from .displayable_item import DisplayableItemMixin
 from .fitting import Fitting
 ```
@@ -140,7 +140,7 @@ FirePro3D uses mixin-based composition extensively. When creating a new entity, 
 class MyEntity(DisplayableItemMixin, QGraphicsPathItem):
     def __init__(self):
         QGraphicsPathItem.__init__(self)
-        self.init_displayable()  # sets level, user_layer, display overrides
+        self.init_displayable()  # sets level, display overrides
 ```
 
 The mixin does not call `super().__init__()` to avoid interfering with Qt's constructor chain. Always call `init_displayable()` explicitly.

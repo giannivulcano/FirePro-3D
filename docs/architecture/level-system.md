@@ -9,7 +9,7 @@
 
 ## Overview
 
-The level system provides multi-story building support. Each entity in the scene is assigned to a floor level. Switching between plan view tabs changes which level's entities are visible, with configurable display modes for entities on other levels.
+The level system provides multi-story building support. Each entity in the scene is assigned to a floor level. Switching between plan view tabs changes which level's entities are visible: the active level's items show, and items outside the view's Z-range are hidden (entities from other levels that fall within the view range render at reduced opacity for context — `CROSS_LEVEL_OPACITY`).
 
 ## LevelManager
 
@@ -20,10 +20,12 @@ The level system provides multi-story building support. Each entity in the scene
 class Level:
     name:         str              # e.g. "Level 1", "Level 2"
     elevation:    float = 0.0      # mm, relative to project datum
-    view_top:     float = 2000.0   # mm above elevation (default cut-plane offset)
-    view_bottom:  float = -1000.0  # mm below elevation (default view depth)
-    display_mode: str   = "Auto"   # Auto | Hidden | Faded | Visible
+    view_top:     float = 2000.0   # mm above elevation (default offset for new plan views)
+    view_bottom:  float = -1000.0  # mm below elevation (default offset for new plan views)
 ```
+
+(The old `display_mode` field — Auto/Hidden/Faded/Visible — was removed; it is
+ignored on load. Cross-level visibility is driven entirely by Z-range filtering.)
 
 Default levels shipped with every new document:
 
@@ -64,17 +66,17 @@ The default `ceiling_offset` is -50.8 mm (-2 inches), representing the sprinkler
 flowchart TD
     A[User switches plan tab] --> B[PlanViewManager.get tab name]
     B --> C[Determine level_name and view range]
-    C --> D[LevelManager.apply_for_level]
+    C --> D[LevelManager.apply_to_scene]
     D --> E{For each scene item}
-    E --> F{Item level matches active?}
-    F -->|Yes| G[Show item]
-    F -->|No| H{Level display_mode?}
-    H -->|Auto| I[Hide item]
-    H -->|Faded| J[Show at 25% opacity]
-    H -->|Hidden| K[Hide item]
-    H -->|Visible| L[Show at 50% opacity]
-    E --> M{Has Z-range?}
+    E --> F{_display_overrides visible == False?}
+    F -->|Yes| G[Skip entirely - stays hidden]
+    F -->|No| M{Has Z-range?}
     M -->|Yes| N[Filter by view_height / view_depth]
+    N --> Q{Within range?}
+    Q -->|No| R[Hide item]
+    Q -->|Yes| S{Item level matches active?}
+    S -->|No| T[Show at CROSS_LEVEL_OPACITY]
+    S -->|Yes| U[Show fully]
     N --> O{Straddles cut plane?}
     O -->|Yes| P[Set _is_section_cut = True]
 ```

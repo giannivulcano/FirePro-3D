@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from firepro3d.underlay import Underlay
-from firepro3d.constants import Z_UNDERLAY, DEFAULT_LEVEL, DEFAULT_USER_LAYER
+from firepro3d.constants import Z_UNDERLAY, DEFAULT_LEVEL
 from firepro3d.model_space import Model_Space
 
 

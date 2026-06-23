@@ -13,7 +13,7 @@ Tools are driven by a **mode string** stored on `Model_Space`. The flow is:
 
 ## Step 1: Add the Mode Constant
 
-In `firepro3d/Model_Space.py`, the `set_mode()` method manages all mode transitions. It handles cleanup of previews, snap state, and stale references:
+In `firepro3d/model_space.py` (the `Model_Space` class), the `set_mode()` method manages all mode transitions. It handles cleanup of previews, snap state, and stale references:
 
 ```python
 def set_mode(self, mode, template=None):
@@ -54,7 +54,7 @@ class SceneToolsMixin:
 
     def _my_tool_press(self, event):
         """Handle mouse press for the my_tool mode."""
-        pos = self._snap_or_raw(event)
+        pos = self.get_effective_position(event.scenePos())
         # First click: store start point
         if not hasattr(self, "_my_tool_start"):
             self._my_tool_start = pos
@@ -69,7 +69,7 @@ class SceneToolsMixin:
     def _my_tool_move(self, event):
         """Handle mouse move for live preview."""
         if hasattr(self, "_my_tool_start") and self._my_tool_start:
-            pos = self._snap_or_raw(event)
+            pos = self.get_effective_position(event.scenePos())
             # Update a preview item here
             pass
 ```
@@ -94,7 +94,7 @@ def _perpendicular_distance(self, source, pt: QPointF) -> float:
 
 ### Wire Into Model_Space Mouse Events
 
-In `Model_Space.py`, add dispatch logic in the appropriate mouse handler. For a press-based tool:
+In `model_space.py`, add dispatch logic in the appropriate mouse handler. For a press-based tool:
 
 ```python
 # In mousePressEvent:

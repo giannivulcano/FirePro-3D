@@ -4,8 +4,9 @@ PDF Import Worker
 Extracts vector geometry from PDF files using PyMuPDF (fitz).
 
 Produces geometry dicts compatible with the DxfImportWorker output so the
-same ``_geom_to_item()`` pipeline can render them.  Also generates page
-thumbnails for the multi-page thumbnail strip in the import dialog.
+same main-thread item-building helpers (``_append_geom_to_path`` /
+``_build_pen_cache``) can render them.  Also generates page thumbnails for
+the multi-page thumbnail strip in the import dialog.
 """
 
 from __future__ import annotations

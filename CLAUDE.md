@@ -7,11 +7,11 @@ For full documentation, see `docs/` or run `mkdocs serve`.
 ## Tech Stack
 
 - **Python 3.x** with **PyQt6** (UI framework)
-- **ezdxf** for DXF import/export
+- **ezdxf** for DXF import (read-only; no DXF export exists)
 - **PyMuPDF** for PDF import
 - **ODA File Converter** (external CLI) for DWG→DXF conversion
 - **numpy** for numerical computation
-- **vispy** / **PyVista** for 3D visualization
+- **PyVista** / **VTK** for 3D visualization
 
 ## Package Structure
 
@@ -41,7 +41,7 @@ mkdocs serve
 - Graphics paths resolved via `firepro3d/assets.py` (`asset_path()`)
 - NFPA 13 standards drive coverage limits and hazard classifications
 - JSON-based project files for persistence
-- Default level: "Level 1"; default layer: "Default"
+- Default level: "Level 1" (the per-item layer system was removed; `DEFAULT_ANNOTATION_GROUP = "Default"` is now only an annotation-grouping label)
 - Default ceiling offset: -50.8 mm (-2 inches below ceiling)
 - Z-ordering: Z_BELOW_GEOMETRY (-100) < Z_UNDERLAY (-79, initial) < Z_ROOF (-75); at runtime, elevation-based z-ordering sets: floors (0.0) < underlays (0.05) < roofs (0.1) < rooms (0.2) < walls (0.3) < pipes (0.4) < nodes (0.5)
 - Imports: relative within `firepro3d/` (`from .node import Node`), absolute from `main.py` (`from firepro3d.node import Node`)
@@ -58,4 +58,4 @@ Docs exist to keep the AI grounded in the *intended* architecture — they are a
 - **Orphans (no spec yet — forge on first touch):** thermal radiation, 3D view, `.fpd` scene-I/O.
 - **Enforcement:** the `/todo` skill clips the leash on — **Ground** (load specs, Phase 1b), **Forge** (blocking spec-creation + grill for ungoverned code), **Account** (re-audit + stamp specs at wrap-up). Full multi-agent doc audit → milestone-level.
 
-> Note (2026-06-22 audit): several conventions above still reflect pre-removal state — the **layer system is removed** ("default layer" is vestigial; `user_layer` is gone), ezdxf is **import-only** (no DXF export), and `vispy` was replaced by PyVista. These are tracked drift-fixes, not current truth; see `DOCS-REVIEW.md`.
+> Note (2026-06-23): the curated docs were swept for the 2026-06-22 audit's drift findings in the Section-A drift-fix pass — the **layer system is removed** (`user_layer` gone; `DEFAULT_USER_LAYER` renamed to `DEFAULT_ANNOTATION_GROUP`), ezdxf is **import-only**, and PyVista/VTK (not `vispy`) drives 3D. Remaining doc-reorg work (directory moves, frontmatter backfill) is tracked in `DOCS-REVIEW.md`.

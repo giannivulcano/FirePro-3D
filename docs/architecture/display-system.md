@@ -22,7 +22,6 @@ Every entity that participates in the display system inherits `DisplayableItemMi
 | Attribute | Type | Purpose |
 |-----------|------|---------|
 | `level` | `str` | Floor level assignment |
-| `user_layer` | `str` | User-defined layer |
 | `_display_color` | `str \| None` | Stroke/pen colour override |
 | `_display_fill_color` | `str \| None` | Fill/brush colour override |
 | `_display_overrides` | `dict` | Per-instance overrides from Display Manager |
@@ -94,20 +93,22 @@ for obj in items:
 
 ## Z-ordering convention
 
-Z-values control draw order on the 2D canvas. Items with higher Z-values render on top.
+Z-values control draw order on the 2D canvas (higher draws on top). FirePro3D
+uses **two** mechanisms:
 
-| Z-value | Constant | Entity |
-|---------|----------|--------|
-| -100 | `Z_BELOW_GEOMETRY` | Underlays, DXF/PDF imports |
-| -75 | `Z_ROOF` | Roof items |
-| -50 | -- | Walls (behind pipes) |
-| 0 | -- | Default / Floor slabs |
-| 10 | -- | Nodes |
-| 50 | -- | Construction geometry |
-| 100 | -- | Sprinklers (on top of nodes) |
-| 200 | -- | Preview / ghost items |
+1. **Static bands** — initial `setZValue()` calls in entity constructors, from
+   the `Z_*` constants in `constants.py`.
+2. **Runtime elevation-based ordering** — `LevelManager.apply_to_scene()`
+   recomputes each item's Z as `elevation_mm * Z_ELEV_SCALE + category_offset`
+   (the `Z_CAT_*` band per entity type), so items at higher world elevation draw
+   on top within the same category. This is the *primary* draw-order system for
+   plan-family views and overrides the initial static values for participating
+   items.
 
-These constants are defined in `constants.py` and used by entity constructors via `setZValue()`.
+> **Single source of truth:** the ordering *contract* (band order, the two-Z
+> model) lives in [`view-relationships.md §7.3`](../specs/view-relationships.md);
+> the *values* live in `constants.py`. This page does not restate either — see
+> those for the authoritative tables.
 
 ## SVG recolouring
 

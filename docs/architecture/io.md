@@ -9,7 +9,11 @@
 
 ## Project file format
 
-FirePro3D uses a versioned JSON format for project files (`.fp3d`). The current version is **9** (all dimensions stored in mm).
+FirePro3D uses a versioned JSON format for project files (`.fpd`). The current version is **9** (`SAVE_VERSION = 9`; all dimensions stored in mm).
+
+> The underlay/import pipeline (DXF/DWG/PDF data model, path resolution,
+> caching) has a dedicated subsystem spec — see
+> [`underlay-workflow.md`](../specs/underlay-workflow.md) for depth.
 
 ### Save process
 
@@ -25,7 +29,7 @@ flowchart TD
     F --> G[Serialize underlays, water supply]
     G --> H[Serialize walls, floors, roofs, rooms]
     H --> I[Serialize design areas]
-    I --> J[Serialize user layers, levels, plan views]
+    I --> J[Serialize levels, plan views]
     J --> K[Serialize scale manager, display settings]
     K --> L[Write JSON with version header]
 ```
@@ -35,7 +39,7 @@ Key details:
 - Pipes reference nodes by these temp IDs (`node1_id`, `node2_id`)
 - Per-instance display overrides (`_display_overrides`) are saved on each entity
 - Scale calibration points and real distance are preserved
-- Level definitions with elevations and display modes are serialized
+- Level definitions with elevations and view ranges are serialized
 - Display Manager category overrides are saved per-project
 
 ### Entity serialization
@@ -49,8 +53,6 @@ entry = {
     "x":              node.scenePos().x(),
     "y":              node.scenePos().y(),
     "elevation":      node.z_pos,
-    "z_offset":       node.z_offset,
-    "user_layer":     node.user_layer,
     "level":          node.level,
     "ceiling_level":  node.ceiling_level,
     "ceiling_offset_mm": node.ceiling_offset,
@@ -71,13 +73,26 @@ Pipes store their `_properties` dict values directly. Annotations store endpoint
 3. Recreate nodes at saved positions, restoring sprinklers and fittings
 4. Recreate pipes by resolving node ID references
 5. Restore annotations, construction geometry, walls, floors, roofs, rooms
-6. Restore manager state (levels, plan views, user layers, scale calibration)
+6. Restore manager state (levels, plan views, scale calibration)
 7. Apply display settings
 8. Push initial undo state
 
-### Version migration
+### Backward compatibility
 
-The `SAVE_VERSION` (currently 9) enables forward migration. Older files may store dimensions in feet/inches rather than mm. The load path handles legacy keys (e.g., `elevation` in feet vs. `elevation_mm`) and unit conversions transparently.
+The `version` field is **recorded** in every saved file (`SAVE_VERSION = 9`)
+but the load path does **not** branch on it — there is no version-gated
+migration code. Instead, backward compatibility is handled per-field by
+**key presence**:
+
+- Old files that stored a node's ceiling offset in inches under `ceiling_offset`
+  are converted to mm on load (`ceiling_offset * 25.4`); new files write
+  `ceiling_offset_mm` directly and it is used as-is.
+- Removed keys from older formats (e.g. `user_layer`, `user_layers`, `z_offset`,
+  `display_mode`) are simply not read — they fall through dict parsing and are
+  silently ignored. No error, no migration step.
+
+(The `SAVE_VERSION` number is reserved for forward-compat decisions; it is not
+currently consumed by any conditional logic.)
 
 ## DXF import
 
@@ -95,8 +110,8 @@ sequenceDiagram
     W->>W: ezdxf.readfile() -- parse DXF entities
     W->>W: Convert to geometry dicts (lines, circles, polylines, text)
     W->>W: Resolve per-entity colour (true_color → ACI → BYLAYER)
-    W-->>UI: finished signal with geometry list
-    UI->>UI: _geom_to_item() -- create QGraphicsItems on main thread
+    W-->>UI: finished_data signal with geometry list
+    UI->>UI: _on_dxf_finished() -- build QGraphicsItems on main thread
 ```
 
 Key points:
@@ -119,7 +134,7 @@ The DXF preview dialog (`dxf_preview_dialog.py`) batches all geometry into a sma
 
 ### Underlay cache
 
-Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache.py`). The cache version (currently 3) is checked on load; stale caches are automatically re-extracted synchronously during project load. For DWG files, this triggers ODA re-conversion.
+Geometry dicts are cached as JSON in `<project>.fpd.cache/` (see `underlay_cache.py`). The cache version (`_CACHE_VERSION = 4`) is checked on load; stale caches are automatically re-extracted synchronously during project load. For DWG files, this triggers ODA re-conversion.
 
 ## DWG import
 
@@ -161,7 +176,7 @@ Same background-thread pattern as DXF import. The worker:
 5. Generates page thumbnails for the multi-page selection dialog
 6. Emits results on the finished signal
 
-The geometry dict output is compatible with the DXF import pipeline, so the same `_geom_to_item()` function processes both.
+The geometry dict output is compatible with the DXF import pipeline, so both share the same main-thread item-building helpers (`_append_geom_to_path` / `_build_pen_cache`); PDF vector underlays are assembled via `_import_pdf_vectors()`.
 
 ### Bezier flattening
 

@@ -7,9 +7,11 @@ Centralises magic strings and numbers that were previously
 hard-coded across multiple modules.
 """
 
-# ── Default level / layer names ───────────────────────────────────────────────
+# ── Default level / annotation group ──────────────────────────────────────────
 DEFAULT_LEVEL = "Level 1"
-DEFAULT_USER_LAYER = "Default"
+# Annotation grouping label (the per-entity "layer" system was removed; this is
+# now only a category for CAD annotations — see annotations.py).
+DEFAULT_ANNOTATION_GROUP = "Default"
 
 # ── Z-ordering ───────────────────────────────────────────────────────────────
 # See docs/specs/view-relationships.md §7.3 for the spec source of truth.

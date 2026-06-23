@@ -268,7 +268,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 - `Z_UNDERLAY = -79` — underlays, DXF/PDF imports (initial value; overridden by elevation-based z-ordering at runtime)
 - `Z_ROOF = -75` — roof items
 
-**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * _Z_SCALE + category_offset`. Category offsets determine draw order within the same elevation:
+**Elevation-based z-ordering** (`level_manager.apply_to_scene`) overrides the initial z-values at runtime using `elevation * Z_ELEV_SCALE + category_offset` (`Z_ELEV_SCALE = 1/100`). Category offsets (the `Z_CAT_*` constants in `constants.py`) determine draw order within the same elevation:
 
 | Category | Offset | Items |
 |---|---|---|
