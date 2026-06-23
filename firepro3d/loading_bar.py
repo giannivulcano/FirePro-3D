@@ -23,7 +23,7 @@ Usage::
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QLabel, QProgressBar, QPushButton, QApplication,
+    QWidget, QHBoxLayout, QLabel, QProgressBar, QPushButton,
 )
 from PyQt6.QtCore import pyqtSignal
 
@@ -82,6 +82,16 @@ class LoadingBar(QWidget):
 
     # ── Public API ────────────────────────────────────────────────────────
 
+    # NOTE: these methods force a synchronous ``repaint()`` and must NEVER
+    # call ``QApplication.processEvents()``.  They are driven by worker
+    # progress/status signals whose handlers run *inside* the event loop;
+    # a ``processEvents()`` here re-enters the loop and dispatches the next
+    # queued progress signal, whose handler calls back in here and re-enters
+    # again — unbounded re-entrant recursion that overflows the C stack
+    # (Win32 0xC00000FD in Qt6Gui) on large, signal-heavy imports.
+    # ``repaint()`` paints this widget immediately WITHOUT dispatching other
+    # events, so the bar stays live without the re-entrancy.
+
     def start(self, message: str = ""):
         """Show the bar in indeterminate (pulsing) mode.
 
@@ -93,7 +103,7 @@ class LoadingBar(QWidget):
         if self._cancel_btn:
             self._cancel_btn.setEnabled(False)
         self.setVisible(True)
-        QApplication.processEvents()
+        self.repaint()
 
     def start_determinate(self, total: int, message: str = ""):
         """Show the bar in determinate mode (0 to *total*).
@@ -107,14 +117,28 @@ class LoadingBar(QWidget):
         if self._cancel_btn:
             self._cancel_btn.setEnabled(True)
         self.setVisible(True)
-        QApplication.processEvents()
+        self.repaint()
+
+    def busy(self, message: str = ""):
+        """Switch to indeterminate (pulsing) mode with *message*, leaving the
+        Cancel button state untouched (unlike :meth:`start`, which disables it).
+
+        Use for descriptive sub-phases of a longer operation that have no
+        countable progress (e.g. scanning, filtering) so the bar pulses
+        instead of sitting frozen at its last determinate value.
+        """
+        if message:
+            self._label.setText(message)
+        self._bar.setRange(0, 0)  # indeterminate
+        self.setVisible(True)
+        self.repaint()
 
     def update(self, current: int, message: str = ""):
         """Advance the bar to *current* and optionally update the message."""
         self._bar.setValue(current)
         if message:
             self._label.setText(message)
-        QApplication.processEvents()
+        self.repaint()
 
     def finish(self):
         """Hide the bar and reset state."""
