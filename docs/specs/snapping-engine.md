@@ -4,6 +4,7 @@
 > **Source files:** `firepro3d/snap_engine.py`, `firepro3d/model_view.py`, `firepro3d/model_space.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/annotations.py` (HatchItem)
 > **Date:** 2026-04-07
 > **Revision:** 1 (post grill + brainstorm session)
+> **Impl note (2026-06-25):** two intersection-snap fixes shipped + verified. **(1)** §6.1 priority-band floor (`SNAP_PRIORITY_BAND_PX = 12`) — stops intersection snapping collapsing at low user tolerance (Pain #2); regression `tests/test_snap_priority_band.py`. **(2)** §6.3 Change A now **exempts underlay-index segments** (`parent_key = None`) so crossings *within* one imported entity (e.g. a self-crossing `LWPOLYLINE`) still snap; regression `tests/test_snap_underlay_internal_intersection.py`. Roadmap §6.3 Changes A/B shipped earlier (2026-04-07).
 
 ---
 
@@ -177,12 +178,15 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 The **picker** (`_SnapCtx.check()`) uses a "priority band":
 
 ```
-band = tolerance × 0.3   # ≈ 12px at the default 40px tolerance
+band = max(tolerance × 0.3, min(tolerance, SNAP_PRIORITY_BAND_PX))
+       # SNAP_PRIORITY_BAND_PX = 12px ⇒ band = 12px at the 40px default
 
 A candidate becomes the new best if:
   • it's strictly closer than (best_dist − band), OR
   • it's within (best_dist + band) AND has higher priority (lower number)
 ```
+
+The `SNAP_PRIORITY_BAND_PX` floor (capped at the tolerance) keeps high-priority snaps — notably `intersection` (priority 0) — winning near a crossing even when the user lowers the snap tolerance. With the bare `tolerance × 0.3` band the window collapsed (~1.5px at a 5px tolerance) and `intersection` lost to the *closer* `nearest`/`perpendicular` foot on one of the crossing lines, so intersection snapping appeared broken at low tolerance (Pain #2). Behaviour is unchanged at or above the 40px default, where `tolerance × 0.3 ≥ 12px`. Regression: `tests/test_snap_priority_band.py`.
 
 Priorities (`SNAP_PRIORITY` dict): `intersection=0`, `endpoint=1`, `midpoint=2`, `center=3`, `perpendicular=4`, `quadrant=5`, `tangent=6`, `nearest=7`.
 
@@ -205,6 +209,8 @@ Three changes, all to the picker and the phase-4 emitter. Each is described as a
 **Change C — `intersection` priority remains at 0**, *not* dropped to 1. The brainstorming session considered dropping intersection to priority 1 (tied with endpoint, distance breaks ties) as a simpler alternative. **Rejected** because it changes the picker's behavior across every cross-object intersection in the engine, breaking muscle memory in cases where intersection-wins-over-endpoint is actually correct (e.g. snapping to where a pipe crosses a gridline near a node — the user wants the crossing, not the node). Changes A + B fix the wall-internal case without this side effect.
 
 The target picker, in prose: *"Within the priority band, higher priority wins as today, except (i) intersection candidates whose source segments share a parent are dropped before reaching the picker, and (ii) intersection candidates within ~6px of any in-tolerance endpoint candidate are also dropped."*
+
+**Underlay carve-out to Change A (shipped 2026-06-25).** Same-parent suppression keys on a per-segment `parent_key`, not the highlight `src_item`. For *scene* items the two coincide, so a wall's own faces and a native polyline's own segments stay suppressed (above). But all segments extracted from one underlay's `UnderlaySnapIndex` share the *group* as their `src_item`; if that were also their suppression key, every crossing *inside* a single imported entity (a self-crossing `LWPOLYLINE`, two segments of one polyline) would be dropped — and importer geometry bundles many drawn lines into one polyline entity. An underlay is "just lines on a drawing", so underlay-index segments carry `parent_key = None` and are **exempt** from suppression: every visible crossing is snappable. Polyline-vertex pseudo-intersections (consecutive segments meeting at a shared vertex) are kept clean by Change B's endpoint protection band, not by suppression.
 
 **This document does not specify the implementation.** The roadmap items in §12 cover the implementation as separate one-session tasks.
 
