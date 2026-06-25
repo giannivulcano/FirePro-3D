@@ -48,6 +48,17 @@ def _set_page(device, sheet: Sheet) -> None:
     device.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
 
+def _page_rect(painter: QPainter) -> QRectF:
+    """Full current-page rectangle in device pixels.
+
+    Read from ``painter.device()`` (not ``painter.viewport()``), because the
+    viewport is cached at ``begin()`` and goes stale after ``newPage()`` with a
+    different page size — the device dimensions are re-derived per page.
+    """
+    dev = painter.device()
+    return QRectF(0, 0, dev.width(), dev.height())
+
+
 def render_sheet(sheet: Sheet, resolver: ViewResolver,
                  painter: QPainter, target_rect: QRectF) -> None:
     """Render one *sheet* into *target_rect* (device px) of *painter*.
@@ -98,7 +109,7 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             else:
                 writer.newPage()
-            render_sheet(sheet, resolver, painter, QRectF(painter.viewport()))
+            render_sheet(sheet, resolver, painter, _page_rect(painter))
     finally:
         if painter is not None and painter.isActive():
             painter.end()
@@ -133,7 +144,7 @@ def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer) -> None
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             else:
                 printer.newPage()
-            render_sheet(sheet, resolver, painter, QRectF(painter.viewport()))
+            render_sheet(sheet, resolver, painter, _page_rect(painter))
     finally:
         if painter is not None and painter.isActive():
             painter.end()
