@@ -2,7 +2,10 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** Draft
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step (PDF export + print) are built; batch/multi-sheet UI and annotations (Phase 2) are pending.
+**Last verified:** 2026-06-25
+**Verified commit:** 2c6b9fb
+**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
 
@@ -190,6 +193,8 @@ Custom: user-entered ratio (e.g., "1:125")
 
 ## 7. PDF Export & Print
 
+> **As-built (2026-06-25, `paper_export.py`).** Single-sheet **vector PDF export** (`export_pdf`) and **system-dialog print** (`print_sheets`) are implemented and surfaced via the Draft ribbon → **Plot** group ("Export PDF" / "Print"). Both functions take `list[Sheet]` and loop pages with `newPage()` honouring per-page size, so batch multi-page is a thin add — but only the single active sheet is reachable today (multi-sheet management is a separate task). The render source is a **transient off-screen `PaperScene`** built from sheet data + the shared `ViewResolver` (`render_sheet`), then `dispose()`d — so the on-screen `SheetViewport` → `apply_paper_overrides` B&W/line-weight pipeline (`paper_display.py`) is reproduced verbatim with no second render path. **Deferred:** the §7.5 multi-sheet export dialog (sheet checkboxes, single-multipage-vs-separate-files) and §7.1 batch modes — they need multi-sheet management first. Current export UI is a save dialog + a 150/300/600 DPI picker.
+
 ### 7.1 PDF Export Modes
 
 1. **Single sheet** — export active sheet to one PDF file
@@ -350,19 +355,22 @@ User modifies model while PDF export is in progress → export captures state at
 
 ## 12. Existing Code Context
 
-| File | LOC | Role |
-|------|-----|------|
-| `firepro3d/paper_space.py` | 763 | Current scaffold: `PaperSpaceWidget`, `PaperScene`, `PaperViewport`, `TitleBlockItem`, `TitleBlockDxfItem`, `TitleBlockPdfItem`, `TitleBlockDialog` |
-| `firepro3d/scene_io.py` | — | Project serialization (`save_to_file`/`load_from_file`), JSON format — extend for `"sheets"` key |
-| `firepro3d/level_manager.py` | — | `PlanView`, `PlanViewManager` — queried by sheet view picker |
-| `firepro3d/detail_view.py` | — | `DetailViewManager`, `DetailMarker` — queried by sheet view picker, provides crop rects |
-| `firepro3d/elevation_scene.py` | 1233 | `ElevationScene` (`QGraphicsScene`) — render target for elevation sheet views |
-| `firepro3d/elevation_view.py` | — | `ElevationView` (`QGraphicsView`) — elevation UI widget |
-| `firepro3d/view_marker.py` | — | `ViewMarkerManager` — queried for elevation view names |
-| `firepro3d/user_layer_manager.py` | — | Layer system — extended for per-sheet-view overrides |
-| `firepro3d/model_space.py` | — | `Model_Space` (`QGraphicsScene`) — render target for plan/detail sheet views |
-| `firepro3d/annotations.py` | 739 | `NoteAnnotation`, `DimensionAnnotation` — currently model-space; annotations migrate to paper-space-only |
-| `firepro3d/default titleblocks/` | — | DXF + PDF templates for ANSI B/D |
+| File | Role |
+|------|------|
+| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData` (data + serialization), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, `PaperScene` (composition + `dispose()`), `PaperSpaceWidget`, title blocks (`TitleBlockDxfItem`/`PdfItem`/`Item`), dialogs |
+| `firepro3d/paper_export.py` | Plot step: `render_sheet` (transient off-screen scene), `export_pdf(sheets,…)` (vector PDF), `print_sheets(sheets,…)`, `default_pdf_filename` |
+| `firepro3d/paper_display.py` | Paper-space display overrides (B&W/line-weight/visibility) applied per viewport render — `apply_paper_overrides`/`restore_model_display` |
+| `firepro3d/scene_io.py` | Project serialization (`save_to_file`/`load_from_file`); persists `scene._sheets` under the JSON `"sheets"` key (list — already multi-sheet-ready) |
+| `firepro3d/level_manager.py` | `PlanView`, `PlanViewManager` — queried by `ViewResolver` |
+| `firepro3d/detail_view.py` | `DetailViewManager`, `DetailMarker` — queried by `ViewResolver`, provides crop rects |
+| `firepro3d/elevation_scene.py` | `ElevationScene` (`QGraphicsScene`) — render target for elevation sheet views |
+| `firepro3d/elevation_view.py` | `ElevationView` (`QGraphicsView`) — elevation UI widget |
+| `firepro3d/view_marker.py` | `ViewMarkerManager` — elevation view names |
+| `firepro3d/model_space.py` | `Model_Space` (`QGraphicsScene`) — render target for plan/detail sheet views; owns `_sheets` |
+| `firepro3d/annotations.py` | `NoteAnnotation`, `DimensionAnnotation` — model-space today; paper-space annotations are Phase 2 |
+| `firepro3d/default titleblocks/` | DXF + PDF templates for ANSI B/D |
+
+> Note: the per-sheet-view **layer overrides** of §4.9 predate the layer-system removal (the `user_layer` system is gone — see `architecture/display-system.md`). When built, per-view visibility overrides ride on the Display Manager / `paper_display.py` categories, not a `UserLayerManager`.
 
 ## 13. Code Style & Testing
 
@@ -443,8 +451,8 @@ User modifies model while PDF export is in progress → export captures state at
 - [ ] View-only interaction with double-click / right-click "Go to View" navigation
 - [ ] Title block: 3-tier rendering (DXF → PDF → programmatic), editable fields
 - [ ] Sheet persistence: full round-trip save/load in project JSON
-- [ ] PDF export: single sheet, batch multi-page, per-sheet separate files — vector output
-- [ ] Print: system dialog, single + batch with mixed page sizes
+- [x] PDF export: **single sheet, vector output** (`paper_export.export_pdf`) — batch multi-page / per-sheet files deferred (blocked on multi-sheet management)
+- [x] Print: **single sheet** via system dialog (`paper_export.print_sheets`) — batch deferred
 - [ ] Project browser: sheet tree with drag-to-reorder
 - [ ] Backward compatibility: projects without sheets load normally
 

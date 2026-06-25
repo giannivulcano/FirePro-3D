@@ -402,6 +402,20 @@ class SheetViewport(QGraphicsObject):
     def _on_source_changed(self, rects=None):
         self.mark_dirty()
 
+    def disconnect_source(self):
+        """Drop the source-scene ``changed`` connection (call before discard).
+
+        Required when a transient :class:`PaperScene` is built for off-screen
+        export/print and then discarded — otherwise the live model/elevation
+        scene keeps a reference to this viewport's slot and fires it forever.
+        """
+        if self._source_scene is not None:
+            try:
+                self._source_scene.changed.disconnect(self._on_source_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._source_scene = None
+
     def mark_dirty(self):
         self.update()
 
@@ -1522,6 +1536,16 @@ class PaperScene(QGraphicsScene):
     def refresh_viewport(self):
         for vp in self._viewports:
             vp.mark_dirty()
+
+    def dispose(self):
+        """Disconnect every viewport's source-change signal.
+
+        Call this on a transient PaperScene built only for export/print
+        before discarding it, to avoid leaking ``changed`` connections into
+        the live model/elevation scenes.
+        """
+        for vp in self._viewports:
+            vp.disconnect_source()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

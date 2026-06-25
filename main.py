@@ -1626,6 +1626,68 @@ class MainWindow(QMainWindow):
             self.paper_space_widget.edit_title_block)
         _btn.setToolTip("Edit title block fields")
 
+        # --- Plot ---
+        g_plot = draft_page.add_group("Plot")
+        _btn = g_plot.add_large_button(
+            "Export\nPDF",
+            _I("placeholder_icon.svg"),
+            self._export_paper_pdf)
+        _btn.setToolTip("Export the current sheet to a vector PDF")
+        _btn = g_plot.add_large_button(
+            "Print",
+            _I("placeholder_icon.svg"),
+            self._print_paper)
+        _btn.setToolTip("Print the current sheet")
+
+    # ── Paper-space plot (PDF export / print) ─────────────────────────────────
+
+    def _export_paper_pdf(self):
+        """Export the current paper sheet to a vector PDF."""
+        from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+        from firepro3d import paper_export
+
+        sheet = self._sheet
+        default_name = paper_export.default_pdf_filename(sheet)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Sheet to PDF", default_name, "PDF Files (*.pdf)")
+        if not path:
+            return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
+
+        items = ["150 DPI", "300 DPI", "600 DPI"]
+        choice, ok = QInputDialog.getItem(
+            self, "Export Resolution", "Resolution:", items, 1, False)
+        if not ok:
+            return
+        dpi = int(choice.split()[0])
+
+        try:
+            paper_export.export_pdf([sheet], self._view_resolver, path, dpi)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(
+                self, "Export Failed", f"Could not write PDF:\n{exc}")
+            return
+        self.statusBar().showMessage(
+            f"Exported {os.path.basename(path)}", 5000)
+
+    def _print_paper(self):
+        """Print the current paper sheet via the system print dialog."""
+        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt6.QtWidgets import QMessageBox
+        from firepro3d import paper_export
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dlg = QPrintDialog(printer, self)
+        if dlg.exec() != QPrintDialog.DialogCode.Accepted:
+            return
+        try:
+            paper_export.print_sheets([self._sheet], self._view_resolver, printer)
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Print Failed", str(exc))
+            return
+        self.statusBar().showMessage("Sent to printer", 5000)
+
     # ── Project Information dialog ────────────────────────────────────────────
 
     def _open_project_info(self):
