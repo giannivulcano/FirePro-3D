@@ -45,6 +45,7 @@ from .wall import WallSegment
 
 SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
 SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
+SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 # Geometry primitive epsilons (used in snap math helpers)
@@ -242,9 +243,20 @@ class SnapEngine:
             tol * 2, tol * 2,
         )
 
+        # Priority-override band — how much farther a higher-priority snap may
+        # sit and still beat a closer lower-priority one. Historically this was
+        # tol*0.3, which collapses when the user lowers the snap tolerance: at
+        # 5px the band shrinks to ~1.5 units and an intersection (priority 0)
+        # loses to the closer nearest/perpendicular foot near a crossing. Floor
+        # it at a fixed pixel constant (capped at the tolerance) so it never
+        # drops below ~12px, while keeping the original value wherever it is
+        # already larger — i.e. behaviour only changes below the 40px default.
+        # See docs/specs/snapping-engine.md §6.1 (and Pain #2, tolerance UX).
+        priority_band = max(tol * 0.3, min(tol, SNAP_PRIORITY_BAND_PX / scale))
+
         # Mutable snap-tracking state shared across phases
         ctx = _SnapCtx(cursor=cursor_scene, tol=tol,
-                        priority_band=tol * 0.3)
+                        priority_band=priority_band)
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
         self._check_scene_items(ctx, scene, search_rect, exclude)
@@ -364,14 +376,25 @@ class SnapEngine:
                                        gl_items: list):
         """Phase 4: Line-line and line-circle intersection snaps."""
         from .annotations import HatchItem as _hatch_type
-        _segments: list[tuple[QPointF, QPointF, QGraphicsItem]] = []
+        # Each segment is (p1, p2, src_item, parent_key). ``src_item`` is the
+        # QGraphicsItem traced for highlighting; ``parent_key`` drives
+        # same-parent intersection suppression (two segments sharing a parent
+        # never form an intersection candidate). For scene items the two are
+        # the same item, so a wall's own faces / a polyline's own segments stay
+        # suppressed. Underlay-index segments use ``parent_key = None``, which
+        # is exempt from suppression: an underlay is "just lines on a drawing",
+        # so every visible crossing is snappable regardless of how the DXF
+        # grouped entities (e.g. two segments of one LWPOLYLINE that cross).
+        # Polyline-vertex pseudo-intersections are handled by the endpoint
+        # protection band (§6.3 Change B), not by suppression.
+        _segments: list[tuple[QPointF, QPointF, QGraphicsItem, object]] = []
         _circles: list[tuple[QPointF, float, QGraphicsItem]] = []
 
         # Include all gridlines (shape is bubbles-only, missed by search_rect)
         for gl in gl_items:
             line = gl.line()
             _segments.append((gl.mapToScene(line.p1()),
-                             gl.mapToScene(line.p2()), gl))
+                             gl.mapToScene(line.p2()), gl, gl))
 
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
@@ -398,16 +421,16 @@ class SnapEngine:
 
         for item in _phase4_items():
             if isinstance(item, ConstructionLine):
-                _segments.append((item.pt1, item.pt2, item))
+                _segments.append((item.pt1, item.pt2, item, item))
             elif isinstance(item, QGraphicsLineItem):
                 line = item.line()
                 _segments.append((item.mapToScene(line.p1()),
-                                 item.mapToScene(line.p2()), item))
+                                 item.mapToScene(line.p2()), item, item))
             elif isinstance(item, PolylineItem):
                 verts = item._points
                 for j in range(len(verts) - 1):
                     _segments.append((item.mapToScene(verts[j]),
-                                     item.mapToScene(verts[j + 1]), item))
+                                     item.mapToScene(verts[j + 1]), item, item))
             elif isinstance(item, RectangleItem):
                 r = item.rect()
                 corners = [
@@ -417,15 +440,16 @@ class SnapEngine:
                     item.mapToScene(QPointF(r.left(),  r.bottom())),
                 ]
                 for j in range(4):
-                    _segments.append((corners[j], corners[(j + 1) % 4], item))
+                    _segments.append((corners[j], corners[(j + 1) % 4],
+                                     item, item))
             elif isinstance(item, WallSegment):
                 # Use mitered geometry so joined walls share clean corners
                 # instead of crossing each other inside the joint — the
                 # root cause of the §7.1 wall-corner false negative.
                 try:
                     p1l, p1r, p2r, p2l = item.snap_quad_points()
-                    _segments.append((p1l, p2l, item))
-                    _segments.append((p1r, p2r, item))
+                    _segments.append((p1l, p2l, item, item))
+                    _segments.append((p1r, p2r, item, item))
                 except (ValueError, AttributeError):
                     pass
             elif isinstance(item, CircleItem):
@@ -453,7 +477,7 @@ class SnapEngine:
                             abs(p2.y() - p1.y()) + 1.0,
                         )
                         if search_rect.intersects(seg_r):
-                            _segments.append((p1, p2, item))
+                            _segments.append((p1, p2, item, item))
                     # Abort during extraction — once over the cap the
                     # phase bails anyway (see check below).
                     if len(_segments) > _PHASE4_MAX_SEGMENTS:
@@ -518,7 +542,7 @@ class SnapEngine:
                         abs(p2.y() - p1.y()) + 1.0,
                     )
                     if search_rect.intersects(seg_r):
-                        _segments.append((p1, p2, grp))
+                        _segments.append((p1, p2, grp, None))
                 elif kind == "path_points":
                     points = g.get("points", [])
                     for j in range(min(len(points) - 1, 511)):
@@ -536,7 +560,7 @@ class SnapEngine:
                             abs(p2.y() - p1.y()) + 1.0,
                         )
                         if search_rect.intersects(seg_r):
-                            _segments.append((p1, p2, grp))
+                            _segments.append((p1, p2, grp, None))
                 # Abort during extraction — once over the cap the phase
                 # bails anyway, so don't keep extracting thousands more.
                 if len(_segments) > _PHASE4_MAX_SEGMENTS:
@@ -565,10 +589,14 @@ class SnapEngine:
                     return True
             return False
 
-        # Segment–segment intersections
-        for i, (sa1, sa2, src1) in enumerate(_segments):
-            for sb1, sb2, src2 in _segments[i + 1:]:
-                if src1 is src2:
+        # Segment–segment intersections. Suppress crossings whose two segments
+        # share a parent entity (a wall's own two faces, one native polyline's
+        # own segments). ``parent_key`` — not ``src_item`` — is the entity
+        # identity. A ``None`` key (underlay-index segments) is exempt, so
+        # crossings within or between imported underlay geometry are kept.
+        for i, (sa1, sa2, src1, pk1) in enumerate(_segments):
+            for sb1, sb2, src2, pk2 in _segments[i + 1:]:
+                if pk1 is not None and pk1 is pk2:
                     continue
                 ix = self._line_line_intersect(sa1, sa2, sb1, sb2)
                 if ix is not None:
@@ -582,7 +610,7 @@ class SnapEngine:
 
         # Segment–circle intersections
         for center, radius, c_item in _circles:
-            for sa1, sa2, src in _segments:
+            for sa1, sa2, src, _pk in _segments:
                 for ix in self._line_circle_intersect(sa1, sa2, center, radius):
                     d = math.hypot(ix.x() - ctx.cursor.x(),
                                    ix.y() - ctx.cursor.y())
