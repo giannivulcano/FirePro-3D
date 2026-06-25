@@ -102,3 +102,38 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
     finally:
         if painter is not None and painter.isActive():
             painter.end()
+
+
+def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer) -> None:
+    """Print *sheets* to *printer* (a configured ``QPrinter``), one page each.
+
+    The caller owns the QPrinter (typically configured via ``QPrintDialog``).
+    Mixed paper sizes are honoured per page via ``setPageSize``.
+
+    Args:
+        sheets: One or more sheets. Must be non-empty.
+        resolver: Shared ViewResolver bridging viewports to source scenes.
+        printer: A QPrinter the caller has already configured.
+
+    Raises:
+        ValueError: If *sheets* is empty.
+        OSError: If the printer painter cannot be started.
+    """
+    if not sheets:
+        raise ValueError("print_sheets requires at least one sheet")
+
+    painter: QPainter | None = None
+    try:
+        for sheet in sheets:
+            _set_page(printer, sheet)
+            if painter is None:
+                painter = QPainter(printer)
+                if not painter.isActive():
+                    raise OSError("Could not start printing (painter inactive)")
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            else:
+                printer.newPage()
+            render_sheet(sheet, resolver, painter, QRectF(painter.viewport()))
+    finally:
+        if painter is not None and painter.isActive():
+            painter.end()

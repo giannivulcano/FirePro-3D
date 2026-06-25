@@ -150,3 +150,30 @@ class TestExportPdf:
             b_w, _ = PAPER_SIZES["ANSI B"]
             assert doc.pagePointSize(0).width() == pytest.approx(d_w / 25.4 * 72, abs=4)
             assert doc.pagePointSize(1).width() == pytest.approx(b_w / 25.4 * 72, abs=4)
+
+
+class TestPrintSheets:
+    def test_print_routes_through_render(self, qapp, tmp_path):
+        """Drive print_sheets via a QPrinter set to PDF output (headless-safe)."""
+        from PyQt6.QtPrintSupport import QPrinter
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()
+        out = tmp_path / "printed.pdf"
+
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(str(out))
+
+        paper_export.print_sheets([sheet], resolver, printer)
+
+        assert out.exists()
+        assert out.stat().st_size > 0
+
+    def test_print_empty_list_raises(self, qapp):
+        from PyQt6.QtPrintSupport import QPrinter
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        printer = QPrinter()
+        with pytest.raises(ValueError):
+            paper_export.print_sheets([], resolver, printer)
