@@ -44,3 +44,109 @@ class TestLifecycleTeardown:
         assert len(scene.get_viewports()) == 1
         scene.dispose()
         assert all(vp._source_scene is None for vp in scene.get_viewports())
+
+
+try:
+    from PyQt6.QtPdf import QPdfDocument
+    _HAVE_QTPDF = True
+except ImportError:
+    _HAVE_QTPDF = False
+
+
+class TestDefaultFilename:
+    def test_basic(self):
+        from firepro3d import paper_export
+        sheet = Sheet("FP-1.0", "Level 1 Plan", "ANSI D", {}, [])
+        assert paper_export.default_pdf_filename(sheet) == "FP-1.0 - Level 1 Plan.pdf"
+
+    def test_sanitizes_invalid_chars(self):
+        from firepro3d import paper_export
+        sheet = Sheet("FP/1", "A:B*C?", "ANSI D", {}, [])
+        name = paper_export.default_pdf_filename(sheet)
+        for ch in '<>:"/\\|?*':
+            assert ch not in name[:-4]  # ".pdf" suffix excluded from the check
+        assert name.endswith(".pdf")
+
+    def test_empty_number_and_name(self):
+        from firepro3d import paper_export
+        sheet = Sheet("", "", "ANSI D", {}, [])
+        assert paper_export.default_pdf_filename(sheet) == "sheet.pdf"
+
+
+class TestExportPdf:
+    def test_export_creates_valid_pdf(self, qapp, tmp_path):
+        from firepro3d import paper_export
+        from firepro3d.paper_space import PAPER_SIZES
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()  # ANSI D, no viewports
+        out = tmp_path / "out.pdf"
+
+        paper_export.export_pdf([sheet], resolver, str(out), dpi=150)
+
+        assert out.exists()
+        assert out.stat().st_size > 0
+        if _HAVE_QTPDF:
+            doc = QPdfDocument(None)
+            doc.load(str(out))
+            assert doc.pageCount() == 1
+            pts = doc.pagePointSize(0)
+            w_mm, h_mm = PAPER_SIZES["ANSI D"]
+            assert pts.width() == pytest.approx(w_mm / 25.4 * 72, abs=4)
+            assert pts.height() == pytest.approx(h_mm / 25.4 * 72, abs=4)
+
+    def test_export_runs_override_path_when_viewport_present(
+            self, qapp, tmp_path, monkeypatch):
+        """A sheet with a viewport must drive apply_paper_overrides during export."""
+        import firepro3d.paper_display as pd
+        from firepro3d import paper_export
+        calls = {"n": 0}
+        orig = pd.apply_paper_overrides
+
+        def spy(scene, rect):
+            calls["n"] += 1
+            return orig(scene, rect)
+
+        monkeypatch.setattr(pd, "apply_paper_overrides", spy)
+
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()
+        sheet.sheet_views = [
+            SheetViewData("plan", "L1", "L1", 0.01, 50, 50, 400, 300),
+        ]
+        out = tmp_path / "vp.pdf"
+        paper_export.export_pdf([sheet], resolver, str(out), dpi=150)
+        assert calls["n"] >= 1
+
+    def test_export_empty_list_raises(self, qapp, tmp_path):
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        with pytest.raises(ValueError):
+            paper_export.export_pdf([], resolver, str(tmp_path / "x.pdf"))
+
+    def test_export_unwritable_path_raises_no_partial_file(self, qapp, tmp_path):
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()
+        bad = tmp_path / "nope" / "deep" / "x.pdf"  # parent dirs do not exist
+        with pytest.raises(OSError):
+            paper_export.export_pdf([sheet], resolver, str(bad), dpi=150)
+        assert not bad.exists()
+
+    def test_export_multipage_mixed_sizes(self, qapp, tmp_path):
+        """Pipeline accepts list[Sheet]; pages adopt each sheet's size."""
+        from firepro3d import paper_export
+        from firepro3d.paper_space import PAPER_SIZES
+        resolver, _ = _real_source_resolver()
+        s1 = Sheet.create_default()              # ANSI D
+        s2 = Sheet("FP-2", "B", "ANSI B", dict(s1.title_block_fields), [])
+        out = tmp_path / "multi.pdf"
+        paper_export.export_pdf([s1, s2], resolver, str(out), dpi=150)
+        assert out.exists()
+        if _HAVE_QTPDF:
+            doc = QPdfDocument(None)
+            doc.load(str(out))
+            assert doc.pageCount() == 2
+            d_w, _ = PAPER_SIZES["ANSI D"]
+            b_w, _ = PAPER_SIZES["ANSI B"]
+            assert doc.pagePointSize(0).width() == pytest.approx(d_w / 25.4 * 72, abs=4)
+            assert doc.pagePointSize(1).width() == pytest.approx(b_w / 25.4 * 72, abs=4)
