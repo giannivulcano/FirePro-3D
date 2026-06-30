@@ -10,6 +10,9 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock
 
+from PyQt6.QtCore import QRectF
+from PyQt6.QtWidgets import QDialog, QGraphicsScene
+
 from firepro3d.paper_space import (
     PaperScene, Sheet, SheetViewData, TextAnnotationData, ViewResolver,
 )
@@ -146,6 +149,55 @@ def test_format_text_command_redo_undo(qapp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Data-identity tracking (I1) + empty-edit undo baseline (I2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_two_value_identical_annotations_both_tracked(qapp):
+    """Value-identical annotations must both persist + be independently removable."""
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    d1 = TextAnnotationData(text="N", x=1, y=1)
+    d2 = TextAnnotationData(text="N", x=1, y=1)   # value-identical, distinct identity
+    scene._do_add_annotation(d1)
+    scene._do_add_annotation(d2)
+    assert len(scene.sheet.annotations) == 2
+    scene._do_remove_annotation_by_data(d1)
+    assert scene.sheet.annotations == [d2] or (
+        len(scene.sheet.annotations) == 1 and scene.sheet.annotations[0] is d2)
+    # The surviving sibling is still removable by its own identity.
+    scene._do_remove_annotation_by_data(d2)
+    assert scene.sheet.annotations == []
+
+
+def test_two_value_identical_viewports_both_tracked(qapp):
+    """Identity tracking holds for viewports too (parity with annotations)."""
+    scene = _viewport_scene()
+    v1 = _vp_data()
+    v2 = _vp_data()   # value-identical, distinct identity
+    scene._do_add_viewport(v1)
+    scene._do_add_viewport(v2)
+    assert len(scene.sheet.sheet_views) == 2
+    scene._do_remove_viewport_by_data(v1)
+    assert len(scene.sheet.sheet_views) == 1
+    assert scene.sheet.sheet_views[0] is v2
+
+
+def test_empty_edit_of_existing_block_undo_restores_text(qapp):
+    """Emptying an existing block then undoing restores its ORIGINAL text."""
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.add_annotation(TextAnnotationData(text="Hi", x=2, y=2))
+    # Mirror commit_edit(): the live block's data.text is already "" by the time
+    # _push_text_edit runs. Without the fix the DeleteCommand would store text=""
+    # and undo would restore an EMPTY block.
+    item.data.text = ""
+    scene._push_text_edit(item.data, "Hi", "")          # old="Hi", new=""
+    # The emptied block is no longer tracked (DeleteText.redo ran).
+    assert all(a is not item.data for a in scene.sheet.annotations)
+    scene.undo_stack.undo()
+    restored = scene.get_annotations()
+    assert any(a.toPlainText() == "Hi" for a in restored)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Viewport commands
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -255,3 +307,95 @@ def test_viewport_geometry_push_guard(qapp):
     scene._applying_command = False
     scene._push_viewport_geometry(data, (50, 50, 400, 300), (60, 60, 400, 300))
     assert scene.undo_stack.count() == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Viewport properties: scale → w/h re-derivation (I3)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Source rect the stub resolver hands back; scale × these = derived w/h.
+_SRC_RECT = QRectF(0, 0, 10000, 8000)
+
+
+class _StubVPDialog:
+    """Stand-in for SheetViewPropertiesDialog mirroring its caller-read API.
+
+    _on_viewport_properties constructs it as ``Dialog(source_view_name, data)``
+    and reads exec()/get_title/get_show_border/get_scale/get_position/get_size.
+    Configured values are injected by the monkeypatched factory.
+    """
+    title = None
+    show_border = None
+    scale = None
+    position = None
+    size = None
+
+    def __init__(self, source_view_name, data):
+        self._data = data
+
+    def exec(self):
+        return QDialog.DialogCode.Accepted
+
+    def get_title(self):
+        return self.title if self.title is not None else self._data.title
+
+    def get_show_border(self):
+        return (self.show_border if self.show_border is not None
+                else self._data.show_border)
+
+    def get_scale(self):
+        return self.scale if self.scale is not None else self._data.scale
+
+    def get_position(self):
+        return self.position
+
+    def get_size(self):
+        return self.size
+
+
+def _resolving_scene():
+    """PaperScene whose resolver returns a real (scene, _SRC_RECT) source."""
+    src = QGraphicsScene()
+    src.addRect(_SRC_RECT)
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.return_value = (src, _SRC_RECT)
+    return PaperScene(Sheet.create_default(), resolver)
+
+
+def _patch_vp_dialog(monkeypatch, **cfg):
+    """Patch SheetViewPropertiesDialog with a preconfigured _StubVPDialog."""
+    stub = type("_VPDlg", (_StubVPDialog,), cfg)
+    monkeypatch.setattr(
+        "firepro3d.paper_space.SheetViewPropertiesDialog", stub)
+
+
+def test_viewport_properties_scale_rederives_wh(qapp, monkeypatch):
+    """Changing only the scale re-derives w/h from source_rect × new scale."""
+    scene = _resolving_scene()
+    data = _vp_data(scale=0.01, w=400.0, h=300.0)
+    scene._do_add_viewport(data)
+    _patch_vp_dialog(monkeypatch, scale=0.02)   # no explicit position/size
+
+    vp = _find_viewport(scene, data)
+    scene._on_viewport_properties(vp)
+
+    assert scene.undo_stack.count() == 1
+    # redo() applied new_fields synchronously → derived from _SRC_RECT × 0.02.
+    assert data.scale == 0.02
+    assert data.w == pytest.approx(_SRC_RECT.width() * 0.02)   # 200.0
+    assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160.0
+
+
+def test_viewport_properties_explicit_size_overrides_scale(qapp, monkeypatch):
+    """An explicit size override wins over the scale-derived w/h."""
+    scene = _resolving_scene()
+    data = _vp_data(scale=0.01, w=400.0, h=300.0)
+    scene._do_add_viewport(data)
+    _patch_vp_dialog(monkeypatch, scale=0.02, size=(123.0, 45.0))
+
+    vp = _find_viewport(scene, data)
+    scene._on_viewport_properties(vp)
+
+    assert scene.undo_stack.count() == 1
+    assert data.w == pytest.approx(123.0)   # explicit override, NOT 200.0
+    assert data.h == pytest.approx(45.0)

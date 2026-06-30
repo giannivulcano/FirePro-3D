@@ -725,6 +725,7 @@ class SheetViewport(QGraphicsObject):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Delete:
             self.delete_requested.emit(self)
+            event.accept()   # mirror TextAnnotationItem: don't propagate Delete
         else:
             super().keyPressEvent(event)
 
@@ -2132,7 +2133,9 @@ class PaperScene(QGraphicsScene):
         """
         if not data.view_number:
             data.view_number = str(len(self._sheet.sheet_views) + 1)
-        if data not in self._sheet.sheet_views:
+        # Identity check (not value `in`): SheetViewData has value-equality, so a
+        # value-identical second viewport must still be tracked separately.
+        if all(v is not data for v in self._sheet.sheet_views):
             self._sheet.sheet_views.append(data)
         vp = self._create_viewport(data)
         self._update_scale_field()
@@ -2153,8 +2156,11 @@ class PaperScene(QGraphicsScene):
             if vp.data is data:
                 self._viewports.remove(vp)
                 self.removeItem(vp)
-        if data in self._sheet.sheet_views:
-            self._sheet.sheet_views.remove(data)
+        # Identity removal (not value `.remove`): only drop the exact object, so
+        # a value-identical sibling viewport is left untouched.
+        self._sheet.sheet_views[:] = [
+            v for v in self._sheet.sheet_views if v is not data
+        ]
         self._update_scale_field()
 
     def _resync_viewport(self, data: SheetViewData) -> None:
@@ -2305,7 +2311,9 @@ class PaperScene(QGraphicsScene):
         Returns:
             The newly created TextAnnotationItem.
         """
-        if data not in self._sheet.annotations:
+        # Identity check (not value `in`): TextAnnotationData has value-equality,
+        # so two value-identical blocks must both be tracked separately.
+        if all(a is not data for a in self._sheet.annotations):
             self._sheet.annotations.append(data)
         return self._create_annotation(data)
 
@@ -2319,13 +2327,20 @@ class PaperScene(QGraphicsScene):
             if item.data is data:
                 self._annotations.remove(item)
                 self.removeItem(item)
-        if data in self._sheet.annotations:
-            self._sheet.annotations.remove(data)
+        # Identity removal (not value `.remove`): only drop the exact object, so
+        # a value-identical sibling annotation is left untouched.
+        self._sheet.annotations[:] = [
+            a for a in self._sheet.annotations if a is not data
+        ]
 
     def add_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
-        """Add a text annotation to the scene and persist it in the sheet.
+        """Silently add a text annotation to the scene and persist it in the sheet.
 
-        No undo support yet — Task 7 routes creation through a command.
+        This is the non-undoable helper that wraps the _do_add_annotation
+        primitive. Undoable creation goes through commit_place_text(), which
+        pushes an AddTextAnnotationCommand; that command's redo path calls the
+        same primitive. Direct callers (e.g. tests, programmatic seeding) use
+        this when an undo entry is not wanted.
 
         Args:
             data: TextAnnotationData describing the new annotation.
@@ -2383,10 +2398,10 @@ class PaperScene(QGraphicsScene):
 
         Reads the current plain-text from *item*. If it is blank (empty or
         whitespace-only) the transient item is silently removed and nothing is
-        tracked. Otherwise the item is removed and its data is persisted via
-        add_annotation(), creating a properly tracked replacement item on the
-        scene. Task 7 will swap the add_annotation() call for an AddText
-        undo command.
+        tracked. Otherwise the transient item is removed and the creation is
+        recorded on the undo stack by pushing an AddTextAnnotationCommand; that
+        command's redo() builds the properly tracked replacement item
+        synchronously.
 
         Args:
             item: The TextAnnotationItem returned by begin_place_text().
@@ -2441,19 +2456,74 @@ class PaperScene(QGraphicsScene):
         Empty/whitespace content auto-deletes the block (DeleteText); a changed
         non-empty commit pushes an EditText command; an unchanged commit pushes
         nothing.
+
+        For the empty branch the original *old_text* is written back onto the
+        data object before the DeleteText command is pushed, so undoing the
+        delete rebuilds the block with its ORIGINAL text rather than an empty
+        one. (commit_edit() has already set ``data.text == ""`` on the live item;
+        the DeleteCommand.redo removes that item immediately, and its undo path
+        — _do_add_annotation — builds a fresh item from this restored data.)
+
+        Args:
+            data: The TextAnnotationData of the block being committed.
+            old_text: The block's text before the edit began.
+            new_text: The block's text as just committed.
         """
         if new_text.strip() == "":
+            data.text = old_text  # so undo of the delete restores the original block
             self._undo_stack.push(DeleteTextAnnotationCommand(self, data))
         elif new_text != old_text:
             self._undo_stack.push(EditTextCommand(self, data, old_text, new_text))
 
+    def _annotation_scale_manager(self) -> ScaleManager:
+        """Return a ScaleManager for the annotation properties dialog.
+
+        Prefers the model scene's ScaleManager (reached via the resolver) so the
+        height field formats in the user's current units; falls back to a fresh
+        ``ScaleManager()`` when the resolver does not expose a usable model
+        scene (e.g. stub/mock resolvers in tests).
+
+        Returns:
+            A ScaleManager instance.
+        """
+        model_scene = getattr(self._resolver, "_scene", None)
+        sm = getattr(model_scene, "scale_manager", None)
+        if isinstance(sm, ScaleManager):
+            return sm
+        return ScaleManager()
+
     def _on_annotation_properties(self, item: TextAnnotationItem) -> None:
-        """Slot: open annotation properties dialog (Task 6) or push undo command (Task 7).
+        """Slot: open the annotation properties dialog and push a FormatTextCommand.
+
+        Opens a TextAnnotationPropertiesDialog seeded from the item's data and,
+        on accept, builds old/new field dicts covering every editable attribute
+        and pushes a SINGLE FormatTextCommand spanning all of them (so one undo
+        reverts the whole edit). The dialog never mutates the data directly
+        (§9.6); the command owns apply/revert.
 
         Args:
             item: The TextAnnotationItem that emitted properties_requested.
         """
-        pass  # implemented in Task 6 (dialog) / Task 7 (command)
+        sm = self._annotation_scale_manager()
+        dlg = TextAnnotationPropertiesDialog(item.data, sm)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        d = item.data
+        fields = ("text", "font_family", "height_mm", "bold", "italic",
+                  "color", "align", "opaque_bg")
+        old = {k: getattr(d, k) for k in fields}
+        new = {
+            "text": dlg.get_text(),
+            "font_family": dlg.get_font_family(),
+            "height_mm": dlg.get_height_mm(),
+            "bold": dlg.get_bold(),
+            "italic": dlg.get_italic(),
+            "color": dlg.get_color(),
+            "align": dlg.get_alignment(),
+            "opaque_bg": dlg.get_opaque_bg(),
+        }
+        if new != old:
+            self._undo_stack.push(FormatTextCommand(self, d, old, new))
 
     # ── Public API (preserved) ──────────────────────────────────────────
 
