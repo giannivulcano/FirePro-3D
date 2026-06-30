@@ -686,17 +686,17 @@ class MainWindow(QMainWindow):
             self._activate_plan_view(DEFAULT_LEVEL)
 
     def _activate_paper_sheet(self, name: str):
-        """Open or switch to a paper space tab matching *name*.
+        """Open or switch to the canonical paper-space tab.
 
-        If the tab already exists, switch to it.  Otherwise create a new one.
+        Reuses ``self.paper_space_widget`` (the single authoritative widget
+        that owns the sheet scene) so the undo stack, title-block edits, and
+        PDF export all bind to the same scene.  If the tab has not been added
+        yet it is inserted under *name*; subsequent calls simply switch to it.
         """
-        for i in range(self.central_tabs.count()):
-            if self.central_tabs.tabText(i) == name:
-                self.central_tabs.setCurrentIndex(i)
-                return
-        # Create a new paper space tab
-        ps = PaperSpaceWidget(self._sheet, self._view_resolver)
-        idx = self.central_tabs.addTab(ps, name)
+        w = self.paper_space_widget
+        idx = self.central_tabs.indexOf(w)
+        if idx == -1:
+            idx = self.central_tabs.addTab(w, name)
         self.central_tabs.setCurrentIndex(idx)
 
     def _navigate_to_source_view(self, view_type: str, view_name: str):
