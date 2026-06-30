@@ -798,7 +798,7 @@ class TextAnnotationItem(QGraphicsTextItem):
             s = self.scale() or 1.0
             gs = self._GRIP_MM / s
             br = self.boundingRect()
-            grip = QRectF(br.right() - gs / 2, br.center().y() - gs / 2, gs, gs)
+            grip = QRectF(br.right() - gs, br.center().y() - gs / 2, gs, gs)
             painter.fillRect(grip, QColor("#88aaff"))
 
     # ── A. Edit lifecycle ──────────────────────────────────────────────────
@@ -891,7 +891,14 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._data.y = self.pos().y()
 
     def contextMenuEvent(self, event) -> None:
-        """Show Properties / Delete context menu on right-click."""
+        """Show Properties / Delete context menu on right-click.
+
+        While inline-editing, delegates to super() so the native copy/paste
+        editor menu is shown instead of the Properties/Delete menu.
+        """
+        if self._editing:
+            super().contextMenuEvent(event)
+            return
         menu = QMenu()
         props = menu.addAction("Properties...")
         menu.addSeparator()
@@ -942,7 +949,7 @@ class TextAnnotationItem(QGraphicsTextItem):
         """
         br = self.sceneBoundingRect()
         g = self._GRIP_MM
-        return QRectF(br.right() - g / 2, br.center().y() - g / 2, g, g)
+        return QRectF(br.right() - g, br.center().y() - g / 2, g, g)
 
     def mousePressEvent(self, event) -> None:
         """Start a wrap-resize drag when the grip is pressed; otherwise begin move."""

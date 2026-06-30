@@ -203,3 +203,64 @@ def test_wrap_resize_clamps_to_min(qapp):
 
     item.mouseMoveEvent(_FakeEvent())
     assert item.data.wrap_width_mm == MIN_TEXT_WRAP_WIDTH_MM
+
+
+def test_grip_press_starts_resizing(qapp):
+    """mousePressEvent on the grip rect sets _resizing=True; far points do not contain the grip."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=50.0)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    grip_center = item._grip_scene_rect().center()
+
+    class _FakeEvent:
+        def __init__(self, pos):
+            self._pos = pos
+        def scenePos(self):
+            return self._pos
+        def accept(self):
+            pass
+
+    # Positive: press inside the grip → _resizing becomes True
+    item.mousePressEvent(_FakeEvent(grip_center))
+    assert item._resizing is True
+
+    # Negative: a far-away point is not contained within the grip rect
+    far_point = QPointF(0.0, 0.0)
+    assert not item._grip_scene_rect().contains(far_point)
+
+
+def test_delete_key_vs_edit_mode(qapp):
+    """Delete key emits delete_requested when not editing; suppressed when editing."""
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt as _Qt
+    from firepro3d.paper_space import PaperScene
+
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = TextAnnotationItem(TextAnnotationData(text="hello"))
+    scene.addItem(item)
+
+    fired = []
+    item.delete_requested.connect(lambda obj: fired.append(obj))
+
+    # Not editing: Delete should fire delete_requested
+    key_delete = QKeyEvent(
+        QEvent.Type.KeyPress, _Qt.Key.Key_Delete, _Qt.KeyboardModifier.NoModifier
+    )
+    item.keyPressEvent(key_delete)
+    assert len(fired) == 1
+
+    # Editing: Delete should NOT fire delete_requested (it deletes a character instead)
+    fired.clear()
+    item.begin_edit()
+    assert item._editing is True
+    key_delete2 = QKeyEvent(
+        QEvent.Type.KeyPress, _Qt.Key.Key_Delete, _Qt.KeyboardModifier.NoModifier
+    )
+    item.keyPressEvent(key_delete2)
+    assert len(fired) == 0
