@@ -1217,7 +1217,15 @@ class PaperGraphicsView(QGraphicsView):
             for vp in selected:
                 from PyQt6.QtCore import QTimer
                 QTimer.singleShot(0, lambda v=vp: scene.remove_viewport(v))
-            if selected:
+            ann_selected = [
+                item for item in scene.selectedItems()
+                if isinstance(item, TextAnnotationItem)
+                and not getattr(item, "_editing", False)
+            ]
+            for it in ann_selected:
+                from PyQt6.QtCore import QTimer
+                QTimer.singleShot(0, lambda a=it: scene.remove_annotation(a))
+            if selected or ann_selected:
                 event.accept()
                 return
         super().keyPressEvent(event)
@@ -1742,6 +1750,7 @@ class PaperScene(QGraphicsScene):
         self._title_tb = None
         self._field_overlay = None
         self._viewports: list[SheetViewport] = []
+        self._annotations: list[TextAnnotationItem] = []
         self._setup()
 
     def _setup(self):
@@ -1750,6 +1759,7 @@ class PaperScene(QGraphicsScene):
         self._title_tb = None
         self._field_overlay = None
         self._viewports = []
+        self._annotations = []
 
         w, h = PAPER_SIZES[self._sheet.paper_size]
 
@@ -1807,6 +1817,10 @@ class PaperScene(QGraphicsScene):
         # Rebuild viewports from sheet data
         for sv_data in self._sheet.sheet_views:
             self._create_viewport(sv_data)
+
+        # Rebuild annotations from sheet data
+        for ann_data in self._sheet.annotations:
+            self._create_annotation(ann_data)
 
     # ── Viewport management ──────────────────────────────────────────────
 
@@ -1882,6 +1896,106 @@ class PaperScene(QGraphicsScene):
             viewport.mark_dirty()
             viewport.prepareGeometryChange()
             self._update_scale_field()
+
+    # ── Annotation management ────────────────────────────────────────────
+
+    def _create_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
+        """Build a TextAnnotationItem from existing data.
+
+        Does NOT touch sheet.annotations — called from _setup() over an
+        already-populated list, so appending here would double the data.
+
+        Args:
+            data: The TextAnnotationData that the new item will share by
+                reference (same pattern as _create_viewport / SheetViewData).
+
+        Returns:
+            The newly created and added TextAnnotationItem.
+        """
+        item = TextAnnotationItem(data)
+        item.delete_requested.connect(self._on_delete_annotation)
+        item.properties_requested.connect(self._on_annotation_properties)
+        self.addItem(item)
+        self._annotations.append(item)
+        return item
+
+    def _do_add_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
+        """Silent primitive: ensure data is registered in the sheet, then build the item.
+
+        Args:
+            data: TextAnnotationData to add.
+
+        Returns:
+            The newly created TextAnnotationItem.
+        """
+        if data not in self._sheet.annotations:
+            self._sheet.annotations.append(data)
+        return self._create_annotation(data)
+
+    def _do_remove_annotation_by_data(self, data: TextAnnotationData) -> None:
+        """Remove the item(s) matching *data* from the scene and sheet list.
+
+        Args:
+            data: The TextAnnotationData whose owning item should be removed.
+        """
+        for item in list(self._annotations):
+            if item.data is data:
+                self._annotations.remove(item)
+                self.removeItem(item)
+        if data in self._sheet.annotations:
+            self._sheet.annotations.remove(data)
+
+    def add_annotation(self, data: TextAnnotationData) -> TextAnnotationItem:
+        """Add a text annotation to the scene and persist it in the sheet.
+
+        No undo support yet — Task 7 routes creation through a command.
+
+        Args:
+            data: TextAnnotationData describing the new annotation.
+
+        Returns:
+            The created TextAnnotationItem.
+        """
+        return self._do_add_annotation(data)
+
+    def remove_annotation(self, item: TextAnnotationItem) -> None:
+        """Remove *item* from the scene and from sheet.annotations.
+
+        Args:
+            item: The TextAnnotationItem to remove.
+        """
+        self._do_remove_annotation_by_data(item.data)
+
+    def get_annotations(self) -> list[TextAnnotationItem]:
+        """Return a snapshot list of all live TextAnnotationItems on this scene.
+
+        Returns:
+            A new list (not the internal list) of TextAnnotationItem instances.
+        """
+        return list(self._annotations)
+
+    def _on_delete_annotation(self, item: TextAnnotationItem) -> None:
+        """Slot: defer-remove *item* via QTimer to avoid reentrant scene changes.
+
+        Mirrors _on_delete_viewport — uses QTimer.singleShot(0) to defer the
+        removeItem call out of the item's own signal handler. Skips items
+        whose inline editor is still active.
+
+        Args:
+            item: The TextAnnotationItem that emitted delete_requested.
+        """
+        if getattr(item, "_editing", False):
+            return
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda it=item: self.remove_annotation(it))
+
+    def _on_annotation_properties(self, item: TextAnnotationItem) -> None:
+        """Slot: open annotation properties dialog (Task 6) or push undo command (Task 7).
+
+        Args:
+            item: The TextAnnotationItem that emitted properties_requested.
+        """
+        pass  # implemented in Task 6 (dialog) / Task 7 (command)
 
     # ── Public API (preserved) ──────────────────────────────────────────
 

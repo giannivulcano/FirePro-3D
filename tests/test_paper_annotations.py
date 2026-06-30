@@ -264,3 +264,42 @@ def test_delete_key_vs_edit_mode(qapp):
     )
     item.keyPressEvent(key_delete2)
     assert len(fired) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-4: PaperScene annotation lifecycle + data-driven rebuild
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_scene_add_remove_annotation(qapp):
+    """add_annotation tracks item in scene and data in sheet; remove_annotation cleans both."""
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.add_annotation(TextAnnotationData(text="Note", x=10, y=10))
+    assert item in scene.get_annotations()
+    assert item.data in scene.sheet.annotations
+    scene.remove_annotation(item)
+    assert item not in scene.get_annotations()
+    assert item.data not in scene.sheet.annotations
+
+
+def test_setup_rebuilds_annotations_from_data(qapp):
+    """PaperScene._setup() rebuilds TextAnnotationItems from sheet.annotations."""
+    from firepro3d.paper_space import PaperScene
+    sheet = Sheet.create_default()
+    sheet.annotations.append(TextAnnotationData(text="Persisted", x=5, y=5))
+    scene = PaperScene(sheet, _stub_resolver())
+    texts = [i.toPlainText() for i in scene.get_annotations()]
+    assert "Persisted" in texts
+
+
+def test_export_scene_contains_annotation(qapp, tmp_path):
+    """export_pdf renders annotations for free via the data-driven _setup rebuild."""
+    from firepro3d.paper_export import export_pdf
+    from firepro3d.paper_space import PaperScene
+    sheet = Sheet.create_default()
+    sheet.annotations.append(TextAnnotationData(text="PLOTME", x=20, y=20))
+    out = tmp_path / "s.pdf"
+    export_pdf([sheet], _stub_resolver(), str(out), dpi=150)
+    assert out.exists() and out.stat().st_size > 0
+    probe = PaperScene(sheet, _stub_resolver())
+    assert any(i.toPlainText() == "PLOTME" for i in probe.get_annotations())
