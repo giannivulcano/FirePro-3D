@@ -1806,6 +1806,7 @@ class PaperScene(QGraphicsScene):
         self._field_overlay = None
         self._viewports = []
         self._annotations = []
+        self._pending_text = None  # any in-progress placement is voided by a rebuild
 
         w, h = PAPER_SIZES[self._sheet.paper_size]
 
