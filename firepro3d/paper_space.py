@@ -718,6 +718,7 @@ class TextAnnotationItem(QGraphicsTextItem):
         "C": Qt.AlignmentFlag.AlignCenter,
         "R": Qt.AlignmentFlag.AlignRight,
     }
+    _GRIP_MM = 2.5   # paper-mm size of the right-edge wrap-resize handle
 
     def __init__(self, data: "TextAnnotationData", parent=None):
         super().__init__(data.text, parent)
@@ -770,7 +771,13 @@ class TextAnnotationItem(QGraphicsTextItem):
             self.setTextWidth(self.document().idealWidth())
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block, with optional opaque-white knockout and focus frame.
+        """Paint the text block with opaque fill, edit frame, and resize grip.
+
+        Renders in order: (1) solid-white knockout when opaque_bg is set,
+        (2) the text via super(), (3) dashed #88aaff cosmetic border while
+        inline-editing, (4) solid #88aaff grip square on the right edge while
+        selected but not editing. Grip is drawn in item-local unscaled coords
+        at size _GRIP_MM / scale so it appears _GRIP_MM paper-mm on screen.
 
         Args:
             painter: Active QPainter for the scene.
@@ -780,13 +787,220 @@ class TextAnnotationItem(QGraphicsTextItem):
         if self._data.opaque_bg:
             painter.fillRect(self.boundingRect(), QColor("#ffffff"))
         super().paint(painter, option, widget)
-        if self.hasFocus():
+        if self._editing:
             pen = QPen(QColor("#88aaff"))
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.boundingRect())
+        elif self.isSelected():
+            s = self.scale() or 1.0
+            gs = self._GRIP_MM / s
+            br = self.boundingRect()
+            grip = QRectF(br.right() - gs / 2, br.center().y() - gs / 2, gs, gs)
+            painter.fillRect(grip, QColor("#88aaff"))
+
+    # ── A. Edit lifecycle ──────────────────────────────────────────────────
+
+    def is_effectively_empty(self) -> bool:
+        """Return True when the block contains only whitespace.
+
+        Returns:
+            True when toPlainText().strip() is an empty string.
+        """
+        return self.toPlainText().strip() == ""
+
+    def begin_edit(self) -> None:
+        """Enter inline-edit mode: enable text interaction and take keyboard focus.
+
+        Saves the current text so that cancel_edit() can revert to it.
+        """
+        self._editing = True
+        self._text_before_edit = self._data.text
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
+
+    def commit_edit(self) -> str:
+        """Commit the edited text into data and exit edit mode.
+
+        Returns:
+            The committed plain-text string (may be empty/whitespace).
+        """
+        self._editing = False
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        new_text = self.toPlainText()
+        self._data.text = new_text
+        self._apply_format()
+        return new_text
+
+    def cancel_edit(self) -> None:
+        """Revert to the pre-edit text and exit edit mode without committing."""
+        self._editing = False
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setPlainText(self._text_before_edit)
+        self._data.text = self._text_before_edit
+        self._apply_format()
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        """Enter inline-edit mode on a double-click while not already editing."""
+        if not self._editing:
+            self.begin_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        """Auto-commit the edit when the item loses keyboard focus."""
+        if self._editing:
+            self._on_edit_finished()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event) -> None:
+        """Route key events to the editor or to item-level commands.
+
+        While editing: Esc cancels; all other keys (Enter for newline, Delete
+        for character) pass through to the text editor.
+        While not editing: Delete emits delete_requested; other keys delegate
+        to super().
+        """
+        if self._editing:
+            if event.key() == Qt.Key.Key_Escape:
+                self.cancel_edit()
+                event.accept()
+                return
+            super().keyPressEvent(event)   # Enter=newline, Delete=char
+            return
+        if event.key() == Qt.Key.Key_Delete:
+            self.delete_requested.emit(self)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _on_edit_finished(self) -> None:
+        """Called when inline editing ends (focus-out path).
+
+        Scene overrides this in Task 5/7 to route through undo commands
+        (check empty → delete vs update). Default: commit directly.
+        """
+        self.commit_edit()
+
+    def sync_data_from_item(self) -> None:
+        """Write the current scene position back into the data object (paper mm)."""
+        self._data.x = self.pos().x()
+        self._data.y = self.pos().y()
+
+    def contextMenuEvent(self, event) -> None:
+        """Show Properties / Delete context menu on right-click."""
+        menu = QMenu()
+        props = menu.addAction("Properties...")
+        menu.addSeparator()
+        delete = menu.addAction("Delete")
+        action = menu.exec(event.screenPos())
+        if action == props:
+            self.properties_requested.emit(self)
+        elif action == delete:
+            self.delete_requested.emit(self)
+
+    # ── B. itemChange: anchor clamp + live data sync ─────────────────────────
+
+    def itemChange(self, change, value):
+        """Clamp position to the paper rect and live-sync data on every move.
+
+        ItemPositionChange: clamps the proposed QPointF to [0, paper_width] ×
+        [0, paper_height] using PAPER_SIZES[scene.sheet.paper_size].
+        ItemPositionHasChanged: calls sync_data_from_item() so _data.x/y stays
+        current for export/print without a separate save step.
+
+        Args:
+            change: GraphicsItemChange enum value.
+            value: Proposed value (QPointF for position changes).
+
+        Returns:
+            The (possibly clamped) value for position changes; super()'s return
+            for all other changes.
+        """
+        Change = QGraphicsItem.GraphicsItemChange
+        if change == Change.ItemPositionChange and self.scene() is not None:
+            pw, ph = PAPER_SIZES[self.scene().sheet.paper_size]
+            return QPointF(max(0.0, min(value.x(), pw)),
+                           max(0.0, min(value.y(), ph)))
+        if change == Change.ItemPositionHasChanged:
+            self.sync_data_from_item()
+        return super().itemChange(change, value)
+
+    # ── C. Wrap-resize grip ───────────────────────────────────────────────────
+
+    def _grip_scene_rect(self) -> QRectF:
+        """Return the resize-grip hit rectangle in scene (paper-mm) coordinates.
+
+        The grip is a _GRIP_MM × _GRIP_MM square centred on the right edge of
+        sceneBoundingRect. Used by mousePressEvent for hit-testing.
+
+        Returns:
+            QRectF in scene coordinates.
+        """
+        br = self.sceneBoundingRect()
+        g = self._GRIP_MM
+        return QRectF(br.right() - g / 2, br.center().y() - g / 2, g, g)
+
+    def mousePressEvent(self, event) -> None:
+        """Start a wrap-resize drag when the grip is pressed; otherwise begin move."""
+        if self.isSelected() and self._grip_scene_rect().contains(event.scenePos()):
+            self._resizing = True
+            self._wrap_at_press = self._data.wrap_width_mm
+            event.accept()
+            return
+        self._pos_at_press = (self._data.x, self._data.y)
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        """Expand or shrink wrap_width_mm while dragging the right-edge grip."""
+        if self._resizing:
+            new_w = max(MIN_TEXT_WRAP_WIDTH_MM,
+                        event.scenePos().x() - self.pos().x())
+            self._data.wrap_width_mm = new_w
+            self.prepareGeometryChange()
+            self._apply_format()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        """Finish a resize or move drag and notify the undo hook."""
+        if self._resizing:
+            self._resizing = False
+            self._on_wrap_resized(self._wrap_at_press, self._data.wrap_width_mm)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+        if self._pos_at_press is not None:
+            old = self._pos_at_press
+            self._pos_at_press = None
+            if old != (self._data.x, self._data.y):
+                self._on_moved(old, (self._data.x, self._data.y))
+
+    def _on_moved(self, old_xy: tuple, new_xy: tuple) -> None:
+        """Hook called after a completed free-drag move.
+
+        Scene overrides this in Task 7 to push a MoveTextAnnotationCommand.
+        Default: no-op (data already updated live by itemChange).
+
+        Args:
+            old_xy: (x, y) paper-mm position before the drag.
+            new_xy: (x, y) paper-mm position after the drag.
+        """
+
+    def _on_wrap_resized(self, old_w: float, new_w: float) -> None:
+        """Hook called after a completed wrap-resize drag.
+
+        Scene overrides this in Task 7 to push a WrapResizeTextCommand.
+        Default: no-op (wrap_width_mm already updated live by mouseMoveEvent).
+
+        Args:
+            old_w: wrap_width_mm in paper mm before the resize.
+            new_w: wrap_width_mm in paper mm after the resize.
+        """
 
 
 # ─────────────────────────────────────────────────────────────────────────────
