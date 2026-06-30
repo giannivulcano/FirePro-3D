@@ -359,3 +359,119 @@ def test_commit_place_nonempty_tracks(qapp):
     scene.commit_place_text(item)
     texts = [i.toPlainText() for i in scene.get_annotations()]
     assert "Hello" in texts
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-8: Integration tests — real save/load round-trip + end-to-end undo/redo
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_project_round_trip_preserves_annotations(qapp, tmp_path):
+    """Sheet annotations survive a real .fpd save→load via scene_io.
+
+    This test goes through the ACTUAL Model_Space.save_to_file /
+    load_from_file path (not just Sheet.to_dict/from_dict), so it will
+    fail if scene_io ever stops delegating the 'sheets' key to
+    Sheet.to_dict / from_dict or drops any annotation field.
+    """
+    from firepro3d.model_space import Model_Space
+
+    # --- Build a scene with one sheet carrying a rich annotation ---
+    scene1 = Model_Space()
+    sheet = Sheet.create_default()
+    sheet.annotations.append(
+        TextAnnotationData(
+            text="RT NOTE",
+            x=9.0, y=9.0,
+            color="#ff0000",
+            height_mm=4.0,
+            wrap_width_mm=80.0,
+        )
+    )
+    scene1._sheets = [sheet]
+
+    # --- Save through the real serialisation path ---
+    save_path = tmp_path / "p.fpd"
+    result = scene1.save_to_file(str(save_path))
+    assert result is True, "save_to_file should return True on success"
+    assert save_path.exists(), ".fpd file was not created"
+
+    # --- Load into a fresh scene ---
+    scene2 = Model_Space()
+    scene2.load_from_file(str(save_path))
+
+    # --- Verify the sheet and annotation survived intact ---
+    assert len(scene2._sheets) == 1, "Expected exactly one sheet after load"
+    loaded_annotations = scene2._sheets[0].annotations
+    assert len(loaded_annotations) == 1, "Expected exactly one annotation after load"
+
+    a = loaded_annotations[0]
+    assert a.text == "RT NOTE"
+    assert a.color == "#ff0000"
+    assert abs(a.height_mm - 4.0) < 1e-6
+    assert abs(a.wrap_width_mm - 80.0) < 1e-6
+    assert abs(a.x - 9.0) < 1e-6
+    assert abs(a.y - 9.0) < 1e-6
+
+
+def test_undo_redo_add_text_end_to_end(qapp):
+    """AddTextAnnotationCommand wired to _undo_stack does a full undo/redo cycle.
+
+    Distinct from the command-unit test: asserts the live scene tracking list
+    (get_annotations()) rather than the data list, covering the full
+    PaperScene integration path.
+    """
+    from firepro3d.paper_space import PaperScene
+    from firepro3d.paper_commands import AddTextAnnotationCommand
+
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="U", x=1, y=1)
+
+    # Push via the stack (not _do_add_annotation directly) — exercises the
+    # same path as a real user action routed through _undo_stack.
+    scene._undo_stack.push(AddTextAnnotationCommand(scene, data))
+    assert len(scene.get_annotations()) == 1
+
+    scene._undo_stack.undo()
+    assert scene.get_annotations() == []
+
+    scene._undo_stack.redo()
+    assert len(scene.get_annotations()) == 1
+
+
+def test_undo_redo_move_text_end_to_end(qapp):
+    """MoveTextAnnotationCommand undo/redo restores and re-applies scene position.
+
+    Tests the full round-trip: scene item position, data fields, and stack state.
+    """
+    from firepro3d.paper_space import PaperScene
+    from firepro3d.paper_commands import MoveTextAnnotationCommand, _find_text_item
+
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="M", x=5.0, y=5.0)
+    scene.add_annotation(data)  # adds via the scene tracking layer
+
+    old_pos = (5.0, 5.0)
+    new_pos = (42.0, 77.0)
+    scene._undo_stack.push(MoveTextAnnotationCommand(scene, data, old_pos, new_pos))
+
+    # After redo (applied automatically on push): item and data at new_pos
+    item = _find_text_item(scene, data)
+    assert item is not None
+    assert abs(data.x - 42.0) < 1e-6
+    assert abs(data.y - 77.0) < 1e-6
+    assert abs(item.pos().x() - 42.0) < 1e-6
+    assert abs(item.pos().y() - 77.0) < 1e-6
+
+    # Undo: back to old_pos
+    scene._undo_stack.undo()
+    assert abs(data.x - 5.0) < 1e-6
+    assert abs(data.y - 5.0) < 1e-6
+    assert abs(item.pos().x() - 5.0) < 1e-6
+    assert abs(item.pos().y() - 5.0) < 1e-6
+
+    # Redo: forward to new_pos again
+    scene._undo_stack.redo()
+    assert abs(data.x - 42.0) < 1e-6
+    assert abs(data.y - 77.0) < 1e-6
+    assert abs(item.pos().x() - 42.0) < 1e-6
+    assert abs(item.pos().y() - 77.0) < 1e-6
