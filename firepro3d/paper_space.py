@@ -835,12 +835,23 @@ class TextAnnotationItem(QGraphicsTextItem):
         return new_text
 
     def cancel_edit(self) -> None:
-        """Revert to the pre-edit text and exit edit mode without committing."""
+        """Revert to the pre-edit text and exit edit mode without committing.
+
+        For a pending placement item (scene._pending_text is self), also
+        discards the transient item so that Esc during place-mode leaves
+        nothing on the scene and nothing tracked. The reverted text is always
+        empty for a fresh placement, so commit_place_text() will auto-discard.
+        """
         self._editing = False
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPlainText(self._text_before_edit)
         self._data.text = self._text_before_edit
         self._apply_format()
+        # Esc during place-mode: route through commit_place_text so the
+        # transient item is removed and nothing is left tracked.
+        scene = self.scene()
+        if scene is not None and getattr(scene, "_pending_text", None) is self:
+            scene.commit_place_text(self)
 
     def mouseDoubleClickEvent(self, event) -> None:
         """Enter inline-edit mode on a double-click while not already editing."""
@@ -880,10 +891,17 @@ class TextAnnotationItem(QGraphicsTextItem):
     def _on_edit_finished(self) -> None:
         """Called when inline editing ends (focus-out path).
 
-        Scene overrides this in Task 5/7 to route through undo commands
-        (check empty → delete vs update). Default: commit directly.
+        For a pending placement item (scene._pending_text is self), routes to
+        commit_place_text() which discards the transient item when empty and
+        creates a tracked annotation otherwise. For an existing tracked
+        annotation, commits the edit directly. Task 7 will swap the tracked
+        path for an undo command.
         """
-        self.commit_edit()
+        scene = self.scene()
+        if scene is not None and getattr(scene, "_pending_text", None) is self:
+            scene.commit_place_text(self)
+        else:
+            self.commit_edit()
 
     def sync_data_from_item(self) -> None:
         """Write the current scene position back into the data object (paper mm)."""
@@ -1192,12 +1210,31 @@ class PaperGraphicsView(QGraphicsView):
         self._paper_scene = scene
         self._panning = False
         self._pan_start = QPointF()
+        self._add_text_mode = False
+        self._add_text_btn = None
 
         # Match Model_View navigation style
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
+
+    # ── Add-Text tool ──────────────────────────────────────────────────
+
+    def set_add_text_mode(self, on: bool) -> None:
+        """Enable or disable Add-Text place-mode.
+
+        When *on* is True the cursor changes to a cross-hair and the next
+        left-click places a new text annotation at that scene position. The
+        mode is automatically cleared after one placement.
+
+        Args:
+            on: True to enter Add-Text place-mode; False to exit.
+        """
+        self._add_text_mode = bool(on)
+        self.setCursor(
+            Qt.CursorShape.CrossCursor if on else Qt.CursorShape.ArrowCursor
+        )
 
     # ── Delete key handling ────────────────────────────────────────────
 
@@ -1315,6 +1352,14 @@ class PaperGraphicsView(QGraphicsView):
 
     def mousePressEvent(self, event):
         self.setFocus(Qt.FocusReason.MouseFocusReason)
+        if self._add_text_mode and event.button() == Qt.MouseButton.LeftButton:
+            pos = self.mapToScene(event.position().toPoint())
+            self._paper_scene.begin_place_text(pos)
+            self.set_add_text_mode(False)
+            if self._add_text_btn is not None:
+                self._add_text_btn.setChecked(False)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.position()
@@ -1751,6 +1796,7 @@ class PaperScene(QGraphicsScene):
         self._field_overlay = None
         self._viewports: list[SheetViewport] = []
         self._annotations: list[TextAnnotationItem] = []
+        self._pending_text: "TextAnnotationItem | None" = None
         self._setup()
 
     def _setup(self):
@@ -1974,6 +2020,54 @@ class PaperScene(QGraphicsScene):
         """
         return list(self._annotations)
 
+    # ── Place-mode (Task 5) ──────────────────────────────────────────────
+
+    def begin_place_text(self, pos: QPointF) -> TextAnnotationItem:
+        """Place a transient TextAnnotationItem at *pos* and enter edit mode.
+
+        The item is added to the scene but is NOT tracked in sheet.annotations
+        until commit_place_text() confirms it is non-empty. This lets an empty
+        Esc/focus-out cancel leave absolutely nothing behind.
+
+        All lengths in paper mm; *pos* is clamped to the paper rect.
+
+        Args:
+            pos: Desired placement position in scene (paper-mm) coordinates.
+
+        Returns:
+            The newly created TextAnnotationItem in inline-edit mode.
+        """
+        pw, ph = PAPER_SIZES[self._sheet.paper_size]
+        x = max(0.0, min(pos.x(), pw))
+        y = max(0.0, min(pos.y(), ph))
+        data = TextAnnotationData(x=x, y=y, text="")
+        item = TextAnnotationItem(data)  # TRANSIENT: not tracked, not in sheet
+        self.addItem(item)
+        self._pending_text = item
+        item.begin_edit()
+        return item
+
+    def commit_place_text(self, item: TextAnnotationItem) -> None:
+        """Finalise or discard a pending placement item.
+
+        Reads the current plain-text from *item*. If it is blank (empty or
+        whitespace-only) the transient item is silently removed and nothing is
+        tracked. Otherwise the item is removed and its data is persisted via
+        add_annotation(), creating a properly tracked replacement item on the
+        scene. Task 7 will swap the add_annotation() call for an AddText
+        undo command.
+
+        Args:
+            item: The TextAnnotationItem returned by begin_place_text().
+        """
+        self._pending_text = None
+        text = item.toPlainText()
+        self.removeItem(item)           # discard the transient editor item
+        if text.strip() == "":
+            return                      # auto-delete empty; nothing tracked
+        item.data.text = text
+        self.add_annotation(item.data)  # Task 7 swaps for AddTextAnnotationCommand
+
     def _on_delete_annotation(self, item: TextAnnotationItem) -> None:
         """Slot: defer-remove *item* via QTimer to avoid reentrant scene changes.
 
@@ -2126,6 +2220,11 @@ class PaperSpaceWidget(QWidget):
         edit_title_btn.clicked.connect(self._edit_title)
         toolbar.addWidget(edit_title_btn)
 
+        self._add_text_btn = QPushButton("Add Text")
+        self._add_text_btn.setCheckable(True)
+        self._add_text_btn.setToolTip("Click to place a text annotation on the sheet")
+        toolbar.addWidget(self._add_text_btn)
+
         refresh_btn = QPushButton("⟳ Refresh Viewport")
         refresh_btn.setToolTip("Repaint the model-space preview")
         refresh_btn.clicked.connect(self._refresh)
@@ -2141,6 +2240,10 @@ class PaperSpaceWidget(QWidget):
         # ── View ─────────────────────────────────────────────────────────────
         self.view = PaperGraphicsView(self.paper_scene)
         layout.addWidget(self.view)
+
+        # Wire Add Text button to view (view must exist first)
+        self._add_text_btn.toggled.connect(self.view.set_add_text_mode)
+        self.view._add_text_btn = self._add_text_btn
 
         # Fit to sheet on first show
         self._fit()

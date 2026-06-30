@@ -303,3 +303,33 @@ def test_export_scene_contains_annotation(qapp, tmp_path):
     assert out.exists() and out.stat().st_size > 0
     probe = PaperScene(sheet, _stub_resolver())
     assert any(i.toPlainText() == "PLOTME" for i in probe.get_annotations())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-5: begin_place_text / commit_place_text + empty auto-delete (§9.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_commit_place_empty_discards(qapp):
+    """commit_place_text with empty text removes transient item and tracks nothing."""
+    from firepro3d.paper_space import PaperScene
+    from PyQt6.QtCore import QPointF
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.begin_place_text(QPointF(30, 30))
+    assert item in scene.items()                # transient, on scene
+    assert item not in scene.get_annotations()  # NOT tracked yet
+    item.setPlainText("")
+    scene.commit_place_text(item)
+    assert item not in scene.items()            # discarded
+    assert scene.get_annotations() == []
+
+
+def test_commit_place_nonempty_tracks(qapp):
+    """commit_place_text with non-empty text creates a tracked annotation."""
+    from firepro3d.paper_space import PaperScene
+    from PyQt6.QtCore import QPointF
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.begin_place_text(QPointF(30, 30))
+    item.setPlainText("Hello")
+    scene.commit_place_text(item)
+    texts = [i.toPlainText() for i in scene.get_annotations()]
+    assert "Hello" in texts
