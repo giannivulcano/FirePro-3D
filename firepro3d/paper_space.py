@@ -17,7 +17,8 @@ import datetime
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from .constants import DEFAULT_TEXT_HEIGHT_MM
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject,
@@ -235,6 +236,52 @@ class SheetViewData:
 
 
 @dataclass
+class TextAnnotationData:
+    """Serializable data for one sheet text annotation. All lengths in paper mm.
+
+    Shared by reference with its TextAnnotationItem (never copied), exactly like
+    SheetViewData <-> SheetViewport.
+    """
+    text: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
+    wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
+    font_family: str = ""                        # "" => Arial default
+    bold: bool = False
+    italic: bool = False
+    color: str = "#000000"                       # authored hex, default black
+    align: str = "L"                             # 'L' | 'C' | 'R'
+    opaque_bg: bool = False
+    type: str = "text"                           # discriminator for future annotation types
+
+    def to_dict(self) -> dict:
+        return {
+            "type": self.type, "text": self.text,
+            "x": self.x, "y": self.y,
+            "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
+            "font_family": self.font_family,
+            "bold": self.bold, "italic": self.italic,
+            "color": self.color, "align": self.align,
+            "opaque_bg": self.opaque_bg,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TextAnnotationData":
+        return cls(
+            text=d.get("text", ""),
+            x=d.get("x", 0.0), y=d.get("y", 0.0),
+            height_mm=d.get("height_mm", DEFAULT_TEXT_HEIGHT_MM),
+            wrap_width_mm=d.get("wrap_width_mm", 0.0),
+            font_family=d.get("font_family", ""),
+            bold=d.get("bold", False), italic=d.get("italic", False),
+            color=d.get("color", "#000000"), align=d.get("align", "L"),
+            opaque_bg=d.get("opaque_bg", False),
+            type=d.get("type", "text"),
+        )
+
+
+@dataclass
 class Sheet:
     """Data model for one paper sheet."""
     number: str
@@ -242,6 +289,7 @@ class Sheet:
     paper_size: str
     title_block_fields: dict[str, str]
     sheet_views: list[SheetViewData]
+    annotations: list[TextAnnotationData] = field(default_factory=list)
 
     @classmethod
     def create_default(cls) -> "Sheet":
@@ -251,6 +299,7 @@ class Sheet:
             paper_size="ANSI D",
             title_block_fields=dict(DEFAULT_TITLE_BLOCK_FIELDS),
             sheet_views=[],
+            annotations=[],
         )
 
     def to_dict(self) -> dict:
@@ -260,6 +309,7 @@ class Sheet:
             "paper_size": self.paper_size,
             "title_block_fields": dict(self.title_block_fields),
             "sheet_views": [sv.to_dict() for sv in self.sheet_views],
+            "annotations": [a.to_dict() for a in self.annotations],
         }
 
     @classmethod
@@ -272,6 +322,8 @@ class Sheet:
                                      dict(DEFAULT_TITLE_BLOCK_FIELDS)),
             sheet_views=[SheetViewData.from_dict(sv)
                          for sv in d.get("sheet_views", [])],
+            annotations=[TextAnnotationData.from_dict(a)
+                         for a in d.get("annotations", [])],
         )
 
 
