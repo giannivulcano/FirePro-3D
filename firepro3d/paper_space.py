@@ -30,7 +30,15 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
-    QPainterPath, QImage,
+    QPainterPath, QImage, QUndoStack,
+)
+from .paper_commands import (
+    AddTextAnnotationCommand, DeleteTextAnnotationCommand,
+    MoveTextAnnotationCommand, WrapResizeTextCommand,
+    EditTextCommand, FormatTextCommand,
+    AddViewportCommand, RemoveViewportCommand,
+    ViewportGeometryCommand, ChangeViewportPropertiesCommand,
+    _find_viewport,
 )
 try:
     from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
@@ -420,6 +428,7 @@ class SheetViewport(QGraphicsObject):
         self._resizing = False
         self._resize_handle: int = -1
         self._resize_origin = QPointF()
+        self._geom_at_press = None   # (x, y, w, h) captured on mousePress
 
         self.setPos(data.x, data.y)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -614,6 +623,11 @@ class SheetViewport(QGraphicsObject):
         return -1
 
     def mousePressEvent(self, event):
+        # Snapshot geometry on every press so move/resize releases can push a
+        # single ViewportGeometryCommand (covers both the grip-resize branch
+        # and the plain-move branch).
+        self._geom_at_press = (self._data.x, self._data.y,
+                               self._data.w, self._data.h)
         if self.isSelected() and event.button() == Qt.MouseButton.LeftButton:
             grip = self._hit_grip(event.pos())
             if grip >= 0:
@@ -638,9 +652,31 @@ class SheetViewport(QGraphicsObject):
             self._resizing = False
             self._resize_handle = -1
             self.sync_data_from_item()
+            self._push_geometry_if_changed()
             event.accept()
             return
         super().mouseReleaseEvent(event)
+        self._push_geometry_if_changed()
+
+    def _push_geometry_if_changed(self):
+        """Push a ViewportGeometryCommand if geometry changed since mousePress.
+
+        Records one undo command per completed move/resize gesture. The live
+        data is already current (synced during the drag); the command is for
+        undo history only. No-op when the geometry is unchanged, when there is
+        no captured press geometry, or when a command is being applied.
+        """
+        old = self._geom_at_press
+        self._geom_at_press = None
+        if old is None:
+            return
+        new = (self._data.x, self._data.y, self._data.w, self._data.h)
+        if old == new:
+            return
+        scene = self.scene()
+        if scene is None or not hasattr(scene, "_push_viewport_geometry"):
+            return
+        scene._push_viewport_geometry(self._data, old, new)
 
     def _apply_grip_resize(self, handle: int, delta: QPointF):
         dx, dy = delta.x(), delta.y()
@@ -894,15 +930,19 @@ class TextAnnotationItem(QGraphicsTextItem):
 
         For a pending placement item (scene._pending_text is self), routes to
         commit_place_text() which discards the transient item when empty and
-        creates a tracked annotation otherwise. For an existing tracked
-        annotation, commits the edit directly. Task 7 will swap the tracked
-        path for an undo command.
+        pushes an AddTextAnnotationCommand otherwise. For an existing tracked
+        annotation, commits the edit (which applies the new text live) and then
+        records the change on the undo stack via the scene's _push_text_edit
+        helper (empty content auto-deletes; an unchanged commit pushes nothing).
         """
         scene = self.scene()
         if scene is not None and getattr(scene, "_pending_text", None) is self:
             scene.commit_place_text(self)
-        else:
-            self.commit_edit()
+            return
+        old = self._text_before_edit
+        new = self.commit_edit()
+        if scene is not None and hasattr(scene, "_push_text_edit"):
+            scene._push_text_edit(self._data, old, new)
 
     def sync_data_from_item(self) -> None:
         """Write the current scene position back into the data object (paper mm)."""
@@ -1009,24 +1049,32 @@ class TextAnnotationItem(QGraphicsTextItem):
     def _on_moved(self, old_xy: tuple, new_xy: tuple) -> None:
         """Hook called after a completed free-drag move.
 
-        Scene overrides this in Task 7 to push a MoveTextAnnotationCommand.
-        Default: no-op (data already updated live by itemChange).
+        Routes to the scene's _push_text_move helper to record a
+        MoveTextAnnotationCommand on the undo stack. The data is already
+        updated live by itemChange; the command is for undo history only.
 
         Args:
             old_xy: (x, y) paper-mm position before the drag.
             new_xy: (x, y) paper-mm position after the drag.
         """
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "_push_text_move"):
+            scene._push_text_move(self._data, old_xy, new_xy)
 
     def _on_wrap_resized(self, old_w: float, new_w: float) -> None:
         """Hook called after a completed wrap-resize drag.
 
-        Scene overrides this in Task 7 to push a WrapResizeTextCommand.
-        Default: no-op (wrap_width_mm already updated live by mouseMoveEvent).
+        Routes to the scene's _push_text_wrap helper to record a
+        WrapResizeTextCommand on the undo stack. The wrap width is already
+        updated live by mouseMoveEvent; the command is for undo history only.
 
         Args:
             old_w: wrap_width_mm in paper mm before the resize.
             new_w: wrap_width_mm in paper mm after the resize.
         """
+        scene = self.scene()
+        if scene is not None and hasattr(scene, "_push_text_wrap"):
+            scene._push_text_wrap(self._data, old_w, new_w)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1425,7 +1473,8 @@ class PaperGraphicsView(QGraphicsView):
             ]
             for it in ann_selected:
                 from PyQt6.QtCore import QTimer
-                QTimer.singleShot(0, lambda a=it: scene.remove_annotation(a))
+                QTimer.singleShot(0, lambda a=it: scene._undo_stack.push(
+                    DeleteTextAnnotationCommand(scene, a.data)))
             if selected or ann_selected:
                 event.accept()
                 return
@@ -1961,7 +2010,30 @@ class PaperScene(QGraphicsScene):
         self._viewports: list[SheetViewport] = []
         self._annotations: list[TextAnnotationItem] = []
         self._pending_text: "TextAnnotationItem | None" = None
+        self._undo_stack = QUndoStack(self)
+        self._applying_command = False
         self._setup()
+
+    def _apply(self, fn):
+        """Run *fn* with the re-enqueue guard raised.
+
+        Programmatic setPos / add / remove performed by a command's redo/undo
+        must not push further commands via the gesture hooks. The guard mirrors
+        Model_Space._in_undo_restore.
+
+        Args:
+            fn: A zero-argument callable performing the scene mutation.
+        """
+        self._applying_command = True
+        try:
+            fn()
+        finally:
+            self._applying_command = False
+
+    @property
+    def undo_stack(self) -> QUndoStack:
+        """The paper-space-scoped QUndoStack owned by this scene."""
+        return self._undo_stack
 
     def _setup(self):
         """Build/rebuild all paper scene items."""
@@ -2044,21 +2116,100 @@ class PaperScene(QGraphicsScene):
         self._viewports.append(vp)
         return vp
 
-    def add_viewport(self, data: SheetViewData) -> SheetViewport:
+    def _do_add_viewport(self, data: SheetViewData) -> SheetViewport:
+        """Silent primitive: register *data* in the sheet and build its viewport.
+
+        Preserves the original add_viewport behaviour: assigns a view_number
+        when blank, appends to sheet.sheet_views (idempotent), creates the
+        viewport item, and refreshes the title-block Scale field. Called by
+        AddViewportCommand.redo / RemoveViewportCommand.undo.
+
+        Args:
+            data: SheetViewData to add.
+
+        Returns:
+            The newly created SheetViewport.
+        """
         if not data.view_number:
             data.view_number = str(len(self._sheet.sheet_views) + 1)
-        self._sheet.sheet_views.append(data)
+        if data not in self._sheet.sheet_views:
+            self._sheet.sheet_views.append(data)
         vp = self._create_viewport(data)
         self._update_scale_field()
         return vp
 
-    def remove_viewport(self, viewport: SheetViewport):
-        if viewport in self._viewports:
-            self._viewports.remove(viewport)
-        if viewport.data in self._sheet.sheet_views:
-            self._sheet.sheet_views.remove(viewport.data)
-        self.removeItem(viewport)
+    def _do_remove_viewport_by_data(self, data: SheetViewData) -> None:
+        """Silent primitive: remove the viewport(s) matching *data*.
+
+        Mirrors the original remove_viewport behaviour (drop from _viewports +
+        sheet.sheet_views, removeItem, refresh Scale field) but keys on data
+        identity so it works after a _setup() rebuild recreates items. Called
+        by RemoveViewportCommand.redo / AddViewportCommand.undo.
+
+        Args:
+            data: SheetViewData whose owning viewport should be removed.
+        """
+        for vp in list(self._viewports):
+            if vp.data is data:
+                self._viewports.remove(vp)
+                self.removeItem(vp)
+        if data in self._sheet.sheet_views:
+            self._sheet.sheet_views.remove(data)
         self._update_scale_field()
+
+    def _resync_viewport(self, data: SheetViewData) -> None:
+        """Re-apply *data*'s position/size to its live viewport item.
+
+        Used by ViewportGeometryCommand / ChangeViewportPropertiesCommand after
+        they mutate the data object, so the on-screen item and Scale field
+        reflect the (un)done state.
+
+        Args:
+            data: SheetViewData whose live viewport should be re-synced.
+        """
+        vp = _find_viewport(self, data)
+        if vp is not None:
+            vp.setPos(data.x, data.y)
+            vp.prepareGeometryChange()
+            vp.mark_dirty()
+        self._update_scale_field()
+
+    def add_viewport(self, data: SheetViewData) -> SheetViewport:
+        """Add a viewport for *data* via an undoable command.
+
+        The pushed AddViewportCommand runs its redo() synchronously, so the
+        viewport is created immediately and returned (preserving the original
+        contract for callers such as dropEvent).
+
+        Args:
+            data: SheetViewData describing the new viewport.
+
+        Returns:
+            The created SheetViewport.
+        """
+        self._undo_stack.push(AddViewportCommand(self, data))
+        return _find_viewport(self, data)
+
+    def remove_viewport(self, viewport: SheetViewport):
+        """Remove *viewport* via an undoable RemoveViewportCommand.
+
+        Args:
+            viewport: The SheetViewport to remove (keyed on its data).
+        """
+        self._undo_stack.push(RemoveViewportCommand(self, viewport.data))
+
+    def _push_viewport_geometry(self, data, old, new):
+        """Push a ViewportGeometryCommand for a completed move/resize gesture.
+
+        No-op while a command is being applied or when geometry is unchanged.
+
+        Args:
+            data: SheetViewData whose geometry changed.
+            old: (x, y, w, h) before the gesture.
+            new: (x, y, w, h) after the gesture.
+        """
+        if not self._applying_command and old != new:
+            self._undo_stack.push(ViewportGeometryCommand(self, data, old, new))
 
     def get_viewports(self) -> list[SheetViewport]:
         return list(self._viewports)
@@ -2082,31 +2233,46 @@ class PaperScene(QGraphicsScene):
         QTimer.singleShot(0, lambda vp=viewport: self.remove_viewport(vp))
 
     def _on_viewport_properties(self, viewport):
-        dlg = SheetViewPropertiesDialog(
-            viewport.data.source_view_name, viewport.data)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            viewport.data.title = dlg.get_title()
-            viewport.data.show_border = dlg.get_show_border()
-            new_scale = dlg.get_scale()
-            if new_scale != viewport.data.scale:
-                viewport.data.scale = new_scale
-                if new_scale != 0.0:
-                    result = self._resolver.resolve(
-                        viewport.data.source_view_type, viewport.data.source_view_name)
-                    if result:
-                        _, src_rect = result
-                        viewport.data.w = src_rect.width() * new_scale
-                        viewport.data.h = src_rect.height() * new_scale
-            pos = dlg.get_position()
-            if pos:
-                viewport.data.x, viewport.data.y = pos
-            size = dlg.get_size()
-            if size:
-                viewport.data.w, viewport.data.h = size
-            viewport.setPos(viewport.data.x, viewport.data.y)
-            viewport.mark_dirty()
-            viewport.prepareGeometryChange()
-            self._update_scale_field()
+        data = viewport.data
+        dlg = SheetViewPropertiesDialog(data.source_view_name, data)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        # Snapshot the fields the dialog mutates (incl. derived w/h) BEFORE
+        # applying, then compute the new values without touching the data
+        # object — the command applies/reverts them. The ordering below
+        # (scale-derived w/h first, then explicit size override) preserves the
+        # original inline behaviour exactly.
+        old_fields = {
+            "title": data.title, "show_border": data.show_border,
+            "scale": data.scale, "x": data.x, "y": data.y,
+            "w": data.w, "h": data.h,
+        }
+        new_title = dlg.get_title()
+        new_show_border = dlg.get_show_border()
+        new_scale = dlg.get_scale()
+        new_x, new_y = data.x, data.y
+        new_w, new_h = data.w, data.h
+        if new_scale != data.scale and new_scale != 0.0:
+            result = self._resolver.resolve(
+                data.source_view_type, data.source_view_name)
+            if result:
+                _, src_rect = result
+                new_w = src_rect.width() * new_scale
+                new_h = src_rect.height() * new_scale
+        pos = dlg.get_position()
+        if pos:
+            new_x, new_y = pos
+        size = dlg.get_size()
+        if size:
+            new_w, new_h = size
+        new_fields = {
+            "title": new_title, "show_border": new_show_border,
+            "scale": new_scale, "x": new_x, "y": new_y,
+            "w": new_w, "h": new_h,
+        }
+        if new_fields != old_fields:
+            self._undo_stack.push(
+                ChangeViewportPropertiesCommand(self, data, old_fields, new_fields))
 
     # ── Annotation management ────────────────────────────────────────────
 
@@ -2231,7 +2397,9 @@ class PaperScene(QGraphicsScene):
         if text.strip() == "":
             return                      # auto-delete empty; nothing tracked
         item.data.text = text
-        self.add_annotation(item.data)  # Task 7 swaps for AddTextAnnotationCommand
+        # First non-empty commit: record the creation on the undo stack. The
+        # command's redo() builds the tracked replacement item synchronously.
+        self._undo_stack.push(AddTextAnnotationCommand(self, item.data))
 
     def _on_delete_annotation(self, item: TextAnnotationItem) -> None:
         """Slot: defer-remove *item* via QTimer to avoid reentrant scene changes.
@@ -2246,7 +2414,38 @@ class PaperScene(QGraphicsScene):
         if getattr(item, "_editing", False):
             return
         from PyQt6.QtCore import QTimer
-        QTimer.singleShot(0, lambda it=item: self.remove_annotation(it))
+        QTimer.singleShot(0, lambda it=item: self._undo_stack.push(
+            DeleteTextAnnotationCommand(self, it.data)))
+
+    # ── Undo push helpers (called from item gesture hooks) ───────────────
+
+    def _push_text_move(self, data, old, new):
+        """Push a MoveTextAnnotationCommand for a completed move gesture.
+
+        No-op while a command is being applied or when the anchor is unchanged.
+        """
+        if not self._applying_command and old != new:
+            self._undo_stack.push(MoveTextAnnotationCommand(self, data, old, new))
+
+    def _push_text_wrap(self, data, old, new):
+        """Push a WrapResizeTextCommand for a completed wrap-resize gesture.
+
+        No-op while a command is being applied or when the width is unchanged.
+        """
+        if not self._applying_command and old != new:
+            self._undo_stack.push(WrapResizeTextCommand(self, data, old, new))
+
+    def _push_text_edit(self, data, old_text, new_text):
+        """Record an inline-edit commit on the undo stack.
+
+        Empty/whitespace content auto-deletes the block (DeleteText); a changed
+        non-empty commit pushes an EditText command; an unchanged commit pushes
+        nothing.
+        """
+        if new_text.strip() == "":
+            self._undo_stack.push(DeleteTextAnnotationCommand(self, data))
+        elif new_text != old_text:
+            self._undo_stack.push(EditTextCommand(self, data, old_text, new_text))
 
     def _on_annotation_properties(self, item: TextAnnotationItem) -> None:
         """Slot: open annotation properties dialog (Task 6) or push undo command (Task 7).
