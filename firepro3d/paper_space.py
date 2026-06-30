@@ -18,10 +18,10 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from .constants import DEFAULT_TEXT_HEIGHT_MM
+from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
-    QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject,
+    QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
     QMenu,
@@ -690,6 +690,103 @@ class SheetViewport(QGraphicsObject):
             self.delete_requested.emit(self)
         else:
             super().keyPressEvent(event)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TextAnnotationItem — free-placed, paper-fixed text block
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TextAnnotationItem(QGraphicsTextItem):
+    """A free-placed, paper-fixed text block on a PaperScene.
+
+    Purpose-built (NOT a reused model-space NoteAnnotation — spec §4.11). Holds
+    its TextAnnotationData by shared reference. Sizes via a device-independent
+    pixel-size font + geometric setScale on cap height, so a paper-mm height
+    renders identically on the 96-dpi screen and the 300-dpi PDF.
+
+    Sizing invariant (§9.4): font.setPixelSize(TEXT_METRIC_REF_PX) gives a
+    large, high-precision reference size; setScale then maps cap-height units
+    to paper-mm units. NEVER setPointSizeF (DPI-dependent), NEVER
+    ItemIgnoresTransformations (pins to device px, breaks zoom + export).
+    """
+
+    delete_requested = pyqtSignal(object)
+    properties_requested = pyqtSignal(object)
+
+    _ALIGN = {
+        "L": Qt.AlignmentFlag.AlignLeft,
+        "C": Qt.AlignmentFlag.AlignCenter,
+        "R": Qt.AlignmentFlag.AlignRight,
+    }
+
+    def __init__(self, data: "TextAnnotationData", parent=None):
+        super().__init__(data.text, parent)
+        self._data = data
+        self._editing = False
+        self._text_before_edit = data.text
+        self._pos_at_press = None
+        self._wrap_at_press = None
+        self._resizing = False
+        self.setZValue(15)
+        self.setTransformOriginPoint(0, 0)
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges
+            | QGraphicsItem.GraphicsItemFlag.ItemIsFocusable
+        )
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setPos(data.x, data.y)
+        self._apply_format()
+
+    @property
+    def data(self) -> "TextAnnotationData":
+        """Shared-reference access to the underlying TextAnnotationData."""
+        return self._data
+
+    def _apply_format(self) -> None:
+        """Rebuild font, colour, alignment, scale, and wrap from self._data.
+
+        Recompute all display properties from the data object. Call whenever
+        any formatting attribute on the data changes.
+        """
+        d = self._data
+        f = QFont(d.font_family) if d.font_family else QFont("Arial")
+        f.setBold(d.bold)
+        f.setItalic(d.italic)
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        self.setFont(f)
+        self.setDefaultTextColor(QColor(d.color))
+        opt = self.document().defaultTextOption()
+        opt.setAlignment(self._ALIGN.get(d.align, Qt.AlignmentFlag.AlignLeft))
+        self.document().setDefaultTextOption(opt)
+        cap = QFontMetricsF(f).capHeight()
+        scale = d.height_mm / cap if cap > 0 else 1.0
+        self.setScale(scale)
+        if d.wrap_width_mm > 0:
+            self.setTextWidth(d.wrap_width_mm / scale)
+        else:
+            self.setTextWidth(-1)
+            self.setTextWidth(self.document().idealWidth())
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        """Paint the text block, with optional opaque-white knockout and focus frame.
+
+        Args:
+            painter: Active QPainter for the scene.
+            option: Style option (passed through to super).
+            widget: Optional target widget (passed through to super).
+        """
+        if self._data.opaque_bg:
+            painter.fillRect(self.boundingRect(), QColor("#ffffff"))
+        super().paint(painter, option, widget)
+        if self.hasFocus():
+            pen = QPen(QColor("#88aaff"))
+            pen.setStyle(Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(self.boundingRect())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
