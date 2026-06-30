@@ -3,6 +3,32 @@ from PyQt6.QtGui import QFontMetricsF
 from firepro3d.paper_space import TextAnnotationData, Sheet, TextAnnotationItem
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Task-6: _parse_text_height_mm + TextAnnotationPropertiesDialog
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_parse_text_height_bare_fraction():
+    from firepro3d.paper_space import _parse_text_height_mm
+    assert abs(_parse_text_height_mm('1/8"') - 3.175) < 0.01
+    assert abs(_parse_text_height_mm('3mm') - 3.0) < 1e-6
+    assert _parse_text_height_mm('garbage') is None
+
+
+def test_dialog_accessors_round_trip(qapp):
+    from firepro3d.paper_space import TextAnnotationPropertiesDialog
+    from firepro3d.scale_manager import ScaleManager
+    sm = ScaleManager()
+    data = TextAnnotationData(text="Hi", height_mm=3.175, color="#112233",
+                              bold=True, align="C", opaque_bg=True)
+    dlg = TextAnnotationPropertiesDialog(data, sm)
+    assert dlg.get_text() == "Hi"
+    assert dlg.get_bold() is True
+    assert dlg.get_alignment() == "C"
+    assert dlg.get_color() == "#112233"
+    assert dlg.get_opaque_bg() is True
+    assert abs(dlg.get_height_mm() - 3.175) < 0.01
+
+
 def test_text_annotation_data_round_trip():
     d = TextAnnotationData(
         text="GENERAL NOTES\n1. Comply with NFPA 13.",

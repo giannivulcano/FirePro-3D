@@ -19,12 +19,13 @@ import os
 import re
 from dataclasses import dataclass, field
 from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM
+from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
-    QMenu,
+    QMenu, QCheckBox, QColorDialog, QFontComboBox, QPlainTextEdit,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
 from PyQt6.QtGui import (
@@ -1061,7 +1062,6 @@ class SheetViewPropertiesDialog(QDialog):
             self._scale_combo.setCurrentText("1:100")
         layout.addRow("Scale:", self._scale_combo)
 
-        from PyQt6.QtWidgets import QCheckBox
         self._border_check = QCheckBox("Show Border")
         self._border_check.setChecked(data.show_border if data else True)
         layout.addRow("", self._border_check)
@@ -1115,6 +1115,170 @@ class SheetViewPropertiesDialog(QDialog):
         except ValueError:
             return (self._data.w, self._data.h)
         return (max(w, _MIN_VIEWPORT_SIZE), max(h, _MIN_VIEWPORT_SIZE))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TextAnnotationPropertiesDialog helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_text_height_mm(text: str) -> float | None:
+    """Parse a paper text height string to mm.
+
+    Delegates to ``ScaleManager.parse_dimension`` after pre-processing a bare
+    leading fraction such as ``1/8"`` (which parse_dimension rejects) by
+    inserting a ``0 `` prefix to produce ``0 1/8"``.
+
+    Args:
+        text: A dimension string, e.g. ``'1/8"'``, ``'3mm'``, ``'3.175 mm'``.
+
+    Returns:
+        The equivalent value in millimetres, or ``None`` if unparseable.
+    """
+    import re as _re
+    t = text.strip()
+    # Pre-process a bare leading fraction like "1/8"" → "0 1/8""
+    if _re.match(r'^\d+\s*/\s*\d+\s*"?$', t):
+        t = "0 " + t
+    return ScaleManager.parse_dimension(t, fallback_unit="mm")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TextAnnotationPropertiesDialog
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TextAnnotationPropertiesDialog(QDialog):
+    """Properties dialog for a sheet text annotation.
+
+    Mirrors ``SheetViewPropertiesDialog``: ``QFormLayout``, one row per field,
+    ``QDialogButtonBox(Ok|Cancel)``.  The caller reads values via ``get_*``
+    accessors and applies them through an undo command — **this dialog never
+    mutates the annotation directly** (§9.6).
+
+    Args:
+        data: The ``TextAnnotationData`` to pre-populate fields from.
+        sm: A ``ScaleManager`` instance used to format the height seed value.
+        parent: Optional parent widget.
+    """
+
+    def __init__(self, data: TextAnnotationData, sm: ScaleManager,
+                 parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Text Annotation Properties")
+        self._height_fallback = data.height_mm
+
+        layout = QFormLayout(self)
+
+        # ── Text ─────────────────────────────────────────────────────────────
+        self._text_edit = QPlainTextEdit(data.text)
+        self._text_edit.setMinimumHeight(80)
+        layout.addRow("Text:", self._text_edit)
+
+        # ── Font family ───────────────────────────────────────────────────────
+        self._font_combo = QFontComboBox()
+        if data.font_family:
+            self._font_combo.setCurrentFont(QFont(data.font_family))
+        layout.addRow("Font:", self._font_combo)
+
+        # ── Height ────────────────────────────────────────────────────────────
+        self._height_edit = QLineEdit(sm.format_length(data.height_mm))
+        self._height_edit.setPlaceholderText('e.g. 0 1/8" or 3.18mm')
+        layout.addRow("Height:", self._height_edit)
+
+        # ── Bold / Italic ─────────────────────────────────────────────────────
+        self._bold_check = QCheckBox("Bold")
+        self._bold_check.setChecked(data.bold)
+        layout.addRow("", self._bold_check)
+
+        self._italic_check = QCheckBox("Italic")
+        self._italic_check.setChecked(data.italic)
+        layout.addRow("", self._italic_check)
+
+        # ── Color swatch ──────────────────────────────────────────────────────
+        self._color_btn = QPushButton()
+        self._color_btn.setFixedSize(24, 24)
+        initial_color = data.color if data.color else "#000000"
+        self._color_btn.setProperty("_color_value", initial_color)
+        c = QColor(initial_color)
+        self._color_btn.setStyleSheet(
+            f"background: {c.name()}; border: 1px solid #888; border-radius: 2px;"
+        )
+        self._color_btn.clicked.connect(self._pick_color_slot)
+        layout.addRow("Color:", self._color_btn)
+
+        # ── Alignment ─────────────────────────────────────────────────────────
+        self._align_combo = QComboBox()
+        self._align_combo.addItems(["Left", "Center", "Right"])
+        _align_idx = {"L": 0, "C": 1, "R": 2}
+        self._align_combo.setCurrentIndex(_align_idx.get(data.align, 0))
+        layout.addRow("Alignment:", self._align_combo)
+
+        # ── Opaque background ─────────────────────────────────────────────────
+        self._opaque_check = QCheckBox("Opaque background")
+        self._opaque_check.setChecked(data.opaque_bg)
+        layout.addRow("", self._opaque_check)
+
+        # ── Buttons ───────────────────────────────────────────────────────────
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    # ── Color picker slot ─────────────────────────────────────────────────────
+
+    def _pick_color_slot(self):
+        """Open a colour dialog and update the swatch button."""
+        stored = self._color_btn.property("_color_value")
+        current = QColor(stored) if stored else QColor("#000000")
+        color = QColorDialog.getColor(current, self, "Pick a colour")
+        if color.isValid():
+            self._color_btn.setProperty("_color_value", color.name())
+            self._color_btn.setStyleSheet(
+                f"background: {color.name()}; "
+                f"border: 1px solid #888; border-radius: 2px;"
+            )
+
+    # ── Accessors (caller reads these; never mutates the annotation) ──────────
+
+    def get_text(self) -> str:
+        """Return the plain text content."""
+        return self._text_edit.toPlainText()
+
+    def get_font_family(self) -> str:
+        """Return the selected font family name."""
+        return self._font_combo.currentFont().family()
+
+    def get_height_mm(self) -> float:
+        """Parse the height field and return mm; on unrecognisable input returns original.
+
+        Returns:
+            Height in millimetres from the height field, or the original
+            ``data.height_mm`` when the field text cannot be parsed.
+        """
+        result = _parse_text_height_mm(self._height_edit.text())
+        return result if result is not None else self._height_fallback
+
+    def get_bold(self) -> bool:
+        """Return whether bold is checked."""
+        return self._bold_check.isChecked()
+
+    def get_italic(self) -> bool:
+        """Return whether italic is checked."""
+        return self._italic_check.isChecked()
+
+    def get_color(self) -> str:
+        """Return the selected colour as a hex string (e.g. ``'#ff0000'``)."""
+        return self._color_btn.property("_color_value") or "#000000"
+
+    def get_alignment(self) -> str:
+        """Return the alignment code: ``'L'``, ``'C'``, or ``'R'``."""
+        return ["L", "C", "R"][self._align_combo.currentIndex()]
+
+    def get_opaque_bg(self) -> bool:
+        """Return whether the opaque-background option is checked."""
+        return self._opaque_check.isChecked()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
