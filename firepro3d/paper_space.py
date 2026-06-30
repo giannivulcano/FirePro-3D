@@ -1426,6 +1426,18 @@ class PaperGraphicsView(QGraphicsView):
         self._add_text_mode = False
         self._add_text_btn = None
 
+        # Paper-space-scoped undo/redo bound to this view. WidgetWithChildren
+        # context keeps them from shadowing the model-space Ctrl+Z when a model
+        # tab is focused; the event() ShortcutOverride branch lets the keystroke
+        # reach these actions ahead of the window-scoped ribbon shortcut.
+        undo_act = scene.undo_stack.createUndoAction(self, "Undo")
+        redo_act = scene.undo_stack.createRedoAction(self, "Redo")
+        undo_act.setShortcut("Ctrl+Z")
+        redo_act.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
+        for a in (undo_act, redo_act):
+            a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            self.addAction(a)
+
         # Match Model_View navigation style
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
@@ -1455,6 +1467,20 @@ class PaperGraphicsView(QGraphicsView):
         from PyQt6.QtCore import QEvent
         if event.type() == QEvent.Type.ShortcutOverride:
             if event.key() == Qt.Key.Key_Delete:
+                event.accept()
+                return True
+            # Let the widget-scoped undo/redo actions win over the
+            # window-scoped ribbon Ctrl+Z/Y shortcut while the paper view
+            # has focus, mirroring the Key_Delete handling above.
+            mods = event.modifiers()
+            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            key = event.key()
+            if ctrl and (
+                key == Qt.Key.Key_Y
+                or (key == Qt.Key.Key_Z and not shift)
+                or (key == Qt.Key.Key_Z and shift)
+            ):
                 event.accept()
                 return True
         return super().event(event)
@@ -2221,8 +2247,19 @@ class PaperScene(QGraphicsScene):
         return list(self._viewports)
 
     def update_from_sheet(self, sheet: Sheet):
+        """Rebuild the scene for *sheet* and reset the undo history.
+
+        Loading a project (or starting a new one) swaps the backing sheet and
+        repopulates every item from persisted data. That repopulation must not
+        be undoable, so the paper-space undo stack is cleared once the scene is
+        rebuilt (paper-space spec §17.5).
+
+        Args:
+            sheet: The sheet whose persisted content becomes the new scene.
+        """
         self._sheet = sheet
         self._setup()
+        self._undo_stack.clear()
 
     def _update_scale_field(self):
         self._sheet.title_block_fields["Scale"] = _compute_scale_field(self._sheet)

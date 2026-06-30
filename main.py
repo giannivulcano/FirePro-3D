@@ -1147,11 +1147,11 @@ class MainWindow(QMainWindow):
         g_edit = manage_page.add_group("Edit")
         _btn = g_edit.add_large_button(
             "Undo", _I("undo_icon.svg"),
-            self.scene.undo, shortcut="Ctrl+Z")
+            self._dispatch_undo, shortcut="Ctrl+Z")
         _btn.setToolTip("Undo last action [Ctrl+Z]")
         _btn = g_edit.add_large_button(
             "Redo", _I("redo_icon.svg"),
-            self.scene.redo, shortcut="Ctrl+Y")
+            self._dispatch_redo, shortcut="Ctrl+Y")
         _btn.setToolTip("Redo last undone action [Ctrl+Y]")
 
         # --- Project Tools ---
@@ -1396,9 +1396,9 @@ class MainWindow(QMainWindow):
 
         # --- Edit ---
         g_medit = modify_page.add_group("Edit")
-        _btn = g_medit.add_large_button("Undo", _I("undo_icon.svg"), self.scene.undo)
+        _btn = g_medit.add_large_button("Undo", _I("undo_icon.svg"), self._dispatch_undo)
         _btn.setToolTip("Undo last action [Ctrl+Z]")
-        _btn = g_medit.add_large_button("Redo", _I("redo_icon.svg"), self.scene.redo)
+        _btn = g_medit.add_large_button("Redo", _I("redo_icon.svg"), self._dispatch_redo)
         _btn.setToolTip("Redo last undone action [Ctrl+Y / Ctrl+Shift+Z]")
         self._btn_delete = g_medit.add_large_button(
             "Delete", _I("delete_icon.svg"),
@@ -2554,6 +2554,31 @@ class MainWindow(QMainWindow):
             return False
         return True
 
+    def _dispatch_undo(self):
+        """Route undo to the active tab's undo stack.
+
+        Paper-space sheets own a per-scene QUndoStack; every other tab shares
+        the model-space scene's undo system. Dispatching on the current central
+        tab keeps the ribbon Undo button tab-aware without disturbing
+        model-space behaviour.
+        """
+        w = self.central_tabs.currentWidget()
+        if isinstance(w, PaperSpaceWidget):
+            w.paper_scene.undo_stack.undo()
+        else:
+            self.scene.undo()
+
+    def _dispatch_redo(self):
+        """Route redo to the active tab's undo stack.
+
+        Mirror of :meth:`_dispatch_undo` for the ribbon Redo button.
+        """
+        w = self.central_tabs.currentWidget()
+        if isinstance(w, PaperSpaceWidget):
+            w.paper_scene.undo_stack.redo()
+        else:
+            self.scene.redo()
+
     def new_file(self):
         """Clear the scene and start a fresh project."""
         if not self._ask_save_changes("starting a new project"):
@@ -2576,6 +2601,13 @@ class MainWindow(QMainWindow):
         self.scene._undo_stack = []
         self.scene._undo_pos = -1
         self.scene.push_undo_state()
+
+        # Reset the paper sheet to a blank default and rebuild the paper scene
+        # (same swap mechanism as _load_project). update_from_sheet() clears the
+        # paper-space undo stack, so the fresh sheet starts with no history.
+        self._sheet = Sheet.create_default()
+        self.scene._sheets = [self._sheet]
+        self.paper_space_widget.paper_scene.update_from_sheet(self._sheet)
 
         self._modified = False
         self._update_title()

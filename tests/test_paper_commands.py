@@ -399,3 +399,14 @@ def test_viewport_properties_explicit_size_overrides_scale(qapp, monkeypatch):
     assert scene.undo_stack.count() == 1
     assert data.w == pytest.approx(123.0)   # explicit override, NOT 200.0
     assert data.h == pytest.approx(45.0)
+
+
+def test_update_from_sheet_clears_undo_stack(qapp):
+    """Loading a sheet via update_from_sheet wipes the undo history (§17.5)."""
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    scene._undo_stack.push(
+        AddTextAnnotationCommand(scene, TextAnnotationData(text="X", x=1, y=1)))
+    assert scene._undo_stack.count() > 0
+    scene.update_from_sheet(Sheet.create_default())
+    assert scene._undo_stack.count() == 0
+    assert not scene._undo_stack.canUndo()
