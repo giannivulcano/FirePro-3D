@@ -800,9 +800,10 @@ class TextAnnotationItem(QGraphicsTextItem):
         opt.setAlignment(self._ALIGN.get(d.align, Qt.AlignmentFlag.AlignLeft))
         self.document().setDefaultTextOption(opt)
         cap = QFontMetricsF(f).capHeight()
-        scale = d.height_mm / cap if cap > 0 else 1.0
+        h = d.height_mm if d.height_mm > 0 else DEFAULT_TEXT_HEIGHT_MM
+        scale = h / cap if cap > 0 else 1.0
         self.setScale(scale)
-        if d.wrap_width_mm > 0:
+        if d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
         else:
             self.setTextWidth(-1)
@@ -1222,6 +1223,7 @@ class TextAnnotationPropertiesDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Text Annotation Properties")
         self._height_fallback = data.height_mm
+        self._height_seed_text = sm.format_length(data.height_mm)
 
         layout = QFormLayout(self)
 
@@ -1308,14 +1310,19 @@ class TextAnnotationPropertiesDialog(QDialog):
         return self._font_combo.currentFont().family()
 
     def get_height_mm(self) -> float:
-        """Parse the height field and return mm; on unrecognisable input returns original.
+        """Return the height in mm from the field.
 
-        Returns:
-            Height in millimetres from the height field, or the original
-            ``data.height_mm`` when the field text cannot be parsed.
+        If the field is untouched (still equal to the seeded text) the exact
+        stored height is returned, avoiding imperial round-trip precision loss
+        (e.g. 3/16" would otherwise re-parse to 1/4"). Blank, unparseable, or
+        non-positive input keeps the original ``data.height_mm`` so a note can
+        never be given a zero/negative height.
         """
-        result = _parse_text_height_mm(self._height_edit.text())
-        return result if result is not None else self._height_fallback
+        text = self._height_edit.text()
+        if text.strip() == self._height_seed_text.strip():
+            return self._height_fallback
+        result = _parse_text_height_mm(text)
+        return result if (result is not None and result > 0) else self._height_fallback
 
     def get_bold(self) -> bool:
         """Return whether bold is checked."""

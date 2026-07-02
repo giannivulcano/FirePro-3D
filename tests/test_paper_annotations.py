@@ -120,6 +120,36 @@ def test_item_escape_reverts_text(qapp):
     assert scene._editing_item is None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Smoke-test defect: ZeroDivisionError when height_mm == 0 (+ imperial precision)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_apply_format_survives_zero_height(qapp):
+    # height 0 + a wrap width previously divided by a zero scale -> crash
+    item = TextAnnotationItem(
+        TextAnnotationData(text="x", height_mm=0.0, wrap_width_mm=50.0))
+    assert item.scale() > 0            # clamped to a sane default, no ZeroDivisionError
+
+
+def test_dialog_get_height_rejects_zero(qapp):
+    from firepro3d.paper_space import TextAnnotationPropertiesDialog
+    from firepro3d.scale_manager import ScaleManager
+    sm = ScaleManager()
+    dlg = TextAnnotationPropertiesDialog(TextAnnotationData(height_mm=4.7625), sm)
+    dlg._height_edit.setText("0")
+    assert dlg.get_height_mm() == 4.7625   # non-positive rejected -> keep original
+
+
+def test_dialog_get_height_unchanged_keeps_exact(qapp):
+    from firepro3d.paper_space import TextAnnotationPropertiesDialog
+    from firepro3d.scale_manager import ScaleManager, DisplayUnit
+    sm = ScaleManager()
+    sm._display_unit = DisplayUnit.IMPERIAL   # 4.7625mm would round-trip to 6.35
+    dlg = TextAnnotationPropertiesDialog(TextAnnotationData(height_mm=4.7625), sm)
+    # untouched field -> exact stored mm, no imperial round-trip precision loss
+    assert dlg.get_height_mm() == 4.7625
+
+
 def test_sheet_without_annotations_key_loads_empty():
     base = Sheet.create_default().to_dict()
     base.pop("annotations", None)
