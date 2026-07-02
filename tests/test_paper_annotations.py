@@ -42,12 +42,82 @@ def test_text_annotation_data_round_trip():
 
 
 def test_text_annotation_data_partial_dict_defaults():
+    from firepro3d.constants import DEFAULT_TEXT_HEIGHT_MM
     out = TextAnnotationData.from_dict({"text": "X"})
     assert out.text == "X"
-    assert out.height_mm == 3.175
+    assert out.height_mm == DEFAULT_TEXT_HEIGHT_MM
     assert out.color == "#000000"
     assert out.align == "L"
     assert out.wrap_width_mm == 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Smoke-test defect fixes: undo keyboard dispatch (#7) + Esc while editing (#2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_view_keypress_ctrl_z_undoes(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt
+    from firepro3d.paper_space import PaperScene, PaperGraphicsView
+    from firepro3d.paper_commands import AddTextAnnotationCommand
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    view = PaperGraphicsView(scene)
+    scene._undo_stack.push(
+        AddTextAnnotationCommand(scene, TextAnnotationData(text="U", x=1, y=1)))
+    assert len(scene.get_annotations()) == 1
+    view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
+                                 Qt.KeyboardModifier.ControlModifier))
+    assert scene.get_annotations() == []
+    view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Y,
+                                 Qt.KeyboardModifier.ControlModifier))
+    assert len(scene.get_annotations()) == 1
+
+
+def test_view_keypress_ctrl_z_ignored_while_editing(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt
+    from firepro3d.paper_space import PaperScene, PaperGraphicsView
+    from firepro3d.paper_commands import AddTextAnnotationCommand
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    view = PaperGraphicsView(scene)
+    scene._undo_stack.push(
+        AddTextAnnotationCommand(scene, TextAnnotationData(text="U", x=1, y=1)))
+    item = scene.get_annotations()[0]
+    item.begin_edit()
+    view.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
+                                 Qt.KeyboardModifier.ControlModifier))
+    assert len(scene.get_annotations()) == 1   # editor undo, not stack undo
+
+
+def test_view_accepts_escape_override_only_while_editing(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt
+    from firepro3d.paper_space import PaperScene, PaperGraphicsView
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    view = PaperGraphicsView(scene)
+    item = scene.add_annotation(TextAnnotationData(text="Hi", x=2, y=2))
+    item.begin_edit()
+    assert scene._editing_item is item
+    ev = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_Escape,
+                   Qt.KeyboardModifier.NoModifier)
+    assert view.event(ev) is True
+    assert ev.isAccepted()
+
+
+def test_item_escape_reverts_text(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.add_annotation(TextAnnotationData(text="Original", x=1, y=1))
+    item.begin_edit()
+    item.setPlainText("Changed")
+    item.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                 Qt.KeyboardModifier.NoModifier))
+    assert item.toPlainText() == "Original"
+    assert item._data.text == "Original"
+    assert item._editing is False
+    assert scene._editing_item is None
 
 
 def test_sheet_without_annotations_key_loads_empty():

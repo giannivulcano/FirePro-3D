@@ -858,6 +858,9 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._text_before_edit = self._data.text
         self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setFocus(Qt.FocusReason.MouseFocusReason)
+        sc = self.scene()
+        if sc is not None:
+            sc._editing_item = self
 
     def commit_edit(self) -> str:
         """Commit the edited text into data and exit edit mode.
@@ -866,6 +869,9 @@ class TextAnnotationItem(QGraphicsTextItem):
             The committed plain-text string (may be empty/whitespace).
         """
         self._editing = False
+        sc = self.scene()
+        if sc is not None and getattr(sc, "_editing_item", None) is self:
+            sc._editing_item = None
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         new_text = self.toPlainText()
         self._data.text = new_text
@@ -881,13 +887,15 @@ class TextAnnotationItem(QGraphicsTextItem):
         empty for a fresh placement, so commit_place_text() will auto-discard.
         """
         self._editing = False
+        scene = self.scene()
+        if scene is not None and getattr(scene, "_editing_item", None) is self:
+            scene._editing_item = None
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setPlainText(self._text_before_edit)
         self._data.text = self._text_before_edit
         self._apply_format()
         # Esc during place-mode: route through commit_place_text so the
         # transient item is removed and nothing is left tracked.
-        scene = self.scene()
         if scene is not None and getattr(scene, "_pending_text", None) is self:
             scene.commit_place_text(self)
 
@@ -1426,17 +1434,11 @@ class PaperGraphicsView(QGraphicsView):
         self._add_text_mode = False
         self._add_text_btn = None
 
-        # Paper-space-scoped undo/redo bound to this view. WidgetWithChildren
-        # context keeps them from shadowing the model-space Ctrl+Z when a model
-        # tab is focused; the event() ShortcutOverride branch lets the keystroke
-        # reach these actions ahead of the window-scoped ribbon shortcut.
-        undo_act = scene.undo_stack.createUndoAction(self, "Undo")
-        redo_act = scene.undo_stack.createRedoAction(self, "Redo")
-        undo_act.setShortcut("Ctrl+Z")
-        redo_act.setShortcuts(["Ctrl+Y", "Ctrl+Shift+Z"])
-        for a in (undo_act, redo_act):
-            a.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-            self.addAction(a)
+        # Paper-space undo/redo is dispatched directly in keyPressEvent
+        # (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z). A QAction shortcut cannot be used:
+        # event() must accept the ShortcutOverride for those keys to beat the
+        # window-scoped ribbon Ctrl+Z, which suppresses any QAction shortcut and
+        # delivers the keystroke as a plain KeyPress — so keyPressEvent handles it.
 
         # Match Model_View navigation style
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
@@ -1469,23 +1471,39 @@ class PaperGraphicsView(QGraphicsView):
             if event.key() == Qt.Key.Key_Delete:
                 event.accept()
                 return True
-            # Let the widget-scoped undo/redo actions win over the
-            # window-scoped ribbon Ctrl+Z/Y shortcut while the paper view
-            # has focus, mirroring the Key_Delete handling above.
-            mods = event.modifiers()
-            ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
-            key = event.key()
-            if ctrl and (
-                key == Qt.Key.Key_Y
-                or (key == Qt.Key.Key_Z and not shift)
-                or (key == Qt.Key.Key_Z and shift)
-            ):
+            # While a note is being inline-edited, keep Escape for the editor
+            # (cancel_edit); otherwise the window-level QShortcut("Escape") in
+            # MainWindow steals it. Same reason Delete is accepted above.
+            if (event.key() == Qt.Key.Key_Escape
+                    and getattr(self._paper_scene, "_editing_item", None) is not None):
+                event.accept()
+                return True
+            # Deliver Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z as a plain KeyPress to
+            # keyPressEvent (which dispatches to the paper undo stack) instead of
+            # letting the window-scoped ribbon Ctrl+Z/Y shortcut fire.
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and event.key() in (Qt.Key.Key_Z, Qt.Key.Key_Y)):
                 event.accept()
                 return True
         return super().event(event)
 
     def keyPressEvent(self, event):
+        # Paper undo/redo — only when NOT inline-editing a note, so the text
+        # editor's own Ctrl+Z isn't hijacked. Handled here rather than via a
+        # QAction because event() accepts the ShortcutOverride for these keys.
+        mods = event.modifiers()
+        if (mods & Qt.KeyboardModifier.ControlModifier
+                and getattr(self._paper_scene, "_editing_item", None) is None):
+            shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+            key = event.key()
+            if key == Qt.Key.Key_Z and not shift:
+                self._paper_scene.undo_stack.undo()
+                event.accept()
+                return
+            if key == Qt.Key.Key_Y or (key == Qt.Key.Key_Z and shift):
+                self._paper_scene.undo_stack.redo()
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_Delete:
             scene = self._paper_scene
             selected = [item for item in scene.selectedItems()
@@ -2036,6 +2054,7 @@ class PaperScene(QGraphicsScene):
         self._field_overlay = None
         self._viewports: list[SheetViewport] = []
         self._annotations: list[TextAnnotationItem] = []
+        self._editing_item = None  # TextAnnotationItem currently in inline edit
         self._pending_text: "TextAnnotationItem | None" = None
         self._undo_stack = QUndoStack(self)
         self._applying_command = False
