@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step (PDF export + print) are built. **Sheet text annotations + a unified paper-space undo/redo stack were designed 2026-06-26 and are in build this cycle — see §9 and §17 (those two sections are the contract for unbuilt code until Phase 6 stamps them).** Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending.
-**Last verified:** 2026-06-25 (built behavior; §9/§17 are design-ahead-of-code)
-**Verified commit:** 2c6b9fb
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9) + the unified paper-space undo/redo stack (§17)** are built. Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; the text Properties dialog is slated to be replaced by the right-side property panel (follow-up).
+**Last verified:** 2026-07-02
+**Verified commit:** d61b6ea
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (new — undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
@@ -134,7 +134,7 @@ TextAnnotationData:
   text: str          = ""          # raw multi-line string ("\n"-separated)
   x: float           = 0.0         # anchor = item top-left, paper mm (1 PaperScene unit = 1 mm)
   y: float           = 0.0
-  height_mm: float   = DEFAULT_TEXT_HEIGHT_MM   # CAP height; default 3.175 mm (1/8"), in constants.py
+  height_mm: float   = DEFAULT_TEXT_HEIGHT_MM   # CAP height; default 4.7625 mm (3/16"), in constants.py
   wrap_width_mm: float = 0.0       # 0 = auto-width to longest line; >0 = word-wrap at this paper width
   font_family: str   = ""          # "" => Arial default; else QFontDatabase family
   bold: bool         = False
@@ -288,7 +288,7 @@ When a sheet has one sheet view, its scale propagates to the title block Scale f
 
 ## 9. Annotations & Labels
 
-### 9.1 Sheet Text Annotations [in build this cycle — 2026-06-26]
+### 9.1 Sheet Text Annotations [built 2026-07-02]
 
 Free-placed **multi-line text blocks** are the MVP annotation type and the last piece of the paper-space AHJ deliverable. They are `QGraphicsItem`s added directly to `PaperScene`, exist only on the sheet (never in model space or model data), and serialize in the sheet's `annotations` array (§5.3).
 
@@ -326,7 +326,7 @@ An **"Add Text"** button on the `PaperSpaceWidget` toolbar enters place-mode; a 
 
 ### 9.6 Properties Dialog — `TextAnnotationPropertiesDialog`
 
-Mirrors `SheetViewPropertiesDialog`: `QDialog` + `QFormLayout`, `QDialogButtonBox(Ok|Cancel)`, values pulled post-`exec()` via `get_*` accessors — **the caller applies the change through an undo command; the dialog never mutates the item.** Rows: multi-line text editor, `QFontComboBox` (family), height, bold, italic, color swatch (`property_manager._pick_color` idiom, `#000000` default, cancel-guarded), alignment combo, opaque-background checkbox. The height field seeds via `ScaleManager.format_length(height_mm)` and reads back via `ScaleManager.parse_dimension(text, fallback_unit="mm")` — `fallback_unit` is forced to `"mm"` (not `bare_number_unit()`, which is `ft` in imperial); a bare leading fraction (`1/8"`) is pre-processed (insert a leading `0 `) so it parses, with placeholder `e.g. 0 1/8" or 3.18mm`; on `None` the old height is kept. Height display follows the model-space unit setting.
+Mirrors `SheetViewPropertiesDialog`: `QDialog` + `QFormLayout`, `QDialogButtonBox(Ok|Cancel)`, values pulled post-`exec()` via `get_*` accessors — **the caller applies the change through an undo command; the dialog never mutates the item.** Rows: multi-line text editor, `QFontComboBox` (family), height, bold, italic, color swatch (`property_manager._pick_color` idiom, `#000000` default, cancel-guarded), alignment combo, opaque-background checkbox. The height field seeds via `ScaleManager.format_length(height_mm)` and reads back via `ScaleManager.parse_dimension(text, fallback_unit="mm")` — `fallback_unit` is forced to `"mm"` (not `bare_number_unit()`, which is `ft` in imperial); a bare leading fraction (`1/8"`) is pre-processed (insert a leading `0 `) so it parses, with placeholder `e.g. 0 1/8" or 3.18mm`. On blank/unparseable/**non-positive** input, or when the field is **untouched**, the exact stored `height_mm` is kept — the latter avoids imperial round-trip precision loss (`format_length` rounds 3/16"→1/4" at 1/8" resolution) and the former guarantees a note can never be given a zero height (a zero would divide-by-zero in `_apply_format`'s wrap-scale). Height display follows the model-space unit setting.
 
 ### 9.7 Color & B&W Independence
 
@@ -564,7 +564,7 @@ A unified, **paper-space-scoped**, session-only undo/redo stack covering the new
 
 ### 17.2 Command set
 
-Viewport: `AddViewportCommand`, `RemoveViewportCommand`, `ViewportGeometryCommand` (move **and** resize, `mergeWith`/`id()` to collapse a drag), `ChangeViewportPropertiesCommand` (title/show_border/scale + derived w,h). Text: `AddTextAnnotationCommand` (pushed only on the first non-empty commit), `DeleteTextAnnotationCommand`, `TextGeometryCommand` (move **and** wrap-resize, `mergeWith`), `EditTextCommand`, `FormatTextCommand`.
+Viewport: `AddViewportCommand`, `RemoveViewportCommand`, `ViewportGeometryCommand` (move **and** resize), `ChangeViewportPropertiesCommand` (title/show_border/scale + derived w,h). Text: `AddTextAnnotationCommand` (pushed only on the first non-empty commit; on emptying an existing block it restores the original text so undo brings it back intact), `DeleteTextAnnotationCommand`, `MoveTextAnnotationCommand`, `WrapResizeTextCommand`, `EditTextCommand`, `FormatTextCommand`. *(As-built: move and wrap-resize are two separate commands, not one merged `TextGeometryCommand`; no `mergeWith`/`id()` is needed because each drag captures geometry at mouse-press and pushes exactly one command at release. Commands key on persistent `SheetViewData`/`TextAnnotationData` **identity** — the sheet-list membership/removal is identity-based, so two value-identical annotations stay distinct.)*
 
 ### 17.3 Gesture capture
 
