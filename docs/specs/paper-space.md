@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step (PDF export + print) are built; batch/multi-sheet UI and annotations (Phase 2) are pending.
-**Last verified:** 2026-06-25
-**Verified commit:** 2c6b9fb
-**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9) + the unified paper-space undo/redo stack (§17)** are built. Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; the text Properties dialog is slated to be replaced by the right-side property panel (follow-up).
+**Last verified:** 2026-07-02
+**Verified commit:** d61b6ea
+**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (new — undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
 
@@ -38,7 +38,7 @@ Fire protection engineers design in model space but deliver paper documents. Wit
   - *Constraints* (dimensional, parametric): filtered out, never render on sheets
   - *Annotations* (text, leaders, revision clouds): paper-space-only items, do not exist in model space
 - **Dirty-flag update model.** Source scenes emit `changed` signal → sheet views mark dirty → re-render only on next paint.
-- **View-only interaction.** No picking or editing through sheet views. Double-click or right-click "Go to View" navigates to the source model view.
+- **View-only interaction with *model geometry*.** Model entities are never picked or edited *through* a viewport — double-click / right-click "Go to View" navigates to the source. Sheet-native items (the viewports themselves, and sheet text annotations — §9) are directly selectable, movable, and editable on the sheet; that is sheet authoring, not model editing.
 - **Existing patterns preserved.** Serialization follows the `to_dict()`/`from_dict()` pattern. Title block 3-tier fallback (DXF → PDF → programmatic) retained and extended.
 
 ## 4. Design Decisions
@@ -83,6 +83,14 @@ Each sheet view can independently show or hide any layer, overriding the source 
 
 Different sheets can have different paper sizes. Typical FP set: ANSI D for plans, ANSI B for details, Letter for cover/schedules.
 
+### 4.11 Sheet Text Is a Purpose-Built Item, Not a Reused Model-Space Note
+
+`TextAnnotationItem` (§9.3) is a **new** `QGraphicsTextItem` subclass, **not** the model-space `NoteAnnotation`. `NoteAnnotation` sizes in **points** (DPI-dependent → ~2.4× oversize in the 300-dpi PDF, and it cannot express a fractional paper-mm height), defaults to **white** (invisible on paper), and carries model-space coupling (`level`, the `Layer` enum, Model_View grips). Reusing or subclassing it imports the wrong sizing model plus dead baggage and binds two subsystems by inheritance (violating the arm's-length-module invariant). Instead the new item reuses *patterns* — the `SheetViewport` lifecycle (shared `_data`, signals, `itemChange` sync, deferred delete) and `HatchItem`'s `to_dict`/`from_dict` — but owns its sizing (`setPixelSize` + cap-height `setScale`, §9.4) and serialization. *Latent follow-up:* the existing `TitleBlockItem` / viewport view-title point-size text carries the same ~2.4× PDF over-sizing and is fixed separately.
+
+### 4.12 Paper-Space Undo Is a `QUndoStack`, Not a Snapshot
+
+Paper-space ops are small, discrete, individually-serializable placed items, so a `QUndoStack` with per-op `QUndoCommand`s (free redo, command labels, action enable/disable, per-command unit tests) is the right tool — versus the model-space whole-network dict snapshot (`_capture_network`/`_restore_network`), which is justified there only by deep node↔pipe↔constraint interconnection that paper space lacks (`_capture_network` never even captures `_sheets`). A snapshot here would `clear()`+rebuild the entire sheet (re-parsing the DXF title block, re-rendering every viewport) on every trivial undo — flicker plus a perf regression. See §17.
+
 ## 5. Data Model & Serialization
 
 ### 5.1 Sheet Data Structure
@@ -118,13 +126,25 @@ SheetViewData:
 
 ### 5.3 Annotation Data
 
+MVP ships a single annotation type — **text** — as a typed dataclass (`TextAnnotationData`), serialized in the sheet's `annotations` array. The `type` discriminator reserves the array for the deferred types (§9.1, §17); when they land they get their own dataclasses dispatched on `type`. `to_dict`/`from_dict` mirror `SheetViewData` / `HatchItem` (`.get`-defaulted) — the **data** class owns serialization, not the item.
+
 ```
-AnnotationData:
-  type: str                 # "text" | "leader" | "line" | "rectangle" |
-                            # "revision_cloud" | "north_arrow" | "scale_bar"
-  geometry: dict            # type-specific position/shape data
-  properties: dict          # type-specific styling (font, color, etc.)
+TextAnnotationData:
+  type: str          = "text"      # discriminator for future annotation types
+  text: str          = ""          # raw multi-line string ("\n"-separated)
+  x: float           = 0.0         # anchor = item top-left, paper mm (1 PaperScene unit = 1 mm)
+  y: float           = 0.0
+  height_mm: float   = DEFAULT_TEXT_HEIGHT_MM   # CAP height; default 4.7625 mm (3/16"), in constants.py
+  wrap_width_mm: float = 0.0       # 0 = auto-width to longest line; >0 = word-wrap at this paper width
+  font_family: str   = ""          # "" => Arial default; else QFontDatabase family
+  bold: bool         = False
+  italic: bool       = False
+  color: str         = "#000000"   # authored hex; default BLACK
+  align: str         = "L"         # 'L' | 'C' | 'R'
+  opaque_bg: bool    = False       # paint a solid-white knockout rect behind the glyphs
 ```
+
+`Sheet.annotations: list[TextAnnotationData]` is the persistent, shared-by-reference source of truth (the item holds it, never copies — exactly like `SheetViewData`↔`SheetViewport`). Backward-compat: `Sheet.from_dict` reads `d.get("annotations", [])`, so pre-feature `.fpd` files load with an empty list (no `SAVE_VERSION` bump, consistent with how `sheet_views` was added).
 
 ### 5.4 Revision Entry
 
@@ -268,22 +288,55 @@ When a sheet has one sheet view, its scale propagates to the title block Scale f
 
 ## 9. Annotations & Labels
 
-### 9.1 Paper-Space Annotations [Phase 2]
+### 9.1 Sheet Text Annotations [built 2026-07-02]
 
-Annotations are `QGraphicsItem` subclasses added directly to `PaperScene`. They exist only on the sheet — not in model space, not in the project's model data. They serialize in the sheet's `annotations` array.
+Free-placed **multi-line text blocks** are the MVP annotation type and the last piece of the paper-space AHJ deliverable. They are `QGraphicsItem`s added directly to `PaperScene`, exist only on the sheet (never in model space or model data), and serialize in the sheet's `annotations` array (§5.3).
 
-| Type | Description |
-|------|-------------|
-| Text | Multi-line text block with font, size, alignment, color |
-| Leader | Arrow + landing line + text callout |
-| Line / Rectangle | Simple geometry for markup |
-| Revision cloud | Arc-segment boundary around changed areas, linked to a revision entry |
-| North arrow | Symbol, fixed set of built-in styles |
-| Scale bar | Graphic scale bar, auto-sized from sheet view scale |
+| Type | Status |
+|------|--------|
+| **Text** (multi-line, font/height/bold/italic/color/alignment/opaque-bg) | **Built this cycle** |
+| Leader · Line / Rectangle · Revision cloud · North arrow · Scale bar | Deferred (§17) |
+| Legends / schedules | A separate Revit-style **placed-table** feature (built elsewhere, dropped on a sheet like a viewport) — *not* a text annotation |
 
-**Future annotation types** [Phase 3]: Schedules/tables, legends, imported images (logos, site photos), symbol blocks.
+The `type` discriminator on `TextAnnotationData` reserves the `annotations` array for the deferred types.
 
-### 9.2 Model-Space Labels [Phase 2]
+### 9.2 Text Annotation Data
+
+Defined in §5.3. Key contracts: `height_mm` is **cap height** (matches the AutoCAD/Revit "text height" convention); `wrap_width_mm == 0` means auto-width (no wrap), `> 0` means word-wrap at that paper width; default color is black; serialization is `.get`-defaulted on the **data** class.
+
+### 9.3 Text Annotation Item — `TextAnnotationItem(QGraphicsTextItem)`
+
+Purpose-built (§4.11); holds its `TextAnnotationData` by **shared reference** (mirrors `SheetViewport`↔`SheetViewData`). Flags `ItemIsMovable | ItemIsSelectable | ItemSendsGeometryChanges | ItemIsFocusable`.
+
+- **Sizing (invariant, §9.4):** `font.setPixelSize(_TEXT_METRIC_REF)` + `setScale(height_mm / QFontMetricsF(font).capHeight())`, `transformOrigin = (0, 0)`. **Never** `setPointSizeF`; **never** `ItemIgnoresTransformations`.
+- **Width / wrap:** `wrap_width_mm == 0` → `setTextWidth(-1)` (auto-size; alignment uses `idealWidth`); `> 0` → `setTextWidth(wrap_width_mm / scale)` (paper-mm → unscaled local units). A horizontal **resize grip** drawn on the right edge while selected drags `wrap_width_mm` (min-width clamp; hit-test/clamp via `sceneBoundingRect`/`mapToScene`, since `boundingRect` is unscaled).
+- **Inline edit:** double-click → `setTextInteractionFlags(TextEditorInteraction)`; **Enter inserts a newline**; focus-out commits; **Esc reverts** to the pre-edit text; committing empty/whitespace content auto-deletes the block.
+- **Paint:** if `opaque_bg`, a solid-white knockout `fillRect(boundingRect())` *before* `super().paint()`; a dashed `#88aaff` cosmetic focus frame while editing. **`zValue = 15`** — above viewports (z=5) and the title block (z=10), so text is never occluded.
+- **Move / clamp:** `itemChange` clamps the proposed anchor into the paper rect on `ItemPositionChange` and live-syncs `x/y` into the data on `ItemPositionHasChanged` (mirrors `SheetViewport`). Delete key removes the block when selected, but deletes a character while editing.
+
+Dropped from `NoteAnnotation`: white default, `level`, `Layer` enum, `grip_points`/`apply_grip`, integer `setPointSize`.
+
+### 9.4 Paper-Fixed mm Sizing (the invariant)
+
+Text height is a real paper millimetre — identical on the 96-dpi screen and in the 300-dpi PDF/print — achieved with a **device-independent pixel-size font + geometric `setScale`** (§9.3), not a point size. Point sizes are DPI-dependent and render ~2.4× oversize through `paper_export` (`QPdfWriter.setResolution(300)` vs the 96-dpi screen); this is the same latent bug the existing title block / view-titles carry (§4.11 follow-up). Precedent: `model_space.py` dimension text already sizes via `setPixelSize`. `_TEXT_METRIC_REF` is a large constant (e.g. 1000) so `QFontMetricsF` is precise; recompute the scale only on a height/family/bold/italic change, not per paint.
+
+### 9.5 Authoring Interactions
+
+An **"Add Text"** button on the `PaperSpaceWidget` toolbar enters place-mode; a click on the sheet drops a *transient* item already in inline edit. The first non-empty commit pushes an `AddTextAnnotation` command; an empty or Esc-cancelled placement discards silently (nothing on the undo stack). Existing blocks: double-click → inline edit; drag → move (anchor clamped to the paper rect); right-click → **Properties…**; `Delete` → remove when selected (a character while editing). Event-driven deletes defer via `QTimer.singleShot` (no reentrant destruction), mirroring viewport delete.
+
+### 9.6 Properties Dialog — `TextAnnotationPropertiesDialog`
+
+Mirrors `SheetViewPropertiesDialog`: `QDialog` + `QFormLayout`, `QDialogButtonBox(Ok|Cancel)`, values pulled post-`exec()` via `get_*` accessors — **the caller applies the change through an undo command; the dialog never mutates the item.** Rows: multi-line text editor, `QFontComboBox` (family), height, bold, italic, color swatch (`property_manager._pick_color` idiom, `#000000` default, cancel-guarded), alignment combo, opaque-background checkbox. The height field seeds via `ScaleManager.format_length(height_mm)` and reads back via `ScaleManager.parse_dimension(text, fallback_unit="mm")` — `fallback_unit` is forced to `"mm"` (not `bare_number_unit()`, which is `ft` in imperial); a bare leading fraction (`1/8"`) is pre-processed (insert a leading `0 `) so it parses, with placeholder `e.g. 0 1/8" or 3.18mm`. On blank/unparseable/**non-positive** input, or when the field is **untouched**, the exact stored `height_mm` is kept — the latter avoids imperial round-trip precision loss (`format_length` rounds 3/16"→1/4" at 1/8" resolution) and the former guarantees a note can never be given a zero height (a zero would divide-by-zero in `_apply_format`'s wrap-scale). Height display follows the model-space unit setting.
+
+### 9.7 Color & B&W Independence
+
+Authored color and the opaque-background fill plot **as authored, independent of the viewport B&W override** — automatically, because a `TextAnnotationItem` is a direct `PaperScene` child and is never inside the `SheetViewport` source-render that `paper_display.apply_paper_overrides` mutates (and `_category_for_item` returns `None` for it regardless). Default color is black, so a normal plot is all-black; a deliberately-colored note plots in its color. *(Follow-up: expose paper-space text as a Display-Manager category for project-level color / background customization.)*
+
+### 9.8 Persistence & Export
+
+Annotations round-trip via `Sheet.to_dict`/`from_dict` under the `"sheets"` key — **no `scene_io.py` or `paper_export.py` changes.** Export/print are free because `PaperScene._setup` rebuilds annotation items from `Sheet.annotations`, and the transient export scene (`paper_export.render_sheet`) reuses `_setup`. **Invariant:** `Sheet.annotations` is authoritative — every move/edit/format/wrap-resize writes through to the data object **live** (export and print read the dataclass, not the live items, and do *not* call `_sync_sheet_before_save`), exactly as `SheetViewData` stays current via `SheetViewport.itemChange`.
+
+### 9.9 Model-Space Labels [Phase 2 — pending]
 
 Labels are existing model-space items (room names, pipe sizes, node IDs, gridline bubbles) that render through sheet views. They gain a `paper_height_mm` property — the height they should appear at on paper.
 
@@ -291,7 +344,7 @@ Labels are existing model-space items (room names, pipe sizes, node IDs, gridlin
 - **Model-space editing (thin-lines ON, default):** Labels render at a fixed readable screen size via `ItemIgnoresTransformations`. Standard editing workflow.
 - **Sheet view rendering:** Labels always render at `paper_height_mm` scaled by the sheet view's scale factor. Thin-lines toggle has no effect in paper space.
 
-### 9.3 Constraint Filter
+### 9.10 Constraint Filter
 
 Sheet view rendering skips any item where `item.data(ROLE_KEY) == "constraint"` (or equivalent category tag). Constraints are authoring aids — they never appear on construction documents.
 
@@ -357,7 +410,8 @@ User modifies model while PDF export is in progress → export captures state at
 
 | File | Role |
 |------|------|
-| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData` (data + serialization), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, `PaperScene` (composition + `dispose()`), `PaperSpaceWidget`, title blocks (`TitleBlockDxfItem`/`PdfItem`/`Item`), dialogs |
+| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData`/**`TextAnnotationData`** (data + serialization), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, **`TextAnnotationItem`**, `PaperScene` (composition + `dispose()` + **`QUndoStack`** owner), `PaperSpaceWidget`, title blocks (`TitleBlockDxfItem`/`PdfItem`/`Item`), dialogs (incl. **`TextAnnotationPropertiesDialog`**) |
+| `firepro3d/paper_commands.py` | **(new)** `QUndoCommand` subclasses for paper-space undo/redo — viewport (`Add`/`Remove`/`Geometry`/`ChangeProperties`) + text (`Add`/`Delete`/`Geometry`/`Edit`/`Format`). Keyed on persistent data identity; no `main.py` import (§17) |
 | `firepro3d/paper_export.py` | Plot step: `render_sheet` (transient off-screen scene), `export_pdf(sheets,…)` (vector PDF), `print_sheets(sheets,…)`, `default_pdf_filename` |
 | `firepro3d/paper_display.py` | Paper-space display overrides (B&W/line-weight/visibility) applied per viewport render — `apply_paper_overrides`/`restore_model_display` |
 | `firepro3d/scene_io.py` | Project serialization (`save_to_file`/`load_from_file`); persists `scene._sheets` under the JSON `"sheets"` key (list — already multi-sheet-ready) |
@@ -367,7 +421,7 @@ User modifies model while PDF export is in progress → export captures state at
 | `firepro3d/elevation_view.py` | `ElevationView` (`QGraphicsView`) — elevation UI widget |
 | `firepro3d/view_marker.py` | `ViewMarkerManager` — elevation view names |
 | `firepro3d/model_space.py` | `Model_Space` (`QGraphicsScene`) — render target for plan/detail sheet views; owns `_sheets` |
-| `firepro3d/annotations.py` | `NoteAnnotation`, `DimensionAnnotation` — model-space today; paper-space annotations are Phase 2 |
+| `firepro3d/annotations.py` | `NoteAnnotation`, `DimensionAnnotation`, `HatchItem` — **model-space only**. Sheet text is a separate `TextAnnotationItem` in `paper_space.py` (§4.11); `NoteAnnotation`'s inline-edit/formatting *structure* and `HatchItem`'s `to_dict`/`from_dict` *pattern* are reused, the classes are not |
 | `firepro3d/default titleblocks/` | DXF + PDF templates for ANSI B/D |
 
 > Note: the per-sheet-view **layer overrides** of §4.9 predate the layer-system removal (the `user_layer` system is gone — see `architecture/display-system.md`). When built, per-view visibility overrides ride on the Display Manager / `paper_display.py` categories, not a `UserLayerManager`.
@@ -393,12 +447,17 @@ User modifies model while PDF export is in progress → export captures state at
 - Layer override merging (base visibility + per-sheet-view overrides)
 - Title block field auto-population (single scale vs "AS NOTED")
 - Backward compatibility (project JSON without `"sheets"` key)
+- `TextAnnotationData` round-trip (every field) + sheet dict lacking `"annotations"` → `[]`
+- Cap-height sizing math (`height_mm` → `setScale`); wrap-width local↔paper conversion; empty-text and anchor-clamp logic
+- Each `QUndoCommand` in `paper_commands.py`: `redo()` applies, `undo()` restores the data object — for every text **and** viewport command (constructed standalone, no `main.py`)
 
 **Integration tests:**
 - Create project → add geometry → create sheet → place sheet view → verify render is non-empty
 - Full export pipeline: create project → geometry → sheet → export PDF → verify PDF has correct page count, non-zero file size, and correct page dimensions
 - Dangling reference: delete source view → verify sheet view shows placeholder
 - Dirty-flag: modify model geometry → verify sheet view re-renders on next paint
+- Add a text annotation → it is present on `PaperScene`; export → non-empty PDF and the transient scene contains the text item (proves the data-driven plot path)
+- Annotations save/load round-trip identically; undo/redo end-to-end (add→undo→gone→redo→back; move→undo→original position)
 
 ## 14. Implementation Phases
 
@@ -459,7 +518,16 @@ User modifies model while PDF export is in progress → export captures state at
 ### Phase 2
 
 - [ ] Full layer visibility overrides per sheet view (show/hide any layer)
-- [ ] Paper-space annotations: text, leaders, lines, rectangles, revision clouds, north arrows, scale bars
+- **Sheet text annotations [this cycle — §9]:**
+  - [ ] "Add Text" places a new, immediately inline-editable block; empty/cancelled placement auto-deletes with nothing on the undo stack
+  - [ ] Double-click inline-edits (Enter = newline; focus-out commits; Esc reverts); Delete removes when selected, edits a character while editing
+  - [ ] Properties dialog sets font/height/bold/italic/color/alignment/opaque-bg; height accepts `1/8"` or `3mm`
+  - [ ] Drag moves (anchor clamped to paper); horizontal grip sets `wrap_width_mm` (word-wrap); text is **cap-height** sized and identical on screen and in the 300-dpi PDF
+  - [ ] Text persists across save/load; old projects without `annotations` load clean; text plots in exported PDF + print in authored color (default black), unaffected by viewport B&W mode
+- **Paper-space undo/redo [this cycle — §17]:**
+  - [ ] Undo/redo works for text create/edit/move/format/wrap-resize **and** viewport add/move/resize/delete; Ctrl+Z/Y/Shift+Z + ribbon both route to the paper stack when a sheet is active; stack resets on project load / new file
+  - [ ] One canonical `PaperScene` drives the visible tab, edits, save, and export (duplicate-widget prerequisite collapsed)
+- [ ] Leader / line / rectangle / revision cloud / north arrow / scale bar annotations (deferred — §18)
 - [ ] Per-sheet revision history (rev, date, description, drawn_by)
 - [ ] Label thin-lines toggle + `paper_height_mm` property on label items
 - [ ] Constraint rendering filter in sheet views
@@ -483,7 +551,38 @@ User modifies model while PDF export is in progress → export captures state at
 - [ ] Sheet views update when model geometry changes (dirty-flag)
 - [ ] Project files without sheets load without error (backward compatibility)
 
-## 17. Out of Scope
+## 17. Paper-Space Undo & Redo [added 2026-06-26]
+
+A unified, **paper-space-scoped**, session-only undo/redo stack covering the new sheet-text ops **and** the previously-non-undoable viewport ops. Rationale for `QUndoStack` over a snapshot: §4.12. Title-block field edits stay **out** (follow-up).
+
+### 17.1 Architecture
+
+- `QUndoStack` is owned by `PaperScene` (the stable object that owns the `Sheet` + the viewport/annotation tracking lists and survives `_setup()` rebuilds). An `_applying_command` guard (mirror of `Model_Space._in_undo_restore`) wraps every command's `redo`/`undo` so programmatic `setPos`/add/remove do not re-enqueue commands.
+- Commands key on **persistent data identity** (`SheetViewData` / `TextAnnotationData` in the `Sheet` lists), **never** raw item pointers — `_setup()` and the paper-size setter destroy and recreate every `QGraphicsItem`, so item references go dangling. Commands resolve item↔data through the scene's tracking lists.
+- Public `add_*` / `remove_*` become thin wrappers over silent `_do_*` primitives that the commands call (the old bodies, keeping `_update_scale_field()` inside so the title-block Scale field stays correct under undo/redo).
+- Commands live in a new `firepro3d/paper_commands.py` (importing nothing from `main.py`) so each is unit-testable in isolation: construct → `redo()` / `undo()` → assert on the data object.
+
+### 17.2 Command set
+
+Viewport: `AddViewportCommand`, `RemoveViewportCommand`, `ViewportGeometryCommand` (move **and** resize), `ChangeViewportPropertiesCommand` (title/show_border/scale + derived w,h). Text: `AddTextAnnotationCommand` (pushed only on the first non-empty commit; on emptying an existing block it restores the original text so undo brings it back intact), `DeleteTextAnnotationCommand`, `MoveTextAnnotationCommand`, `WrapResizeTextCommand`, `EditTextCommand`, `FormatTextCommand`. *(As-built: move and wrap-resize are two separate commands, not one merged `TextGeometryCommand`; no `mergeWith`/`id()` is needed because each drag captures geometry at mouse-press and pushes exactly one command at release. Commands key on persistent `SheetViewData`/`TextAnnotationData` **identity** — the sheet-list membership/removal is identity-based, so two value-identical annotations stay distinct.)*
+
+### 17.3 Gesture capture
+
+Move/resize/wrap-resize capture the geometry at `mousePressEvent` and push **one** command at `mouseReleaseEvent` (only if changed and not `_applying_command`); the continuous `itemChange` live-sync stays underneath, untouched. Never push from `itemChange` (it fires every tick and on programmatic `setPos`).
+
+### 17.4 Keyboard & ribbon routing
+
+`QUndoStack.createUndoAction` / `createRedoAction` → `Ctrl+Z` / `Ctrl+Y` (plus `Ctrl+Shift+Z` for redo, matching model-space), `setShortcutContext(WidgetWithChildrenShortcut)` on the paper view. `PaperGraphicsView.event()` accepts `ShortcutOverride` for those keys (mirror the existing `Key_Delete` handling) so they reach the widget action ahead of the window-scoped ribbon button. The ribbon Undo/Redo buttons dispatch on `central_tabs.currentWidget()` (paper stack vs `Model_Space`).
+
+### 17.5 Lifetime & reset
+
+Never serialized (session-only by construction). Cleared in `PaperScene.update_from_sheet` (the single project-load choke point) and in `new_file` (which must also reset `_sheet`/paper scene — today it does not). The paper-size setter rebuilds from data and clears the stack (acceptable for MVP).
+
+### 17.6 Prerequisite — one canonical `PaperScene` (mandatory)
+
+`_activate_paper_sheet` currently constructs a **second** `PaperSpaceWidget`, so the on-screen scene is not `self.paper_space_widget.paper_scene` (which is what load/title-block/export target). This is collapsed (reuse the canonical widget) so the undo stack, edits, save, and export all bind to the **one visible scene**. Pre-existing latent bug; mandatory for correct undo.
+
+## 18. Out of Scope
 
 - **View catalog unification** — paper space queries existing managers directly, no new abstraction
 - **Annotation scale system in model space** — paper space defines annotations as paper-space-only; the label thin-lines toggle is defined here but the broader annotation scale rework is separate
@@ -491,3 +590,4 @@ User modifies model while PDF export is in progress → export captures state at
 - **Editing through sheet views** — view-only, not interactive
 - **Revision workflow / approvals** — data model defined, workflow process is separate
 - **Custom title block template builder UI** — field mapping defined, authoring tool deferred
+- **Sheet-text follow-ups (deferred from the 2026-06-26 build):** other annotation types (leader / line / rectangle / revision cloud / north arrow / scale bar); legends & schedules as Revit-style **placed tables**; copy / paste / duplicate of text blocks; rotated text; border-box; rich (per-character) text; cross-sheet / shared "same note on every sheet" content; title-block-field-edit undo; paper-space text as a **Display-Manager category** (project-level color / background customization); and the latent **point-size ~2.4× PDF over-sizing** fix for `TitleBlockItem` + viewport view-titles (§4.11).
