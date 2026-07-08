@@ -1288,6 +1288,12 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     """
     if key == "Font":
         field, new = "font_family", str(value)
+        # "" renders as Arial (the panel seeds the picker with it), so
+        # re-committing "Arial" over an empty field is a no-op — without this,
+        # the first font-picker interaction pushes a phantom undo command.
+        if (getattr(data, field) or "Arial") == new:
+            return None
+        return {field: new}
     elif key == "Height":
         try:
             new = float(value)
@@ -1303,7 +1309,12 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     elif key == "Color":
         field, new = "color", str(value)
     elif key == "Alignment":
-        field, new = "align", _PANEL_ALIGN_TO_CODE.get(str(value), "L")
+        # Strict: the multi-select "< mixed >" placeholder (or any non-label
+        # string) must not silently coerce to Left and push a command.
+        code = _PANEL_ALIGN_TO_CODE.get(str(value))
+        if code is None:
+            return None
+        field, new = "align", code
     elif key == "Opaque Background":
         field, new = "opaque_bg", bool(value)
     else:

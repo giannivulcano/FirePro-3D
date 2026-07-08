@@ -88,3 +88,22 @@ def test_undo_after_format_updates_live_item(qapp):
     scene.undo_stack.undo()
     assert item.data.height_mm == 4.0
     assert item.scale() != old_scale      # _apply_format re-ran
+
+
+def test_set_property_font_arial_over_empty_is_noop(qapp):
+    # font_family "" renders as Arial; re-committing "Arial" must not push.
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X"))  # font_family ""
+    before = scene.undo_stack.count()
+    item.set_property("Font", "Arial")
+    assert item.data.font_family == ""
+    assert scene.undo_stack.count() == before
+
+
+def test_set_property_alignment_rejects_mixed_placeholder(qapp):
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X", align="C"))
+    before = scene.undo_stack.count()
+    item.set_property("Alignment", "< mixed >")
+    assert item.data.align == "C"
+    assert scene.undo_stack.count() == before
