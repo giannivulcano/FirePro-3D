@@ -1324,6 +1324,51 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     return {field: new}
 
 
+_TEMPLATE_FIELDS = ("height_mm", "font_family", "bold", "italic",
+                    "color", "align", "opaque_bg")
+
+
+def text_template_to_settings(data: "TextAnnotationData") -> dict:
+    """Extract the persistable formatting fields for QSettings storage."""
+    return {f: getattr(data, f) for f in _TEMPLATE_FIELDS}
+
+
+def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
+    """Restore formatting fields from a QSettings dict onto *data*.
+
+    QSettings (Windows registry backend) may return every value as a string,
+    so each field is coerced explicitly. Invalid or non-positive heights fall
+    back to DEFAULT_TEXT_HEIGHT_MM — a template must never seed a zero cap
+    height (§9.6).
+
+    Args:
+        data: The template TextAnnotationData to mutate in place.
+        raw: The dict previously produced by text_template_to_settings().
+    """
+    def _b(v) -> bool:
+        return v if isinstance(v, bool) else str(v).lower() == "true"
+
+    if "height_mm" in raw:
+        try:
+            h = float(raw["height_mm"])
+        except (TypeError, ValueError):
+            h = 0.0
+        data.height_mm = h if h > 0 else DEFAULT_TEXT_HEIGHT_MM
+    if "font_family" in raw:
+        data.font_family = str(raw["font_family"])
+    if "bold" in raw:
+        data.bold = _b(raw["bold"])
+    if "italic" in raw:
+        data.italic = _b(raw["italic"])
+    if "color" in raw:
+        data.color = str(raw["color"])
+    if "align" in raw:
+        a = str(raw["align"])
+        data.align = a if a in ("L", "C", "R") else "L"
+    if "opaque_bg" in raw:
+        data.opaque_bg = _b(raw["opaque_bg"])
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # TextAnnotationPropertiesDialog
 # ─────────────────────────────────────────────────────────────────────────────

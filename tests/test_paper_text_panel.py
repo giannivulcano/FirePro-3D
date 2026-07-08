@@ -223,3 +223,32 @@ def test_multiselect_commit_is_single_undo_step(qapp):
     assert not a.data.bold and not b.data.bold
     scene.undo_stack.redo()
     assert a.data.bold and b.data.bold
+
+
+def test_template_settings_round_trip(qapp):
+    from firepro3d.paper_space import (
+        text_template_to_settings, apply_template_settings,
+    )
+    src = TextAnnotationData(height_mm=6.35, font_family="Courier New",
+                             bold=True, italic=False, color="#00ff00",
+                             align="R", opaque_bg=True)
+    raw = text_template_to_settings(src)
+    # QSettings on Windows may stringify values — simulate the worst case.
+    raw = {k: str(v) for k, v in raw.items()}
+    dst = TextAnnotationData()
+    apply_template_settings(dst, raw)
+    assert dst.height_mm == 6.35
+    assert dst.font_family == "Courier New"
+    assert dst.bold is True and dst.italic is False
+    assert dst.color == "#00ff00" and dst.align == "R"
+    assert dst.opaque_bg is True
+
+
+def test_apply_template_settings_rejects_bad_height(qapp):
+    from firepro3d.paper_space import apply_template_settings
+    from firepro3d.constants import DEFAULT_TEXT_HEIGHT_MM
+    dst = TextAnnotationData()
+    apply_template_settings(dst, {"height_mm": "0"})
+    assert dst.height_mm == DEFAULT_TEXT_HEIGHT_MM
+    apply_template_settings(dst, {"height_mm": "garbage"})
+    assert dst.height_mm == DEFAULT_TEXT_HEIGHT_MM
