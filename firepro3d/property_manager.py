@@ -451,15 +451,33 @@ class PropertyManager(QWidget):
             self._refresh_timer.start()
 
     def _apply_property(self, key: str, value):
-        """Apply a property change to ALL selected targets, then refresh."""
+        """Apply a property change to ALL selected targets, then refresh.
+
+        When several targets share a scene exposing a QUndoStack (paper
+        space), the per-target commands are wrapped in a single macro so one
+        panel commit is one undo step (spec property-panel.md §3.3).
+        """
         if self._refreshing:
             return  # ignore signals fired during form rebuild
-        for t in self._targets:
-            if hasattr(t, "set_property"):
-                t.set_property(key, value)
-            # Cascade sprinkler property updates from database
-            if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
-                self._cascade_sprinkler_props(t)
+        stack = None
+        if len(self._targets) > 1:
+            for t in self._targets:
+                sc = t.scene() if callable(getattr(t, "scene", None)) else None
+                stack = getattr(sc, "undo_stack", None) if sc is not None else None
+                if stack is not None:
+                    break
+        if stack is not None and hasattr(stack, "beginMacro"):
+            stack.beginMacro(f"Edit {key}")
+        try:
+            for t in self._targets:
+                if hasattr(t, "set_property"):
+                    t.set_property(key, value)
+                # Cascade sprinkler property updates from database
+                if isinstance(t, Sprinkler) and key in ("Manufacturer", "Model", "Orientation"):
+                    self._cascade_sprinkler_props(t)
+        finally:
+            if stack is not None and hasattr(stack, "endMacro"):
+                stack.endMacro()
         # Notify the scene so the 3D view rebuilds
         if self._targets:
             scene = None

@@ -206,3 +206,20 @@ def test_panel_height_field_gets_parser_and_minimum(qapp):
     # connected first (updates value_mm), then the panel's commit lambda.
     h.editingFinished.emit()
     assert item.data.height_mm == 3.175
+
+
+def test_multiselect_commit_is_single_undo_step(qapp):
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    a = scene.add_annotation(TextAnnotationData(text="A"))
+    b = scene.add_annotation(TextAnnotationData(text="B"))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    before = scene.undo_stack.count()
+    pm._apply_property("Bold", True)
+    assert a.data.bold and b.data.bold
+    assert scene.undo_stack.count() == before + 1     # ONE macro, not two commands
+    scene.undo_stack.undo()
+    assert not a.data.bold and not b.data.bold
+    scene.undo_stack.redo()
+    assert a.data.bold and b.data.bold
