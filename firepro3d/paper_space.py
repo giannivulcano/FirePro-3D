@@ -2189,6 +2189,7 @@ class PaperScene(QGraphicsScene):
         self._pending_text: "TextAnnotationItem | None" = None
         self._undo_stack = QUndoStack(self)
         self._applying_command = False
+        self.text_template: "TextAnnotationData | None" = None  # Add-Text seed
         self._setup()
 
     def _apply(self, fn):
@@ -2574,6 +2575,15 @@ class PaperScene(QGraphicsScene):
         x = max(0.0, min(pos.x(), pw))
         y = max(0.0, min(pos.y(), ph))
         data = TextAnnotationData(x=x, y=y, text="")
+        if self.text_template is not None:
+            t = self.text_template
+            data.height_mm = t.height_mm
+            data.font_family = t.font_family
+            data.bold = t.bold
+            data.italic = t.italic
+            data.color = t.color
+            data.align = t.align
+            data.opaque_bg = t.opaque_bg
         item = TextAnnotationItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item
@@ -2729,6 +2739,11 @@ class PaperScene(QGraphicsScene):
         return self._sheet
 
     @property
+    def scale_manager(self) -> ScaleManager:
+        """ScaleManager for panel dimension fields (delegates to the resolver's model scene)."""
+        return self._annotation_scale_manager()
+
+    @property
     def title_block(self) -> TitleBlockItem:
         return self._title
 
@@ -2808,6 +2823,7 @@ class PaperSpaceWidget(QWidget):
     """
 
     navigate_to_view = pyqtSignal(str, str)
+    add_text_mode_toggled = pyqtSignal(bool)
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver, parent=None):
         super().__init__(parent)
@@ -2864,6 +2880,7 @@ class PaperSpaceWidget(QWidget):
 
         # Wire Add Text button to view (view must exist first)
         self._add_text_btn.toggled.connect(self.view.set_add_text_mode)
+        self._add_text_btn.toggled.connect(self.add_text_mode_toggled.emit)
         self.view._add_text_btn = self._add_text_btn
 
         # Fit to sheet on first show

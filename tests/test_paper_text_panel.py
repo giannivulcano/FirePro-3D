@@ -107,3 +107,47 @@ def test_set_property_alignment_rejects_mixed_placeholder(qapp):
     item.set_property("Alignment", "< mixed >")
     assert item.data.align == "C"
     assert scene.undo_stack.count() == before
+
+
+def test_paper_scene_exposes_scale_manager(qapp):
+    from firepro3d.scale_manager import ScaleManager
+    scene = _scene()
+    assert isinstance(scene.scale_manager, ScaleManager)
+
+
+def test_begin_place_text_copies_template_formatting(qapp):
+    from PyQt6.QtCore import QPointF
+    scene = _scene()
+    scene.text_template = TextAnnotationData(
+        height_mm=6.35, font_family="Courier New", bold=True, italic=True,
+        color="#00ff00", align="R", opaque_bg=True,
+    )
+    item = scene.begin_place_text(QPointF(100, 100))
+    d = item.data
+    assert d.height_mm == 6.35
+    assert d.font_family == "Courier New"
+    assert d.bold and d.italic and d.opaque_bg
+    assert d.color == "#00ff00"
+    assert d.align == "R"
+    assert d.text == "" and d.wrap_width_mm == 0.0   # content/wrap NOT templated
+    item.cancel_edit()                                # clean up transient
+
+
+def test_begin_place_text_without_template_uses_defaults(qapp):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.constants import DEFAULT_TEXT_HEIGHT_MM
+    scene = _scene()
+    item = scene.begin_place_text(QPointF(100, 100))
+    assert item.data.height_mm == DEFAULT_TEXT_HEIGHT_MM
+    assert item.data.bold is False
+    item.cancel_edit()
+
+
+def test_widget_emits_add_text_mode_toggled(qapp):
+    from firepro3d.paper_space import PaperSpaceWidget
+    w = PaperSpaceWidget(Sheet.create_default(), _stub_resolver())
+    got = []
+    w.add_text_mode_toggled.connect(got.append)
+    w._add_text_btn.setChecked(True)
+    w._add_text_btn.setChecked(False)
+    assert got == [True, False]
