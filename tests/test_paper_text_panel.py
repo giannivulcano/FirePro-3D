@@ -151,3 +151,58 @@ def test_widget_emits_add_text_mode_toggled(qapp):
     w._add_text_btn.setChecked(True)
     w._add_text_btn.setChecked(False)
     assert got == [True, False]
+
+
+def _panel_widget_for(pm, label_text):
+    """Return the field widget in the row whose label is *label_text*."""
+    from PyQt6.QtWidgets import QLabel
+    form = pm._form
+    for i in range(form.rowCount()):
+        lbl = form.itemAt(i, form.ItemRole.LabelRole)
+        fld = form.itemAt(i, form.ItemRole.FieldRole)
+        if lbl and isinstance(lbl.widget(), QLabel) \
+                and lbl.widget().text() == label_text and fld:
+            return fld.widget()
+    return None
+
+
+def test_panel_renders_text_item_rows(qapp):
+    from PyQt6.QtWidgets import QCheckBox, QFontComboBox
+    from firepro3d.dimension_edit import DimensionEdit
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X", bold=True))
+    pm = PropertyManager()
+    pm.show_properties(item)
+    assert isinstance(_panel_widget_for(pm, "Font"), QFontComboBox)
+    assert isinstance(_panel_widget_for(pm, "Height"), DimensionEdit)
+    bold = _panel_widget_for(pm, "Bold")
+    assert isinstance(bold, QCheckBox) and bold.isChecked()
+
+
+def test_panel_checkbox_commit_routes_to_set_property(qapp):
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X"))
+    pm = PropertyManager()
+    pm.show_properties(item)
+    before = scene.undo_stack.count()
+    _panel_widget_for(pm, "Bold").setChecked(True)   # user toggle
+    assert item.data.bold is True
+    assert scene.undo_stack.count() == before + 1
+
+
+def test_panel_height_field_gets_parser_and_minimum(qapp):
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X", height_mm=4.7625))
+    pm = PropertyManager()
+    pm.show_properties(item)
+    h = _panel_widget_for(pm, "Height")
+    assert h._parser is not None
+    assert h._minimum == 0.0
+    h.setText('1/8"')
+    # Emit the SIGNAL (not the private slot): DimensionEdit's own handler was
+    # connected first (updates value_mm), then the panel's commit lambda.
+    h.editingFinished.emit()
+    assert item.data.height_mm == 3.175

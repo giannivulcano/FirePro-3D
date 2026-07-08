@@ -15,6 +15,8 @@ Property types recognised from ``get_properties()`` dict:
     level_ref  — QComboBox populated from LevelManager
     button     — QPushButton that calls meta["callback"] when clicked
     dimension  — DimensionEdit for mm-based values (requires value_mm in meta)
+    bool       — QCheckBox
+    font       — QFontComboBox family picker
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
     QComboBox, QPushButton, QColorDialog, QSizePolicy, QScrollArea,
+    QCheckBox, QFontComboBox,
 )
 from PyQt6.QtGui import QDoubleValidator, QColor, QFont
 from PyQt6.QtCore import Qt, QTimer
@@ -206,12 +209,33 @@ class PropertyManager(QWidget):
             elif prop_type == "dimension":
                 sm = self._get_scale_manager()
                 val_mm = meta.get("value_mm", 0.0)
-                dim_edit = DimensionEdit(sm, initial_mm=float(val_mm))
+                dim_edit = DimensionEdit(sm, initial_mm=float(val_mm),
+                                         parser=meta.get("parser"),
+                                         minimum=meta.get("minimum"))
                 dim_edit.editingFinished.connect(
                     lambda k=key, de=dim_edit: self._apply_property(
                         k, de.value_mm())
                 )
                 widget = dim_edit
+
+            # ── bool (checkbox) ───────────────────────────────────────────
+            elif prop_type == "bool":
+                chk = QCheckBox()
+                chk.setChecked(bool(meta["value"]))
+                chk.toggled.connect(
+                    lambda val, k=key: self._apply_property(k, val)
+                )
+                widget = chk
+
+            # ── font (family picker) ──────────────────────────────────────
+            elif prop_type == "font":
+                fcombo = QFontComboBox()
+                if meta["value"]:
+                    fcombo.setCurrentFont(QFont(str(meta["value"])))
+                fcombo.currentFontChanged.connect(
+                    lambda f, k=key: self._apply_property(k, f.family())
+                )
+                widget = fcombo
 
             # ── enum (fixed option list) ──────────────────────────────────
             elif prop_type == "enum":
@@ -275,6 +299,9 @@ class PropertyManager(QWidget):
                 if isinstance(widget, QLineEdit):
                     widget.setPlaceholderText("< mixed >")
                     widget.clear()
+                elif isinstance(widget, QCheckBox):
+                    widget.setTristate(True)
+                    widget.setCheckState(Qt.CheckState.PartiallyChecked)
                 elif isinstance(widget, QComboBox):
                     widget.insertItem(0, "< mixed >")
                     widget.setCurrentIndex(0)
