@@ -959,6 +959,39 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._data.x = self.pos().x()
         self._data.y = self.pos().y()
 
+    # ── Property-panel protocol (spec property-panel.md §3.1) ────────────────
+
+    def get_properties(self) -> dict:
+        """Return the panel form dict (formatting only; content stays inline)."""
+        return _text_panel_properties(self._data)
+
+    def set_property(self, key: str, value) -> None:
+        """Apply a panel commit through the paper undo stack.
+
+        On a scene with an undo stack, pushes a FormatTextCommand (one command
+        per commit — the panel wraps multi-select in a macro). Off-scene
+        (template pattern) or while a command is being applied, writes the
+        field directly and reformats.
+
+        Args:
+            key: Panel property key.
+            value: The committed panel value.
+        """
+        change = _text_panel_change(self._data, key, value)
+        if change is None:
+            return
+        scene = self.scene()
+        stack = getattr(scene, "undo_stack", None) if scene is not None else None
+        if stack is not None and not getattr(scene, "_applying_command", False):
+            field = next(iter(change))
+            old = {field: getattr(self._data, field)}
+            stack.push(FormatTextCommand(scene, self._data, old, change))
+        else:
+            for f, v in change.items():
+                setattr(self._data, f, v)
+            self.prepareGeometryChange()
+            self._apply_format()
+
     def contextMenuEvent(self, event) -> None:
         """Show Properties / Delete context menu on right-click.
 
@@ -1198,6 +1231,86 @@ def _parse_text_height_mm(text: str) -> float | None:
     if _re.match(r'^\d+\s*/\s*\d+\s*"?$', t):
         t = "0 " + t
     return ScaleManager.parse_dimension(t, fallback_unit="mm")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Property-panel helpers for TextAnnotationItem (spec property-panel.md §3.1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
+_PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
+
+
+def _text_panel_properties(data: "TextAnnotationData") -> dict:
+    """Property-panel form dict for a sheet text annotation (§9.6 panel path).
+
+    Formatting only — content is edited inline on the canvas and wrap width
+    via the drag grip. The trailing "Leader" label row is a placeholder for
+    the leader follow-up task (real leader rows will replace it).
+
+    Args:
+        data: The TextAnnotationData to render.
+
+    Returns:
+        An ordered property dict in PropertyManager meta format.
+    """
+    return {
+        "Font": {"type": "font", "value": data.font_family or "Arial"},
+        "Height": {"type": "dimension", "value": data.height_mm,
+                   "value_mm": data.height_mm,
+                   "parser": _parse_text_height_mm, "minimum": 0.0},
+        "Bold": {"type": "bool", "value": data.bold},
+        "Italic": {"type": "bool", "value": data.italic},
+        "Color": {"type": "color", "value": data.color or "#000000"},
+        "Alignment": {"type": "enum",
+                      "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
+                      "options": ["Left", "Center", "Right"]},
+        "Opaque Background": {"type": "bool", "value": data.opaque_bg},
+        "Leader": {"type": "label", "value": "None"},
+    }
+
+
+def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | None:
+    """Map a panel commit to a ``{field: new_value}`` change dict.
+
+    Coerces panel display values to data-field values (alignment labels to
+    L/C/R codes, checkbox states to bool, height to float). Non-positive
+    heights are rejected (§9.6 — a zero cap height must never be stored).
+
+    Args:
+        data: The target TextAnnotationData.
+        key: Panel property key (e.g. "Bold").
+        value: The committed panel value.
+
+    Returns:
+        A one-entry change dict, or None when the key is unknown, the value
+        invalid, or the value unchanged.
+    """
+    if key == "Font":
+        field, new = "font_family", str(value)
+    elif key == "Height":
+        try:
+            new = float(value)
+        except (TypeError, ValueError):
+            return None
+        if new <= 0:
+            return None
+        field = "height_mm"
+    elif key == "Bold":
+        field, new = "bold", bool(value)
+    elif key == "Italic":
+        field, new = "italic", bool(value)
+    elif key == "Color":
+        field, new = "color", str(value)
+    elif key == "Alignment":
+        field, new = "align", _PANEL_ALIGN_TO_CODE.get(str(value), "L")
+    elif key == "Opaque Background":
+        field, new = "opaque_bg", bool(value)
+    else:
+        return None
+    if getattr(data, field) == new:
+        return None
+    return {field: new}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
