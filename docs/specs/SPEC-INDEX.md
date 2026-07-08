@@ -20,6 +20,7 @@
 | Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py`, `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py` | current |
 | Display / visibility | `architecture/display-system.md` (Z-order owned by `view-relationships.md §7.3` + `constants.py`) | `display_manager.py`, `displayable_item.py` | current |
 | Theming / UI tokens | `architecture/theming.md` | `theme.py` | current |
+| Property panel / templates | `specs/property-panel.md` | `property_manager.py`, `dimension_edit.py` | current |
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |
 | **Section view subsystem** | `specs/section-view-subsystem.md` | `section_*.py` (do not exist yet) | **proposal** (unbuilt) |
 | **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | (greenfield) | **proposal** (unbuilt) |

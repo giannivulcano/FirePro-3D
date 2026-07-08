@@ -220,7 +220,7 @@ self._properties = {
 }
 ```
 
-Property types include `"enum"` (dropdown), `"string"` (editable text), `"label"` (read-only), `"level_ref"` (level picker), and `"button"` (action trigger). The PropertyManager in the UI reads `get_properties()` and writes back via `set_property(key, value)`.
+The PropertyManager panel reads `get_properties()` and writes back via `set_property(key, value)`. The full widget-per-type table, write path, multi-select semantics, and template pattern are owned by the governing spec: `specs/property-panel.md`.
 
 ## Connection to other subsystems
 
