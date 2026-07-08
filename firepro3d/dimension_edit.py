@@ -36,17 +36,25 @@ class DimensionEdit(QLineEdit):
 
         # React to changes
         edit.valueChanged.connect(lambda mm: print(f"New value: {mm} mm"))
+
+        # Custom parser (e.g. paper-space text height, forces mm fallback)
+        edit = DimensionEdit(None, initial_mm=3.175,
+                             parser=_parse_text_height_mm, minimum=0.0)
     """
 
     # Emitted when a valid edit commits, with the new value in mm
     valueChanged = pyqtSignal(float)
 
     def __init__(self, scale_manager: ScaleManager | None = None,
-                 initial_mm: float = 0.0, parent=None):
+                 initial_mm: float = 0.0, parent=None,
+                 parser=None, minimum: float | None = None):
         super().__init__(parent)
         self._sm = scale_manager
         self._value_mm: float = initial_mm
         self._last_valid_mm: float = initial_mm
+        self._parser = parser        # optional str -> float|None override
+        self._minimum = minimum      # accepted values must be strictly > minimum
+        self._seed_text = ""
 
         # Display the initial value
         self._reformat()
@@ -87,26 +95,34 @@ class DimensionEdit(QLineEdit):
             self.setText(self._sm.format_length(self._value_mm))
         else:
             self.setText(f"{self._value_mm:.2f} mm")
+        # Seed guard: an untouched commit must keep the exact stored value —
+        # re-parsing the display text loses precision when the display unit
+        # quantizes (e.g. imperial 1/8" resolution shows 3/16" as 1/4").
+        self._seed_text = self.text()
 
     def _on_editing_finished(self) -> None:
         """Parse the user's text, update value or revert."""
         text = self.text().strip()
-        if not text:
-            # Empty → revert
+        if not text or text == self._seed_text.strip():
+            # Blank or untouched -> keep exact stored value (no emit)
             self._value_mm = self._last_valid_mm
             self._reformat()
             return
 
-        fallback = self._sm.bare_number_unit() if self._sm else "mm"
-        parsed = ScaleManager.parse_dimension(text, fallback)
+        if self._parser is not None:
+            parsed = self._parser(text)
+        else:
+            fallback = self._sm.bare_number_unit() if self._sm else "mm"
+            parsed = ScaleManager.parse_dimension(text, fallback)
 
-        if parsed is not None:
+        if parsed is not None and (self._minimum is None
+                                   or parsed > self._minimum):
             self._value_mm = parsed
             self._last_valid_mm = parsed
             self._reformat()
             self.valueChanged.emit(self._value_mm)
         else:
-            # Invalid input → revert
+            # Invalid or below minimum -> revert
             self._value_mm = self._last_valid_mm
             self._reformat()
 
