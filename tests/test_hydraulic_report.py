@@ -223,6 +223,42 @@ class TestNodeSummaryRows:
         assert row_2a[9] == "1.20"     # total hf
 
 
+class TestSummaryTab:
+    def test_summary_html_contains_all_sections_and_values(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        w.populate(result, scene, sm)
+        text = w._summary.toPlainText()
+        for expected in ("Project", "Design Criteria", "Water Supply",
+                         "Fire Station 4", "Ordinary Hazard Group 1",
+                         "0.15 gpm/ft²", "2026-06-01", "2026-07-09",
+                         "PASS", "14.8", "12.0", "62.0", "OK"):
+            assert expected in text, f"missing {expected!r}"
+
+    def test_summary_renders_on_failed_result_without_supply(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        result.passed = False
+        result.messages = ["No design area defined — create a design area "
+                           "before running hydraulics."]
+        scene.water_supply_node = None
+        scene.active_design_area = None
+        scene.design_area_sprinklers = []
+        scene._project_info = {}
+        w.populate(result, scene, sm)
+        text = w._summary.toPlainText()
+        assert "FAIL" in text
+        assert "No design area" in text
+        assert "—" in text
+
+    def test_summary_escapes_user_html(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        scene._project_info = {"name": "A & B <Co>"}
+        w.populate(result, scene, sm)
+        assert "A & B <Co>" in w._summary.toPlainText()
+
+
 class TestSummarySections:
     def test_sections_present_and_ordered(self, qapp):
         w = HydraulicReportWidget()

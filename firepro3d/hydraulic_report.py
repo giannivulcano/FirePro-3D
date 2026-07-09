@@ -16,6 +16,7 @@ Export:
 """
 
 import csv
+import html
 import math
 import re
 
@@ -669,41 +670,26 @@ class HydraulicReportWidget(QWidget):
 
     def _fill_summary(self):
         r = self._result
-        ok = r.passed
-        hose = getattr(r, 'hose_stream_gpm', 0.0)
         status_html = (
             "<span style='color:green;font-weight:bold'>✅ PASS</span>"
-            if ok else
+            if r.passed else
             "<span style='color:red;font-weight:bold'>❌ FAIL</span>"
         )
-        html = f"""
-        <h2 style='margin-bottom:4px'>Hydraulic Summary</h2>
-        <table style='font-size:12pt;border-collapse:collapse;'>
-          <tr><td style='padding:3px 12px'><b>Status</b></td>
-              <td>{status_html}</td></tr>
-          <tr><td style='padding:3px 12px'><b>Sprinkler Demand</b></td>
-              <td>{r.total_demand:.1f} gpm</td></tr>
-        """
-        if hose > 0:
-            html += f"""
-          <tr><td style='padding:3px 12px'><b>Hose Stream</b></td>
-              <td>{hose:.1f} gpm</td></tr>
-          <tr><td style='padding:3px 12px'><b>Total Demand</b></td>
-              <td>{r.total_demand + hose:.1f} gpm</td></tr>
-            """
-        html += f"""
-          <tr><td style='padding:3px 12px'><b>Required Pressure</b></td>
-              <td>{r.required_pressure:.1f} psi</td></tr>
-          <tr><td style='padding:3px 12px'><b>Supply Available</b></td>
-              <td>{r.supply_pressure:.1f} psi</td></tr>
-        </table>
-        """
+        out = f"<h2 style='margin-bottom:2px'>Hydraulic Summary</h2>{status_html}"
+        for title, rows in self._summary_sections():
+            out += f"<h3 style='margin-bottom:2px'>{title}</h3>"
+            out += "<table style='font-size:11pt;border-collapse:collapse;'>"
+            for label, value in rows:
+                value = status_html if label == "Status" else html.escape(value)
+                out += (f"<tr><td style='padding:2px 12px'><b>{label}</b></td>"
+                        f"<td>{value}</td></tr>")
+            out += "</table>"
         if r.messages:
-            html += "<br><b>Messages:</b><ul style='margin-top:4px'>"
+            out += "<br><b>Messages:</b><ul style='margin-top:4px'>"
             for msg in r.messages:
-                html += f"<li style='margin-bottom:2px'>{msg}</li>"
-            html += "</ul>"
-        self._summary.setHtml(html)
+                out += f"<li style='margin-bottom:2px'>{html.escape(msg)}</li>"
+            out += "</ul>"
+        self._summary.setHtml(out)
 
     def _on_minor_toggle(self, checked: bool):
         """Re-fill the node summary table when minor-node visibility changes."""
