@@ -4,7 +4,7 @@ from firepro3d.paper_space import TextAnnotationData, Sheet, TextAnnotationItem
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Task-6: _parse_text_height_mm + TextAnnotationPropertiesDialog
+# Task-6: _parse_text_height_mm  (TextAnnotationPropertiesDialog removed Task-7)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_parse_text_height_bare_fraction():
@@ -14,19 +14,9 @@ def test_parse_text_height_bare_fraction():
     assert _parse_text_height_mm('garbage') is None
 
 
-def test_dialog_accessors_round_trip(qapp):
-    from firepro3d.paper_space import TextAnnotationPropertiesDialog
-    from firepro3d.scale_manager import ScaleManager
-    sm = ScaleManager()
-    data = TextAnnotationData(text="Hi", height_mm=3.175, color="#112233",
-                              bold=True, align="C", opaque_bg=True)
-    dlg = TextAnnotationPropertiesDialog(data, sm)
-    assert dlg.get_text() == "Hi"
-    assert dlg.get_bold() is True
-    assert dlg.get_alignment() == "C"
-    assert dlg.get_color() == "#112233"
-    assert dlg.get_opaque_bg() is True
-    assert abs(dlg.get_height_mm() - 3.175) < 0.01
+def test_properties_dialog_is_gone():
+    import firepro3d.paper_space as ps
+    assert not hasattr(ps, "TextAnnotationPropertiesDialog")
 
 
 def test_text_annotation_data_round_trip():
@@ -130,24 +120,6 @@ def test_apply_format_survives_zero_height(qapp):
         TextAnnotationData(text="x", height_mm=0.0, wrap_width_mm=50.0))
     assert item.scale() > 0            # clamped to a sane default, no ZeroDivisionError
 
-
-def test_dialog_get_height_rejects_zero(qapp):
-    from firepro3d.paper_space import TextAnnotationPropertiesDialog
-    from firepro3d.scale_manager import ScaleManager
-    sm = ScaleManager()
-    dlg = TextAnnotationPropertiesDialog(TextAnnotationData(height_mm=4.7625), sm)
-    dlg._height_edit.setText("0")
-    assert dlg.get_height_mm() == 4.7625   # non-positive rejected -> keep original
-
-
-def test_dialog_get_height_unchanged_keeps_exact(qapp):
-    from firepro3d.paper_space import TextAnnotationPropertiesDialog
-    from firepro3d.scale_manager import ScaleManager, DisplayUnit
-    sm = ScaleManager()
-    sm._display_unit = DisplayUnit.IMPERIAL   # 4.7625mm would round-trip to 6.35
-    dlg = TextAnnotationPropertiesDialog(TextAnnotationData(height_mm=4.7625), sm)
-    # untouched field -> exact stored mm, no imperial round-trip precision loss
-    assert dlg.get_height_mm() == 4.7625
 
 
 def test_sheet_without_annotations_key_loads_empty():

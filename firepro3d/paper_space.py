@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
-    QMenu, QCheckBox, QColorDialog, QFontComboBox, QPlainTextEdit,
+    QMenu, QCheckBox, QColorDialog,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
 from PyQt6.QtGui import (
@@ -749,7 +749,6 @@ class TextAnnotationItem(QGraphicsTextItem):
     """
 
     delete_requested = pyqtSignal(object)
-    properties_requested = pyqtSignal(object)
 
     _ALIGN = {
         "L": Qt.AlignmentFlag.AlignLeft,
@@ -959,23 +958,53 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._data.x = self.pos().x()
         self._data.y = self.pos().y()
 
+    # ── Property-panel protocol (spec property-panel.md §3.1) ────────────────
+
+    def get_properties(self) -> dict:
+        """Return the panel form dict (formatting only; content stays inline)."""
+        return _text_panel_properties(self._data)
+
+    def set_property(self, key: str, value) -> None:
+        """Apply a panel commit through the paper undo stack.
+
+        On a scene with an undo stack, pushes a FormatTextCommand (one command
+        per commit — the panel wraps multi-select in a macro). Off-scene
+        (template pattern) or while a command is being applied, writes the
+        field directly and reformats.
+
+        Args:
+            key: Panel property key.
+            value: The committed panel value.
+        """
+        change = _text_panel_change(self._data, key, value)
+        if change is None:
+            return
+        scene = self.scene()
+        stack = getattr(scene, "undo_stack", None) if scene is not None else None
+        if stack is not None and not getattr(scene, "_applying_command", False):
+            field = next(iter(change))
+            old = {field: getattr(self._data, field)}
+            stack.push(FormatTextCommand(scene, self._data, old, change))
+        else:
+            for f, v in change.items():
+                setattr(self._data, f, v)
+            self.prepareGeometryChange()
+            self._apply_format()
+
     def contextMenuEvent(self, event) -> None:
-        """Show Properties / Delete context menu on right-click.
+        """Show the Delete context menu on right-click.
 
         While inline-editing, delegates to super() so the native copy/paste
-        editor menu is shown instead of the Properties/Delete menu.
+        editor menu is shown instead. Formatting is edited via the property
+        panel (selection populates it) — there is no Properties dialog.
         """
         if self._editing:
             super().contextMenuEvent(event)
             return
         menu = QMenu()
-        props = menu.addAction("Properties...")
-        menu.addSeparator()
         delete = menu.addAction("Delete")
         action = menu.exec(event.screenPos())
-        if action == props:
-            self.properties_requested.emit(self)
-        elif action == delete:
+        if action == delete:
             self.delete_requested.emit(self)
 
     # ── B. itemChange: anchor clamp + live data sync ─────────────────────────
@@ -1176,7 +1205,7 @@ class SheetViewPropertiesDialog(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# TextAnnotationPropertiesDialog helpers
+# Sheet-text panel helpers (spec property-panel.md §3.1)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_text_height_mm(text: str) -> float | None:
@@ -1200,149 +1229,205 @@ def _parse_text_height_mm(text: str) -> float | None:
     return ScaleManager.parse_dimension(t, fallback_unit="mm")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TextAnnotationPropertiesDialog
-# ─────────────────────────────────────────────────────────────────────────────
+_PANEL_ALIGN_TO_CODE = {"Left": "L", "Center": "C", "Right": "R"}
+_PANEL_CODE_TO_ALIGN = {"L": "Left", "C": "Center", "R": "Right"}
 
-class TextAnnotationPropertiesDialog(QDialog):
-    """Properties dialog for a sheet text annotation.
 
-    Mirrors ``SheetViewPropertiesDialog``: ``QFormLayout``, one row per field,
-    ``QDialogButtonBox(Ok|Cancel)``.  The caller reads values via ``get_*``
-    accessors and applies them through an undo command — **this dialog never
-    mutates the annotation directly** (§9.6).
+MM_PER_PT = 25.4 / 72.0   # 1 typographic point in paper mm
+
+
+def _text_cap_ratio(data: "TextAnnotationData") -> float:
+    """Return the cap-height / em-size ratio for *data*'s font.
+
+    Word-style font sizes ("12 pt") measure the em body; stored height_mm is
+    cap height (§5.3). This ratio converts between the two for the panel's
+    pt display. Computed at TEXT_METRIC_REF_PX for metric precision (§9.4).
 
     Args:
-        data: The ``TextAnnotationData`` to pre-populate fields from.
-        sm: A ``ScaleManager`` instance used to format the height seed value.
-        parent: Optional parent widget.
+        data: The TextAnnotationData whose font (family/bold/italic) applies.
+
+    Returns:
+        capHeight / em ratio (e.g. ~0.716 for Arial); 0.7 fallback if the
+        metric degenerates.
     """
+    f = QFont(data.font_family) if data.font_family else QFont("Arial")
+    f.setBold(data.bold)
+    f.setItalic(data.italic)
+    f.setPixelSize(TEXT_METRIC_REF_PX)
+    ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
+    return ratio if ratio > 0 else 0.7
 
-    def __init__(self, data: TextAnnotationData, sm: ScaleManager,
-                 parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Text Annotation Properties")
-        self._height_fallback = data.height_mm
-        self._height_seed_text = sm.format_length(data.height_mm)
 
-        layout = QFormLayout(self)
+def _font_pt_from_mm(data: "TextAnnotationData", mm: float) -> float:
+    """Convert a stored cap height (mm) to the Word-style font pt size."""
+    return mm / (MM_PER_PT * _text_cap_ratio(data))
 
-        # ── Text ─────────────────────────────────────────────────────────────
-        self._text_edit = QPlainTextEdit(data.text)
-        self._text_edit.setMinimumHeight(80)
-        layout.addRow("Text:", self._text_edit)
 
-        # ── Font family ───────────────────────────────────────────────────────
-        self._font_combo = QFontComboBox()
-        if data.font_family:
-            self._font_combo.setCurrentFont(QFont(data.font_family))
-        layout.addRow("Font:", self._font_combo)
+def _mm_from_font_pt(data: "TextAnnotationData", pt: float) -> float:
+    """Convert a Word-style font pt size to the stored cap height (mm)."""
+    return pt * MM_PER_PT * _text_cap_ratio(data)
 
-        # ── Height ────────────────────────────────────────────────────────────
-        self._height_edit = QLineEdit(sm.format_length(data.height_mm))
-        self._height_edit.setPlaceholderText('e.g. 0 1/8" or 3.18mm')
-        layout.addRow("Height:", self._height_edit)
 
-        # ── Bold / Italic ─────────────────────────────────────────────────────
-        self._bold_check = QCheckBox("Bold")
-        self._bold_check.setChecked(data.bold)
-        layout.addRow("", self._bold_check)
+def _format_height_pt(data: "TextAnnotationData", mm: float) -> str:
+    """Format a cap height for the panel: Word-style pt, e.g. ``"12 pt"``."""
+    pt = round(_font_pt_from_mm(data, mm), 1)
+    return f"{pt:g} pt"
 
-        self._italic_check = QCheckBox("Italic")
-        self._italic_check.setChecked(data.italic)
-        layout.addRow("", self._italic_check)
 
-        # ── Color swatch ──────────────────────────────────────────────────────
-        self._color_btn = QPushButton()
-        self._color_btn.setFixedSize(24, 24)
-        initial_color = data.color if data.color else "#000000"
-        self._color_btn.setProperty("_color_value", initial_color)
-        c = QColor(initial_color)
-        self._color_btn.setStyleSheet(
-            f"background: {c.name()}; border: 1px solid #888; border-radius: 2px;"
-        )
-        self._color_btn.clicked.connect(self._pick_color_slot)
-        layout.addRow("Color:", self._color_btn)
+def _parse_height_pt(data: "TextAnnotationData", text: str) -> float | None:
+    """Parse the panel height field: bare numbers / ``pt`` mean font points.
 
-        # ── Alignment ─────────────────────────────────────────────────────────
-        self._align_combo = QComboBox()
-        self._align_combo.addItems(["Left", "Center", "Right"])
-        _align_idx = {"L": 0, "C": 1, "R": 2}
-        self._align_combo.setCurrentIndex(_align_idx.get(data.align, 0))
-        layout.addRow("Alignment:", self._align_combo)
+    ``"12"`` and ``"12 pt"`` parse as a Word-style 12 pt font size (converted
+    to cap-height mm via the font's metrics). Explicit dimension strings such
+    as ``'1/8"'`` or ``"3mm"`` still parse as literal cap heights through
+    :func:`_parse_text_height_mm`.
 
-        # ── Opaque background ─────────────────────────────────────────────────
-        self._opaque_check = QCheckBox("Opaque background")
-        self._opaque_check.setChecked(data.opaque_bg)
-        layout.addRow("", self._opaque_check)
+    Args:
+        data: The TextAnnotationData whose font drives the pt conversion.
+        text: The user's input string.
 
-        # ── Buttons ───────────────────────────────────────────────────────────
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
+    Returns:
+        Cap height in mm, or None if unparseable.
+    """
+    t = text.strip().lower()
+    if t.endswith("pt"):
+        t = t[:-2].strip()
+    try:
+        return _mm_from_font_pt(data, float(t))
+    except ValueError:
+        return _parse_text_height_mm(text)
 
-    # ── Color picker slot ─────────────────────────────────────────────────────
 
-    def _pick_color_slot(self):
-        """Open a colour dialog and update the swatch button."""
-        stored = self._color_btn.property("_color_value")
-        current = QColor(stored) if stored else QColor("#000000")
-        color = QColorDialog.getColor(current, self, "Pick a colour")
-        if color.isValid():
-            self._color_btn.setProperty("_color_value", color.name())
-            self._color_btn.setStyleSheet(
-                f"background: {color.name()}; "
-                f"border: 1px solid #888; border-radius: 2px;"
-            )
+def _text_panel_properties(data: "TextAnnotationData") -> dict:
+    """Property-panel form dict for a sheet text annotation (§9.6 panel path).
 
-    # ── Accessors (caller reads these; never mutates the annotation) ──────────
+    Formatting only — content is edited inline on the canvas and wrap width
+    via the drag grip. Height displays/parses as a Word-style pt font size
+    (storage stays cap-height mm). The trailing "Leader" label row is a
+    placeholder for the leader follow-up task (real leader rows will replace
+    it).
 
-    def get_text(self) -> str:
-        """Return the plain text content."""
-        return self._text_edit.toPlainText()
+    Args:
+        data: The TextAnnotationData to render.
 
-    def get_font_family(self) -> str:
-        """Return the selected font family name."""
-        return self._font_combo.currentFont().family()
+    Returns:
+        An ordered property dict in PropertyManager meta format.
+    """
+    return {
+        "Font": {"type": "font", "value": data.font_family or "Arial"},
+        "Height": {"type": "dimension", "value": data.height_mm,
+                   "value_mm": data.height_mm,
+                   "parser": lambda text, d=data: _parse_height_pt(d, text),
+                   "formatter": lambda mm, d=data: _format_height_pt(d, mm),
+                   "minimum": 0.0},
+        "Bold": {"type": "bool", "value": data.bold},
+        "Italic": {"type": "bool", "value": data.italic},
+        "Color": {"type": "color", "value": data.color or "#000000"},
+        "Alignment": {"type": "enum",
+                      "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
+                      "options": ["Left", "Center", "Right"]},
+        "Opaque Background": {"type": "bool", "value": data.opaque_bg},
+        "Leader": {"type": "label", "value": "None"},
+    }
 
-    def get_height_mm(self) -> float:
-        """Return the height in mm from the field.
 
-        If the field is untouched (still equal to the seeded text) the exact
-        stored height is returned, avoiding imperial round-trip precision loss
-        (e.g. 3/16" would otherwise re-parse to 1/4"). Blank, unparseable, or
-        non-positive input keeps the original ``data.height_mm`` so a note can
-        never be given a zero/negative height.
-        """
-        text = self._height_edit.text()
-        if text.strip() == self._height_seed_text.strip():
-            return self._height_fallback
-        result = _parse_text_height_mm(text)
-        return result if (result is not None and result > 0) else self._height_fallback
+def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | None:
+    """Map a panel commit to a ``{field: new_value}`` change dict.
 
-    def get_bold(self) -> bool:
-        """Return whether bold is checked."""
-        return self._bold_check.isChecked()
+    Coerces panel display values to data-field values (alignment labels to
+    L/C/R codes, checkbox states to bool, height to float). Non-positive
+    heights are rejected (§9.6 — a zero cap height must never be stored).
 
-    def get_italic(self) -> bool:
-        """Return whether italic is checked."""
-        return self._italic_check.isChecked()
+    Args:
+        data: The target TextAnnotationData.
+        key: Panel property key (e.g. "Bold").
+        value: The committed panel value.
 
-    def get_color(self) -> str:
-        """Return the selected colour as a hex string (e.g. ``'#ff0000'``)."""
-        return self._color_btn.property("_color_value") or "#000000"
+    Returns:
+        A one-entry change dict, or None when the key is unknown, the value
+        invalid, or the value unchanged.
+    """
+    if key == "Font":
+        field, new = "font_family", str(value)
+        # "" renders as Arial (the panel seeds the picker with it), so
+        # re-committing "Arial" over an empty field is a no-op — without this,
+        # the first font-picker interaction pushes a phantom undo command.
+        if (getattr(data, field) or "Arial") == new:
+            return None
+        return {field: new}
+    elif key == "Height":
+        try:
+            new = float(value)
+        except (TypeError, ValueError):
+            return None
+        if new <= 0:
+            return None
+        field = "height_mm"
+    elif key == "Bold":
+        field, new = "bold", bool(value)
+    elif key == "Italic":
+        field, new = "italic", bool(value)
+    elif key == "Color":
+        field, new = "color", str(value)
+    elif key == "Alignment":
+        # Strict: the multi-select "< mixed >" placeholder (or any non-label
+        # string) must not silently coerce to Left and push a command.
+        code = _PANEL_ALIGN_TO_CODE.get(str(value))
+        if code is None:
+            return None
+        field, new = "align", code
+    elif key == "Opaque Background":
+        field, new = "opaque_bg", bool(value)
+    else:
+        return None
+    if getattr(data, field) == new:
+        return None
+    return {field: new}
 
-    def get_alignment(self) -> str:
-        """Return the alignment code: ``'L'``, ``'C'``, or ``'R'``."""
-        return ["L", "C", "R"][self._align_combo.currentIndex()]
 
-    def get_opaque_bg(self) -> bool:
-        """Return whether the opaque-background option is checked."""
-        return self._opaque_check.isChecked()
+_TEMPLATE_FIELDS = ("height_mm", "font_family", "bold", "italic",
+                    "color", "align", "opaque_bg")
+
+
+def text_template_to_settings(data: "TextAnnotationData") -> dict:
+    """Extract the persistable formatting fields for QSettings storage."""
+    return {f: getattr(data, f) for f in _TEMPLATE_FIELDS}
+
+
+def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
+    """Restore formatting fields from a QSettings dict onto *data*.
+
+    QSettings (Windows registry backend) may return every value as a string,
+    so each field is coerced explicitly. Invalid or non-positive heights fall
+    back to DEFAULT_TEXT_HEIGHT_MM — a template must never seed a zero cap
+    height (§9.6).
+
+    Args:
+        data: The template TextAnnotationData to mutate in place.
+        raw: The dict previously produced by text_template_to_settings().
+    """
+    def _b(v) -> bool:
+        return v if isinstance(v, bool) else str(v).lower() == "true"
+
+    if "height_mm" in raw:
+        try:
+            h = float(raw["height_mm"])
+        except (TypeError, ValueError):
+            h = 0.0
+        data.height_mm = h if h > 0 else DEFAULT_TEXT_HEIGHT_MM
+    if "font_family" in raw:
+        data.font_family = str(raw["font_family"])
+    if "bold" in raw:
+        data.bold = _b(raw["bold"])
+    if "italic" in raw:
+        data.italic = _b(raw["italic"])
+    if "color" in raw:
+        data.color = str(raw["color"])
+    if "align" in raw:
+        a = str(raw["align"])
+        data.align = a if a in ("L", "C", "R") else "L"
+    if "opaque_bg" in raw:
+        data.opaque_bg = _b(raw["opaque_bg"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1452,6 +1537,9 @@ class PaperGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setBackgroundBrush(QBrush(QColor("#c0c0c0")))
+        # No scrollbars — pan/zoom (and wheel) still navigate the sheet
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
     # ── Add-Text tool ──────────────────────────────────────────────────
 
@@ -2065,6 +2153,7 @@ class PaperScene(QGraphicsScene):
         self._pending_text: "TextAnnotationItem | None" = None
         self._undo_stack = QUndoStack(self)
         self._applying_command = False
+        self.text_template: "TextAnnotationData | None" = None  # Add-Text seed
         self._setup()
 
     def _apply(self, fn):
@@ -2360,7 +2449,6 @@ class PaperScene(QGraphicsScene):
         """
         item = TextAnnotationItem(data)
         item.delete_requested.connect(self._on_delete_annotation)
-        item.properties_requested.connect(self._on_annotation_properties)
         self.addItem(item)
         self._annotations.append(item)
         return item
@@ -2450,6 +2538,15 @@ class PaperScene(QGraphicsScene):
         x = max(0.0, min(pos.x(), pw))
         y = max(0.0, min(pos.y(), ph))
         data = TextAnnotationData(x=x, y=y, text="")
+        if self.text_template is not None:
+            t = self.text_template
+            data.height_mm = t.height_mm
+            data.font_family = t.font_family
+            data.bold = t.bold
+            data.italic = t.italic
+            data.color = t.color
+            data.align = t.align
+            data.opaque_bg = t.opaque_bg
         item = TextAnnotationItem(data)  # TRANSIENT: not tracked, not in sheet
         self.addItem(item)
         self._pending_text = item
@@ -2539,7 +2636,7 @@ class PaperScene(QGraphicsScene):
             self._undo_stack.push(EditTextCommand(self, data, old_text, new_text))
 
     def _annotation_scale_manager(self) -> ScaleManager:
-        """Return a ScaleManager for the annotation properties dialog.
+        """Return a ScaleManager for panel dimension fields.
 
         Prefers the model scene's ScaleManager (reached via the resolver) so the
         height field formats in the user's current units; falls back to a fresh
@@ -2554,39 +2651,6 @@ class PaperScene(QGraphicsScene):
         if isinstance(sm, ScaleManager):
             return sm
         return ScaleManager()
-
-    def _on_annotation_properties(self, item: TextAnnotationItem) -> None:
-        """Slot: open the annotation properties dialog and push a FormatTextCommand.
-
-        Opens a TextAnnotationPropertiesDialog seeded from the item's data and,
-        on accept, builds old/new field dicts covering every editable attribute
-        and pushes a SINGLE FormatTextCommand spanning all of them (so one undo
-        reverts the whole edit). The dialog never mutates the data directly
-        (§9.6); the command owns apply/revert.
-
-        Args:
-            item: The TextAnnotationItem that emitted properties_requested.
-        """
-        sm = self._annotation_scale_manager()
-        dlg = TextAnnotationPropertiesDialog(item.data, sm)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        d = item.data
-        fields = ("text", "font_family", "height_mm", "bold", "italic",
-                  "color", "align", "opaque_bg")
-        old = {k: getattr(d, k) for k in fields}
-        new = {
-            "text": dlg.get_text(),
-            "font_family": dlg.get_font_family(),
-            "height_mm": dlg.get_height_mm(),
-            "bold": dlg.get_bold(),
-            "italic": dlg.get_italic(),
-            "color": dlg.get_color(),
-            "align": dlg.get_alignment(),
-            "opaque_bg": dlg.get_opaque_bg(),
-        }
-        if new != old:
-            self._undo_stack.push(FormatTextCommand(self, d, old, new))
 
     # ── Public API (preserved) ──────────────────────────────────────────
 
@@ -2603,6 +2667,11 @@ class PaperScene(QGraphicsScene):
     @property
     def sheet(self) -> Sheet:
         return self._sheet
+
+    @property
+    def scale_manager(self) -> ScaleManager:
+        """ScaleManager for panel dimension fields (delegates to the resolver's model scene)."""
+        return self._annotation_scale_manager()
 
     @property
     def title_block(self) -> TitleBlockItem:
@@ -2684,6 +2753,7 @@ class PaperSpaceWidget(QWidget):
     """
 
     navigate_to_view = pyqtSignal(str, str)
+    add_text_mode_toggled = pyqtSignal(bool)
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver, parent=None):
         super().__init__(parent)
@@ -2740,6 +2810,7 @@ class PaperSpaceWidget(QWidget):
 
         # Wire Add Text button to view (view must exist first)
         self._add_text_btn.toggled.connect(self.view.set_add_text_mode)
+        self._add_text_btn.toggled.connect(self.add_text_mode_toggled.emit)
         self.view._add_text_btn = self._add_text_btn
 
         # Fit to sheet on first show

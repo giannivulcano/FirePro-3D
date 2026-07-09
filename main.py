@@ -21,7 +21,11 @@ from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
-from firepro3d.paper_space import PaperSpaceWidget, Sheet, ViewResolver, PAPER_SIZES
+from firepro3d.paper_space import (
+    PaperSpaceWidget, Sheet, ViewResolver, PAPER_SIZES,
+    TextAnnotationData, TextAnnotationItem,
+    text_template_to_settings, apply_template_settings,
+)
 from firepro3d.ribbon_bar import RibbonBar
 # view_3d deferred — imports pyvista/VTK which is slow
 from firepro3d.array_dialog import ArrayDialog
@@ -416,6 +420,18 @@ class MainWindow(QMainWindow):
         self.paper_space_widget.navigate_to_view.connect(
             self._navigate_to_source_view)
 
+        # Sheet-text template (pipe/sprinkler pattern) + paper selection wiring
+        self.current_text_template = TextAnnotationItem(TextAnnotationData())
+        self.current_text_template._scale_manager_ref = self.scene.scale_manager
+        self.paper_space_widget.paper_scene.text_template = \
+            self.current_text_template.data
+        self.paper_space_widget.paper_scene.selectionChanged.connect(
+            self.update_paper_property_manager)
+        self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
+            lambda _=0: self.update_paper_property_manager())
+        self.paper_space_widget.add_text_mode_toggled.connect(
+            self._on_add_text_mode_toggled)
+
         self.model_browser = ModelBrowser()
         self.model_browser.set_scene(self.scene)
         self.model_browser.entitySelected.connect(self.prop_manager.show_properties)
@@ -661,6 +677,10 @@ class MainWindow(QMainWindow):
             if isinstance(spr_props, dict):
                 for k, v in spr_props.items():
                     self.current_sprinkler_template.set_property(k, v)
+        if self.settings.contains("template/text"):
+            raw = self.settings.value("template/text", {})
+            if isinstance(raw, dict):
+                apply_template_settings(self.current_text_template.data, raw)
 
     def _apply_persistent_unit_prefs(self):
         """Override the scale manager's display unit and precision with the
@@ -750,8 +770,12 @@ class MainWindow(QMainWindow):
         elif tab_text.startswith("Detail: "):
             detail_name = tab_text[len("Detail: "):]
             self._apply_detail_level(detail_name)
-        # Update property panel with view info when nothing is selected
-        self.update_property_manager()
+        # Route the property panel to the active tab's selection context
+        w = self.central_tabs.widget(index)
+        if isinstance(w, PaperSpaceWidget):
+            self.update_paper_property_manager()
+        else:
+            self.update_property_manager()
 
     def _on_tab_close_requested(self, index: int):
         """Close a view tab (Plan/Elevation). Core tabs are protected."""
@@ -2934,6 +2958,31 @@ class MainWindow(QMainWindow):
     # PROPERTY MANAGER HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
+    def update_paper_property_manager(self):
+        """Populate the panel from the paper scene's text selection.
+
+        Only acts while the paper tab is current, so model-space selection
+        handling keeps sole ownership of the panel everywhere else. Also
+        re-runs after every undo/redo (undo_stack.indexChanged) so the panel
+        never shows stale formatting.
+        """
+        w = self.central_tabs.currentWidget()
+        if not isinstance(w, PaperSpaceWidget):
+            return
+        try:
+            items = [it for it in w.paper_scene.selectedItems()
+                     if isinstance(it, TextAnnotationItem)]
+        except RuntimeError:
+            return
+        self.prop_manager.show_properties(items if items else None)
+
+    def _on_add_text_mode_toggled(self, checked: bool):
+        """Show the text template pre-placement; restore selection view after."""
+        if checked:
+            self.prop_manager.show_properties(self.current_text_template)
+        else:
+            self.update_paper_property_manager()
+
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown
         try:
@@ -3050,6 +3099,10 @@ class MainWindow(QMainWindow):
             spr_props = {k: v["value"]
                          for k, v in self.current_sprinkler_template._properties.items()}
             self.settings.setValue("template/sprinkler", spr_props)
+        if self.current_text_template is not None:
+            self.settings.setValue(
+                "template/text",
+                text_template_to_settings(self.current_text_template.data))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
