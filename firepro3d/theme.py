@@ -355,6 +355,13 @@ QCheckBox::indicator:checked, QAbstractItemView::indicator:checked {{
     border-color: {t.accent_primary};
     image: url("{check_url}");
 }}
+/* Mixed multi-select values (property panel): Word-style filled square —
+   the QSS replaces native painting, so without this rule indeterminate
+   renders identically to unchecked. */
+QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {{
+    background: {t.accent_primary};
+    border-color: {t.accent_primary};
+}}
 QCheckBox::indicator:disabled, QAbstractItemView::indicator:disabled {{
     border-color: {t.border_subtle};
 }}
