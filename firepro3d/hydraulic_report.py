@@ -25,8 +25,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QPushButton, QTextBrowser,
     QHeaderView, QFileDialog, QMessageBox, QCheckBox,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtGui import QColor, QTextDocument, QPainter, QPen, QFont, QBrush, QPainterPath
+from PyQt6.QtCore import Qt, QPointF, QRectF, QUrl
+from PyQt6.QtGui import (QColor, QTextDocument, QPainter, QPen, QFont, QBrush,
+                         QPainterPath, QImage, QPageSize)
 
 try:
     from PyQt6.QtPrintSupport import QPrinter
@@ -36,38 +37,12 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Colour helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-_GREEN  = QColor(210, 245, 215)
-_ORANGE = QColor(255, 235, 185)
-_RED    = QColor(255, 205, 205)
-
-# Dark text colours for coloured fills (legible on light cell backgrounds)
-_TEXT_GREEN  = QColor(0, 100, 0)       # dark green
-_TEXT_ORANGE = QColor(160, 120, 0)     # dark yellow / amber
-_TEXT_RED    = QColor(160, 0, 0)       # dark red
-
-# Map fill → text colour
-_TEXT_FOR_BG = {
-    _GREEN.rgb():  _TEXT_GREEN,
-    _ORANGE.rgb(): _TEXT_ORANGE,
-    _RED.rgb():    _TEXT_RED,
-}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Table helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _item(text: str, color: QColor | None = None, bold: bool = False) -> QTableWidgetItem:
+def _item(text: str, bold: bool = False) -> QTableWidgetItem:
     it = QTableWidgetItem(str(text))
     it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-    if color:
-        it.setBackground(color)
-        fg = _TEXT_FOR_BG.get(color.rgb())
-        if fg:
-            it.setForeground(fg)
     if bold:
         font = it.font()
         font.setBold(True)
@@ -723,6 +698,21 @@ class HydraulicReportWidget(QWidget):
     # ------------------------------------------------------------------
     # Export — PDF
 
+    def _graph_image(self, width: int = 1000, height: int = 620) -> "QImage":
+        """Render the hydraulic graph to an off-screen image for PDF export."""
+        g = _HydraulicGraphWidget()
+        g.set_supply_data(self._graph._p_static, self._graph._p_residual,
+                          self._graph._q_test)
+        g.set_demand_points(self._graph._q_sprinkler, self._graph._hose_stream,
+                            self._graph._p_demand)
+        g.resize(width, height)
+        img = QImage(width, height, QImage.Format.Format_ARGB32)
+        img.fill(Qt.GlobalColor.white)
+        painter = QPainter(img)
+        g.render(painter)
+        painter.end()
+        return img
+
     def _export_pdf(self):
         if not self._result or not _PRINTER_AVAILABLE:
             return
@@ -734,13 +724,15 @@ class HydraulicReportWidget(QWidget):
             return
 
         doc = QTextDocument()
+        doc.addResource(QTextDocument.ResourceType.ImageResource,
+                        QUrl("hydraulic_graph"), self._graph_image())
         doc.setHtml(self._build_html())
 
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(path)
-        printer.setPageSize(QPrinter.PageSize.A4)
-        doc.print_(printer)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+        doc.print(printer)
 
         QMessageBox.information(self, "Export Complete",
                                 f"PDF saved to:\n{path}")
@@ -756,116 +748,37 @@ class HydraulicReportWidget(QWidget):
         )
         if not path:
             return
-
-        r  = self._result
-        sm = self._sm
-
         with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-
-            # ── Summary ──────────────────────────────────────────────────
-            hose = getattr(r, 'hose_stream_gpm', 0.0)
-            w.writerow(["HYDRAULIC SUMMARY"])
-            w.writerow(["Status",             "PASS" if r.passed else "FAIL"])
-            w.writerow(["Sprinkler Demand (gpm)", f"{r.total_demand:.1f}"])
-            if hose > 0:
-                w.writerow(["Hose Stream (gpm)", f"{hose:.1f}"])
-                w.writerow(["Total Demand (gpm)", f"{r.total_demand + hose:.1f}"])
-            w.writerow(["Required Pressure (psi)", f"{r.required_pressure:.1f}"])
-            w.writerow(["Supply Available (psi)",  f"{r.supply_pressure:.1f}"])
-            w.writerow([])
-            if r.messages:
-                w.writerow(["Messages"])
-                for msg in r.messages:
-                    w.writerow(["", msg])
-                w.writerow([])
-
-            # ── Pipe Results ──────────────────────────────────────────────
-            from .equivalent_length import equivalent_length_ft
-            nn = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
-            supply_node = getattr(self._scene, '_supply_network_node', None)
-            w.writerow(["PIPE RESULTS"])
-            w.writerow(["#", "From", "To", "Diameter", "Schedule", "C-Factor",
-                        "Length", "Equiv (ft)", "Total (ft)",
-                        "Flow (gpm)", "Velocity (fps)", "hf (psi)"])
-            for i, (pipe, q) in enumerate(
-                sorted(r.pipe_flows.items(), key=lambda x: x[1], reverse=True), 1
-            ):
-                v  = r.pipe_velocity.get(pipe, 0.0)
-                hf = r.pipe_friction_loss.get(pipe, 0.0)
-                d  = pipe._properties["Diameter"]["value"]
-                sc = pipe._properties["Schedule"]["value"]
-                cf = pipe._properties["C-Factor"]["value"]
-                n1 = nn.get(pipe.node1, "") if pipe.node1 else ""
-                n2 = nn.get(pipe.node2, "") if pipe.node2 else ""
-                length_str = (
-                    sm.scene_to_display(pipe.length)
-                    if sm and sm.is_calibrated
-                    else f"{pipe.length:.0f} px"
-                )
-                equiv_ft = 0.0
-                for end_node in (pipe.node1, pipe.node2):
-                    if end_node is None or end_node is supply_node:
-                        continue
-                    ft = getattr(end_node, 'fitting', None)
-                    if ft is not None:
-                        equiv_ft += equivalent_length_ft(ft.type, d)
-                phys_ft = pipe.get_length_ft(sm=sm)
-                total_ft = phys_ft + equiv_ft
-                w.writerow([i, n1, n2, d, sc, cf, length_str,
-                            f"{equiv_ft:.1f}", f"{total_ft:.1f}",
-                            f"{q:.1f}", f"{v:.1f}", f"{hf:.2f}"])
-            w.writerow([])
-
-            # ── Sprinkler Schedule ────────────────────────────────────────
-            w.writerow(["SPRINKLER SCHEDULE"])
-            w.writerow(["#", "Node", "K-Factor", "Model", "Orientation", "Temperature",
-                        "Min P (psi)", "Act P (psi)", "Act Q (gpm)", "Coverage (sq ft)"])
-            for i, spr in enumerate(self._scene.sprinkler_system.sprinklers, 1):
-                p  = spr._properties
-                k_str = p["K-Factor"]["value"]
-                try:
-                    k = float(k_str)
-                except (ValueError, TypeError):
-                    k = 5.6
-                p_act = r.node_pressures.get(spr.node, None)
-                q_act = k * (max(p_act, 0.0) ** 0.5) if p_act is not None else None
-                node_num = nn.get(spr.node, "")
-                w.writerow([
-                    i, node_num, k_str,
-                    p["Model"]["value"], p["Orientation"]["value"], p["Temperature"]["value"],
-                    p["Min Pressure"]["value"],
-                    f"{p_act:.1f}" if p_act is not None else "",
-                    f"{q_act:.1f}" if q_act is not None else "",
-                    p["Coverage Area"]["value"],
-                ])
-            w.writerow([])
-
-            # ── Pipe Schedule ─────────────────────────────────────────────
-            w.writerow(["PIPE SCHEDULE"])
-            w.writerow(["#", "Diameter", "Schedule", "Material", "C-Factor", "Length"])
-            for i, pipe in enumerate(self._scene.sprinkler_system.pipes, 1):
-                p = pipe._properties
-                length_str = (
-                    sm.scene_to_display(pipe.length)
-                    if sm and sm.is_calibrated
-                    else f"{pipe.length:.0f} px"
-                )
-                w.writerow([
-                    i, p["Diameter"]["value"], p["Schedule"]["value"],
-                    p["Material"]["value"], p["C-Factor"]["value"], length_str,
-                ])
-
+            self._write_csv(f)
         QMessageBox.information(self, "Export Complete",
                                 f"CSV saved to:\n{path}")
+
+    def _write_csv(self, f):
+        """Write the summary sections + node summary table to a file object."""
+        r = self._result
+        w = csv.writer(f)
+        w.writerow(["HYDRAULIC CALCULATION REPORT — NFPA 13"])
+        w.writerow([])
+        for title, rows in self._summary_sections():
+            w.writerow([title.upper()])
+            for label, value in rows:
+                w.writerow([label, value])
+            w.writerow([])
+        if r.messages:
+            w.writerow(["MESSAGES"])
+            for msg in r.messages:
+                w.writerow(["", msg])
+            w.writerow([])
+        w.writerow(["NODE SUMMARY"])
+        w.writerow(NODE_SUMMARY_HEADERS)
+        for row in self._node_summary_rows(self._show_minor_cb.isChecked()):
+            w.writerow(row)
 
     # ------------------------------------------------------------------
     # HTML builder (used by PDF export)
 
     def _build_html(self) -> str:
-        r  = self._result
-        sm = self._sm
-
+        r = self._result
         css = """
         body { font-family: Arial, sans-serif; font-size: 10pt; }
         h2   { color: #1a3c6e; border-bottom: 2px solid #1a3c6e; padding-bottom:4px; }
@@ -876,149 +789,41 @@ class HydraulicReportWidget(QWidget):
         tr:nth-child(even) { background: #f5f5f5; }
         .pass { color: #007700; font-weight: bold; }
         .fail { color: #cc0000; font-weight: bold; }
-        .ok   { background: #d2f5d7; color: #006400; }
-        .warn { background: #ffebb8; color: #a07800; }
-        .bad  { background: #ffcdcd; color: #a00000; }
         ul    { margin-top: 4px; }
         li    { margin-bottom: 3px; }
         """
+        out = f"<html><head><style>{css}</style></head><body>"
+        out += "<h2>Hydraulic Calculation Report — NFPA 13</h2>"
 
-        ok  = r.passed
-        html = f"<html><head><style>{css}</style></head><body>"
-        html += "<h2>Hydraulic Calculation Report — NFPA 13</h2>"
-
-        # Summary table
-        sc = "pass" if ok else "fail"
-        st = "PASS" if ok else "FAIL"
-        hose = getattr(r, 'hose_stream_gpm', 0.0)
-        html += f"""<h3>System Summary</h3>
-        <table>
-          <tr><th>Item</th><th>Value</th></tr>
-          <tr><td>Status</td>
-              <td class='{sc}'>{st}</td></tr>
-          <tr><td>Sprinkler Demand</td>
-              <td>{r.total_demand:.1f} gpm</td></tr>"""
-        if hose > 0:
-            html += f"""
-          <tr><td>Hose Stream</td>
-              <td>{hose:.1f} gpm</td></tr>
-          <tr><td>Total Demand</td>
-              <td>{r.total_demand + hose:.1f} gpm</td></tr>"""
-        html += f"""
-          <tr><td>Required Pressure at Supply</td>
-              <td>{r.required_pressure:.1f} psi</td></tr>
-          <tr><td>Supply Pressure Available</td>
-              <td>{r.supply_pressure:.1f} psi</td></tr>
-        </table>"""
+        sc = "pass" if r.passed else "fail"
+        for title, rows in self._summary_sections():
+            out += f"<h3>{title}</h3><table><tr><th>Item</th><th>Value</th></tr>"
+            for label, value in rows:
+                cls = f" class='{sc}'" if label == "Status" else ""
+                out += (f"<tr><td>{label}</td>"
+                        f"<td{cls}>{html.escape(value)}</td></tr>")
+            out += "</table>"
 
         if r.messages:
-            html += "<h3>Analysis Messages</h3><ul>"
+            out += "<h3>Analysis Messages</h3><ul>"
             for msg in r.messages:
-                html += f"<li>{msg}</li>"
-            html += "</ul>"
+                out += f"<li>{html.escape(msg)}</li>"
+            out += "</ul>"
 
-        # Pipe results
-        from .equivalent_length import equivalent_length_ft
-        nn = r.node_numbers if hasattr(r, 'node_numbers') else {}
-        supply_node = getattr(self._scene, '_supply_network_node', None)
-        html += """<h3>Pipe Results</h3>
-        <table>
-          <tr><th>#</th><th>From</th><th>To</th><th>Diameter</th><th>Schedule</th>
-              <th>C-Factor</th><th>Length</th><th>Equiv (ft)</th><th>Total (ft)</th>
-              <th>Flow (gpm)</th>
-              <th>Velocity (fps)</th><th>hf (psi)</th><th>Status</th></tr>"""
-        for i, (pipe, q) in enumerate(
-            sorted(r.pipe_flows.items(), key=lambda x: x[1], reverse=True), 1
-        ):
-            v  = r.pipe_velocity.get(pipe, 0.0)
-            hf = r.pipe_friction_loss.get(pipe, 0.0)
-            d  = pipe._properties["Diameter"]["value"]
-            sc = pipe._properties["Schedule"]["value"]
-            cf = pipe._properties["C-Factor"]["value"]
-            n1 = nn.get(pipe.node1, "—") if pipe.node1 else "—"
-            n2 = nn.get(pipe.node2, "—") if pipe.node2 else "—"
-            length_str = (
-                sm.scene_to_display(pipe.length)
-                if sm else f"{pipe.length:.0f} px"
-            )
+        out += "<h3>Node Summary</h3><table><tr>"
+        for h in NODE_SUMMARY_HEADERS:
+            out += f"<th>{h}</th>"
+        out += "</tr>"
+        for row in self._node_summary_rows(self._show_minor_cb.isChecked()):
+            out += ("<tr>" +
+                    "".join(f"<td>{html.escape(v)}</td>" for v in row) +
+                    "</tr>")
+        out += "</table>"
 
-            equiv_ft = 0.0
-            for end_node in (pipe.node1, pipe.node2):
-                if end_node is None or end_node is supply_node:
-                    continue
-                ft = getattr(end_node, 'fitting', None)
-                if ft is not None:
-                    equiv_ft += equivalent_length_ft(ft.type, d)
-            phys_ft = pipe.get_length_ft(sm=sm)
-            total_ft = phys_ft + equiv_ft
-
-            vcls = "bad" if v > 20 else "warn" if v > 12 else "ok"
-            vstatus = "⚠ HIGH" if v > 20 else "⚠ ELEV" if v > 12 else "OK"
-            html += (
-                f"<tr><td>{i}</td><td>{n1}</td><td>{n2}</td>"
-                f"<td>{d}</td><td>{sc}</td><td>{cf}</td>"
-                f"<td>{length_str}</td><td>{equiv_ft:.1f}</td><td>{total_ft:.1f}</td>"
-                f"<td>{q:.1f}</td>"
-                f"<td class='{vcls}'>{v:.1f}</td><td>{hf:.2f}</td>"
-                f"<td class='{vcls}'>{vstatus}</td></tr>"
-            )
-        html += "</table>"
-
-        # Sprinkler schedule
-        html += """<h3>Sprinkler Schedule</h3>
-        <table>
-          <tr><th>#</th><th>Node</th><th>K-Factor</th><th>Model</th><th>Orientation</th>
-              <th>Temperature</th><th>Min P (psi)</th><th>Act P (psi)</th>
-              <th>Act Q (gpm)</th><th>Coverage (sq ft)</th></tr>"""
-        for i, spr in enumerate(self._scene.sprinkler_system.sprinklers, 1):
-            p     = spr._properties
-            k_str = p["K-Factor"]["value"]
-            try:
-                k     = float(k_str)
-                p_min = float(p["Min Pressure"]["value"])
-            except (ValueError, TypeError):
-                k, p_min = 5.6, 7.0
-            p_act = r.node_pressures.get(spr.node, None)
-            q_act = k * (max(p_act, 0.0) ** 0.5) if p_act is not None else None
-            p_act_s = f"{p_act:.1f}" if p_act is not None else "—"
-            q_act_s = f"{q_act:.1f}" if q_act is not None else "—"
-            node_num = nn.get(spr.node, "—")
-            pcls = (
-                "bad"  if p_act is not None and p_act < p_min else
-                "warn" if p_act is not None and p_act < p_min * 1.5 else
-                "ok"   if p_act is not None else ""
-            )
-            html += (
-                f"<tr><td>{i}</td><td>{node_num}</td><td>{k_str}</td>"
-                f"<td>{p['Model']['value']}</td><td>{p['Orientation']['value']}</td>"
-                f"<td>{p['Temperature']['value']}</td>"
-                f"<td>{p['Min Pressure']['value']}</td>"
-                f"<td class='{pcls}'>{p_act_s}</td>"
-                f"<td class='{pcls}'>{q_act_s}</td>"
-                f"<td>{p['Coverage Area']['value']}</td></tr>"
-            )
-        html += "</table>"
-
-        # Pipe schedule
-        html += """<h3>Pipe Schedule</h3>
-        <table>
-          <tr><th>#</th><th>Diameter</th><th>Schedule</th>
-              <th>Material</th><th>C-Factor</th><th>Length</th></tr>"""
-        for i, pipe in enumerate(self._scene.sprinkler_system.pipes, 1):
-            p = pipe._properties
-            length_str = (
-                sm.scene_to_display(pipe.length)
-                if sm else f"{pipe.length:.0f} px"
-            )
-            html += (
-                f"<tr><td>{i}</td><td>{p['Diameter']['value']}</td>"
-                f"<td>{p['Schedule']['value']}</td><td>{p['Material']['value']}</td>"
-                f"<td>{p['C-Factor']['value']}</td><td>{length_str}</td></tr>"
-            )
-        html += "</table>"
-
-        html += "</body></html>"
-        return html
+        out += "<h3>Hydraulic Graph</h3>"
+        out += "<img src='hydraulic_graph' width='650'>"
+        out += "</body></html>"
+        return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────

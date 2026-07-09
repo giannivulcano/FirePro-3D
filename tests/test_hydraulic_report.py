@@ -1,5 +1,7 @@
 """Tests for the 3-tab hydraulic report widget, exports, and support fields."""
 
+import csv as csv_mod
+import io
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -295,3 +297,69 @@ class TestSummarySections:
         assert dict(sections["Project"])["Project Name"] == "—"
         assert dict(sections["Design Criteria"])["Hazard Classification"] == "—"
         assert dict(sections["Water Supply"])["Static Pressure"] == "—"
+
+
+class TestExports:
+    def _populated(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        w.populate(result, scene, sm)
+        return w
+
+    def test_csv_structure_and_parseability(self, qapp):
+        from firepro3d.hydraulic_report import NODE_SUMMARY_HEADERS
+        w = self._populated(qapp)
+        buf = io.StringIO()
+        w._write_csv(buf)
+        buf.seek(0)
+        rows = list(csv_mod.reader(buf))
+        flat = ["|".join(r) for r in rows]
+        assert any("PROJECT" in s for s in flat)
+        assert any("DESIGN CRITERIA" in s for s in flat)
+        assert any("WATER SUPPLY" in s for s in flat)
+        assert any("NODE SUMMARY" in s for s in flat)
+        assert not any("SPRINKLER SCHEDULE" in s for s in flat)
+        assert not any("PIPE SCHEDULE" in s for s in flat)
+        header_i = next(i for i, r in enumerate(rows) if r == NODE_SUMMARY_HEADERS)
+        data = rows[header_i + 1:header_i + 4]
+        assert len(data) == 3                      # majors only (toggle off)
+        assert all(len(r) == 14 for r in data)
+
+    def test_csv_respects_minor_toggle(self, qapp):
+        from firepro3d.hydraulic_report import NODE_SUMMARY_HEADERS
+        w = self._populated(qapp)
+        w._show_minor_cb.setChecked(True)
+        buf = io.StringIO()
+        w._write_csv(buf)
+        buf.seek(0)
+        rows = list(csv_mod.reader(buf))
+        header_i = next(i for i, r in enumerate(rows) if r == NODE_SUMMARY_HEADERS)
+        data = [r for r in rows[header_i + 1:] if len(r) == 14]
+        assert len(data) == 4                      # includes 2a
+
+    def test_html_has_node_table_and_graph_no_schedules(self, qapp):
+        w = self._populated(qapp)
+        out = w._build_html()
+        assert "Node Summary" in out
+        assert "hydraulic_graph" in out            # <img src='hydraulic_graph'>
+        assert "Fire Station 4" in out
+        assert "Sprinkler Schedule" not in out
+        assert "Pipe Schedule" not in out
+        assert "Pipe Results" not in out
+
+    def test_graph_image_renders(self, qapp):
+        w = self._populated(qapp)
+        img = w._graph_image()
+        assert not img.isNull()
+        assert img.width() == 1000
+
+    def test_pdf_export_writes_file(self, qapp, tmp_path, monkeypatch):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        w = self._populated(qapp)
+        out = tmp_path / "report.pdf"
+        monkeypatch.setattr(QFileDialog, "getSaveFileName",
+                            staticmethod(lambda *a, **k: (str(out), "")))
+        monkeypatch.setattr(QMessageBox, "information",
+                            staticmethod(lambda *a, **k: None))
+        w._export_pdf()
+        assert out.exists() and out.stat().st_size > 1000
