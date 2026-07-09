@@ -1,13 +1,14 @@
 """
 hydraulic_report.py
 ===================
-Sprint 3A/3B — Hydraulic reporting widget.
+Hydraulic reporting widget (NFPA-format 3-tab report).
 
-Provides a QWidget with four tabs:
-  1. Summary      — pass/fail banner + system totals + solver messages
-  2. Pipe Results — per-pipe flow, velocity, friction loss (with status colours)
-  3. Sprinkler Schedule — per-sprinkler K, pressures, actual flow
-  4. Pipe Schedule      — pipe sizes, materials, lengths (no flow results needed)
+Provides a QWidget with three tabs:
+  1. Summary            — pass/fail banner, project metadata, design criteria,
+                          water supply data, results, solver messages
+  2. Node Summary Table — NFPA calc-sheet: one row per calc-path node with
+                          the pipe leading to it from upstream
+  3. Hydraulic Graph    — supply curve vs demand on a Q^1.85 axis
 
 Export:
   • PDF  — rendered via Qt's QPrinter (no external dependency)
