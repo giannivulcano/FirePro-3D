@@ -46,6 +46,24 @@ def _get_sprinkler_db() -> SprinklerDatabase:
     return _sprinkler_db
 
 
+class _MixedStateCheckBox(QCheckBox):
+    """Checkbox with Word-like mixed-state semantics for multi-select.
+
+    PartiallyChecked is a *display-only* state (set programmatically when a
+    multi-selection has differing values). A user click always resolves to a
+    definite state: partial -> checked, then checked <-> unchecked — never
+    cycling back into partial (Qt's default tristate cycle does, and its
+    partial state also reports isChecked() True, so ``toggled`` never fires
+    on the partial -> checked click; commit via ``clicked`` instead).
+    """
+
+    def nextCheckState(self):
+        if self.checkState() == Qt.CheckState.PartiallyChecked:
+            self.setCheckState(Qt.CheckState.Checked)
+        else:
+            self.setChecked(not self.isChecked())
+
+
 class PropertyManager(QWidget):
     """Right-dock panel that shows / edits properties for one or more items."""
 
@@ -224,10 +242,14 @@ class PropertyManager(QWidget):
 
             # ── bool (checkbox) ───────────────────────────────────────────
             elif prop_type == "bool":
-                chk = QCheckBox()
+                chk = _MixedStateCheckBox()
                 chk.setChecked(bool(meta["value"]))
-                chk.toggled.connect(
-                    lambda val, k=key: self._apply_property(k, val)
+                # clicked (not toggled): fires on every user click, after
+                # nextCheckState resolves — the partial -> checked click
+                # never changes the checked bool, so toggled misses it.
+                chk.clicked.connect(
+                    lambda _, k=key, c=chk: self._apply_property(
+                        k, c.isChecked())
                 )
                 widget = chk
 

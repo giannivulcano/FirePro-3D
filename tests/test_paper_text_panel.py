@@ -187,7 +187,7 @@ def test_panel_checkbox_commit_routes_to_set_property(qapp):
     pm = PropertyManager()
     pm.show_properties(item)
     before = scene.undo_stack.count()
-    _panel_widget_for(pm, "Bold").setChecked(True)   # user toggle
+    _panel_widget_for(pm, "Bold").click()           # real user click
     assert item.data.bold is True
     assert scene.undo_stack.count() == before + 1
 
@@ -311,3 +311,41 @@ def test_scrollbars_hidden(qapp):
     scroll = pm.findChild(QScrollArea)
     assert scroll.horizontalScrollBarPolicy() == off
     assert scroll.verticalScrollBarPolicy() == off
+
+
+# ── Mixed-state checkbox click behavior (2026-07-09 smoke-test bug) ───────
+
+
+def test_mixed_bold_shows_partial_and_first_click_applies(qapp):
+    from PyQt6.QtCore import Qt
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    a = scene.add_annotation(TextAnnotationData(text="A", bold=True))
+    b = scene.add_annotation(TextAnnotationData(text="B", bold=False))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    chk = _panel_widget_for(pm, "Bold")
+    assert chk.checkState() == Qt.CheckState.PartiallyChecked  # partial shown
+    before = scene.undo_stack.count()
+    chk.click()                              # REAL user path (not _apply_property)
+    assert a.data.bold is True and b.data.bold is True   # first click applies
+    assert scene.undo_stack.count() == before + 1        # one macro step
+    assert chk.checkState() == Qt.CheckState.Checked
+
+
+def test_checkbox_click_never_cycles_into_partial(qapp):
+    from PyQt6.QtCore import Qt
+    from firepro3d.property_manager import PropertyManager
+    scene = _scene()
+    a = scene.add_annotation(TextAnnotationData(text="A", bold=True))
+    b = scene.add_annotation(TextAnnotationData(text="B", bold=False))
+    pm = PropertyManager()
+    pm.show_properties([a, b])
+    chk = _panel_widget_for(pm, "Bold")
+    chk.click()                              # partial -> checked (both bold)
+    chk.click()                              # checked -> unchecked (both unbold)
+    assert chk.checkState() == Qt.CheckState.Unchecked
+    assert a.data.bold is False and b.data.bold is False
+    chk.click()                              # unchecked -> CHECKED, never partial
+    assert chk.checkState() == Qt.CheckState.Checked
+    assert a.data.bold is True and b.data.bold is True
