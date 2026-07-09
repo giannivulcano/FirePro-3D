@@ -484,6 +484,8 @@ class HydraulicReportWidget(QWidget):
         self._result = self._scene = self._sm = None
         self._summary.clear()
         self._node_table.setRowCount(0)
+        self._graph.set_supply_data(0.0, 0.0, 0.0)
+        self._graph.set_demand_points(0.0, 0.0, 0.0)
         self._pdf_btn.setEnabled(False)
         self._csv_btn.setEnabled(False)
 
@@ -621,8 +623,8 @@ class HydraulicReportWidget(QWidget):
             q = r.pipe_flows.get(pipe, 0.0)
             v = r.pipe_velocity.get(pipe, 0.0)
             hf = r.pipe_friction_loss.get(pipe, 0.0)
-            d = pipe._properties["Diameter"]["value"]
-            cf = pipe._properties["C-Factor"]["value"]
+            d = str(pipe._properties["Diameter"]["value"])
+            cf = str(pipe._properties["C-Factor"]["value"])
             equiv_ft = 0.0
             for end_node in (pipe.node1, pipe.node2):
                 if end_node is None or end_node is supply_node:
@@ -682,18 +684,26 @@ class HydraulicReportWidget(QWidget):
         t.setSortingEnabled(True)
 
     def _fill_graph(self):
-        """Populate the hydraulic graph with supply curve and demand data."""
+        """Populate the hydraulic graph with supply curve and demand data.
+
+        Always resets first so a removed supply / failed run can't leave a
+        stale curve on screen (or baked into an exported PDF).
+        """
         ws = getattr(self._scene, "water_supply_node", None)
         if ws is not None:
             self._graph.set_supply_data(
                 ws.static_pressure, ws.residual_pressure, ws.test_flow
             )
+        else:
+            self._graph.set_supply_data(0.0, 0.0, 0.0)
         if self._result and self._result.total_demand > 0:
             hose = getattr(self._result, 'hose_stream_gpm', 0.0)
             self._graph.set_demand_points(
                 self._result.total_demand, hose,
                 self._result.required_pressure
             )
+        else:
+            self._graph.set_demand_points(0.0, 0.0, 0.0)
 
     # ------------------------------------------------------------------
     # Export — PDF

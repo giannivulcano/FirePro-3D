@@ -354,6 +354,9 @@ class TestExports:
         assert img.width() == 1000
 
     def test_pdf_export_writes_file(self, qapp, tmp_path, monkeypatch):
+        from firepro3d.hydraulic_report import _PRINTER_AVAILABLE
+        if not _PRINTER_AVAILABLE:
+            pytest.skip("QtPrintSupport unavailable")
         from PyQt6.QtWidgets import QFileDialog, QMessageBox
         w = self._populated(qapp)
         out = tmp_path / "report.pdf"
@@ -362,4 +365,18 @@ class TestExports:
         monkeypatch.setattr(QMessageBox, "information",
                             staticmethod(lambda *a, **k: None))
         w._export_pdf()
-        assert out.exists() and out.stat().st_size > 1000
+        # The embedded 1000×620 graph image dominates the file size — a low
+        # size means the ImageResource silently failed to resolve.
+        assert out.exists() and out.stat().st_size > 5000
+
+    def test_graph_resets_when_supply_removed(self, qapp):
+        """Re-populating after the water supply is gone must not leave a
+        stale curve on screen (or baked into an exported PDF)."""
+        w = self._populated(qapp)
+        assert w._graph._p_static == 80.0
+        result, scene, sm = _linear_result_and_scene()
+        result.total_demand = 0.0
+        scene.water_supply_node = None
+        w.populate(result, scene, sm)
+        assert w._graph._p_static == 0.0
+        assert w._graph._q_demand == 0.0
