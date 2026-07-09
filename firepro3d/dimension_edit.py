@@ -47,13 +47,15 @@ class DimensionEdit(QLineEdit):
 
     def __init__(self, scale_manager: ScaleManager | None = None,
                  initial_mm: float = 0.0, parent=None,
-                 parser=None, minimum: float | None = None):
+                 parser=None, minimum: float | None = None,
+                 formatter=None):
         super().__init__(parent)
         self._sm = scale_manager
         self._value_mm: float = initial_mm
         self._last_valid_mm: float = initial_mm
         self._parser = parser        # optional str -> float|None override
         self._minimum = minimum      # accepted values must be strictly > minimum
+        self._formatter = formatter  # optional mm -> str display override
         self._seed_text = ""
 
         # Display the initial value
@@ -91,7 +93,9 @@ class DimensionEdit(QLineEdit):
 
     def _reformat(self) -> None:
         """Format the stored mm value using the project's display unit."""
-        if self._sm:
+        if self._formatter is not None:
+            self.setText(self._formatter(self._value_mm))
+        elif self._sm:
             self.setText(self._sm.format_length(self._value_mm))
         else:
             self.setText(f"{self._value_mm:.2f} mm")

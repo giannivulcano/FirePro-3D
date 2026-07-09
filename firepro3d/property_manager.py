@@ -79,6 +79,9 @@ class PropertyManager(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        # No visible scrollbars — mouse-wheel scrolling still works
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._form_container = QWidget()
         self._form = QFormLayout(self._form_container)
@@ -211,7 +214,8 @@ class PropertyManager(QWidget):
                 val_mm = meta.get("value_mm", 0.0)
                 dim_edit = DimensionEdit(sm, initial_mm=float(val_mm),
                                          parser=meta.get("parser"),
-                                         minimum=meta.get("minimum"))
+                                         minimum=meta.get("minimum"),
+                                         formatter=meta.get("formatter"))
                 dim_edit.editingFinished.connect(
                     lambda k=key, de=dim_edit: self._apply_property(
                         k, de.value_mm())

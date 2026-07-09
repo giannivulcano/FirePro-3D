@@ -252,3 +252,62 @@ def test_apply_template_settings_rejects_bad_height(qapp):
     assert dst.height_mm == DEFAULT_TEXT_HEIGHT_MM
     apply_template_settings(dst, {"height_mm": "garbage"})
     assert dst.height_mm == DEFAULT_TEXT_HEIGHT_MM
+
+
+# ── Word-style pt height display (2026-07-09 smoke-test feedback) ─────────
+
+
+def test_font_pt_round_trip(qapp):
+    from firepro3d.paper_space import _font_pt_from_mm, _mm_from_font_pt
+    data = TextAnnotationData()          # Arial default
+    mm = _mm_from_font_pt(data, 12.0)
+    assert 2.5 < mm < 3.6                # ~3.0 mm cap for 12 pt Arial
+    assert abs(_font_pt_from_mm(data, mm) - 12.0) < 1e-6
+
+
+def test_parse_height_pt_variants(qapp):
+    from firepro3d.paper_space import _parse_height_pt, _mm_from_font_pt
+    data = TextAnnotationData()
+    expected = _mm_from_font_pt(data, 12.0)
+    assert _parse_height_pt(data, "12") == expected
+    assert _parse_height_pt(data, "12 pt") == expected
+    assert _parse_height_pt(data, "12pt") == expected
+    # Explicit dimension strings still parse as literal cap heights
+    assert abs(_parse_height_pt(data, '1/8"') - 3.175) < 1e-6
+    assert abs(_parse_height_pt(data, "3mm") - 3.0) < 1e-6
+    assert _parse_height_pt(data, "garbage") is None
+
+
+def test_format_height_pt(qapp):
+    from firepro3d.paper_space import _format_height_pt, _mm_from_font_pt
+    data = TextAnnotationData()
+    assert _format_height_pt(data, _mm_from_font_pt(data, 12.0)) == "12 pt"
+
+
+def test_panel_height_field_displays_and_parses_pt(qapp):
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.paper_space import _mm_from_font_pt
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X"))
+    pm = PropertyManager()
+    pm.show_properties(item)
+    h = _panel_widget_for(pm, "Height")
+    assert h.text().endswith("pt")       # displays Word-style pt
+    h.setText("12")
+    h.editingFinished.emit()
+    assert item.data.height_mm == _mm_from_font_pt(item.data, 12.0)
+
+
+def test_scrollbars_hidden(qapp):
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QScrollArea
+    from firepro3d.paper_space import PaperSpaceWidget
+    from firepro3d.property_manager import PropertyManager
+    w = PaperSpaceWidget(Sheet.create_default(), _stub_resolver())
+    off = Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+    assert w.view.horizontalScrollBarPolicy() == off
+    assert w.view.verticalScrollBarPolicy() == off
+    pm = PropertyManager()
+    scroll = pm.findChild(QScrollArea)
+    assert scroll.horizontalScrollBarPolicy() == off
+    assert scroll.verticalScrollBarPolicy() == off
