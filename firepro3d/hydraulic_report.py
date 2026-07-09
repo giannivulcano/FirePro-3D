@@ -16,6 +16,7 @@ Export:
 
 import csv
 import math
+import re
 
 from PyQt6.QtWidgets import (
     QWidget, QTabWidget, QTableWidget, QTableWidgetItem,
@@ -101,6 +102,48 @@ def _make_table(headers: list[str]) -> QTableWidget:
     t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     t.setSortingEnabled(True)
     return t
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Report data-assembly helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DASH = "—"
+
+NODE_SUMMARY_HEADERS = [
+    "Node #", "Elev (ft)", "Flow (gpm)", "Diameter", "Length (ft)",
+    "Equiv (ft)", "Total (ft)", "C-Factor", "psi/ft", "Total hf (psi)",
+    "Req P (psi)", "Act P (psi)", "Velocity (fps)", "Notes",
+]
+
+_FITTING_NOTE_LABELS = {
+    "90elbow": "90° Elbow", "45elbow": "45° Elbow",
+    "elbow_up": "90° Elbow (up)", "elbow_down": "90° Elbow (down)",
+    "tee": "Tee", "tee_up": "Tee (up)", "tee_down": "Tee (down)",
+    "wye": "Wye", "cross": "Cross", "cap": "Cap",
+}
+
+
+def _label_sort_key(label: str):
+    """BFS-order sort key for node labels: '1' < '2' < '2a' < '3' < '10'."""
+    m = re.match(r"(\d+)([a-z]*)", str(label))
+    if not m:
+        return (10 ** 9, str(label))
+    return (int(m.group(1)), m.group(2))
+
+
+def _area_sqft_from_property(area_str: str):
+    """Parse the DesignArea 'Area' display string to square feet (or None)."""
+    s = (area_str or "").strip()
+    if not s or s == "0":
+        return None
+    try:
+        num = float(s.split()[0])
+    except (ValueError, IndexError):
+        return None
+    if "m²" in s or "m2" in s:
+        return num * 10.7639
+    return num
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -510,6 +553,149 @@ class HydraulicReportWidget(QWidget):
         """Show the NFPA 13 equivalent length reference dialog."""
         dlg = EquivalentLengthDialog(self)
         dlg.show()
+
+    # ------------------------------------------------------------------
+    # Data assembly (shared by screen tabs, CSV, and PDF HTML)
+
+    def _summary_sections(self) -> list:
+        """Return [(section_title, [(label, value), ...]), ...] for the
+        Summary tab, CSV block, and PDF header — single source of truth."""
+        r = self._result
+        scene = self._scene
+
+        info = getattr(scene, "_project_info", {}) or {}
+        addr = ", ".join(p for p in (info.get("address", ""),
+                                     info.get("city", ""),
+                                     info.get("state", "")) if p)
+        project = [
+            ("Project Name",     info.get("name") or _DASH),
+            ("Project Number",   info.get("number") or _DASH),
+            ("Address",          addr or _DASH),
+            ("Client",           info.get("client") or _DASH),
+            ("Designer",         info.get("designer") or _DASH),
+            ("System Description", info.get("description") or _DASH),
+            ("Calculation Date", getattr(r, "calc_date", "") or _DASH),
+        ]
+
+        da = getattr(scene, "active_design_area", None)
+        hazard = area_str = density = _DASH
+        if da is not None:
+            da.compute_area(self._sm)
+            props = da.get_properties()
+            hazard = props["Hazard Classification"]["value"] or _DASH
+            area_str = props["Area"]["value"] or _DASH
+            area_sqft = _area_sqft_from_property(props["Area"]["value"])
+            if area_sqft:
+                from .auto_populate_dialog import _interpolate_density
+                density = f"{_interpolate_density(hazard, area_sqft):.2f} gpm/ft²"
+        spr_count = len(getattr(scene, "design_area_sprinklers", []) or [])
+        hose = getattr(r, "hose_stream_gpm", 0.0)
+        criteria = [
+            ("Hazard Classification",      hazard),
+            ("Design Area",                area_str),
+            ("Density",                    density),
+            ("Sprinklers in Design Area",  str(spr_count) if spr_count else _DASH),
+            ("Hose Stream Allowance",      f"{hose:.0f} gpm" if hose > 0 else "None"),
+        ]
+
+        ws = getattr(scene, "water_supply_node", None)
+        if ws is not None:
+            test_date = ws.get_properties().get("Test Date", {}).get("value", "")
+            supply = [
+                ("Static Pressure",   f"{ws.static_pressure:.1f} psi"),
+                ("Residual Pressure", f"{ws.residual_pressure:.1f} psi"),
+                ("Test Flow",         f"{ws.test_flow:.0f} gpm"),
+                ("Gauge Elevation",   f"{ws.elevation:.1f} ft"),
+                ("Test Date",         test_date or _DASH),
+            ]
+        else:
+            supply = [
+                ("Static Pressure", _DASH), ("Residual Pressure", _DASH),
+                ("Test Flow", _DASH), ("Gauge Elevation", _DASH),
+                ("Test Date", _DASH),
+            ]
+
+        results = [("Status", "PASS" if r.passed else "FAIL"),
+                   ("Sprinkler Demand", f"{r.total_demand:.1f} gpm")]
+        if hose > 0:
+            results.append(("Hose Stream", f"{hose:.1f} gpm"))
+            results.append(("Total Demand", f"{r.total_demand + hose:.1f} gpm"))
+        results.append(("Required Pressure", f"{r.required_pressure:.1f} psi"))
+        results.append(("Supply Available", f"{r.supply_pressure:.1f} psi"))
+
+        return [("Project", project), ("Design Criteria", criteria),
+                ("Water Supply", supply), ("Results", results)]
+
+    def _node_summary_rows(self, show_minor: bool) -> list:
+        """One 14-column row per calc-path node (NFPA calc-sheet format).
+
+        Each row pairs a node with the pipe leading to it from upstream
+        (spec §9.2); the supply node has no upstream pipe.
+        """
+        from .equivalent_length import equivalent_length_ft
+
+        r = self._result
+        sm = self._sm
+        labels = getattr(r, "node_labels", {}) or {}
+        parent_pipe = getattr(r, "node_parent_pipe", {}) or {}
+        supply_node = getattr(self._scene, "_supply_network_node", None)
+
+        spr_by_node = {}
+        system = getattr(self._scene, "sprinkler_system", None)
+        if system is not None:
+            for spr in system.sprinklers:
+                if spr.node is not None:
+                    spr_by_node[spr.node] = spr
+
+        rows = []
+        for node in sorted(labels, key=lambda n: _label_sort_key(labels[n])):
+            label = str(labels[node])
+            if not show_minor and not label.isdigit():
+                continue
+
+            notes = []
+            spr = spr_by_node.get(node)
+            if spr is not None:
+                notes.append(f"K={spr._properties['K-Factor']['value']}")
+            ft_obj = getattr(node, "fitting", None)
+            if ft_obj is not None:
+                notes.append(_FITTING_NOTE_LABELS.get(ft_obj.type, ft_obj.type))
+
+            elev = f"{node.z_pos / 304.8:.1f}"
+            req = r.required_node_pressures.get(node)
+            act = r.node_pressures.get(node)
+            req_s = f"{req:.1f}" if req is not None else _DASH
+            act_s = f"{act:.1f}" if act is not None else _DASH
+
+            pipe = parent_pipe.get(node)
+            if pipe is None:
+                notes.insert(0, "Supply")
+                rows.append([label, elev, f"{r.total_demand:.1f}",
+                             _DASH, _DASH, _DASH, _DASH, _DASH, _DASH, _DASH,
+                             req_s, act_s, _DASH, ", ".join(notes)])
+                continue
+
+            q = r.pipe_flows.get(pipe, 0.0)
+            v = r.pipe_velocity.get(pipe, 0.0)
+            hf = r.pipe_friction_loss.get(pipe, 0.0)
+            d = pipe._properties["Diameter"]["value"]
+            cf = pipe._properties["C-Factor"]["value"]
+            equiv_ft = 0.0
+            for end_node in (pipe.node1, pipe.node2):
+                if end_node is None or end_node is supply_node:
+                    continue
+                f = getattr(end_node, "fitting", None)
+                if f is not None:
+                    equiv_ft += equivalent_length_ft(f.type, d)
+            phys_ft = pipe.get_length_ft(sm=sm)
+            total_ft = phys_ft + equiv_ft
+            psi_ft = hf / total_ft if total_ft > 0 else 0.0
+
+            rows.append([label, elev, f"{q:.1f}", d, f"{phys_ft:.1f}",
+                         f"{equiv_ft:.1f}", f"{total_ft:.1f}", cf,
+                         f"{psi_ft:.3f}", f"{hf:.2f}", req_s, act_s,
+                         f"{v:.1f}", ", ".join(notes) or _DASH])
+        return rows
 
     # ------------------------------------------------------------------
     # Tab fillers
