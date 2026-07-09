@@ -2776,7 +2776,7 @@ class MainWindow(QMainWindow):
                 f"Running hydraulics with {len(design)} design-area sprinkler(s)...", 5000)
         else:
             self.statusBar().showMessage(
-                "Running hydraulics on ALL sprinklers (no design area set)...", 5000)
+                "No design area defined — hydraulic calculation requires one.", 5000)
         result = self.scene.run_hydraulics(design_sprinklers=design)
         self.hydro_report.populate(result, self.scene, self.scene.scale_manager)
         self.hydro_dock.show()

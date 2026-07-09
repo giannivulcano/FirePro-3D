@@ -30,6 +30,7 @@ Key formulas  (NFPA 13 §22.4.2)
   Velocity       v  [fps]  = Q × 0.4085 / d² (Q in gpm, d in inches)
 """
 
+import datetime
 import math
 from collections import deque
 from dataclasses import dataclass, field
@@ -55,6 +56,8 @@ class HydraulicResult:
     messages:           list   # list[str]  warnings / errors / summary
     node_numbers:       dict   # Node  → int (BFS order, major nodes only)
     node_labels:        dict   # Node  → str ("1", "2", "3a", "3b", etc.)
+    node_parent_pipe:   dict = field(default_factory=dict)  # Node → Pipe|None (upstream pipe on calc path)
+    calc_date:          str  = ""                            # ISO date stamped at solve time
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -104,7 +107,10 @@ class HydraulicSolver:
             return self._fail("No water supply node placed on the drawing.")
 
         if design_sprinklers is None:
-            design_sprinklers = list(self.system.sprinklers)
+            return self._fail(
+                "No design area defined — create a design area "
+                "before running hydraulics."
+            )
 
         if not design_sprinklers:
             return self._fail("No sprinklers in the design area.")
@@ -350,6 +356,9 @@ class HydraulicSolver:
                     node_labels[nd] = f"{maj_num}{letter}"
                     minor_counts[maj_num] = idx + 1
 
+        node_parent_pipe = {n: parent_pipe.get(n) for n in node_labels}
+        node_parent_pipe[supply_node] = None
+
         return HydraulicResult(
             node_pressures     = node_pressure,
             pipe_flows         = pipe_flow,
@@ -364,6 +373,8 @@ class HydraulicSolver:
             messages           = messages,
             node_numbers       = node_numbers,
             node_labels        = node_labels,
+            node_parent_pipe   = node_parent_pipe,
+            calc_date          = datetime.date.today().isoformat(),
         )
 
     # ─────────────────────────────────────────────────────────────────────────
@@ -374,7 +385,15 @@ class HydraulicSolver:
     def _fail(msg: str, extra_messages: list | None = None) -> HydraulicResult:
         msgs = list(extra_messages or [])
         msgs.append(f"❌ {msg}")
-        return HydraulicResult({}, {}, {}, {}, {}, 0.0, 0.0, 0.0, 0.0, False, msgs, {}, {})
+        return HydraulicResult(
+            node_pressures={}, pipe_flows={}, pipe_velocity={},
+            pipe_friction_loss={}, required_node_pressures={},
+            total_demand=0.0, hose_stream_gpm=0.0,
+            required_pressure=0.0, supply_pressure=0.0,
+            passed=False, messages=msgs,
+            node_numbers={}, node_labels={},
+            calc_date=datetime.date.today().isoformat(),
+        )
 
     @staticmethod
     def _safe_float(value, default: float) -> float:

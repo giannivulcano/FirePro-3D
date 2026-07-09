@@ -396,13 +396,26 @@ class TestValidationGuards:
         assert not result.passed
         assert any("no water supply" in m.lower() for m in result.messages)
 
-    def test_no_sprinklers(self):
+    def test_no_design_area(self):
+        """solve() with design_sprinklers=None must refuse (G6) — the
+        'None -> all sprinklers' fallback is retired."""
         sm = _mock_scale_manager()
         ws = _mock_water_supply()
         n = _mock_node()
         sys = _mock_sprinkler_system(ws, nodes=[n], pipes=[], sprinklers=[])
         solver = HydraulicSolver(sys, sm)
         result = solver.solve()
+        assert not result.passed
+        assert any("no design area" in m.lower() for m in result.messages)
+
+    def test_no_sprinklers(self):
+        """An explicitly empty design list still fails with the G2 message."""
+        sm = _mock_scale_manager()
+        ws = _mock_water_supply()
+        n = _mock_node()
+        sys = _mock_sprinkler_system(ws, nodes=[n], pipes=[], sprinklers=[])
+        solver = HydraulicSolver(sys, sm)
+        result = solver.solve(design_sprinklers=[])
         assert not result.passed
         assert any("no sprinklers" in m.lower() for m in result.messages)
 
@@ -452,6 +465,7 @@ class TestHydraulicResult:
             "total_demand", "hose_stream_gpm", "required_pressure",
             "supply_pressure", "passed", "messages",
             "node_numbers", "node_labels",
+            "node_parent_pipe", "calc_date",
         }
         assert expected == names
 
@@ -636,6 +650,21 @@ class TestEndToEndTwoNode:
         solver, sprs, supply_n, spr_n, pipe = self._build_network()
         result = solver.solve(design_sprinklers=sprs)
         assert result.hose_stream_gpm == 0.0
+
+    def test_result_has_parent_pipe_and_calc_date(self):
+        """New HydraulicResult fields: node_parent_pipe maps every non-supply
+        calc node to its upstream pipe; calc_date is stamped."""
+        import datetime
+        solver, sprs, supply_n, spr_n, pipe = self._build_network()
+        result = solver.solve(design_sprinklers=sprs)
+        assert result.passed
+        assert result.calc_date == datetime.date.today().isoformat()
+        supply = solver._supply_node
+        for node in result.node_labels:
+            if node is supply:
+                assert result.node_parent_pipe.get(node) is None
+            else:
+                assert result.node_parent_pipe.get(node) is not None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
