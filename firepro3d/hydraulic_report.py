@@ -559,7 +559,10 @@ class HydraulicReportWidget(QWidget):
 
     def _summary_sections(self) -> list:
         """Return [(section_title, [(label, value), ...]), ...] for the
-        Summary tab, CSV block, and PDF header — single source of truth."""
+        Summary tab, CSV block, and PDF header — single source of truth.
+
+        Note: refreshes the active design area's rect/Area property via
+        compute_area() before reading it."""
         r = self._result
         scene = self._scene
 
@@ -586,8 +589,10 @@ class HydraulicReportWidget(QWidget):
             area_str = props["Area"]["value"] or _DASH
             area_sqft = _area_sqft_from_property(props["Area"]["value"])
             if area_sqft:
-                from .auto_populate_dialog import _interpolate_density
-                density = f"{_interpolate_density(hazard, area_sqft):.2f} gpm/ft²"
+                from .auto_populate_dialog import (DENSITY_AREA_CURVES,
+                                                   _interpolate_density)
+                if hazard in DENSITY_AREA_CURVES:
+                    density = f"{_interpolate_density(hazard, area_sqft):.2f} gpm/ft²"
         spr_count = len(getattr(scene, "design_area_sprinklers", []) or [])
         hose = getattr(r, "hose_stream_gpm", 0.0)
         criteria = [
@@ -618,7 +623,7 @@ class HydraulicReportWidget(QWidget):
         results = [("Status", "PASS" if r.passed else "FAIL"),
                    ("Sprinkler Demand", f"{r.total_demand:.1f} gpm")]
         if hose > 0:
-            results.append(("Hose Stream", f"{hose:.1f} gpm"))
+            results.append(("Hose Stream", f"{hose:.0f} gpm"))
             results.append(("Total Demand", f"{r.total_demand + hose:.1f} gpm"))
         results.append(("Required Pressure", f"{r.required_pressure:.1f} psi"))
         results.append(("Supply Available", f"{r.supply_pressure:.1f} psi"))

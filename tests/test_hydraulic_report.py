@@ -10,7 +10,7 @@ from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.water_supply import WaterSupply
 
 
-def _mock_pipe(diameter="1\"", c_factor="120", length_ft=10.0,
+def _mock_pipe(diameter='1"Ø', c_factor="120", length_ft=10.0,
                node1=None, node2=None):
     pipe = MagicMock()
     pipe._properties = {
@@ -172,6 +172,18 @@ class TestNodeSummaryRows:
         w = self._widget(qapp)
         rows = w._node_summary_rows(show_minor=False)
         assert rows[1][1] == f"{3000.0 / 304.8:.1f}"
+
+    def test_friction_columns_use_equivalent_length(self, qapp):
+        """Row '2a' (pipe p2, 1\"Ø with a 90° elbow at n2): equiv=2.5 ft,
+        total=12.5 ft, psi/ft = 1.2/12.5."""
+        w = self._widget(qapp)
+        rows = w._node_summary_rows(show_minor=True)
+        row_2a = next(r for r in rows if r[0] == "2a")
+        assert row_2a[4] == "10.0"     # physical ft
+        assert row_2a[5] == "2.5"      # 1"Ø 90° elbow equivalent
+        assert row_2a[6] == "12.5"     # total
+        assert row_2a[8] == "0.096"    # 1.2 / 12.5
+        assert row_2a[9] == "1.20"     # total hf
 
 
 class TestSummarySections:
