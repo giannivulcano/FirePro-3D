@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-08
-verified-commit: 128075a
+last-verified: 2026-07-09
+verified-commit: c624542
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -41,7 +41,9 @@ The panel never imports entity modules for rendering decisions except the specia
 | `enum` / `combo` | `QComboBox` from `options` | `currentTextChanged` |
 | `color` | 60×24 swatch `QPushButton` → `QColorDialog` (`_pick_color`; stores hex in `_color_value` property; cancel-guarded) | dialog OK |
 | `level_ref` | `QComboBox` populated from `LevelManager.levels` | `currentTextChanged` |
-| `dimension` | `DimensionEdit` seeded from `meta["value_mm"]` | `editingFinished` → `value_mm()` |
+| `dimension` | `DimensionEdit` seeded from `meta["value_mm"]`; optional meta keys `parser`, `minimum`, `formatter` pass through (§3.8) | `editingFinished` → `value_mm()` |
+| `bool` | `_MixedStateCheckBox` — Word-like tristate: `PartiallyChecked` is display-only for mixed multi-select; `nextCheckState` resolves partial → checked and clicks never cycle back into partial. Commits on **`clicked`**, not `toggled` (Qt's partial state reports `isChecked()` True, so the partial→checked click never fires `toggled`). Theme styles `::indicator:indeterminate` (accent fill) — without it the QSS renders partial identically to unchecked. | `clicked` → `isChecked()` |
+| `font` | `QFontComboBox` (seeded via `setCurrentFont` when value truthy) | `currentFontChanged` → `family()` |
 | `button` | `QPushButton` labelled `value`; fires `meta["callback"]` (exceptions swallowed), then debounced refresh | click |
 
 `meta["readonly"]` disables/greys the widget. `meta["suffix"]` wraps the widget in an HBox with a grey italic suffix label.
@@ -50,7 +52,7 @@ The panel never imports entity modules for rendering decisions except the specia
 
 `_apply_property(key, value)` → `set_property` on **every** target (multi-select), sprinkler cascade re-run when key ∈ {Manufacturer, Model, Orientation}, then `scene.sceneModified.emit()` (first target with a scene) and a **50 ms single-shot debounced refresh** (`_refresh_timer` → `_do_refresh` → full form rebuild). A `_refreshing` guard makes writes fired during rebuild no-ops (prevents re-entrant loops from `currentTextChanged` firing on `setCurrentText`).
 
-**Write-path contract (grilled 2026-07-08):** direct mutation is **provisional**, not the long-term contract. The intended design is a *pluggable write route*: paper-space targets go through their `QUndoStack` commands (per `paper-space.md` §9.6/§17); model-space targets stay direct-mutation **until model-space undo exists**, at which point they migrate to the same route. New target families must not add bare `set_property` writes without considering undo ownership.
+**Write-path contract (grilled 2026-07-08; paper route built 2026-07-09):** direct mutation is **provisional**, not the long-term contract. The pluggable write route is now as-built for paper: `TextAnnotationItem.set_property` pushes commands on its scene's `QUndoStack` (`paper-space.md` §9.6/§17), and `_apply_property` wraps **multi-target** commits in a `beginMacro`/`endMacro` pair (duck-typed on a public `undo_stack` attribute — `Model_View` has none, so model space is unaffected; one panel commit = one undo step). Model-space targets stay direct-mutation **until model-space undo exists**, at which point they migrate to the same route. New target families must not add bare `set_property` writes without considering undo ownership.
 
 ### 3.4 Hard-coded entity special cases
 
@@ -71,13 +73,14 @@ The generic protocol has four baked-in exceptions (all in `_show_properties_inne
 - `scene.requestPropertyUpdate`, `view_3d.entitySelected`, `model_browser.entitySelected` → `show_properties` directly.
 - Empty selection → `show_properties(PlanViewInfo)` (active plan/detail view info) — the panel is never "about nothing" on a plan tab.
 - Elevation scenes: `scene.entitySelected` → `show_properties` (per-scene connect on creation).
-- **Paper space: no wiring exists.** `PaperScene` selection changes never reach the panel (see Divergences).
+- **Paper space (built 2026-07-09):** `paper_scene.selectionChanged` + `undo_stack.indexChanged` → `MainWindow.update_paper_property_manager()` — filters selection to `TextAnnotationItem`s, only acts while the paper tab is current; `_on_tab_changed` routes the panel to the active tab's context. `add_text_mode_toggled` shows the text template pre-placement. Viewports still use their dialog (follow-up).
 
 ### 3.7 Template pattern (pre-placement defaults / "last-used defaults")
 
 A **template** is a real entity instance living *outside* any scene, shown in the panel when its placement mode activates:
 
 - **Pipe/Sprinkler:** `MainWindow.current_pipe_template` / `current_sprinkler_template` (constructed at startup with null endpoints); `_scene_ref` set so `_get_scale_manager` resolves units. Placement copies values via `entity.set_properties(template)`. **Persisted across sessions** in `QSettings` (`template/pipe`, `template/sprinkler`) as raw `{key: value}` — saved in `save_settings`, restored after project load.
+- **Sheet text (built 2026-07-09):** `MainWindow.current_text_template` — an off-scene `TextAnnotationItem` (`_scale_manager_ref` set; `set_property` writes directly, no undo). Its data object is aliased to `PaperScene.text_template`, which seeds `begin_place_text`. Persisted in `QSettings` (`template/text`) via `paper_space.text_template_to_settings`/`apply_template_settings` (explicit string coercion — the Windows registry backend stringifies — and non-positive-height fallback).
 - **Wall/Floor/Roof/Geometry:** lazily-created scene-owned templates (`Model_View._get_*_template`, name `"(Template)"`), synced to the active level on each fetch; shown via `_on_mode_changed_template`. **Not persisted.**
 - **Persistence policy (grilled 2026-07-08):** the persisted/non-persisted asymmetry is historical, not designed. *New* template families (e.g. sheet text) follow the **persisted** pattern from day one; retrofitting wall/floor/roof/geometry persistence is a separate low-priority follow-up. QSettings is the current store; a future per-user accounts feature may replace it — keep template persistence behind the existing save/restore helpers so the store can swap.
 - ScaleManager resolution order for off-scene targets: `scene().scale_manager` → `_scale_manager_ref` → `_scene_ref.scale_manager` (`_get_scale_manager`).
@@ -86,7 +89,7 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 
 `QLineEdit` storing **mm** internally; displays via `ScaleManager.format_length`; parses via `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())`; empty/invalid input **reverts** to last valid value; `valueChanged(float mm)` on successful commit; select-all on focus. Per project convention (CLAUDE.md / memory), *all* dimension fields use this pattern — never `QDoubleSpinBox`.
 
-**Caveat:** the bare-number fallback unit is `bare_number_unit()` (= `ft` in imperial). Paper-mm fields (e.g. sheet-text height, `paper-space.md §9.6`) require a forced `"mm"` fallback — stock `DimensionEdit` does not support overriding it today.
+**Optional overrides (added 2026-07-09, resolving D4):** `parser` (callable `str -> float|None`, replaces the whole parse path incl. fallback unit), `minimum` (accepted values must be strictly greater — non-positive rejection for text heights), `formatter` (callable `mm -> str`, replaces the display path — e.g. the sheet-text Word-style `"12 pt"` rendering). **Seed guard (always on):** an untouched or blank commit keeps the *exact* stored mm — re-parsing the displayed text would re-quantize it at display precision (imperial 3/16"→1/4" at 1/8" resolution).
 
 ## 4. Design Decisions (as-built rationale)
 
@@ -116,9 +119,9 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 |---|---|---|
 | D0 | **Wall/floor/roof/geometry templates don't persist** across sessions (historical asymmetry, §3.7). | Gap; low-priority follow-up to retrofit. |
 | D1 | **Zero test coverage** — no test file references `PropertyManager` or `DimensionEdit`. | Gap; add coverage opportunistically when touching the panel. |
-| D2 | **No paper-space wiring** — `PaperScene` selection never reaches the panel; sheet text uses a modal dialog (`TextAnnotationPropertiesDialog`), which the user has rejected. | Being fixed by the sheet-text panel task (this spec's source task). |
-| D3 | **Direct-mutation write path vs paper-space undo invariant** — `_apply_property` bypasses any `QUndoStack`; `paper-space.md §9.6/§17` requires all paper mutations to be commands. Panel needs an undo-aware write route for paper targets. | Open design question for the sheet-text panel task. |
-| D4 | **`DimensionEdit` fallback unit is not overridable** — paper-mm fields need forced `"mm"` (see §3.8 caveat). | Open; resolve in sheet-text panel task. |
+| D2 | ~~No paper-space wiring~~ | **Resolved 2026-07-09** — §3.6 paper wiring built; the dialog is deleted. Viewports remain dialog-based (follow-up filed in TODO.md). |
+| D3 | ~~Direct-mutation write path vs paper-space undo invariant~~ | **Resolved 2026-07-09** — §3.3 pluggable write route as-built for paper (commands + multi-select macro); model space stays direct until model undo exists. |
+| D4 | ~~`DimensionEdit` fallback unit not overridable~~ | **Resolved 2026-07-09** — §3.8 `parser`/`minimum`/`formatter` overrides + seed guard. |
 | D5 | **`combo` is a duplicated `enum` branch** (verbatim copy), and the widget registry is a long if/elif rather than a dispatch table. | Cosmetic; refactor only with cause. |
 | D6 | **`_change_level` reaches into node internals** (`node._properties["Ceiling Level"]["value"] = …`) instead of `set_property`. | Latent inconsistency; leave unless touched. |
 | D7 | `_on_button_callback` swallows all exceptions silently. | Debugging hazard; leave unless touched. |

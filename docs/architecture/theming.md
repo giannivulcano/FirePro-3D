@@ -56,6 +56,10 @@ stylesheet styles `QCheckBox::indicator` **and** `QAbstractItemView::indicator`
 - **Unchecked** — empty box (`border_strong` border on `bg_base`).
 - **Checked** — `accent_primary` fill plus a white tick from
   `firepro3d/graphics/checkmark.svg`.
+- **Indeterminate** — `accent_primary` fill, no tick (Word-style mixed-value
+  square, used by the property panel's multi-select checkboxes). QSS replaces
+  native painting entirely, so a state without a rule silently renders as
+  unchecked — every new state needs an explicit rule.
 
 The single white-tick SVG works for both variants because the checked fill is
 the blue accent in each. Radio buttons are intentionally left untouched (they
