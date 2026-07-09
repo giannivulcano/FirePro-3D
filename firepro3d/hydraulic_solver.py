@@ -93,7 +93,8 @@ class HydraulicSolver:
         Parameters
         ----------
         design_sprinklers : list[Sprinkler] or None
-            Sprinklers in the design area.  None → all sprinklers.
+            Sprinklers in the design area.  None → fails (G6): a design
+            area is required for hydraulic calculation.
 
         Returns
         -------
