@@ -54,24 +54,6 @@ _TEXT_FOR_BG = {
 }
 
 
-def _velocity_color(v: float) -> QColor | None:
-    if v > 20:
-        return _RED
-    if v > 12:
-        return _ORANGE
-    return _GREEN
-
-
-def _pressure_color(p_act: float | None, p_min: float) -> QColor | None:
-    if p_act is None:
-        return None
-    if p_act < p_min:
-        return _RED
-    if p_act < p_min * 1.5:
-        return _ORANGE
-    return _GREEN
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Table helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -488,37 +470,19 @@ class HydraulicReportWidget(QWidget):
         )
         self.tabs.addTab(self._summary, "Summary")
 
-        # Tab 2: Pipe Results
-        self._pipe_res = _make_table([
-            "#", "From", "To", "Diameter", "Schedule", "C-Factor",
-            "Length", "Equiv (ft)", "Total (ft)",
-            "Flow (gpm)", "Velocity (fps)", "hf (psi)", "Status",
-        ])
-        pipe_res_container = QWidget()
-        pipe_res_layout = QVBoxLayout(pipe_res_container)
-        pipe_res_layout.setContentsMargins(0, 0, 0, 0)
+        # Tab 2: Node Summary Table (NFPA calc-sheet format)
+        self._node_table = _make_table(NODE_SUMMARY_HEADERS)
+        node_container = QWidget()
+        node_layout = QVBoxLayout(node_container)
+        node_layout.setContentsMargins(0, 0, 0, 0)
         self._show_minor_cb = QCheckBox("Show minor nodes")
         self._show_minor_cb.setChecked(False)
         self._show_minor_cb.toggled.connect(self._on_minor_toggle)
-        pipe_res_layout.addWidget(self._show_minor_cb)
-        pipe_res_layout.addWidget(self._pipe_res)
-        self.tabs.addTab(pipe_res_container, "Pipe Results")
+        node_layout.addWidget(self._show_minor_cb)
+        node_layout.addWidget(self._node_table)
+        self.tabs.addTab(node_container, "Node Summary Table")
 
-        # Tab 3: Sprinkler Schedule
-        self._spr_sched = _make_table([
-            "#", "Node", "K-Factor", "Model", "Orientation", "Temp",
-            "Min P (psi)", "Act P (psi)", "Act Q (gpm)", "Coverage (sq ft)",
-            "S Spacing", "L Spacing",
-        ])
-        self.tabs.addTab(self._spr_sched, "Sprinkler Schedule")
-
-        # Tab 4: Pipe Schedule
-        self._pipe_sched = _make_table([
-            "#", "Diameter", "Schedule", "Material", "C-Factor", "Length",
-        ])
-        self.tabs.addTab(self._pipe_sched, "Pipe Schedule")
-
-        # Tab 5: Hydraulic Graph
+        # Tab 3: Hydraulic Graph
         self._graph = _HydraulicGraphWidget()
         self.tabs.addTab(self._graph, "Hydraulic Graph")
 
@@ -526,15 +490,13 @@ class HydraulicReportWidget(QWidget):
     # Public API
 
     def populate(self, result, scene, sm):
-        """Fill all four tabs from a completed HydraulicResult."""
+        """Fill all three tabs from a completed HydraulicResult."""
         self._result = result
         self._scene  = scene
         self._sm     = sm
 
         self._fill_summary()
-        self._fill_pipe_results()
-        self._fill_sprinkler_schedule()
-        self._fill_pipe_schedule()
+        self._fill_node_summary()
         self._fill_graph()
 
         self._pdf_btn.setEnabled(_PRINTER_AVAILABLE)
@@ -544,8 +506,7 @@ class HydraulicReportWidget(QWidget):
         """Reset all tabs to their empty state."""
         self._result = self._scene = self._sm = None
         self._summary.clear()
-        for t in (self._pipe_res, self._spr_sched, self._pipe_sched):
-            t.setRowCount(0)
+        self._node_table.setRowCount(0)
         self._pdf_btn.setEnabled(False)
         self._csv_btn.setEnabled(False)
 
@@ -744,155 +705,18 @@ class HydraulicReportWidget(QWidget):
         self._summary.setHtml(html)
 
     def _on_minor_toggle(self, checked: bool):
-        """Re-fill the pipe results table when minor-node visibility changes."""
+        """Re-fill the node summary table when minor-node visibility changes."""
         if self._result:
-            self._fill_pipe_results()
+            self._fill_node_summary()
 
-    def _fill_pipe_results(self):
-        from .equivalent_length import equivalent_length_ft
-
-        r = self._result
-        sm = self._sm
-        nn = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
-        show_minor = self._show_minor_cb.isChecked()
-        supply_node = getattr(self._scene, '_supply_network_node', None)
-
-        pipes = sorted(r.pipe_flows.keys(),
-                       key=lambda p: r.pipe_flows[p], reverse=True)
-
-        # Filter to calc-path pipes only; optionally hide minor-node pipes
-        filtered = []
-        for pipe in pipes:
-            l1 = nn.get(pipe.node1) if pipe.node1 else None
-            l2 = nn.get(pipe.node2) if pipe.node2 else None
-            if l1 is None and l2 is None:
-                continue  # not on calc path
-            if not show_minor:
-                # Hide pipes where BOTH nodes are minor (non-digit label)
-                l1_major = l1 is not None and str(l1).isdigit()
-                l2_major = l2 is not None and str(l2).isdigit()
-                if not l1_major and not l2_major:
-                    continue
-            filtered.append(pipe)
-
-        t = self._pipe_res
+    def _fill_node_summary(self):
+        rows = self._node_summary_rows(self._show_minor_cb.isChecked())
+        t = self._node_table
         t.setSortingEnabled(False)
-        t.setRowCount(len(filtered))
-
-        for row, pipe in enumerate(filtered):
-            q  = r.pipe_flows.get(pipe, 0.0)
-            v  = r.pipe_velocity.get(pipe, 0.0)
-            hf = r.pipe_friction_loss.get(pipe, 0.0)
-            d  = pipe._properties["Diameter"]["value"]
-            sc = pipe._properties["Schedule"]["value"]
-            cf = pipe._properties["C-Factor"]["value"]
-            length_str = (
-                sm.scene_to_display(pipe.length)
-                if sm
-                else f"{pipe.length:.0f} px"
-            )
-
-            # Equivalent length from fittings on this pipe
-            equiv_ft = 0.0
-            for end_node in (pipe.node1, pipe.node2):
-                if end_node is None or end_node is supply_node:
-                    continue
-                ft = getattr(end_node, 'fitting', None)
-                if ft is not None:
-                    equiv_ft += equivalent_length_ft(ft.type, d)
-
-            phys_ft = pipe.get_length_ft(sm=sm)
-            total_ft = phys_ft + equiv_ft
-
-            # Node labels for From / To columns
-            n1_num = str(nn.get(pipe.node1, "—")) if pipe.node1 else "—"
-            n2_num = str(nn.get(pipe.node2, "—")) if pipe.node2 else "—"
-
-            vcol = _velocity_color(v)
-            vstatus = (
-                "⚠️ HIGH" if v > 20 else
-                "⚠️ ELEV" if v > 12 else
-                "✅ OK"
-            )
-
-            vals = [
-                str(row + 1), n1_num, n2_num, d, sc, cf, length_str,
-                f"{equiv_ft:.1f}", f"{total_ft:.1f}",
-                f"{q:.1f}", f"{v:.1f}", f"{hf:.2f}", vstatus,
-            ]
-            for col, val in enumerate(vals):
-                color = vcol if col in (10, 12) else None
-                t.setItem(row, col, _item(val, color))
-
-        t.setSortingEnabled(True)
-
-    def _fill_sprinkler_schedule(self):
-        r   = self._result
-        nn  = getattr(r, 'node_labels', None) or (r.node_numbers if hasattr(r, 'node_numbers') else {})
-        sprs = list(self._scene.sprinkler_system.sprinklers)
-        t = self._spr_sched
-        t.setSortingEnabled(False)
-        t.setRowCount(len(sprs))
-
-        for row, spr in enumerate(sprs):
-            props = spr._properties
-            k_str    = props["K-Factor"]["value"]
-            spr_model = props["Model"]["value"]
-            orient   = props["Orientation"]["value"]
-            temp     = props["Temperature"]["value"]
-            p_min_s  = props["Min Pressure"]["value"]
-            coverage = props["Coverage Area"]["value"]
-            s_spacing = props.get("S Spacing", {}).get("value", "---")
-            l_spacing = props.get("L Spacing", {}).get("value", "---")
-
-            try:
-                k = float(k_str)
-                p_min = float(p_min_s)
-            except (ValueError, TypeError):
-                k, p_min = 5.6, 7.0
-
-            p_act   = r.node_pressures.get(spr.node, None)
-            q_act   = k * (max(p_act, 0.0) ** 0.5) if p_act is not None else None
-
-            p_act_s = f"{p_act:.1f}"  if p_act  is not None else "—"
-            q_act_s = f"{q_act:.1f}"  if q_act  is not None else "—"
-
-            node_num = str(nn.get(spr.node, "—"))
-
-            pcol = _pressure_color(p_act, p_min)
-
-            vals = [
-                str(row + 1), node_num, k_str, spr_model, orient, temp,
-                p_min_s, p_act_s, q_act_s, coverage, s_spacing, l_spacing,
-            ]
-            for col, val in enumerate(vals):
-                color = pcol if col in (7, 8) else None
-                t.setItem(row, col, _item(val, color))
-
-        t.setSortingEnabled(True)
-
-    def _fill_pipe_schedule(self):
-        sm    = self._sm
-        pipes = self._scene.sprinkler_system.pipes
-        t     = self._pipe_sched
-        t.setSortingEnabled(False)
-        t.setRowCount(len(pipes))
-
-        for row, pipe in enumerate(pipes):
-            props = pipe._properties
-            d   = props["Diameter"]["value"]
-            sc  = props["Schedule"]["value"]
-            mat = props["Material"]["value"]
-            cf  = props["C-Factor"]["value"]
-            length_str = (
-                sm.scene_to_display(pipe.length)
-                if sm
-                else f"{pipe.length:.0f} px"
-            )
-            vals = [str(row + 1), d, sc, mat, cf, length_str]
-            for col, val in enumerate(vals):
-                t.setItem(row, col, _item(val))
-
+        t.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            for col, val in enumerate(row):
+                t.setItem(i, col, _item(val))
         t.setSortingEnabled(True)
 
     def _fill_graph(self):

@@ -131,6 +131,43 @@ class TestWaterSupplyTestDate:
         assert ws2.get_properties()["Test Date"]["value"] == "2026-07-09"
 
 
+class TestTabStructure:
+    def test_exactly_three_tabs(self, qapp):
+        w = HydraulicReportWidget()
+        labels = [w.tabs.tabText(i) for i in range(w.tabs.count())]
+        assert labels == ["Summary", "Node Summary Table", "Hydraulic Graph"]
+
+    def test_node_table_has_14_nfpa_headers(self, qapp):
+        from firepro3d.hydraulic_report import NODE_SUMMARY_HEADERS
+        w = HydraulicReportWidget()
+        assert w._node_table.columnCount() == 14
+        headers = [w._node_table.horizontalHeaderItem(i).text()
+                   for i in range(w._node_table.columnCount())]
+        assert headers == NODE_SUMMARY_HEADERS
+
+    def test_populate_fills_majors_only_by_default(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        w.populate(result, scene, sm)
+        assert w._show_minor_cb.isChecked() is False
+        assert w._node_table.rowCount() == 3          # majors 1, 2, 3
+
+    def test_minor_toggle_refills_table(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        w.populate(result, scene, sm)
+        w._show_minor_cb.setChecked(True)
+        assert w._node_table.rowCount() == 4          # + minor 2a
+
+    def test_clear_resets(self, qapp):
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        w.populate(result, scene, sm)
+        w.clear()
+        assert w._node_table.rowCount() == 0
+        assert w._summary.toPlainText() == ""
+
+
 class TestNodeSummaryRows:
     def _widget(self, qapp):
         w = HydraulicReportWidget()
