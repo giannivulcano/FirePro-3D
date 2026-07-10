@@ -1,7 +1,17 @@
+---
+status: current          # code-verified as-built; divergence ledger in §12
+last-verified: 2026-07-10
+verified-commit: 232a824
+applies-to:
+  - firepro3d/hydraulic_solver.py
+  - firepro3d/hydraulic_report.py
+  - firepro3d/hydraulic_node_badge.py
+---
+
 # Hydraulic Solver & Reporting Specification
 
-**Status:** Draft (D2/D3/D6 resolved 2026-04-29, D8 withdrawn 2026-04-30)  
-**Date:** 2026-04-30  
+**Status:** Current (D2/D3/D6 resolved 2026-04-29, D8 withdrawn 2026-04-30, D7 resolved 2026-07-10)  
+**Date:** 2026-07-10  
 **Scope:** Document current behavior + flag divergences with migration paths  
 **Depends on:** [Sprinkler System Components Spec](sprinkler-system-components.md)
 
@@ -81,7 +91,7 @@ The hydraulic solver is the core analytical output of FirePro3D — it determine
 
 Design area sprinkler selection is a pass-through from the sprinkler components spec (§11):
 - If `active_design_area` exists → use its sprinkler list
-- Otherwise → use all sprinklers in the system
+- Otherwise → `MainWindow.run_hydraulics` passes `None` and the solver **refuses** (guard G6): a design area is mandatory for hydraulic calculation. *(The former "None → all sprinklers" fallback was retired 2026-07-10 — a calc without a designated design area is not AHJ-submittable.)*
 
 The solver accepts a `design_sprinklers` list parameter and does not participate in selection logic.
 
@@ -96,7 +106,8 @@ Before solving, the following guards are checked (in order):
 | Guard | Condition | Action |
 |---|---|---|
 | G1 | `supply_node is None` | Fail: "No water supply node placed on the drawing." |
-| G2 | `design_sprinklers` empty | Fail: "No sprinklers in the design area." |
+| G6 | `design_sprinklers is None` (no design area) | Fail: "No design area defined — create a design area before running hydraulics." |
+| G2 | `design_sprinklers` empty list | Fail: "No sprinklers in the design area." |
 | G3 | `system.nodes` empty | Fail: "No pipe network nodes found." |
 | G4 | Supply not connected to network | Fail: "Water supply node is not connected to the pipe network." |
 | G5 | No reachable design sprinklers | Fail: "None of the design sprinklers are connected to the supply node." |
@@ -271,6 +282,8 @@ Dataclass returned by `HydraulicSolver.solve()`:
 | `messages` | list[str] | Warnings, errors, summary messages |
 | `node_numbers` | dict[Node, int] | BFS-order sequential numbers (major nodes only) |
 | `node_labels` | dict[Node, str] | Display labels: "1", "2", "3a", "3b", etc. |
+| `node_parent_pipe` | dict[Node, Pipe \| None] | Upstream calc-path pipe for every labelled node; supply node → `None`. Drives the node-oriented report rows (§9.2). |
+| `calc_date` | str | ISO date stamped at solve time (both success and `_fail` paths). Shown in the report header (§9.1). |
 
 ---
 
@@ -281,7 +294,8 @@ Dataclass returned by `HydraulicSolver.solve()`:
 | Guard | Condition | Message | Action |
 |---|---|---|---|
 | G1 | No supply node | "No water supply node placed on the drawing." | Fail |
-| G2 | No design sprinklers | "No sprinklers in the design area." | Fail |
+| G6 | No design area (`design_sprinklers is None`) | "No design area defined — create a design area before running hydraulics." | Fail |
+| G2 | Design sprinkler list empty | "No sprinklers in the design area." | Fail |
 | G3 | No network nodes | "No pipe network nodes found." | Fail |
 | G4 | Supply not connected | "Water supply node is not connected to the pipe network." | Fail |
 | G5 | No reachable sprinklers | "None of the design sprinklers are connected to the supply node." | Fail |
@@ -328,35 +342,36 @@ Nodes at the same XY position (vertical drops — detected by rounding scene pos
 | Section | Content |
 |---|---|
 | Status | Pass/fail banner (green ✅ PASS or red ❌ FAIL) |
-| Project metadata | Project name, address, system description, date |
-| Design criteria | Hazard classification, design area (ft²), density (gpm/ft²), sprinkler count, hose stream allowance |
+| Messages | All solver warnings/errors/summaries — rendered directly under the banner, ABOVE the sections, so a failed calc leads with its reason |
+| Project | Project name, number, address (address + city + state joined), client, designer, system description, calculation date |
+| Design criteria | Hazard classification, design area, density (gpm/ft²), sprinkler count, hose stream allowance |
 | Water supply data | Static pressure, residual pressure, test flow, gauge elevation, test date |
-| Results | Sprinkler demand (gpm), hose stream (gpm) *(shown only when > 0)*, total demand (gpm) *(shown only when hose stream > 0)*, required pressure (psi), available pressure (psi) |
-| Messages | All solver warnings/errors/summaries |
+| Results | Status, sprinkler demand (gpm), hose stream (gpm) *(shown only when > 0)*, total demand (gpm) *(shown only when hose stream > 0)*, required pressure (psi), available pressure (psi) |
 
-**Note:** Project metadata and design criteria sections require data not currently available in the solver result. See [Divergence D7](#12-divergences--migration-paths).
+**Data sources:** project metadata reads `Model_Space._project_info` (edited via the Manage → Project → Project Info dialog); design criteria read the active `DesignArea` ("Area" display string verbatim; density interpolated from the NFPA density/area curves — shown as "—" when the hazard is unknown or the area unparsable); water supply reads the `WaterSupply` properties including the **Test Date** string property; calculation date is `HydraulicResult.calc_date` (auto-stamped at solve). **Any missing value renders as "—"** — the report always generates. All four sections are assembled once by `_summary_sections()` and consumed by the screen tab, CSV, and PDF (single source of truth). User-entered values are `html.escape()`d at the render boundary.
 
 ### 9.2 Tab 2: Node Summary Table
 
-NFPA 13 standard calculation sheet format. Each row represents a node and the pipe leading to it from upstream:
+NFPA 13 standard calculation sheet format, assembled by `_node_summary_rows(show_minor)` (also feeds CSV + PDF). Each row represents a node and the pipe leading to it from upstream (`node_parent_pipe[node]`). **14 columns:**
 
 | Column | Source |
 |---|---|
 | Node # | `node_labels[node]` |
-| Elevation (ft) | `node.z_pos / 304.8` |
-| Flow (gpm) | `pipe_flows[pipe_to_parent]` |
-| Pipe Diameter | `pipe._properties["Diameter"]` |
-| Pipe Length (ft) | Physical length from `get_length_ft()` |
-| Equiv. Length (ft) | Fitting equivalent lengths at both ends of pipe |
-| Total Length (ft) | Physical + equivalent |
+| Elev (ft) | `node.z_pos / 304.8` |
+| Flow (gpm) | `pipe_flows[pipe_to_parent]` (supply row: `total_demand`) |
+| Diameter | `pipe._properties["Diameter"]` |
+| Length (ft) | Physical length from `get_length_ft()` |
+| Equiv (ft) | Fitting equivalent lengths at both ends of pipe (supply-node fittings excluded) |
+| Total (ft) | Physical + equivalent |
 | C-Factor | `pipe._properties["C-Factor"]` |
-| Friction Loss (psi/ft) | `hf / total_length` (unit friction) |
+| psi/ft | `hf / total_length` (unit friction; 0 guard) |
 | Total hf (psi) | `pipe_friction_loss[pipe]` |
-| Required Pressure (psi) | `required_node_pressures[node]` — **primary** |
-| Actual Pressure (psi) | `node_pressures[node]` — secondary |
-| Notes | Sprinkler K-factor, fitting types at node |
+| Req P (psi) | `required_node_pressures[node]` — **primary** |
+| Act P (psi) | `node_pressures[node]` — secondary |
+| Velocity (fps) | `pipe_velocity[pipe]` — plain informational column, no colors/status (D4) |
+| Notes | `K=<k>` on sprinkler nodes; fitting type **only on plain junction nodes** (noise on sprinkler/supply rows); supply row prefixed "Supply" |
 
-"Show minor nodes" checkbox toggles visibility of minor (pass-through) nodes.
+Rows are ordered by BFS label sort ('1' < '2' < '2a' < '3' < '10'). The **supply row** has no upstream pipe: all pipe-derived columns and Velocity render as "—", Flow shows total demand. "Show minor nodes" checkbox (default **off**) toggles visibility of minor (pass-through, non-digit-label) nodes.
 
 ### 9.3 Tab 3: Hydraulic Graph
 
@@ -378,8 +393,10 @@ Custom-painted `QWidget` (`_HydraulicGraphWidget`):
 
 | Format | Content | Method |
 |---|---|---|
-| PDF | Summary + Node Summary Table (formatted HTML) | `QTextDocument` → `QPrinter` |
-| CSV | Summary data + Node Summary Table rows | Python `csv` module |
+| PDF | Title + messages + summary sections + Node Summary Table + **hydraulic graph image** (off-screen 1000×620 render embedded via `QTextDocument` ImageResource) | `QTextDocument` → `QPrinter` (PyQt6: `QPageSize(PageSizeId.A4)`, `doc.print()`) |
+| CSV | Title + messages + summary sections + `NODE_SUMMARY_HEADERS` + node rows | Python `csv` module (`_write_csv(f)` — testable file-object seam) |
+
+Both exports are **WYSIWYG on the "Show minor nodes" toggle** (they export the rows currently shown). Save dialogs default to **`<project folder>/HC Reports`** (created on demand) when the project has been saved; otherwise the plain filename (CWD fallback).
 
 **Future:** Multi-system export with per-system sections in a single document. Professional templates with company logo and engineer stamp area (P3).
 
@@ -456,6 +473,10 @@ Thresholds are relative (normalized to system max hf), not absolute. This ensure
 
 `Model_Space.clear_hydraulics()` removes all badges, resets pipe display to default colors, and clears `hydraulic_result`.
 
+### 11.4 Pipe Labels
+
+Pipe labels append flow (gpm, blue) and total hf (psi, orange) lines **only for pipes carrying flow** (`pipe_flows[pipe] > 0`). Zero-flow tree pipes outside the design-area calc path stay unlabelled instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
+
 ---
 
 ## 12. Divergences & Migration Paths
@@ -465,10 +486,10 @@ Thresholds are relative (normalized to system max hf), not absolute. This ensure
 | D1 | Tree-only topology | P2 | BFS tree silently excludes pipes in looped networks | Detect loops, warn user with count of excluded pipes, proceed with tree approximation. Future: Hardy Cross iteration. | Add loop detection: if `len(system.pipes) > len(bfs_order) - 1`, warn. |
 | ~~D2~~ | ~~Equivalent pipe lengths~~ | ~~P1~~ | **Resolved 2026-04-29.** Fitting equivalent lengths from NFPA 13 Table 22.4.3.1.1 added to friction loss via `equivalent_length.py`. Supply node fittings excluded. "Equiv (ft)" and "Total (ft)" columns in Pipe Results. Reference dialog accessible from Hydraulics toolbar and report. | | |
 | ~~D3~~ | ~~Hose stream allowance~~ | ~~P1~~ | **Resolved 2026-04-29.** Hose stream consumed in Phase 3 supply check (`Q_check = total_demand + hose_stream_allowance`). Report shows separate Sprinkler Demand / Hose Stream / Total Demand line items (hose stream omitted when 0). Graph shows origin marker, red sprinkler demand marker, and red total demand marker with dashed connecting lines (total marker omitted when hose = 0). `hose_stream_gpm` field on `HydraulicResult`. | | |
-| D4 | Velocity → pressure heatmap | P2 | Pipes/report color-coded by velocity thresholds (12/20 fps); solver warns at 20 fps | Replace with friction loss heatmap on pipes; de-emphasize velocity in report; keep as informational column only | Remove velocity color-coding from report cells. Add pipe hf overlay to scene (§11.2). Remove velocity warning messages from solver. |
+| D4 | Velocity → pressure heatmap | P2 | **Report side resolved 2026-07-10** (3-tab consolidation): velocity is a plain informational column in the Node Summary, all velocity color-coding/status removed from report + exports. Scene pipes still color-coded by velocity thresholds; solver still warns at 20 fps. | Replace scene velocity coloring with friction loss heatmap (§11.2); remove velocity warning messages from solver | Add pipe hf overlay to scene (§11.2). Remove velocity warning messages from solver. |
 | D5 | Supply node proximity | P2 | WaterSupply found by nearest Manhattan distance to any Node; warns (in display units) if >50 scene units | WaterSupply placed directly on a Node (same placement model as sprinklers) | Change to on-node placement. Solver reads `supply_ws.parentItem()` or stored node ref instead of proximity search. |
 | ~~D6~~ | ~~Required pressure not exposed~~ | ~~P1~~ | **Resolved 2026-04-29.** `required_node_pressures` field added to `HydraulicResult`. Node badges show "Required P (psi)" as primary and "Actual P (psi)" as secondary in PropertyManager. | | |
-| D7 | Report structure | P2 | 5 tabs (Summary, Pipe Results, Sprinkler Schedule, Pipe Schedule, Graph) | 3 tabs: Summary (with project/design metadata), Node Summary Table (NFPA format), Hydraulic Graph | Consolidate. Add project header + design criteria to Summary. Replace 3 middle tabs with unified NFPA-format Node Summary Table. |
+| ~~D7~~ | ~~Report structure~~ | ~~P2~~ | **Resolved 2026-07-10.** Report consolidated to 3 tabs (Summary / Node Summary Table / Hydraulic Graph) per §9, driven by shared `_summary_sections()` / `_node_summary_rows()` data assembly. New: G6 guard (§7.1), `node_parent_pipe`/`calc_date` result fields (§6), WaterSupply Test Date property, 14-column node table (velocity plain), PDF embeds graph image, exports WYSIWYG on minors toggle, HC Reports default export folder. Sprinkler Schedule / Pipe Schedule dropped (follow-ups: sprinkler legend → paper space; pipe takeoff → future BOM). Also fixed: PDF export used PyQt5 APIs and had never worked at runtime. | | |
 | ~~D8~~ | ~~Uncalibrated scale~~ | ~~P1~~ | **Withdrawn 2026-04-30.** Scene scale is always 1 px = 1 mm; `is_calibrated` refers to underlay calibration, not scene geometry. Pipes drawn directly on the scene have correct lengths regardless. The default `pixels_per_mm = 1.0` produces correct conversions. A scale guard would block valid calculations on projects without underlays. **Pre-existing bug:** `Pipe.get_length_ft()` returns 0.0 when `is_calibrated` is False, even though `pixels_per_mm = 1.0` gives the correct result. | | |
 | D9 | Multi-system export | P3 | One system per project; one calculation; one report | Per-system hydraulic calculations with combined multi-system PDF export | Depends on sprinkler spec D8. Report generates per-system sections with system identification. |
 | D10 | PDF templates | P3 | Basic QPrinter HTML rendering | Company logo, engineer stamp area, page numbers, professional formatting | Template system with configurable header block. |
@@ -544,10 +565,12 @@ Small network: supply + 3 sprinklers on a single branch line (Supply→N1→N2�
 
 | Test | Assertion |
 |---|---|
-| Summary HTML | Contains: status class (pass/fail), demand value, required value, available value |
-| Node Summary Table | Column count = 13, headers match NFPA format |
-| CSV export | Parseable with Python csv; correct field count per row |
+| Summary HTML | Contains: status banner, all four section headings + values, messages ABOVE sections; user-entered HTML escaped (round-trips `toPlainText`) |
+| Node Summary Table | Column count = 14, headers match `NODE_SUMMARY_HEADERS`; majors-only by default, minors when toggled |
+| CSV export | Parseable with Python csv; 14 fields per node row; row count follows the minors toggle; no schedule sections |
+| PDF export | File written and > 5 KB (the embedded graph image dominates size — a small file means the ImageResource failed) |
 | Graph auto-scale | Axes encompass both supply data points and demand point |
+| Graph reset | Re-populate with supply removed / zero demand resets the curve (no stale data in exports) |
 
 ---
 

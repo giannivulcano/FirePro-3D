@@ -92,11 +92,7 @@ Defined in `constants.py`:
 
 ### Report generation
 
-`hydraulic_report.py` generates a formatted calculation report from `HydraulicResult`, showing:
-- Node-by-node pressure and flow tables
-- Pipe friction loss details
-- Supply vs. demand summary
-- Pass/fail determination
+`hydraulic_report.py` generates the NFPA-format 3-tab calculation report (Summary / Node Summary Table / Hydraulic Graph) from `HydraulicResult`, with PDF/CSV export. Tab structure, table columns, and export formats are owned by the [hydraulic spec §9](../specs/hydraulic-solver-and-reporting.md).
 
 ## Thermal Radiation Solver
 
