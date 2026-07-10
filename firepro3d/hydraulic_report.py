@@ -142,13 +142,6 @@ class _HydraulicGraphWidget(QWidget):
         self._recalc_axes()
         self.update()
 
-    def set_demand_point(self, q_demand: float, p_required: float):
-        """Set the system demand operating point for plotting."""
-        self._q_demand = max(q_demand, 0.0)
-        self._p_demand = max(p_required, 0.0)
-        self._recalc_axes()
-        self.update()
-
     def set_demand_points(self, q_sprinkler: float, hose_stream: float,
                           p_required: float):
         """Set demand with separate sprinkler and hose stream components.

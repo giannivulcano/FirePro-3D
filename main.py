@@ -474,7 +474,7 @@ class MainWindow(QMainWindow):
                   lambda: self.prop_dock.setVisible(not self.prop_dock.isVisible()),
                   context=Qt.ShortcutContext.ApplicationShortcut)
 
-        # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
+        # Hydraulic report dock (tabbed: Summary | Node Summary Table | Graph)
         self.hydro_report = HydraulicReportWidget()
         self.hydro_dock = QDockWidget("Hydraulic Report", self)
         self.hydro_dock.setObjectName("HydraulicsDock")
