@@ -47,6 +47,7 @@ class WaterSupply(QGraphicsSvgItem):
             "Residual Pressure": {"type": "string", "value": "60"},   # psi at test flow
             "Test Flow":         {"type": "string", "value": "500"},  # gpm at residual pressure
             "Elevation":         {"type": "string", "value": "0"},    # ft at supply gauge
+            "Test Date":         {"type": "string", "value": ""},   # flow-test date (free text)
             "Hose Stream Allowance": {"type": "enum", "value": "250 GPM",
                                       "options": ["100 GPM", "250 GPM", "500 GPM"]},
         }

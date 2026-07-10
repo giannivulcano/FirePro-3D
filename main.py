@@ -474,7 +474,7 @@ class MainWindow(QMainWindow):
                   lambda: self.prop_dock.setVisible(not self.prop_dock.isVisible()),
                   context=Qt.ShortcutContext.ApplicationShortcut)
 
-        # Hydraulic report dock (tabbed: Summary | Pipe Results | Schedules)
+        # Hydraulic report dock (tabbed: Summary | Node Summary Table | Graph)
         self.hydro_report = HydraulicReportWidget()
         self.hydro_dock = QDockWidget("Hydraulic Report", self)
         self.hydro_dock.setObjectName("HydraulicsDock")
@@ -2776,7 +2776,7 @@ class MainWindow(QMainWindow):
                 f"Running hydraulics with {len(design)} design-area sprinkler(s)...", 5000)
         else:
             self.statusBar().showMessage(
-                "Running hydraulics on ALL sprinklers (no design area set)...", 5000)
+                "No design area defined — hydraulic calculation requires one.", 5000)
         result = self.scene.run_hydraulics(design_sprinklers=design)
         self.hydro_report.populate(result, self.scene, self.scene.scale_manager)
         self.hydro_dock.show()
