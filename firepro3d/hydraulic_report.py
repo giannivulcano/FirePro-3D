@@ -18,6 +18,7 @@ Export:
 import csv
 import html
 import math
+import os
 import re
 
 from PyQt6.QtWidgets import (
@@ -591,13 +592,19 @@ class HydraulicReportWidget(QWidget):
             if not show_minor and not label.isdigit():
                 continue
 
+            pipe = parent_pipe.get(node)
+
+            # Notes: what the node IS — sprinkler (K), supply, or a plain
+            # fitting. The fitting is only informative on plain junction
+            # nodes; on sprinkler/supply nodes it's noise.
             notes = []
             spr = spr_by_node.get(node)
             if spr is not None:
                 notes.append(f"K={spr._properties['K-Factor']['value']}")
-            ft_obj = getattr(node, "fitting", None)
-            if ft_obj is not None:
-                notes.append(_FITTING_NOTE_LABELS.get(ft_obj.type, ft_obj.type))
+            elif pipe is not None:
+                ft_obj = getattr(node, "fitting", None)
+                if ft_obj is not None:
+                    notes.append(_FITTING_NOTE_LABELS.get(ft_obj.type, ft_obj.type))
 
             elev = f"{node.z_pos / 304.8:.1f}"
             req = r.required_node_pressures.get(node)
@@ -605,7 +612,6 @@ class HydraulicReportWidget(QWidget):
             req_s = f"{req:.1f}" if req is not None else _DASH
             act_s = f"{act:.1f}" if act is not None else _DASH
 
-            pipe = parent_pipe.get(node)
             if pipe is None:
                 notes.insert(0, "Supply")
                 rows.append([label, elev, f"{r.total_demand:.1f}",
@@ -646,6 +652,12 @@ class HydraulicReportWidget(QWidget):
             "<span style='color:red;font-weight:bold'>❌ FAIL</span>"
         )
         out = f"<h2 style='margin-bottom:2px'>Hydraulic Summary</h2>{status_html}"
+        # Messages up top — a failed calc's reason must be the first thing read
+        if r.messages:
+            out += "<br><b>Messages:</b><ul style='margin-top:4px'>"
+            for msg in r.messages:
+                out += f"<li style='margin-bottom:2px'>{html.escape(msg)}</li>"
+            out += "</ul>"
         for title, rows in self._summary_sections():
             out += f"<h3 style='margin-bottom:2px'>{title}</h3>"
             out += "<table style='font-size:11pt;border-collapse:collapse;'>"
@@ -654,11 +666,6 @@ class HydraulicReportWidget(QWidget):
                 out += (f"<tr><td style='padding:2px 12px'><b>{label}</b></td>"
                         f"<td>{value}</td></tr>")
             out += "</table>"
-        if r.messages:
-            out += "<br><b>Messages:</b><ul style='margin-top:4px'>"
-            for msg in r.messages:
-                out += f"<li style='margin-bottom:2px'>{html.escape(msg)}</li>"
-            out += "</ul>"
         self._summary.setHtml(out)
 
     def _on_minor_toggle(self, checked: bool):
@@ -721,7 +728,8 @@ class HydraulicReportWidget(QWidget):
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Hydraulic Report PDF",
-            "hydraulic_report.pdf", "PDF Files (*.pdf)"
+            os.path.join(self._export_dir(), "hydraulic_report.pdf"),
+            "PDF Files (*.pdf)"
         )
         if not path:
             return
@@ -742,12 +750,26 @@ class HydraulicReportWidget(QWidget):
 
     # Export — CSV
 
+    def _export_dir(self) -> str:
+        """Default export folder: ``<project folder>/HC Reports`` when the
+        project has been saved, else '' (dialog falls back to CWD).
+
+        Creates the folder on first use so the save dialog opens inside it.
+        """
+        proj = getattr(self._scene, "_project_path", None)
+        if not proj:
+            return ""
+        out_dir = os.path.join(os.path.dirname(proj), "HC Reports")
+        os.makedirs(out_dir, exist_ok=True)
+        return out_dir
+
     def _export_csv(self):
         if not self._result:
             return
         path, _ = QFileDialog.getSaveFileName(
             self, "Export Hydraulic Report CSV",
-            "hydraulic_report.csv", "CSV Files (*.csv)"
+            os.path.join(self._export_dir(), "hydraulic_report.csv"),
+            "CSV Files (*.csv)"
         )
         if not path:
             return
@@ -762,15 +784,15 @@ class HydraulicReportWidget(QWidget):
         w = csv.writer(f)
         w.writerow(["HYDRAULIC CALCULATION REPORT — NFPA 13"])
         w.writerow([])
-        for title, rows in self._summary_sections():
-            w.writerow([title.upper()])
-            for label, value in rows:
-                w.writerow([label, value])
-            w.writerow([])
         if r.messages:
             w.writerow(["MESSAGES"])
             for msg in r.messages:
                 w.writerow(["", msg])
+            w.writerow([])
+        for title, rows in self._summary_sections():
+            w.writerow([title.upper()])
+            for label, value in rows:
+                w.writerow([label, value])
             w.writerow([])
         w.writerow(["NODE SUMMARY"])
         w.writerow(NODE_SUMMARY_HEADERS)
@@ -799,6 +821,12 @@ class HydraulicReportWidget(QWidget):
         out += "<h2>Hydraulic Calculation Report — NFPA 13</h2>"
 
         sc = "pass" if r.passed else "fail"
+        if r.messages:
+            out += "<h3>Analysis Messages</h3><ul>"
+            for msg in r.messages:
+                out += f"<li>{html.escape(msg)}</li>"
+            out += "</ul>"
+
         for title, rows in self._summary_sections():
             out += f"<h3>{title}</h3><table><tr><th>Item</th><th>Value</th></tr>"
             for label, value in rows:
@@ -806,12 +834,6 @@ class HydraulicReportWidget(QWidget):
                 out += (f"<tr><td>{label}</td>"
                         f"<td{cls}>{html.escape(value)}</td></tr>")
             out += "</table>"
-
-        if r.messages:
-            out += "<h3>Analysis Messages</h3><ul>"
-            for msg in r.messages:
-                out += f"<li>{html.escape(msg)}</li>"
-            out += "</ul>"
 
         out += "<h3>Node Summary</h3><table><tr>"
         for h in NODE_SUMMARY_HEADERS:

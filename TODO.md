@@ -33,6 +33,7 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 
 ### C. Hydraulic calc deliverable
 - [ ] Hydraulic report → 3-tab + Node Summary — see **"Consolidate report to 3 tabs"** under _Hydraulic Solver Follow-Ups_ (bumped to P1). [ref:hydraulic-spec§9,D7] [type:Task] [P1] [subject:Hydraulic Calculator]
+- [ ] **Design-area definition/creation polish** (user smoke-test findings 2026-07-10, screenshots; higher priority now that G6 makes a design area mandatory for every calc): (a) the S×L bounding rect extends beyond walls/rooms and doesn't handle spacing between adjacent sprinklers properly (per-sprinkler protection rects overlap/overshoot — should respect wall boundaries and share half-spacing between neighbours); (b) no visual indication of WHICH sprinklers are selected — selecting 2 sprinklers produced a rect encompassing 9 with no per-sprinkler highlight; (c) during design-area sprinkler selection, non-sprinkler items (e.g. gridlines) remain selectable and interfere — the mode should filter picks to sprinklers only. `design_area.py`, `model_space.py` [type:Task] [P2] [subject:Sprinkler Design]
 
 ### Deferred OUT of the MVP (2026-06-23)
 - Arbitrary-angle section-view subsystem — see **"Implement section view subsystem"** (now P3, deferred). Cardinal elevations suffice.

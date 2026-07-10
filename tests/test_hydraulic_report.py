@@ -58,7 +58,7 @@ def _linear_result_and_scene():
     supply = _mock_node(z_mm=0.0)
     n2 = _mock_node(z_mm=3000.0, fitting_type="90elbow")
     n3 = _mock_node(z_mm=3000.0)
-    n4 = _mock_node(z_mm=3000.0)
+    n4 = _mock_node(z_mm=3000.0, fitting_type="tee")   # sprinkler node — fitting must NOT show in Notes
     p1 = _mock_pipe(node1=supply, node2=n2)
     p2 = _mock_pipe(node1=n2, node2=n3)
     p3 = _mock_pipe(node1=n3, node2=n4)
@@ -203,9 +203,22 @@ class TestNodeSummaryRows:
         w = self._widget(qapp)
         rows = w._node_summary_rows(show_minor=False)
         node2_row = rows[1]
-        assert "90" in node2_row[13]          # 90° elbow fitting noted
+        assert "90" in node2_row[13]          # 90° elbow fitting noted (plain junction)
         node4_row = rows[2]
         assert "K=5.6" in node4_row[13]
+        assert "Tee" not in node4_row[13]     # sprinkler node: fitting is noise
+        supply_row = rows[0]
+        assert "Supply" in supply_row[13]
+
+    def test_messages_render_above_sections(self, qapp):
+        """A failed calc's reason must be the first thing read in the report."""
+        w = HydraulicReportWidget()
+        result, scene, sm = _linear_result_and_scene()
+        result.messages = ["No design area defined — create a design area "
+                           "before running hydraulics."]
+        w.populate(result, scene, sm)
+        text = w._summary.toPlainText()
+        assert text.index("No design area") < text.index("Project")
 
     def test_elevation_in_feet(self, qapp):
         w = self._widget(qapp)
@@ -368,6 +381,17 @@ class TestExports:
         # The embedded 1000×620 graph image dominates the file size — a low
         # size means the ImageResource silently failed to resolve.
         assert out.exists() and out.stat().st_size > 5000
+
+    def test_export_default_dir_is_project_hc_reports(self, qapp, tmp_path):
+        w = self._populated(qapp)
+        w._scene._project_path = str(tmp_path / "job.fpd")
+        d = w._export_dir()
+        assert d == str(tmp_path / "HC Reports")
+        assert (tmp_path / "HC Reports").is_dir()
+
+    def test_export_default_dir_without_saved_project(self, qapp):
+        w = self._populated(qapp)      # fixture scene has no _project_path
+        assert w._export_dir() == ""
 
     def test_graph_resets_when_supply_removed(self, qapp):
         """Re-populating after the water supply is gone must not leave a

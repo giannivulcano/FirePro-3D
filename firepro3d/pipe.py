@@ -286,20 +286,22 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
         # Gap between rows = actual rendered pipe width (incl. display scale) + margin
         gap = self.display_width_mm() * self._display_scale + text_h * 0.3
 
-        # Include hydraulic results if available
+        # Include hydraulic results if available — only for pipes that carry
+        # flow; zero-flow tree pipes outside the design area stay unlabelled
+        # instead of cluttering the drawing with "0.0 gpm / 0.00 psi".
         hr_lines = ""
         if scene and hasattr(scene, "hydraulic_result") and scene.hydraulic_result is not None:
             result = scene.hydraulic_result
             q = result.pipe_flows.get(self)
             hf = result.pipe_friction_loss.get(self)
-            if q is not None:
+            if q:
                 hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
                              f"margin-top:{gap:.0f}px; color:#00aaff;'>"
                              f"{q:.1f} gpm</div>")
-            if hf is not None:
-                hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
-                             f"margin-top:{gap:.0f}px; color:#ffaa00;'>"
-                             f"{hf:.2f} psi</div>")
+                if hf is not None:
+                    hr_lines += (f"<div style='font-size:{text_h:.0f}px; "
+                                 f"margin-top:{gap:.0f}px; color:#ffaa00;'>"
+                                 f"{hf:.2f} psi</div>")
 
         html = (f"<div style='text-align:center;'>"
                 f"<div style='font-size:{text_h:.0f}px;'>{diameter}</div>"
