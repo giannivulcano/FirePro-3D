@@ -353,6 +353,106 @@ def _compute_s_l(sprinkler, all_sprinklers, walls, ppm: float):
     return (S, L)
 
 
+# ── Drawn-tile geometry (tessellating, wall-clipped) ─────────────────
+
+
+def _listed_coverage_sqft(sprinkler) -> float:
+    """Listed coverage area (ft²) from the sprinkler spec, default 130."""
+    try:
+        return float(
+            sprinkler._properties.get("Coverage Area", {}).get("value", 130))
+    except (ValueError, TypeError):
+        return 130.0
+
+
+def _tile_extents(sprinkler, all_sprinklers, walls, ppm: float):
+    """Per-side drawn-tile extents for one sprinkler, in scene units.
+
+    Rule per side (2026-07-11 grill): the nearer of half the distance to
+    the nearest neighbour on that side and the full distance to the
+    nearest facing wall on that side; √(listed coverage)/2 when neither
+    exists.  Tiles therefore tessellate — no overlap, no wall overshoot.
+
+    This is the DRAWING geometry only.  The calc value As keeps the NFPA
+    13 measurement convention (see ``DesignArea._update_shape``).
+
+    Returns:
+        ``((fwd, back, left, right), branch_angle)`` where fwd/back are
+        along the branch and left/right along the +/− perpendicular.
+        For a sprinkler with no branch direction, all four extents are
+        the coverage fallback and the angle is 0.0.
+    """
+    fallback = math.sqrt(_listed_coverage_sqft(sprinkler) * SQFT_TO_MM2) / 2.0 * ppm
+
+    node = sprinkler.node
+    if node is None:
+        return ((fallback,) * 4, 0.0)
+
+    branch_angle = _branch_direction(node)
+    if branch_angle is None:
+        return ((fallback,) * 4, 0.0)
+
+    pos = node.scenePos()
+    px, py = pos.x(), pos.y()
+    cos_b, sin_b = math.cos(branch_angle), math.sin(branch_angle)
+    perp_x, perp_y = -sin_b, cos_b
+
+    # Neighbour half-gaps along the branch (walk stops at first sprinkler)
+    fwd_walk = _walk_branch(node, +1, branch_angle)
+    bwd_walk = _walk_branch(node, -1, branch_angle)
+    half_fwd = fwd_walk[0][1] / 2.0 if fwd_walk else None
+    half_bwd = bwd_walk[0][1] / 2.0 if bwd_walk else None
+
+    # Cross-branch neighbour half-gaps per perpendicular side
+    same_branch = _same_branch_nodes(node, branch_angle)
+    half_left: float | None = None
+    half_right: float | None = None
+    for other in all_sprinklers:
+        if other is sprinkler or other.node is None:
+            continue
+        if id(other.node) in same_branch:
+            continue
+        opos = other.node.scenePos()
+        proj = ((opos.x() - px) * perp_x + (opos.y() - py) * perp_y)
+        if proj > 1e-6:
+            half = proj / 2.0
+            if half_left is None or half < half_left:
+                half_left = half
+        elif proj < -1e-6:
+            half = -proj / 2.0
+            if half_right is None or half < half_right:
+                half_right = half
+
+    def _side(neigh_half, dir_x, dir_y):
+        wall_d = _wall_distance_on_side(px, py, dir_x, dir_y, walls)
+        candidates = [c for c in (neigh_half, wall_d) if c is not None]
+        return min(candidates) if candidates else fallback
+
+    return ((_side(half_fwd, cos_b, sin_b),
+             _side(half_bwd, -cos_b, -sin_b),
+             _side(half_left, perp_x, perp_y),
+             _side(half_right, -perp_x, -perp_y)),
+            branch_angle)
+
+
+def _tile_polygon(cx: float, cy: float, angle: float,
+                  fwd: float, back: float,
+                  left: float, right: float):
+    """Rotated tile polygon for one sprinkler.
+
+    Local frame: +X along the branch (fwd/back), +Y along the +perp
+    direction (left/right).
+    """
+    from PyQt6.QtGui import QPolygonF
+    cos_a, sin_a = math.cos(angle), math.sin(angle)
+    corners = ((fwd, left), (fwd, -right), (-back, -right), (-back, left))
+    pts = []
+    for lx, ly in corners:
+        pts.append(QPointF(cx + lx * cos_a - ly * sin_a,
+                           cy + lx * sin_a + ly * cos_a))
+    return QPolygonF(pts)
+
+
 # ── Default coverage fallback ────────────────────────────────────────
 
 
