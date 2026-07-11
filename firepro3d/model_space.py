@@ -3088,6 +3088,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 for key, value in da_entry.get("properties", {}).items():
                     da.set_property(key, value)
                 self.addItem(da)
+                apply_category_defaults(da)
                 self.design_areas.append(da)
                 if da_entry.get("is_active", False):
                     self.active_design_area = da
@@ -5926,6 +5927,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     da = DesignArea(selected_sprs)
                     da.level = getattr(self, "active_level", DEFAULT_LEVEL)
                     self.addItem(da)
+                    apply_category_defaults(da)
                     self.design_areas.append(da)
                     self.active_design_area = da
                 else:
@@ -5961,6 +5963,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     da = DesignArea()
                     da.level = getattr(self, "active_level", DEFAULT_LEVEL)
                     self.addItem(da)
+                    apply_category_defaults(da)
                     self.design_areas.append(da)
                     self.active_design_area = da
                 self.active_design_area.toggle_sprinkler(target_spr)

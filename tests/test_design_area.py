@@ -506,3 +506,49 @@ class TestConfirmedRenderState:
         ms.set_mode("select")
         img_confirmed = render()
         assert img_editing != img_confirmed
+
+
+# ── Display Manager integration ──────────────────────────────────────────────
+
+
+class TestDisplayManagerCategory:
+    def test_category_registered(self):
+        from firepro3d.display_manager import _CATEGORY_MAP
+        cat = _CATEGORY_MAP.get("Design Area")
+        assert cat is not None
+        assert cat["group"] == "Fire Suppression"
+
+    def test_items_for_category_returns_design_areas(self, qapp):
+        from firepro3d.display_manager import _items_for_category_static
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        assert _items_for_category_static(ms, "Design Area") == [da]
+
+    def test_apply_display_sets_overrides(self, qapp):
+        from firepro3d.display_manager import apply_display_to_item
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        apply_display_to_item(da, "#00ff00", 1.0, 50, False,
+                              fill_color="#123456")
+        assert da._display_color == "#00ff00"
+        assert da._display_fill_color == "#123456"
+        assert da.isVisible() is False
+        assert da.opacity() == pytest.approx(0.5)
+
+    def test_creation_applies_category_defaults(self, qapp):
+        """New design areas inherit Display Manager settings (non-SVG
+        category → defaults always applied)."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        da = ms.active_design_area
+        assert da is not None
+        assert da._display_color is not None
+        assert da._display_fill_color is not None

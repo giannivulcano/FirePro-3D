@@ -225,6 +225,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Water Supply",     "color": "#00cccc", "fill": "#2b2b2e", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Node",             "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
+    {"key": "Design Area",      "color": "#dc1e1e", "fill": "#ffc800", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": "#8B4513", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
@@ -635,6 +636,7 @@ def apply_category_defaults(item):
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .wall import WallSegment
     from .room import Room
+    from .design_area import DesignArea
 
     if isinstance(item, Pipe):
         key = "Pipe"
@@ -654,6 +656,8 @@ def apply_category_defaults(item):
         key = "Wall"
     elif isinstance(item, Room):
         key = "Room"
+    elif isinstance(item, DesignArea):
+        key = "Design Area"
     elif _is_floor_slab(item):
         key = "Floor"
     elif _is_elevation_marker(item):
@@ -1057,6 +1061,9 @@ class DisplayManager(QDialog):
         elif category == "Room":
             name = getattr(item, "name", "")
             return f"Room {index}  ({name})" if name else f"Room {index}"
+        elif category == "Design Area":
+            name = item._properties.get("System Name", {}).get("value", "")
+            return f"Design Area {index}  ({name})" if name else f"Design Area {index}"
         return f"{category} {index}"
 
     # ------------------------------------------------------------------
@@ -2667,6 +2674,8 @@ def _items_for_category_static(scene, key: str) -> list:
         return list(ss.nodes)
     elif key == "Hydraulic Badge":
         return [i for i in scene.items() if isinstance(i, HydraulicNodeBadge)]
+    elif key == "Design Area":
+        return list(getattr(scene, "design_areas", []))
     elif key == "Grid Line":
         return [i for i in scene.items() if isinstance(i, GridlineItem)]
     elif key == "Roof":

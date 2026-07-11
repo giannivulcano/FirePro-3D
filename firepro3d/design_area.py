@@ -491,6 +491,10 @@ class DesignArea(QGraphicsPathItem):
         self._as_entries: list = []        # (sprinkler, as_sqft, sxl_sqft, listed_sqft)
         self.spacing_warnings: list[str] = []
         self._tile_polys: list = []        # QPolygonF per sprinkler (paint overlay)
+        # Display Manager overrides ("Design Area" category):
+        # color = confirmed-outline colour, fill = editing fill/border hue
+        self._display_color: str | None = None
+        self._display_fill_color: str | None = None
         self._properties: dict = {
             "Hazard Classification": {
                 "type": "enum",
@@ -675,9 +679,17 @@ class DesignArea(QGraphicsPathItem):
     def paint(self, painter, option, widget=None):
         editing = getattr(self.scene(), "mode", None) == "design_area"
         if editing:
-            super().paint(painter, option, widget)
+            base = QColor(self._display_fill_color or "#ffc800")
+            border = QPen(base, 2, Qt.PenStyle.DashLine)
+            painter.setPen(border)
+            fill = QColor(base)
+            fill.setAlpha(40)
+            painter.setBrush(QBrush(fill))
+            painter.drawPath(self.path())
             if len(self._tile_polys) > 1:
-                edge_pen = QPen(QColor(255, 200, 0, 90), 0)
+                edge = QColor(base)
+                edge.setAlpha(90)
+                edge_pen = QPen(edge, 0)
                 edge_pen.setCosmetic(True)
                 painter.setPen(edge_pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -686,7 +698,8 @@ class DesignArea(QGraphicsPathItem):
         else:
             # Cosmetic: 2 device px at any zoom — a 2 scene-mm pen is
             # sub-pixel when zoomed to building scale (invisible).
-            pen = QPen(QColor(220, 30, 30), 2, Qt.PenStyle.DashLine)
+            pen = QPen(QColor(self._display_color or "#dc1e1e"), 2,
+                       Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
