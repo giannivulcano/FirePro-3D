@@ -579,6 +579,13 @@ class View3D(QWidget):
         """Rebuild all 3D visuals from Model_Space data."""
         self._dirty = False
 
+        # A closed MainWindow can still deliver a queued/debounced refresh
+        # (e.g. _view_refresh_timer) after cleanup() released the plotter;
+        # rebuilding a finalized view is meaningless — and the AttributeError
+        # would fail-fast the process from a Qt-invoked slot.
+        if self._plotter is None:
+            return
+
         # Suppress rendering during bulk updates
         self._plotter.suppress_rendering = True
         try:

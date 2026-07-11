@@ -137,6 +137,19 @@ class TestCleanup:
         view3d.close()  # QWidget.close() -> closeEvent -> cleanup()
         assert view3d._plotter is None
 
+    def test_rebuild_after_cleanup_is_noop(self, view3d):
+        """rebuild() after cleanup() must not raise.
+
+        A closed-but-not-yet-deleted MainWindow can still receive its
+        debounced _view_refresh_timer timeout at the next processEvents()
+        anywhere in the process; the slot calls view_3d.rebuild() with
+        _plotter already None.  Under pytest (no excepthook) the resulting
+        AttributeError in a Qt-invoked slot fail-fasts the whole process
+        (0xC0000409) — the long-standing "environmental" full-suite crash.
+        """
+        view3d.cleanup()
+        view3d.rebuild()  # must not raise
+
 
 # ===================================================================
 # Module-level helper: _mesh_from_faces
