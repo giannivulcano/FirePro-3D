@@ -3346,6 +3346,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         from .hydraulic_solver import HydraulicSolver
         solver = HydraulicSolver(self.sprinkler_system, self.scale_manager)
         result = solver.solve(design_sprinklers=design_sprinklers)
+        # Prepend design-area spacing violations — the report renders
+        # messages at the top, so listing violations lead the output.
+        da = self.active_design_area
+        if da is not None and getattr(da, "spacing_warnings", None):
+            result.messages[:0] = da.spacing_warnings
         self.hydraulic_result = result
         self._supply_network_node = getattr(solver, '_supply_node', None)
         # Refresh all pipe labels and node badges

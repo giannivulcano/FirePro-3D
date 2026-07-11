@@ -430,3 +430,26 @@ class TestPickHighlights:
         ms._press_design_area(_fake_press(), pos, pos, None, None, None)
         ring = ms._da_highlights[0]
         assert ring.acceptedMouseButtons() == Qt.MouseButton.NoButton
+
+
+# ── Calc warning surfacing ───────────────────────────────────────────────────
+
+
+class TestCalcWarningSurfacing:
+    def test_spacing_warnings_prepended_to_messages(self, qapp, monkeypatch):
+        from firepro3d.hydraulic_solver import HydraulicSolver
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        ms.active_design_area = da
+        da.spacing_warnings = ["Sprinkler at (0, 0): computed S×L 172 ft² "
+                               "exceeds listed coverage 130 ft² — spacing "
+                               "violates the listing; using 130 ft²."]
+        stub = HydraulicSolver._fail("supply missing")
+        monkeypatch.setattr(HydraulicSolver, "solve",
+                            lambda self, design_sprinklers=None: stub)
+        result = ms.run_hydraulics(design_sprinklers=sprs[:2])
+        assert result.messages[0].startswith("Sprinkler at (0, 0)")
+        assert "supply missing" in result.messages[1]
