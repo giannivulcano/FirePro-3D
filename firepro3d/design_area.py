@@ -18,7 +18,7 @@ import math
 
 from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QRectF, QPointF
-from .constants import DEFAULT_LEVEL, Z_DESIGN_AREA
+from .constants import DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
 
 HAZARD_OPTIONS = [
@@ -44,6 +44,52 @@ def _point_to_segment_dist(px: float, py: float,
     proj_x = x1 + t * dx
     proj_y = y1 + t * dy
     return math.hypot(px - proj_x, py - proj_y)
+
+
+def _closest_point_on_segment(px: float, py: float,
+                              x1: float, y1: float,
+                              x2: float, y2: float) -> tuple[float, float]:
+    """Closest point on segment (x1,y1)-(x2,y2) to point (px, py)."""
+    dx, dy = x2 - x1, y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-12:
+        return (x1, y1)
+    t = max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / len_sq))
+    return (x1 + t * dx, y1 + t * dy)
+
+
+def _wall_distance_on_side(px: float, py: float,
+                           dir_x: float, dir_y: float,
+                           walls) -> float | None:
+    """Distance to the nearest facing wall on one side of a point.
+
+    A wall qualifies when its normal aligns with the query direction
+    (|dot| > cos 45°, same cone as the S/L wall lookup) and its closest
+    point lies on the queried side (non-negative projection onto the
+    direction).
+
+    Args:
+        px, py: Query point (scene units).
+        dir_x, dir_y: Unit direction defining the side.
+        walls: Iterable of wall segments exposing ``pt1``/``pt2``/``normal()``.
+
+    Returns:
+        Distance in scene units, or ``None`` when no wall qualifies.
+    """
+    best: float | None = None
+    cone = math.cos(math.radians(45))
+    for wall in walls:
+        wnx, wny = wall.normal()
+        if abs(wnx * dir_x + wny * dir_y) <= cone:
+            continue
+        cx, cy = _closest_point_on_segment(
+            px, py, wall.pt1.x(), wall.pt1.y(), wall.pt2.x(), wall.pt2.y())
+        if (cx - px) * dir_x + (cy - py) * dir_y < 0:
+            continue
+        d = math.hypot(cx - px, cy - py)
+        if best is None or d < best:
+            best = d
+    return best
 
 
 # ── Branch-line helpers ──────────────────────────────────────────────
@@ -317,8 +363,7 @@ def _fallback_side(sprinkler, ppm: float) -> float:
             sprinkler._properties.get("Coverage Area", {}).get("value", 130))
     except (ValueError, TypeError):
         cov_sqft = 130.0
-    # 1 sqft = 92 903 mm²  →  side_mm = √(cov_sqft × 92903)
-    side_mm = math.sqrt(cov_sqft * 92_903.0)
+    side_mm = math.sqrt(cov_sqft * SQFT_TO_MM2)
     return side_mm * ppm
 
 

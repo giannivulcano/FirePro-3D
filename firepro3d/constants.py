@@ -57,6 +57,11 @@ UNDERLAY_LINE_WIDTH_PX = 1.5
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 
+# ── Design-area creation ─────────────────────────────────────────────────────
+DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (screen px, zoom-aware)
+DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
+SQFT_TO_MM2 = 92_903.04        # 1 ft² in mm²
+
 # ── Pipe geometry check tolerance ────────────────────────────────────────────
 Z_COPLANAR_TOL = 1.0              # mm — pipes within this Z-difference are coplanar
 
