@@ -181,3 +181,93 @@ class TestTilePolygon:
             p, q = poly[i], poly[(i + 1) % poly.count()]
             area += p.x() * q.y() - q.x() * p.y()
         assert abs(area) / 2.0 == pytest.approx(3000.0 * 2000.0)
+
+
+# ── DesignArea shape + As cap ────────────────────────────────────────────────
+
+from firepro3d.design_area import DesignArea
+from firepro3d.model_space import Model_Space
+
+
+def _model_scene(qapp):
+    return Model_Space()
+
+
+def _grid_3x3(ms, spacing=3000.0):
+    """3×3 sprinkler grid on X-branches (3 branches, spacing apart in Y)."""
+    sprs = []
+    for row in range(3):
+        nodes = [ms.add_node(col * spacing, row * spacing) for col in range(3)]
+        ms.add_pipe(nodes[0], nodes[1])
+        ms.add_pipe(nodes[1], nodes[2])
+        sprs.extend(ms.add_sprinkler(n) for n in nodes)
+    return sprs
+
+
+class TestDesignAreaShape:
+    def test_two_selected_excludes_others(self, qapp):
+        """Regression: selecting 2 of 9 must NOT produce a shape covering all 9."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea([sprs[0], sprs[1]])   # two adjacent on first branch
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        far = sprs[8].node.scenePos()          # opposite corner sprinkler
+        assert da.path().contains(far) is False
+        near = sprs[0].node.scenePos()
+        assert da.path().contains(near) is True
+
+    def test_islands_stay_separate(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms, spacing=3000.0)
+        da = DesignArea([sprs[0], sprs[8]])    # opposite corners, far apart
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        polys = da.path().toSubpathPolygons()
+        assert len(polys) == 2
+
+    def test_empty_selection_empty_path(self, qapp):
+        ms = _model_scene(qapp)
+        da = DesignArea([])
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        assert da.path().isEmpty()
+
+
+class TestAsCapAndWarnings:
+    def test_as_capped_at_listed_coverage(self, qapp):
+        # 4000mm spacing → NFPA S=L=4000mm=13.12ft → S×L ≈ 172 ft² > 130
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms, spacing=4000.0)
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        assert da._as_entries, "As bookkeeping missing"
+        for _spr, as_sqft, sxl_sqft, listed in da._as_entries:
+            assert as_sqft <= listed + 1e-6
+        assert any(sxl > listed for _s, _a, sxl, listed in da._as_entries)
+        assert da.spacing_warnings, "expected a spacing-violates-listing warning"
+        assert "exceeds listed coverage" in da.spacing_warnings[0]
+
+    def test_no_warning_when_within_listing(self, qapp):
+        # 2400mm: even end sprinklers (NFPA doubles single-direction
+        # spacing) stay under 130 ft²: 4800×2400mm ≈ 124 ft².
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms, spacing=2400.0)
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        assert da.spacing_warnings == []
+
+    def test_area_property_sums_capped_as(self, qapp):
+        from firepro3d.scale_manager import DisplayUnit
+        ms = _model_scene(qapp)
+        ms.scale_manager.display_unit = DisplayUnit.IMPERIAL
+        sprs = _grid_3x3(ms, spacing=4000.0)
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        total = sum(a for _s, a, _x, _l in da._as_entries)
+        shown = da.get_properties()["Area"]["value"]
+        assert f"{total:.0f}" in shown
+        assert "sq ft" in shown

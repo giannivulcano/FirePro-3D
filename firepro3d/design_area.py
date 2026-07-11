@@ -1,4 +1,4 @@
-"""
+﻿"""
 design_area.py
 ==============
 Persistent annotation representing a fire suppression design area.
@@ -16,8 +16,8 @@ hydraulic calculations.
 
 import math
 
-from PyQt6.QtWidgets import QGraphicsRectItem, QGraphicsItem, QStyle
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
+from PyQt6.QtCore import Qt, QPointF
 from .constants import DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
 
@@ -470,12 +470,22 @@ def _fallback_side(sprinkler, ppm: float) -> float:
 # =====================================================================
 
 
-class DesignArea(QGraphicsRectItem):
-    """Selectable design-area rectangle that tracks a set of sprinklers."""
+class DesignArea(QGraphicsPathItem):
+    """Selectable design-area shape that tracks a set of sprinklers.
+
+    Drawn geometry: union of per-sprinkler tessellating tiles
+    (``_tile_extents``) — clipped at walls, sharing half-gaps between
+    neighbours.  Calc geometry: per-sprinkler ``As = min(NFPA S×L,
+    listed Coverage Area)`` accumulated in ``_as_entries`` with
+    listing-violation messages in ``spacing_warnings``.
+    """
 
     def __init__(self, sprinklers=None, parent=None):
         super().__init__(parent)
         self._sprinklers: list = list(sprinklers or [])
+        self._as_entries: list = []        # (sprinkler, as_sqft, sxl_sqft, listed_sqft)
+        self.spacing_warnings: list[str] = []
+        self._tile_polys: list = []        # QPolygonF per sprinkler (paint overlay)
         self._properties: dict = {
             "Hazard Classification": {
                 "type": "enum",
@@ -490,7 +500,7 @@ class DesignArea(QGraphicsRectItem):
         self.setZValue(Z_DESIGN_AREA)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.level: str = DEFAULT_LEVEL
-        self._update_rect()
+        self._update_shape()
 
     # ------------------------------------------------------------------
     # Sprinkler management
@@ -502,12 +512,12 @@ class DesignArea(QGraphicsRectItem):
     def add_sprinkler(self, spr):
         if spr not in self._sprinklers:
             self._sprinklers.append(spr)
-            self._update_rect()
+            self._update_shape()
 
     def remove_sprinkler(self, spr):
         if spr in self._sprinklers:
             self._sprinklers.remove(spr)
-            self._update_rect()
+            self._update_shape()
 
     def toggle_sprinkler(self, spr):
         if spr in self._sprinklers:
@@ -520,33 +530,30 @@ class DesignArea(QGraphicsRectItem):
     def set_sprinklers(self, sprinklers: list):
         """Replace the full sprinkler set (e.g. from rectangle selection)."""
         self._sprinklers = list(sprinklers)
-        self._update_rect()
+        self._update_shape()
 
     # ------------------------------------------------------------------
-    # Bounding rectangle — NFPA 13 S × L per sprinkler
+    # Tile-union shape + per-sprinkler As bookkeeping
 
-    def _update_rect(self):
-        """Recompute bounding box from per-sprinkler S × L protection areas.
+    def _update_shape(self):
+        """Rebuild the tile-union path and per-sprinkler As bookkeeping.
 
-        When scene context (walls, scale) is available, each sprinkler's
-        protection rectangle is computed via NFPA 13 S × L logic.  The
-        design-area rectangle is the axis-aligned bounding box of the
-        union of all rotated per-sprinkler rectangles.
-
-        Falls back to a fixed 300-unit margin when the item has not yet
-        been added to a scene.
+        Drawing: union of ``_tile_polygon`` tiles (wall-clipped,
+        half-gap-shared).  Calc: NFPA S×L per sprinkler via
+        ``_compute_s_l`` (unchanged convention), capped at the listed
+        coverage area; violations recorded in ``spacing_warnings``.
+        Falls back to fixed-margin tiles when not yet on a scene.
         """
-        if not self._sprinklers:
-            self.setRect(QRectF())
-            self._properties["Area"]["value"] = "0"
-            return
+        self._as_entries = []
+        self.spacing_warnings = []
+        self._tile_polys = []
 
         valid = [s for s in self._sprinklers if s.node]
         if not valid:
-            self.setRect(QRectF())
+            self.setPath(QPainterPath())
+            self._properties["Area"]["value"] = "0"
             return
 
-        # Try to obtain scene context
         # Model space is always 1 px ≈ 1 mm (default), even before formal
         # calibration, so we use pixels_per_mm unconditionally.
         scene = self.scene() if callable(getattr(self, "scene", None)) else None
@@ -554,46 +561,42 @@ class DesignArea(QGraphicsRectItem):
         ppm = sm.pixels_per_mm if sm else 1.0  # default 1 px = 1 mm
 
         if scene is None:
-            # Fallback: fixed margin (pre-scene or uncalibrated)
-            xs = [s.node.scenePos().x() for s in valid]
-            ys = [s.node.scenePos().y() for s in valid]
-            margin = 300.0
-            self.setRect(QRectF(
-                min(xs) - margin, min(ys) - margin,
-                max(xs) - min(xs) + 2 * margin,
-                max(ys) - min(ys) + 2 * margin,
-            ))
+            # Pre-scene fallback: fixed square margin per sprinkler
+            path = QPainterPath()
+            for s in valid:
+                pos = s.node.scenePos()
+                poly = _tile_polygon(pos.x(), pos.y(), 0.0,
+                                     300.0, 300.0, 300.0, 300.0)
+                sub = QPainterPath()
+                sub.addPolygon(poly)
+                sub.closeSubpath()
+                path = path.united(sub)
+            self.setPath(path)
             return
 
-        # Gather walls on the same level
+        # Walls and sprinklers on the same level
         walls = [w for w in getattr(scene, "_walls", [])
                  if getattr(w, "level", "") == self.level]
-
-        # All sprinklers on the same level (for L cross-branch lookup)
         all_sprs = [s for s in getattr(
             getattr(scene, "sprinkler_system", None), "sprinklers", [])
             if s.node and getattr(s.node, "level", "") == self.level]
 
-        all_corners: list[tuple[float, float]] = []
+        from .scale_manager import DisplayUnit
+        path = QPainterPath()
 
         for spr in valid:
+            # ── Calc: NFPA S×L measurement convention, capped at listing ──
             S, L = _compute_s_l(spr, all_sprs, walls, ppm)
-
-            # Fallback when S or L could not be determined
             if S < 1e-6:
                 S = _fallback_side(spr, ppm)
             if L < 1e-6:
                 L = _fallback_side(spr, ppm)
 
-            # Store display values on the sprinkler
-            from .scale_manager import DisplayUnit
             S_mm = S / ppm
             L_mm = L / ppm
             if sm.display_unit == DisplayUnit.IMPERIAL:
-                S_ft = S_mm / 304.8
-                L_ft = L_mm / 304.8
-                spr._properties["S Spacing"]["value"] = f"{S_ft:.1f} ft"
-                spr._properties["L Spacing"]["value"] = f"{L_ft:.1f} ft"
+                spr._properties["S Spacing"]["value"] = f"{S_mm / 304.8:.1f} ft"
+                spr._properties["L Spacing"]["value"] = f"{L_mm / 304.8:.1f} ft"
             elif sm.display_unit == DisplayUnit.METRIC_M:
                 spr._properties["S Spacing"]["value"] = f"{S_mm / 1000:.2f} m"
                 spr._properties["L Spacing"]["value"] = f"{L_mm / 1000:.2f} m"
@@ -601,82 +604,51 @@ class DesignArea(QGraphicsRectItem):
                 spr._properties["S Spacing"]["value"] = f"{S_mm:.0f} mm"
                 spr._properties["L Spacing"]["value"] = f"{L_mm:.0f} mm"
 
-            # Build the 4 corners of the rotated protection rectangle
+            sxl_sqft = (S_mm * L_mm) / SQFT_TO_MM2
+            listed = _listed_coverage_sqft(spr)
+            as_sqft = min(sxl_sqft, listed)
+            self._as_entries.append((spr, as_sqft, sxl_sqft, listed))
+            if sxl_sqft > listed + 0.5:
+                pos = spr.node.scenePos()
+                self.spacing_warnings.append(
+                    f"Sprinkler at ({pos.x():.0f}, {pos.y():.0f}): computed "
+                    f"S×L {sxl_sqft:.0f} ft² exceeds listed coverage "
+                    f"{listed:.0f} ft² — spacing violates the listing; "
+                    f"using {listed:.0f} ft².")
+
+            # ── Drawing: tessellating wall-clipped tile ───────────────────
+            (fwd, back, left, right), angle = _tile_extents(
+                spr, all_sprs, walls, ppm)
             pos = spr.node.scenePos()
-            cx, cy = pos.x(), pos.y()
-            angle = _branch_direction(spr.node) or 0.0
-            cos_a = math.cos(angle)
-            sin_a = math.sin(angle)
-            hs = S / 2.0   # half-S along branch
-            hl = L / 2.0   # half-L perpendicular
+            poly = _tile_polygon(pos.x(), pos.y(), angle,
+                                 fwd, back, left, right)
+            self._tile_polys.append(poly)
+            sub = QPainterPath()
+            sub.addPolygon(poly)
+            sub.closeSubpath()
+            path = path.united(sub)
 
-            for sx_sign in (-1, +1):
-                for sy_sign in (-1, +1):
-                    lx = sx_sign * hs
-                    ly = sy_sign * hl
-                    wx = cx + lx * cos_a - ly * sin_a
-                    wy = cy + lx * sin_a + ly * cos_a
-                    all_corners.append((wx, wy))
-
-        if not all_corners:
-            self.setRect(QRectF())
-            return
-
-        min_x = min(c[0] for c in all_corners)
-        max_x = max(c[0] for c in all_corners)
-        min_y = min(c[1] for c in all_corners)
-        max_y = max(c[1] for c in all_corners)
-        self.setRect(QRectF(min_x, min_y, max_x - min_x, max_y - min_y))
+        self.setPath(path)
 
     # ------------------------------------------------------------------
     # Area computation
 
     def compute_area(self, scale_manager):
-        """Recompute the design-area rect (S × L) and area property."""
-        self._update_rect()
-
+        """Recompute the tile shape and the Area property (Σ capped As)."""
+        self._update_shape()
         if not scale_manager:
             return
-        ppm = scale_manager.pixels_per_mm
-        if ppm <= 0:
-            ppm = 1.0  # default 1 px = 1 mm
 
-        # Sum individual S × L areas from sprinkler properties
-        total_area = 0.0
-        unit = None
-        for spr in self._sprinklers:
-            s_val = spr._properties.get("S Spacing", {}).get("value", "---")
-            l_val = spr._properties.get("L Spacing", {}).get("value", "---")
-            try:
-                s_parts = s_val.split()
-                l_parts = l_val.split()
-                s_num = float(s_parts[0])
-                l_num = float(l_parts[0])
-                unit = s_parts[1] if len(s_parts) > 1 else "ft"
-                total_area += s_num * l_num
-            except (ValueError, IndexError):
-                pass
-
-        if total_area > 0 and unit:
-            if unit == "ft":
-                self._properties["Area"]["value"] = f"{total_area:.0f} sq ft"
-            elif unit == "m":
-                self._properties["Area"]["value"] = f"{total_area:.1f} m\u00b2"
-            elif unit == "mm":
-                # Convert mm² to m²
-                self._properties["Area"]["value"] = f"{total_area / 1e6:.1f} m\u00b2"
-        else:
-            # Fallback: bounding-box area
-            r = self.rect()
-            w_mm = r.width() / ppm
-            h_mm = r.height() / ppm
-            from .scale_manager import DisplayUnit
-            if scale_manager.display_unit == DisplayUnit.METRIC_M:
-                area = (w_mm / 1000.0) * (h_mm / 1000.0)
-                self._properties["Area"]["value"] = f"{area:.1f} m\u00b2"
+        total_sqft = sum(a for _spr, a, _sxl, _listed in self._as_entries)
+        from .scale_manager import DisplayUnit
+        if total_sqft > 0:
+            if scale_manager.display_unit == DisplayUnit.IMPERIAL:
+                self._properties["Area"]["value"] = f"{total_sqft:.0f} sq ft"
             else:
-                area_sqft = (w_mm / 304.8) * (h_mm / 304.8)
-                self._properties["Area"]["value"] = f"{area_sqft:.0f} sq ft"
+                self._properties["Area"]["value"] = (
+                    f"{total_sqft * SQFT_TO_MM2 / 1e6:.1f} m²")
+        else:
+            self._properties["Area"]["value"] = "0"
 
     # ------------------------------------------------------------------
     # Property API
@@ -689,14 +661,18 @@ class DesignArea(QGraphicsRectItem):
             self._properties[key]["value"] = str(value)
 
     # ------------------------------------------------------------------
-    # Paint override for selection highlight
+    # Paint override — faint interior tile edges + selection highlight
+    # (no shape() override: QGraphicsPathItem's default — the set path —
+    # is correct and must not be narrowed; see paint-culling hazard)
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
+        if len(self._tile_polys) > 1:
+            edge_pen = QPen(QColor(255, 200, 0, 90), 0)
+            edge_pen.setCosmetic(True)
+            painter.setPen(edge_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            for poly in self._tile_polys:
+                painter.drawPolygon(poly)
         # Suppress default selection rectangle
         option.state &= ~QStyle.StateFlag.State_Selected
-
-    def shape(self) -> QPainterPath:
-        path = QPainterPath()
-        path.addRect(self.rect())
-        return path
