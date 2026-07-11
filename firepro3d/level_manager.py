@@ -467,6 +467,10 @@ class LevelManager:
         for item in getattr(scene, "_floor_slabs", []):
             _set_level_vis(item)
 
+        # ── Design areas ──────────────────────────────────────────────────
+        for item in getattr(scene, "design_areas", []):
+            _set_level_vis(item)
+
         # ── Roofs ────────────────────────────────────────────────────────
         for item in getattr(scene, "_roofs", []):
             _set_level_vis(item)

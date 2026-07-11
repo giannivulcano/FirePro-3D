@@ -271,3 +271,46 @@ class TestAsCapAndWarnings:
         shown = da.get_properties()["Area"]["value"]
         assert f"{total:.0f}" in shown
         assert "sq ft" in shown
+
+
+# ── Level binding + serialization ────────────────────────────────────────────
+
+
+class TestLevelBinding:
+    def test_serialization_round_trip_level(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        da.level = "Level 2"
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        ms.active_design_area = da
+        state = ms._capture_network()
+        assert state["design_areas"][0]["level"] == "Level 2"
+
+    def test_restore_backfills_level_from_sprinklers(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        for s in sprs:
+            s.node.level = "Level 3"
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        state = ms._capture_network()
+        del state["design_areas"][0]["level"]     # simulate pre-2026-07 save
+        ms._restore_network(state)
+        assert ms.design_areas[0].level == "Level 3"
+
+    def test_apply_to_scene_hides_other_level(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        da.level = "Level 2"
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        from firepro3d.level_manager import LevelManager
+        lm = LevelManager()
+        lm.apply_to_scene(ms, active_level="Level 1")
+        assert da.isVisible() is False
+        lm.apply_to_scene(ms, active_level="Level 2")
+        assert da.isVisible() is True

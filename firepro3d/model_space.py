@@ -2886,6 +2886,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 "sprinkler_node_ids": spr_nids,
                 "properties": {k: v["value"] for k, v in da.get_properties().items()},
                 "is_active": da is self.active_design_area,
+                "level": da.level,
             })
         return {
             "nodes":              nodes_data,
@@ -3072,6 +3073,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 sprs = [id_to_node[nid].sprinkler for nid in spr_nids
                         if nid in id_to_node and id_to_node[nid].has_sprinkler()]
                 da = DesignArea(sprs)
+                lvl = da_entry.get("level")
+                if not lvl:
+                    # Pre-2026-07 save: backfill from member sprinklers
+                    lvl = next((s.node.level for s in sprs if s.node),
+                               DEFAULT_LEVEL)
+                da.level = lvl
                 for key, value in da_entry.get("properties", {}).items():
                     da.set_property(key, value)
                 self.addItem(da)
@@ -5864,6 +5871,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 # Create/update design area with selected sprinklers
                 if not self.active_design_area:
                     da = DesignArea(selected_sprs)
+                    da.level = getattr(self, "active_level", DEFAULT_LEVEL)
                     self.addItem(da)
                     self.design_areas.append(da)
                     self.active_design_area = da
@@ -5885,6 +5893,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if target_spr:
                 if not self.active_design_area:
                     da = DesignArea()
+                    da.level = getattr(self, "active_level", DEFAULT_LEVEL)
                     self.addItem(da)
                     self.design_areas.append(da)
                     self.active_design_area = da
