@@ -38,7 +38,8 @@ from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
-                       DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX)
+                       DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
+                       Z_OVERLAY)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -106,6 +107,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.active_level: str = DEFAULT_LEVEL                     # floor level
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
+        self._da_highlights: list = []                        # pick-mode rings
         # Construction geometry (Sprint C)
         self._construction_lines: list[ConstructionLine] = []
         self._polylines: list[PolylineItem] = []
@@ -689,6 +691,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._snap_engine.skip_pipes = False
         # Clean up design_area preview if leaving that mode mid-draw
         if mode != "design_area":
+            self._refresh_da_highlights()   # self-clearing outside the mode
             self._design_area_corner1 = None
             if self._design_area_rect_item is not None:
                 if self._design_area_rect_item.scene() is self:
@@ -5842,6 +5845,38 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.push_undo_state()
         self.set_mode(None)
 
+    def _refresh_da_highlights(self):
+        """Rebuild the per-sprinkler highlight rings for design_area mode.
+
+        One fixed-screen-size ring per selected sprinkler of the active
+        design area.  Self-clearing: outside design_area mode (or with no
+        active area) it just removes existing rings.
+        """
+        for it in self._da_highlights:
+            if it.scene() is self:
+                self.removeItem(it)
+        self._da_highlights.clear()
+
+        if self.mode != "design_area" or not self.active_design_area:
+            return
+
+        r = DESIGN_AREA_HL_RADIUS_PX
+        for spr in self.active_design_area.sprinklers:
+            if not spr.node:
+                continue
+            ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
+            ring.setPos(spr.node.scenePos())
+            pen = QPen(QColor(255, 140, 0), 2)
+            pen.setCosmetic(True)
+            ring.setPen(pen)
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            ring.setZValue(Z_OVERLAY)
+            ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            self.addItem(ring)
+            self._da_highlights.append(ring)
+
     def _press_design_area(self, event, pos, snapped, item_under, node_under, pipe_under):
         modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
         shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
@@ -5883,6 +5918,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         self.active_design_area.add_sprinkler(s)
                 if self.active_design_area:
                     self.active_design_area.compute_area(self.scale_manager)
+                self._refresh_da_highlights()
                 count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
                 self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
         else:
@@ -5914,6 +5950,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.active_design_area = da
                 self.active_design_area.toggle_sprinkler(target_spr)
                 self.active_design_area.compute_area(self.scale_manager)
+                self._refresh_da_highlights()
                 count = len(self.active_design_area.sprinklers)
                 self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
             else:
@@ -7375,6 +7412,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "design_area":
             if self.active_design_area and self.active_design_area.sprinklers:
                 self.active_design_area.compute_area(self.scale_manager)
+                self._refresh_da_highlights()
                 count = len(self.active_design_area.sprinklers)
                 self._show_status(f"Design area confirmed: {count} sprinkler(s).")
                 self.requestPropertyUpdate.emit(self.active_design_area)

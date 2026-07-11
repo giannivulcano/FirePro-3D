@@ -387,3 +387,46 @@ class TestPickMode:
         assert ms.active_design_area is not None
         assert sprs[8] not in ms.active_design_area.sprinklers
         assert len(ms.active_design_area.sprinklers) == 8
+
+
+# ── Pick-mode highlight rings ────────────────────────────────────────────────
+
+
+class TestPickHighlights:
+    def test_toggle_adds_ring(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        assert len(ms._da_highlights) == 1
+        ring = ms._da_highlights[0]
+        assert ring.scene() is ms
+        assert ring.pos() == sprs[0].node.scenePos()
+
+    def test_untoggle_removes_ring(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        assert ms._da_highlights == []
+
+    def test_mode_exit_clears_rings(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        ms.set_mode("select")
+        assert ms._da_highlights == []
+
+    def test_rings_ignore_mouse(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        ring = ms._da_highlights[0]
+        assert ring.acceptedMouseButtons() == Qt.MouseButton.NoButton
