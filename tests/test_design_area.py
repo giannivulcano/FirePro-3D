@@ -6,7 +6,7 @@ import math
 
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QGraphicsScene
 
 from firepro3d.node import Node
@@ -314,3 +314,76 @@ class TestLevelBinding:
         assert da.isVisible() is False
         lm.apply_to_scene(ms, active_level="Level 2")
         assert da.isVisible() is True
+
+
+# ── Pick mode ────────────────────────────────────────────────────────────────
+
+from types import SimpleNamespace
+
+
+def _fake_press(modifiers=Qt.KeyboardModifier.NoModifier):
+    return SimpleNamespace(modifiers=lambda: modifiers)
+
+
+class TestPickMode:
+    def test_click_toggles_nearest_sprinkler(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[4].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        assert ms.active_design_area is not None
+        assert sprs[4] in ms.active_design_area.sprinklers
+
+    def test_miss_beyond_pick_radius(self, qapp):
+        from firepro3d.constants import DESIGN_AREA_PICK_PX
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        p = sprs[0].node.scenePos()
+        # Headless scene has no view → scale 1.0 → tolerance = PICK_PX scene units
+        miss = QPointF(p.x() + DESIGN_AREA_PICK_PX + 5, p.y())
+        ms._press_design_area(_fake_press(), miss, miss, None, None, None)
+        assert ms.active_design_area is None
+
+    def test_raw_position_used_not_snapped(self, qapp):
+        """A snap point dragged far away (e.g. onto a gridline) must not
+        hijack the pick — the RAW click position decides."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        far_snap = QPointF(pos.x() + 500, pos.y() + 500)
+        ms._press_design_area(_fake_press(), pos, far_snap, None, None, None)
+        assert ms.active_design_area is not None
+        assert sprs[0] in ms.active_design_area.sprinklers
+
+    def test_level_filter_on_pick(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        sprs[0].node.level = "Level 2"
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        assert ms.active_design_area is None   # wrong level → no pick
+
+    def test_design_area_mode_skips_grips(self, qapp):
+        """Grip drags must not steal design-area clicks (gridline pull-tabs
+        were interfering)."""
+        import inspect
+        src = inspect.getsource(Model_Space.mousePressEvent)
+        assert '"design_area"' in src.split("_skip_grip_modes")[1].split(")")[0]
+
+    def test_shift_rect_filters_by_level(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        sprs[8].node.level = "Level 2"
+        ms.set_mode("design_area")
+        shift = _fake_press(Qt.KeyboardModifier.ShiftModifier)
+        c1 = QPointF(-500, -500)
+        c2 = QPointF(6500, 6500)      # rectangle over the whole grid
+        ms._press_design_area(shift, c1, c1, None, None, None)
+        ms._press_design_area(shift, c2, c2, None, None, None)
+        assert ms.active_design_area is not None
+        assert sprs[8] not in ms.active_design_area.sprinklers
+        assert len(ms.active_design_area.sprinklers) == 8

@@ -37,7 +37,8 @@ from .gridline import (GridlineItem, reset_grid_counters,
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
-                       AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL)
+                       AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
+                       DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -5291,7 +5292,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                             "draw_line", "construction_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "gridline",
                             "dimension", "text", "door", "window", "set_scale",
-                            "detail", "align")
+                            "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
             grip_hit = self._find_grip_hit(snapped)
@@ -5859,9 +5860,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             else:
                 c1 = self._design_area_corner1
                 selection_rect = QRectF(c1, snapped).normalized()
+                active = getattr(self, "active_level", DEFAULT_LEVEL)
                 selected_sprs = [
                     s for s in self.sprinkler_system.sprinklers
                     if s.node and selection_rect.contains(s.node.scenePos())
+                    and getattr(s.node, "level", DEFAULT_LEVEL) == active
                 ]
                 # Remove the temporary preview rect
                 if self._design_area_rect_item and self._design_area_rect_item.scene() is self:
@@ -5883,13 +5886,25 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
                 self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
         else:
-            # Normal click: toggle individual sprinkler
-            # Find sprinkler node near click
+            # Normal click: toggle the nearest sprinkler on the active level.
+            # Uses the RAW click position (not snapped) so OSNAP hits on
+            # gridlines/underlay geometry cannot drag the pick away, and a
+            # zoom-aware pixel radius so sprinklers are hittable at any zoom.
+            active = getattr(self, "active_level", DEFAULT_LEVEL)
+            view_scale = (self.views()[0].transform().m11()
+                          if self.views() else 1.0)
+            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
             target_spr = None
+            best_d = tol
             for spr in self.sprinkler_system.sprinklers:
-                if spr.node and spr.node.distance_to(snapped.x(), snapped.y()) < 40:
+                if not spr.node:
+                    continue
+                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
+                    continue
+                d = spr.node.distance_to(pos.x(), pos.y())
+                if d < best_d:
+                    best_d = d
                     target_spr = spr
-                    break
             if target_spr:
                 if not self.active_design_area:
                     da = DesignArea()
