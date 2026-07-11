@@ -1,4 +1,7 @@
 import sys, os
+import tempfile
+import traceback
+from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QToolBar,
                               QFileDialog, QDockWidget, QInputDialog,
                               QDialog, QVBoxLayout, QHBoxLayout, QLabel,
@@ -34,6 +37,42 @@ from firepro3d.model_browser import ModelBrowser
 from firepro3d.grid_lines_dialog import GridLinesDialog
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
 from firepro3d import theme as th
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Unhandled-exception guard
+# ─────────────────────────────────────────────────────────────────────────────
+
+ERROR_LOG_PATH = os.path.join(
+    os.environ.get("LOCALAPPDATA") or tempfile.gettempdir(),
+    "FirePro3D", "error.log")
+
+
+def _log_unhandled_exception(exc_type, exc_value, exc_tb):
+    """Log an unhandled exception instead of letting PyQt6 kill the app.
+
+    With the default ``sys.excepthook``, PyQt6 escalates any Python
+    exception that escapes Qt-invoked code (slots, timer handlers, virtual
+    overrides such as ``boundingRect``) to ``qFatal()``, aborting the
+    process silently (0xC0000409 fail-fast in Qt6Core — no traceback, no
+    dialog). Installing a custom hook disables that escalation; the
+    traceback goes to stderr and is appended to ``ERROR_LOG_PATH`` so
+    field crashes stay diagnosable.
+    """
+    msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    sys.stderr.write(msg)
+    try:
+        os.makedirs(os.path.dirname(ERROR_LOG_PATH), exist_ok=True)
+        with open(ERROR_LOG_PATH, "a", encoding="utf-8") as fh:
+            fh.write(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] "
+                     f"Unhandled exception:\n{msg}\n")
+    except OSError:
+        pass  # never let the guard itself crash the app
+
+
+def install_excepthook():
+    """Install the global exception guard (call before the event loop)."""
+    sys.excepthook = _log_unhandled_exception
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3110,6 +3149,7 @@ class MainWindow(QMainWindow):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
+    install_excepthook()
     app = QApplication(sys.argv)
 
     # Show splash IMMEDIATELY — before heavy 3D imports
