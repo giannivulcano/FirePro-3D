@@ -3,15 +3,20 @@ design_area.py
 ==============
 Persistent annotation representing a fire suppression design area.
 
-Stores a set of sprinklers, a hazard classification, and displays
-as a bounding rectangle on the scene.  The rectangle is derived from
-NFPA 13 per-sprinkler coverage areas (A = S × L), where:
-  S = spacing along the branch line
-  L = distance between branch lines
-with wall-proximity detection to use 2× wall distance when applicable.
+Stores a set of sprinklers and a hazard classification, and displays as
+the union of per-sprinkler protection tiles.  Two deliberate value
+systems (2026-07-11):
+
+* **Calc** — per-sprinkler ``As = min(NFPA S×L, listed Coverage Area)``
+  where S/L follow the NFPA 13 measurement convention (max of distance
+  to the next sprinkler and 2× wall distance); listing violations are
+  recorded in ``spacing_warnings``.
+* **Drawing** — tessellating tiles: half the gap toward each neighbour,
+  full distance to a facing wall (stop at it), √(listed coverage)/2 on
+  open sides.  Tiles never overlap or overshoot walls.
 
 Multiple design areas can coexist; the active one is used for
-hydraulic calculations.
+hydraulic calculations.  Each design area is bound to a level.
 """
 
 import math
