@@ -1045,8 +1045,8 @@ class MainWindow(QMainWindow):
             lay.addWidget(lbl)
             _result = ["match"]
             for text, val in (("Create Riser", "riser"),
-                              ("Use Specified Elevation", "template"),
-                              ("Use Existing Elevation", "match")):
+                              ("Use Template Elevation", "template"),
+                              ("Use Start Node Elevation", "match")):
                 btn = QPushButton(text)
                 btn.clicked.connect(
                     lambda _c=False, v=val: (_result.__setitem__(0, v),

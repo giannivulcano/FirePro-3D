@@ -666,18 +666,27 @@ class DesignArea(QGraphicsPathItem):
             self._properties[key]["value"] = str(value)
 
     # ------------------------------------------------------------------
-    # Paint override — faint interior tile edges + selection highlight
+    # Paint override — two visual states (2026-07-11 smoke test):
+    # editing (scene in design_area mode): yellow fill + faint tile edges;
+    # confirmed (any other mode): red dashed outline only.
     # (no shape() override: QGraphicsPathItem's default — the set path —
     # is correct and must not be narrowed; see paint-culling hazard)
 
     def paint(self, painter, option, widget=None):
-        super().paint(painter, option, widget)
-        if len(self._tile_polys) > 1:
-            edge_pen = QPen(QColor(255, 200, 0, 90), 0)
-            edge_pen.setCosmetic(True)
-            painter.setPen(edge_pen)
+        editing = getattr(self.scene(), "mode", None) == "design_area"
+        if editing:
+            super().paint(painter, option, widget)
+            if len(self._tile_polys) > 1:
+                edge_pen = QPen(QColor(255, 200, 0, 90), 0)
+                edge_pen.setCosmetic(True)
+                painter.setPen(edge_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                for poly in self._tile_polys:
+                    painter.drawPolygon(poly)
+        else:
+            pen = QPen(QColor(220, 30, 30), 2, Qt.PenStyle.DashLine)
+            painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            for poly in self._tile_polys:
-                painter.drawPolygon(poly)
+            painter.drawPath(self.path())
         # Suppress default selection rectangle
         option.state &= ~QStyle.StateFlag.State_Selected

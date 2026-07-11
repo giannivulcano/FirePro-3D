@@ -684,11 +684,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.preview_node.hide()
         self.preview_pipe.hide()
         self._cal_point1 = None
-        # In design_area mode, OSNAP stays on but filters out pipes
-        if mode == "design_area":
-            self._snap_engine.skip_pipes = True
-        else:
-            self._snap_engine.skip_pipes = False
+        # (design_area mode suppresses snapping entirely in
+        # get_effective_position — sprinkler centres only)
+        self._snap_engine.skip_pipes = False
+        # Design-area style is mode-dependent (editing vs confirmed) —
+        # repaint on every mode change
+        for _da in self.design_areas:
+            _da.update()
         # Clean up design_area preview if leaving that mode mid-draw
         if mode != "design_area":
             self._refresh_da_highlights()   # self-clearing outside the mode
@@ -3428,6 +3430,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
+        # Design-area picking snaps to sprinkler centres only (the press
+        # handler does its own nearest-sprinkler search on the raw position);
+        # OSNAP/underlay/grid snapping would drag clicks onto gridlines and
+        # walls, so suppress them and their marker entirely in this mode.
+        if self.mode == "design_area":
+            self._snap_result = None
+            return QPointF(scene_pos)
+
         # OSNAP takes highest priority (disabled when no mode or select mode,
         # but enabled during grip-drag even in select mode)
         if (self._osnap_enabled

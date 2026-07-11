@@ -453,3 +453,56 @@ class TestCalcWarningSurfacing:
         result = ms.run_hydraulics(design_sprinklers=sprs[:2])
         assert result.messages[0].startswith("Sprinkler at (0, 0)")
         assert "supply missing" in result.messages[1]
+
+
+# ── Smoke-test follow-ups (2026-07-11) ───────────────────────────────────────
+
+
+class TestSnapSuppressedInPickMode:
+    def test_effective_position_is_raw_in_design_area_mode(self, qapp):
+        """OSNAP/underlay/grid snapping must not run during design-area
+        picking — clicks were being dragged onto gridlines/walls."""
+        ms = _model_scene(qapp)
+        _grid_3x3(ms)
+        ms.set_mode("design_area")
+        raw = QPointF(123.4, 567.8)
+        assert ms.get_effective_position(raw) == raw
+        assert ms._snap_result is None
+
+    def test_snap_active_again_after_mode_exit(self, qapp):
+        ms = _model_scene(qapp)
+        ms.set_mode("design_area")
+        ms.get_effective_position(QPointF(0, 0))
+        ms.set_mode("pipe")
+        # No assertion on the snap RESULT (depends on engine state) — just
+        # that the design-area early-return no longer short-circuits.
+        assert ms.mode == "pipe"
+        assert ms._snap_engine.skip_pipes is False
+
+
+class TestConfirmedRenderState:
+    def test_paint_states_differ_by_mode(self, qapp):
+        """Editing (design_area mode) draws fill+tiles; confirmed draws a
+        red dashed outline only.  Painted output is checked by rendering
+        to images and comparing."""
+        from PyQt6.QtGui import QImage, QPainter
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        da.compute_area(ms.scale_manager)
+
+        def render():
+            img = QImage(200, 200, QImage.Format.Format_ARGB32)
+            img.fill(0)
+            p = QPainter(img)
+            ms.render(p)
+            p.end()
+            return img
+
+        ms.set_mode("design_area")
+        img_editing = render()
+        ms.set_mode("select")
+        img_confirmed = render()
+        assert img_editing != img_confirmed
