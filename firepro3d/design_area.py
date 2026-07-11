@@ -684,7 +684,10 @@ class DesignArea(QGraphicsPathItem):
                 for poly in self._tile_polys:
                     painter.drawPolygon(poly)
         else:
+            # Cosmetic: 2 device px at any zoom — a 2 scene-mm pen is
+            # sub-pixel when zoomed to building scale (invisible).
             pen = QPen(QColor(220, 30, 30), 2, Qt.PenStyle.DashLine)
+            pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self.path())
