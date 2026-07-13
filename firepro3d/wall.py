@@ -146,6 +146,10 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._join_mode_pt2: str = "Auto"
         self._solid_pt1: bool = False   # set by mitered_quad()
         self._solid_pt2: bool = False
+        # Extra end vertices covering the junction wedge at 3-wall full
+        # miters (between p1r→p1l / p2l→p2r in the fill polygon)
+        self._end_wedge_pts1: list[QPointF] = []
+        self._end_wedge_pts2: list[QPointF] = []
 
         # Wall openings (doors / windows)
         self.openings: list[WallOpening] = []
@@ -245,11 +249,16 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         p1l, p1r, p2r, p2l = self.mitered_quad()
 
         path = QPainterPath()
-        # Outer rectangle (possibly mitered)
+        # Outer rectangle (possibly mitered; wedge vertices cover the
+        # junction triangle at 3-wall full miters)
         path.moveTo(p1l)
         path.lineTo(p2l)
+        for pt in self._end_wedge_pts2:
+            path.lineTo(pt)
         path.lineTo(p2r)
         path.lineTo(p1r)
+        for pt in self._end_wedge_pts1:
+            path.lineTo(pt)
         path.closeSubpath()
         self.setPath(path)
         # Reposition owned openings to reflect updated wall geometry
@@ -279,19 +288,21 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         solid_pt1 = getattr(self, "_solid_pt1", False)
         solid_pt2 = getattr(self, "_solid_pt2", False)
+        # Fill polygon includes junction-wedge vertices (3-wall miters)
+        fill_poly = QPolygonF([p1l, p2l, *self._end_wedge_pts2,
+                               p2r, p1r, *self._end_wedge_pts1])
 
         if not solid_pt1 and not solid_pt2:
             # No solid joins — draw full polygon as before
             painter.setPen(pen)
             painter.setBrush(fill_brush)
-            poly = QPolygonF([p1l, p2l, p2r, p1r])
-            painter.drawPolygon(poly)
+            painter.drawPolygon(fill_poly)
         else:
             # Fill the quad without outline, then draw only non-solid edges
             if fill_brush != Qt.BrushStyle.NoBrush:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(fill_brush)
-                painter.drawPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+                painter.drawPolygon(fill_poly)
 
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -312,7 +323,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if _show_section:
             from .displayable_item import draw_section_hatch
             clip = QPainterPath()
-            clip.addPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+            clip.addPolygon(fill_poly)
             clip.closeSubpath()
             # Section fill colour replaces element fill; hatch lines
             # use the element's normal line colour and weight.
@@ -334,7 +345,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             if not solid_pt1 and not solid_pt2:
-                painter.drawPolygon(QPolygonF([p1l, p2l, p2r, p1r]))
+                painter.drawPolygon(fill_poly)
             else:
                 painter.drawLine(p1l, p2l)
                 painter.drawLine(p1r, p2r)
@@ -928,9 +939,11 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Also sets ``_solid_pt1`` / ``_solid_pt2`` flags indicating which
         endpoints use Solid mode (so paint() can skip drawing the end edge).
         """
-        quad, solid_pt1, solid_pt2 = self._compute_mitered_quad()
+        quad, solid_pt1, solid_pt2, wedge1, wedge2 = self._compute_mitered_quad()
         self._solid_pt1 = solid_pt1
         self._solid_pt2 = solid_pt2
+        self._end_wedge_pts1 = wedge1
+        self._end_wedge_pts2 = wedge2
         return quad
 
     def snap_quad_points(self) -> tuple[QPointF, QPointF, QPointF, QPointF]:
@@ -939,24 +952,31 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         Identical geometry to ``mitered_quad()`` but safe to call from the
         snap engine (which must not touch paint coordination state).
         """
-        quad, _solid_pt1, _solid_pt2 = self._compute_mitered_quad()
+        quad, _solid_pt1, _solid_pt2, _w1, _w2 = self._compute_mitered_quad()
         return quad
 
     def _compute_mitered_quad(
         self,
-    ) -> tuple[tuple[QPointF, QPointF, QPointF, QPointF], bool, bool]:
+    ) -> tuple[tuple[QPointF, QPointF, QPointF, QPointF], bool, bool,
+               list[QPointF], list[QPointF]]:
         """Pure computation shared by mitered_quad() and snap_quad_points().
 
-        Returns ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2). Does NOT
-        read or write ``self._solid_pt1`` / ``self._solid_pt2``.
+        Returns ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2, wedge_pts1,
+        wedge_pts2) where the wedge lists hold extra end vertices that
+        make the fill polygon cover the junction wedge at 3-wall full
+        miters.  Does NOT read or write ``self._solid_pt1`` /
+        ``self._solid_pt2``.
         """
         p1l, p1r, p2r, p2l = self.quad_points()
         solid_pt1 = False
         solid_pt2 = False
+        wedge1: list[QPointF] = []
+        wedge2: list[QPointF] = []
 
         sc = self.scene()
         if sc is None or not hasattr(sc, '_walls'):
-            return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2)
+            return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2,
+                    wedge1, wedge2)
 
         MAX_MITER = self.half_thickness_scene() * MAX_MITER_FACTOR
 
@@ -970,6 +990,44 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                 other_ep = other.endpoint_near(my_pt, MITER_TOL)
                 if other_ep is not None:
                     partners.append((other, other_ep))
+
+            raw_mode = (self._join_mode_pt1 if my_idx == 0
+                        else self._join_mode_pt2)
+            if raw_mode == "Auto" and len(partners) == 2:
+                # 3-wall junction: full miter cleanup (pie join) — each
+                # face miters to its angular neighbour; falls back to
+                # Butt when the geometry degenerates.
+                pie = self._pie_miter_corners(
+                    my_idx, my_pt, partners, (p1l, p1r, p2r, p2l),
+                    MAX_MITER)
+                if pie is not None:
+                    int_l, int_r, wpts = pie
+                    if my_idx == 0:
+                        p1l, p1r = int_l, int_r
+                        solid_pt1 = True
+                        wedge1 = wpts
+                    else:
+                        p2l, p2r = int_l, int_r
+                        solid_pt2 = True
+                        wedge2 = wpts
+                continue
+
+            if raw_mode == "Auto" and not partners:
+                # Tee join: endpoint on a host wall mid-span — cope the
+                # end to the host's near face (any angle; also cleans up
+                # legacy face-snapped endpoints).
+                tee = self._tee_cope_corners(
+                    my_idx, my_pt, sc._walls, (p1l, p1r, p2r, p2l),
+                    MAX_MITER)
+                if tee is not None:
+                    int_l, int_r = tee
+                    if my_idx == 0:
+                        p1l, p1r = int_l, int_r
+                        solid_pt1 = True
+                    else:
+                        p2l, p2r = int_l, int_r
+                        solid_pt2 = True
+                continue
 
             mode = self._resolve_join_mode(my_idx, 1 + len(partners))
 
@@ -1007,7 +1065,153 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
                         if mode == "Solid":
                             solid_pt2 = True
 
-        return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2)
+        return ((p1l, p1r, p2r, p2l), solid_pt1, solid_pt2, wedge1, wedge2)
+
+    def _pie_miter_corners(self, my_idx: int, my_pt: QPointF, partners,
+                           quad, max_miter: float):
+        """Full-miter corners for one endpoint of a 3-wall junction.
+
+        Sorts the two partners angularly around the junction, miters
+        this wall's left/right face against the wedge-facing face of the
+        angularly adjacent partner, and computes the third junction
+        corner (the partners' far-face intersection) so the fill polygon
+        can cover the junction wedge.
+
+        Returns ``(int_left, int_right, wedge_pts)`` or ``None`` when
+        the geometry degenerates (zero-length walls, parallel faces,
+        miter beyond *max_miter*) — the caller then falls back to Butt.
+        """
+        p1l, p1r, p2r, p2l = quad
+        dx = self._pt2.x() - self._pt1.x()
+        dy = self._pt2.y() - self._pt1.y()
+        length = math.hypot(dx, dy)
+        if length < 1e-9:
+            return None
+        if my_idx == 0:
+            ux, uy = dx / length, dy / length
+        else:
+            ux, uy = -dx / length, -dy / length
+        # Which rotation direction from the outward vector reaches my
+        # LEFT face: +rot90 at pt1, −rot90 at pt2 (quad_points puts the
+        # left face on the +rot90(pt1→pt2) side).
+        left_sign = 1.0 if my_idx == 0 else -1.0
+
+        infos = []
+        for other, other_ep in partners:
+            odx = other._pt2.x() - other._pt1.x()
+            ody = other._pt2.y() - other._pt1.y()
+            olen = math.hypot(odx, ody)
+            if olen < 1e-9:
+                return None
+            if other_ep == 0:
+                oux, ouy = odx / olen, ody / olen
+            else:
+                oux, ouy = -odx / olen, -ody / olen
+            cross = ux * ouy - uy * oux
+            dot = ux * oux + uy * ouy
+            theta = math.atan2(cross, dot)
+            phi = theta if theta > 1e-9 else theta + 2.0 * math.pi
+            infos.append((phi, other, oux, ouy))
+
+        infos.sort(key=lambda e: e[0])
+        ccw, cw = infos[0], infos[-1]
+        left_info = ccw if left_sign > 0 else cw
+        right_info = cw if left_sign > 0 else ccw
+
+        def faces(info, s):
+            """(wedge-facing face line, far face line) of a partner."""
+            _phi, other, oux, ouy = info
+            o_p1l, o_p1r, o_p2r, o_p2l = other.quad_points()
+            left_line = (o_p1l, o_p2l)
+            right_line = (o_p1r, o_p2r)
+            odx2 = other._pt2.x() - other._pt1.x()
+            ody2 = other._pt2.y() - other._pt1.y()
+            olen2 = math.hypot(odx2, ody2)
+            lnx, lny = -ody2 / olen2, odx2 / olen2   # left-face offset dir
+            wnx, wny = s * ouy, -s * oux             # −s·rot90(u_partner)
+            if lnx * wnx + lny * wny > 0:
+                return left_line, right_line
+            return right_line, left_line
+
+        wedge_l, far_l = faces(left_info, left_sign)
+        wedge_r, far_r = faces(right_info, -left_sign)
+
+        int_l = self._intersect_lines(p1l, p2l, wedge_l[0], wedge_l[1])
+        int_r = self._intersect_lines(p1r, p2r, wedge_r[0], wedge_r[1])
+        if int_l is None or int_r is None:
+            return None
+        if (math.hypot(int_l.x() - my_pt.x(), int_l.y() - my_pt.y())
+                >= max_miter
+                or math.hypot(int_r.x() - my_pt.x(), int_r.y() - my_pt.y())
+                >= max_miter):
+            return None
+
+        wedge_pts: list[QPointF] = []
+        extra = self._intersect_lines(far_l[0], far_l[1], far_r[0], far_r[1])
+        if extra is not None and math.hypot(
+                extra.x() - my_pt.x(), extra.y() - my_pt.y()) < max_miter:
+            wedge_pts.append(extra)
+        return int_l, int_r, wedge_pts
+
+    def _tee_cope_corners(self, my_idx: int, my_pt: QPointF, walls,
+                          quad, max_miter: float):
+        """Cope an endpoint that tees into a host wall mid-span.
+
+        Host = the nearest wall whose centerline passes within its half
+        thickness (+ ``MITER_TOL``) of the endpoint, away from the
+        host's own endpoints.  Both of this wall's face lines are
+        intersected with the host's *near* face (the face on this wall's
+        body side), so the end hugs the host face at any angle.  Works
+        for endpoints on the host centerline (tee snap) and for legacy
+        endpoints snapped to the face.
+
+        Returns ``(int_left, int_right)`` or ``None`` (no host, ref on
+        the host centerline, parallel faces, or miter beyond the clamp).
+        """
+        p1l, p1r, p2r, p2l = quad
+        host = None
+        host_dist = float("inf")
+        for other in walls:
+            if other is self:
+                continue
+            band = other.half_thickness_scene() + MITER_TOL
+            proj = other.nearest_centerline_point(my_pt, band)
+            if proj is None:
+                continue
+            d = math.hypot(my_pt.x() - proj.x(), my_pt.y() - proj.y())
+            if d < host_dist:
+                host_dist = d
+                host = other
+        if host is None:
+            return None
+
+        # Near face = host face on my body's side of the host centerline
+        ref = self._pt2 if my_idx == 0 else self._pt1
+        hax, hay = host._pt1.x(), host._pt1.y()
+        hdx = host._pt2.x() - hax
+        hdy = host._pt2.y() - hay
+        s_ref = hdx * (ref.y() - hay) - hdy * (ref.x() - hax)
+        if abs(s_ref) < 1e-9:
+            return None    # running along the host — no usable cope
+        sign = 1.0 if s_ref > 0 else -1.0
+        o_p1l, o_p1r, o_p2r, o_p2l = host.quad_points()
+        s_l = hdx * (o_p1l.y() - hay) - hdy * (o_p1l.x() - hax)
+        s_r = hdx * (o_p1r.y() - hay) - hdy * (o_p1r.x() - hax)
+        if s_l * sign >= s_r * sign:
+            face = (o_p1l, o_p2l)
+        else:
+            face = (o_p1r, o_p2r)
+
+        int_l = self._intersect_lines(p1l, p2l, face[0], face[1])
+        int_r = self._intersect_lines(p1r, p2r, face[0], face[1])
+        if int_l is None or int_r is None:
+            return None
+        if (math.hypot(int_l.x() - my_pt.x(), int_l.y() - my_pt.y())
+                >= max_miter
+                or math.hypot(int_r.x() - my_pt.x(), int_r.y() - my_pt.y())
+                >= max_miter):
+            return None
+        return int_l, int_r
 
     # ── Wall joining helper ──────────────────────────────────────────────────
 
@@ -1026,6 +1230,31 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         else:
             self._pt2 = QPointF(target)
         self._rebuild_path()
+
+    def nearest_centerline_point(self, pos: QPointF,
+                                 tolerance: float) -> QPointF | None:
+        """Return the projection of *pos* onto this wall's centerline if
+        *pos* is near the mid-section (tee-join target).
+
+        Returns ``None`` if *pos* projects near an endpoint (5% margin,
+        matching ``nearest_face_point``) or lies farther than
+        *tolerance* from the centerline.
+        """
+        ax, ay = self._pt1.x(), self._pt1.y()
+        bx, by = self._pt2.x(), self._pt2.y()
+        dx, dy = bx - ax, by - ay
+        len_sq = dx * dx + dy * dy
+        if len_sq < 1e-12:
+            return None
+        t = ((pos.x() - ax) * dx + (pos.y() - ay) * dy) / len_sq
+        margin = 0.05
+        if t < margin or t > 1.0 - margin:
+            return None
+        proj_x = ax + t * dx
+        proj_y = ay + t * dy
+        if math.hypot(pos.x() - proj_x, pos.y() - proj_y) > tolerance:
+            return None
+        return QPointF(proj_x, proj_y)
 
     def nearest_face_point(self, pos: QPointF, tolerance: float,
                            scale_manager=None,

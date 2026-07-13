@@ -347,6 +347,226 @@ class TestWallJoinModes:
         assert horiz_wall._solid_pt2 is False
 
 
+def _dist_to_line(pt: QPointF, a: QPointF, b: QPointF) -> float:
+    """Distance from pt to the infinite line through a-b."""
+    import math
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    length = math.hypot(dx, dy)
+    return abs((pt.x() - a.x()) * dy - (pt.y() - a.y()) * dx) / length
+
+
+class TestThreeWallJunctionMiter:
+    """Full miter cleanup at 3-wall junctions (2026-07-13 smoke test):
+    two orthogonal walls + one diagonal sharing an endpoint must join as
+    a seamless pie — each face mitered to its angular neighbour, junction
+    wedge covered, end edges suppressed.  (Old behaviour: Butt — the
+    diagonal's flat end knifed across the junction block.)"""
+
+    TH = 200.0
+    J = QPointF(0, 0)
+
+    def _wall(self, scene, p1, p2, align=None, th=None):
+        w = WallSegment(QPointF(*p1), QPointF(*p2),
+                        thickness_mm=th or self.TH)
+        if align is not None:
+            w._alignment = align
+        scene.addItem(w)
+        scene._walls.append(w)
+        return w
+
+    def _junction(self, scene, aligns=(None, None, None)):
+        """H (left→J), V (J→down), D (J→up-right) sharing the origin."""
+        h = self._wall(scene, (-2400, 0), (0, 0), aligns[0])
+        v = self._wall(scene, (0, 0), (0, 1400), aligns[1])
+        d = self._wall(scene, (0, 0), (1800, -1300), aligns[2])
+        return h, v, d
+
+    def test_face_aligned_pie_corners(self, scene):
+        """The user's confirmed geometry: face-aligned walls.  The
+        diagonal's end corners must land on the partner face lines."""
+        from firepro3d.wall import ALIGN_LEFT, ALIGN_RIGHT
+        h, v, d = self._junction(
+            scene, aligns=(ALIGN_RIGHT, ALIGN_LEFT, ALIGN_RIGHT))
+        quad, s1, s2, w1, w2 = d._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True                       # end edge suppressed
+        _pt_approx(p1l, QPointF(0, 0), abs_tol=0.5)       # on V right face
+        assert p1r.y() == pytest.approx(-200, abs=0.5)    # on H top face
+        assert _dist_to_line(p1r, *[QPointF(-117.1, -162.1),
+                                    QPointF(1682.9, -1462.1)]) < 0.5
+        # junction wedge third corner: H bottom face ∩ V left face
+        assert len(w1) == 1
+        _pt_approx(w1[0], QPointF(-200, 0), abs_tol=0.5)
+
+    def test_center_aligned_pie_corners(self, scene):
+        h, v, d = self._junction(scene)
+        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True
+        _pt_approx(p1l, QPointF(100, 51.13), abs_tol=0.1)   # on V right face
+        _pt_approx(p1r, QPointF(-32.34, -100), abs_tol=0.1)  # on H top face
+        assert len(w1) == 1
+        _pt_approx(w1[0], QPointF(-100, 100), abs_tol=0.1)
+
+    def test_all_three_walls_fill_junction_wedge(self, scene):
+        """Every wall's PATH must cover the junction wedge (no hatch
+        hole in the middle of the joint)."""
+        walls = self._junction(scene)
+        for w in walls:
+            w._rebuild_path()
+        centroid = QPointF((-32.34 + 100 - 100) / 3, (-100 + 51.13 + 100) / 3)
+        for w in walls:
+            assert w.path().contains(centroid), \
+                f"wall {w.pt1}-{w.pt2} misses the junction wedge"
+
+    def test_explicit_butt_respected(self, scene):
+        h, v, d = self._junction(scene)
+        d._join_mode_pt1 = "Butt"
+        raw = d.quad_points()
+        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
+        _pt_approx(quad[0], raw[0])
+        _pt_approx(quad[1], raw[1])
+        assert s1 is False
+        assert w1 == []
+
+    def test_four_way_cross_stays_butt(self, scene):
+        h, v, d = self._junction(scene)
+        self._wall(scene, (0, 0), (2400, 600))     # 4th wall
+        for w in (h, v, d):
+            raw = w.quad_points()
+            quad, s1, s2, w1, w2 = w._compute_mitered_quad()
+            for got, exp in zip(quad, raw):
+                _pt_approx(got, exp)
+            assert s1 is False and s2 is False
+            assert w1 == [] and w2 == []
+
+    def test_near_parallel_falls_back_to_butt(self, scene):
+        """Wall nearly parallel to V (4°, laterally offset faces): the
+        miter intersection lands ~2.8m out — beyond the clamp — so the
+        whole endpoint falls back to Butt (current behaviour)."""
+        h = self._wall(scene, (-2400, 0), (0, 0))
+        v = self._wall(scene, (0, 0), (0, 1400))
+        d = self._wall(scene, (0, 0), (100, 1400))   # ~4° off V's axis
+        raw = d.quad_points()
+        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
+        _pt_approx(quad[0], raw[0])
+        _pt_approx(quad[1], raw[1])
+        assert s1 is False
+        assert w1 == []
+
+    def test_diagonal_into_split_straight_run(self, scene):
+        """Straight run split into two segments + diagonal at the split:
+        the diagonal must terminate on the run's near face (both corners
+        on y=-100), no wedge point (parallel far faces)."""
+        h1 = self._wall(scene, (-2400, 0), (0, 0))
+        h2 = self._wall(scene, (0, 0), (2400, 0))
+        d = self._wall(scene, (0, 0), (1800, -1300))
+        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True
+        assert p1l.y() == pytest.approx(-100, abs=0.1)
+        assert p1r.y() == pytest.approx(-100, abs=0.1)
+        assert w1 == []
+
+    def test_two_wall_solid_join_unchanged(self, scene):
+        """Regression: plain L-joints keep the existing 2-wall Solid
+        miter (both corners at the face intersections, no wedge)."""
+        h = self._wall(scene, (-2400, 0), (0, 0))
+        v = self._wall(scene, (0, 0), (0, 1400))
+        quad, s1, s2, w1, w2 = h._compute_mitered_quad()
+        assert s2 is True          # ep2 is H's joined end
+        assert w2 == []
+        _p1l, _p1r, p2r, p2l = quad
+        # inner face retracts to V's far face, outer extends to the corner
+        _pt_approx(p2l, QPointF(-100, 100), abs_tol=0.1)
+        _pt_approx(p2r, QPointF(100, -100), abs_tol=0.1)
+
+
+class TestTeeJoin:
+    """Tee joins (endpoint on another wall mid-span, 2026-07-13 report):
+    the endpoint snaps to the host CENTERLINE (not the face — the old
+    face snap made the picked point 'jump'), and the tee-ing wall's end
+    is coped to the host's near face so diagonal tees join cleanly."""
+
+    TH = 200.0
+
+    def _wall(self, scene, p1, p2, align=None, th=None):
+        w = WallSegment(QPointF(*p1), QPointF(*p2),
+                        thickness_mm=th or self.TH)
+        if align is not None:
+            w._alignment = align
+        scene.addItem(w)
+        scene._walls.append(w)
+        return w
+
+    def test_autojoin_tee_snaps_to_centerline(self, qapp):
+        """Placing a wall starting on a host's centerline keeps the
+        endpoint ON the centerline (old behaviour jumped to the face)."""
+        from firepro3d.model_space import Model_Space
+        ms = Model_Space()
+        host = WallSegment(QPointF(-2400, 0), QPointF(2400, 0),
+                           thickness_mm=self.TH)
+        ms.addItem(host)
+        ms._walls.append(host)
+        d = WallSegment(QPointF(100, 30), QPointF(1800, -1300),
+                        thickness_mm=self.TH)
+        ms.addItem(d)
+        ms._walls.append(d)
+        ms._auto_join_wall(d)
+        _pt_approx(d.pt1, QPointF(100, 0), abs_tol=0.5)
+
+    def test_diagonal_tee_copes_to_host_face(self, scene):
+        """Diagonal tee (endpoint on the centerline): both end corners
+        land on the host's near face (y=-100), end edge suppressed."""
+        host = self._wall(scene, (-2400, 0), (2400, 0))
+        d = self._wall(scene, (0, 0), (1800, -1300))
+        quad, s1, _s2, w1, _w2 = d._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True
+        assert p1l.y() == pytest.approx(-100, abs=0.1)
+        assert p1r.y() == pytest.approx(-100, abs=0.1)
+        assert w1 == []
+
+    def test_legacy_face_endpoint_also_copes(self, scene):
+        """Old files have tee endpoints snapped to the face — the cope
+        must clean those up too."""
+        host = self._wall(scene, (-2400, 0), (2400, 0))
+        d = self._wall(scene, (0, -100), (1800, -1400))
+        quad, s1, _s2, _w1, _w2 = d._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True
+        assert p1l.y() == pytest.approx(-100, abs=0.1)
+        assert p1r.y() == pytest.approx(-100, abs=0.1)
+
+    def test_orthogonal_tee_still_flush(self, scene):
+        """Orthogonal tee: corners on the host near face (visually the
+        same flush end as before, now with the end edge suppressed)."""
+        host = self._wall(scene, (-2400, 0), (2400, 0))
+        v = self._wall(scene, (0, 0), (0, 1400))
+        quad, s1, _s2, _w1, _w2 = v._compute_mitered_quad()
+        p1l, p1r, _p2r, _p2l = quad
+        assert s1 is True
+        assert p1l.y() == pytest.approx(100, abs=0.1)
+        assert p1r.y() == pytest.approx(100, abs=0.1)
+
+    def test_free_end_far_from_walls_unaffected(self, scene):
+        host = self._wall(scene, (-2400, 0), (2400, 0))
+        d = self._wall(scene, (500, -800), (1800, -1400))
+        raw = d.quad_points()
+        quad, s1, _s2, _w1, _w2 = d._compute_mitered_quad()
+        _pt_approx(quad[0], raw[0])
+        _pt_approx(quad[1], raw[1])
+        assert s1 is False
+
+    def test_wall_parallel_along_host_no_cope(self, scene):
+        """Degenerate: wall running along the host centerline — face
+        lines parallel, no intersection → falls back to Butt, no crash."""
+        host = self._wall(scene, (-2400, 0), (2400, 0))
+        d = self._wall(scene, (0, 0), (1800, 0))
+        quad, s1, _s2, _w1, _w2 = d._compute_mitered_quad()
+        assert s1 is False
+
+
 class TestWallEndpointNear:
     def test_near_pt1(self, horiz_wall):
         assert horiz_wall.endpoint_near(QPointF(0.5, 0.5), tolerance=1.0) == 0

@@ -7755,10 +7755,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     other._rebuild_path()
                     other.update()
 
-        # Pass 2: tee join — snap unsnapped endpoints to mid-wall faces.
-        # The reference_point is the wall's OTHER endpoint so the new wall
-        # terminates on the face of the existing wall that is nearest to
-        # the start (or end) of the new wall.
+        # Pass 2: tee join — snap unsnapped endpoints onto the host
+        # wall's CENTERLINE (the point the user picked stays put; the
+        # drawn body is coped back to the host face at render time by
+        # WallSegment._tee_cope_corners).  The old face snap made the
+        # picked point visibly "jump" off the centerline.
         for other in self._walls:
             if other is wall:
                 continue
@@ -7766,13 +7767,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if my_idx in snapped:
                     continue
                 my_pt = wall.pt1 if my_idx == 0 else wall.pt2
-                # Reference = the other end of the new wall
-                ref_pt = wall.pt2 if my_idx == 0 else wall.pt1
-                face_pt = other.nearest_face_point(
-                    my_pt, TEE_TOLERANCE, self.scale_manager,
-                    reference_point=ref_pt)
-                if face_pt is not None:
-                    wall.snap_endpoint_to(my_idx, face_pt)
+                cl_pt = other.nearest_centerline_point(my_pt, TEE_TOLERANCE)
+                if cl_pt is not None:
+                    wall.snap_endpoint_to(my_idx, cl_pt)
                     snapped.add(my_idx)
 
     def _find_wall_at(self, pos: QPointF) -> "WallSegment | None":
