@@ -277,11 +277,36 @@ class TestAsCapAndWarnings:
 
 
 class TestLevelBinding:
-    def test_serialization_round_trip_level(self, qapp):
+    def test_level_derives_from_member_sprinklers(self, qapp):
+        """Level is a fact about the sprinklers, not an independent knob —
+        assigning da.level only sets the empty-area fallback."""
         ms = _model_scene(qapp)
         sprs = _grid_3x3(ms)
         da = DesignArea(list(sprs[:2]))
-        da.level = "Level 2"
+        da.level = "Level 9"                  # ignored while members exist
+        assert da.level == "Level 1"          # derived from the nodes
+        for s in sprs[:2]:
+            s.node.level = "Level 2"
+        assert da.level == "Level 2"
+        da.set_sprinklers([])                 # empty → fallback applies
+        assert da.level == "Level 9"
+
+    def test_level_label_property_read_only(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        da = DesignArea(list(sprs[:2]))
+        ms.addItem(da)
+        da.compute_area(ms.scale_manager)
+        props = da.get_properties()
+        assert props["Level"]["type"] == "label"   # read-only in the panel
+        assert props["Level"]["value"] == "Level 1"
+
+    def test_serialization_round_trip_level(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        for s in sprs[:2]:
+            s.node.level = "Level 2"
+        da = DesignArea(list(sprs[:2]))
         ms.addItem(da)
         ms.design_areas.append(da)
         ms.active_design_area = da
@@ -304,8 +329,9 @@ class TestLevelBinding:
     def test_apply_to_scene_hides_other_level(self, qapp):
         ms = _model_scene(qapp)
         sprs = _grid_3x3(ms)
+        for s in sprs[:2]:
+            s.node.level = "Level 2"
         da = DesignArea(list(sprs[:2]))
-        da.level = "Level 2"
         ms.addItem(da)
         ms.design_areas.append(da)
         from firepro3d.level_manager import LevelManager

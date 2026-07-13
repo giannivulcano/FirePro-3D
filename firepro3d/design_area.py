@@ -529,14 +529,34 @@ class DesignArea(QGraphicsPathItem):
                 "options": HAZARD_OPTIONS,
             },
             "System Name": {"type": "string", "value": "System 1"},
+            "Level": {"type": "label", "value": DEFAULT_LEVEL},
             "Area": {"type": "label", "value": "0"},
         }
         self.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
         self.setBrush(QBrush(QColor(255, 200, 0, 40)))
         self.sync_z_for_mode(editing=False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.level: str = DEFAULT_LEVEL
+        self._creation_level: str = DEFAULT_LEVEL
         self._update_shape()
+
+    @property
+    def level(self) -> str:
+        """Level of the member sprinklers (read-only, derived).
+
+        A design area is specific to a set of sprinklers — its level is a
+        fact about them, not an independent attribute.  The creation-time
+        level is only the fallback while the area has no members.
+        """
+        for s in self._sprinklers:
+            if s.node:
+                return getattr(s.node, "level", DEFAULT_LEVEL)
+        return self._creation_level
+
+    @level.setter
+    def level(self, value: str):
+        # Fallback for empty areas only — with members, level derives
+        # from the sprinklers (creation sites and load paths still assign)
+        self._creation_level = value or DEFAULT_LEVEL
 
     def sync_z_for_mode(self, editing: bool):
         """Editing fill sits under geometry; the confirmed outline sits
@@ -588,6 +608,7 @@ class DesignArea(QGraphicsPathItem):
         self._as_entries = []
         self.spacing_warnings = []
         self._tile_polys = []
+        self._properties["Level"]["value"] = self.level
 
         valid = [s for s in self._sprinklers if s.node]
         if not valid:
