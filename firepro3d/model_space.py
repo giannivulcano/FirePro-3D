@@ -3436,11 +3436,30 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
-        # Design-area picking snaps to sprinkler centres only (the press
-        # handler does its own nearest-sprinkler search on the raw position);
+        # Design-area picking snaps to sprinkler centres ONLY: general
         # OSNAP/underlay/grid snapping would drag clicks onto gridlines and
-        # walls, so suppress them and their marker entirely in this mode.
+        # walls, but sprinkler node centres still snap (with a marker) so
+        # picks have a visible target.
         if self.mode == "design_area":
+            active = getattr(self, "active_level", DEFAULT_LEVEL)
+            view_scale = (self.views()[0].transform().m11()
+                          if self.views() else 1.0)
+            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
+            best_node = None
+            best_d = tol
+            for spr in self.sprinkler_system.sprinklers:
+                if not spr.node:
+                    continue
+                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
+                    continue
+                d = spr.node.distance_to(scene_pos.x(), scene_pos.y())
+                if d < best_d:
+                    best_d = d
+                    best_node = spr.node
+            if best_node is not None:
+                pt = QPointF(best_node.scenePos())
+                self._snap_result = OsnapResult(point=pt, snap_type="center")
+                return pt
             self._snap_result = None
             return QPointF(scene_pos)
 

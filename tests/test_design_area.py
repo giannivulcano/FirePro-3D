@@ -465,9 +465,22 @@ class TestSnapSuppressedInPickMode:
         ms = _model_scene(qapp)
         _grid_3x3(ms)
         ms.set_mode("design_area")
-        raw = QPointF(123.4, 567.8)
+        raw = QPointF(1234.5, 567.8)   # far from every sprinkler node
         assert ms.get_effective_position(raw) == raw
         assert ms._snap_result is None
+
+    def test_sprinkler_centre_still_snaps_with_marker(self, qapp):
+        """Sprinkler node centres are the ONE snap target in design-area
+        mode — with a visible marker (2026-07-13 smoke round 3)."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        node_pos = sprs[4].node.scenePos()
+        near = QPointF(node_pos.x() + 5, node_pos.y() + 5)
+        snapped = ms.get_effective_position(near)
+        assert snapped == node_pos
+        assert ms._snap_result is not None
+        assert ms._snap_result.snap_type == "center"
 
     def test_snap_active_again_after_mode_exit(self, qapp):
         ms = _model_scene(qapp)
@@ -678,21 +691,30 @@ class TestMultipleDesignAreas:
         assert len(hits) > n, "confirm did not emit sceneModified"
 
 
-class TestConfirmedBoundingRect:
-    def test_confirmed_shape_is_bounding_rect(self, qapp):
-        """Once confirmed (outside design_area mode), the hit shape widens
-        to the drawn dashed rectangle — including gaps between tiles."""
+class TestTracedBoundary:
+    def test_touching_tiles_merge_into_one_outline(self, qapp):
+        """Adjacent tiles sharing half-gap edges must union into a single
+        traced outline — no interior seam splitting the boundary."""
         ms = _model_scene(qapp)
-        sprs = _grid_3x3(ms, spacing=6000.0)     # big gaps between tiles
-        da = DesignArea([sprs[0], sprs[2]])      # two ends of first branch
+        sprs = _grid_3x3(ms, spacing=3000.0)
+        da = DesignArea([sprs[0], sprs[1], sprs[2]])   # one full branch
         ms.addItem(da)
         ms.design_areas.append(da)
         da.compute_area(ms.scale_manager)
-        mid = QPointF(6000.0, 0.0)               # between the two tiles
-        ms.set_mode("select")
-        assert da.shape().contains(mid)          # confirmed: rect hit area
-        ms.set_mode("design_area")
-        assert not da.shape().contains(mid)      # editing: exact tile union
+        assert len(da.path().toSubpathPolygons()) == 1
+
+    def test_l_shape_keeps_notch(self, qapp):
+        """An L-shaped selection's boundary must trace the L — the notch
+        corner stays OUTSIDE the shape (not a swallowing bounding box)."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms, spacing=3000.0)
+        # L: full first row + first column (indices 0,1,2 row; 3,6 column)
+        da = DesignArea([sprs[0], sprs[1], sprs[2], sprs[3], sprs[6]])
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        da.compute_area(ms.scale_manager)
+        notch = sprs[8].node.scenePos()   # opposite corner sprinkler
+        assert not da.path().contains(notch)
 
 
 class TestConfirmedZOrder:

@@ -444,6 +444,30 @@ def _tile_extents(sprinkler, all_sprinklers, walls, ppm: float):
             branch_angle)
 
 
+def _inflate_polygon(poly: QPolygonF, d: float) -> QPolygonF:
+    """Push each vertex *d* scene units away from the polygon centroid.
+
+    Exactly-touching tiles (shared half-gap edges) otherwise survive
+    ``QPainterPath.united`` as interior seams; a tiny inflation makes
+    them genuinely overlap so the union merges into one outline.
+    """
+    n = poly.count()
+    if n == 0 or d <= 0:
+        return QPolygonF(poly)
+    cx = sum(poly[i].x() for i in range(n)) / n
+    cy = sum(poly[i].y() for i in range(n)) / n
+    out = []
+    for i in range(n):
+        vx, vy = poly[i].x() - cx, poly[i].y() - cy
+        length = math.hypot(vx, vy)
+        if length < 1e-9:
+            out.append(QPointF(poly[i]))
+        else:
+            out.append(QPointF(poly[i].x() + vx / length * d,
+                               poly[i].y() + vy / length * d))
+    return QPolygonF(out)
+
+
 def _tile_polygon(cx: float, cy: float, angle: float,
                   fwd: float, back: float,
                   left: float, right: float):
@@ -657,11 +681,11 @@ class DesignArea(QGraphicsPathItem):
                     break
             self._tile_polys.append(poly)
             sub = QPainterPath()
-            sub.addPolygon(poly)
+            sub.addPolygon(_inflate_polygon(poly, 10.0 * ppm))
             sub.closeSubpath()
             path = path.united(sub)
 
-        self.setPath(path)
+        self.setPath(path.simplified())
 
     # ------------------------------------------------------------------
     # Area computation
@@ -720,9 +744,10 @@ class DesignArea(QGraphicsPathItem):
                 for poly in self._tile_polys:
                     painter.drawPolygon(poly)
         else:
-            # Confirmed: one dashed rectangle around the whole selection —
-            # the conventional AHJ "design area" box (2026-07-13 decision;
-            # the exact tile-union outline read as broken sections).
+            # Confirmed: dashed outline TRACING the selection boundary
+            # (L-shapes keep their notch — 2026-07-13 smoke round 3; the
+            # bounding-rect box swallowed the notch).  Tiles are inflated
+            # ~10mm before union so touching rows merge into one outline.
             # Cosmetic: 2 device px at any zoom — a 2 scene-mm pen is
             # sub-pixel when zoomed to building scale (invisible).
             pen = QPen(QColor(self._display_color or "#dc1e1e"), 2,
@@ -730,17 +755,6 @@ class DesignArea(QGraphicsPathItem):
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.path().boundingRect())
+            painter.drawPath(self.path())
         # Suppress default selection rectangle
         option.state &= ~QStyle.StateFlag.State_Selected
-
-    def shape(self) -> QPainterPath:
-        """Hit-test area. Editing: the exact tile union (default). Confirmed:
-        widened to the drawn bounding rectangle so the visible red dashed box
-        is clickable everywhere — never narrower than what is painted
-        (narrow shape() breaks paint culling)."""
-        if getattr(self.scene(), "mode", None) == "design_area":
-            return super().shape()
-        rect_path = QPainterPath()
-        rect_path.addRect(self.path().boundingRect())
-        return rect_path
