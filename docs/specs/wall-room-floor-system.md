@@ -4,6 +4,7 @@
 **Complexity:** Large
 **Status:** Draft
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
+**Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 
 ## 1. Goal
 
@@ -158,13 +159,19 @@ Three modes, assignable per endpoint:
 
 ### 5.2 Auto Resolution
 
-`_resolve_join_mode(endpoint_idx, num_walls_at_point)`:
+Effective treatment per Auto endpoint (as-built 2026-07-13; the
+`_resolve_join_mode(endpoint_idx, num_walls_at_point)` helper still
+returns Butt for anything ≠ 2 walls — the pie and tee treatments are
+separate branches in `_compute_mitered_quad` keyed on the raw `Auto`
+mode, so explicit per-endpoint Butt/Solid overrides keep their meaning):
 
-| Walls at point | Resolved mode | Rationale |
-|----------------|--------------|-----------|
-| 1 (free end) | Butt | Clean termination |
+| Walls at point | Treatment | Rationale |
+|----------------|-----------|-----------|
+| 1 (free end, no host) | Butt | Clean termination |
+| 1, endpoint mid-span on a host wall | **Tee cope** (§5.5) | End hugs the host's near face at any angle |
 | 2 (L-joint) | Solid | Continuous corner fill |
-| 3+ (T/cross) | Butt | Clean termination at complex junction |
+| 3 (shared endpoint) | **Full-miter pie** (§5.5) | Seamless junction — a diagonal member's flat Butt end can't mate (2026-07-13 smoke test); falls back to Butt when the geometry degenerates |
+| 4+ (cross) | Butt | Near-always orthogonal; flat ends land flush |
 
 ### 5.3 Connection Discovery
 
@@ -173,10 +180,9 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 **Algorithm** (`_compute_mitered_quad()`):
 1. For each endpoint, scan all walls in `scene._walls` for endpoints within `WALL_JOIN_TOLERANCE`.
 2. Collect partner list: `[(wall, endpoint_index), ...]`.
-3. Resolve join mode (§5.2).
-4. If Solid: intersect this wall's quad edges with partner's quad edges.
-5. Clamp extension to `4 × half_thickness_scene()` to prevent degenerate geometry.
-6. Set `solid_ptN` flag to suppress end-edge drawing.
+3. Dispatch per §5.2: raw-Auto with 2 partners → pie miter; raw-Auto with 0 partners → tee-cope host search; otherwise resolve the join mode and, if Solid, intersect this wall's quad edges with `partners[0]`'s quad edges (§5.5).
+4. Clamp all extensions to `4 × half_thickness_scene()` to prevent degenerate geometry (fallback: Butt).
+5. Set `solid_ptN` flag to suppress end-edge drawing; pie joins additionally emit end-wedge fill vertices.
 
 **Constants** (to be moved to `constants.py`):
 - `WALL_JOIN_TOLERANCE`: 1.0 scene units (merge distance for endpoint matching)
@@ -190,17 +196,31 @@ Connections are **implicit** — discovered by proximity at render time. No pers
 
 **Pass 1 — Endpoint-to-endpoint:** For each of the new wall's endpoints, search existing walls for an endpoint within `tolerance` (20 scene units). Snap the new wall's endpoint to the existing endpoint. Rebuild the partner wall's path.
 
-**Pass 2 — Tee join:** For unsnapped endpoints, search for the nearest face point on existing walls (within `TEE_TOLERANCE` = 40 scene units). The reference point is the wall's *other* endpoint, so the new wall terminates on the nearest face. The 5% margin on the `nearest_face_point()` parameter-t check prevents false tee detection near wall endpoints.
+**Pass 2 — Tee join (as-built 2026-07-13):** For unsnapped endpoints, snap to the host wall's **centerline** via `nearest_centerline_point()` (within `TEE_TOLERANCE` = 40 scene units; 5% parameter-t margin keeps it away from the host's endpoints). The picked point stays put — the drawn body is coped back to the host face at render time (§5.5). *Superseded behavior:* the endpoint used to snap to the nearest **face** (`nearest_face_point()`, retained for room detection), which made the picked point visibly jump off the centerline and left diagonal tees with gap triangles.
 
 ### 5.5 Miter Geometry
 
-For Solid joins, the quad-corner extension uses line-line intersection:
+**2-wall Solid joins** — the quad-corner extension uses line-line intersection:
 
 1. Determine partner's quad edges based on cross/same endpoint alignment.
 2. `_intersect_lines(my_left_edge, partner_left_edge)` → intersection point for left corner.
 3. Same for right corner.
 4. If both intersections exist and within clamp distance → replace endpoint corners.
 5. If Solid → set `solid_ptN = True` (suppresses end-edge line in `paint()`).
+
+**3-wall full-miter pie** (`_pie_miter_corners`, as-built 2026-07-13):
+
+1. Compute each wall's outward unit vector from the junction; sort the two partners by signed angle from mine.
+2. My left/right face each miters (via `_intersect_lines`) with the **angularly adjacent** partner's *wedge-facing* face — the face whose offset points into the wedge shared with me (works for any alignment, since face lines come from `quad_points()`).
+3. The third junction corner — the partners' far-face intersection — is appended as an **end-wedge vertex** (`_end_wedge_pts1/2`, returned by `_compute_mitered_quad` and consumed by `_rebuild_path`/`paint`) so every wall's fill polygon covers the junction triangle; the triple overlap is invisible because hatch lines are scene-global. Omitted when the partners' far faces are parallel (diagonal into a split straight run — the end is then a straight edge on the run's near face).
+4. Both corners (and the wedge vertex) must fall within the `MAX_MITER_FACTOR` clamp, else the whole endpoint falls back to Butt (e.g. near-parallel members).
+5. End edges suppressed (`solid_ptN`); side-face lines terminate exactly at the pie corners. `snap_quad_points()` keeps returning the 4 corners only.
+
+**Tee cope** (`_tee_cope_corners`, as-built 2026-07-13):
+
+1. Host = nearest wall whose centerline passes within `half_thickness + MITER_TOL` of my endpoint, mid-span. This band covers endpoints on the centerline (current tee snap) **and** legacy endpoints parked on the face by the pre-2026-07 snap — old files heal on reload.
+2. Near face = the host face on my body's side of the host centerline (sign test against my other endpoint; bail out when I run along the host).
+3. Both of my face lines intersect the near-face line → end corners hug the host face at any angle; end edge suppressed; same clamp/fallback as above.
 
 ## 6. Wall Rendering
 

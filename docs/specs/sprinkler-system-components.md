@@ -4,6 +4,7 @@
 **Date:** 2026-04-28  
 **Scope:** Document current behavior + flag divergences with migration paths  
 **Impl note (2026-07-13):** §11 rewritten as-built after the design-area polish task (`feat/design-area-polish`) — two-value geometry (calc As vs drawn tiles), creation/pick UX, multi-area flow, derived level, two-state rendering, Display Manager category, dual-path serialization. Verified against commit `5a1a367`; tests `tests/test_design_area.py`.
+**Impl note (2026-07-13, later):** §11.5 tile clipping upgraded — wall-segment **line-of-sight shadow clip** (`_clip_tile_at_walls`) replaces the room-polygon clip as the primary slant defense; the former "no detected room → overshoot" known limitation is retired. Verified against commit `600b6ef`.
 
 ---
 
@@ -572,9 +573,9 @@ Each member sprinkler carries **two deliberately different values**:
 
 **Drawing (tiles)** — tessellating, wall-clipped (`_tile_extents` + `_tile_polygon`):
 - Per-side extents: half the gap to the nearest neighbour on that side (branch walk along S; perpendicular projection for L), the full distance to the first wall hit by a **ray-cast** in that direction (`_wall_distance_on_side` — any wall angle), or √(listed coverage)/2 on open sides; nearer bound wins.
-- Tiles are additionally **clipped to the containing room polygon** (handles diagonal walls exactly).
+- Tiles are additionally **clipped to the containing room polygon** (when one contains the sprinkler).
+- **Wall-segment shadow clip** (`_clip_tile_at_walls`, 2026-07-13): flat per-side extents can't express a slanted boundary, and the room clip no-ops when the stored room boundary lacks the diagonal edge (stale snapshot §8.5, unconnected/dead-end diagonal, no room). Each nearby wall segment (bbox-prefiltered, level-filtered, ends extended 10 mm to seal junction gaps) casts a **line-of-sight shadow quad** from the sprinkler's viewpoint, subtracted from the tile; the connected piece containing the sprinkler is kept. Tiles stop at physical walls regardless of room state; coverage survives past an open wall end only where the sprinkler has sight lines. Sprinklers within 1 mm of a wall line cast no shadow from it.
 - Tiles are inflated ~10 mm before `QPainterPath.united` so exactly-touching rows merge seamlessly; the union is `simplified()`.
-- Known limitation: per-side rectangles near diagonal walls without a detected room can still overshoot (open TODO).
 
 ### 11.6 Rendering, Level & Persistence (as-built 2026-07-13)
 
