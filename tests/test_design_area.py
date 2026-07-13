@@ -552,3 +552,164 @@ class TestDisplayManagerCategory:
         assert da is not None
         assert da._display_color is not None
         assert da._display_fill_color is not None
+
+
+# ── Non-uniform geometry (2026-07-13 smoke test) ─────────────────────────────
+
+
+class TestDiagonalWalls:
+    def test_ray_hits_diagonal_wall(self):
+        """The old ±45° normal cone excluded a wall at exactly 45° to the
+        branch, letting tiles sail through it."""
+        diag = _mock_wall(0, 2000, 2000, 0)          # line x + y = 2000
+        d = _wall_distance_on_side(500, 1000, 1.0, 0.0, [diag])
+        assert d == pytest.approx(500.0)             # hits at (1000, 1000)
+
+    def test_ray_misses_segment_beyond_extent(self):
+        # Same diagonal line but the segment ends before the ray crosses it
+        short = _mock_wall(0, 2000, 500, 1500)
+        d = _wall_distance_on_side(500, 1000, 1.0, 0.0, [short])
+        assert d is None
+
+    def test_tile_clipped_to_room_polygon(self, qapp):
+        """A sprinkler inside a trapezoid room gets its tile intersected
+        with the room boundary — no corner pokes past the diagonal."""
+        from firepro3d.room import Room
+        ms = _model_scene(qapp)
+        n = ms.add_node(3000, 3000)
+        spr = ms.add_sprinkler(n)
+        # Trapezoid: diagonal cuts the top-left corner
+        boundary = [QPointF(0, 2000), QPointF(2000, 0), QPointF(8000, 0),
+                    QPointF(8000, 8000), QPointF(0, 8000)]
+        room = Room(boundary)
+        ms.addItem(room)
+        ms._rooms.append(room)
+        da = DesignArea([spr])
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        da.compute_area(ms.scale_manager)
+        # Every tile vertex must lie inside (or on) the room boundary.
+        from PyQt6.QtGui import QPolygonF
+        room_poly = QPolygonF(boundary)
+        for poly in da._tile_polys:
+            for i in range(poly.count()):
+                pt = poly[i]
+                # Allow boundary points (containsPoint is exclusive on edges)
+                on_or_in = room_poly.containsPoint(
+                    pt, Qt.FillRule.OddEvenFill) or _point_near_polygon_edge(
+                    pt, boundary)
+                assert on_or_in, f"tile vertex {pt} outside room"
+
+
+def _point_near_polygon_edge(pt, boundary, tol=1.0):
+    from firepro3d.design_area import _point_to_segment_dist
+    n = len(boundary)
+    for i in range(n):
+        a, b = boundary[i], boundary[(i + 1) % n]
+        if _point_to_segment_dist(pt.x(), pt.y(),
+                                  a.x(), a.y(), b.x(), b.y()) <= tol:
+            return True
+    return False
+
+
+def _confirm(ms):
+    """Right-click confirm via the real contextMenuEvent path."""
+    ms.contextMenuEvent(SimpleNamespace(accept=lambda: None,
+                                        scenePos=lambda: QPointF(0, 0)))
+
+
+class TestMultipleDesignAreas:
+    def test_confirm_then_pick_starts_new_area(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        p0 = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), p0, p0, None, None, None)
+        _confirm(ms)
+        assert ms.mode == "design_area"          # stays in the mode
+        assert ms._da_editing is None
+        p8 = sprs[8].node.scenePos()
+        ms._press_design_area(_fake_press(), p8, p8, None, None, None)
+        assert len(ms.design_areas) == 2
+        assert sprs[8] in ms.design_areas[1].sprinklers
+        assert sprs[8] not in ms.design_areas[0].sprinklers
+
+    def test_clicking_member_sprinkler_resumes_that_area(self, qapp):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        p0 = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), p0, p0, None, None, None)
+        p1 = sprs[1].node.scenePos()
+        ms._press_design_area(_fake_press(), p1, p1, None, None, None)
+        _confirm(ms)
+        # Click a member of the confirmed area → resumes editing it
+        # (toggle removes the sprinkler), no new area created
+        ms._press_design_area(_fake_press(), p0, p0, None, None, None)
+        assert len(ms.design_areas) == 1
+        assert ms._da_editing is ms.design_areas[0]
+        assert sprs[0] not in ms.design_areas[0].sprinklers
+
+    def test_status_includes_live_area_tally(self, qapp, monkeypatch):
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        messages = []
+        monkeypatch.setattr(ms, "_show_status",
+                            lambda msg, *a, **k: messages.append(msg))
+        p0 = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), p0, p0, None, None, None)
+        area = ms._da_editing._properties["Area"]["value"]
+        assert area != "0"
+        assert area in messages[-1]
+
+    def test_changes_emit_scene_modified(self, qapp):
+        """Design-area edits must reach the model browser / dirty flag."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        hits = []
+        ms.sceneModified.connect(lambda: hits.append(1))
+        p0 = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), p0, p0, None, None, None)
+        assert hits, "toggle did not emit sceneModified"
+        n = len(hits)
+        _confirm(ms)
+        assert len(hits) > n, "confirm did not emit sceneModified"
+
+
+class TestConfirmedBoundingRect:
+    def test_confirmed_shape_is_bounding_rect(self, qapp):
+        """Once confirmed (outside design_area mode), the hit shape widens
+        to the drawn dashed rectangle — including gaps between tiles."""
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms, spacing=6000.0)     # big gaps between tiles
+        da = DesignArea([sprs[0], sprs[2]])      # two ends of first branch
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        da.compute_area(ms.scale_manager)
+        mid = QPointF(6000.0, 0.0)               # between the two tiles
+        ms.set_mode("select")
+        assert da.shape().contains(mid)          # confirmed: rect hit area
+        ms.set_mode("design_area")
+        assert not da.shape().contains(mid)      # editing: exact tile union
+
+
+class TestConfirmedZOrder:
+    def test_confirmed_above_gridline_bubbles(self, qapp):
+        from firepro3d.constants import (Z_DESIGN_AREA,
+                                         Z_DESIGN_AREA_CONFIRMED,
+                                         Z_GRIDLINE_BUBBLE, Z_PREVIEW)
+        assert Z_DESIGN_AREA_CONFIRMED > Z_GRIDLINE_BUBBLE
+        assert Z_DESIGN_AREA_CONFIRMED < Z_PREVIEW
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        ms.set_mode("design_area")
+        pos = sprs[0].node.scenePos()
+        ms._press_design_area(_fake_press(), pos, pos, None, None, None)
+        da = ms.active_design_area
+        assert da.zValue() == Z_DESIGN_AREA          # editing: under geometry
+        ms.set_mode("select")
+        assert da.zValue() == Z_DESIGN_AREA_CONFIRMED
+        ms.set_mode("design_area")
+        assert da.zValue() == Z_DESIGN_AREA

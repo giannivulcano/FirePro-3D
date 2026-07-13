@@ -108,6 +108,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
         self._da_highlights: list = []                        # pick-mode rings
+        self._da_editing = None                               # DesignArea picks modify
         # Construction geometry (Sprint C)
         self._construction_lines: list[ConstructionLine] = []
         self._polylines: list[PolylineItem] = []
@@ -544,6 +545,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.design_areas.remove(item)
                 if self.active_design_area is item:
                     self.active_design_area = None
+                if self._da_editing is item:
+                    self._da_editing = None
                 self.removeItem(item)
             elif isinstance(item, WallSegment):
                 for op in list(item.openings):
@@ -687,12 +690,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # (design_area mode suppresses snapping entirely in
         # get_effective_position — sprinkler centres only)
         self._snap_engine.skip_pipes = False
-        # Design-area style is mode-dependent (editing vs confirmed) —
-        # repaint on every mode change
+        # Design-area style + Z are mode-dependent (editing vs confirmed) —
+        # resync on every mode change
         for _da in self.design_areas:
+            _da.sync_z_for_mode(mode == "design_area")
             _da.update()
         # Clean up design_area preview if leaving that mode mid-draw
         if mode != "design_area":
+            self._da_editing = None
             self._refresh_da_highlights()   # self-clearing outside the mode
             self._design_area_corner1 = None
             if self._design_area_rect_item is not None:
@@ -973,7 +978,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "set_scale":      "Pick first calibration point",
             "move":           "Pick base point",
             "offset":         "Click geometry to offset",
-            "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm.",
+            "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
             "construction_line": "Pick first point",
@@ -5873,11 +5878,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.removeItem(it)
         self._da_highlights.clear()
 
-        if self.mode != "design_area" or not self.active_design_area:
+        if self.mode != "design_area" or not self._da_editing:
             return
 
         r = DESIGN_AREA_HL_RADIUS_PX
-        for spr in self.active_design_area.sprinklers:
+        for spr in self._da_editing.sprinklers:
             if not spr.node:
                 continue
             ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
@@ -5892,6 +5897,49 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
             self.addItem(ring)
             self._da_highlights.append(ring)
+
+    def _ensure_editing_da(self, resume_spr=None):
+        """Return the design area picks modify, creating or resuming one.
+
+        With no working area: if *resume_spr* already belongs to a design
+        area, editing resumes on that one; otherwise a new area starts.
+        Confirming (right-click) clears the working area so the next pick
+        starts a fresh one — this is how multiple design areas are made.
+        """
+        if self._da_editing is not None:
+            return self._da_editing
+        da = None
+        if resume_spr is not None:
+            da = next((d for d in self.design_areas
+                       if resume_spr in d.sprinklers), None)
+        if da is None:
+            da = DesignArea()
+            da.level = getattr(self, "active_level", DEFAULT_LEVEL)
+            self.addItem(da)
+            apply_category_defaults(da)
+            da.sync_z_for_mode(editing=True)
+            self.design_areas.append(da)
+        self._da_editing = da
+        self.active_design_area = da
+        return da
+
+    def _da_change_committed(self, da, confirmed=False):
+        """Shared tail for every design-area mutation: recompute, refresh
+        rings, live property panel, browser/dirty signal, status tally."""
+        da.compute_area(self.scale_manager)
+        self._refresh_da_highlights()
+        self.requestPropertyUpdate.emit(da)
+        self.sceneModified.emit()
+        count = len(da.sprinklers)
+        area = da._properties.get("Area", {}).get("value", "0")
+        if confirmed:
+            self._show_status(
+                f"Design area confirmed: {count} sprinkler(s), {area}. "
+                f"Click a sprinkler to start a new design area.")
+        else:
+            self._show_status(
+                f"Design area: {count} sprinkler(s), {area}. "
+                f"Click more or right-click to confirm.")
 
     def _press_design_area(self, event, pos, snapped, item_under, node_under, pipe_under):
         modifiers = event.modifiers() if hasattr(event, 'modifiers') else Qt.KeyboardModifier.NoModifier
@@ -5922,22 +5970,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(self._design_area_rect_item)
                 self._design_area_rect_item = None
                 self._design_area_corner1 = None
-                # Create/update design area with selected sprinklers
-                if not self.active_design_area:
-                    da = DesignArea(selected_sprs)
-                    da.level = getattr(self, "active_level", DEFAULT_LEVEL)
-                    self.addItem(da)
-                    apply_category_defaults(da)
-                    self.design_areas.append(da)
-                    self.active_design_area = da
-                else:
-                    for s in selected_sprs:
-                        self.active_design_area.add_sprinkler(s)
-                if self.active_design_area:
-                    self.active_design_area.compute_area(self.scale_manager)
-                self._refresh_da_highlights()
-                count = len(self.active_design_area.sprinklers) if self.active_design_area else 0
-                self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+                # Add to the working design area (create/resume as needed)
+                da = self._ensure_editing_da()
+                for s in selected_sprs:
+                    da.add_sprinkler(s)
+                self._da_change_committed(da)
         else:
             # Normal click: toggle the nearest sprinkler on the active level.
             # Uses the RAW click position (not snapped) so OSNAP hits on
@@ -5959,18 +5996,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     best_d = d
                     target_spr = spr
             if target_spr:
-                if not self.active_design_area:
-                    da = DesignArea()
-                    da.level = getattr(self, "active_level", DEFAULT_LEVEL)
-                    self.addItem(da)
-                    apply_category_defaults(da)
-                    self.design_areas.append(da)
-                    self.active_design_area = da
-                self.active_design_area.toggle_sprinkler(target_spr)
-                self.active_design_area.compute_area(self.scale_manager)
-                self._refresh_da_highlights()
-                count = len(self.active_design_area.sprinklers)
-                self._show_status(f"Design area: {count} sprinkler(s). Click more or right-click to confirm.")
+                da = self._ensure_editing_da(resume_spr=target_spr)
+                da.toggle_sprinkler(target_spr)
+                self._da_change_committed(da)
             else:
                 self._show_status("No sprinkler found. Click on a sprinkler to add/remove it.")
 
@@ -7428,13 +7456,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Show context menu on right-click for underlays or scene entities."""
         # Right-click confirms design area selection
         if self.mode == "design_area":
-            if self.active_design_area and self.active_design_area.sprinklers:
-                self.active_design_area.compute_area(self.scale_manager)
-                self._refresh_da_highlights()
-                count = len(self.active_design_area.sprinklers)
-                self._show_status(f"Design area confirmed: {count} sprinkler(s).")
-                self.requestPropertyUpdate.emit(self.active_design_area)
-            self.set_mode(None)
+            da = self._da_editing or self.active_design_area
+            if da and da.sprinklers:
+                self.active_design_area = da
+                self._da_editing = None      # next pick starts a NEW area
+                self._da_change_committed(da, confirmed=True)
+            # Stay in design_area mode so more areas can be defined;
+            # Esc or a tool switch leaves the mode.
             event.accept()
             return
         hit_items = self.items(event.scenePos())

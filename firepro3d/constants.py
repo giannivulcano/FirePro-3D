@@ -30,6 +30,7 @@ Z_WATER_SUPPLY   = 50     # water supply symbol
 Z_SPRINKLER      = 100    # sprinkler symbols
 Z_OVERLAY        = 200    # previews, view markers, room labels, badges
 Z_GRIDLINE_BUBBLE = 500   # gridline bubbles, elevation bubbles
+Z_DESIGN_AREA_CONFIRMED = 600  # confirmed design-area outline (above geometry + gridlines)
 Z_PREVIEW        = 999    # ephemeral array/tool preview overlay
 #
 # Elevation-based Z-ordering (level_manager.apply_to_scene):

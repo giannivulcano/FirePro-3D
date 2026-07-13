@@ -23,8 +23,9 @@ import math
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF
-from .constants import DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath
+from .constants import (DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA,
+                        Z_DESIGN_AREA_CONFIRMED)
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPolygonF
 
 HAZARD_OPTIONS = [
     "Light Hazard",
@@ -66,34 +67,37 @@ def _closest_point_on_segment(px: float, py: float,
 def _wall_distance_on_side(px: float, py: float,
                            dir_x: float, dir_y: float,
                            walls) -> float | None:
-    """Distance to the nearest facing wall on one side of a point.
+    """Distance along a direction ray to the first wall centreline hit.
 
-    A wall qualifies when its normal aligns with the query direction
-    (|dot| > cos 45°, same cone as the S/L wall lookup) and its closest
-    point lies on the queried side (non-negative projection onto the
-    direction).
+    Ray-cast from (px, py) along (dir_x, dir_y) against every wall
+    segment — works for walls at any angle.  (The earlier ±45°
+    normal-alignment cone missed diagonal walls entirely, letting tiles
+    sail through them; 2026-07-13 smoke test.)
 
     Args:
         px, py: Query point (scene units).
         dir_x, dir_y: Unit direction defining the side.
-        walls: Iterable of wall segments exposing ``pt1``/``pt2``/``normal()``.
+        walls: Iterable of wall segments exposing ``pt1``/``pt2``.
 
     Returns:
-        Distance in scene units, or ``None`` when no wall qualifies.
+        Distance in scene units, or ``None`` when the ray hits no wall.
     """
     best: float | None = None
-    cone = math.cos(math.radians(45))
+    eps = 1e-9
     for wall in walls:
-        wnx, wny = wall.normal()
-        if abs(wnx * dir_x + wny * dir_y) <= cone:
+        ax, ay = wall.pt1.x(), wall.pt1.y()
+        sx = wall.pt2.x() - ax
+        sy = wall.pt2.y() - ay
+        denom = dir_x * sy - dir_y * sx
+        if abs(denom) < 1e-12:
+            continue  # segment parallel to the ray
+        ex, ey = ax - px, ay - py
+        t = (ex * sy - ey * sx) / denom          # distance along the ray
+        u = (ex * dir_y - ey * dir_x) / denom    # position along the segment
+        if t <= eps or u < -1e-6 or u > 1.0 + 1e-6:
             continue
-        cx, cy = _closest_point_on_segment(
-            px, py, wall.pt1.x(), wall.pt1.y(), wall.pt2.x(), wall.pt2.y())
-        if (cx - px) * dir_x + (cy - py) * dir_y < 0:
-            continue
-        d = math.hypot(cx - px, cy - py)
-        if best is None or d < best:
-            best = d
+        if best is None or t < best:
+            best = t
     return best
 
 
@@ -448,7 +452,6 @@ def _tile_polygon(cx: float, cy: float, angle: float,
     Local frame: +X along the branch (fwd/back), +Y along the +perp
     direction (left/right).
     """
-    from PyQt6.QtGui import QPolygonF
     cos_a, sin_a = math.cos(angle), math.sin(angle)
     corners = ((fwd, left), (fwd, -right), (-back, -right), (-back, left))
     pts = []
@@ -506,10 +509,15 @@ class DesignArea(QGraphicsPathItem):
         }
         self.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
         self.setBrush(QBrush(QColor(255, 200, 0, 40)))
-        self.setZValue(Z_DESIGN_AREA)
+        self.sync_z_for_mode(editing=False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.level: str = DEFAULT_LEVEL
         self._update_shape()
+
+    def sync_z_for_mode(self, editing: bool):
+        """Editing fill sits under geometry; the confirmed outline sits
+        above all geometry and gridline bubbles (2026-07-13 smoke test)."""
+        self.setZValue(Z_DESIGN_AREA if editing else Z_DESIGN_AREA_CONFIRMED)
 
     # ------------------------------------------------------------------
     # Sprinkler management
@@ -583,9 +591,16 @@ class DesignArea(QGraphicsPathItem):
             self.setPath(path)
             return
 
-        # Walls and sprinklers on the same level
+        # Walls, rooms, and sprinklers on the same level
         walls = [w for w in getattr(scene, "_walls", [])
                  if getattr(w, "level", "") == self.level]
+        room_polys = []
+        for room in getattr(scene, "_rooms", []):
+            if getattr(room, "level", "") != self.level:
+                continue
+            pts = room.boundary
+            if len(pts) >= 3:
+                room_polys.append(QPolygonF(pts))
         all_sprs = [s for s in getattr(
             getattr(scene, "sprinkler_system", None), "sprinklers", [])
             if s.node and getattr(s.node, "level", "") == self.level]
@@ -631,6 +646,15 @@ class DesignArea(QGraphicsPathItem):
             pos = spr.node.scenePos()
             poly = _tile_polygon(pos.x(), pos.y(), angle,
                                  fwd, back, left, right)
+            # Clip to the containing room polygon — per-side distances
+            # can't express slanted boundaries (diagonal walls), so a
+            # rectangle corner would poke outside the room.
+            for room_poly in room_polys:
+                if room_poly.containsPoint(pos, Qt.FillRule.OddEvenFill):
+                    clipped = poly.intersected(room_poly)
+                    if not clipped.isEmpty():
+                        poly = clipped
+                    break
             self._tile_polys.append(poly)
             sub = QPainterPath()
             sub.addPolygon(poly)
@@ -696,6 +720,9 @@ class DesignArea(QGraphicsPathItem):
                 for poly in self._tile_polys:
                     painter.drawPolygon(poly)
         else:
+            # Confirmed: one dashed rectangle around the whole selection —
+            # the conventional AHJ "design area" box (2026-07-13 decision;
+            # the exact tile-union outline read as broken sections).
             # Cosmetic: 2 device px at any zoom — a 2 scene-mm pen is
             # sub-pixel when zoomed to building scale (invisible).
             pen = QPen(QColor(self._display_color or "#dc1e1e"), 2,
@@ -703,6 +730,17 @@ class DesignArea(QGraphicsPathItem):
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self.path())
+            painter.drawRect(self.path().boundingRect())
         # Suppress default selection rectangle
         option.state &= ~QStyle.StateFlag.State_Selected
+
+    def shape(self) -> QPainterPath:
+        """Hit-test area. Editing: the exact tile union (default). Confirmed:
+        widened to the drawn bounding rectangle so the visible red dashed box
+        is clickable everywhere — never narrower than what is painted
+        (narrow shape() breaks paint culling)."""
+        if getattr(self.scene(), "mode", None) == "design_area":
+            return super().shape()
+        rect_path = QPainterPath()
+        rect_path.addRect(self.path().boundingRect())
+        return rect_path
