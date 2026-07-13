@@ -651,6 +651,146 @@ def _point_near_polygon_edge(pt, boundary, tol=1.0):
     return False
 
 
+def _max_penetration_past_segment(path, p1, p2, interior_pt):
+    """Max distance of any path vertex on the far side of wall segment
+    p1→p2 (far = opposite side from *interior_pt*), counting only
+    vertices whose projection falls within the segment's span."""
+    dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+    length = math.hypot(dx, dy)
+    lsq = length * length
+
+    def side(pt):
+        return (pt.x() - p1.x()) * dy - (pt.y() - p1.y()) * dx
+
+    interior = math.copysign(1.0, side(interior_pt))
+    worst = 0.0
+    for poly in path.toSubpathPolygons():
+        for i in range(poly.count()):
+            v = poly[i]
+            t = ((v.x() - p1.x()) * dx + (v.y() - p1.y()) * dy) / lsq
+            if not (0.0 <= t <= 1.0):
+                continue
+            s = side(v)
+            if math.copysign(1.0, s) != interior:
+                worst = max(worst, abs(s) / length)
+    return worst
+
+
+class TestWallSegmentTileClip:
+    """Tiles must stop at physical wall segments even when the room
+    polygon doesn't carry the diagonal edge (stale room boundary,
+    dead-end partition, or no room at all) — 2026-07-13 smoke-test bug:
+    per-side ray extents are flat and can't express a slanted wall, so
+    tile corners poked past diagonals whenever the room clip missed."""
+
+    def _rect_room(self, ms):
+        from firepro3d.room import Room
+        boundary = [QPointF(0, 0), QPointF(10000, 0),
+                    QPointF(10000, 8000), QPointF(0, 8000)]
+        room = Room(boundary)
+        ms.addItem(room)
+        ms._rooms.append(room)
+        return room
+
+    def _short_branch(self, ms):
+        n1 = ms.add_node(7500, 4500)
+        n2 = ms.add_node(8800, 4500)
+        ms.add_pipe(n1, n2)
+        return [ms.add_sprinkler(n) for n in (n1, n2)]
+
+    def _add_wall(self, ms, x1, y1, x2, y2):
+        from firepro3d.wall import WallSegment
+        w = WallSegment(QPointF(x1, y1), QPointF(x2, y2))
+        ms.addItem(w)
+        ms._walls.append(w)
+        return w
+
+    def _make_da(self, ms, sprs):
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        da.compute_area(ms.scale_manager)
+        return da
+
+    INTERIOR = QPointF(4000, 5000)
+
+    def test_stale_room_boundary_tile_stops_at_diagonal(self, qapp):
+        """Room polygon is the old rectangle (detected before the diagonal
+        was drawn); the diagonal wall itself must still stop the tiles."""
+        ms = _model_scene(qapp)
+        self._rect_room(ms)
+        self._add_wall(ms, 7000, 0, 10000, 3000)   # diagonal cuts the corner
+        sprs = self._short_branch(ms)
+        da = self._make_da(ms, sprs)
+        pen = _max_penetration_past_segment(
+            da.path(), QPointF(7000, 0), QPointF(10000, 3000), self.INTERIOR)
+        assert pen <= 25.0, f"boundary crosses diagonal by {pen:.0f} mm"
+
+    def test_dead_end_diagonal_partition_clips(self, qapp):
+        """A diagonal partition dead-ending into the room (3-wall junction
+        corner) must occlude the tile region behind it.  A dead-end wall
+        has room on BOTH sides of its infinite line, so the check is
+        line-of-sight probes, not a half-plane penetration metric."""
+        ms = _model_scene(qapp)
+        self._rect_room(ms)
+        self._add_wall(ms, 10000, 0, 7000, 3000)   # dead-ends inside the room
+        sprs = self._short_branch(ms)
+        da = self._make_da(ms, sprs)
+        # Inside the raw tile of the (8800,4500) sprinkler but occluded
+        # by the partition (sight line crosses it): must be clipped out.
+        assert not da.path().contains(QPointF(8250, 1500))
+        # Same tile corner region, sprinkler side of the wall with clear
+        # line of sight: must stay covered (no over-clipping).
+        assert da.path().contains(QPointF(8800, 1300))
+
+    def test_no_room_diagonal_wall_still_clips(self, qapp):
+        """Walls-only scene (no room detected): tiles must still stop at
+        the diagonal — upgrades the former spec §11.5 known limitation."""
+        ms = _model_scene(qapp)
+        self._add_wall(ms, 0, 0, 7000, 0)
+        self._add_wall(ms, 7000, 0, 10000, 3000)   # diagonal
+        self._add_wall(ms, 10000, 3000, 10000, 8000)
+        self._add_wall(ms, 10000, 8000, 0, 8000)
+        self._add_wall(ms, 0, 8000, 0, 0)
+        sprs = self._short_branch(ms)
+        da = self._make_da(ms, sprs)
+        pen = _max_penetration_past_segment(
+            da.path(), QPointF(7000, 0), QPointF(10000, 3000), self.INTERIOR)
+        assert pen <= 25.0, f"boundary crosses diagonal by {pen:.0f} mm"
+
+    def test_long_diagonal_wall_close_sprinkler(self, qapp):
+        """A very long diagonal wall with a nearby sprinkler: the shadow
+        must be cast from the wall portion near the tile, not the far-away
+        segment endpoints (whose rays barely diverge and under-cover)."""
+        ms = _model_scene(qapp)
+        self._add_wall(ms, -20000, 30300, 30000, -19700)   # 45°, x+y=10300
+        n = ms.add_node(5000, 5000)                        # 212mm off the wall
+        spr = ms.add_sprinkler(n)
+        da = self._make_da(ms, [spr])
+        pen = _max_penetration_past_segment(
+            da.path(), QPointF(-20000, 30300), QPointF(30000, -19700),
+            QPointF(5000, 5000))
+        assert pen <= 25.0, f"boundary crosses wall by {pen:.0f} mm"
+
+    def test_stub_clips_by_line_of_sight_not_infinite_line(self, qapp):
+        """A short freestanding stub occludes only its shadow (sprinkler
+        line of sight) — coverage past the open end stays where the
+        sprinkler can still see; it does NOT clip like an infinite line."""
+        ms = _model_scene(qapp)
+        n = ms.add_node(0, 0)
+        spr = ms.add_sprinkler(n)          # isolated → fallback square tile
+        self._add_wall(ms, 500, 100, 500, 700)   # stub off the +X axis
+        da = self._make_da(ms, [spr])
+        # Directly behind the stub (no line of sight): occluded
+        assert not da.path().contains(QPointF(700, 480))
+        # Beyond the stub but with line of sight past its open end: covered
+        assert da.path().contains(QPointF(900, 1400))
+        # Same X as behind-the-stub but below the shadow cone: covered
+        assert da.path().contains(QPointF(700, -300))
+        # Near side trivially covered
+        assert da.path().contains(QPointF(300, 0))
+
+
 def _confirm(ms):
     """Right-click confirm via the real contextMenuEvent path."""
     ms.contextMenuEvent(SimpleNamespace(accept=lambda: None,

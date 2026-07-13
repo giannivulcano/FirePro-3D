@@ -22,7 +22,7 @@ hydraulic calculations.  Each design area is bound to a level.
 import math
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtCore import Qt, QPointF, QRectF
 from .constants import (DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA,
                         Z_DESIGN_AREA_CONFIRMED)
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPolygonF
@@ -444,6 +444,91 @@ def _tile_extents(sprinkler, all_sprinklers, walls, ppm: float):
             branch_angle)
 
 
+# Minimum sprinkler-to-wall-line distance (mm) below which a wall casts
+# no shadow (sprinkler effectively ON the wall — occluder quad degenerates).
+_WALL_SHADOW_MIN_DIST_MM = 1.0
+
+# Occluder end extension (mm): seals hairline gaps where joined wall
+# centrelines meet within snap tolerance, without materially growing the
+# shadow of a genuinely freestanding stub.
+_WALL_SHADOW_END_EXT_MM = 10.0
+
+
+def _clip_tile_at_walls(poly: QPolygonF, walls, spos: QPointF,
+                        ppm: float) -> QPolygonF:
+    """Remove the parts of the tile occluded by walls (sprinkler line of
+    sight).
+
+    Per-side ray extents are flat, so a slanted wall crossing the tile
+    leaves corners poking past it whenever the room-polygon clip doesn't
+    carry that edge — stale room boundary (room detected before the wall
+    was drawn), dead-end partitions, unconnected walls, or no room at
+    all (2026-07-13 smoke test).  Each nearby wall segment casts a
+    shadow quad from the sprinkler's viewpoint (segment endpoints
+    projected away from the sprinkler); subtracting it clips the tile
+    exactly at the physical wall while keeping coverage past a wall's
+    open end wherever the sprinkler still has line of sight.  Segment
+    ends are extended by ``_WALL_SHADOW_END_EXT_MM`` to seal hairline
+    junction gaps; the connected piece containing the sprinkler is kept,
+    so a shadow that fully severs the tile also discards the far side.
+    """
+    if poly.isEmpty():
+        return poly
+    bbox = poly.boundingRect()
+    min_dist = _WALL_SHADOW_MIN_DIST_MM * ppm
+    reach = 3.0 * math.hypot(bbox.width(), bbox.height())
+    sx, sy = spos.x(), spos.y()
+    path: QPainterPath | None = None
+    for wall in walls:
+        p1, p2 = wall.pt1, wall.pt2
+        wx, wy = p2.x() - p1.x(), p2.y() - p1.y()
+        length = math.hypot(wx, wy)
+        if length < 1e-9:
+            continue
+        # Sprinkler (nearly) on the wall line → no usable shadow
+        if abs((sx - p1.x()) * wy - (sy - p1.y()) * wx) / length < min_dist:
+            continue
+        ext = _WALL_SHADOW_END_EXT_MM * ppm
+        seg_bbox = QRectF(p1, p2).normalized()
+        if not seg_bbox.adjusted(-ext, -ext, ext, ext).intersects(bbox):
+            continue
+        ux, uy = wx / length, wy / length
+        ax, ay = p1.x() - ux * ext, p1.y() - uy * ext
+        bx, by = p2.x() + ux * ext, p2.y() + uy * ext
+        da_len = math.hypot(ax - sx, ay - sy)
+        db_len = math.hypot(bx - sx, by - sy)
+        if da_len < 1e-9 or db_len < 1e-9:
+            continue
+        shadow = QPainterPath()
+        shadow.addPolygon(QPolygonF([
+            QPointF(ax, ay),
+            QPointF(bx, by),
+            QPointF(bx + (bx - sx) / db_len * reach,
+                    by + (by - sy) / db_len * reach),
+            QPointF(ax + (ax - sx) / da_len * reach,
+                    ay + (ay - sy) / da_len * reach)]))
+        shadow.closeSubpath()
+        if path is None:
+            path = QPainterPath()
+            path.addPolygon(poly)
+            path.closeSubpath()
+        path = path.subtracted(shadow)
+    if path is None:
+        return poly
+    best: QPolygonF | None = None
+    best_area = -1.0
+    for sub in path.simplified().toSubpathPolygons():
+        if sub.containsPoint(spos, Qt.FillRule.OddEvenFill):
+            return sub
+        area = abs(sum(sub[i].x() * sub[(i + 1) % sub.count()].y()
+                       - sub[(i + 1) % sub.count()].x() * sub[i].y()
+                       for i in range(sub.count()))) / 2.0
+        if area > best_area:
+            best_area = area
+            best = sub
+    return best if best is not None else poly
+
+
 def _inflate_polygon(poly: QPolygonF, d: float) -> QPolygonF:
     """Push each vertex *d* scene units away from the polygon centroid.
 
@@ -700,6 +785,10 @@ class DesignArea(QGraphicsPathItem):
                     if not clipped.isEmpty():
                         poly = clipped
                     break
+            # Cut along the wall segments themselves — the room clip only
+            # stops slanted boundaries when the detected room polygon
+            # carries that edge (stale rooms / dead-end partitions don't).
+            poly = _clip_tile_at_walls(poly, walls, pos, ppm)
             self._tile_polys.append(poly)
             sub = QPainterPath()
             sub.addPolygon(_inflate_polygon(poly, 10.0 * ppm))
