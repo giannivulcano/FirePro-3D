@@ -162,6 +162,7 @@ class SceneIOMixin:
                 "sprinkler_node_ids": spr_node_ids,
                 "properties": {k: v["value"] for k, v in da.get_properties().items()},
                 "is_active": da is self.active_design_area,
+                "level": da.level,
             })
 
         # --- Levels ---
@@ -516,13 +517,20 @@ class SceneIOMixin:
                 if node and node.has_sprinkler():
                     sprs.append(node.sprinkler)
             da = DesignArea(sprs)
+            lvl = da_entry.get("level")
+            if not lvl:
+                # Pre-2026-07 save: backfill from member sprinklers
+                lvl = next((s.node.level for s in sprs if s.node),
+                           DEFAULT_LEVEL)
+            da.level = lvl
             for key, value in da_entry.get("properties", {}).items():
                 da.set_property(key, value)
             self.addItem(da)
             self.design_areas.append(da)
             if da_entry.get("is_active", False):
                 self.active_design_area = da
-            da.compute_area(self.scale_manager)
+            # Tile geometry is recomputed after walls & rooms load —
+            # computing here would produce wall-less (over-wide) tiles
 
         # --- Construction geometry ---
         for entry in payload.get("construction_lines", []):
@@ -585,6 +593,10 @@ class SceneIOMixin:
             room._scale_manager_ref = self.scale_manager
             self.addItem(room)
             self._rooms.append(room)
+
+        # --- Design-area tiles (now that walls & rooms exist) ---
+        for da in self.design_areas:
+            da.compute_area(self.scale_manager)
 
         # --- Recalculate auto-name counters ---
         self._recalc_name_counters()

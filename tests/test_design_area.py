@@ -717,6 +717,53 @@ class TestTracedBoundary:
         assert not da.path().contains(notch)
 
 
+class TestReloadGeometry:
+    """Reload must recompute tiles AFTER walls & rooms exist — computing
+    at design-area restore time produced wall-less over-wide tiles
+    (2026-07-13 screenshot pair)."""
+
+    def _scene_with_wall_and_da(self, qapp):
+        from firepro3d.wall import WallSegment
+        ms = _model_scene(qapp)
+        sprs = _grid_3x3(ms)
+        # Vertical wall just right of the first column of sprinklers
+        wall = WallSegment(QPointF(7000, -5000), QPointF(7000, 12000))
+        ms.addItem(wall)
+        ms._walls.append(wall)
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        ms.design_areas.append(da)
+        ms.active_design_area = da
+        da.compute_area(ms.scale_manager)
+        return ms, da
+
+    def test_undo_restore_keeps_wall_clipped_tiles(self, qapp):
+        ms, da = self._scene_with_wall_and_da(qapp)
+        right_before = da.path().boundingRect().right()
+        state = ms._capture_network()
+        ms._restore_network(state)
+        da2 = ms.design_areas[0]
+        assert da2.path().boundingRect().right() == pytest.approx(
+            right_before, abs=1.0)
+        assert da2.path().boundingRect().right() <= 7000 + 15  # inflation
+
+    def test_scene_io_round_trip_level_and_geometry(self, qapp, tmp_path):
+        ms, da = self._scene_with_wall_and_da(qapp)
+        da.level = "Level 2"
+        for s in da.sprinklers:
+            s.node.level = "Level 2"
+        da.compute_area(ms.scale_manager)
+        right_before = da.path().boundingRect().right()
+        f = tmp_path / "t.fpd"
+        ms.save_to_file(str(f))
+        ms2 = _model_scene(qapp)
+        ms2.load_from_file(str(f))
+        da2 = ms2.design_areas[0]
+        assert da2.level == "Level 2"
+        assert da2.path().boundingRect().right() == pytest.approx(
+            right_before, abs=1.0)
+
+
 class TestConfirmedZOrder:
     def test_confirmed_above_gridline_bubbles(self, qapp):
         from firepro3d.constants import (Z_DESIGN_AREA,

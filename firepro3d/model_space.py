@@ -3097,7 +3097,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.design_areas.append(da)
                 if da_entry.get("is_active", False):
                     self.active_design_area = da
-                da.compute_area(self.scale_manager)
+                # Tiles recomputed after walls & rooms restore below
 
             # ── Draw geometry ──────────────────────────────────────────────
             # Remove existing items from scene and lists
@@ -3235,6 +3235,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 room._scale_manager_ref = self.scale_manager
                 self.addItem(room)
                 self._rooms.append(room)
+
+            # ── Design-area tiles (now that walls & rooms exist) ──────────
+            for da in self.design_areas:
+                da.compute_area(self.scale_manager)
 
             # ── Hatches ───────────────────────────────────────────────────
             for d in state.get("hatches", []):
