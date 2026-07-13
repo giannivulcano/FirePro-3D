@@ -2,7 +2,8 @@
 
 **Status:** Draft  
 **Date:** 2026-04-28  
-**Scope:** Document current behavior + flag divergences with migration paths
+**Scope:** Document current behavior + flag divergences with migration paths  
+**Impl note (2026-07-13):** §11 rewritten as-built after the design-area polish task (`feat/design-area-polish`) — two-value geometry (calc As vs drawn tiles), creation/pick UX, multi-area flow, derived level, two-state rendering, Display Manager category, dual-path serialization. Verified against commit `5a1a367`; tests `tests/test_design_area.py`.
 
 ---
 
@@ -547,13 +548,42 @@ Two helper functions:
   - Inverse interpolation: given a density, find the corresponding area
   - Sorts by density ascending for lookup
 
-### 11.4 Design Area Selection
+### 11.4 Creation & Pick Mode (as-built 2026-07-13)
 
-A DesignArea contains a geometric boundary (polygon) defining which sprinklers belong to it. The sprinkler list is determined by spatial containment within the room boundary.
+Design areas are created in `design_area` mode (`Model_Space._press_design_area`):
 
-Output to hydraulic solver: list of design sprinklers + hazard classification.
+- **Click** toggles the nearest sprinkler on the active level within a zoom-aware radius (`DESIGN_AREA_PICK_PX` screen px / view scale), using the **raw** cursor position. **Shift+click twice** = rectangle selection (level-filtered). **Right-click confirms** and stays in the mode.
+- **Snapping:** general OSNAP/underlay/grid snapping is suppressed in this mode; sprinkler node centres are the only snap target (rendered with the `center` marker). See `Model_Space.get_effective_position`.
+- **Non-sprinkler items are inert:** the mode is in `_skip_grip_modes` and the press handler never falls through to item selection.
+- **Multiple areas:** the working area (`Model_Space._da_editing`) receives picks. Confirm clears it — the next pick on an unclaimed sprinkler starts a **new** design area; picking a member of an existing area **resumes editing** that area. `active_design_area` (the calc input) is the last edited/confirmed area.
+- **Feedback:** orange highlight rings (`DESIGN_AREA_HL_RADIUS_PX`) mark the working area's sprinklers; every toggle recomputes and shows `count + area` in the status bar, pushes the area to the property panel (`requestPropertyUpdate`), and emits `sceneModified` (model browser + dirty flag).
 
-### 11.5 Coverage & Spacing
+Output to hydraulic solver: list of design sprinklers + hazard classification, plus `spacing_warnings` prepended to `HydraulicResult.messages` by `Model_Space.run_hydraulics`.
+
+### 11.5 Two-Value Geometry: Calc As vs Drawn Tiles (as-built 2026-07-13)
+
+Each member sprinkler carries **two deliberately different values**:
+
+**Calc (`As`)** — NFPA 13 measurement convention, capped at the listing:
+- `S`/`L` from `_compute_s_l`: max(distance to next sprinkler via branch walk, 2× nearest aligned wall distance) per axis; `_fallback_side` (√listed-coverage square) when undetermined.
+- `As = min(S×L, listed Coverage Area)`. When `S×L` exceeds the listing, the cap applies **and** a warning is recorded in `DesignArea.spacing_warnings` (spacing violates the listing — surfaces at the top of the hydraulic report).
+- `Area` property = Σ capped As (numeric, in `_as_entries`; no display-string parsing).
+- `S Spacing`/`L Spacing` sprinkler properties keep showing the NFPA values.
+
+**Drawing (tiles)** — tessellating, wall-clipped (`_tile_extents` + `_tile_polygon`):
+- Per-side extents: half the gap to the nearest neighbour on that side (branch walk along S; perpendicular projection for L), the full distance to the first wall hit by a **ray-cast** in that direction (`_wall_distance_on_side` — any wall angle), or √(listed coverage)/2 on open sides; nearer bound wins.
+- Tiles are additionally **clipped to the containing room polygon** (handles diagonal walls exactly).
+- Tiles are inflated ~10 mm before `QPainterPath.united` so exactly-touching rows merge seamlessly; the union is `simplified()`.
+- Known limitation: per-side rectangles near diagonal walls without a detected room can still overshoot (open TODO).
+
+### 11.6 Rendering, Level & Persistence (as-built 2026-07-13)
+
+- **Two visual states**, keyed on scene mode: *editing* (`design_area` mode) = fill + faint interior tile edges, below geometry; *confirmed* = dashed outline tracing the union boundary (L-shapes keep their notch), above all geometry and gridline bubbles. Z values live in `constants.py` (`Z_DESIGN_AREA`, `Z_DESIGN_AREA_CONFIRMED`; ordering owned by `view-relationships.md §7.3`); `DesignArea.sync_z_for_mode` switches them.
+- **Display Manager:** "Design Area" category (Fire Suppression group) — `color` = confirmed outline, `fill` = editing hue, plus opacity/visibility; applied via `_display_color`/`_display_fill_color` and `apply_category_defaults` at creation/load.
+- **Level is derived, read-only:** `DesignArea.level` reports the member sprinklers' node level (creation-time value is only the empty-area fallback); shown as a read-only `Level` label property. Level visibility is applied by `level_manager.apply_to_scene`.
+- **Persistence:** design areas serialize through **both** independent paths — `scene_io.py` (project files) and `_capture_network`/`_restore_network` (undo) — with `sprinkler_node_ids`, `properties`, `is_active`, `level`. Missing `level` (pre-2026-07 saves) backfills from member sprinklers. **Both load paths recompute tiles only after walls & rooms are restored** (earlier compute produces wall-less, over-wide tiles).
+
+### 11.7 Coverage & Spacing (auto-populate)
 
 Auto-populate computes S (short) and L (long) spacing for placed sprinklers based on actual placement geometry:
 - S spacing: distance between sprinklers along branch lines
