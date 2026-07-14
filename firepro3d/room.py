@@ -496,6 +496,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             pt = dlg.selected_point()
             if pt:
                 self._design_point = pt
+                sc = self.scene()
+                if sc is not None and hasattr(sc, "sceneModified"):
+                    sc.sceneModified.emit()
 
     def set_property(self, key: str, value):
         if key == "Room Name":
@@ -517,8 +520,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             except (ValueError, TypeError):
                 pass
         elif key == "Hazard Class":
-            if str(value) in HAZARD_CLASSES:
+            if str(value) in HAZARD_CLASSES and str(value) != self._hazard_class:
                 self._hazard_class = str(value)
+                # The design point lives on a hazard's density/area curve —
+                # switching curves invalidates it.
+                self._design_point = None
         elif key == "Occupancy":
             self._occupancy = str(value)
         elif key == "System Type":

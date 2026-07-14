@@ -734,6 +734,12 @@ class DesignArea(QGraphicsPathItem):
         no rooms → the area's own stored values. Inherited values are
         written back so a later disengage keeps the last effective ones."""
         rooms, roomless = self.member_rooms()
+        return self._effective_criteria_impl(rooms, roomless)
+
+    def _effective_criteria_impl(self, rooms: list,
+                                 roomless: int) -> "EffectiveCriteria":
+        """Criteria resolution given a pre-computed member_rooms() result
+        (lets badge_rows reuse a single room scan per paint)."""
         warnings: list[str] = []
         no_curve = [r for r in rooms
                     if getattr(r, "_hazard_class", "") not in HAZARD_OPTIONS]
@@ -1031,7 +1037,7 @@ class DesignArea(QGraphicsPathItem):
             return
         editing = getattr(self.scene(), "mode", None) == "design_area"
         show = bool(self._properties["Show Badge"]["value"])
-        self.badge.setVisible(show and not editing)
+        self.badge.setVisible(show and not editing and bool(self._sprinklers))
         if not self._badge_user_moved:
             c = self.path().boundingRect().center()
             w, h = badge_fixed_size_mm()
@@ -1069,6 +1075,8 @@ class DesignArea(QGraphicsPathItem):
         """Store calc results for the badge (None → TBD cells)."""
         self._hyd_snapshot = snap
         self.update()
+        if getattr(self, "badge", None) is not None:
+            self.badge.update()
 
     # ------------------------------------------------------------------
     # Badge data assembly
@@ -1076,12 +1084,18 @@ class DesignArea(QGraphicsPathItem):
     def badge_rows(self) -> list:
         """DESIGN CRITERIA table content: list of rows, each a list of
         (label, value) cells — 1 cell = full-width row, 2 cells = split."""
-        crit = self.effective_criteria()
+        rooms, roomless = self.member_rooms()  # single scan per paint
+        crit = self._effective_criteria_impl(rooms, roomless)
         snap = self._hyd_snapshot
 
-        rooms, _ = self.member_rooms()
-        occ = next((getattr(r, "_occupancy", "") for r in rooms
-                    if getattr(r, "_occupancy", "")), "")
+        # Occupancy: prefer the governing room's, then first non-empty.
+        gov = next((r for r in rooms
+                    if (r.name or "(unnamed room)") == crit.governing_room),
+                   None)
+        occ = getattr(gov, "_occupancy", "") if gov is not None else ""
+        if not occ:
+            occ = next((getattr(r, "_occupancy", "") for r in rooms
+                        if getattr(r, "_occupancy", "")), "")
         abbrev = HAZARD_ABBREV.get(crit.hazard, crit.hazard)
         occ_cell = f"{abbrev} — {occ}" if occ else abbrev
 
@@ -1182,8 +1196,8 @@ class DesignArea(QGraphicsPathItem):
         option.state &= ~QStyle.StateFlag.State_Selected
 
 
-# ── Design-criteria badge painter (module-level, reused by DesignAreaItem and
-#    paper-space badge items) ──────────────────────────────────────────────────
+# ── Design-criteria badge painter (module-level, used by DesignAreaBadge;
+#    kept item-agnostic so paper-space badge items could reuse it later) ───────
 
 _BADGE_ROW_COUNT = 10  # title + 8 content rows + footer band (fixed layout)
 

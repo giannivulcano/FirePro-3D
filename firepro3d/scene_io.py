@@ -160,7 +160,8 @@ class SceneIOMixin:
                     spr_node_ids.append(node_id[spr.node])
             design_areas_data.append({
                 "sprinkler_node_ids": spr_node_ids,
-                "properties": {k: v["value"] for k, v in da.get_properties().items()},
+                # raw stored props — get_properties() adds synthesized display rows
+                "properties": {k: v["value"] for k, v in da._properties.items()},
                 "is_active": da is self.active_design_area,
                 "level": da.level,
                 "badge_offset": (list(da.badge_offset())
@@ -532,7 +533,7 @@ class SceneIOMixin:
             if da_entry.get("is_active", False):
                 self.active_design_area = da
             bo = da_entry.get("badge_offset")
-            if bo:
+            if bo is not None:
                 da.set_badge_offset(QPointF(bo[0], bo[1]))
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles

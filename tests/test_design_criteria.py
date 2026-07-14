@@ -248,6 +248,19 @@ class TestBadgeRows:
         assert "27" in flat
         assert "5.6 @ 20.0 psi" in flat
 
+    def test_occupancy_prefers_governing_room(self, scene):
+        a = _mock_room("A", "Light Hazard", _SQ_A)
+        a._occupancy = "Office"
+        b = _mock_room("B", "Extra Hazard Group 1", _SQ_B, point=(2500.0, 0.30))
+        b._occupancy = "Sawmill"
+        scene._rooms = [a, b]
+        spr_a, spr_b = _mock_sprinkler(5000, 5000), _mock_sprinkler(25000, 5000)
+        for s in (spr_a, spr_b):
+            s._properties = {"K-Factor": {"value": "5.6"},
+                             "Coverage Area": {"value": "130"}}
+        da = _area_with(scene, [spr_a, spr_b], drawn_sqft=3000)
+        assert any("EH1 — Sawmill" in str(r) for r in da.badge_rows())
+
     def test_membership_change_clears_snapshot(self, scene):
         da = self._da(scene)
         da.set_hydraulic_snapshot({"total_demand_gpm": 750.0,
@@ -268,20 +281,25 @@ class TestBadgeItem:
         assert da.badge.parentItem() is da
 
     def test_badge_hidden_when_show_badge_false(self, scene):
-        da = _area_with(scene, [])
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)])
         da.set_property("Show Badge", "False")
         assert not da.badge.isVisible()
         da.set_property("Show Badge", "True")
         assert da.badge.isVisible()
 
     def test_badge_hidden_in_editing_mode(self, scene):
-        da = _area_with(scene, [])
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)])
         scene.mode = "design_area"
         da.sync_z_for_mode(editing=True)
         assert not da.badge.isVisible()
         scene.mode = "select"
         da.sync_z_for_mode(editing=False)
         assert da.badge.isVisible()
+
+    def test_badge_hidden_for_empty_area(self, scene):
+        da = _area_with(scene, [])
+        da._sync_badge()
+        assert not da.badge.isVisible()
 
     def test_badge_offset_round_trips(self, scene):
         da = _area_with(scene, [])

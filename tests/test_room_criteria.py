@@ -38,6 +38,21 @@ class TestSetProperty:
         room.set_property("System Type", "Bogus")
         assert room._system_type == "Dry"  # unchanged
 
+    def test_hazard_change_resets_design_point(self, room):
+        room._design_point = (3000.0, 0.07)
+        room.set_property("Hazard Class", "Extra Hazard Group 2")
+        assert room.design_point() == (2500.0, 0.40)  # EH2 curve minimum
+
+    def test_hazard_change_to_storage_clears_point(self, room):
+        room._design_point = (3000.0, 0.07)
+        room.set_property("Hazard Class", "Miscellaneous Storage")
+        assert room.design_point() is None
+
+    def test_same_hazard_keeps_point(self, room):
+        room._design_point = (2000.0, 0.09)
+        room.set_property("Hazard Class", "Light Hazard")  # unchanged default
+        assert room.design_point() == (2000.0, 0.09)
+
 
 class TestSerialization:
     def test_round_trip(self, room, qapp):
