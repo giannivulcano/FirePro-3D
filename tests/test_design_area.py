@@ -477,8 +477,18 @@ class TestCalcWarningSurfacing:
         monkeypatch.setattr(HydraulicSolver, "solve",
                             lambda self, design_sprinklers=None: stub)
         result = ms.run_hydraulics(design_sprinklers=sprs[:2])
-        assert result.messages[0].startswith("Sprinkler at (0, 0)")
-        assert "supply missing" in result.messages[1]
+        # Order changed with the criteria-inheritance feature (2026-07-14):
+        # criteria warnings (e.g. drawn-area shortfall) now lead, spacing
+        # warnings follow, both ahead of solver messages.
+        msgs = result.messages
+        spacing_idx = next(i for i, m in enumerate(msgs)
+                           if m.startswith("Sprinkler at (0, 0)"))
+        # criteria warnings (shortfall) lead, spacing warnings follow, both
+        # ahead of the solver's own failure message
+        assert any("below the required" in m for m in msgs[:spacing_idx])
+        assert msgs[spacing_idx].startswith("Sprinkler at (0, 0)")
+        solver_idx = next(i for i, m in enumerate(msgs) if "supply missing" in m)
+        assert solver_idx > spacing_idx
 
 
 # ── Smoke-test follow-ups (2026-07-11) ───────────────────────────────────────
