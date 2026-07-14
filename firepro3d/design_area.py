@@ -20,12 +20,14 @@ hydraulic calculations.  Each design area is bound to a level.
 """
 
 import math
+from dataclasses import dataclass, field
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from .constants import (DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA,
                         Z_DESIGN_AREA_CONFIRMED)
 from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPolygonF
+from .nfpa_curves import (HAZARD_ABBREV, STORAGE_HAZARDS, interpolate_density)
 
 HAZARD_OPTIONS = [
     "Light Hazard",
@@ -587,6 +589,20 @@ def _fallback_side(sprinkler, ppm: float) -> float:
 # =====================================================================
 
 
+@dataclass
+class EffectiveCriteria:
+    """Resolved design criteria (room inheritance applied)."""
+    hazard: str
+    base_area_sqft: float
+    density: float
+    system_type: str                 # "Wet" | "Dry"
+    inherited: bool
+    governing_room: str | None
+    required_area_sqft: float
+    drawn_area_sqft: float
+    warnings: list[str] = field(default_factory=list)
+
+
 class DesignArea(QGraphicsPathItem):
     """Selectable design-area shape that tracks a set of sprinklers.
 
@@ -616,6 +632,11 @@ class DesignArea(QGraphicsPathItem):
             "System Name": {"type": "string", "value": "System 1"},
             "Level": {"type": "label", "value": DEFAULT_LEVEL},
             "Area": {"type": "label", "value": "0"},
+            "System Type": {"type": "enum", "value": "Wet",
+                            "options": ["Wet", "Dry"]},
+            "Design Area (Base)": {"type": "string", "value": "1500",
+                                   "suffix": "ft²"},
+            "Show Badge": {"type": "bool", "value": True},
         }
         self.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
         self.setBrush(QBrush(QColor(255, 200, 0, 40)))
@@ -642,6 +663,104 @@ class DesignArea(QGraphicsPathItem):
         # Fallback for empty areas only — with members, level derives
         # from the sprinklers (creation sites and load paths still assign)
         self._creation_level = value or DEFAULT_LEVEL
+
+    @property
+    def drawn_area_sqft(self) -> float:
+        """Σ capped As of the member sprinklers (the picked/drawn area)."""
+        return sum(a for _s, a, _x, _l in self._as_entries)
+
+    def member_rooms(self) -> tuple[list, int]:
+        """Rooms (same level) containing member sprinklers, plus the count
+        of member sprinklers inside no room."""
+        scene = self.scene()
+        rooms: list = []
+        roomless = 0
+        if scene is None:
+            return rooms, 0
+        polys = [(r, QPolygonF(r.boundary))
+                 for r in getattr(scene, "_rooms", [])
+                 if getattr(r, "level", "") == self.level]
+        for spr in self._sprinklers:
+            node = getattr(spr, "node", None)
+            if node is None:
+                continue
+            pos = node.scenePos()
+            hit = next((r for r, poly in polys
+                        if poly.containsPoint(pos, Qt.FillRule.OddEvenFill)),
+                       None)
+            if hit is None:
+                roomless += 1
+            elif hit not in rooms:
+                rooms.append(hit)
+        return rooms, roomless
+
+    def effective_criteria(self) -> "EffectiveCriteria":
+        """Resolve hazard / design point / system type per the inheritance
+        rules (grill 2026-07-14): single room inherits read-only; multi-room
+        most-demanding governs (Dry > Wet); storage-class rooms disengage;
+        no rooms → the area's own stored values. Inherited values are
+        written back so a later disengage keeps the last effective ones."""
+        rooms, roomless = self.member_rooms()
+        warnings: list[str] = []
+        storage = [r for r in rooms
+                   if getattr(r, "_hazard_class", "") in STORAGE_HAZARDS]
+
+        if rooms and not storage:
+            def rank(r):
+                return (HAZARD_OPTIONS.index(r._hazard_class)
+                        if r._hazard_class in HAZARD_OPTIONS else -1)
+            top_hazard = max(rooms, key=rank)._hazard_class
+            candidates = [r for r in rooms if r._hazard_class == top_hazard]
+            gov = max(candidates,
+                      key=lambda r: (r.design_point() or (0.0, 0.0))[0])
+            base, dens = gov.design_point() or (0.0, 0.0)
+            hazard = top_hazard
+            system = ("Dry" if any(getattr(r, "_system_type", "Wet") == "Dry"
+                                   for r in rooms) else "Wet")
+            inherited = True
+            gov_name = gov.name or "(unnamed room)"
+            if len(rooms) > 1:
+                listing = ", ".join(
+                    f"{r.name or '(unnamed)'}: "
+                    f"{HAZARD_ABBREV.get(r._hazard_class, r._hazard_class)}"
+                    for r in rooms)
+                warnings.append(
+                    f"Design area spans {len(rooms)} rooms ({listing}) — "
+                    f"most demanding governs: {hazard}.")
+            if roomless:
+                warnings.append(
+                    f"{roomless} design sprinkler(s) outside any room — "
+                    f"room criteria govern.")
+            # Write-back: disengaging later keeps the last effective values.
+            self._properties["Hazard Classification"]["value"] = hazard
+            self._properties["System Type"]["value"] = system
+            self._properties["Design Area (Base)"]["value"] = f"{base:.0f}"
+        else:
+            if storage:
+                warnings.append(
+                    f"Room hazard '{storage[0]._hazard_class}' requires "
+                    f"storage protection criteria (not yet supported) — "
+                    f"set design hazard manually.")
+            hazard = self._properties["Hazard Classification"]["value"]
+            system = self._properties["System Type"]["value"]
+            try:
+                base = float(self._properties["Design Area (Base)"]["value"])
+            except (TypeError, ValueError):
+                base = 0.0
+            dens = interpolate_density(hazard, base) if base > 0 else 0.0
+            inherited = False
+            gov_name = None
+
+        required = base * (1.3 if system == "Dry" else 1.0)
+        drawn = self.drawn_area_sqft
+        if required > 0 and drawn < required:
+            note = " (+30% dry system)" if system == "Dry" else ""
+            warnings.append(
+                f"Drawn design area {drawn:.0f} ft² is below the required "
+                f"{required:.0f} ft²{note} — enlarge the sprinkler selection.")
+
+        return EffectiveCriteria(hazard, base, dens, system, inherited,
+                                 gov_name, required, drawn, warnings)
 
     def sync_z_for_mode(self, editing: bool):
         """Editing fill sits under geometry; the confirmed outline sits
