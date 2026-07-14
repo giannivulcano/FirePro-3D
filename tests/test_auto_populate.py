@@ -662,3 +662,45 @@ class TestConversionConstants:
 
     def test_nfpa_min_wall_dist(self):
         assert NFPA_MIN_WALL_DIST_IN == 4.0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 11. AutoPopulateDialog — design-point seeding
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestAutoPopulateDialogDesignPointSeeding:
+    """AutoPopulateDialog seeds its graph from the room's design_point()."""
+
+    def _make_room(self, hazard: str = "Ordinary Hazard Group 1"):
+        from PyQt6.QtCore import QPointF
+        from firepro3d.room import Room
+        room = Room(boundary=[
+            QPointF(0, 0), QPointF(10000, 0),
+            QPointF(10000, 10000), QPointF(0, 10000),
+        ])
+        room.set_property("Hazard Class", hazard)
+        return room
+
+    def _make_dialog(self, room, qapp):
+        from firepro3d.sprinkler_db import SprinklerDatabase
+        from firepro3d.auto_populate_dialog import AutoPopulateDialog
+        db = SprinklerDatabase()
+        return AutoPopulateDialog(room=room, sprinkler_db=db)
+
+    def test_dialog_seeds_from_room_design_point(self, qapp):
+        """Stored design point on the room seeds _selected_area/_selected_density."""
+        room = self._make_room()
+        room._design_point = (3000.0, 0.125)
+        dlg = self._make_dialog(room, qapp)
+        assert dlg._selected_area == pytest.approx(3000.0)
+        assert dlg._selected_density == pytest.approx(0.125)
+
+    def test_dialog_seeds_curve_minimum_without_stored_point(self, qapp):
+        """No stored point: dialog seeds from the hazard curve minimum via design_point()."""
+        # OHG1 curve minimum is (1500 sq ft, 0.15 gpm/ft²)
+        room = self._make_room("Ordinary Hazard Group 1")
+        assert room._design_point is None  # no stored point
+        dlg = self._make_dialog(room, qapp)
+        # design_point() returns (1500, 0.15) for OHG1
+        assert dlg._selected_area == pytest.approx(1500.0)
+        assert dlg._selected_density == pytest.approx(0.15)

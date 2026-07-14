@@ -1158,6 +1158,13 @@ class AutoPopulateDialog(QDialog):
         self._populate_sprinkler_table()
         self._on_config_changed()
 
+        # Seed the design point from the room's Protection Criteria
+        pt = room.design_point() if hasattr(room, "design_point") else None
+        if pt:
+            area, dens = pt
+            self._graph.set_selected_point(area, dens)
+            self._on_graph_point_selected(dens, area)
+
         # Auto-size to fit content, capped to 90% of screen
         self.adjustSize()
         from PyQt6.QtWidgets import QApplication
