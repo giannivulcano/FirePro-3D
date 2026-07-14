@@ -853,9 +853,11 @@ class DesignArea(QGraphicsPathItem):
         drawn = self.drawn_area_sqft
         if required > 0 and drawn < required:
             note = " (+30% dry system)" if system == "Dry" else ""
+            scene = self.scene() if callable(getattr(self, "scene", None)) else None
+            sm = getattr(scene, "scale_manager", None) if scene else None
             warnings.append(
-                f"Drawn design area {drawn:.0f} ft² is below the required "
-                f"{required:.0f} ft²{note} — enlarge the sprinkler selection.")
+                f"Drawn design area {format_area_sqft(drawn, sm)} is below the required "
+                f"{format_area_sqft(required, sm)}{note} — enlarge the sprinkler selection.")
 
         return EffectiveCriteria(hazard, base, dens, system, inherited,
                                  gov_name, required, drawn, warnings)
@@ -987,9 +989,9 @@ class DesignArea(QGraphicsPathItem):
                 pos = spr.node.scenePos()
                 self.spacing_warnings.append(
                     f"Sprinkler at ({pos.x():.0f}, {pos.y():.0f}): computed "
-                    f"S×L {sxl_sqft:.0f} ft² exceeds listed coverage "
-                    f"{listed:.0f} ft² — spacing violates the listing; "
-                    f"using {listed:.0f} ft².")
+                    f"S×L {format_area_sqft(sxl_sqft, sm)} exceeds listed coverage "
+                    f"{format_area_sqft(listed, sm)} — spacing violates the listing; "
+                    f"using {format_area_sqft(listed, sm)}.")
 
             # ── Drawing: tessellating wall-clipped tile ───────────────────
             (fwd, back, left, right), angle = _tile_extents(

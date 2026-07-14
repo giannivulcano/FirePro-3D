@@ -5344,11 +5344,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # check applies to the resolved item.
         if selection is None:
             for i in items:
+                # A badge click resolves to its parent DesignArea (mirrors
+                # the Sprinkler→Node resolve above); clicking the area's
+                # interior must NOT steal room/wall selection — DesignArea
+                # sits at Z=600 (above everything) with a filled tile-union
+                # path, so listing bare DesignArea here would intercept every
+                # interior click.  The badge is the only click target; rubber-
+                # band selection still selects the area itself.
                 cand = i.parentItem() if isinstance(i, DesignAreaBadge) else i
                 if cand is None:
                     continue
                 if ((isinstance(cand, (WallSegment, FloorSlab, RoofItem, Room,
-                                       ViewMarkerArrow, DesignArea))
+                                       ViewMarkerArrow))
                         or type(cand).__name__ == "DetailMarker")
                         and cand.flags()
                         & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):

@@ -438,3 +438,32 @@ class TestRunHydraulicsWiring:
             f"Expected {len(sprs)} sprinklers, got "
             f"{da._hyd_snapshot['sprinklers_calculated']}"
         )
+
+
+# ── Select-mode click-filter guard ──────────────────────────────────────────
+
+
+class TestSelectModeFilter:
+    def test_design_area_not_in_click_filter(self):
+        """Bare DesignArea must NOT appear as a click candidate in
+        mousePressEvent's fallback isinstance tuple.  DesignArea sits at
+        Z=600 (above rooms/walls) with a filled tile-union path, so listing
+        it there would let any interior click steal focus from the geometry
+        underneath.  The badge is the only click target — badge hits resolve
+        to the parent DesignArea via parentItem()."""
+        import inspect
+        from firepro3d import model_space
+        src = inspect.getsource(model_space.Model_Space.mousePressEvent)
+        # DesignAreaBadge must be present (badge-click → parent resolve)
+        assert "DesignAreaBadge" in src, (
+            "DesignAreaBadge should appear in mousePressEvent for badge→parent resolve"
+        )
+        badge_idx = src.index("DesignAreaBadge")
+        # In the window around DesignAreaBadge, bare "DesignArea," must be absent
+        # (strip all DesignAreaBadge occurrences before checking)
+        window = src[max(0, badge_idx - 300):badge_idx + 300]
+        window_no_badge = window.replace("DesignAreaBadge", "")
+        assert "DesignArea," not in window_no_badge, (
+            "Bare DesignArea must not be a click-filter candidate "
+            "(interior click-steal at Z=600); badge-only resolve is correct"
+        )

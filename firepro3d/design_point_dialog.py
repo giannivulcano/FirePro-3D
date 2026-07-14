@@ -39,7 +39,7 @@ class DesignPointDialog(QDialog):
         if not self._point:
             return "Click the curve to select a design point."
         area, dens = self._point
-        return f"Selected: {area:.0f} ft² @ {dens:.3f} gpm/ft²"
+        return f"Selected: {area:.0f} sq ft @ {dens:.3f} gpm/ft²"
 
     def _on_point(self, density: float, area: float):
         self._point = (area, density)
