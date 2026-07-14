@@ -702,10 +702,10 @@ class DesignArea(QGraphicsPathItem):
         written back so a later disengage keeps the last effective ones."""
         rooms, roomless = self.member_rooms()
         warnings: list[str] = []
-        storage = [r for r in rooms
-                   if getattr(r, "_hazard_class", "") in STORAGE_HAZARDS]
+        no_curve = [r for r in rooms
+                    if getattr(r, "_hazard_class", "") not in HAZARD_OPTIONS]
 
-        if rooms and not storage:
+        if rooms and not no_curve:
             def rank(r):
                 return (HAZARD_OPTIONS.index(r._hazard_class)
                         if r._hazard_class in HAZARD_OPTIONS else -1)
@@ -736,11 +736,17 @@ class DesignArea(QGraphicsPathItem):
             self._properties["System Type"]["value"] = system
             self._properties["Design Area (Base)"]["value"] = f"{base:.0f}"
         else:
-            if storage:
-                warnings.append(
-                    f"Room hazard '{storage[0]._hazard_class}' requires "
-                    f"storage protection criteria (not yet supported) — "
-                    f"set design hazard manually.")
+            if no_curve:
+                hz = no_curve[0]._hazard_class
+                if hz in STORAGE_HAZARDS:
+                    warnings.append(
+                        f"Room hazard '{hz}' requires storage protection "
+                        f"criteria (not yet supported) — set design hazard "
+                        f"manually.")
+                else:
+                    warnings.append(
+                        f"Room hazard '{hz}' has no density/area curve — "
+                        f"set design hazard manually.")
             hazard = self._properties["Hazard Classification"]["value"]
             system = self._properties["System Type"]["value"]
             try:
@@ -940,11 +946,46 @@ class DesignArea(QGraphicsPathItem):
     # Property API
 
     def get_properties(self) -> dict:
-        return self._properties.copy()
+        crit = self.effective_criteria()
+        props: dict = {}
+        for k, v in self._properties.items():
+            props[k] = dict(v)
+        props["Hazard Classification"]["value"] = crit.hazard
+        props["System Type"]["value"] = crit.system_type
+        props["Design Area (Base)"]["value"] = f"{crit.base_area_sqft:.0f}"
+        if crit.inherited:
+            for k in ("Hazard Classification", "System Type",
+                      "Design Area (Base)"):
+                props[k]["readonly"] = True
+        props["Design Density"] = {
+            "type": "label",
+            "value": f"{crit.density:.2f} gpm/ft²" if crit.density else "—"}
+        req_note = " (+30% dry)" if crit.system_type == "Dry" else ""
+        props["Required Area"] = {
+            "type": "label",
+            "value": (f"{crit.required_area_sqft:.0f} ft²{req_note}"
+                      if crit.required_area_sqft else "—")}
+        if crit.governing_room:
+            props["Criteria From"] = {"type": "label",
+                                      "value": crit.governing_room}
+        if crit.warnings:
+            props["⚠ Warnings"] = {"type": "label",
+                                    "value": "\n".join(crit.warnings)}
+        return props
 
-    def set_property(self, key: str, value: str):
+    def set_property(self, key: str, value):
+        if key in ("Hazard Classification", "System Type",
+                   "Design Area (Base)") and self.effective_criteria().inherited:
+            return  # read-only while room criteria govern
+        if key == "Show Badge":
+            self._properties["Show Badge"]["value"] = value in (True, "True")
+            self._sync_badge()
+            return
         if key in self._properties:
             self._properties[key]["value"] = str(value)
+
+    def _sync_badge(self):
+        """Badge visibility sync — implemented with the badge item (Task 10)."""
 
     # ------------------------------------------------------------------
     # Paint override — two visual states (2026-07-11 smoke test):

@@ -138,3 +138,50 @@ class TestMixed:
         crit = da.effective_criteria()
         assert crit.inherited
         assert any("outside any room" in w for w in crit.warnings)
+
+
+class TestPanelView:
+    def test_inherited_fields_read_only(self, scene):
+        scene._rooms = [_mock_room("A", "Ordinary Hazard Group 2", _SQ_A)]
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        props = da.get_properties()
+        for k in ("Hazard Classification", "System Type", "Design Area (Base)"):
+            assert props[k].get("readonly") is True
+        assert props["Criteria From"]["value"] == "A"
+
+    def test_fallback_fields_editable(self, scene):
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        props = da.get_properties()
+        for k in ("Hazard Classification", "System Type", "Design Area (Base)"):
+            assert not props[k].get("readonly")
+
+    def test_derived_rows_present(self, scene):
+        scene._rooms = [_mock_room("A", "Light Hazard", _SQ_A, system="Dry",
+                                   point=(1000.0, 0.10))]
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=900)
+        props = da.get_properties()
+        assert props["Design Density"]["value"] == "0.10 gpm/ft²"
+        assert props["Required Area"]["value"] == "1300 ft² (+30% dry)"
+        assert "below the required" in props["⚠ Warnings"]["value"]
+
+    def test_set_property_ignored_while_inherited(self, scene):
+        scene._rooms = [_mock_room("A", "Ordinary Hazard Group 2", _SQ_A)]
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        da.get_properties()
+        da.set_property("Hazard Classification", "Light Hazard")
+        assert da.effective_criteria().hazard == "Ordinary Hazard Group 2"
+
+    def test_show_badge_bool_coercion(self, scene):
+        da = _area_with(scene, [])
+        da.set_property("Show Badge", "False")
+        assert da._properties["Show Badge"]["value"] is False
+        da.set_property("Show Badge", True)
+        assert da._properties["Show Badge"]["value"] is True
+
+    def test_unknown_hazard_room_disengages(self, scene):
+        # corrupt-file case: hazard string with no curve and not storage
+        scene._rooms = [_mock_room("A", "Bogus Hazard", _SQ_A, point=None)]
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        crit = da.effective_criteria()
+        assert not crit.inherited
+        assert da._properties["Design Area (Base)"]["value"] == "1500"  # not clobbered
