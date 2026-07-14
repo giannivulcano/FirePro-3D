@@ -50,6 +50,10 @@ class WaterSupply(QGraphicsSvgItem):
             "Test Date":         {"type": "string", "value": ""},   # flow-test date (free text)
             "Hose Stream Allowance": {"type": "enum", "value": "250 GPM",
                                       "options": ["100 GPM", "250 GPM", "500 GPM"]},
+            # Informational this task; adding it to solver demand is a
+            # planned follow-up (grill 2026-07-14).
+            "Domestic Water Allowance": {"type": "string", "value": "0",
+                                         "suffix": "gpm"},
         }
 
         self.setFlags(
@@ -117,6 +121,13 @@ class WaterSupply(QGraphicsSvgItem):
     def test_flow(self) -> float:
         try:
             return float(self._properties["Test Flow"]["value"])
+        except (ValueError, TypeError):
+            return 0.0
+
+    @property
+    def domestic_allowance_gpm(self) -> float:
+        try:
+            return float(self._properties["Domestic Water Allowance"]["value"])
         except (ValueError, TypeError):
             return 0.0
 

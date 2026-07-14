@@ -133,6 +133,26 @@ class TestWaterSupplyTestDate:
         assert ws2.get_properties()["Test Date"]["value"] == "2026-07-09"
 
 
+class TestDomesticAllowance:
+    def test_property_present_default_zero(self, qapp):
+        from firepro3d.water_supply import WaterSupply
+        ws = WaterSupply()
+        assert ws.get_properties()["Domestic Water Allowance"]["value"] == "0"
+        assert ws.domestic_allowance_gpm == 0.0
+
+    def test_accessor_parses(self, qapp):
+        from firepro3d.water_supply import WaterSupply
+        ws = WaterSupply()
+        ws.set_property("Domestic Water Allowance", "75")
+        assert ws.domestic_allowance_gpm == 75.0
+
+    def test_accessor_garbage_returns_zero(self, qapp):
+        from firepro3d.water_supply import WaterSupply
+        ws = WaterSupply()
+        ws.set_property("Domestic Water Allowance", "abc")
+        assert ws.domestic_allowance_gpm == 0.0
+
+
 class TestTabStructure:
     def test_exactly_three_tabs(self, qapp):
         w = HydraulicReportWidget()
