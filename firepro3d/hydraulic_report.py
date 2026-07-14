@@ -507,15 +507,17 @@ class HydraulicReportWidget(QWidget):
             crit = da.effective_criteria()
             props = da.get_properties()
             dry = crit.system_type == "Dry"
+            # Shared unit convention (imperial "sq ft" / metric m² + mm/min)
+            from .design_area import format_area_sqft, format_density
             criteria = [
                 ("Hazard Classification", crit.hazard or _DASH),
                 ("System Type",           crit.system_type),
                 ("Design Point",
-                 (f"{crit.base_area_sqft:.0f} ft² @ "
-                  f"{crit.density:.2f} gpm/ft²")
+                 (f"{format_area_sqft(crit.base_area_sqft, self._sm)} @ "
+                  f"{format_density(crit.density, self._sm)}")
                  if crit.base_area_sqft else _DASH),
                 ("Required Area",
-                 (f"{crit.required_area_sqft:.0f} ft²"
+                 (format_area_sqft(crit.required_area_sqft, self._sm)
                   + (" (+30% dry system — NFPA 13)" if dry else ""))
                  if crit.required_area_sqft else _DASH),
                 ("Drawn Area", props["Area"]["value"] or _DASH),

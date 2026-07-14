@@ -161,7 +161,7 @@ class TestPanelView:
         da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=900)
         props = da.get_properties()
         assert props["Design Density"]["value"] == "0.10 gpm/ft²"
-        assert props["Required Area"]["value"] == "1300 ft² (+30% dry)"
+        assert props["Required Area"]["value"] == "1300 sq ft (+30% dry)"
         assert "below the required" in props["⚠ Warnings"]["value"]
 
     def test_set_property_ignored_while_inherited(self, scene):
@@ -185,6 +185,41 @@ class TestPanelView:
         crit = da.effective_criteria()
         assert not crit.inherited
         assert da._properties["Design Area (Base)"]["value"] == "1500"  # not clobbered
+
+    def test_rooms_row_single_room(self, scene):
+        scene._rooms = [_mock_room("A", "Ordinary Hazard Group 2", _SQ_A)]
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        assert da.get_properties()["Rooms"]["value"] == "A"
+
+    def test_rooms_row_dash_when_no_rooms(self, scene):
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        assert da.get_properties()["Rooms"]["value"] == "—"
+
+
+class TestUnitHelpers:
+    """format_area_sqft / format_density — shared unit convention."""
+
+    def test_imperial_area(self):
+        from firepro3d.design_area import format_area_sqft
+        assert format_area_sqft(1500.0, None) == "1500 sq ft"
+
+    def test_imperial_density(self):
+        from firepro3d.design_area import format_density
+        assert format_density(0.15, None) == "0.15 gpm/ft²"
+
+    def test_metric_area(self):
+        from firepro3d.design_area import format_area_sqft
+        from firepro3d.scale_manager import DisplayUnit
+        sm = MagicMock()
+        sm.display_unit = DisplayUnit.METRIC_MM
+        assert format_area_sqft(1500.0, sm) == "139.4 m²"  # 1500 × 0.092903
+
+    def test_metric_density(self):
+        from firepro3d.design_area import format_density
+        from firepro3d.scale_manager import DisplayUnit
+        sm = MagicMock()
+        sm.display_unit = DisplayUnit.METRIC_M
+        assert format_density(0.15, sm) == "6.11 mm/min"   # 0.15 × 40.746
 
 
 class TestBadgeRows:
@@ -261,6 +296,24 @@ class TestBadgeRows:
         da = _area_with(scene, [spr_a, spr_b], drawn_sqft=3000)
         assert any("EH1 — Sawmill" in str(r) for r in da.badge_rows())
 
+    def test_coverage_and_k_dedupe_numeric(self, scene):
+        """"130" vs "130.0" (and "5.6" vs "5.60") collapse to one value."""
+        room = _mock_room("A", "Ordinary Hazard Group 2", _SQ_A,
+                          point=(1500.0, 0.20))
+        scene._rooms = [room]
+        s1, s2 = _mock_sprinkler(5000, 5000), _mock_sprinkler(8000, 5000)
+        s1._properties = {"K-Factor": {"value": "5.6"},
+                          "Coverage Area": {"value": "130"}}
+        s2._properties = {"K-Factor": {"value": "5.60"},
+                          "Coverage Area": {"value": "130.0"}}
+        da = _area_with(scene, [s1, s2], drawn_sqft=260)
+        rows = da.badge_rows()
+        cov_row = next(r for r in rows if r[0][0] == "COVERAGE PER SPRINKLER")
+        assert cov_row[0][1] == "130 ft²"
+        k_row = next(r for r in rows
+                     if len(r) > 1 and r[1][0] == '"K" FACTOR')
+        assert k_row[1][1] == "5.6"
+
     def test_membership_change_clears_snapshot(self, scene):
         da = self._da(scene)
         da.set_hydraulic_snapshot({"total_demand_gpm": 750.0,
@@ -311,6 +364,27 @@ class TestBadgeItem:
         from firepro3d.design_area import badge_fixed_size_mm, badge_size_mm
         da = _area_with(scene, [])
         assert badge_fixed_size_mm() == badge_size_mm(da.badge_rows())
+
+    def test_grip_at_badge_centre(self, scene):
+        from firepro3d.design_area import badge_fixed_size_mm
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)])
+        da._sync_badge()
+        w, h = badge_fixed_size_mm()
+        g = da.grip_points()[0]
+        assert (g.x(), g.y()) == (da.badge.pos().x() + w / 2,
+                                  da.badge.pos().y() + h / 2)
+
+    def test_apply_grip_moves_badge_and_marks_moved(self, scene):
+        from PyQt6.QtCore import QPointF
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)])
+        da.apply_grip(0, QPointF(20000, 20000))
+        assert da._badge_user_moved
+        assert da.badge.pos().x() != 0
+
+    def test_no_grip_when_badge_hidden(self, scene):
+        da = _area_with(scene, [])  # empty → badge hidden
+        da._sync_badge()
+        assert da.grip_points() == []
 
 
 # ── run_hydraulics wiring ────────────────────────────────────────────────────

@@ -56,6 +56,7 @@ NFPA_MAX_COVERAGE: dict[str, float] = {
     "Ordinary Hazard Group 2":  130.0,   # 12 m² per Table 10.2.4.2.1(b)
     "Extra Hazard Group 1":     100.0,
     "Extra Hazard Group 2":     100.0,
+    "Low-Piled Storage":        130.0,   # OH-type criteria (low-piled ≤ 12 ft)
     "Miscellaneous Storage":    100.0,
     "High Piled Storage":       100.0,   # per NFPA 13 Ch. 16 / NFPA 230
 }
@@ -76,6 +77,7 @@ NFPA_MAX_SPACING: dict[str, dict[str, float]] = {
     "Ordinary Hazard Group 2":  {"Unobstructed": 15.0, "Obstructed": 15.0},
     "Extra Hazard Group 1":     {"Unobstructed": 15.0, "Obstructed": 15.0},
     "Extra Hazard Group 2":     {"Unobstructed": 15.0, "Obstructed": 15.0},
+    "Low-Piled Storage":        {"Unobstructed": 15.0, "Obstructed": 15.0},
     "Miscellaneous Storage":    {"Unobstructed": 15.0, "Obstructed": 15.0},
     "High Piled Storage":       {"Unobstructed": 12.0, "Obstructed": 12.0},
 }
@@ -89,6 +91,7 @@ HAZARD_SPRINKLER_TYPES: dict[str, list[str]] = {
     "Ordinary Hazard Group 2":  ["Pendent", "Upright", "Sidewall"],
     "Extra Hazard Group 1":     ["Pendent", "Upright"],
     "Extra Hazard Group 2":     ["Pendent", "Upright"],
+    "Low-Piled Storage":        ["Pendent", "Upright"],
     "Miscellaneous Storage":    ["Pendent", "Upright"],
     "High Piled Storage":       ["Pendent", "Upright"],
 }

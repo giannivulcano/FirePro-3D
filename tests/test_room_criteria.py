@@ -26,6 +26,10 @@ class TestDefaults:
         room.set_property("Hazard Class", "Miscellaneous Storage")
         assert room.design_point() is None
 
+    def test_design_point_none_for_low_piled_storage(self, room):
+        room.set_property("Hazard Class", "Low-Piled Storage")
+        assert room.design_point() is None
+
 
 class TestSetProperty:
     def test_occupancy(self, room):
@@ -92,7 +96,7 @@ class TestPanelSections:
     def test_design_point_button_face(self, room):
         meta = room.get_properties()["Design Point"]
         assert meta["type"] == "button"
-        assert meta["value"] == "1500 ft² @ 0.10 gpm/ft²"
+        assert meta["value"] == "1500 sq ft @ 0.10 gpm/ft²"
 
     def test_design_point_button_storage_hazard(self, room):
         room.set_property("Hazard Class", "High Piled Storage")

@@ -323,8 +323,8 @@ class TestSummarySections:
         crit = dict(sections["Design Criteria"])
         assert crit["Hazard Classification"] == "Ordinary Hazard Group 1"
         assert crit["System Type"] == "Wet"
-        assert crit["Design Point"] == "1500 ft² @ 0.15 gpm/ft²"
-        assert crit["Required Area"] == "1500 ft²"
+        assert crit["Design Point"] == "1500 sq ft @ 0.15 gpm/ft²"
+        assert crit["Required Area"] == "1500 sq ft"
         assert crit["Drawn Area"] == "1500 sq ft"
         assert crit["Sprinklers in Design Area"] == "1"
         ws = dict(sections["Water Supply"])

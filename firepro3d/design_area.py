@@ -47,6 +47,10 @@ K_TO_ORIFICE: dict[float, str] = {
 
 _TBD = "TBD"
 
+# Unit conversions for the shared area/density formatters below.
+SQFT_TO_M2 = SQFT_TO_MM2 / 1e6          # ft² → m²
+GPM_FT2_TO_MM_MIN = 40.746              # gpm/ft² → mm/min
+
 
 def _is_float(s: str) -> bool:
     try:
@@ -54,6 +58,53 @@ def _is_float(s: str) -> bool:
         return True
     except (TypeError, ValueError):
         return False
+
+
+def _is_imperial(scale_manager) -> bool:
+    """True when project display units are imperial.
+
+    Falls back to imperial when no scale manager is available — design
+    criteria values are stored in ft² (NFPA basis), so the native unit
+    is the safe default."""
+    if scale_manager is None:
+        return True
+    from .scale_manager import DisplayUnit
+    return scale_manager.display_unit == DisplayUnit.IMPERIAL
+
+
+def format_area_sqft(sqft: float, scale_manager) -> str:
+    """Format an internally-ft² area per project units.
+
+    Imperial → "1500 sq ft" (project convention, matching Room area
+    formatting); metric → "139.4 m²".  Shared by the design-area panel,
+    Room design-point button face, and the hydraulic report."""
+    if _is_imperial(scale_manager):
+        return f"{sqft:.0f} sq ft"
+    return f"{sqft * SQFT_TO_M2:.1f} m²"
+
+
+def format_density(gpm_ft2: float, scale_manager) -> str:
+    """Format an internally-gpm/ft² density per project units.
+
+    Imperial → "0.15 gpm/ft²"; metric → "6.11 mm/min"
+    (1 gpm/ft² = 40.746 mm/min).  Display-only — no parsing."""
+    if _is_imperial(scale_manager):
+        return f"{gpm_ft2:.2f} gpm/ft²"
+    return f"{gpm_ft2 * GPM_FT2_TO_MM_MIN:.2f} mm/min"
+
+
+def _dedupe_numeric(values) -> list[str]:
+    """Dedupe strings on their numeric value ("130" vs "130.0" collapse
+    to one entry, formatted "{v:g}"); non-parseable strings dedupe as-is."""
+    seen: set = set()
+    out: list[str] = []
+    for v in values:
+        key = float(v) if _is_float(v) else v
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(f"{key:g}" if isinstance(key, float) else v)
+    return out
 
 
 def system_capacity_gal(pipes) -> float:
@@ -664,8 +715,10 @@ class DesignArea(QGraphicsPathItem):
             "Area": {"type": "label", "value": "0"},
             "System Type": {"type": "enum", "value": "Wet",
                             "options": ["Wet", "Dry"]},
+            # Value stored in ft² (NFPA basis); get_properties converts
+            # the displayed value/suffix per project units.
             "Design Area (Base)": {"type": "string", "value": "1500",
-                                   "suffix": "ft²"},
+                                   "suffix": "sq ft"},
             "Show Badge": {"type": "bool", "value": True},
         }
         self.setPen(QPen(QColor(255, 200, 0), 2, Qt.PenStyle.DashLine))
@@ -991,28 +1044,43 @@ class DesignArea(QGraphicsPathItem):
     # Property API
 
     def get_properties(self) -> dict:
-        crit = self.effective_criteria()
+        rooms, roomless = self.member_rooms()   # single scan, reused below
+        crit = self._effective_criteria_impl(rooms, roomless)
+        sm = (getattr(self.scene(), "scale_manager", None)
+              if self.scene() else None)
         props: dict = {}
         for k, v in self._properties.items():
             props[k] = dict(v)
         props["Hazard Classification"]["value"] = crit.hazard
         props["System Type"]["value"] = crit.system_type
-        props["Design Area (Base)"]["value"] = f"{crit.base_area_sqft:.0f}"
+        # Stored value stays ft² (NFPA basis); metric projects see/edit m²
+        # (set_property converts the panel string back to ft²).
+        if _is_imperial(sm):
+            props["Design Area (Base)"]["value"] = f"{crit.base_area_sqft:.0f}"
+            props["Design Area (Base)"]["suffix"] = "sq ft"
+        else:
+            props["Design Area (Base)"]["value"] = (
+                f"{crit.base_area_sqft * SQFT_TO_M2:.1f}")
+            props["Design Area (Base)"]["suffix"] = "m²"
         if crit.inherited:
             for k in ("Hazard Classification", "System Type",
                       "Design Area (Base)"):
                 props[k]["readonly"] = True
         props["Design Density"] = {
             "type": "label",
-            "value": f"{crit.density:.2f} gpm/ft²" if crit.density else "—"}
+            "value": format_density(crit.density, sm) if crit.density else "—"}
         req_note = " (+30% dry)" if crit.system_type == "Dry" else ""
         props["Required Area"] = {
             "type": "label",
-            "value": (f"{crit.required_area_sqft:.0f} ft²{req_note}"
+            "value": (format_area_sqft(crit.required_area_sqft, sm) + req_note
                       if crit.required_area_sqft else "—")}
         if crit.governing_room:
             props["Criteria From"] = {"type": "label",
                                       "value": crit.governing_room}
+        props["Rooms"] = {
+            "type": "label",
+            "value": (", ".join((r.name or "(unnamed)") for r in rooms)
+                      if rooms else "—")}
         if crit.warnings:
             props["⚠ Warnings"] = {"type": "label",
                                     "value": "\n".join(crit.warnings)}
@@ -1022,6 +1090,18 @@ class DesignArea(QGraphicsPathItem):
         if key in ("Hazard Classification", "System Type",
                    "Design Area (Base)") and self.effective_criteria().inherited:
             return  # read-only while room criteria govern
+        if key == "Design Area (Base)":
+            # Metric panels show/edit m²; convert back so the stored
+            # value stays ft² (NFPA basis) — symmetric with get_properties.
+            sm = (getattr(self.scene(), "scale_manager", None)
+                  if self.scene() else None)
+            if not _is_imperial(sm):
+                try:
+                    value = f"{float(value) / SQFT_TO_M2:.0f}"
+                except (TypeError, ValueError):
+                    pass
+            self._properties[key]["value"] = str(value)
+            return
         if key == "Show Badge":
             self._properties["Show Badge"]["value"] = value in (True, "True")
             self._sync_badge()
@@ -1048,6 +1128,22 @@ class DesignArea(QGraphicsPathItem):
                 self.badge.setPos(c.x() - w / 2, c.y() - h / 2)
             finally:
                 self.badge._syncing = False
+
+    # ── Grip protocol (badge drag — Room-label precedent) ─────────────
+    # DesignArea sits at item-pos origin, so parent coords == scene coords.
+
+    def grip_points(self) -> list:
+        """Single grip at the badge centre — badge drag, like the room label."""
+        if getattr(self, "badge", None) is None or not self.badge.isVisible():
+            return []
+        w, h = badge_fixed_size_mm()
+        return [self.badge.pos() + QPointF(w / 2, h / 2)]
+
+    def apply_grip(self, index: int, pos):
+        if index != 0 or getattr(self, "badge", None) is None:
+            return
+        w, h = badge_fixed_size_mm()
+        self.badge.setPos(pos.x() - w / 2, pos.y() - h / 2)
 
     def badge_offset(self) -> tuple[float, float]:
         """Current badge position in parent (DesignArea item) coordinates."""
@@ -1106,12 +1202,17 @@ class DesignArea(QGraphicsPathItem):
         else:
             cap = "N/A"
 
-        ks = sorted({str(s._properties.get("K-Factor", {}).get("value", ""))
-                     for s in self._sprinklers
-                     if isinstance(getattr(s, "_properties", None), dict)} - {""})
-        covs = sorted({str(s._properties.get("Coverage Area", {}).get("value", ""))
-                       for s in self._sprinklers
-                       if isinstance(getattr(s, "_properties", None), dict)} - {""},
+        # Dedupe on numeric value ("130" vs "130.0", "5.6" vs "5.60"
+        # would otherwise both survive a string-set dedupe).
+        raw_ks = [str(s._properties.get("K-Factor", {}).get("value", ""))
+                  for s in self._sprinklers
+                  if isinstance(getattr(s, "_properties", None), dict)]
+        ks = sorted(_dedupe_numeric(v for v in raw_ks if v),
+                    key=lambda v: float(v) if _is_float(v) else 0.0)
+        raw_covs = [str(s._properties.get("Coverage Area", {}).get("value", ""))
+                    for s in self._sprinklers
+                    if isinstance(getattr(s, "_properties", None), dict)]
+        covs = sorted(_dedupe_numeric(v for v in raw_covs if v),
                       key=lambda v: float(v) if _is_float(v) else 0.0)
         orifices = sorted({K_TO_ORIFICE.get(float(k), "")
                            for k in ks if _is_float(k)} - {""})
@@ -1290,9 +1391,11 @@ class DesignAreaBadge(QGraphicsItem):
         super().__init__(area)
         self._area = area
         self._syncing: bool = False   # guards itemChange during auto-centre/load
-        self.setFlags(
-            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
+        # No ItemIsMovable: Model_Space never forwards select-mode presses
+        # to Qt items, so item-drag is dead scene-wide — the badge moves
+        # via the parent DesignArea's grip protocol instead.
+        # ItemSendsGeometryChanges stays so itemChange fires on setPos.
+        self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setZValue(1)  # above the parent outline
 
     def boundingRect(self) -> QRectF:

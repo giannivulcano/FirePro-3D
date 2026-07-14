@@ -26,7 +26,7 @@ from .roof_dialog import RoofDialog
 from .underlay_context_menu import UnderlayContextMenu
 from .dxf_import_worker import DxfImportWorker
 from .water_supply import WaterSupply
-from .design_area import DesignArea
+from .design_area import DesignArea, DesignAreaBadge
 from .construction_geometry import (
     ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
@@ -5338,16 +5338,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             selection = next((i for i in items if isinstance(i, Node)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
-        # Also check for walls, floors, roofs, view markers (lower Z-order)
+        # Also check for walls, floors, roofs, view markers, design areas
+        # (lower Z-order).  A badge hit resolves to its parent DesignArea
+        # (mirrors the Sprinkler→Node resolve above); the ItemIsSelectable
+        # check applies to the resolved item.
         if selection is None:
-            selection = next(
-                (i for i in items
-                 if (isinstance(i, (WallSegment, FloorSlab, RoofItem, Room,
-                                    ViewMarkerArrow))
-                     or type(i).__name__ == "DetailMarker")
-                 and i.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable),
-                None,
-            )
+            for i in items:
+                cand = i.parentItem() if isinstance(i, DesignAreaBadge) else i
+                if cand is None:
+                    continue
+                if ((isinstance(cand, (WallSegment, FloorSlab, RoofItem, Room,
+                                       ViewMarkerArrow, DesignArea))
+                        or type(cand).__name__ == "DetailMarker")
+                        and cand.flags()
+                        & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                    selection = cand
+                    break
 
         # Derive typed references for handler signature
         node_under = selection if isinstance(selection, Node) else None

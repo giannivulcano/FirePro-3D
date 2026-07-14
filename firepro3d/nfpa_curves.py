@@ -30,7 +30,9 @@ HAZARD_ABBREV: dict[str, str] = {
 
 # Hazard classes with no density/area curve — protection criteria come from
 # NFPA 13 storage chapters (Table 4.3.1.7.1 system is a planned follow-up).
-STORAGE_HAZARDS: tuple[str, ...] = ("Miscellaneous Storage", "High Piled Storage")
+STORAGE_HAZARDS: tuple[str, ...] = ("Low-Piled Storage",
+                                    "Miscellaneous Storage",
+                                    "High Piled Storage")
 
 
 def interpolate_density(hazard: str, area_sqft: float) -> float:

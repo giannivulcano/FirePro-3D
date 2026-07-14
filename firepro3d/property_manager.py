@@ -228,6 +228,9 @@ class PropertyManager(QWidget):
             elif prop_type == "level_ref":
                 has_level_ref = True
                 combo = QComboBox()
+                # Cap the minimum width so long entries can't force the
+                # form wider than the dock (panel clips: ScrollBarAlwaysOff)
+                combo.setMinimumContentsLength(8)
                 if self._level_manager is not None:
                     for lv in self._level_manager.levels:
                         combo.addItem(lv.name)
@@ -267,6 +270,7 @@ class PropertyManager(QWidget):
             # ── font (family picker) ──────────────────────────────────────
             elif prop_type == "font":
                 fcombo = QFontComboBox()
+                fcombo.setMinimumContentsLength(8)
                 if meta["value"]:
                     fcombo.setCurrentFont(QFont(str(meta["value"])))
                 fcombo.currentFontChanged.connect(
@@ -277,6 +281,7 @@ class PropertyManager(QWidget):
             # ── enum (fixed option list) ──────────────────────────────────
             elif prop_type == "enum":
                 widget = QComboBox()
+                widget.setMinimumContentsLength(8)
                 widget.addItems(meta.get("options", []))
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
@@ -286,6 +291,12 @@ class PropertyManager(QWidget):
             # ── button (opens a callback) ───────────────────────────────
             elif prop_type == "button":
                 btn = QPushButton(str(meta.get("value", "Edit…")))
+                # Long faces (e.g. Design Point) must never force the form
+                # width — Ignored lets the button shrink; tooltip keeps the
+                # full text readable.
+                btn.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                  btn.sizePolicy().verticalPolicy())
+                btn.setToolTip(str(meta.get("value", "")))
                 callback = meta.get("callback")
                 if callback:
                     btn.clicked.connect(
@@ -296,6 +307,7 @@ class PropertyManager(QWidget):
             # ── combo (alias for enum) ──────────────────────────────────
             elif prop_type == "combo":
                 widget = QComboBox()
+                widget.setMinimumContentsLength(8)
                 widget.addItems(meta.get("options", []))
                 widget.setCurrentText(str(meta["value"]))
                 widget.currentTextChanged.connect(
@@ -363,6 +375,7 @@ class PropertyManager(QWidget):
                 and hasattr(primary, "level")
                 and self._level_manager is not None):
             combo = QComboBox()
+            combo.setMinimumContentsLength(8)
             for lv in self._level_manager.levels:
                 combo.addItem(lv.name)
             combo.setCurrentText(primary.level)
@@ -391,6 +404,7 @@ class PropertyManager(QWidget):
 
                     if ntype == "level_ref":
                         nwidget = QComboBox()
+                        nwidget.setMinimumContentsLength(8)
                         if self._level_manager is not None:
                             for lv in self._level_manager.levels:
                                 nwidget.addItem(lv.name)

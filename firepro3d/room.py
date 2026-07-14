@@ -448,7 +448,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
         dp = self.design_point()
         if dp:
-            dp_face = f"{dp[0]:.0f} ft² @ {dp[1]:.2f} gpm/ft²"
+            # Shared unit convention (imperial "sq ft" / metric m² + mm/min)
+            from .design_area import format_area_sqft, format_density
+            sm = self._get_scale_manager()
+            dp_face = (f"{format_area_sqft(dp[0], sm)} @ "
+                       f"{format_density(dp[1], sm)}")
         else:
             dp_face = "N/A — storage criteria (follow-up)"
 
@@ -459,7 +463,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Room Tag":          {"type": "string",    "value": self._tag},
             "Show Label":        {"type": "enum",      "value": "True" if self._show_label else "False",
                                   "options": ["True", "False"]},
-            "Fill Color":        {"type": "color",     "value": self._color.name()},
+            # No "Fill Color" row — the Display Manager owns room
+            # appearance.  set_property("Fill Color") stays for back-compat.
             "Geometry":          {"type": "header"},
             "Area":              {"type": "label",     "value": self._fmt_area(area_mm2)},
             "Perimeter":         {"type": "label",     "value": self._fmt(perim_mm)},

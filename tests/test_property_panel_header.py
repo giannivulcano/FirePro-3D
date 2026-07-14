@@ -28,3 +28,33 @@ def test_header_has_no_editor_row(qapp):
     from PyQt6.QtWidgets import QLineEdit
     edits = pm.findChildren(QLineEdit)
     assert len(edits) == 1  # only "Name"
+
+
+class _WideFields:
+    """Worst-case rows: a very long enum option list + a long button face."""
+
+    def get_properties(self):
+        long_opt = ("Combustible unobstructed - exposed members < 3ft "
+                    "(910 mm) O/C — extra long option for width test")
+        return {
+            "Ceiling Type": {"type": "enum", "value": long_opt,
+                             "options": [long_opt,
+                                         "Noncombustible unobstructed"]},
+            "Design Point": {"type": "button",
+                             "value": "1500 sq ft @ 0.10 gpm/ft² "
+                                      "(N/A — storage criteria follow-up)",
+                             "callback": lambda: None},
+        }
+
+    def set_property(self, key, value):
+        pass
+
+
+def test_panel_min_width_capped_by_long_fields(qapp):
+    """The form must shrink below the dock width: combos are capped via
+    setMinimumContentsLength, buttons via an Ignored size policy.  Before
+    the fix the inner scroll widget's minimumSizeHint was ~980px (silently
+    clipped by the ScrollBarAlwaysOff scroll area); after, ~370px."""
+    pm = PropertyManager()
+    pm.show_properties(_WideFields())
+    assert pm._form_container.minimumSizeHint().width() < 500

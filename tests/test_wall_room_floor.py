@@ -833,7 +833,7 @@ class TestRoomProperties:
             # Section headers
             "Room Info", "Geometry", "Protection Criteria",
             # Room Info section
-            "Type", "Room Name", "Room Tag", "Show Label", "Fill Color",
+            "Type", "Room Name", "Room Tag", "Show Label",
             # Geometry section
             "Area", "Perimeter", "Floor Level", "Ceiling Level",
             "Ceiling Offset", "Ceiling Height", "Volume",

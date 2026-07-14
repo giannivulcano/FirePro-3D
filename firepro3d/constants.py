@@ -89,6 +89,7 @@ HAZARD_CLASSES = [
     "Ordinary Hazard Group 2",
     "Extra Hazard Group 1",
     "Extra Hazard Group 2",
+    "Low-Piled Storage",
     "Miscellaneous Storage",
     "High Piled Storage",
 ]
@@ -99,6 +100,7 @@ NFPA_MAX_COVERAGE_SQFT: dict[str, float] = {
     "Ordinary Hazard Group 2":  130.0,
     "Extra Hazard Group 1":     100.0,
     "Extra Hazard Group 2":     100.0,
+    "Low-Piled Storage":        130.0,   # OH-type criteria (NFPA 13 low-piled)
     "Miscellaneous Storage":    100.0,
     "High Piled Storage":       100.0,
 }

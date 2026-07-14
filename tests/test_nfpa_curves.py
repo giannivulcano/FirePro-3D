@@ -42,5 +42,7 @@ class TestAbbrev:
             assert hz in HAZARD_ABBREV
 
     def test_storage_tuple(self):
+        assert "Low-Piled Storage" in STORAGE_HAZARDS
         assert "Miscellaneous Storage" in STORAGE_HAZARDS
         assert "High Piled Storage" in STORAGE_HAZARDS
+        assert len(STORAGE_HAZARDS) == 3
