@@ -61,6 +61,14 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 # ── Design-area creation ─────────────────────────────────────────────────────
 DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (screen px, zoom-aware)
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
+
+# ── Design-criteria badge (model-space mm; tuned at 2026-07-14 mockup gate) ──
+DA_BADGE_WIDTH_MM   = 10000.0  # table width
+DA_BADGE_TEXT_MM    = 200.0    # cell text cap height
+DA_BADGE_TITLE_MM   = 300.0    # title row cap height
+DA_BADGE_PAD_MM     = 120.0    # cell padding
+DA_BADGE_CORNER_MM  = 300.0    # fillet radius of the outer border
+DA_BADGE_LINE_MM    = 30.0     # border line thickness
 SQFT_TO_MM2 = 92_903.04        # 1 ft² in mm²
 
 # ── Pipe geometry check tolerance ────────────────────────────────────────────

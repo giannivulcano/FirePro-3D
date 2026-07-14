@@ -25,8 +25,10 @@ from dataclasses import dataclass, field
 from PyQt6.QtWidgets import QGraphicsPathItem, QGraphicsItem, QStyle
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from .constants import (DEFAULT_LEVEL, SQFT_TO_MM2, Z_DESIGN_AREA,
-                        Z_DESIGN_AREA_CONFIRMED)
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPolygonF
+                        Z_DESIGN_AREA_CONFIRMED,
+                        DA_BADGE_WIDTH_MM, DA_BADGE_TEXT_MM, DA_BADGE_TITLE_MM,
+                        DA_BADGE_PAD_MM, DA_BADGE_CORNER_MM, DA_BADGE_LINE_MM)
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QPolygonF, QFont
 from .nfpa_curves import (HAZARD_ABBREV, STORAGE_HAZARDS, interpolate_density)
 
 HAZARD_OPTIONS = [
@@ -1073,7 +1075,7 @@ class DesignArea(QGraphicsPathItem):
         name = self._properties["System Name"]["value"]
         return [
             [("DESIGN CRITERIA", "")],
-            [("AREA OF APPLICATION ID", name),
+            [("SYSTEM ID", name),
              ("ZONE", crit.system_type.upper())],
             [("OCCUPANCY", occ_cell), ("SYSTEM CAPACITY", cap)],
             [("DENSITY", f"{crit.density:.2f} usgpm/ft²"),
@@ -1085,6 +1087,7 @@ class DesignArea(QGraphicsPathItem):
             [("DOMESTIC WATER ALLOWANCE", self._domestic_cell()),
              ("SPRINKLERS CALCULATED", n_calc)],
             [(demand, "")],
+            [("", "")],        # blank footer band — mirrors the title row (user tweak, mockup gate)
         ]
 
     def _domestic_cell(self) -> str:
@@ -1134,3 +1137,68 @@ class DesignArea(QGraphicsPathItem):
             painter.drawPath(self.path())
         # Suppress default selection rectangle
         option.state &= ~QStyle.StateFlag.State_Selected
+
+
+# ── Design-criteria badge painter (module-level, reused by DesignAreaItem and
+#    paper-space badge items) ──────────────────────────────────────────────────
+
+def badge_size_mm(rows) -> tuple[float, float]:
+    """Return (width, height) of the badge table in model mm."""
+    # first and last rows use the taller title height; all rows between use text height
+    title_h = DA_BADGE_TITLE_MM + 2 * DA_BADGE_PAD_MM
+    text_h = DA_BADGE_TEXT_MM + 2 * DA_BADGE_PAD_MM
+    n = len(rows)
+    if n <= 1:
+        h = title_h
+    else:
+        h = title_h + (n - 2) * text_h + title_h
+    return DA_BADGE_WIDTH_MM, h
+
+
+def paint_badge(painter, rows, color):
+    """Draw the DESIGN CRITERIA table at (0,0) in model-mm coordinates.
+
+    Filleted outer border, straight inner cell borders, opaque white fill
+    (document table — must stay legible over tiles/geometry)."""
+    w, h = badge_size_mm(rows)
+    pen = QPen(color, DA_BADGE_LINE_MM)
+    painter.setPen(pen)
+    painter.setBrush(QBrush(QColor("white")))
+    painter.drawRoundedRect(QRectF(0, 0, w, h),
+                            DA_BADGE_CORNER_MM, DA_BADGE_CORNER_MM)
+
+    font = QFont("Arial")
+    y = 0.0
+    last = len(rows) - 1
+    for i, row in enumerate(rows):
+        row_h = (DA_BADGE_TITLE_MM if i == 0 or i == last else DA_BADGE_TEXT_MM) \
+            + 2 * DA_BADGE_PAD_MM
+        if i > 0:
+            painter.drawLine(QPointF(0, y), QPointF(w, y))
+        cells = row if isinstance(row, list) else [row]
+        cell_w = w / len(cells)
+        for j, (label, value) in enumerate(cells):
+            x = j * cell_w
+            if j > 0:
+                painter.drawLine(QPointF(x, y), QPointF(x, y + row_h))
+            rect = QRectF(x + DA_BADGE_PAD_MM, y,
+                          cell_w - 2 * DA_BADGE_PAD_MM, row_h)
+            if i == 0:
+                font.setPixelSize(int(DA_BADGE_TITLE_MM))
+                font.setBold(True)
+                painter.setFont(font)
+                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
+            else:
+                font.setPixelSize(int(DA_BADGE_TEXT_MM))
+                font.setBold(False)
+                painter.setFont(font)
+                painter.drawText(rect, Qt.AlignmentFlag.AlignVCenter
+                                 | Qt.AlignmentFlag.AlignLeft, label + "  ")
+                if value:
+                    font.setBold(True)
+                    painter.setFont(font)
+                    lbl_w = painter.fontMetrics().horizontalAdvance(label + "  ")
+                    vrect = rect.adjusted(lbl_w, 0, 0, 0)
+                    painter.drawText(vrect, Qt.AlignmentFlag.AlignVCenter
+                                     | Qt.AlignmentFlag.AlignLeft, value)
+        y += row_h
