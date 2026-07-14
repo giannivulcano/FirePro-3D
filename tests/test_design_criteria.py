@@ -288,3 +288,8 @@ class TestBadgeItem:
         da.set_badge_offset(QPointF(1234.0, -500.0))
         assert da.badge_offset() == (1234.0, -500.0)
         assert da._badge_user_moved
+
+    def test_fixed_size_matches_rows_size(self, scene):
+        from firepro3d.design_area import badge_fixed_size_mm, badge_size_mm
+        da = _area_with(scene, [])
+        assert badge_fixed_size_mm() == badge_size_mm(da.badge_rows())

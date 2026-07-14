@@ -1034,7 +1034,7 @@ class DesignArea(QGraphicsPathItem):
         self.badge.setVisible(show and not editing)
         if not self._badge_user_moved:
             c = self.path().boundingRect().center()
-            w, h = badge_size_mm(self.badge_rows())
+            w, h = badge_fixed_size_mm()
             # Use _syncing flag so itemChange doesn't mark the badge user-moved
             # during an auto-centre setPos, and sceneModified is not emitted.
             self.badge._syncing = True
@@ -1185,6 +1185,16 @@ class DesignArea(QGraphicsPathItem):
 # ── Design-criteria badge painter (module-level, reused by DesignAreaItem and
 #    paper-space badge items) ──────────────────────────────────────────────────
 
+_BADGE_ROW_COUNT = 10  # title + 8 content rows + footer band (fixed layout)
+
+
+def badge_fixed_size_mm() -> tuple[float, float]:
+    """Badge size from constants alone — the layout is a fixed 10 rows."""
+    h = 2 * (DA_BADGE_TITLE_MM + 2 * DA_BADGE_PAD_MM)
+    h += (_BADGE_ROW_COUNT - 2) * (DA_BADGE_TEXT_MM + 2 * DA_BADGE_PAD_MM)
+    return DA_BADGE_WIDTH_MM, h
+
+
 def badge_size_mm(rows) -> tuple[float, float]:
     """Return (width, height) of the badge table in model mm."""
     # first and last rows use the taller title height; all rows between use text height
@@ -1272,9 +1282,10 @@ class DesignAreaBadge(QGraphicsItem):
         self.setZValue(1)  # above the parent outline
 
     def boundingRect(self) -> QRectF:
-        # badge_rows() always returns 10 rows, so width and height are
-        # constant — prepareGeometryChange is not needed.
-        w, h = badge_size_mm(self._area.badge_rows())
+        # badge_rows() always returns _BADGE_ROW_COUNT (10) rows, so width
+        # and height are constant — derive from constants alone to avoid
+        # a scene traversal inside Qt's hottest geometry callback.
+        w, h = badge_fixed_size_mm()
         m = DA_BADGE_LINE_MM
         return QRectF(-m, -m, w + 2 * m, h + 2 * m)
 
