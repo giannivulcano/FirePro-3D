@@ -446,12 +446,21 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         max_cov = self._nfpa_max_coverage_sqft()
         status = "Pass" if (spr_count > 0 and cov_per_spr <= max_cov) else "Fail"
 
+        dp = self.design_point()
+        if dp:
+            dp_face = f"{dp[0]:.0f} ft² @ {dp[1]:.2f} gpm/ft²"
+        else:
+            dp_face = "N/A — storage criteria (follow-up)"
+
         return {
+            "Room Info":         {"type": "header"},
             "Type":              {"type": "label",     "value": "Room"},
             "Room Name":         {"type": "string",    "value": self.name},
             "Room Tag":          {"type": "string",    "value": self._tag},
             "Show Label":        {"type": "enum",      "value": "True" if self._show_label else "False",
                                   "options": ["True", "False"]},
+            "Fill Color":        {"type": "color",     "value": self._color.name()},
+            "Geometry":          {"type": "header"},
             "Area":              {"type": "label",     "value": self._fmt_area(area_mm2)},
             "Perimeter":         {"type": "label",     "value": self._fmt(perim_mm)},
             "Floor Level":       {"type": "level_ref", "value": self.level},
@@ -459,8 +468,14 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Ceiling Offset":    {"type": "dimension", "value_mm": self._ceiling_offset},
             "Ceiling Height":    {"type": "label",     "value": self._fmt(ceil_h)},
             "Volume":            {"type": "label",     "value": self._fmt_volume(vol_mm3)},
+            "Protection Criteria": {"type": "header"},
             "Hazard Class":      {"type": "enum",      "value": self._hazard_class,
                                   "options": HAZARD_CLASSES},
+            "Occupancy":         {"type": "string",    "value": self._occupancy},
+            "System Type":       {"type": "enum",      "value": self._system_type,
+                                  "options": ["Wet", "Dry"]},
+            "Design Point":      {"type": "button",    "value": dp_face,
+                                  "callback": self._pick_design_point},
             "Compartment Type":  {"type": "enum",      "value": self._compartment_type,
                                   "options": COMPARTMENT_TYPES},
             "Ceiling Type":      {"type": "enum",      "value": self._ceiling_type,
@@ -469,8 +484,16 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "Coverage/Sprinkler": {"type": "label",    "value": f"{cov_per_spr:.1f} sq ft"},
             "Max Coverage":      {"type": "label",     "value": f"{max_cov:.0f} sq ft"},
             "Coverage Status":   {"type": "label",     "value": status},
-            "Fill Color":        {"type": "color",     "value": self._color.name()},
         }
+
+    def _pick_design_point(self):
+        """Open the curve picker (Design Point button in the panel)."""
+        from .design_point_dialog import DesignPointDialog
+        dlg = DesignPointDialog(self._hazard_class, self.design_point())
+        if dlg.exec():
+            pt = dlg.selected_point()
+            if pt:
+                self._design_point = pt
 
     def set_property(self, key: str, value):
         if key == "Room Name":

@@ -830,12 +830,18 @@ class TestRoomProperties:
     def test_get_properties_keys(self, square_room):
         props = square_room.get_properties()
         expected_keys = {
-            "Type", "Room Name", "Room Tag", "Show Label",
+            # Section headers
+            "Room Info", "Geometry", "Protection Criteria",
+            # Room Info section
+            "Type", "Room Name", "Room Tag", "Show Label", "Fill Color",
+            # Geometry section
             "Area", "Perimeter", "Floor Level", "Ceiling Level",
             "Ceiling Offset", "Ceiling Height", "Volume",
-            "Hazard Class", "Compartment Type", "Ceiling Type",
+            # Protection Criteria section
+            "Hazard Class", "Occupancy", "System Type", "Design Point",
+            "Compartment Type", "Ceiling Type",
             "Sprinkler Count", "Coverage/Sprinkler", "Max Coverage",
-            "Coverage Status", "Fill Color",
+            "Coverage Status",
         }
         assert expected_keys == set(props.keys())
 
