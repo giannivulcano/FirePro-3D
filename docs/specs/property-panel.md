@@ -37,6 +37,7 @@ The panel never imports entity modules for rendering decisions except the specia
 | `type` | Widget | Commit trigger |
 |---|---|---|
 | `label` | read-only `QLabel` (sunken style) | — |
+| `warning` | full-width amber header (`⚠ {key}`) + word-wrapped bullet body (`QLabel`, `Expanding` + `setMinimumWidth(1)` so long words don't force a wider dock minimum) | — |
 | `string` (+ fallback) | `QLineEdit`; auto-attaches `QDoubleValidator` when current value parses as float | `editingFinished` |
 | `enum` / `combo` | `QComboBox` from `options` | `currentTextChanged` |
 | `color` | 60×24 swatch `QPushButton` → `QColorDialog` (`_pick_color`; stores hex in `_color_value` property; cancel-guarded) | dialog OK |

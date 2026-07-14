@@ -1048,9 +1048,10 @@ class DesignArea(QGraphicsPathItem):
             "type": "label",
             "value": (", ".join((r.name or "(unnamed)") for r in rooms)
                       if rooms else "—")}
+        # Warnings last — the warning renderer adds the ⚠ glyph and header
         if crit.warnings:
-            props["⚠ Warnings"] = {"type": "label",
-                                    "value": "\n".join(crit.warnings)}
+            props["Warnings"] = {"type": "warning",
+                                 "value": "\n".join(crit.warnings)}
         return props
 
     def set_property(self, key: str, value):

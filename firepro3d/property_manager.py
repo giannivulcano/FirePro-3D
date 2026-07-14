@@ -9,6 +9,7 @@ Supports multi-select: property changes apply to every selected item.
 Property types recognised from ``get_properties()`` dict:
     header     — section-divider label (no editor, no "value" key needed)
     label      — read-only informational text
+    warning    — full-width word-wrapped warning block (amber header + bullet body)
     string     — editable QLineEdit (auto-detects numeric fields)
     enum       — QComboBox with fixed options list
     combo      — alias for enum
@@ -174,7 +175,8 @@ class PropertyManager(QWidget):
         _t = th.detect()
         has_level_ref = False
 
-        for key, meta in primary.get_properties().items():
+        props = primary.get_properties()
+        for key, meta in props.items():
             widget = None
             prop_type = meta.get("type", "string")
 
@@ -197,6 +199,26 @@ class PropertyManager(QWidget):
                     f"padding-top: 6px;"
                 )
                 self._form.addRow(hdr_lbl)
+                continue
+
+            # ── warning (full-width, word-wrapped list — never widens form) ──
+            elif prop_type == "warning":
+                warn_hdr = QLabel(f"⚠ {key}")
+                warn_hdr.setStyleSheet(
+                    f"color: {_t.status_warn}; "  # theme amber/orange token
+                    f"font-weight: bold; padding-top: 6px;")
+                self._form.addRow(warn_hdr)
+                lines = str(meta.get("value", "")).splitlines()
+                body = QLabel("\n".join(f"• {ln}" for ln in lines if ln.strip()))
+                body.setWordWrap(True)
+                body.setStyleSheet(f"color: {_t.text_secondary}; padding-left: 4px;")
+                # Expanding + setMinimumWidth(1) prevents the label's implicit
+                # minimum from widening the form (Ignored collapses height when
+                # wordWrap is on in some Qt builds; Expanding is safe).
+                body.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                   QSizePolicy.Policy.Minimum)
+                body.setMinimumWidth(1)
+                self._form.addRow(body)
                 continue
 
             # ── label (read-only) ─────────────────────────────────────────
@@ -371,7 +393,10 @@ class PropertyManager(QWidget):
 
         # ── Legacy Level assignment (nodes, pipes, sprinklers) ────────────
         # Only show if the item doesn't already expose level_ref properties
+        # AND hasn't supplied its own "Level" row (e.g. DesignArea exposes a
+        # read-only label — a second editable combo would be a duplicate lie).
         if (not has_level_ref
+                and "Level" not in props
                 and hasattr(primary, "level")
                 and self._level_manager is not None):
             combo = QComboBox()

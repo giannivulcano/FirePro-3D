@@ -58,3 +58,33 @@ def test_panel_min_width_capped_by_long_fields(qapp):
     pm = PropertyManager()
     pm.show_properties(_WideFields())
     assert pm._form_container.minimumSizeHint().width() < 500
+
+
+class _WarningField:
+    """Entity with a long warning string — must not widen the form."""
+
+    _WARNING = "A" * 300   # 300-char single-line worst case
+
+    def get_properties(self):
+        return {"Warnings": {"type": "warning", "value": self._WARNING}}
+
+    def set_property(self, key, value):
+        pass
+
+
+def test_warning_type_renders_without_widening_form(qapp):
+    """A 300-char warning must word-wrap inside the dock width — the form
+    container's minimumSizeHint must stay < 500px (same threshold as the
+    wide-fields test so the dock never forces a wider minimum)."""
+    pm = PropertyManager()
+    pm.show_properties(_WarningField())
+    assert pm._form_container.minimumSizeHint().width() < 500
+
+
+def test_warning_type_produces_no_editor_widget(qapp):
+    """Warning rows are display-only — no QLineEdit or QComboBox is created."""
+    from PyQt6.QtWidgets import QLineEdit, QComboBox
+    pm = PropertyManager()
+    pm.show_properties(_WarningField())
+    assert pm.findChildren(QLineEdit) == []
+    assert pm.findChildren(QComboBox) == []

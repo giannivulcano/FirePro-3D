@@ -162,7 +162,10 @@ class TestPanelView:
         props = da.get_properties()
         assert props["Design Density"]["value"] == "0.10 gpm/ft²"
         assert props["Required Area"]["value"] == "1300 sq ft (+30% dry)"
-        assert "below the required" in props["⚠ Warnings"]["value"]
+        assert "Warnings" in props
+        assert props["Warnings"]["type"] == "warning"
+        assert "below the required" in props["Warnings"]["value"]
+        assert list(props)[-1] == "Warnings"
 
     def test_set_property_ignored_while_inherited(self, scene):
         scene._rooms = [_mock_room("A", "Ordinary Hazard Group 2", _SQ_A)]
@@ -465,3 +468,35 @@ class TestSelectModeFilter:
             "Bare DesignArea must not be a click-filter candidate "
             "(interior click-steal at Z=600); badge-only resolve is correct"
         )
+
+
+# ── Fix 3: no duplicate Level row in property panel ─────────────────────────
+
+
+class TestNoDuplicateLevelRow:
+    """DesignArea exposes a read-only Level label in its own properties;
+    the panel must NOT synthesize a second editable Level combo on top of it."""
+
+    def test_exactly_one_level_label_no_level_combo(self, scene, qapp):
+        from firepro3d.property_manager import PropertyManager
+        from firepro3d.level_manager import LevelManager
+        from PyQt6.QtWidgets import QLabel, QComboBox
+
+        da = _area_with(scene, [_mock_sprinkler(5000, 5000)], drawn_sqft=1600)
+        pm = PropertyManager()
+        lm = LevelManager()
+        pm.set_level_manager(lm)
+        pm.show_properties(da)
+
+        # Exactly one QLabel whose text is "Level" (the read-only label row key)
+        level_labels = [lbl for lbl in pm.findChildren(QLabel)
+                        if lbl.text() == "Level"]
+        assert len(level_labels) == 1, (
+            f"Expected 1 'Level' label, found {len(level_labels)}")
+
+        # DesignArea get_properties has exactly 2 enum/combo fields:
+        # Hazard Classification + System Type  → exactly 2 QComboBoxes.
+        combos = pm.findChildren(QComboBox)
+        assert len(combos) == 2, (
+            f"Expected 2 QComboBoxes (Hazard + System Type), found {len(combos)}; "
+            f"values: {[c.currentText() for c in combos]}")
