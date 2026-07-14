@@ -185,3 +185,77 @@ class TestPanelView:
         crit = da.effective_criteria()
         assert not crit.inherited
         assert da._properties["Design Area (Base)"]["value"] == "1500"  # not clobbered
+
+
+class TestBadgeRows:
+    def _da(self, scene, dry=False):
+        room = _mock_room("A", "Ordinary Hazard Group 2", _SQ_A,
+                          system="Dry" if dry else "Wet",
+                          point=(1500.0, 0.20))
+        scene._rooms = [room]
+        spr = _mock_sprinkler(5000, 5000)
+        spr._properties = {"K-Factor": {"value": "5.6"},
+                           "Coverage Area": {"value": "130"}}
+        da = _area_with(scene, [spr], drawn_sqft=1600)
+        da.set_property("System Name", "System 1")
+        return da
+
+    def test_rows_before_calc_show_tbd(self, scene):
+        rows = self._da(scene).badge_rows()
+        flat = str(rows)
+        assert "TBD" in flat                      # hydraulic cells
+        assert "System 1" in flat
+        assert "1600 ft²" in flat                 # drawn area
+        assert "0.20" in flat                     # design density
+
+    def test_occupancy_cell_concise(self, scene):
+        da = self._da(scene)
+        scene._rooms[0]._occupancy = "Office"
+        rows = da.badge_rows()
+        assert any("OH2 — Office" in str(r) for r in rows)
+
+    def test_zone_and_capacity_dry(self, scene, monkeypatch):
+        da = self._da(scene, dry=True)
+        pipe = MagicMock()
+        pipe.get_inner_diameter.return_value = 2.067
+        pipe.get_length_ft.return_value = 100.0
+        da.scene().sprinkler_system = MagicMock(pipes=[pipe])
+        rows = da.badge_rows()
+        flat = str(rows)
+        assert "DRY" in flat
+        # 0.040802 × 2.067² × 100 ≈ 17.4 gal
+        assert "17 gal" in flat
+
+    def test_capacity_na_when_wet(self, scene):
+        rows = self._da(scene, dry=False).badge_rows()
+        cap_row = [r for r in rows if "SYSTEM CAPACITY" in str(r)][0]
+        assert "N/A" in str(cap_row)
+
+    def test_orifice_from_k(self, scene):
+        rows = self._da(scene).badge_rows()
+        assert any('½"' in str(r) for r in rows)
+
+    def test_after_snapshot_hydraulic_cells_fill(self, scene):
+        da = self._da(scene)
+        da.set_hydraulic_snapshot({"total_demand_gpm": 750.0,
+                                   "demand_psi": 68.3,
+                                   "remote_head_psi": 20.0,
+                                   "sprinklers_calculated": 27,
+                                   "hose_gpm": 250.0})
+        flat = str(da.badge_rows())
+        assert "1000" in flat        # 750 + 250 hose
+        assert "68.3" in flat
+        assert "27" in flat
+        assert "5.6 @ 20.0 psi" in flat
+
+    def test_membership_change_clears_snapshot(self, scene):
+        da = self._da(scene)
+        da.set_hydraulic_snapshot({"total_demand_gpm": 750.0,
+                                   "demand_psi": 68.3,
+                                   "remote_head_psi": 20.0,
+                                   "sprinklers_calculated": 27,
+                                   "hose_gpm": 0.0})
+        # Monkeypatch _update_shape to avoid walking mock geometry
+        da._update_shape = lambda: None
+        da.remove_sprinkler(da._sprinklers[0])
+        assert da._hyd_snapshot is None

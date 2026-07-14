@@ -37,6 +37,33 @@ HAZARD_OPTIONS = [
     "Extra Hazard Group 2",
 ]
 
+# Nominal orifice by K-factor (NFPA 13 nominal sizes)
+K_TO_ORIFICE: dict[float, str] = {
+    2.8: '¼"Ø', 4.2: '⅜"Ø', 5.6: '½"Ø', 8.0: '17/32"Ø',
+    11.2: '⅝"Ø', 14.0: '¾"Ø', 16.8: '¾"Ø',
+}
+
+_TBD = "TBD"
+
+
+def _is_float(s: str) -> bool:
+    try:
+        float(s)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def system_capacity_gal(pipes) -> float:
+    """Water volume of the pipe network in US gallons.
+
+    gal/ft of pipe = 0.040802 × ID²(in) (π/4 · d² · 12 in³ / 231)."""
+    total = 0.0
+    for p in pipes:
+        d = p.get_inner_diameter()
+        total += 0.040802 * d * d * p.get_length_ft()
+    return total
+
 # ── Geometry helpers ─────────────────────────────────────────────────
 
 
@@ -619,6 +646,7 @@ class DesignArea(QGraphicsPathItem):
         self._as_entries: list = []        # (sprinkler, as_sqft, sxl_sqft, listed_sqft)
         self.spacing_warnings: list[str] = []
         self._tile_polys: list = []        # QPolygonF per sprinkler (paint overlay)
+        self._hyd_snapshot: dict | None = None
         # Display Manager overrides ("Design Area" category):
         # color = confirmed-outline colour, fill = editing fill/border hue
         self._display_color: str | None = None
@@ -782,11 +810,13 @@ class DesignArea(QGraphicsPathItem):
 
     def add_sprinkler(self, spr):
         if spr not in self._sprinklers:
+            self._hyd_snapshot = None
             self._sprinklers.append(spr)
             self._update_shape()
 
     def remove_sprinkler(self, spr):
         if spr in self._sprinklers:
+            self._hyd_snapshot = None
             self._sprinklers.remove(spr)
             self._update_shape()
 
@@ -986,6 +1016,82 @@ class DesignArea(QGraphicsPathItem):
 
     def _sync_badge(self):
         """Badge visibility sync — implemented with the badge item (Task 10)."""
+
+    # ------------------------------------------------------------------
+    # Hydraulic snapshot
+
+    def set_hydraulic_snapshot(self, snap: dict | None):
+        """Store calc results for the badge (None → TBD cells)."""
+        self._hyd_snapshot = snap
+        self.update()
+
+    # ------------------------------------------------------------------
+    # Badge data assembly
+
+    def badge_rows(self) -> list:
+        """DESIGN CRITERIA table content: list of rows, each a list of
+        (label, value) cells — 1 cell = full-width row, 2 cells = split."""
+        crit = self.effective_criteria()
+        snap = self._hyd_snapshot
+
+        rooms, _ = self.member_rooms()
+        occ = next((getattr(r, "_occupancy", "") for r in rooms
+                    if getattr(r, "_occupancy", "")), "")
+        abbrev = HAZARD_ABBREV.get(crit.hazard, crit.hazard)
+        occ_cell = f"{abbrev} — {occ}" if occ else abbrev
+
+        if crit.system_type == "Dry":
+            pipes = getattr(getattr(self.scene(), "sprinkler_system", None),
+                            "pipes", [])
+            cap = f"{system_capacity_gal(pipes):.0f} gal" if pipes else _TBD
+        else:
+            cap = "N/A"
+
+        ks = sorted({str(s._properties.get("K-Factor", {}).get("value", ""))
+                     for s in self._sprinklers
+                     if isinstance(getattr(s, "_properties", None), dict)} - {""})
+        covs = sorted({str(s._properties.get("Coverage Area", {}).get("value", ""))
+                       for s in self._sprinklers
+                       if isinstance(getattr(s, "_properties", None), dict)} - {""},
+                      key=lambda v: float(v) if _is_float(v) else 0.0)
+        orifices = sorted({K_TO_ORIFICE.get(float(k), "")
+                           for k in ks if _is_float(k)} - {""})
+        k_cell = "/".join(ks) if ks else _TBD
+        if snap and ks:
+            k_cell += f" @ {snap['remote_head_psi']:.1f} psi"
+        cov_cell = ("/".join(covs) + " ft²") if covs else _TBD
+
+        if snap:
+            total = snap["total_demand_gpm"] + snap.get("hose_gpm", 0.0)
+            demand = (f"TOTAL DEMAND INCLUDING HOSE OF {total:.0f} usgpm "
+                      f"@ {snap['demand_psi']:.1f} psi")
+            n_calc = str(snap["sprinklers_calculated"])
+        else:
+            demand = "TOTAL DEMAND INCLUDING HOSE: TBD (run hydraulic calc)"
+            n_calc = _TBD
+
+        name = self._properties["System Name"]["value"]
+        return [
+            [("DESIGN CRITERIA", "")],
+            [("AREA OF APPLICATION ID", name),
+             ("ZONE", crit.system_type.upper())],
+            [("OCCUPANCY", occ_cell), ("SYSTEM CAPACITY", cap)],
+            [("DENSITY", f"{crit.density:.2f} usgpm/ft²"),
+             ("AREA OF APPLICATION", f"{crit.drawn_area_sqft:.0f} ft²")],
+            [("COVERAGE PER SPRINKLER", cov_cell), ("STORAGE HEIGHT", "N/A")],
+            [("ORIFICE", "/".join(orifices) if orifices else _TBD),
+             ('"K" FACTOR', k_cell)],
+            [("HOSE ALLOWANCE — INSIDE", _TBD), ("OUTSIDE", _TBD)],
+            [("DOMESTIC WATER ALLOWANCE", self._domestic_cell()),
+             ("SPRINKLERS CALCULATED", n_calc)],
+            [(demand, "")],
+        ]
+
+    def _domestic_cell(self) -> str:
+        ws = getattr(self.scene(), "water_supply_node", None)
+        if ws is None:
+            return _TBD
+        return f"{ws.domestic_allowance_gpm:.0f} usgpm"
 
     # ------------------------------------------------------------------
     # Paint override — two visual states (2026-07-11 smoke test):
