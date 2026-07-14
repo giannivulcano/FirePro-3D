@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 # ── NFPA 13 coverage limits — imported from constants.py ─────────────────
 from .constants import HAZARD_CLASSES, NFPA_MAX_COVERAGE_SQFT as _NFPA_MAX_COVERAGE_SQFT
+from .nfpa_curves import min_design_point
 
 
 # NFPA 13 ceiling construction types — determines max spacing and
@@ -95,6 +96,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
         # NFPA / fire protection
         self._hazard_class: str = "Light Hazard"
+        self._occupancy: str = ""
+        self._system_type: str = "Wet"           # "Wet" | "Dry"
+        # Selected NFPA design point (area_sqft, density gpm/ft²).
+        # None → default to the hazard curve's minimum-area point.
+        self._design_point: tuple[float, float] | None = None
         self._compartment_type: str = "Room"
         self._ceiling_type: str = "Noncombustible unobstructed"
 
@@ -340,6 +346,14 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         """Max coverage per sprinkler (sq ft) for the current hazard class."""
         return _NFPA_MAX_COVERAGE_SQFT.get(self._hazard_class, 130.0)
 
+    def design_point(self) -> tuple[float, float] | None:
+        """Selected design point (area_sqft, density); defaults to the
+        hazard curve's minimum-area point. None for storage hazards
+        (no density/area curve — criteria are a planned follow-up)."""
+        if self._design_point is not None:
+            return self._design_point
+        return min_design_point(self._hazard_class)
+
     # ── Formatting helpers ───────────────────────────────────────────────
 
     def _fmt_area(self, mm2: float) -> str:
@@ -480,6 +494,11 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         elif key == "Hazard Class":
             if str(value) in HAZARD_CLASSES:
                 self._hazard_class = str(value)
+        elif key == "Occupancy":
+            self._occupancy = str(value)
+        elif key == "System Type":
+            if str(value) in ("Wet", "Dry"):
+                self._system_type = str(value)
         elif key == "Compartment Type":
             if str(value) in COMPARTMENT_TYPES:
                 self._compartment_type = str(value)
@@ -512,6 +531,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
             "ceiling_level":    self._ceiling_level,
             "ceiling_offset":   self._ceiling_offset,
             "hazard_class":     self._hazard_class,
+            "occupancy":        self._occupancy,
+            "system_type":      self._system_type,
+            "design_point":     list(self._design_point) if self._design_point else None,
             "compartment_type": self._compartment_type,
             "ceiling_type":     self._ceiling_type,
             "label_offset":     [self._label_offset.x(), self._label_offset.y()],
@@ -532,5 +554,9 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         room._ceiling_type = data.get("ceiling_type", "Noncombustible unobstructed")
         lo = data.get("label_offset", [0, 0])
         room._label_offset = QPointF(lo[0], lo[1])
+        room._occupancy = data.get("occupancy", "")
+        room._system_type = data.get("system_type", "Wet")
+        dp = data.get("design_point")
+        room._design_point = (float(dp[0]), float(dp[1])) if dp else None
         room._rebuild()  # rebuild polygon + label now that name/tag are set
         return room
