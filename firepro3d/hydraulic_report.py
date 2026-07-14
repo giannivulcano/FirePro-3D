@@ -523,8 +523,7 @@ class HydraulicReportWidget(QWidget):
             area_str = props["Area"]["value"] or _DASH
             area_sqft = _area_sqft_from_property(props["Area"]["value"])
             if area_sqft:
-                from .auto_populate_dialog import (DENSITY_AREA_CURVES,
-                                                   _interpolate_density)
+                from .nfpa_curves import DENSITY_AREA_CURVES, interpolate_density as _interpolate_density
                 if hazard in DENSITY_AREA_CURVES:
                     density = f"{_interpolate_density(hazard, area_sqft):.2f} gpm/ft²"
         spr_count = len(getattr(scene, "design_area_sprinklers", []) or [])
