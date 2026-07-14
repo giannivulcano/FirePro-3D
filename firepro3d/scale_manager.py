@@ -19,6 +19,11 @@ from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
 
+# Unit conversion constants shared by the NFPA formatters and callers
+# that need them at module import time (before ScaleManager is instantiated).
+_SQFT_TO_M2: float = 0.09290304      # ft² → m²
+_GPM_FT2_TO_MM_MIN: float = 40.746  # gpm/ft² → mm/min
+
 
 class DisplayUnit(Enum):
     IMPERIAL = "imperial"   # feet & inches
@@ -403,6 +408,38 @@ class ScaleManager:
         return f"{sign}{feet}' {inch_str}"
 
     # -----------------------------------------------------------------
+    # NFPA-unit formatters (area in ft², density in gpm/ft² stored internally)
+    # -----------------------------------------------------------------
+
+    def format_area_sqft(self, sqft: float) -> str:
+        """Format an area stored in ft² (NFPA-native) per the project display unit.
+
+        Args:
+            sqft: Area in square feet (NFPA 13 basis — always stored in ft²).
+
+        Returns:
+            Imperial: ``"1500 sq ft"``; metric: ``"139.4 m²"``.
+            Metric conversion: 1 ft² = 0.09290304 m².
+        """
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return f"{sqft:.0f} sq ft"
+        return f"{sqft * _SQFT_TO_M2:.1f} m²"
+
+    def format_density(self, gpm_ft2: float) -> str:
+        """Format a density stored in gpm/ft² (NFPA-native) per the project display unit.
+
+        Args:
+            gpm_ft2: Density in US gallons per minute per square foot.
+
+        Returns:
+            Imperial: ``"0.15 gpm/ft²"``; metric: ``"6.11 mm/min"``.
+            Metric conversion: 1 gpm/ft² = 40.746 mm/min.
+        """
+        if self._display_unit == DisplayUnit.IMPERIAL:
+            return f"{gpm_ft2:.2f} gpm/ft²"
+        return f"{gpm_ft2 * _GPM_FT2_TO_MM_MIN:.2f} mm/min"
+
+    # -----------------------------------------------------------------
     # Serialisation
     # -----------------------------------------------------------------
     def to_dict(self) -> dict:
@@ -432,3 +469,49 @@ class ScaleManager:
             sm._cal_pt2 = QPointF(d["cal_pt2"][0], d["cal_pt2"][1])
             sm._cal_real_mm = d.get("cal_real_mm", 0.0)
         return sm
+
+
+# ---------------------------------------------------------------------------
+# Module-level None-safe wrappers
+# ---------------------------------------------------------------------------
+
+def _make_imperial_fallback() -> "ScaleManager":
+    """Return a ScaleManager configured for imperial display (the NFPA default)."""
+    sm = ScaleManager()
+    sm.display_unit = DisplayUnit.IMPERIAL
+    return sm
+
+
+# Singleton used when no ScaleManager is available (headless / no-scene paths).
+_IMPERIAL_FALLBACK: ScaleManager = _make_imperial_fallback()
+
+
+def format_area_sqft(sqft: float, sm: "ScaleManager | None") -> str:
+    """None-safe wrapper around :meth:`ScaleManager.format_area_sqft`.
+
+    Falls back to imperial when no ScaleManager is available — ft² is the
+    NFPA-native storage unit, so imperial is the safe default.
+
+    Args:
+        sqft: Area in square feet (NFPA 13 basis).
+        sm: Project ScaleManager, or ``None`` for headless/no-scene use.
+
+    Returns:
+        Formatted area string per project display units.
+    """
+    return (sm or _IMPERIAL_FALLBACK).format_area_sqft(sqft)
+
+
+def format_density(gpm_ft2: float, sm: "ScaleManager | None") -> str:
+    """None-safe wrapper around :meth:`ScaleManager.format_density`.
+
+    Falls back to imperial when no ScaleManager is available.
+
+    Args:
+        gpm_ft2: Density in US gallons per minute per square foot.
+        sm: Project ScaleManager, or ``None`` for headless/no-scene use.
+
+    Returns:
+        Formatted density string per project display units.
+    """
+    return (sm or _IMPERIAL_FALLBACK).format_density(gpm_ft2)

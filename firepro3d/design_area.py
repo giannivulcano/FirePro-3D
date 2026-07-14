@@ -47,11 +47,6 @@ K_TO_ORIFICE: dict[float, str] = {
 
 _TBD = "TBD"
 
-# Unit conversions for the shared area/density formatters below.
-SQFT_TO_M2 = SQFT_TO_MM2 / 1e6          # ft² → m²
-GPM_FT2_TO_MM_MIN = 40.746              # gpm/ft² → mm/min
-
-
 def _is_float(s: str) -> bool:
     try:
         float(s)
@@ -60,37 +55,9 @@ def _is_float(s: str) -> bool:
         return False
 
 
-def _is_imperial(scale_manager) -> bool:
-    """True when project display units are imperial.
-
-    Falls back to imperial when no scale manager is available — design
-    criteria values are stored in ft² (NFPA basis), so the native unit
-    is the safe default."""
-    if scale_manager is None:
-        return True
-    from .scale_manager import DisplayUnit
-    return scale_manager.display_unit == DisplayUnit.IMPERIAL
-
-
-def format_area_sqft(sqft: float, scale_manager) -> str:
-    """Format an internally-ft² area per project units.
-
-    Imperial → "1500 sq ft" (project convention, matching Room area
-    formatting); metric → "139.4 m²".  Shared by the design-area panel,
-    Room design-point button face, and the hydraulic report."""
-    if _is_imperial(scale_manager):
-        return f"{sqft:.0f} sq ft"
-    return f"{sqft * SQFT_TO_M2:.1f} m²"
-
-
-def format_density(gpm_ft2: float, scale_manager) -> str:
-    """Format an internally-gpm/ft² density per project units.
-
-    Imperial → "0.15 gpm/ft²"; metric → "6.11 mm/min"
-    (1 gpm/ft² = 40.746 mm/min).  Display-only — no parsing."""
-    if _is_imperial(scale_manager):
-        return f"{gpm_ft2:.2f} gpm/ft²"
-    return f"{gpm_ft2 * GPM_FT2_TO_MM_MIN:.2f} mm/min"
+from .scale_manager import (  # noqa: E402
+    DisplayUnit, format_area_sqft, format_density, _SQFT_TO_M2,
+)
 
 
 def _dedupe_numeric(values) -> list[str]:
@@ -958,7 +925,6 @@ class DesignArea(QGraphicsPathItem):
             getattr(scene, "sprinkler_system", None), "sprinklers", [])
             if s.node and getattr(s.node, "level", "") == self.level]
 
-        from .scale_manager import DisplayUnit
         path = QPainterPath()
 
         for spr in valid:
@@ -1032,7 +998,6 @@ class DesignArea(QGraphicsPathItem):
             return
 
         total_sqft = sum(a for _spr, a, _sxl, _listed in self._as_entries)
-        from .scale_manager import DisplayUnit
         if total_sqft > 0:
             if scale_manager.display_unit == DisplayUnit.IMPERIAL:
                 self._properties["Area"]["value"] = f"{total_sqft:.0f} sq ft"
@@ -1057,12 +1022,12 @@ class DesignArea(QGraphicsPathItem):
         props["System Type"]["value"] = crit.system_type
         # Stored value stays ft² (NFPA basis); metric projects see/edit m²
         # (set_property converts the panel string back to ft²).
-        if _is_imperial(sm):
+        if sm is None or sm.display_unit == DisplayUnit.IMPERIAL:
             props["Design Area (Base)"]["value"] = f"{crit.base_area_sqft:.0f}"
             props["Design Area (Base)"]["suffix"] = "sq ft"
         else:
             props["Design Area (Base)"]["value"] = (
-                f"{crit.base_area_sqft * SQFT_TO_M2:.1f}")
+                f"{crit.base_area_sqft * _SQFT_TO_M2:.1f}")
             props["Design Area (Base)"]["suffix"] = "m²"
         if crit.inherited:
             for k in ("Hazard Classification", "System Type",
@@ -1097,9 +1062,9 @@ class DesignArea(QGraphicsPathItem):
             # value stays ft² (NFPA basis) — symmetric with get_properties.
             sm = (getattr(self.scene(), "scale_manager", None)
                   if self.scene() else None)
-            if not _is_imperial(sm):
+            if sm is not None and sm.display_unit != DisplayUnit.IMPERIAL:
                 try:
-                    value = f"{float(value) / SQFT_TO_M2:.0f}"
+                    value = f"{float(value) / _SQFT_TO_M2:.0f}"
                 except (TypeError, ValueError):
                     pass
             self._properties[key]["value"] = str(value)

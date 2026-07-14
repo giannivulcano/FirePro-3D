@@ -508,7 +508,7 @@ class HydraulicReportWidget(QWidget):
             props = da.get_properties()
             dry = crit.system_type == "Dry"
             # Shared unit convention (imperial "sq ft" / metric m² + mm/min)
-            from .design_area import format_area_sqft, format_density
+            from .scale_manager import format_area_sqft, format_density
             criteria = [
                 ("Hazard Classification", crit.hazard or _DASH),
                 ("System Type",           crit.system_type),

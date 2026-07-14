@@ -449,7 +449,7 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
         dp = self.design_point()
         if dp:
             # Shared unit convention (imperial "sq ft" / metric m² + mm/min)
-            from .design_area import format_area_sqft, format_density
+            from .scale_manager import format_area_sqft, format_density
             sm = self._get_scale_manager()
             dp_face = (f"{format_area_sqft(dp[0], sm)} @ "
                        f"{format_density(dp[1], sm)}")

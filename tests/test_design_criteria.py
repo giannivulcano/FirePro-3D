@@ -197,27 +197,25 @@ class TestPanelView:
 
 
 class TestUnitHelpers:
-    """format_area_sqft / format_density — shared unit convention."""
+    """format_area_sqft / format_density — shared unit convention (ScaleManager home)."""
 
     def test_imperial_area(self):
-        from firepro3d.design_area import format_area_sqft
+        from firepro3d.scale_manager import format_area_sqft
         assert format_area_sqft(1500.0, None) == "1500 sq ft"
 
     def test_imperial_density(self):
-        from firepro3d.design_area import format_density
+        from firepro3d.scale_manager import format_density
         assert format_density(0.15, None) == "0.15 gpm/ft²"
 
     def test_metric_area(self):
-        from firepro3d.design_area import format_area_sqft
-        from firepro3d.scale_manager import DisplayUnit
-        sm = MagicMock()
+        from firepro3d.scale_manager import format_area_sqft, ScaleManager, DisplayUnit
+        sm = ScaleManager()
         sm.display_unit = DisplayUnit.METRIC_MM
         assert format_area_sqft(1500.0, sm) == "139.4 m²"  # 1500 × 0.092903
 
     def test_metric_density(self):
-        from firepro3d.design_area import format_density
-        from firepro3d.scale_manager import DisplayUnit
-        sm = MagicMock()
+        from firepro3d.scale_manager import format_density, ScaleManager, DisplayUnit
+        sm = ScaleManager()
         sm.display_unit = DisplayUnit.METRIC_M
         assert format_density(0.15, sm) == "6.11 mm/min"   # 0.15 × 40.746
 
