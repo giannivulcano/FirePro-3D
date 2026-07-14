@@ -674,6 +674,9 @@ class DesignArea(QGraphicsPathItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self._creation_level: str = DEFAULT_LEVEL
         self._update_shape()
+        self._badge_user_moved: bool = False
+        self.badge = DesignAreaBadge(self)
+        self._sync_badge()
 
     @property
     def level(self) -> str:
@@ -802,6 +805,8 @@ class DesignArea(QGraphicsPathItem):
         """Editing fill sits under geometry; the confirmed outline sits
         above all geometry and gridline bubbles (2026-07-13 smoke test)."""
         self.setZValue(Z_DESIGN_AREA if editing else Z_DESIGN_AREA_CONFIRMED)
+        # Badge hides in editing mode; guard covers pre-badge __init__ calls.
+        self._sync_badge()
 
     # ------------------------------------------------------------------
     # Sprinkler management
@@ -960,6 +965,8 @@ class DesignArea(QGraphicsPathItem):
     def compute_area(self, scale_manager):
         """Recompute the tile shape and the Area property (Σ capped As)."""
         self._update_shape()
+        # Re-centre auto-badge now that the shape may have changed.
+        self._sync_badge()
         if not scale_manager:
             return
 
@@ -1017,7 +1024,43 @@ class DesignArea(QGraphicsPathItem):
             self._properties[key]["value"] = str(value)
 
     def _sync_badge(self):
-        """Badge visibility sync — implemented with the badge item (Task 10)."""
+        """Visible only when confirmed (not editing) and Show Badge is on.
+
+        Auto-centres on the area centroid until the user drags it."""
+        if getattr(self, "badge", None) is None:
+            return
+        editing = getattr(self.scene(), "mode", None) == "design_area"
+        show = bool(self._properties["Show Badge"]["value"])
+        self.badge.setVisible(show and not editing)
+        if not self._badge_user_moved:
+            c = self.path().boundingRect().center()
+            w, h = badge_size_mm(self.badge_rows())
+            # Use _syncing flag so itemChange doesn't mark the badge user-moved
+            # during an auto-centre setPos, and sceneModified is not emitted.
+            self.badge._syncing = True
+            try:
+                self.badge.setPos(c.x() - w / 2, c.y() - h / 2)
+            finally:
+                self.badge._syncing = False
+
+    def badge_offset(self) -> tuple[float, float]:
+        """Current badge position in parent (DesignArea item) coordinates."""
+        return (self.badge.pos().x(), self.badge.pos().y())
+
+    def set_badge_offset(self, pos):
+        """Set badge position explicitly (file load / undo restore).
+
+        Sets _badge_user_moved so _sync_badge auto-centre does not override.
+        Uses _syncing flag to suppress sceneModified during load.
+        """
+        self._badge_user_moved = True
+        # Suppress sceneModified during programmatic restore; _badge_user_moved
+        # is set explicitly above so no information is lost.
+        self.badge._syncing = True
+        try:
+            self.badge.setPos(pos)
+        finally:
+            self.badge._syncing = False
 
     # ------------------------------------------------------------------
     # Hydraulic snapshot
@@ -1202,3 +1245,48 @@ def paint_badge(painter, rows, color):
                     painter.drawText(vrect, Qt.AlignmentFlag.AlignVCenter
                                      | Qt.AlignmentFlag.AlignLeft, value)
         y += row_h
+
+
+# ── Draggable on-scene badge ─────────────────────────────────────────────────
+
+class DesignAreaBadge(QGraphicsItem):
+    """Draggable DESIGN CRITERIA table, child of a DesignArea.
+
+    Model-space mm sizing (scales with zoom; correct at viewport scale on
+    plotted sheets). Rows recompute on every paint — cheap (a handful of
+    rooms/sprinklers) and keeps the badge live with room edits.
+
+    The class is defined after DesignArea because it takes a DesignArea
+    instance as a constructor argument.  Python resolves ``DesignAreaBadge``
+    at call time inside DesignArea.__init__, so forward-reference issues do
+    not arise.
+    """
+
+    def __init__(self, area: "DesignArea"):
+        super().__init__(area)
+        self._area = area
+        self._syncing: bool = False   # guards itemChange during auto-centre/load
+        self.setFlags(
+            QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+            | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
+        self.setZValue(1)  # above the parent outline
+
+    def boundingRect(self) -> QRectF:
+        # badge_rows() always returns 10 rows, so width and height are
+        # constant — prepareGeometryChange is not needed.
+        w, h = badge_size_mm(self._area.badge_rows())
+        m = DA_BADGE_LINE_MM
+        return QRectF(-m, -m, w + 2 * m, h + 2 * m)
+
+    def paint(self, painter, option, widget=None):
+        color = QColor(self._area._display_color or "#ff0000")
+        paint_badge(painter, self._area.badge_rows(), color)
+
+    def itemChange(self, change, value):
+        if (change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged
+                and not self._syncing
+                and self.scene() is not None):
+            self._area._badge_user_moved = True
+            if hasattr(self.scene(), "sceneModified"):
+                self.scene().sceneModified.emit()
+        return super().itemChange(change, value)

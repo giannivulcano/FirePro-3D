@@ -259,3 +259,32 @@ class TestBadgeRows:
         da._update_shape = lambda: None
         da.remove_sprinkler(da._sprinklers[0])
         assert da._hyd_snapshot is None
+
+
+class TestBadgeItem:
+    def test_badge_created_with_area(self, scene):
+        da = _area_with(scene, [])
+        assert da.badge is not None
+        assert da.badge.parentItem() is da
+
+    def test_badge_hidden_when_show_badge_false(self, scene):
+        da = _area_with(scene, [])
+        da.set_property("Show Badge", "False")
+        assert not da.badge.isVisible()
+        da.set_property("Show Badge", "True")
+        assert da.badge.isVisible()
+
+    def test_badge_hidden_in_editing_mode(self, scene):
+        da = _area_with(scene, [])
+        scene.mode = "design_area"
+        da.sync_z_for_mode(editing=True)
+        assert not da.badge.isVisible()
+        scene.mode = "select"
+        da.sync_z_for_mode(editing=False)
+        assert da.badge.isVisible()
+
+    def test_badge_offset_round_trips(self, scene):
+        da = _area_with(scene, [])
+        da.set_badge_offset(QPointF(1234.0, -500.0))
+        assert da.badge_offset() == (1234.0, -500.0)
+        assert da._badge_user_moved

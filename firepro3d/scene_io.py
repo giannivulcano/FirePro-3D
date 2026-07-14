@@ -163,6 +163,8 @@ class SceneIOMixin:
                 "properties": {k: v["value"] for k, v in da.get_properties().items()},
                 "is_active": da is self.active_design_area,
                 "level": da.level,
+                "badge_offset": (list(da.badge_offset())
+                                 if da._badge_user_moved else None),
             })
 
         # --- Levels ---
@@ -529,6 +531,9 @@ class SceneIOMixin:
             self.design_areas.append(da)
             if da_entry.get("is_active", False):
                 self.active_design_area = da
+            bo = da_entry.get("badge_offset")
+            if bo:
+                da.set_badge_offset(QPointF(bo[0], bo[1]))
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles
 
