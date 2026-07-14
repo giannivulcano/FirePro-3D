@@ -36,7 +36,7 @@ mkdocs serve
 
 ## Key Conventions
 
-- All geometry stored internally in **millimeters**
+- All geometry stored internally in **millimeters**; NFPA hydraulic quantities stored imperial-native — display/parse conventions owned by `docs/specs/units-and-formatting.md` (formatters live on `ScaleManager`)
 - Constants centralized in `firepro3d/constants.py` — avoid magic numbers
 - Graphics paths resolved via `firepro3d/assets.py` (`asset_path()`)
 - NFPA 13 standards drive coverage limits and hazard classifications
