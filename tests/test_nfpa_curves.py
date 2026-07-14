@@ -29,6 +29,12 @@ class TestInterpolation:
     def test_area_inverse(self):
         assert interpolate_area("Ordinary Hazard Group 1", 0.125) == pytest.approx(2750)
 
+    def test_density_fallback_for_storage_hazard(self):
+        assert interpolate_density("High Piled Storage", 2000) == 0.10
+
+    def test_area_fallback_for_storage_hazard(self):
+        assert interpolate_area("High Piled Storage", 0.15) == 1500.0
+
 
 class TestAbbrev:
     def test_all_curve_classes_abbreviated(self):

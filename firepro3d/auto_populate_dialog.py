@@ -4,7 +4,7 @@ auto_populate_dialog.py
 Auto-populate a room with sprinklers based on NFPA 13 spacing rules.
 
 Provides:
-- NFPA 13 density/area curves and spacing limits
+- NFPA 13 spacing limits (density/area curves live in nfpa_curves.py)
 - Interactive density/area graph widget
 - AutoPopulateDialog for configuration
 - compute_sprinkler_grid() placement algorithm

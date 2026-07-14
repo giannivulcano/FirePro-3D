@@ -34,10 +34,14 @@ STORAGE_HAZARDS: tuple[str, ...] = ("Miscellaneous Storage", "High Piled Storage
 
 
 def interpolate_density(hazard: str, area_sqft: float) -> float:
-    """Return density (gpm/ft²) for a given area by linear interpolation."""
+    """Return density (gpm/ft²) for a given area by linear interpolation.
+
+    For hazards with no density/area curve (storage classes), returns the
+    Light Hazard minimum density (0.10 gpm/ft²) as a safe fallback.
+    """
     pts = DENSITY_AREA_CURVES.get(hazard, [])
     if not pts:
-        return 0.10
+        return 0.10  # Light Hazard minimum — fallback for unknown/storage hazards (no curve)
     if area_sqft <= pts[0][0]:
         return pts[0][1]
     if area_sqft >= pts[-1][0]:
@@ -52,10 +56,14 @@ def interpolate_density(hazard: str, area_sqft: float) -> float:
 
 
 def interpolate_area(hazard: str, density: float) -> float:
-    """Return area (sq ft) for a given density by linear interpolation along the curve."""
+    """Return area (sq ft) for a given density by linear interpolation along the curve.
+
+    For hazards with no density/area curve (storage classes), returns the
+    Light Hazard minimum area (1500 sq ft) as a safe fallback.
+    """
     pts = DENSITY_AREA_CURVES.get(hazard, [])
     if not pts:
-        return 1500.0
+        return 1500.0  # Light Hazard minimum — fallback for unknown/storage hazards (no curve)
     # Curves store (area, density).  Density decreases as area increases,
     # so sort by density ascending for lookup.
     sorted_pts = sorted(pts, key=lambda p: p[1])
