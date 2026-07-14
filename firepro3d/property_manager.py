@@ -7,6 +7,7 @@ Displays editable properties for the currently selected entity (or template).
 Supports multi-select: property changes apply to every selected item.
 
 Property types recognised from ``get_properties()`` dict:
+    header     — section-divider label (no editor, no "value" key needed)
     label      — read-only informational text
     string     — editable QLineEdit (auto-detects numeric fields)
     enum       — QComboBox with fixed options list
@@ -188,8 +189,18 @@ class PropertyManager(QWidget):
                         is_mixed = True
                         break
 
+            # ── header (section divider — no editor) ─────────────────────
+            if prop_type == "header":
+                hdr_lbl = QLabel(f"── {key} ──")
+                hdr_lbl.setStyleSheet(
+                    f"color: {_t.text_secondary}; font-weight: bold; "
+                    f"padding-top: 6px;"
+                )
+                self._form.addRow(hdr_lbl)
+                continue
+
             # ── label (read-only) ─────────────────────────────────────────
-            if prop_type == "label":
+            elif prop_type == "label":
                 widget = QLabel(str(meta["value"]))
                 widget.setStyleSheet(
                     f"background: {_t.bg_sunken}; "
