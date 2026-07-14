@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 # ── NFPA 13 coverage limits — imported from constants.py ─────────────────
 from .constants import HAZARD_CLASSES, NFPA_MAX_COVERAGE_SQFT as _NFPA_MAX_COVERAGE_SQFT
-from .nfpa_curves import min_design_point
+from .nfpa_curves import min_design_point, STORAGE_HAZARDS
 
 
 # NFPA 13 ceiling construction types — determines max spacing and
@@ -488,6 +488,8 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
     def _pick_design_point(self):
         """Open the curve picker (Design Point button in the panel)."""
+        if self._hazard_class in STORAGE_HAZARDS:
+            return  # no density/area curve — button face already reads N/A
         from .design_point_dialog import DesignPointDialog
         dlg = DesignPointDialog(self._hazard_class, self.design_point())
         if dlg.exec():

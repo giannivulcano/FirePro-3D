@@ -84,6 +84,11 @@ class TestPanelSections:
         meta = room.get_properties()["Design Point"]
         assert "N/A" in meta["value"]
 
+    def test_pick_design_point_noop_for_storage(self, room):
+        room.set_property("Hazard Class", "Miscellaneous Storage")
+        room._pick_design_point()  # must not open a dialog / must not raise
+        assert room._design_point is None
+
 
 def test_design_point_dialog_returns_selection(qapp):
     from firepro3d.design_point_dialog import DesignPointDialog
