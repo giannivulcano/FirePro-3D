@@ -89,6 +89,7 @@ def _linear_result_and_scene():
     ws.elevation = 2.0
     ws.get_properties.return_value = {"Test Date": {"value": "2026-06-01"}}
 
+    from firepro3d.design_area import EffectiveCriteria
     da = MagicMock()
     da.sprinklers = [spr]
     da.get_properties.return_value = {
@@ -97,6 +98,17 @@ def _linear_result_and_scene():
         "Area": {"value": "1500 sq ft"},
     }
     da.compute_area = MagicMock()
+    da.effective_criteria.return_value = EffectiveCriteria(
+        hazard="Ordinary Hazard Group 1",
+        base_area_sqft=1500.0,
+        density=0.15,
+        system_type="Wet",
+        inherited=False,
+        governing_room=None,
+        required_area_sqft=1500.0,
+        drawn_area_sqft=1500.0,
+        warnings=[],
+    )
 
     scene = SimpleNamespace(
         _project_info={"name": "Fire Station 4", "number": "FP-104",
@@ -310,8 +322,10 @@ class TestSummarySections:
         assert proj["Calculation Date"] == "2026-07-09"
         crit = dict(sections["Design Criteria"])
         assert crit["Hazard Classification"] == "Ordinary Hazard Group 1"
-        assert crit["Design Area"] == "1500 sq ft"
-        assert crit["Density"] == "0.15 gpm/ft²"       # OH1 @ 1500 sqft
+        assert crit["System Type"] == "Wet"
+        assert crit["Design Point"] == "1500 ft² @ 0.15 gpm/ft²"
+        assert crit["Required Area"] == "1500 ft²"
+        assert crit["Drawn Area"] == "1500 sq ft"
         assert crit["Sprinklers in Design Area"] == "1"
         ws = dict(sections["Water Supply"])
         assert ws["Test Date"] == "2026-06-01"

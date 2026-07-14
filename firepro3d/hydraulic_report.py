@@ -92,19 +92,6 @@ def _label_sort_key(label: str):
     return (int(m.group(1)), m.group(2))
 
 
-def _area_sqft_from_property(area_str: str):
-    """Parse the DesignArea 'Area' display string to square feet (or None)."""
-    s = (area_str or "").strip()
-    if not s or s == "0":
-        return None
-    try:
-        num = float(s.split()[0])
-    except (ValueError, IndexError):
-        return None
-    if "m²" in s or "m2" in s:
-        return num * 10.7639
-    return num
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Hydraulic Graph (Pressure vs Flow with semi-exponential X axis)
@@ -515,25 +502,33 @@ class HydraulicReportWidget(QWidget):
         ]
 
         da = getattr(scene, "active_design_area", None)
-        hazard = area_str = density = _DASH
         if da is not None:
             da.compute_area(self._sm)
+            crit = da.effective_criteria()
             props = da.get_properties()
-            hazard = props["Hazard Classification"]["value"] or _DASH
-            area_str = props["Area"]["value"] or _DASH
-            area_sqft = _area_sqft_from_property(props["Area"]["value"])
-            if area_sqft:
-                from .nfpa_curves import DENSITY_AREA_CURVES, interpolate_density as _interpolate_density
-                if hazard in DENSITY_AREA_CURVES:
-                    density = f"{_interpolate_density(hazard, area_sqft):.2f} gpm/ft²"
+            dry = crit.system_type == "Dry"
+            criteria = [
+                ("Hazard Classification", crit.hazard or _DASH),
+                ("System Type",           crit.system_type),
+                ("Design Point",
+                 (f"{crit.base_area_sqft:.0f} ft² @ "
+                  f"{crit.density:.2f} gpm/ft²")
+                 if crit.base_area_sqft else _DASH),
+                ("Required Area",
+                 (f"{crit.required_area_sqft:.0f} ft²"
+                  + (" (+30% dry system — NFPA 13)" if dry else ""))
+                 if crit.required_area_sqft else _DASH),
+                ("Drawn Area", props["Area"]["value"] or _DASH),
+            ]
+        else:
+            criteria = [("Hazard Classification", _DASH),
+                        ("System Type", _DASH), ("Design Point", _DASH),
+                        ("Required Area", _DASH), ("Drawn Area", _DASH)]
         spr_count = len(getattr(scene, "design_area_sprinklers", []) or [])
         hose = getattr(r, "hose_stream_gpm", 0.0)
-        criteria = [
-            ("Hazard Classification",      hazard),
-            ("Design Area",                area_str),
-            ("Density",                    density),
-            ("Sprinklers in Design Area",  str(spr_count) if spr_count else _DASH),
-            ("Hose Stream Allowance",      f"{hose:.0f} gpm" if hose > 0 else "None"),
+        criteria += [
+            ("Sprinklers in Design Area", str(spr_count) if spr_count else _DASH),
+            ("Hose Stream Allowance", f"{hose:.0f} gpm" if hose > 0 else "None"),
         ]
 
         ws = getattr(scene, "water_supply_node", None)

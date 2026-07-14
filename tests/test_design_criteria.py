@@ -293,3 +293,56 @@ class TestBadgeItem:
         from firepro3d.design_area import badge_fixed_size_mm, badge_size_mm
         da = _area_with(scene, [])
         assert badge_fixed_size_mm() == badge_size_mm(da.badge_rows())
+
+
+# ── run_hydraulics wiring ────────────────────────────────────────────────────
+
+
+class TestRunHydraulicsWiring:
+    def test_criteria_warnings_prepended_and_snapshot_set(self, qapp):
+        """run_hydraulics prepends effective-criteria warnings to the result
+        messages and pushes a badge snapshot onto the active design area."""
+        from firepro3d.model_space import Model_Space
+        from firepro3d.design_area import DesignArea
+        from firepro3d.water_supply import WaterSupply
+
+        ms = Model_Space()
+
+        # Build a tiny 2-sprinkler network (2 sprinklers on one branch)
+        n1 = ms.add_node(0.0, 0.0)
+        n2 = ms.add_node(3000.0, 0.0)
+        ms.add_pipe(n1, n2)
+        sprs = [ms.add_sprinkler(n1), ms.add_sprinkler(n2)]
+
+        # Attach water supply
+        ws = WaterSupply(0.0, 0.0)
+        ms.addItem(ws)
+        ms.water_supply_node = ws
+        ms.sprinkler_system.supply_node = ws
+
+        # Create and wire design area
+        da = DesignArea(list(sprs))
+        ms.addItem(da)
+        ms.design_areas = [da]
+        ms.active_design_area = da
+
+        # Force a shortfall: set the Design Area (Base) large enough to exceed
+        # any drawn area so effective_criteria() will emit a "below the required" warning.
+        da.set_property("Design Area (Base)", "99999")
+
+        # Run hydraulics
+        result = ms.run_hydraulics(ms.design_area_sprinklers)
+
+        # criteria warning must have been prepended
+        assert any("below the required" in m for m in result.messages), (
+            f"Expected shortfall warning in messages: {result.messages}"
+        )
+
+        # snapshot must be set
+        assert da._hyd_snapshot is not None, "Badge snapshot should have been set"
+
+        # sprinklers_calculated must match the design area sprinkler count
+        assert da._hyd_snapshot["sprinklers_calculated"] == len(sprs), (
+            f"Expected {len(sprs)} sprinklers, got "
+            f"{da._hyd_snapshot['sprinklers_calculated']}"
+        )

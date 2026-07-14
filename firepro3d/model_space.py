@@ -3368,6 +3368,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         da = self.active_design_area
         if da is not None and getattr(da, "spacing_warnings", None):
             result.messages[:0] = da.spacing_warnings
+        if da is not None:
+            crit = da.effective_criteria()
+            if crit.warnings:
+                result.messages[:0] = crit.warnings
+            remote_psi = min(
+                (result.required_node_pressures.get(s.node, 0.0)
+                 for s in da.sprinklers if s.node), default=0.0)
+            da.set_hydraulic_snapshot({
+                "total_demand_gpm": result.total_demand,
+                "demand_psi": result.required_pressure,
+                "remote_head_psi": remote_psi,
+                "sprinklers_calculated": len(design_sprinklers or []),
+                "hose_gpm": getattr(result, "hose_stream_gpm", 0.0),
+            } if (result.passed or result.node_pressures) else None)
         self.hydraulic_result = result
         self._supply_network_node = getattr(solver, '_supply_node', None)
         # Refresh all pipe labels and node badges
