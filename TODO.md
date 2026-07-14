@@ -49,6 +49,7 @@ MVP = the plotted **AHJ submittal package (drawings + calcs)** for the Sprinkler
 _Architecture posture: arm's-length modules (read the model → emit results/overlays/reports; never entangle logic into `Model_Space`); let the platform/module seam emerge. Thermal radiation = first suite module (kept, NOT MVP)._
 
 ## Tasks
+- [ ] **Bug: gridline input table doesn't normalize dimension input** — typing `100` in a cell and leaving it keeps the raw `100` instead of formatting to project units (`100' 0"` / `100 mm`). The panel's dimension fields do this via the `DimensionEdit` / `format_length`+`parse_dimension` pattern (see `docs/specs/property-panel.md` §3.8); confirm the gridline table bypasses it and route the cells through the same helper (user-reported 2026-07-14). `gridline.py` / grid edit dialog [type:Bug] [P2] [subject:CAD]
 - [x] Voronoi relaxation algorithm for auto-populate sprinkler placement [type:Recently Completed] [subject:Sprinkler Design]
 - [x] Level manager elevation enhancements (guard against deleted C++ objects) [type:Recently Completed] [subject:CAD]
 - [x] Sprinkler property display improvements (absolute X/Y/Z read-only properties) [type:Recently Completed] [subject:Sprinkler Design]
