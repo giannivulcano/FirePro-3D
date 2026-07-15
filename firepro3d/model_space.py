@@ -5338,28 +5338,31 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             selection = next((i for i in items if isinstance(i, Node)), None)
         if selection is None:
             selection = next((i for i in items if isinstance(i, Pipe)), None)
-        # Also check for walls, floors, roofs, view markers, design areas
-        # (lower Z-order).  A badge hit resolves to its parent DesignArea
-        # (mirrors the Sprinkler→Node resolve above); the ItemIsSelectable
-        # check applies to the resolved item.
+        # Also check for walls, floors, roofs, view markers, design-area
+        # badges (lower Z-order).
         if selection is None:
             for i in items:
                 # A badge click resolves to its parent DesignArea (mirrors
-                # the Sprinkler→Node resolve above); clicking the area's
+                # the Sprinkler→Node resolve above); the ItemIsSelectable
+                # check applies to the resolved parent.  Clicking the area's
                 # interior must NOT steal room/wall selection — DesignArea
                 # sits at Z=600 (above everything) with a filled tile-union
-                # path, so listing bare DesignArea here would intercept every
-                # interior click.  The badge is the only click target; rubber-
-                # band selection still selects the area itself.
-                cand = i.parentItem() if isinstance(i, DesignAreaBadge) else i
-                if cand is None:
+                # path, so a bare DesignArea hit is never a candidate (only
+                # the badge is a click target); rubber-band selection still
+                # selects the area itself.
+                if isinstance(i, DesignAreaBadge):
+                    parent = i.parentItem()
+                    if (parent is not None and parent.flags()
+                            & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
+                        selection = parent
+                        break
                     continue
-                if ((isinstance(cand, (WallSegment, FloorSlab, RoofItem, Room,
-                                       ViewMarkerArrow))
-                        or type(cand).__name__ == "DetailMarker")
-                        and cand.flags()
+                if ((isinstance(i, (WallSegment, FloorSlab, RoofItem, Room,
+                                    ViewMarkerArrow))
+                        or type(i).__name__ == "DetailMarker")
+                        and i.flags()
                         & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable):
-                    selection = cand
+                    selection = i
                     break
 
         # Derive typed references for handler signature

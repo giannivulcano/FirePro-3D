@@ -470,6 +470,69 @@ class TestSelectModeFilter:
         )
 
 
+def _model_space_with_confirmed_area(qapp):
+    """Headless Model_Space with a 3-sprinkler branch and a confirmed
+    DesignArea (mode is None → badge visible)."""
+    from firepro3d.model_space import Model_Space
+    ms = Model_Space()
+    nodes = [ms.add_node(col * 3000.0, 0.0) for col in range(3)]
+    ms.add_pipe(nodes[0], nodes[1])
+    ms.add_pipe(nodes[1], nodes[2])
+    sprs = [ms.add_sprinkler(n) for n in nodes]
+    da = DesignArea(sprs)
+    ms.addItem(da)
+    ms.design_areas.append(da)
+    da.compute_area(ms.scale_manager)
+    da._sync_badge()
+    return ms, da
+
+
+def _press_event(pos):
+    """Fake left-button press.  QGraphicsSceneMouseEvent cannot be
+    instantiated in PyQt6; Model_Space.mousePressEvent only reads
+    button()/scenePos()/modifiers() on the select-mode path, and the
+    _press_select_item dispatch returns before super().mousePressEvent."""
+    from types import SimpleNamespace
+    from PyQt6.QtCore import Qt
+    return SimpleNamespace(
+        button=lambda: Qt.MouseButton.LeftButton,
+        buttons=lambda: Qt.MouseButton.LeftButton,
+        scenePos=lambda: QPointF(pos),
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+        accept=lambda: None,
+    )
+
+
+class TestBadgeClickSelection:
+    """Functional coverage for the badge→parent resolve (grip-drag entry):
+    a select-mode click on the badge selects the parent DesignArea; a click
+    inside the confirmed area but off the badge selects nothing (the
+    interior click-steal fix must stand)."""
+
+    def test_badge_click_selects_parent_design_area(self, qapp):
+        ms, da = _model_space_with_confirmed_area(qapp)
+        assert ms.mode is None                      # default = select mode
+        # Park the badge far from all geometry so snapping can't interfere
+        da.set_badge_offset(QPointF(50000.0, 50000.0))
+        assert da.badge.isVisible()
+        pos = da.badge.mapToScene(da.badge.boundingRect().center())
+        ms.mousePressEvent(_press_event(pos))
+        assert da.isSelected(), (
+            "Badge click must resolve to and select the parent DesignArea"
+        )
+
+    def test_interior_click_does_not_select_design_area(self, qapp):
+        ms, da = _model_space_with_confirmed_area(qapp)
+        da.set_badge_offset(QPointF(50000.0, 50000.0))  # badge out of the way
+        interior = QPointF(1500.0, 800.0)   # inside tiles, off nodes/pipes
+        assert da.path().contains(interior)
+        assert not da.badge.sceneBoundingRect().contains(interior)
+        ms.mousePressEvent(_press_event(interior))
+        assert not da.isSelected(), (
+            "Interior click must not steal selection — badge-only target"
+        )
+
+
 # ── Fix 3: no duplicate Level row in property panel ─────────────────────────
 
 
