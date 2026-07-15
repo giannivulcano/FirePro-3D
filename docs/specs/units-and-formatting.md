@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built conventions; divergences ledger at end
 last-verified: 2026-07-14
-verified-commit: 696ad74
+verified-commit: 5ba9227
 applies-to:
   - firepro3d/scale_manager.py
   - firepro3d/dimension_edit.py   # widget contract owned by property-panel.md §3.8; unit rules owned here

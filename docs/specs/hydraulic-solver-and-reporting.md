@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built; divergence ledger in §12
-last-verified: 2026-07-10
-verified-commit: 232a824
+last-verified: 2026-07-14
+verified-commit: 5ba9227
 applies-to:
   - firepro3d/hydraulic_solver.py
   - firepro3d/hydraulic_report.py
@@ -94,6 +94,8 @@ Design area sprinkler selection is a pass-through from the sprinkler components 
 - Otherwise → `MainWindow.run_hydraulics` passes `None` and the solver **refuses** (guard G6): a design area is mandatory for hydraulic calculation. *(The former "None → all sprinklers" fallback was retired 2026-07-10 — a calc without a designated design area is not AHJ-submittable.)*
 
 The solver accepts a `design_sprinklers` list parameter and does not participate in selection logic.
+
+After the solve, `Model_Space.run_hydraulics` prepends the active design area's `spacing_warnings` and then its `EffectiveCriteria.warnings` to `result.messages` (criteria warnings lead the report output, ahead of spacing warnings), and pushes the design-criteria badge snapshot onto the area — both owned by [sprinkler spec §11.8–§11.10](sprinkler-system-components.md).
 
 ---
 
@@ -344,11 +346,11 @@ Nodes at the same XY position (vertical drops — detected by rounding scene pos
 | Status | Pass/fail banner (green ✅ PASS or red ❌ FAIL) |
 | Messages | All solver warnings/errors/summaries — rendered directly under the banner, ABOVE the sections, so a failed calc leads with its reason |
 | Project | Project name, number, address (address + city + state joined), client, designer, system description, calculation date |
-| Design criteria | Hazard classification, design area, density (gpm/ft²), sprinkler count, hose stream allowance |
+| Design criteria | Hazard Classification, System Type, Design Point (base area @ density), Required Area (with "+30% dry system" note when Dry), Drawn Area, Sprinklers in Design Area, Hose Stream Allowance |
 | Water supply data | Static pressure, residual pressure, test flow, gauge elevation, test date |
 | Results | Status, sprinkler demand (gpm), hose stream (gpm) *(shown only when > 0)*, total demand (gpm) *(shown only when hose stream > 0)*, required pressure (psi), available pressure (psi) |
 
-**Data sources:** project metadata reads `Model_Space._project_info` (edited via the Manage → Project → Project Info dialog); design criteria read the active `DesignArea` ("Area" display string verbatim; density interpolated from the NFPA density/area curves — shown as "—" when the hazard is unknown or the area unparsable); water supply reads the `WaterSupply` properties including the **Test Date** string property; calculation date is `HydraulicResult.calc_date` (auto-stamped at solve). **Any missing value renders as "—"** — the report always generates. All four sections are assembled once by `_summary_sections()` and consumed by the screen tab, CSV, and PDF (single source of truth). User-entered values are `html.escape()`d at the render boundary.
+**Data sources:** project metadata reads `Model_Space._project_info` (edited via the Manage → Project → Project Info dialog); design criteria read the active `DesignArea` via `effective_criteria()` — the resolved (room-inherited) hazard, system type, design-point base area and **design-point density**, and required area, per the inheritance rules owned by [sprinkler spec §11.8–§11.9](sprinkler-system-components.md); Drawn Area is the area's "Area" display string verbatim; NFPA areas/densities format via the ScaleManager NFPA formatters (`units-and-formatting.md §3`); water supply reads the `WaterSupply` properties including the **Test Date** string property; calculation date is `HydraulicResult.calc_date` (auto-stamped at solve). **Any missing value renders as "—"** — the report always generates. All four sections are assembled once by `_summary_sections()` and consumed by the screen tab, CSV, and PDF (single source of truth). User-entered values are `html.escape()`d at the render boundary.
 
 ### 9.2 Tab 2: Node Summary Table
 

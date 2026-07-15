@@ -1,10 +1,23 @@
+---
+status: current          # §5/§9/§12 code-verified as-built; divergences ledger in §13
+last-verified: 2026-07-14
+verified-commit: 5ba9227
+applies-to:
+  - firepro3d/wall.py
+  - firepro3d/room.py
+  - firepro3d/floor_slab.py
+  - firepro3d/wall_opening.py
+  - firepro3d/roof.py
+---
+
 # Wall, Room & Floor Slab System — Design Spec
 
 **Date:** 2026-04-27
 **Complexity:** Large
-**Status:** Draft
+**Status:** Current
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
+**Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
 
 ## 1. Goal
 
@@ -408,7 +421,10 @@ Before creating a new room, the algorithm checks for existing rooms with substan
 | `_boundary` | `list[QPointF]` | from detection | Closed polygon vertices |
 | `name` | `str` | auto-assigned | Room identifier, used for sprinkler tagging |
 | `_tag` | `str` | `""` | NFPA tag |
-| `_hazard_class` | `str` | `"Light Hazard"` | One of 7 NFPA 13 classes |
+| `_hazard_class` | `str` | `"Light Hazard"` | One of 8 NFPA 13 classes (§9.2) |
+| `_occupancy` | `str` | `""` | Free-text occupancy description (§9.7) |
+| `_system_type` | `str` | `"Wet"` | `"Wet"` \| `"Dry"` (§9.7) |
+| `_design_point` | `tuple[float, float] \| None` | `None` | Selected NFPA design point `(area_sqft, density)`; `None` → curve minimum (§9.7) |
 | `_compartment_type` | `str` | `"Room"` | One of 6 types |
 | `_ceiling_type` | `str` | `"Noncombustible unobstructed"` | One of 8 NFPA 13 types |
 | `_ceiling_level` | `str` | — | Level reference for ceiling elevation |
@@ -419,7 +435,7 @@ Before creating a new room, the algorithm checks for existing rooms with substan
 
 ### 9.2 Hazard Classes
 
-Seven NFPA 13 hazard classifications with associated maximum coverage per sprinkler:
+Eight NFPA 13 hazard classifications (`constants.HAZARD_CLASSES`) with associated maximum coverage per sprinkler (`constants.NFPA_MAX_COVERAGE_SQFT`):
 
 | Hazard Class | Max Coverage (sq ft) |
 |-------------|---------------------|
@@ -428,8 +444,11 @@ Seven NFPA 13 hazard classifications with associated maximum coverage per sprink
 | Ordinary Hazard Group 2 | 130 |
 | Extra Hazard Group 1 | 100 |
 | Extra Hazard Group 2 | 100 |
+| Low-Piled Storage | 130 (OH-type criteria per NFPA 13 low-piled provisions) |
 | Miscellaneous Storage | 100 |
 | High Piled Storage | 100 |
+
+The three storage classes (`nfpa_curves.STORAGE_HAZARDS`) have **no density/area curve** — their design criteria come from the NFPA 13 storage chapters (a planned follow-up). They disengage design-area criteria inheritance ([sprinkler-system-components.md §11.8](sprinkler-system-components.md)).
 
 ### 9.3 Compartment Types
 
@@ -470,6 +489,17 @@ Currently stored as metadata only — not consumed by coverage calculations. Res
 - `top_z` = ceiling level elevation - thickest floor slab on ceiling level + ceiling offset
 
 The slab thickness lookup scans `scene._floor_slabs` for slabs whose level matches `_ceiling_level`.
+
+### 9.7 Protection Criteria & Design Point (as-built 2026-07-14)
+
+The panel's "Protection Criteria" section (rendered via `header`-type rows — `property-panel.md §3.2`) carries the room-side inputs to design-area criteria inheritance. **The inheritance/resolution rules are owned by [sprinkler-system-components.md §11.8](sprinkler-system-components.md)** — this section only defines the room-side storage:
+
+- **Occupancy** (`_occupancy`) — free text; surfaces on the design-criteria badge.
+- **System Type** (`_system_type`) — Wet | Dry.
+- **Design Point** (`_design_point`) — a `(area_sqft, density)` point on the hazard's NFPA density/area curve, picked via the Design Point **button** which opens `DesignPointDialog` (a modal wrapper around the auto-populate dialog's `DensityAreaGraph`). `Room.design_point()` returns the stored point, defaulting to the hazard curve's **minimum-area point** (`nfpa_curves.min_design_point`); it returns `None` for storage hazards (no curve — the button face reads "N/A" and the picker refuses to open).
+- **Hazard change resets the design point:** `set_property("Hazard Class", …)` sets `_design_point = None` when the class actually changes — the point lives on a specific curve, so switching curves invalidates it.
+
+**Fill Color panel row removed (2026-07-14):** room appearance is owned by the Display Manager cascade; `set_property("Fill Color")` remains for backward compatibility but no row renders.
 
 ## 10. Sprinkler Detection
 
@@ -571,7 +601,6 @@ Every polygon vertex is a grip point. `apply_grip(index, new_pos)` moves the ind
     "base_offset_mm": 0.0,
     "top_offset_mm": 0.0,
     "level": "Level 1",
-    "user_layer": "Default",
     "name": "Wall 1",
     "openings": [...]
 }
@@ -590,8 +619,7 @@ Every polygon vertex is a grip point. `apply_grip(index, new_pos)` moves the ind
     "height_mm": 2040.0,
     "sill_mm": 0.0,
     "offset_along": 500.0,
-    "level": "Level 1",
-    "user_layer": "Default"
+    "level": "Level 1"
 }
 ```
 
@@ -603,18 +631,24 @@ Openings are serialized within their parent wall's `openings` array. The wall re
 {
     "type": "room",
     "boundary": [[x1, y1], [x2, y2], ...],
-    "name": "Room 1",
     "color": "#4488cc",
-    "hazard_class": "Light Hazard",
-    "compartment_type": "Room",
-    "ceiling_type": "Noncombustible unobstructed",
+    "name": "Room 1",
+    "tag": "",
+    "show_label": true,
+    "level": "Level 1",
     "ceiling_level": "Level 2",
     "ceiling_offset": -50.8,
-    "label_offset": [0, 0],
-    "level": "Level 1",
-    "user_layer": "Default"
+    "hazard_class": "Light Hazard",
+    "occupancy": "",
+    "system_type": "Wet",
+    "design_point": [1500.0, 0.1],
+    "compartment_type": "Room",
+    "ceiling_type": "Noncombustible unobstructed",
+    "label_offset": [0, 0]
 }
 ```
+
+`design_point` serializes as `null` when unset (load restores `None` → curve-minimum default, §9.7). Missing `occupancy`/`system_type`/`design_point` on old saves default to `""`/`"Wet"`/`null`. (The legacy `user_layer` field is gone — the per-item layer system was removed.)
 
 ### 12.4 FloorSlab
 
@@ -626,8 +660,7 @@ Openings are serialized within their parent wall's `openings` array. The wall re
     "level_offset_mm": 0.0,
     "color": "#8888cc",
     "name": "Slab 1",
-    "level": "Level 1",
-    "user_layer": "Default"
+    "level": "Level 1"
 }
 ```
 
@@ -635,15 +668,17 @@ Openings are serialized within their parent wall's `openings` array. The wall re
 
 ## 13. Divergences from Current Implementation
 
-| Area | Current behavior | Spec requirement | Migration |
-|------|-----------------|------------------|-----------|
-| Alignment naming | `Interior` / `Exterior` | `Left` / `Right` | Rename constants; map on deserialize |
-| Join modes | Auto / Butt / Miter / Solid | Auto / Butt / Solid | Remove Miter from enum and dropdown; treat serialized "Miter" as "Butt" on load |
-| Min thickness | No enforcement (0 allowed) | 1 mm minimum | Clamp on set and on deserialize |
-| Opening reposition | Not called on wall edit | Called from `_rebuild_path()` | Add reposition loop |
-| Offset clamping | No clamping | Clamp to [0, centerline_length] | Add clamp in `_reposition()` and `translate()` |
-| Dead code | room.py lines 338-339 (unreachable returns) | Remove | Delete dead lines |
-| `MITER_TOL` | Hardcoded in `wall.py` | Named constant in `constants.py` | Extract |
+All rows in this ledger are **resolved** as-built (re-verified 2026-07-14):
+
+| Area | Resolution |
+|------|-----------|
+| Alignment naming | `Left` / `Right` in use; legacy `Interior` / `Exterior` migrated on deserialize |
+| Join modes | Miter removed from the enum; serialized `"Miter"` maps to **`"Solid"`** on load (spec originally said Butt — Solid preserves corner geometry) |
+| Min thickness | Clamped to 1 mm on set (`set_property`) and on deserialize |
+| Opening reposition | `WallSegment._rebuild_path()` repositions owned openings |
+| Offset clamping | `WallOpening._reposition()` clamps `_offset_along` to `[0, centerline_length]` |
+| Dead code (room.py unreachable returns) | Removed |
+| `MITER_TOL` | Named constant in `constants.py` (with `MAX_MITER_FACTOR`, `AUTO_JOIN_TOLERANCE`, `TEE_TOLERANCE`), imported by `wall.py` |
 
 ## 14. Roadmap (Out of Scope)
 

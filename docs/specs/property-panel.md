@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-09
-verified-commit: c624542
+last-verified: 2026-07-14
+verified-commit: 5ba9227
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -36,6 +36,7 @@ The panel never imports entity modules for rendering decisions except the specia
 
 | `type` | Widget | Commit trigger |
 |---|---|---|
+| `header` | section-divider `QLabel` (`── {key} ──`, bold secondary text) — no editor, no `value` key needed | — |
 | `label` | read-only `QLabel` (sunken style) | — |
 | `warning` | full-width amber header (`⚠ {key}`) + word-wrapped bullet body (`QLabel`, `Expanding` + `setMinimumWidth(1)` so long words don't force a wider dock minimum) | — |
 | `string` (+ fallback) | `QLineEdit`; auto-attaches `QDoubleValidator` when current value parses as float | `editingFinished` |
@@ -48,6 +49,8 @@ The panel never imports entity modules for rendering decisions except the specia
 | `button` | `QPushButton` labelled `value`; fires `meta["callback"]` (exceptions swallowed), then debounced refresh | click |
 
 `meta["readonly"]` disables/greys the widget. `meta["suffix"]` wraps the widget in an HBox with a grey italic suffix label.
+
+**Width containment (rendering constraints, 2026-07-14):** every `QComboBox` variant (enum/combo/level_ref/font/legacy Level) gets `setMinimumContentsLength(8)` so long option strings can't force the form wider than the dock (the panel clips — `ScrollBarAlwaysOff`); `button` uses an **`Ignored`** horizontal size policy + a tooltip carrying the full face text, so long button faces (e.g. Design Point) shrink instead of widening the form.
 
 ### 3.3 Write path & refresh loop
 
@@ -62,7 +65,7 @@ The generic protocol has four baked-in exceptions (all in `_show_properties_inne
 1. **Node→Sprinkler resolution:** a selected `Node` with `has_sprinkler()` shows the *sprinkler's* properties instead.
 2. **Sprinkler DB cascade:** `_cascade_sprinkler_props` filters Model/Orientation options from the lazy singleton `SprinklerDatabase` and auto-fills read-only K-Factor / Coverage / Min Pressure / Temperature when exactly one record matches.
 3. **Pipe node sections:** a `Pipe` appends "── Node 1/2 ──" header rows rendering each node's properties inline (level_ref/label/string only), plus a read-only "Absolute Elev." row.
-4. **Legacy Level row:** items with a `.level` attribute but no `level_ref` property get a synthesized Level combo (`_change_level`), which also re-derives node `z_pos` from level elevation + ceiling offset and calls `level_manager.apply_to_scene`.
+4. **Legacy Level row:** items with a `.level` attribute but no `level_ref` property get a synthesized Level combo (`_change_level`), which also re-derives node `z_pos` from level elevation + ceiling offset and calls `level_manager.apply_to_scene`. **Suppressed (2026-07-14) when the entity's property dict already contains a `"Level"` key** — e.g. `DesignArea` exposes a read-only Level *label*; a second editable combo would be a duplicate lie.
 
 ### 3.5 Multi-select semantics
 

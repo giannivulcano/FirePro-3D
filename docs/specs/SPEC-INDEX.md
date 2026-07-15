@@ -15,7 +15,7 @@
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `grid_line.py` | current |
 | Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py` | current |
 | Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `model_space.py` (placement) | current |
-| Sprinkler system components | `specs/sprinkler-system-components.md` | `sprinkler.py`, `sprinkler_db.py`, `sprinkler_system.py`, `fitting.py`, `water_supply.py`, `design_area.py` | current |
+| Sprinkler system components | `specs/sprinkler-system-components.md` | `sprinkler.py`, `sprinkler_db.py`, `sprinkler_system.py`, `fitting.py`, `water_supply.py`, `design_area.py`, `nfpa_curves.py`, `design_point_dialog.py` | current |
 | Parametric constraints / align | `specs/parametric-constraint-system.md` | `constraints.py`, `scene_tools.py` | current |
 | Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py`, `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py` | current |
 | Display / visibility | `architecture/display-system.md` (Z-order owned by `view-relationships.md §7.3` + `constants.py`) | `display_manager.py`, `displayable_item.py` | current |

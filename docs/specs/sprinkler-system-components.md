@@ -1,10 +1,26 @@
+---
+status: current          # §10–§11 code-verified as-built; divergence ledger in §14
+last-verified: 2026-07-14
+verified-commit: 5ba9227
+applies-to:
+  - firepro3d/sprinkler.py
+  - firepro3d/sprinkler_db.py
+  - firepro3d/sprinkler_system.py
+  - firepro3d/fitting.py
+  - firepro3d/water_supply.py
+  - firepro3d/design_area.py
+  - firepro3d/nfpa_curves.py
+  - firepro3d/design_point_dialog.py
+---
+
 # Sprinkler System Components Specification
 
-**Status:** Draft  
+**Status:** Current  
 **Date:** 2026-04-28  
 **Scope:** Document current behavior + flag divergences with migration paths  
 **Impl note (2026-07-13):** §11 rewritten as-built after the design-area polish task (`feat/design-area-polish`) — two-value geometry (calc As vs drawn tiles), creation/pick UX, multi-area flow, derived level, two-state rendering, Display Manager category, dual-path serialization. Verified against commit `5a1a367`; tests `tests/test_design_area.py`.
 **Impl note (2026-07-13, later):** §11.5 tile clipping upgraded — wall-segment **line-of-sight shadow clip** (`_clip_tile_at_walls`) replaces the room-polygon clip as the primary slant defense; the former "no detected room → overshoot" known limitation is retired. Verified against commit `600b6ef`.
+**Impl note (2026-07-14):** Design-Area Criteria System — curve data moved to `nfpa_curves.py` (§11.2), room-criteria inheritance + `EffectiveCriteria` (§11.8), dry-system required area (§11.9), DESIGN CRITERIA badge (§11.10), WaterSupply Test Date + Domestic Water Allowance (§10.2). Room-side criteria storage owned by `wall-room-floor-system.md §9`. Tests: `tests/test_design_criteria.py`, `tests/test_nfpa_curves.py`, `tests/test_room_criteria.py`.
 
 ---
 
@@ -58,7 +74,8 @@ These 8 modules form the physical backbone of the application — every hydrauli
 │       ──refs──> Pipe[] (max 4)                          │
 ├─────────────────────────────────────────────────────────┤
 │  SprinklerDatabase (JSON file, product records)         │
-│  DesignArea (hazard class, NFPA curves, sprinkler set)  │
+│  DesignArea (criteria + badge, sprinkler set — §11)     │
+│  nfpa_curves (density/area curve data — §11.2)          │
 │  WaterSupply (supply curve properties)                  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -156,13 +173,13 @@ Full-featured manager dialog with two tabs:
 
 | Record field | Direction | Properties key | Notes |
 |---|---|---|---|
-| manufacturer | → | Manufacturer | Auto-populate path only; Sprinkler Manager path does not set this |
-| model | → | Model | Auto-populate path only; Sprinkler Manager path does not set this |
-| type | → | Orientation | Auto-populate path uses correct key; **BUG:** Sprinkler Manager path uses `"Type"` which silently fails (key not in _properties) |
+| manufacturer | → | Manufacturer | Both paths transfer |
+| model | → | Model | Both paths transfer |
+| type | → | Orientation | Both paths use the correct key |
 | k_factor | → | K-Factor | Both paths work correctly |
 | min_pressure | → | Min Pressure | Both paths work correctly |
 | coverage_area | → | Coverage Area | Both paths work correctly |
-| temp_rating | → | Temperature | Auto-populate formats as `"155°F"`; **BUG:** Sprinkler Manager path uses `"Temp Rating"` which silently fails |
+| temp_rating | → | Temperature | Both paths format as `"155°F"` |
 | orifice | ✗ | — | Not transferred to placed sprinklers |
 | notes | ✗ | — | Not transferred to placed sprinklers |
 | — | — | Design Density | Set by auto-populate, not from DB |
@@ -171,9 +188,7 @@ Full-featured manager dialog with two tabs:
 | — | — | Ceiling Level / Ceiling Offset | From parent Node |
 | — | — | X / Y / Z | Read-only, from Node scenePos + z_pos |
 
-**Bug note:** Two template application paths exist with different behavior:
-- `model_space.py:1709-1715` (auto-populate) — directly sets `_properties[key]["value"]`, uses correct keys. Transfers all fields including Manufacturer, Model, Temperature, Orientation.
-- `main.py:2207-2211` (Sprinkler Manager "Use as Template") — calls `set_property(key, value)`, uses wrong keys for Temperature (`"Temp Rating"`) and Orientation (`"Type"`). Also does not transfer Manufacturer or Model. Only K-Factor, Min Pressure, and Coverage Area actually transfer.
+**Path note (verified 2026-07-14):** Two template application paths exist — auto-populate (`model_space.py`, sets `_properties[key]["value"]` directly) and the Sprinkler Manager "Use as Template" (`main.py::_apply_sprinkler_template_from_record`, via `set_property`). Both now transfer all seven mapped fields with correct keys (the former `"Temp Rating"`/`"Type"` wrong-key bug is fixed — §14 D9 resolved).
 
 ---
 
@@ -492,7 +507,9 @@ Physical network endpoint representing the water main connection (`firepro3d/wat
 | Residual Pressure | string | 60 | psi (at test flow) |
 | Test Flow | string | 500 | gpm (at residual pressure) |
 | Elevation | string | 0 | ft (at supply gauge) |
+| Test Date | string | "" | flow-test date (free text; shown in the hydraulic report header) |
 | Hose Stream Allowance | enum | 250 GPM | 100 GPM, 250 GPM, 500 GPM |
+| Domestic Water Allowance | string | 0 | gpm — **informational this task** (shown on the design-criteria badge, §11.10); adding it to solver demand is a planned follow-up (grill 2026-07-14) |
 
 ### 10.3 Visual
 
@@ -509,45 +526,43 @@ Convenience `@property` accessors with safe float parsing (fallback to 0.0):
 - `residual_pressure` → float psi
 - `test_flow` → float gpm
 - `elevation` → float ft
-- `hose_stream_allowance` → float gpm (parsed from "250 GPM" format)
+- `hose_stream_allowance` → float gpm (parsed from "250 GPM" format; fallback 250.0)
+- `domestic_allowance_gpm` → float gpm (badge consumer only — not in the solver demand)
 
 ---
 
 ## 11. Design Area & NFPA 13 Curves
 
-### 11.1 Hazard Classification
+### 11.1 Hazard Classification (inherited/effective — as-built 2026-07-14)
 
-Per-design-area property (per-room granularity). Options from NFPA 13:
+The DesignArea's hazard is normally **inherited from the rooms containing its member sprinklers** (§11.8), not set directly. The stored `_properties["Hazard Classification"]` enum (options = `HAZARD_OPTIONS`, the five curve-bearing NFPA 13 occupancy classes: Light, OH1, OH2, EH1, EH2) is the *fallback* used when no room criteria govern, and is **overwritten by write-back** while inheritance is engaged (so a later disengage keeps the last effective value).
 
-| Classification | Typical use |
-|---|---|
-| Light Hazard | Offices, churches, hospitals |
-| Ordinary Hazard Group 1 | Parking garages, laundries |
-| Ordinary Hazard Group 2 | Machine shops, dry cleaners |
-| Extra Hazard Group 1 | Aircraft hangars, saw mills |
-| Extra Hazard Group 2 | Flammable liquid spraying, plastic processing |
+Room-side hazard classes (8, including the three storage classes) and their per-sprinkler coverage limits are owned by `wall-room-floor-system.md §9.2` + `constants.py` (`HAZARD_CLASSES`, `NFPA_MAX_COVERAGE_SQFT`). Storage classes have no density/area curve and **disengage** inheritance (§11.8).
 
-Stored as `_properties["Hazard Classification"]` enum on DesignArea.
+### 11.2 Density/Area Curves — `nfpa_curves.py`
 
-### 11.2 Density/Area Curves
-
-`DENSITY_AREA_CURVES` — NFPA 13 Figure 11.2.3.1.1 data. Hardcoded in `auto_populate_dialog.py`.
+`DENSITY_AREA_CURVES` — NFPA 13 Figure 11.2.3.1.1 data. **Single home: `firepro3d/nfpa_curves.py`** (moved out of `auto_populate_dialog.py` 2026-07-14; the dialog re-imports the data and re-aliases the helpers as `_interpolate_density`/`_interpolate_area` for its internal call sites). No Qt imports — safe for any module. Also home to `HAZARD_ABBREV` (LH/OH1/…, used by badges and warnings) and `STORAGE_HAZARDS` (the three curve-less storage classes).
 
 Structure: `dict[str, list[tuple[float, float]]]` — hazard class name → list of `(area_sqft, density_gpm_per_sqft)` control points.
 
 Each curve defines the relationship between design area size and required water density. Larger design areas require lower density; smaller areas require higher density.
 
-### 11.3 Interpolation
+### 11.3 Interpolation (`nfpa_curves.py`)
 
-Two helper functions:
+Three helper functions:
 
-- `_interpolate_density(hazard, area_sqft)` → density (gpm/ft²)
+- `interpolate_density(hazard, area_sqft)` → density (gpm/ft²)
   - Linear interpolation between curve control points
   - Clamped to curve endpoints outside range
+  - No-curve hazard (storage/unknown) → 0.10 (Light Hazard minimum) as a safe fallback
 
-- `_interpolate_area(hazard, density)` → area (ft²)
+- `interpolate_area(hazard, density)` → area (ft²)
   - Inverse interpolation: given a density, find the corresponding area
   - Sorts by density ascending for lookup
+  - No-curve hazard → 1500.0 fallback
+
+- `min_design_point(hazard)` → `(area_sqft, density) | None`
+  - The smallest-area point on the hazard's curve — the default room design point (`wall-room-floor-system.md §9`); `None` for curve-less hazards
 
 ### 11.4 Creation & Pick Mode (as-built 2026-07-13)
 
@@ -559,7 +574,7 @@ Design areas are created in `design_area` mode (`Model_Space._press_design_area`
 - **Multiple areas:** the working area (`Model_Space._da_editing`) receives picks. Confirm clears it — the next pick on an unclaimed sprinkler starts a **new** design area; picking a member of an existing area **resumes editing** that area. `active_design_area` (the calc input) is the last edited/confirmed area.
 - **Feedback:** orange highlight rings (`DESIGN_AREA_HL_RADIUS_PX`) mark the working area's sprinklers; every toggle recomputes and shows `count + area` in the status bar, pushes the area to the property panel (`requestPropertyUpdate`), and emits `sceneModified` (model browser + dirty flag).
 
-Output to hydraulic solver: list of design sprinklers + hazard classification, plus `spacing_warnings` prepended to `HydraulicResult.messages` by `Model_Space.run_hydraulics`.
+Output to hydraulic solver: list of design sprinklers + effective criteria (§11.8). `Model_Space.run_hydraulics` prepends `spacing_warnings` and then `EffectiveCriteria.warnings` to `HydraulicResult.messages` (criteria warnings lead), and pushes the badge snapshot (§11.10).
 
 ### 11.5 Two-Value Geometry: Calc As vs Drawn Tiles (as-built 2026-07-13)
 
@@ -582,7 +597,7 @@ Each member sprinkler carries **two deliberately different values**:
 - **Two visual states**, keyed on scene mode: *editing* (`design_area` mode) = fill + faint interior tile edges, below geometry; *confirmed* = dashed outline tracing the union boundary (L-shapes keep their notch), above all geometry and gridline bubbles. Z values live in `constants.py` (`Z_DESIGN_AREA`, `Z_DESIGN_AREA_CONFIRMED`; ordering owned by `view-relationships.md §7.3`); `DesignArea.sync_z_for_mode` switches them.
 - **Display Manager:** "Design Area" category (Fire Suppression group) — `color` = confirmed outline, `fill` = editing hue, plus opacity/visibility; applied via `_display_color`/`_display_fill_color` and `apply_category_defaults` at creation/load.
 - **Level is derived, read-only:** `DesignArea.level` reports the member sprinklers' node level (creation-time value is only the empty-area fallback); shown as a read-only `Level` label property. Level visibility is applied by `level_manager.apply_to_scene`.
-- **Persistence:** design areas serialize through **both** independent paths — `scene_io.py` (project files) and `_capture_network`/`_restore_network` (undo) — with `sprinkler_node_ids`, `properties`, `is_active`, `level`. Missing `level` (pre-2026-07 saves) backfills from member sprinklers. **Both load paths recompute tiles only after walls & rooms are restored** (earlier compute produces wall-less, over-wide tiles).
+- **Persistence:** design areas serialize through **both** independent paths — `scene_io.py` (project files) and `_capture_network`/`_restore_network` (undo) — with `sprinkler_node_ids`, `properties`, `is_active`, `level`, `badge_offset` (`None` unless the badge was user-moved — §11.10). `properties` is the **raw stored** dict (`{key: value}`), which as of 2026-07-14 includes `System Name`, `System Type`, `Design Area (Base)` (ft², NFPA basis) and `Show Badge` alongside `Hazard Classification` — the synthesized display rows from `get_properties()` (§11.8) are *not* persisted. Missing `level` (pre-2026-07 saves) backfills from member sprinklers. Missing `badge_offset` keeps auto-centre. **Both load paths recompute tiles only after walls & rooms are restored** (earlier compute produces wall-less, over-wide tiles).
 
 ### 11.7 Coverage & Spacing (auto-populate)
 
@@ -591,6 +606,39 @@ Auto-populate computes S (short) and L (long) spacing for placed sprinklers base
 - L spacing: distance between branch lines
 
 Values written to `Sprinkler._properties["S Spacing"]` / `["L Spacing"]` as formatted display strings (unit-aware via ScaleManager).
+
+The auto-populate dialog also **seeds its density/area graph from the room's Protection Criteria design point** (`room.design_point()`) on open, so the room's chosen point pre-selects on the curve.
+
+### 11.8 Criteria Inheritance (as-built 2026-07-14)
+
+`DesignArea.effective_criteria()` resolves hazard / design point / system type from the rooms containing the member sprinklers and returns an **`EffectiveCriteria`** dataclass: `hazard`, `base_area_sqft`, `density`, `system_type` ("Wet" | "Dry"), `inherited`, `governing_room`, `required_area_sqft`, `drawn_area_sqft`, `warnings`.
+
+**Room membership:** `member_rooms()` → (rooms on the design area's level whose polygon contains a member sprinkler's node, plus a count of roomless member sprinklers). Point-in-polygon on `Room.boundary`; a shared internal `_effective_criteria_impl(rooms, roomless)` lets `get_properties()` and `badge_rows()` reuse one room scan per call.
+
+**Resolution rules (grill 2026-07-14):**
+
+1. **All rooms have curve-bearing hazards → inheritance engages.** Hazard = most demanding across rooms (rank = index in `HAZARD_OPTIONS`); among rooms tied at the top hazard, the room with the **largest design-point base area** governs. Design point = the governing room's `design_point()` (room-side semantics owned by `wall-room-floor-system.md §9`). System type = **Dry if any member room is Dry**, else Wet. Inherited values are shown **read-only** in the panel and `set_property()` refuses writes to the three criteria keys while inherited.
+2. **Write-back:** the resolved hazard / system type / base area are written back into the DesignArea's stored `_properties`, so a later **disengage keeps the last effective values** instead of reverting to stale defaults.
+3. **Disengage:** any member room with a curve-less hazard (`STORAGE_HAZARDS` or unknown) disengages inheritance — the area's own stored values govern, with a warning ("requires storage protection criteria (not yet supported)" for storage classes, "has no density/area curve" otherwise). No rooms at all → own stored values, density from `interpolate_density(hazard, base)`.
+4. **Warnings** (accumulated on `EffectiveCriteria.warnings`): multi-room span (lists each room's `HAZARD_ABBREV` and names the governing hazard), roomless design sprinklers ("room criteria govern"), the disengage cases above, and the required-area shortfall (§11.9).
+
+**Panel view:** `get_properties()` overlays the resolved criteria onto the stored dict and appends synthesized display rows — `Design Density` and `Required Area` (labels), `Criteria From` (governing room, only when inherited), `Rooms` (member-room list), and `Warnings` (**`warning` type, always last**). `Design Area (Base)` displays/edits in project units but stores ft² (`units-and-formatting.md §4`); row rendering/widget types are owned by `property-panel.md §3.2`.
+
+### 11.9 Dry-System Required Area
+
+`required_area_sqft = base_area_sqft × 1.3` when the effective system type is **Dry** (NFPA 13 +30% for dry systems), else `× 1.0`. When the drawn area (Σ capped As, §11.5) falls **below** the required area, a shortfall warning is appended ("enlarge the sprinkler selection", noting "+30% dry system" when applicable). The panel's Required Area row and the hydraulic report's Required Area line carry the same "+30% dry" annotation.
+
+### 11.10 Design Criteria Badge (as-built 2026-07-14)
+
+`DesignAreaBadge` — a child `QGraphicsItem` of its DesignArea rendering the AHJ "DESIGN CRITERIA" table on the drawing. Sized in model-space mm via the `DA_BADGE_*` constants (`constants.py`); its unit spellings (`usgpm`, `ft²`) are the deliberate AHJ exception to project units (`units-and-formatting.md §5`). Locked at the 2026-07-14 mockup gate.
+
+- **Rows — fixed 10-row layout** (`badge_rows()`; title + 8 content rows + blank footer band mirroring the title row height): DESIGN CRITERIA title; SYSTEM ID / ZONE (system name / WET|DRY); OCCUPANCY (hazard abbrev — governing room's `_occupancy`, falling back to the first non-empty member room's) / SYSTEM CAPACITY (Dry → `system_capacity_gal(pipes)`, the network water volume from pipe IDs × lengths; Wet → "N/A"); DENSITY / AREA OF APPLICATION (drawn area); COVERAGE PER SPRINKLER / STORAGE HEIGHT ("N/A"); ORIFICE / "K" FACTOR (orifice via the `K_TO_ORIFICE` nominal-size map); HOSE ALLOWANCE INSIDE/OUTSIDE (TBD); DOMESTIC WATER ALLOWANCE (from WaterSupply, §10.2) / SPRINKLERS CALCULATED; the TOTAL DEMAND banner line. K-factors and coverage lists **dedupe on numeric value** (`"130"` vs `"130.0"` collapse). Missing calc data renders `TBD`. The fixed row count lets `boundingRect()` derive from constants alone (no scene traversal in Qt's hottest geometry callback); rows recompute on every paint (live with room edits).
+- **Hydraulic snapshot:** `Model_Space.run_hydraulics` pushes `_hyd_snapshot` (`total_demand_gpm`, `demand_psi`, `remote_head_psi` = min required pressure across design sprinklers, `sprinklers_calculated`, `hose_gpm`) onto the active area — `None` when the solve produced no data. **Membership changes (`add_sprinkler`/`remove_sprinkler`) clear the snapshot** (stale results must not survive a changed selection); the badge shows TBD cells until the next run.
+- **Drag — grip protocol, not item drag:** the badge has **no `ItemIsMovable`** — Model_Space never forwards select-mode presses to Qt items, so native item drag is dead scene-wide. Instead the parent DesignArea exposes one grip at the badge centre (`grip_points()`/`apply_grip()`, Room-label precedent). `itemChange` sets `_badge_user_moved` and emits `sceneModified` (suppressed via a `_syncing` flag during auto-centre and load).
+- **Auto-centre:** until `_badge_user_moved`, `_sync_badge()` re-centres the badge on the tile-union bounding-rect centre after every shape recompute.
+- **Visibility:** shown only when the area is **confirmed** (scene not in `design_area` mode), the `Show Badge` bool property is on, and the area has members.
+- **Persistence:** `badge_offset` in both serialization paths (§11.6); `set_badge_offset()` on load sets `_badge_user_moved` so auto-centre doesn't override the restored position.
+- **Selection:** bare `DesignArea` is deliberately **not** click-selectable — it sits above everything with a filled tile-union path, so interior clicks would steal room/wall selection. Rubber-band selection selects the area. The badge is the only click target: `mousePressEvent`'s fallback filter accepts a `DesignAreaBadge` hit and resolves it to the parent `DesignArea` (mirrors Sprinkler→Node; the `ItemIsSelectable` check applies to the resolved parent), so a badge click selects the area — the grip-drag entry point. Functional coverage: `tests/test_design_criteria.py::TestBadgeClickSelection` (badge click selects; interior click does not).
 
 ---
 
@@ -637,7 +685,7 @@ The template object persists on `MainWindow` across mode switches. Re-entering s
 
 ### 13.1 Node Serialization
 
-**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, layer, sprinkler properties (if sprinkler present). `z_offset` is no longer written (removed 2026-05-03).
+**Saved fields:** position (x, y), `elevation` (z_pos), `ceiling_level`, `ceiling_offset_mm`, level, `room_name`, sprinkler properties (if sprinkler present). `z_offset` is no longer written (removed 2026-05-03); the per-item layer field is gone (layer system removed).
 
 **Load migration:**
 1. Read `ceiling_level` and `ceiling_offset_mm` (current format)
@@ -682,7 +730,8 @@ No format version bump required for any currently-flagged divergence. All migrat
 | ~~D6~~ | ~~Missing pipe sizes~~ | ~~P2~~ | **Resolved 2026-05-03.** 11 sizes: ¾", 1", 1-¼", 1-½", 2", 2-½", 3", 4", 5", 6", 8". All added to `_INTERNAL_DIAMETERS`, `NOMINAL_OD_IN`, `INNER_DIAMETER_IN` (all 5 schedules), imperial/metric display mappings. | | |
 | D7 | SVG symbols limited & orientation-blind | P3 | 3 generic symbols; no orientation-driven selection | Asymmetric sidewall symbol (triangle); orientation-driven symbol auto-selection; wall auto-detection for sidewall orientation; tab-cycle orientation input; in-app symbol editor (create/edit/delete) | Multi-phase: (1) Add sidewall triangle SVG + orientation→symbol mapping, (2) Wall proximity detection for orientation prediction, (3) Symbol editor UI. Each phase is a separate implementation task. |
 | D8 | Singleton SprinklerSystem | P3 | One SprinklerSystem per project; one supply_node; all items in one container | Per-node/pipe system assignment; multiple SprinklerSystem instances; independent supply nodes; per-system hydraulic calculations | Requires: system ID field on Node/Pipe, system selector UI, serialization extension, hydraulic solver multi-run. Major architectural change — separate spec recommended. |
-| D9 | Sprinkler Manager template bug | P1 | `main.py` uses wrong keys (`"Temp Rating"`, `"Type"`) and omits Manufacturer/Model when applying a SprinklerRecord as template | Use correct keys (`"Temperature"`, `"Orientation"`) and transfer all fields matching auto-populate path | Fix key strings in `_apply_sprinkler_template_from_record()`. Add Manufacturer and Model transfer. |
+| ~~D9~~ | ~~Sprinkler Manager template bug~~ | ~~P1~~ | **Resolved (verified 2026-07-14).** `_apply_sprinkler_template_from_record()` uses the correct keys (`"Temperature"`, `"Orientation"`) and transfers Manufacturer and Model — both template paths now match (§4). | | |
+| ~~D10~~ | ~~Badge-click select resolve inert~~ | ~~P1~~ | **Resolved 2026-07-14.** `mousePressEvent`'s fallback filter now accepts a `DesignAreaBadge` hit directly and resolves it to the parent `DesignArea` (selectability checked on the parent); bare `DesignArea` stays out of the filter, so the interior click-steal fix stands (§11.10). Functional tests `TestBadgeClickSelection` + guard test `TestSelectModeFilter` in `tests/test_design_criteria.py`. | | |
 
 ---
 

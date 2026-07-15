@@ -159,19 +159,9 @@ class RadiationResult:
 
 ## NFPA 13 constants
 
-Coverage limits per hazard class (from `constants.py`):
+Per-sprinkler coverage limits by hazard class are owned by `constants.py` (`HAZARD_CLASSES`, `NFPA_MAX_COVERAGE_SQFT`) — the table lives in the [wall/room/floor spec §9.2](../specs/wall-room-floor-system.md). NFPA density/area curve data lives in `firepro3d/nfpa_curves.py`, owned by the [sprinkler components spec §11.2](../specs/sprinkler-system-components.md).
 
-| Hazard Class | Max Coverage (sq ft) |
-|-------------|---------------------|
-| Light Hazard | 225 |
-| Ordinary Hazard Group 1 | 130 |
-| Ordinary Hazard Group 2 | 130 |
-| Extra Hazard Group 1 | 100 |
-| Extra Hazard Group 2 | 100 |
-| Miscellaneous Storage | 100 |
-| High Piled Storage | 100 |
-
-These limits are used by `Room` entities to validate sprinkler coverage and by the auto-populate algorithm to place sprinklers within allowable spacing.
+These limits are used by `Room` entities to validate sprinkler coverage and by the auto-populate algorithm to place sprinklers within allowable spacing; design-area criteria (hazard/density/required area) resolve via room inheritance ([sprinkler components spec §11.8](../specs/sprinkler-system-components.md)).
 
 ## Connection to other subsystems
 
