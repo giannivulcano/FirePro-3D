@@ -284,10 +284,10 @@ class TextAnnotationData:
             height_mm=d.get("height_mm", DEFAULT_TEXT_HEIGHT_MM),
             wrap_width_mm=d.get("wrap_width_mm", 0.0),
             font_family=d.get("font_family", ""),
-            bold=d.get("bold", False), italic=d.get("italic", False),
+            bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
-            opaque_bg=d.get("opaque_bg", False),
+            opaque_bg=bool(d.get("opaque_bg", False)),
             type=d.get("type", "text"),
         )
 

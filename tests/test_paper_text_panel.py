@@ -25,6 +25,7 @@ def test_get_properties_shape(qapp):
     assert callable(props["Height"]["parser"])
     assert props["Bold"] == {"type": "bool", "value": True}
     assert props["Italic"] == {"type": "bool", "value": False}
+    assert props["Underline"] == {"type": "bool", "value": False}
     assert props["Color"]["type"] == "color"
     assert props["Alignment"]["value"] == "Center"
     assert props["Alignment"]["options"] == ["Left", "Center", "Right"]
@@ -120,13 +121,13 @@ def test_begin_place_text_copies_template_formatting(qapp):
     scene = _scene()
     scene.text_template = TextAnnotationData(
         height_mm=6.35, font_family="Courier New", bold=True, italic=True,
-        color="#00ff00", align="R", opaque_bg=True,
+        underline=True, color="#00ff00", align="R", opaque_bg=True,
     )
     item = scene.begin_place_text(QPointF(100, 100))
     d = item.data
     assert d.height_mm == 6.35
     assert d.font_family == "Courier New"
-    assert d.bold and d.italic and d.opaque_bg
+    assert d.bold and d.italic and d.underline and d.opaque_bg
     assert d.color == "#00ff00"
     assert d.align == "R"
     assert d.text == "" and d.wrap_width_mm == 0.0   # content/wrap NOT templated
@@ -230,8 +231,8 @@ def test_template_settings_round_trip(qapp):
         text_template_to_settings, apply_template_settings,
     )
     src = TextAnnotationData(height_mm=6.35, font_family="Courier New",
-                             bold=True, italic=False, color="#00ff00",
-                             align="R", opaque_bg=True)
+                             bold=True, italic=False, underline=True,
+                             color="#00ff00", align="R", opaque_bg=True)
     raw = text_template_to_settings(src)
     # QSettings on Windows may stringify values — simulate the worst case.
     raw = {k: str(v) for k, v in raw.items()}
@@ -240,6 +241,7 @@ def test_template_settings_round_trip(qapp):
     assert dst.height_mm == 6.35
     assert dst.font_family == "Courier New"
     assert dst.bold is True and dst.italic is False
+    assert dst.underline is True
     assert dst.color == "#00ff00" and dst.align == "R"
     assert dst.opaque_bg is True
 
