@@ -136,3 +136,10 @@ def test_font_group_targets_template_in_add_text_mode(main_window):
     win._add_text_ribbon_btn.setChecked(False)
     # Reset
     win.current_text_template.data.bold = False
+
+
+def test_refresh_and_fit_public_api_no_crash(main_window):
+    """Ribbon Refresh/Fit buttons are wired to these public methods; confirm they do not raise."""
+    win = main_window
+    win.paper_space_widget.refresh_viewport()   # must not raise
+    win.paper_space_widget.fit_sheet()          # must not raise
