@@ -388,3 +388,28 @@ def test_underline_panel_row_and_commit(qapp):
     assert scene.undo_stack.count() == before + 1
     scene.undo_stack.undo()
     assert item.data.underline is False
+
+
+# ── Template underline (2026-07-16 spec gap fix) ──────────────────────────────
+
+
+def test_template_underline_seeds_placement(qapp):
+    from PyQt6.QtCore import QPointF
+    scene = _scene()
+    scene.text_template = TextAnnotationData(underline=True)
+    item = scene.begin_place_text(QPointF(100, 100))
+    assert item.data.underline is True
+    item.cancel_edit()
+
+
+def test_template_underline_survives_settings_round_trip(qapp):
+    from firepro3d.paper_space import (
+        text_template_to_settings, apply_template_settings,
+    )
+    d = TextAnnotationData(underline=True)
+    raw = text_template_to_settings(d)
+    # QSettings on Windows may stringify values — simulate the worst case.
+    raw = {k: str(v) for k, v in raw.items()}
+    d2 = TextAnnotationData()
+    apply_template_settings(d2, raw)
+    assert d2.underline is True

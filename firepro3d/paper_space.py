@@ -1391,7 +1391,7 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
     return {field: new}
 
 
-_TEMPLATE_FIELDS = ("height_mm", "font_family", "bold", "italic",
+_TEMPLATE_FIELDS = ("height_mm", "font_family", "bold", "italic", "underline",
                     "color", "align", "opaque_bg")
 
 
@@ -1427,6 +1427,8 @@ def apply_template_settings(data: "TextAnnotationData", raw: dict) -> None:
         data.bold = _b(raw["bold"])
     if "italic" in raw:
         data.italic = _b(raw["italic"])
+    if "underline" in raw:
+        data.underline = _b(raw["underline"])
     if "color" in raw:
         data.color = str(raw["color"])
     if "align" in raw:
@@ -2550,6 +2552,7 @@ class PaperScene(QGraphicsScene):
             data.font_family = t.font_family
             data.bold = t.bold
             data.italic = t.italic
+            data.underline = t.underline
             data.color = t.color
             data.align = t.align
             data.opaque_bg = t.opaque_bg
