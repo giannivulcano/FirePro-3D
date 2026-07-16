@@ -171,7 +171,7 @@ Icons are loaded through the `asset_path` helper:
 _I = lambda name: QIcon(asset_path("Ribbon", name))
 ```
 
-Replace the placeholder with a proper SVG before merging. Icons should be simple, single-color, and legible at both 32x32 (large button) and 16x16 (small button) sizes.
+Replace the placeholder with a proper SVG before merging. Icons should be simple, single-color, and legible at both large-button and small-button render sizes (button geometry owned by `docs/specs/ribbon-bar.md` §3.1).
 
 ## Step 5: Handle Escape / Cancel
 
