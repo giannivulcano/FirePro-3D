@@ -21,9 +21,9 @@ from dataclasses import dataclass, field
 from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
+    QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
-    QGraphicsSceneContextMenuEvent, QComboBox, QPushButton, QLabel,
+    QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
     QMenu, QCheckBox, QColorDialog,
 )
@@ -1532,7 +1532,6 @@ class PaperGraphicsView(QGraphicsView):
         self._panning = False
         self._pan_start = QPointF()
         self._add_text_mode = False
-        self._add_text_btn = None
 
         # Paper-space undo/redo is dispatched directly in keyPressEvent
         # (Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z). A QAction shortcut cannot be used:
@@ -1716,9 +1715,13 @@ class PaperGraphicsView(QGraphicsView):
         if self._add_text_mode and event.button() == Qt.MouseButton.LeftButton:
             pos = self.mapToScene(event.position().toPoint())
             self._paper_scene.begin_place_text(pos)
-            self.set_add_text_mode(False)
-            if self._add_text_btn is not None:
-                self._add_text_btn.setChecked(False)
+            widget = self.parent()
+            while widget is not None and not hasattr(widget, "set_add_text_mode"):
+                widget = widget.parent()
+            if widget is not None:
+                widget.set_add_text_mode(False)
+            else:
+                self.set_add_text_mode(False)
             event.accept()
             return
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -2779,61 +2782,34 @@ class PaperSpaceWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        # ── Toolbar ────────────────────────────────────────────────────────
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(4, 2, 4, 2)
-
-        toolbar.addWidget(QLabel("Paper:"))
-        self._size_combo = QComboBox()
-        self._size_combo.addItems(list(PAPER_SIZES.keys()))
-        self._size_combo.setCurrentText("ANSI D")
-        self._size_combo.currentTextChanged.connect(self._change_paper)
-        toolbar.addWidget(self._size_combo)
-
-        toolbar.addSpacing(12)
-
-        edit_title_btn = QPushButton("Edit Title Block…")
-        edit_title_btn.clicked.connect(self._edit_title)
-        toolbar.addWidget(edit_title_btn)
-
-        self._add_text_btn = QPushButton("Add Text")
-        self._add_text_btn.setCheckable(True)
-        self._add_text_btn.setToolTip("Click to place a text annotation on the sheet")
-        toolbar.addWidget(self._add_text_btn)
-
-        refresh_btn = QPushButton("⟳ Refresh Viewport")
-        refresh_btn.setToolTip("Repaint the model-space preview")
-        refresh_btn.clicked.connect(self._refresh)
-        toolbar.addWidget(refresh_btn)
-
-        fit_btn = QPushButton("Fit Sheet")
-        fit_btn.clicked.connect(self._fit)
-        toolbar.addWidget(fit_btn)
-
-        toolbar.addStretch()
-        layout.addLayout(toolbar)
-
-        # ── View ─────────────────────────────────────────────────────────────
         self.view = PaperGraphicsView(self.paper_scene)
         layout.addWidget(self.view)
-
-        # Wire Add Text button to view (view must exist first)
-        self._add_text_btn.toggled.connect(self.view.set_add_text_mode)
-        self._add_text_btn.toggled.connect(self.add_text_mode_toggled.emit)
-        self.view._add_text_btn = self._add_text_btn
 
         # Fit to sheet on first show
         self._fit()
 
-    # ── Toolbar actions ───────────────────────────────────────────────────────
-
-    def _change_paper(self, size: str):
-        self.paper_scene.paper_size = size
-        self._fit()
+    # ── Public command API (ribbon-driven; toolbar retired 2026-07-16) ──────
 
     def change_paper(self, size: str):
         """Public: change paper size and fit the view."""
-        self._size_combo.setCurrentText(size)  # keeps combo in sync
+        self.paper_scene.paper_size = size
+        self._fit()
+
+    def set_add_text_mode(self, on: bool) -> None:
+        """Public: enter/leave text place mode; emits add_text_mode_toggled."""
+        on = bool(on)
+        if on == self.view._add_text_mode:
+            return
+        self.view.set_add_text_mode(on)
+        self.add_text_mode_toggled.emit(on)
+
+    def refresh_viewport(self):
+        """Public: repaint the model-space previews."""
+        self.paper_scene.refresh_viewport()
+
+    def fit_sheet(self):
+        """Public: fit the whole sheet in the view."""
+        self._fit()
 
     def _edit_title(self):
         dlg = TitleBlockDialog(self.paper_scene.title_block, self)
@@ -2845,9 +2821,6 @@ class PaperSpaceWidget(QWidget):
     def edit_title_block(self):
         """Public: open the title block editor dialog."""
         self._edit_title()
-
-    def _refresh(self):
-        self.paper_scene.refresh_viewport()
 
     def _fit(self):
         self.view.fitInView(self.paper_scene.sceneRect(),

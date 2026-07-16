@@ -217,8 +217,8 @@ class TestPaperScene:
 # PaperSpaceWidget
 # ─────────────────────────────────────────────────────────────────────────────
 
-class TestPaperSpaceWidget:
-    """Tests for the PaperSpaceWidget toolbar and integration."""
+class TestPaperSpaceWidgetAPI:
+    """PaperSpaceWidget public API (toolbar retired 2026-07-16 — ribbon owns commands)."""
 
     def _make_widget(self):
         """Helper: create a PaperSpaceWidget with default Sheet and mock resolver."""
@@ -231,22 +231,29 @@ class TestPaperSpaceWidget:
         widget = self._make_widget()
         assert widget is not None
 
-    def test_default_combo_value(self, qapp):
+    def test_default_paper_size(self, qapp):
         widget = self._make_widget()
-        assert widget._size_combo.currentText() == "ANSI D"
+        assert widget.paper_scene.sheet.paper_size == "ANSI D"
 
-    def test_combo_has_all_sizes(self, qapp):
-        widget = self._make_widget()
-        items = [widget._size_combo.itemText(i)
-                 for i in range(widget._size_combo.count())]
-        for name in PAPER_SIZES:
-            assert name in items
-
-    def test_change_paper_updates_scene(self, qapp):
+    def test_change_paper_public(self, qapp):
         widget = self._make_widget()
         widget.change_paper("A3")
-        assert widget.paper_scene.paper_size == "A3"
-        assert widget._size_combo.currentText() == "A3"
+        assert widget.paper_scene.sheet.paper_size == "A3"
+
+    def test_no_toolbar_attributes(self, qapp):
+        widget = self._make_widget()
+        assert not hasattr(widget, "_size_combo")
+        assert not hasattr(widget, "_add_text_btn")
+
+    def test_set_add_text_mode_emits_signal(self, qapp):
+        widget = self._make_widget()
+        fired = []
+        widget.add_text_mode_toggled.connect(fired.append)
+        widget.set_add_text_mode(True)
+        assert widget.view._add_text_mode is True
+        assert fired == [True]
+        widget.set_add_text_mode(False)
+        assert fired == [True, False]
 
     def test_paper_scene_is_set(self, qapp):
         widget = self._make_widget()
@@ -260,7 +267,7 @@ class TestPaperSpaceWidget:
 
     def test_refresh_no_crash(self, qapp):
         widget = self._make_widget()
-        widget._refresh()  # should not raise
+        widget.refresh_viewport()  # public API; should not raise
 
 
 # ─────────────────────────────────────────────────────────────────────────────

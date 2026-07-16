@@ -149,8 +149,8 @@ def test_widget_emits_add_text_mode_toggled(qapp):
     w = PaperSpaceWidget(Sheet.create_default(), _stub_resolver())
     got = []
     w.add_text_mode_toggled.connect(got.append)
-    w._add_text_btn.setChecked(True)
-    w._add_text_btn.setChecked(False)
+    w.set_add_text_mode(True)
+    w.set_add_text_mode(False)
     assert got == [True, False]
 
 
