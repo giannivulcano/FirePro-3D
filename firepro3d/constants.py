@@ -132,3 +132,7 @@ PIPE_COLORS: dict[str, str] = {
 DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (paper mm)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
+
+# Word-standard font size ladder (pt) — shared by the ribbon Font group's
+# size dropdown and its grow/shrink stepping (units-and-formatting.md).
+FONT_SIZE_LADDER_PT = (8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72)
