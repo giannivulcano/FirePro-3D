@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-14
-verified-commit: 5ba9227
+last-verified: 2026-07-16
+verified-commit: 778786d
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -94,6 +94,8 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 `QLineEdit` storing **mm** internally; displays via `ScaleManager.format_length`; parses via `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())`; empty/invalid input **reverts** to last valid value; `valueChanged(float mm)` on successful commit; select-all on focus. Per project convention (CLAUDE.md / memory), *all* dimension fields use this pattern — never `QDoubleSpinBox`.
 
 **Optional overrides (added 2026-07-09, resolving D4):** `parser` (callable `str -> float|None`, replaces the whole parse path incl. fallback unit), `minimum` (accepted values must be strictly greater — non-positive rejection for text heights), `formatter` (callable `mm -> str`, replaces the display path — e.g. the sheet-text Word-style `"12 pt"` rendering). **Seed guard (always on):** an untouched or blank commit keeps the *exact* stored mm — re-parsing the displayed text would re-quantize it at display precision (imperial 3/16"→1/4" at 1/8" resolution).
+
+**Table cells — `DimensionDelegate` (added 2026-07-16):** the same contract inside `QTableWidget`/item views. A `QStyledItemDelegate` whose editor is a `DimensionEdit`; on commit it writes the mm value to a configurable `value_role` (default `UserRole`) and the `format_length` string to `DisplayRole`. Consumers: level table elevation column (`level_widget.py`, role `UserRole`), gridlines dialog Offset/Spacing/Length columns (`grid_lines_dialog.py`, role `UserRole+1` = numeric sort key). **Tab-commit rule:** Qt calls `setModelData` *before* the editor's `editingFinished` fires on Tab-to-next-cell, so the delegate must call `DimensionEdit.commit()` (public force-parse) before reading `value_mm()` — reading without it silently reverts Tab-committed values. Any new dimension column uses this delegate; never a bespoke cell-commit path.
 
 ## 4. Design Decisions (as-built rationale)
 

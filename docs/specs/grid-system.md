@@ -1,3 +1,12 @@
+---
+status: current          # implemented; §7.3/§7.3.2/§7.6 updated as-built 2026-07-16
+last-verified: 2026-07-16
+verified-commit: 778786d
+applies-to:
+  - firepro3d/gridline.py
+  - firepro3d/grid_lines_dialog.py
+---
+
 # Grid System Architecture — Design Spec
 
 **Date:** 2026-04-10
@@ -190,7 +199,17 @@ Modal dialog with two tabs (Vertical / Horizontal). Acts as a source-of-truth ed
 
 ### 7.3 Numerical Input
 
-All dimension fields (Offset, Spacing, Length, Default Length, Quick Fill Spacing) are plain `QLineEdit` widgets — not spinboxes. Values display in formatted units via `ScaleManager.format_length()` (e.g., `24'-0"` for imperial, `7315.2 mm` for metric). User input is parsed via `ScaleManager.parse_dimension()`, which accepts any unit format (ft-in, mm, m, bare numbers). This matches the pipe properties and other dimension input fields in the application.
+All dimension input goes through the canonical `DimensionEdit` contract (property-panel.md §3.8, units-and-formatting.md §3) — as-built 2026-07-16:
+
+- **Table cells** (Offset, Spacing, Length — columns 1–3) edit via a shared `DimensionDelegate` (`dimension_edit.py`), whose cell editor is a `DimensionEdit`. On commit (Enter, Tab, or focus-out) the cell text is re-formatted via `ScaleManager.format_length()` and the exact mm value is stored in the `UserRole+1` slot (which doubles as the numeric sort key). Invalid input reverts to the last value. Readers (`read_rows`, offset↔spacing sync) prefer the role value over re-parsing display text, so imperial display quantization never degrades stored values.
+- **Standalone fields** (Default Length, Quick Fill Spacing) are `DimensionEdit` widgets; call sites read `.value_mm()`.
+- **Angle cells** (column 4) are plain numeric: commit normalizes to 0–90 and reformats `%.1f`; invalid input reverts (no exception path in the `cellChanged` slot).
+
+Input is parsed via `ScaleManager.parse_dimension()` (any unit format: ft-in, mm, m; bare numbers use `bare_number_unit()`).
+
+### 7.3.2 In-Dialog Undo/Redo
+
+Each direction tab keeps a session-only snapshot undo/redo of its table state (added 2026-07-16). One user action = one undo step — a cell edit *and* its spacing-sync effects coalesce (0 ms singleshot recorder). Covered actions: cell edits, add/remove row, Generate, header sorts. `populate()` resets history (the scene state is the baseline, not undoable). Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z) route through `GridLinesDialog.keyPressEvent` to the active tab; while a cell editor is open, the editor's native text undo consumes the keys instead. Backing `GridlineItem` references survive restores, so reconciliation identity (§7.7) is undo-safe. This stack is independent of the scene undo step pushed by `apply_grid_dialog` on accept.
 
 ### 7.3.1 Column Sorting
 
@@ -219,6 +238,8 @@ On dialog open:
 3. Populate the appropriate tab, sorted by perpendicular offset.
 4. Each row stores a hidden reference to its source `GridlineItem`.
 5. Angled gridlines (not exactly 0° or 90°) go to the closest tab with their angle preserved.
+
+**Round-trip invariant (fixed 2026-07-16):** the scene line is constructed from the dialog values as `origin − overshoot·d → origin + length·d`, where the bubble overshoot is `GRIDLINE_BUBBLE_OVERSHOOT_FRAC` (`constants.py`) × length — the bubble end deliberately extends past the origin. Population applies the **exact inverse** (length = |p1p2| / (1 + frac); origin recovered by walking the overshoot back; offset = perpendicular projection of the origin), so open → OK without edits is a no-op. Reading the raw endpoint distance as Length previously grew every gridline 6% per OK cycle (and drifted the offset of angled gridlines). Both construction sites (`place_gridlines`, `apply_grid_dialog`) and the inverse must use the shared constant.
 
 ### 7.7 Reconciliation on Accept
 
