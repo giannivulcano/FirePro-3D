@@ -470,6 +470,14 @@ class MainWindow(QMainWindow):
             lambda _=0: self.update_paper_property_manager())
         self.paper_space_widget.add_text_mode_toggled.connect(
             self._on_add_text_mode_toggled)
+        self.paper_space_widget.add_text_mode_toggled.connect(
+            self._sync_add_text_ribbon_btn)
+        self.paper_space_widget.add_text_mode_toggled.connect(
+            lambda _on: self._update_font_group_context())
+        self.paper_space_widget.paper_scene.selectionChanged.connect(
+            self._update_font_group_context)
+        self.paper_space_widget.paper_scene.undo_stack.indexChanged.connect(
+            lambda _=0: self._update_font_group_context())
 
         self.model_browser = ModelBrowser()
         self.model_browser.set_scene(self.scene)
@@ -815,6 +823,11 @@ class MainWindow(QMainWindow):
             self.update_paper_property_manager()
         else:
             self.update_property_manager()
+        # Leaving the paper tab cancels add-text mode; context follows the tab
+        if not isinstance(w, PaperSpaceWidget) and \
+                self.paper_space_widget.view._add_text_mode:
+            self.paper_space_widget.set_add_text_mode(False)
+        self._update_font_group_context()
 
     def _on_tab_close_requested(self, index: int):
         """Close a view tab (Plan/Elevation). Core tabs are protected."""
@@ -1688,6 +1701,33 @@ class MainWindow(QMainWindow):
             _I("placeholder_icon.svg"),
             self.paper_space_widget.edit_title_block)
         _btn.setToolTip("Edit title block fields")
+
+        _btn = g_pg.add_small_button(
+            "Refresh\nViewports",
+            _I("placeholder_icon.svg"),
+            self.paper_space_widget.refresh_viewport)
+        _btn.setToolTip("Repaint the model-space previews")
+        _btn = g_pg.add_small_button(
+            "Fit Sheet",
+            _I("placeholder_icon.svg"),
+            self.paper_space_widget.fit_sheet)
+        _btn.setToolTip("Zoom to fit the whole sheet")
+
+        # --- Annotate (sheet text) ---
+        g_annotate = draft_page.add_group("Annotate")
+        self._add_text_ribbon_btn = g_annotate.add_large_button(
+            "Add\nText", _I("text_icon.svg"),
+            self._on_ribbon_add_text_toggled, checkable=True)
+        self._add_text_ribbon_btn.setToolTip(
+            "Place a text annotation on the sheet")
+
+        # --- Font (Word-style, sheet text) ---
+        from firepro3d.font_group import FontGroupController
+        g_font = draft_page.add_group("Font")
+        self.font_group = FontGroupController(
+            get_targets=self._font_group_targets, parent=self)
+        g_font.add_widget(self.font_group.container)
+        self.font_group.set_enabled(False)
 
         # --- Plot ---
         g_plot = draft_page.add_group("Plot")
@@ -3021,6 +3061,44 @@ class MainWindow(QMainWindow):
             self.prop_manager.show_properties(self.current_text_template)
         else:
             self.update_paper_property_manager()
+
+    def _on_ribbon_add_text_toggled(self, checked: bool):
+        """Ribbon Add Text: auto-switch to the paper tab, then enter mode."""
+        if checked and not isinstance(
+                self.central_tabs.currentWidget(), PaperSpaceWidget):
+            self._activate_paper_sheet("Layout 1")
+        self.paper_space_widget.set_add_text_mode(checked)
+
+    def _sync_add_text_ribbon_btn(self, on: bool):
+        """Keep the ribbon Add Text button in step with the view mode."""
+        btn = getattr(self, "_add_text_ribbon_btn", None)
+        if btn is not None and btn.isChecked() != on:
+            btn.blockSignals(True)
+            btn.setChecked(on)
+            btn.blockSignals(False)
+
+    def _font_group_targets(self):
+        """Targets for the ribbon Font group: selection, else the template."""
+        w = self.central_tabs.currentWidget()
+        if not isinstance(w, PaperSpaceWidget):
+            return []
+        if w.view._add_text_mode:
+            return [self.current_text_template]
+        try:
+            return [it for it in w.paper_scene.selectedItems()
+                    if isinstance(it, TextAnnotationItem)]
+        except RuntimeError:
+            return []
+
+    def _update_font_group_context(self):
+        """Enable the Font group only when it has live targets; then sync."""
+        fg = getattr(self, "font_group", None)
+        if fg is None:
+            return
+        targets = self._font_group_targets()
+        fg.set_enabled(bool(targets))
+        if targets:
+            fg.sync()
 
     def update_property_manager(self):
         # Guard against the scene's C++ object being deleted during shutdown

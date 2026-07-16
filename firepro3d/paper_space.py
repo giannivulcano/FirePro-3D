@@ -1565,6 +1565,18 @@ class PaperGraphicsView(QGraphicsView):
             Qt.CursorShape.CrossCursor if on else Qt.CursorShape.ArrowCursor
         )
 
+    def _owner_widget(self):
+        """Walk the parent chain to find the widget owning set_add_text_mode.
+
+        Returns:
+            The first ancestor widget that has a ``set_add_text_mode`` method
+            (typically :class:`PaperSpaceWidget`), or *None* if not found.
+        """
+        widget = self.parent()
+        while widget is not None and not hasattr(widget, "set_add_text_mode"):
+            widget = widget.parent()
+        return widget
+
     # ── Delete key handling ────────────────────────────────────────────
 
     def event(self, event):
@@ -1576,8 +1588,12 @@ class PaperGraphicsView(QGraphicsView):
             # While a note is being inline-edited, keep Escape for the editor
             # (cancel_edit); otherwise the window-level QShortcut("Escape") in
             # MainWindow steals it. Same reason Delete is accepted above.
-            if (event.key() == Qt.Key.Key_Escape
-                    and getattr(self._paper_scene, "_editing_item", None) is not None):
+            # Also accept Escape while in add-text mode so the window-level
+            # QShortcut("Escape") doesn't fire _on_escape before keyPressEvent
+            # can cancel the mode.
+            if event.key() == Qt.Key.Key_Escape and (
+                    getattr(self._paper_scene, "_editing_item", None) is not None
+                    or self._add_text_mode):
                 event.accept()
                 return True
             # Deliver Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z as a plain KeyPress to
@@ -1590,6 +1606,18 @@ class PaperGraphicsView(QGraphicsView):
         return super().event(event)
 
     def keyPressEvent(self, event):
+        # Escape while in add-text mode: cancel placement and exit the mode.
+        # event() accepts the ShortcutOverride for Key_Escape when _add_text_mode
+        # is True, so the window-level QShortcut("Escape") does not steal this.
+        if event.key() == Qt.Key.Key_Escape and self._add_text_mode:
+            owner = self._owner_widget()
+            if owner is not None:
+                owner.set_add_text_mode(False)
+            else:
+                self.set_add_text_mode(False)
+            event.accept()
+            return
+
         # Paper undo/redo — only when NOT inline-editing a note, so the text
         # editor's own Ctrl+Z isn't hijacked. Handled here rather than via a
         # QAction because event() accepts the ShortcutOverride for these keys.
@@ -1715,11 +1743,9 @@ class PaperGraphicsView(QGraphicsView):
         if self._add_text_mode and event.button() == Qt.MouseButton.LeftButton:
             pos = self.mapToScene(event.position().toPoint())
             self._paper_scene.begin_place_text(pos)
-            widget = self.parent()
-            while widget is not None and not hasattr(widget, "set_add_text_mode"):
-                widget = widget.parent()
-            if widget is not None:
-                widget.set_add_text_mode(False)
+            owner = self._owner_widget()
+            if owner is not None:
+                owner.set_add_text_mode(False)
             else:
                 self.set_add_text_mode(False)
             event.accept()
