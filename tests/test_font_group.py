@@ -1,6 +1,5 @@
 """Tests for the ribbon Font group controller (firepro3d/font_group.py)."""
 import pytest
-from unittest.mock import MagicMock
 from PyQt6.QtGui import QFont
 from firepro3d.font_group import next_ladder_pt, prev_ladder_pt, FontGroupController
 from firepro3d.constants import FONT_SIZE_LADDER_PT

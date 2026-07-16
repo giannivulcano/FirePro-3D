@@ -6,7 +6,15 @@ docs/specs/units-and-formatting.md (Word-style pt display, mm storage).
 """
 from __future__ import annotations
 
+from PyQt6.QtCore import QObject
+from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtWidgets import (
+    QColorDialog, QComboBox, QFontComboBox, QHBoxLayout, QToolButton,
+    QVBoxLayout, QWidget,
+)
+
 from .constants import FONT_SIZE_LADDER_PT
+from .paper_space import _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt
 
 
 def next_ladder_pt(pt: float) -> float:
@@ -24,15 +32,6 @@ def prev_ladder_pt(pt: float) -> float:
             return step
     return pt
 
-
-from PyQt6.QtCore import QObject  # noqa: E402
-from PyQt6.QtGui import QColor, QFont  # noqa: E402
-from PyQt6.QtWidgets import (  # noqa: E402
-    QColorDialog, QComboBox, QFontComboBox, QHBoxLayout, QToolButton,
-    QVBoxLayout, QWidget,
-)
-
-from .paper_space import _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt  # noqa: E402
 
 _ALIGN_LABELS = ("Left", "Center", "Right")
 _CODE_TO_LABEL = {"L": "Left", "C": "Center", "R": "Right"}
