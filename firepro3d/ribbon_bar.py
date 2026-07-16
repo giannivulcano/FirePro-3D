@@ -298,6 +298,18 @@ class RibbonGroup(QWidget):
         self._small_count += 1
         return btn
 
+    def add_widget(self, widget: QWidget) -> QWidget:
+        """Add an arbitrary widget (combo, composed panel) to the button row.
+
+        The sanctioned route for embedded non-button controls (ribbon-bar
+        spec D3) — callers must not inject into the group's layouts directly.
+        Flushes any open small-button column, mirroring add_large_button.
+        """
+        self._flush_small_col()
+        widget.setParent(self)
+        self._btn_row.addWidget(widget)
+        return widget
+
     # ── Right-edge group separator ────────────────────────────────────────────
 
     def paintEvent(self, event):
