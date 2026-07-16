@@ -13,11 +13,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox,
     QAbstractItemView, QLabel, QComboBox, QMenu,
-    QStyledItemDelegate,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
-from .dimension_edit import DimensionEdit
+from .dimension_edit import DimensionDelegate
 from . import theme as th
 
 from .constants import DEFAULT_LEVEL
@@ -30,37 +29,6 @@ from .level_manager import Level, LevelManager
 
 _COL_NAME    = 0
 _COL_ELEV    = 1
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Elevation cell delegate (DimensionEdit editor)
-# ─────────────────────────────────────────────────────────────────────────────
-
-class _ElevationDelegate(QStyledItemDelegate):
-    """Provides a DimensionEdit widget when editing elevation cells."""
-
-    def __init__(self, get_scale_manager, parent=None):
-        super().__init__(parent)
-        self._get_sm = get_scale_manager  # callable → ScaleManager | None
-
-    def createEditor(self, parent, option, index):
-        sm = self._get_sm()
-        editor = DimensionEdit(sm, initial_mm=0.0, parent=parent)
-        return editor
-
-    def setEditorData(self, editor, index):
-        val = index.data(Qt.ItemDataRole.UserRole)
-        if val is not None:
-            editor.set_value_mm(float(val))
-
-    def setModelData(self, editor, model, index):
-        mm = editor.value_mm()
-        model.setData(index, mm, Qt.ItemDataRole.UserRole)
-        sm = self._get_sm()
-        if sm:
-            model.setData(index, sm.format_length(mm), Qt.ItemDataRole.DisplayRole)
-        else:
-            model.setData(index, f"{mm:.1f} mm", Qt.ItemDataRole.DisplayRole)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,7 +146,7 @@ class LevelWidget(QWidget):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemChanged.connect(self._on_item_changed)
-        self._elev_delegate = _ElevationDelegate(
+        self._elev_delegate = DimensionDelegate(
             lambda: getattr(self.scene, "scale_manager", None) if self.scene else None,
             parent=self.table)
         self.table.setItemDelegateForColumn(_COL_ELEV, self._elev_delegate)

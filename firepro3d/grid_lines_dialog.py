@@ -21,9 +21,12 @@ from PyQt6.QtWidgets import (
     QPushButton, QHeaderView, QAbstractItemView, QTabWidget, QWidget,
     QMessageBox,
 )
-from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtCore import Qt, QPointF, QTimer
+from PyQt6.QtGui import QKeySequence
 
-from .constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
+from .constants import (DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN,
+                        GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
+from .dimension_edit import DimensionEdit, DimensionDelegate
 from .scale_manager import ScaleManager
 
 
@@ -115,6 +118,18 @@ class _DirectionTab(QWidget):
         self._sm = scale_manager
         self._build_ui()
 
+        # Session-only undo/redo of table state (cell edits incl. their
+        # sync effects, add/remove row, Generate, sorts). Snapshots are
+        # recorded on a 0 ms singleshot so one user action — which may fire
+        # several cellChanged signals — coalesces into one undo step.
+        self._undo_stack: list[list] = []
+        self._redo_stack: list[list] = []
+        self._record_timer = QTimer(self)
+        self._record_timer.setSingleShot(True)
+        self._record_timer.setInterval(0)
+        self._record_timer.timeout.connect(self._record_state)
+        self._undo_stack.append(self._snapshot())
+
     # ── Dimension format / parse helpers ──────────────────────────────
 
     def _fmt(self, mm: float) -> str:
@@ -157,7 +172,8 @@ class _DirectionTab(QWidget):
         self._scheme_combo.currentTextChanged.connect(self._update_start_label)
         lbl_form.addRow("Start Label:", self._start_label)
 
-        self._length_edit = QLineEdit(self._fmt(DEFAULT_GRIDLINE_LENGTH_IN))
+        self._length_edit = DimensionEdit(self._sm,
+                                          initial_mm=DEFAULT_GRIDLINE_LENGTH_IN)
         self._length_edit.setMaximumWidth(140)
         lbl_form.addRow("Default Length:", self._length_edit)
 
@@ -174,7 +190,8 @@ class _DirectionTab(QWidget):
         qf_lay.addWidget(self._qf_count)
 
         qf_lay.addWidget(QLabel("Spacing:"))
-        self._qf_spacing_edit = QLineEdit(self._fmt(DEFAULT_GRIDLINE_SPACING_IN))
+        self._qf_spacing_edit = DimensionEdit(self._sm,
+                                              initial_mm=DEFAULT_GRIDLINE_SPACING_IN)
         self._qf_spacing_edit.setMaximumWidth(140)
         qf_lay.addWidget(self._qf_spacing_edit)
 
@@ -197,6 +214,15 @@ class _DirectionTab(QWidget):
             "_backing",
         ])
         self._table.setColumnHidden(6, True)  # _backing is now column 6
+        # Dimension columns edit through the canonical DimensionEdit widget
+        # (units-and-formatting.md §3 / property-panel.md §3.8): commits are
+        # re-formatted to display units, invalid input reverts. The mm value
+        # lives in UserRole+1 (also the numeric sort key).
+        self._dim_delegate = DimensionDelegate(
+            lambda: self._sm, parent=self._table,
+            value_role=Qt.ItemDataRole.UserRole + 1)
+        for col in (1, 2, 3):   # Offset, Spacing, Length
+            self._table.setItemDelegateForColumn(col, self._dim_delegate)
         self._syncing = False  # guard against recursive cellChanged loops
         self._table.cellChanged.connect(self._on_cell_changed)
         self._table.horizontalHeader().setSectionResizeMode(
@@ -255,19 +281,30 @@ class _DirectionTab(QWidget):
         last_label = last_item.text() if last_item else "A"
         return _increment_label(last_label, self._current_scheme())
 
+    def _cell_mm(self, row: int, col: int) -> float:
+        """Return a dimension cell's value in mm.
+
+        Prefers the exact mm value in the UserRole+1 slot (kept current by
+        the DimensionDelegate and the sync handler); falls back to parsing
+        the display text for cells that predate the role value.
+        """
+        if row < 0 or row >= self._table.rowCount():
+            return 0.0
+        item = self._table.item(row, col)
+        if item is None:
+            return 0.0
+        val = item.data(Qt.ItemDataRole.UserRole + 1)
+        if val is not None:
+            return float(val)
+        return self._parse(item.text())
+
     def _last_offset_mm(self) -> float:
         """Return the last row's offset in mm."""
-        if self._table.rowCount() == 0:
-            return 0.0
-        item = self._table.item(self._table.rowCount() - 1, 1)
-        return self._parse(item.text()) if item else 0.0
+        return self._cell_mm(self._table.rowCount() - 1, 1)
 
     def _row_offset_mm(self, row: int) -> float:
         """Return a row's offset in mm."""
-        if row < 0 or row >= self._table.rowCount():
-            return 0.0
-        item = self._table.item(row, 1)
-        return self._parse(item.text()) if item else 0.0
+        return self._cell_mm(row, 1)
 
     def _on_cell_changed(self, row: int, col: int):
         """Keep Offset (col 1) and Spacing (col 2) in sync."""
@@ -277,10 +314,6 @@ class _DirectionTab(QWidget):
         if col == 1:
             # Offset changed → recalculate Spacing
             offset = self._row_offset_mm(row)
-            # Update sort value on the edited cell
-            off_item = self._table.item(row, 1)
-            if off_item:
-                off_item.setData(Qt.ItemDataRole.UserRole + 1, offset)
             prev = self._row_offset_mm(row - 1) if row > 0 else 0.0
             spacing = offset - prev
             sp_item = self._table.item(row, 2)
@@ -297,23 +330,27 @@ class _DirectionTab(QWidget):
                     nsp_item.setData(Qt.ItemDataRole.UserRole + 1, next_sp)
         elif col == 2:
             # Spacing changed → recalculate Offset
-            sp_item = self._table.item(row, 2)
-            spacing = self._parse(sp_item.text()) if sp_item else 0.0
-            if sp_item:
-                sp_item.setData(Qt.ItemDataRole.UserRole + 1, spacing)
+            spacing = self._cell_mm(row, 2)
             prev = self._row_offset_mm(row - 1) if row > 0 else 0.0
             new_offset = prev + spacing
             off_item = self._table.item(row, 1)
             if off_item:
                 off_item.setText(self._fmt(new_offset))
                 off_item.setData(Qt.ItemDataRole.UserRole + 1, new_offset)
-        elif col in (3, 4):
-            # Length or Angle changed → update sort value
-            item = self._table.item(row, col)
+        elif col == 4:
+            # Angle changed → normalize display, revert on invalid input
+            item = self._table.item(row, 4)
             if item:
-                item.setData(Qt.ItemDataRole.UserRole + 1, self._parse(item.text())
-                             if col == 3 else float(item.text() or 0))
+                try:
+                    angle = _normalize_angle(float(item.text()))
+                except ValueError:
+                    prev_val = item.data(Qt.ItemDataRole.UserRole + 1)
+                    angle = (float(prev_val) if prev_val is not None
+                             else self._default_angle)
+                item.setText(f"{angle:.1f}")
+                item.setData(Qt.ItemDataRole.UserRole + 1, angle)
         self._syncing = False
+        self._schedule_record()
 
     # ── Sorting ──────────────────────────────────────────────────────────
 
@@ -335,6 +372,7 @@ class _DirectionTab(QWidget):
         # to the previous row, so it changes when order changes).
         self._recalc_spacing()
         self._syncing = False
+        self._schedule_record()
 
     def _recalc_spacing(self):
         """Recalculate spacing column for all rows after a sort."""
@@ -346,6 +384,86 @@ class _DirectionTab(QWidget):
             if sp_item:
                 sp_item.setText(self._fmt(spacing))
                 sp_item.setData(Qt.ItemDataRole.UserRole + 1, spacing)
+
+    # ── In-dialog undo / redo ─────────────────────────────────────────────
+
+    def _snapshot(self) -> list:
+        """Capture full table state (text, numeric role, backing, lock)."""
+        rows = []
+        for r in range(self._table.rowCount()):
+            cells = []
+            for c in range(7):
+                item = self._table.item(r, c)
+                if item is None:
+                    cells.append(None)
+                    continue
+                cells.append({
+                    "text": item.text(),
+                    "num": item.data(Qt.ItemDataRole.UserRole + 1),
+                    "backing": item.data(Qt.ItemDataRole.UserRole),
+                    "check": item.checkState() if c == 5 else None,
+                })
+            rows.append(cells)
+        return rows
+
+    def _schedule_record(self):
+        """Coalesce the current user action into one pending undo step."""
+        self._record_timer.start()
+
+    def _reset_history(self):
+        """Make the current table state the undo baseline."""
+        self._record_timer.stop()
+        self._undo_stack = [self._snapshot()]
+        self._redo_stack = []
+
+    def _record_state(self):
+        snap = self._snapshot()
+        if self._undo_stack and snap == self._undo_stack[-1]:
+            return
+        self._undo_stack.append(snap)
+        self._redo_stack.clear()
+
+    def _restore(self, snap: list):
+        self._syncing = True
+        self._table.setRowCount(0)
+        for r, cells in enumerate(snap):
+            self._table.insertRow(r)
+            for c, cell in enumerate(cells):
+                if cell is None:
+                    continue
+                if c in (1, 2, 3, 4) and cell["num"] is not None:
+                    # keep numeric sorting alive across restores
+                    item = _NumericItem(cell["text"], float(cell["num"]))
+                else:
+                    item = QTableWidgetItem(cell["text"])
+                    item.setData(Qt.ItemDataRole.UserRole + 1, cell["num"])
+                if c == 5:
+                    item.setFlags(Qt.ItemFlag.ItemIsUserCheckable
+                                  | Qt.ItemFlag.ItemIsEnabled)
+                    item.setCheckState(cell["check"])
+                item.setData(Qt.ItemDataRole.UserRole, cell["backing"])
+                self._table.setItem(r, c, item)
+        self._syncing = False
+
+    def _flush_pending_record(self):
+        if self._record_timer.isActive():
+            self._record_timer.stop()
+            self._record_state()
+
+    def undo(self):
+        self._flush_pending_record()
+        if len(self._undo_stack) < 2:
+            return
+        self._redo_stack.append(self._undo_stack.pop())
+        self._restore(self._undo_stack[-1])
+
+    def redo(self):
+        self._flush_pending_record()
+        if not self._redo_stack:
+            return
+        snap = self._redo_stack.pop()
+        self._undo_stack.append(snap)
+        self._restore(snap)
 
     # ── Row management ────────────────────────────────────────────────────
 
@@ -360,12 +478,12 @@ class _DirectionTab(QWidget):
             prev_mm = self._row_offset_mm(row - 2)
             spacing_mm = last_mm - prev_mm
         elif row == 1:
-            spacing_mm = self._parse(self._qf_spacing_edit.text())
+            spacing_mm = self._qf_spacing_edit.value_mm()
         else:
             spacing_mm = 0.0
         offset_mm = (self._last_offset_mm() + spacing_mm) if row > 0 else 0.0
         self._table.insertRow(row)
-        length_mm = self._parse(self._length_edit.text())
+        length_mm = self._length_edit.value_mm()
         self._table.setItem(row, 0, QTableWidgetItem(label))
         self._table.setItem(row, 1, _NumericItem(self._fmt(offset_mm), offset_mm))
         self._table.setItem(row, 2, _NumericItem(self._fmt(spacing_mm), spacing_mm))
@@ -379,6 +497,7 @@ class _DirectionTab(QWidget):
         backing_item.setData(Qt.ItemDataRole.UserRole, None)
         self._table.setItem(row, 6, backing_item)
         self._syncing = False
+        self._schedule_record()
 
     def _remove_row(self):
         rows = sorted(set(idx.row() for idx in self._table.selectedIndexes()),
@@ -388,6 +507,7 @@ class _DirectionTab(QWidget):
                 self._table.removeRow(r)
         elif self._table.rowCount() > 0:
             self._table.removeRow(self._table.rowCount() - 1)
+        self._schedule_record()
 
     # ── Quick-fill ────────────────────────────────────────────────────────
 
@@ -395,8 +515,8 @@ class _DirectionTab(QWidget):
         self._syncing = True
         self._table.setRowCount(0)
         count = self._qf_count.value()
-        spacing_mm = self._parse(self._qf_spacing_edit.text())
-        length_mm = self._parse(self._length_edit.text())
+        spacing_mm = self._qf_spacing_edit.value_mm()
+        length_mm = self._length_edit.value_mm()
         scheme = self._current_scheme()
         label = self._start_label.text() or ("A" if scheme == "Letters" else "1")
         for i in range(count):
@@ -417,6 +537,7 @@ class _DirectionTab(QWidget):
             self._table.setItem(row, 6, backing_item)
             label = _increment_label(label, scheme)
         self._syncing = False
+        self._schedule_record()
 
     # ── Populate from existing gridlines ──────────────────────────────────
 
@@ -458,6 +579,8 @@ class _DirectionTab(QWidget):
             self._table.setItem(row, 6, backing_item)
             prev_offset_mm = offset_mm
         self._syncing = False
+        # Populate defines the baseline state — not an undoable action.
+        self._reset_history()
 
     # ── Read table ────────────────────────────────────────────────────────
 
@@ -478,8 +601,8 @@ class _DirectionTab(QWidget):
             lock_item = self._table.item(row, 5)
             bck_item = self._table.item(row, 6)
             label = lbl_item.text() if lbl_item else "?"
-            offset = self._parse(off_item.text()) if off_item else 0.0
-            length = self._parse(len_item.text()) if len_item else 100.0
+            offset = self._cell_mm(row, 1) if off_item else 0.0
+            length = self._cell_mm(row, 3) if len_item else 100.0
             try:
                 angle = float(ang_item.text()) if ang_item else self._default_angle
             except ValueError:
@@ -533,6 +656,27 @@ class GridLinesDialog(QDialog):
         buttons.rejected.connect(self.reject)
         outer.addWidget(buttons)
 
+    # ── Undo / redo routing ───────────────────────────────────────────────
+
+    def keyPressEvent(self, event):
+        """Route Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) to the active tab.
+
+        Reaches here only when no cell editor is open — an open editor
+        (QLineEdit/DimensionEdit) consumes these for its own text undo,
+        which is the desired behaviour.
+        """
+        if event.matches(QKeySequence.StandardKey.Undo):
+            self._tabs.currentWidget().undo()
+            event.accept()
+            return
+        if (event.matches(QKeySequence.StandardKey.Redo)
+                or (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and event.key() == Qt.Key.Key_Y)):
+            self._tabs.currentWidget().redo()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     # ── Populate from existing scene gridlines ────────────────────────────
 
     def _populate_from_scene(self, gridlines):
@@ -548,18 +692,36 @@ class GridLinesDialog(QDialog):
             line = gl.line()
             p1, p2 = line.p1(), line.p2()
             label = gl.grid_label
-            length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+            # Invert the scene construction exactly (apply_grid_dialog):
+            # the drawn line runs from origin - overshoot to origin + length,
+            # so |p1p2| = (1 + frac) * length. Reading the raw hypot as the
+            # dialog Length grew gridlines 6% on every open → OK round-trip.
+            line_len = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+            length = line_len / (1.0 + GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
+            if line_len > 0.0:
+                ux = (p2.x() - p1.x()) / line_len
+                uy = (p2.y() - p1.y()) / line_len
+                origin_x = p1.x() + GRIDLINE_BUBBLE_OVERSHOOT_FRAC * length * ux
+                origin_y = p1.y() + GRIDLINE_BUBBLE_OVERSHOOT_FRAC * length * uy
+            else:
+                ux, uy = 0.0, -1.0
+                origin_x, origin_y = p1.x(), p1.y()
             # Compute angle from endpoints
             angle_rad = math.atan2(-(p2.y() - p1.y()), p2.x() - p1.x())
             angle_deg = _normalize_angle(math.degrees(angle_rad))
             kind = _classify_gridline(p1, p2)
 
+            # Offset is applied along the perpendicular during construction
+            # (ox = o·px, oy = -o·py with px = -uy, py = ux); invert by
+            # projection: o = ox·px - oy·py. Canonicalize the direction to
+            # the normalized 0-90° quadrant so reversed lines keep the sign.
+            if ux < 0 or (ux == 0 and uy > 0):
+                ux, uy = -ux, -uy
+            offset = origin_x * (-uy) - origin_y * ux
+
             if kind == "V":
-                offset = (p1.x() + p2.x()) / 2.0
                 v_rows.append((label, offset, length, angle_deg, gl))
             else:
-                # Horizontal: offset = -y position (architectural convention)
-                offset = -((p1.y() + p2.y()) / 2.0)
                 h_rows.append((label, offset, length, angle_deg, gl))
 
         if v_rows:

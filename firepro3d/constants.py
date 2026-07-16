@@ -49,6 +49,13 @@ Z_CAT_NODE       = 0.5    # Node
 DEFAULT_GRIDLINE_SPACING_IN = 7315.2   # 288 in / 24 ft
 DEFAULT_GRIDLINE_LENGTH_IN  = 21945.6  # 864 in / 72 ft
 
+# Fraction of the gridline length that the bubble end extends PAST the
+# origin (keeps the label bubble clear of the geometry). Scene construction
+# adds this overshoot to the dialog's Length; the dialog's populate path
+# subtracts it again — both sides must use this constant or lengths grow
+# on every open → OK round-trip.
+GRIDLINE_BUBBLE_OVERSHOOT_FRAC = 0.06
+
 # ── Underlay rendering ───────────────────────────────────────────────────────
 # Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
 # lines stay a constant thickness regardless of zoom or import scale. Matches

@@ -10,8 +10,8 @@ Internal storage is always **millimetres**.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QLineEdit
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QLineEdit, QStyledItemDelegate
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFocusEvent
 
 from .scale_manager import ScaleManager
@@ -89,6 +89,16 @@ class DimensionEdit(QLineEdit):
         self._sm = sm
         self._reformat()
 
+    def commit(self) -> None:
+        """Parse and commit the current text now (same path as
+        ``editingFinished``).
+
+        Needed by item-view delegates: on Tab-to-next-cell Qt commits the
+        editor *before* ``editingFinished`` fires, so the delegate must
+        force the parse first or it reads the stale seeded value.
+        """
+        self._on_editing_finished()
+
     # ── Internal ──────────────────────────────────────────────────────
 
     def _reformat(self) -> None:
@@ -134,3 +144,42 @@ class DimensionEdit(QLineEdit):
         """Select all text on focus for easy replacement."""
         super().focusInEvent(event)
         self.selectAll()
+
+
+class DimensionDelegate(QStyledItemDelegate):
+    """Item delegate that edits dimension table cells with a DimensionEdit.
+
+    The mm value lives in *value_role*; the formatted display string is
+    written to ``DisplayRole`` on commit, so cells always show
+    ``ScaleManager.format_length`` output regardless of what the user typed.
+
+    Usage::
+
+        delegate = DimensionDelegate(lambda: self._sm, table)
+        table.setItemDelegateForColumn(col, delegate)
+    """
+
+    def __init__(self, get_scale_manager, parent=None,
+                 value_role: int = Qt.ItemDataRole.UserRole):
+        super().__init__(parent)
+        self._get_sm = get_scale_manager  # callable → ScaleManager | None
+        self._value_role = value_role
+
+    def createEditor(self, parent, option, index):
+        return DimensionEdit(self._get_sm(), initial_mm=0.0, parent=parent)
+
+    def setEditorData(self, editor, index):
+        val = index.data(self._value_role)
+        if val is not None:
+            editor.set_value_mm(float(val))
+
+    def setModelData(self, editor, model, index):
+        editor.commit()   # Tab commits arrive before editingFinished fires
+        mm = editor.value_mm()
+        model.setData(index, mm, self._value_role)
+        sm = self._get_sm()
+        if sm:
+            model.setData(index, sm.format_length(mm),
+                          Qt.ItemDataRole.DisplayRole)
+        else:
+            model.setData(index, f"{mm:.1f} mm", Qt.ItemDataRole.DisplayRole)

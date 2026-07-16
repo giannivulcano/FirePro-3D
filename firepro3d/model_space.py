@@ -39,7 +39,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY)
+                       Z_OVERLAY, GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -4216,9 +4216,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         keys: label, offset (scene px), length (scene px), angle_deg.
 
         Gridlines originate at p1 (the bubble end) and extend to p2.
-        The bubble overshoot is a fixed 2% of the gridline length so
-        it is consistent regardless of zoom level.  Positive offset
-        follows architectural convention (right for V, up for H).
+        The bubble overshoot is a fixed fraction of the gridline length
+        (GRIDLINE_BUBBLE_OVERSHOOT_FRAC) so it is consistent regardless
+        of zoom level.  Positive offset follows architectural convention
+        (right for V, up for H).
         """
         specs = params.get("gridlines", [])
         if not specs:
@@ -4244,8 +4245,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ox = offset * px
             oy = -offset * py
 
-            # Zoom-independent bubble overshoot: 6% of gridline length
-            bubble_overshoot = length * 0.06
+            # Zoom-independent bubble overshoot, proportional to length
+            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
 
             # p1 = bubble end (slightly past origin), p2 = far end
             p1 = QPointF(ox - bubble_overshoot * dx,
@@ -4302,7 +4303,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             py = dx
             ox = offset * px
             oy = -offset * py
-            bubble_overshoot = length * 0.06
+            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
             p1 = QPointF(ox - bubble_overshoot * dx,
                          oy - bubble_overshoot * dy)
             p2 = QPointF(ox + length * dx,
