@@ -269,6 +269,12 @@ class TestPaperSpaceWidgetAPI:
         widget = self._make_widget()
         widget.refresh_viewport()  # public API; should not raise
 
+    def test_change_paper_accepts_all_named_sizes(self, qapp):
+        widget = self._make_widget()
+        for name in PAPER_SIZES:
+            widget.change_paper(name)
+            assert widget.paper_scene.sheet.paper_size == name
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Margin / layout constants

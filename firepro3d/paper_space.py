@@ -2754,7 +2754,7 @@ class TitleBlockDialog(QDialog):
 
 class PaperSpaceWidget(QWidget):
     """
-    Complete Paper Space panel: toolbar + QGraphicsView of PaperScene.
+    Complete Paper Space panel: a QGraphicsView of PaperScene (commands live on the ribbon).
 
     Parameters
     ----------
