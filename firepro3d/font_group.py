@@ -13,8 +13,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from . import theme as th
 from .constants import FONT_SIZE_LADDER_PT
-from .paper_space import _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt
+from .paper_space import (
+    _font_pt_from_mm, _mm_from_font_pt, _parse_height_pt,
+    _text_panel_change, _PANEL_CODE_TO_ALIGN,
+)
 
 
 def next_ladder_pt(pt: float) -> float:
@@ -33,8 +37,9 @@ def prev_ladder_pt(pt: float) -> float:
     return pt
 
 
-_ALIGN_LABELS = ("Left", "Center", "Right")
-_CODE_TO_LABEL = {"L": "Left", "C": "Center", "R": "Right"}
+# Derive from paper_space's authoritative reverse map (Rule A — one fact, one home).
+_CODE_TO_LABEL = _PANEL_CODE_TO_ALIGN
+_ALIGN_LABELS = ("Left", "Center", "Right")  # fixed display order
 
 
 class FontGroupController(QObject):
@@ -54,6 +59,8 @@ class FontGroupController(QObject):
         super().__init__(parent)
         self._get_targets = get_targets
         self._syncing = False
+        self._theme = th.detect()
+        self._size_user_edit = False
         self._build_widgets()
 
     def _build_widgets(self):
@@ -75,10 +82,11 @@ class FontGroupController(QObject):
         self.size_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.size_combo.addItems([str(s) for s in FONT_SIZE_LADDER_PT])
         self.size_combo.setFixedWidth(56)
-        self.size_combo.activated.connect(
-            lambda _i: self.commit_size_text(self.size_combo.currentText()))
+        self.size_combo.activated.connect(self._on_size_activated)
+        self.size_combo.lineEdit().textEdited.connect(
+            lambda _t: setattr(self, "_size_user_edit", True))
         self.size_combo.lineEdit().editingFinished.connect(
-            lambda: self.commit_size_text(self.size_combo.currentText()))
+            self._on_size_editing_finished)
         row1.addWidget(self.size_combo)
 
         self.grow_btn = self._tool_btn("A▲", "Grow font (next standard size)", self.grow)
@@ -136,10 +144,28 @@ class FontGroupController(QObject):
         b.clicked.connect(lambda checked, k=key: self._commit(k, bool(checked)))
         return b
 
+    def _on_size_activated(self, _index):
+        """Handle dropdown pick — supersedes any pending text edit."""
+        self._size_user_edit = False
+        self.commit_size_text(self.size_combo.currentText())
+
+    def _on_size_editing_finished(self):
+        """Handle manual text edit in the size combo line edit.
+
+        Skipped when the combo fires editingFinished after a dropdown pick
+        (``_size_user_edit`` is False in that case).
+        """
+        if not self._size_user_edit:
+            return
+        self._size_user_edit = False
+        self.commit_size_text(self.size_combo.currentText())
+
     def _set_swatch(self, hex_color: str):
         self._swatch = hex_color
+        t = self._theme
         self.color_btn.setStyleSheet(
-            f"QToolButton {{ border: 1px solid #888; background: {hex_color}; }}")
+            f"QToolButton {{ border: 1px solid {t.border_strong}; background: {hex_color}; }}"
+            f"QToolButton:hover {{ border-color: {t.accent_primary}; }}")
 
     # ── Commits (all routed through set_property) ─────────────────────────
 
@@ -148,6 +174,10 @@ class FontGroupController(QObject):
 
     def _commit(self, key, value):
         """Commit a single property change to all targets, wrapped in one macro.
+
+        Pre-filters targets to those where the value actually changes, so
+        no-op gestures (e.g. clicking Bold when all text is already bold) do
+        not push an empty macro onto the undo stack.
 
         Args:
             key: Property key accepted by TextAnnotationItem.set_property.
@@ -158,13 +188,17 @@ class FontGroupController(QObject):
         targets = self._targets()
         if not targets:
             return
-        scene = targets[0].scene()
+        apply = [t for t in targets if _text_panel_change(t.data, key, value) is not None]
+        if not apply:
+            self.sync()
+            return
+        scene = apply[0].scene()
         stack = getattr(scene, "undo_stack", None) if scene is not None else None
-        macro = stack is not None and len(targets) > 1
+        macro = stack is not None and len(apply) > 1
         if macro:
             stack.beginMacro(f"Format Text ({key})")
         try:
-            for t in targets:
+            for t in apply:
                 t.set_property(key, value)
         finally:
             if macro:
@@ -209,18 +243,24 @@ class FontGroupController(QObject):
         targets = self._targets()
         if not targets:
             return
-        scene = targets[0].scene()
+        changes = []
+        for t in targets:
+            cur_pt = _font_pt_from_mm(t.data, t.data.height_mm)
+            new_pt = step_fn(cur_pt)
+            if abs(new_pt - cur_pt) < 1e-9:
+                continue
+            changes.append((t, _mm_from_font_pt(t.data, new_pt)))
+        if not changes:
+            self.sync()
+            return
+        scene = changes[0][0].scene()
         stack = getattr(scene, "undo_stack", None) if scene is not None else None
-        macro = stack is not None and len(targets) > 1
+        macro = stack is not None and len(changes) > 1
         if macro:
             stack.beginMacro("Format Text (Size)")
         try:
-            for t in targets:
-                cur_pt = _font_pt_from_mm(t.data, t.data.height_mm)
-                new_pt = step_fn(cur_pt)
-                if abs(new_pt - cur_pt) < 1e-9:
-                    continue
-                t.set_property("Height", _mm_from_font_pt(t.data, new_pt))
+            for t, mm in changes:
+                t.set_property("Height", mm)
         finally:
             if macro:
                 stack.endMacro()

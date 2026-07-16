@@ -132,3 +132,23 @@ def test_alignment_commit(paper_text):
     scene, items = paper_text
     _controller(items).commit_alignment("Center")
     assert all(it.data.align == "C" for it in items)
+
+
+def test_repeat_bold_commit_adds_no_undo_entry(paper_text):
+    scene, items = paper_text
+    c = _controller(items)
+    c._commit("Bold", True)
+    idx = scene.undo_stack.index()
+    c._commit("Bold", True)              # all already bold → no-op
+    assert scene.undo_stack.index() == idx
+
+
+def test_grow_at_top_is_noop(paper_text):
+    scene, items = paper_text
+    c = _controller(items)
+    c.commit_size_text("72")
+    idx = scene.undo_stack.index()
+    c.grow()
+    for it in items:
+        assert _font_pt_from_mm(it.data, it.data.height_mm) == pytest.approx(72, abs=0.1)
+    assert scene.undo_stack.index() == idx
