@@ -259,6 +259,7 @@ class TextAnnotationData:
     font_family: str = ""                        # "" => Arial default
     bold: bool = False
     italic: bool = False
+    underline: bool = False
     color: str = "#000000"                       # authored hex, default black
     align: str = "L"                             # 'L' | 'C' | 'R'
     opaque_bg: bool = False
@@ -270,7 +271,7 @@ class TextAnnotationData:
             "x": self.x, "y": self.y,
             "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
             "font_family": self.font_family,
-            "bold": self.bold, "italic": self.italic,
+            "bold": self.bold, "italic": self.italic, "underline": self.underline,
             "color": self.color, "align": self.align,
             "opaque_bg": self.opaque_bg,
         }
@@ -284,6 +285,7 @@ class TextAnnotationData:
             wrap_width_mm=d.get("wrap_width_mm", 0.0),
             font_family=d.get("font_family", ""),
             bold=d.get("bold", False), italic=d.get("italic", False),
+            underline=bool(d.get("underline", False)),
             color=d.get("color", "#000000"), align=d.get("align", "L"),
             opaque_bg=d.get("opaque_bg", False),
             type=d.get("type", "text"),
@@ -792,6 +794,7 @@ class TextAnnotationItem(QGraphicsTextItem):
         f = QFont(d.font_family) if d.font_family else QFont("Arial")
         f.setBold(d.bold)
         f.setItalic(d.italic)
+        f.setUnderline(d.underline)
         f.setPixelSize(TEXT_METRIC_REF_PX)
         self.setFont(f)
         self.setDefaultTextColor(QColor(d.color))
@@ -1322,6 +1325,7 @@ def _text_panel_properties(data: "TextAnnotationData") -> dict:
                    "minimum": 0.0},
         "Bold": {"type": "bool", "value": data.bold},
         "Italic": {"type": "bool", "value": data.italic},
+        "Underline": {"type": "bool", "value": data.underline},
         "Color": {"type": "color", "value": data.color or "#000000"},
         "Alignment": {"type": "enum",
                       "value": _PANEL_CODE_TO_ALIGN.get(data.align, "Left"),
@@ -1367,6 +1371,8 @@ def _text_panel_change(data: "TextAnnotationData", key: str, value) -> dict | No
         field, new = "bold", bool(value)
     elif key == "Italic":
         field, new = "italic", bool(value)
+    elif key == "Underline":
+        field, new = "underline", bool(value)
     elif key == "Color":
         field, new = "color", str(value)
     elif key == "Alignment":

@@ -349,3 +349,42 @@ def test_checkbox_click_never_cycles_into_partial(qapp):
     chk.click()                              # unchecked -> CHECKED, never partial
     assert chk.checkState() == Qt.CheckState.Checked
     assert a.data.bold is True and b.data.bold is True
+
+
+# ── Underline field (2026-07-16) ──────────────────────────────────────────────
+
+
+def test_underline_field_defaults_false():
+    from firepro3d.paper_space import TextAnnotationData
+    assert TextAnnotationData().underline is False
+
+
+def test_underline_round_trips_serialization():
+    from firepro3d.paper_space import TextAnnotationData
+    d = TextAnnotationData(text="hi", underline=True)
+    d2 = TextAnnotationData.from_dict(d.to_dict())
+    assert d2.underline is True
+    legacy = d.to_dict()
+    del legacy["underline"]
+    assert TextAnnotationData.from_dict(legacy).underline is False
+
+
+def test_underline_renders_on_font(qapp):
+    item = TextAnnotationItem(TextAnnotationData(text="X"))
+    item.data.underline = True
+    item._apply_format()
+    assert item.font().underline() is True
+
+
+def test_underline_panel_row_and_commit(qapp):
+    scene = _scene()
+    item = scene.add_annotation(TextAnnotationData(text="X"))
+    props = item.get_properties()
+    assert props["Underline"]["type"] == "bool"
+    assert props["Underline"]["value"] is False
+    before = scene.undo_stack.count()
+    item.set_property("Underline", True)
+    assert item.data.underline is True
+    assert scene.undo_stack.count() == before + 1
+    scene.undo_stack.undo()
+    assert item.data.underline is False
