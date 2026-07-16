@@ -2824,6 +2824,7 @@ class PaperSpaceWidget(QWidget):
     def set_add_text_mode(self, on: bool) -> None:
         """Public: enter/leave text place mode; emits add_text_mode_toggled."""
         on = bool(on)
+        # Guard also means listeners only ever hear real state changes — _sync_add_text_ribbon_btn (main.py) depends on the signal never firing when view and button already agree.
         if on == self.view._add_text_mode:
             return
         self.view.set_add_text_mode(on)

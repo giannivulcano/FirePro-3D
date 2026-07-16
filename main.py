@@ -3048,6 +3048,10 @@ class MainWindow(QMainWindow):
         w = self.central_tabs.currentWidget()
         if not isinstance(w, PaperSpaceWidget):
             return
+        # In add-text mode the template is the live target; don't overwrite it.
+        if w.view._add_text_mode:
+            self.prop_manager.show_properties(self.current_text_template)
+            return
         try:
             items = [it for it in w.paper_scene.selectedItems()
                      if isinstance(it, TextAnnotationItem)]

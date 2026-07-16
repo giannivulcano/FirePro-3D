@@ -143,3 +143,25 @@ def test_refresh_and_fit_public_api_no_crash(main_window):
     win = main_window
     win.paper_space_widget.refresh_viewport()   # must not raise
     win.paper_space_widget.fit_sheet()          # must not raise
+
+
+def test_panel_keeps_template_during_add_text_undo(main_window):
+    """Ctrl+Z (indexChanged) while in add-text mode must not blank the template.
+
+    update_paper_property_manager is connected to undo_stack.indexChanged so
+    every undo fires it. If in add-text mode it must keep showing the template,
+    not wipe the panel as if there were no selection.
+    """
+    win = main_window
+    win._add_text_ribbon_btn.setChecked(True)
+    assert win.paper_space_widget.view._add_text_mode is True
+
+    # Simulate the undo indexChanged refresh that blanks the panel before the fix
+    win.update_paper_property_manager()
+
+    # Panel must still target the live template — prop_manager._targets holds
+    # the normalised list set by show_properties(); template is not a Node/
+    # Sprinkler so it is stored as-is.
+    assert win.current_text_template in win.prop_manager._targets
+
+    win._add_text_ribbon_btn.setChecked(False)

@@ -306,7 +306,6 @@ class RibbonGroup(QWidget):
         Flushes any open small-button column, mirroring add_large_button.
         """
         self._flush_small_col()
-        widget.setParent(self)
         self._btn_row.addWidget(widget)
         return widget
 

@@ -172,20 +172,18 @@ class FontGroupController(QObject):
     def _targets(self):
         return [t for t in self._get_targets() if t is not None]
 
-    def _commit(self, key, value):
-        """Commit a single property change to all targets, wrapped in one macro.
+    def _commit_to(self, targets, key, value):
+        """Commit a single property change to *targets*, wrapped in one macro.
 
         Pre-filters targets to those where the value actually changes, so
         no-op gestures (e.g. clicking Bold when all text is already bold) do
         not push an empty macro onto the undo stack.
 
         Args:
+            targets: List of TextAnnotationItem objects to apply the change to.
             key: Property key accepted by TextAnnotationItem.set_property.
             value: New property value.
         """
-        if self._syncing:
-            return
-        targets = self._targets()
         if not targets:
             return
         apply = [t for t in targets if _text_panel_change(t.data, key, value) is not None]
@@ -204,6 +202,24 @@ class FontGroupController(QObject):
             if macro:
                 stack.endMacro()
         self.sync()
+
+    def _commit(self, key, value):
+        """Commit a single property change to all current targets, wrapped in one macro.
+
+        Pre-filters targets to those where the value actually changes, so
+        no-op gestures (e.g. clicking Bold when all text is already bold) do
+        not push an empty macro onto the undo stack.
+
+        Args:
+            key: Property key accepted by TextAnnotationItem.set_property.
+            value: New property value.
+        """
+        if self._syncing:
+            return
+        targets = self._targets()
+        if not targets:
+            return
+        self._commit_to(targets, key, value)
 
     def commit_size_text(self, text: str):
         """Parse Word-style pt (or explicit dimension) per target and commit.
@@ -283,11 +299,15 @@ class FontGroupController(QObject):
         self._commit("Alignment", label)
 
     def _pick_color(self):
+        # Capture targets before the modal opens — the selection may change
+        # while the dialog is open (user clicks away, Escape cancels add-text
+        # mode, etc.), so we commit to the list that was live when the user
+        # clicked the swatch.
         targets = self._targets()
         initial = QColor(targets[0].data.color) if targets else QColor("#000000")
         c = QColorDialog.getColor(initial, self.container, "Font Color")
         if c.isValid():
-            self._commit("Color", c.name())
+            self._commit_to(targets, "Color", c.name())
 
     # ── Sync (targets → widgets) ──────────────────────────────────────────
 
