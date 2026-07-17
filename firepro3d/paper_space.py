@@ -919,14 +919,23 @@ class TextAnnotationItem(QGraphicsTextItem):
     def keyPressEvent(self, event) -> None:
         """Route key events to the editor or to item-level commands.
 
-        While editing: Esc cancels; all other keys (Enter for newline, Delete
-        for character) pass through to the text editor.
+        While editing: Esc confirms a pending placement (commit; empty still
+        discards) but reverts an edit of an existing block; all other keys
+        (Enter for newline, Delete for character) pass through to the editor.
         While not editing: Delete emits delete_requested; other keys delegate
         to super().
         """
         if self._editing:
             if event.key() == Qt.Key.Key_Escape:
-                self.cancel_edit()
+                scene = self.scene()
+                if scene is not None and getattr(scene, "_pending_text", None) is self:
+                    # Placement flow: Esc means "done typing" — commit, don't
+                    # revert (revert would always discard: pre-edit text is
+                    # empty for a fresh placement).
+                    self.commit_edit()
+                    scene.commit_place_text(self)
+                else:
+                    self.cancel_edit()
                 event.accept()
                 return
             super().keyPressEvent(event)   # Enter=newline, Delete=char

@@ -94,6 +94,37 @@ def test_view_accepts_escape_override_only_while_editing(qapp):
     assert ev.isAccepted()
 
 
+def test_item_escape_confirms_pending_placement(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt, QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    idx = scene.undo_stack.index()
+    item = scene.begin_place_text(QPointF(10, 10))
+    item.setPlainText("NOTE 1")
+    item.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                 Qt.KeyboardModifier.NoModifier))
+    assert scene._pending_text is None
+    anns = scene.get_annotations()
+    assert len(anns) == 1
+    assert anns[0].data.text == "NOTE 1"
+    assert scene.undo_stack.index() == idx + 1   # creation recorded for undo
+
+
+def test_item_escape_discards_empty_pending_placement(qapp):
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QEvent, Qt, QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    idx = scene.undo_stack.index()
+    item = scene.begin_place_text(QPointF(10, 10))
+    item.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                 Qt.KeyboardModifier.NoModifier))
+    assert scene._pending_text is None
+    assert scene.get_annotations() == []
+    assert scene.undo_stack.index() == idx       # nothing recorded
+
+
 def test_item_escape_reverts_text(qapp):
     from PyQt6.QtGui import QKeyEvent
     from PyQt6.QtCore import QEvent, Qt
