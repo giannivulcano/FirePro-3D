@@ -766,6 +766,9 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._text_before_edit = data.text
         self._pos_at_press = None
         self._wrap_at_press = None
+        self._x_at_press = None          # anchor x when a left-corner drag starts
+        self._right_at_press = None      # pinned right edge for left-corner drags
+        self._grip_corner = None         # "TL", "TR", "BL", "BR" or None
         self._resizing = False
         self.setZValue(15)
         self.setTransformOriginPoint(0, 0)
@@ -839,8 +842,16 @@ class TextAnnotationItem(QGraphicsTextItem):
             s = self.scale() or 1.0
             gs = self._GRIP_MM / s
             br = self.boundingRect()
-            grip = QRectF(br.right() - gs, br.center().y() - gs / 2, gs, gs)
-            painter.fillRect(grip, QColor("#88aaff"))
+            half = gs / 2
+            # Four corner grips in item-local unscaled coords
+            corners = [
+                QRectF(br.left() - half, br.top() - half, gs, gs),     # TL
+                QRectF(br.right() - half, br.top() - half, gs, gs),    # TR
+                QRectF(br.left() - half, br.bottom() - half, gs, gs),  # BL
+                QRectF(br.right() - half, br.bottom() - half, gs, gs), # BR
+            ]
+            for grip in corners:
+                painter.fillRect(grip, QColor("#88aaff"))
 
     # ── A. Edit lifecycle ──────────────────────────────────────────────────
 
@@ -1046,37 +1057,91 @@ class TextAnnotationItem(QGraphicsTextItem):
             self.sync_data_from_item()
         return super().itemChange(change, value)
 
-    # ── C. Wrap-resize grip ───────────────────────────────────────────────────
+    # ── C. Corner wrap-resize grips ───────────────────────────────────────────
 
-    def _grip_scene_rect(self) -> QRectF:
-        """Return the resize-grip hit rectangle in scene (paper-mm) coordinates.
+    def _corner_grip_rects(self) -> dict:
+        """Return the four corner grip hit-rectangles in scene (paper-mm) coordinates.
 
-        The grip is a _GRIP_MM × _GRIP_MM square centred on the right edge of
-        sceneBoundingRect. Used by mousePressEvent for hit-testing.
+        Each grip is a _GRIP_MM × _GRIP_MM square centred on the corresponding
+        corner of sceneBoundingRect. Used by mousePressEvent for hit-testing and
+        by paint() to render the grips.
 
         Returns:
-            QRectF in scene coordinates.
+            dict with keys "TL", "TR", "BL", "BR" mapping to QRectF in scene coords.
         """
-        br = self.sceneBoundingRect()
+        sbr = self.sceneBoundingRect()
         g = self._GRIP_MM
-        return QRectF(br.right() - g, br.center().y() - g / 2, g, g)
+        half = g / 2
+        return {
+            "TL": QRectF(sbr.left() - half, sbr.top() - half, g, g),
+            "TR": QRectF(sbr.right() - half, sbr.top() - half, g, g),
+            "BL": QRectF(sbr.left() - half, sbr.bottom() - half, g, g),
+            "BR": QRectF(sbr.right() - half, sbr.bottom() - half, g, g),
+        }
+
+    def _hit_corner(self, scene_pos) -> "str | None":
+        """Return the name of the corner grip hit by scene_pos, or None.
+
+        Args:
+            scene_pos: QPointF in scene (paper-mm) coordinates.
+
+        Returns:
+            One of "TL", "TR", "BL", "BR", or None if no grip was hit.
+        """
+        for name, rect in self._corner_grip_rects().items():
+            if rect.contains(scene_pos):
+                return name
+        return None
 
     def mousePressEvent(self, event) -> None:
-        """Start a wrap-resize drag when the grip is pressed; otherwise begin move."""
-        if self.isSelected() and self._grip_scene_rect().contains(event.scenePos()):
-            self._resizing = True
-            self._wrap_at_press = self._data.wrap_width_mm
-            event.accept()
-            return
+        """Start a corner wrap-resize drag when a grip is hit; otherwise begin move.
+
+        Right corners (TR/BR) pin the anchor and expand/shrink from the right.
+        Left corners (TL/BL) pin the right edge and move the anchor left/right.
+        On auto-width (wrap_width_mm == 0) the effective wrap at press is taken
+        from the current visual width (sceneBoundingRect().width()) so the drag
+        starts from what the user sees.
+        """
+        if self.isSelected():
+            corner = self._hit_corner(event.scenePos())
+            if corner is not None:
+                self._resizing = True
+                self._grip_corner = corner
+                self._x_at_press = self._data.x
+                # If auto-width, treat visual width as the effective wrap at press
+                if self._data.wrap_width_mm > 0:
+                    self._wrap_at_press = self._data.wrap_width_mm
+                else:
+                    self._wrap_at_press = self.sceneBoundingRect().width()
+                # For left-corner drags, record the pinned right edge
+                self._right_at_press = self._x_at_press + self._wrap_at_press
+                event.accept()
+                return
         self._pos_at_press = (self._data.x, self._data.y)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        """Expand or shrink wrap_width_mm while dragging the right-edge grip."""
+        """Adjust wrap_width_mm (and optionally x) while dragging a corner grip.
+
+        Right corners (TR/BR): only wrap width changes; anchor x stays fixed.
+        Left corners (TL/BL): right edge is pinned; both x and wrap update.
+        Vertical drag component is ignored — box height auto-fits content.
+        """
         if self._resizing:
-            new_w = max(MIN_TEXT_WRAP_WIDTH_MM,
-                        event.scenePos().x() - self.pos().x())
-            self._data.wrap_width_mm = new_w
+            sx = event.scenePos().x()
+            if self._grip_corner in ("TR", "BR"):
+                # Right-corner: pin anchor, drag right edge
+                new_w = max(MIN_TEXT_WRAP_WIDTH_MM, sx - self._x_at_press)
+                self._data.wrap_width_mm = new_w
+            else:
+                # Left-corner: pin right edge, move anchor + shrink wrap
+                right = self._right_at_press
+                new_x = min(sx, right - MIN_TEXT_WRAP_WIDTH_MM)
+                new_w = right - new_x
+                self._data.x = new_x
+                self._data.wrap_width_mm = new_w
+                # Move the item (goes through itemChange clamping/sync)
+                self.setPos(new_x, self._data.y)
             self.prepareGeometryChange()
             self._apply_format()
             event.accept()
@@ -1087,7 +1152,14 @@ class TextAnnotationItem(QGraphicsTextItem):
         """Finish a resize or move drag and notify the undo hook."""
         if self._resizing:
             self._resizing = False
-            self._on_wrap_resized(self._wrap_at_press, self._data.wrap_width_mm)
+            corner = self._grip_corner
+            self._grip_corner = None
+            old_state = (self._x_at_press, self._wrap_at_press)
+            new_state = (self._data.x, self._data.wrap_width_mm)
+            self._x_at_press = None
+            self._wrap_at_press = None
+            self._right_at_press = None
+            self._on_wrap_resized(old_state, new_state)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -1112,20 +1184,20 @@ class TextAnnotationItem(QGraphicsTextItem):
         if scene is not None and hasattr(scene, "_push_text_move"):
             scene._push_text_move(self._data, old_xy, new_xy)
 
-    def _on_wrap_resized(self, old_w: float, new_w: float) -> None:
-        """Hook called after a completed wrap-resize drag.
+    def _on_wrap_resized(self, old_state: tuple, new_state: tuple) -> None:
+        """Hook called after a completed corner wrap-resize drag.
 
         Routes to the scene's _push_text_wrap helper to record a
-        WrapResizeTextCommand on the undo stack. The wrap width is already
-        updated live by mouseMoveEvent; the command is for undo history only.
+        WrapResizeTextCommand on the undo stack. Both x and wrap_width_mm are
+        already updated live by mouseMoveEvent; the command is for undo history.
 
         Args:
-            old_w: wrap_width_mm in paper mm before the resize.
-            new_w: wrap_width_mm in paper mm after the resize.
+            old_state: ``(old_x, old_wrap_width_mm)`` before the resize.
+            new_state: ``(new_x, new_wrap_width_mm)`` after the resize.
         """
         scene = self.scene()
         if scene is not None and hasattr(scene, "_push_text_wrap"):
-            scene._push_text_wrap(self._data, old_w, new_w)
+            scene._push_text_wrap(self._data, old_state, new_state)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2649,13 +2721,18 @@ class PaperScene(QGraphicsScene):
         if not self._applying_command and old != new:
             self._undo_stack.push(MoveTextAnnotationCommand(self, data, old, new))
 
-    def _push_text_wrap(self, data, old, new):
+    def _push_text_wrap(self, data, old_state, new_state):
         """Push a WrapResizeTextCommand for a completed wrap-resize gesture.
 
-        No-op while a command is being applied or when the width is unchanged.
+        No-op while a command is being applied or when neither x nor wrap changed.
+
+        Args:
+            data: The TextAnnotationData being resized.
+            old_state: ``(old_x, old_wrap_width_mm)`` before the gesture.
+            new_state: ``(new_x, new_wrap_width_mm)`` after the gesture.
         """
-        if not self._applying_command and old != new:
-            self._undo_stack.push(WrapResizeTextCommand(self, data, old, new))
+        if not self._applying_command and old_state != new_state:
+            self._undo_stack.push(WrapResizeTextCommand(self, data, old_state, new_state))
 
     def _push_text_edit(self, data, old_text, new_text):
         """Record an inline-edit commit on the undo stack.

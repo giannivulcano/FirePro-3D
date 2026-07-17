@@ -45,14 +45,32 @@ class MoveTextAnnotationCommand(QUndoCommand):
 
 
 class WrapResizeTextCommand(QUndoCommand):
-    def __init__(self, scene, data, old_w, new_w):
+    """Undo/redo a corner-grip wrap-resize gesture.
+
+    Carries both x-position and wrap_width_mm so a left-corner drag (which
+    moves the anchor while pinning the right edge) is restored atomically.
+    A right-corner drag is the x-unchanged case: pass the same x for old and
+    new.
+
+    Args:
+        scene: The PaperScene that owns the annotation.
+        data: The TextAnnotationData being resized.
+        old_state: ``(old_x, old_wrap_width_mm)`` — state before the gesture.
+        new_state: ``(new_x, new_wrap_width_mm)`` — state after the gesture.
+    """
+    def __init__(self, scene, data, old_state, new_state):
         super().__init__("Resize Text"); self._scene, self._data = scene, data
-        self._old, self._new = old_w, new_w
-    def _set(self, w):
+        self._old, self._new = old_state, new_state
+    def _set(self, state):
+        x, w = state
         def op():
+            self._data.x = x
             self._data.wrap_width_mm = w
             it = _find_text_item(self._scene, self._data)
-            if it is not None: it.prepareGeometryChange(); it._apply_format()
+            if it is not None:
+                it.setPos(x, self._data.y)
+                it.prepareGeometryChange()
+                it._apply_format()
         self._scene._apply(op)
     def redo(self): self._set(self._new)
     def undo(self): self._set(self._old)
