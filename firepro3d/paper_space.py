@@ -3100,11 +3100,15 @@ class PaperSpaceWidget(QWidget):
         self._fit()
 
     def _edit_title(self):
+        fields = self._sheet.title_block_fields
+        before = dict(fields)
         dlg = TitleBlockDialog(self.paper_scene.title_block, self)
         dlg.exec()
         # Sync programmatic title block fields from sheet
-        self.paper_scene.title_block.fields = self._sheet.title_block_fields
+        self.paper_scene.title_block.fields = fields
         self.paper_scene.refresh_viewport()
+        if fields != before:
+            self.paper_scene.sheetModified.emit()
 
     def edit_title_block(self):
         """Public: open the title block editor dialog."""

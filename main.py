@@ -593,6 +593,8 @@ class MainWindow(QMainWindow):
         self.scene.modeChanged.connect(self._sync_mode_buttons)
         self.scene.modeChanged.connect(self._on_mode_changed_template)
         self.scene.sceneModified.connect(self._on_scene_modified)
+        self.paper_space_widget.paper_scene.sheetModified.connect(
+            self._on_paper_modified)
         self.scene.radiationConfirm.connect(self._radiation_on_confirm)
         self.scene.radiationCancel.connect(self._radiation_on_cancel)
         self.scene.instructionChanged.connect(
@@ -2720,6 +2722,11 @@ class MainWindow(QMainWindow):
         name = os.path.basename(self._current_file) if self._current_file else "Untitled"
         star = " *" if self._modified else ""
         self.setWindowTitle(f"FirePro 3D \u2014 {name}{star}")
+
+    def _on_paper_modified(self):
+        """A paper-sheet mutation dirties the project (save prompt + autosave)."""
+        self._modified = True
+        self._update_title()
 
     def _on_scene_modified(self):
         self._modified = True
