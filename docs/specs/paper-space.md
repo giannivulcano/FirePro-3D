@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9): ribbon-driven authoring (Draft tab, widget toolbar retired), box model + 8-handle grips, property-panel + Font-group formatting, persisted Add-Text template, and the unified paper-space undo/redo stack (§17)** are built. Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up).
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9): ribbon-driven authoring (Draft tab, widget toolbar retired), box model + 8-handle grips, property-panel + Font-group formatting, persisted Add-Text template, the unified paper-space undo/redo stack (§17), and the dirty-flag / crash-recovery persistence contract (§17.7)** are built. Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up).
 **Last verified:** 2026-07-20
-**Verified commit:** 252b849
-**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`)
+**Verified commit:** 85e0b55
+**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery orchestration — §17.7)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
 
@@ -592,13 +592,32 @@ Move/resize/wrap-resize capture the geometry at `mousePressEvent` and push **one
 
 `QUndoStack.createUndoAction` / `createRedoAction` → `Ctrl+Z` / `Ctrl+Y` (plus `Ctrl+Shift+Z` for redo, matching model-space), `setShortcutContext(WidgetWithChildrenShortcut)` on the paper view. `PaperGraphicsView.event()` accepts `ShortcutOverride` for those keys (mirror the existing `Key_Delete` handling) so they reach the widget action ahead of the window-scoped ribbon button. The ribbon Undo/Redo buttons dispatch on `central_tabs.currentWidget()` (paper stack vs `Model_Space`).
 
-### 17.5 Lifetime & reset
+### 17.5 Lifetime & reset [as-built 2026-07-20]
 
-Never serialized (session-only by construction). Cleared in `PaperScene.update_from_sheet` (the single project-load choke point) and in `new_file` (which must also reset `_sheet`/paper scene — today it does not). The paper-size setter rebuilds from data and clears the stack (acceptable for MVP).
+Never serialized (session-only by construction). Cleared in `PaperScene.update_from_sheet` (the single project-load choke point); `new_file` and every load path reach it through `PaperSpaceWidget.set_sheet` (§17.7). The paper-size setter does **not** clear the stack — commands key on persistent data identity (§17.1) and survive the `_setup()` rebuild, so clearing is unnecessary; the setter also skips no-op assignments (same size → no rebuild, no signal) and emits `sheetModified` on a real change.
 
 ### 17.6 Prerequisite — one canonical `PaperScene` (mandatory)
 
 `_activate_paper_sheet` currently constructs a **second** `PaperSpaceWidget`, so the on-screen scene is not `self.paper_space_widget.paper_scene` (which is what load/title-block/export target). This is collapsed (reuse the canonical widget) so the undo stack, edits, save, and export all bind to the **one visible scene**. Pre-existing latent bug; mandatory for correct undo.
+
+### 17.7 Dirty Flag & Crash Recovery [added 2026-07-20]
+
+Paper mutations participate in the project-wide unsaved-changes flag (`MainWindow._modified`: title `*`, save prompts, autosave eligibility) via **`PaperScene.sheetModified`** (a `pyqtSignal()`), connected to a minimal `MainWindow._on_paper_modified` (sets the flag + title only — deliberately *not* `_on_scene_modified`, so paper edits never trigger the model-space 3D-view refresh debounce).
+
+**Emission rule — dirties iff it changes bytes `Sheet.to_dict()` would emit:**
+
+| Surface | Emits? | Mechanism |
+|---|---|---|
+| Text + viewport commands, undo, redo | Yes | relay from `undo_stack.indexChanged` |
+| Paper size change | Yes (real change only) | setter emits; no-op sets skipped entirely |
+| Title-block field edit (dialog OK with a change) | Yes | `_edit_title` snapshots fields, emits on diff |
+| Load/new rebuild (`update_from_sheet`, incl. its `undo_stack.clear()` → `indexChanged` and programmatic Scale-field write) | **No** | `_suppress_modified` guard around the rebuild |
+| Add-Text **template** edits | **No** | QSettings-only; off-scene item never routes through the stack |
+| Cancelled dialogs / no-op gestures | **No** | no data change → no command → no emit |
+
+Semantics are **latch-until-save** (matching model space): undo/redo dirty; undoing back to the save point does *not* un-dirty (no `QUndoStack` clean-state tracking).
+
+**Load paths & crash recovery.** `PaperSpaceWidget.set_sheet(sheet, resolver)` is the single load-path entry point: it rebinds `widget._sheet`, the scene's resolver (`PaperScene.set_resolver` — before `update_from_sheet`, since `SheetViewport` captures the resolver at construction), and rebuilds via `update_from_sheet`. Open, crash recovery, and `new_file` all route through it — a stale `widget._sheet` previously sent post-load title-block edits into a detached dict. `_check_recovery` (main.py) restores via the shared `_apply_loaded_file()` with **full File→Open parity**, deviating only in: `_current_file=None` (first Save prompts Save-As), `_modified=True`, and no recent-files entry. Declined recovery deletes the autosave and changes nothing. Coverage: `tests/test_paper_persistence.py`.
 
 ## 18. Out of Scope
 

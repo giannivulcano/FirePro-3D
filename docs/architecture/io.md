@@ -202,3 +202,4 @@ This keeps the UI responsive during heavy file parsing. The strict separation be
 - **Scale Manager** -- calibration state is saved and restored
 - **Display Manager** -- per-project category overrides and per-instance overrides are preserved
 - **Undo system** -- load triggers a fresh undo state push; save clears the dirty flag
+- **Paper space** -- paper mutations dirty the project and crash recovery restores sheets with full open parity; contract owned by `docs/specs/paper-space.md` §17.7
