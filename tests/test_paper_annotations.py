@@ -95,6 +95,34 @@ def test_view_accepts_escape_override_only_while_editing(qapp):
     assert ev.isAccepted()
 
 
+def test_click_anywhere_in_box_hits_item(qapp):
+    # Grab-anywhere: empty box area below the text must hit-test to the item,
+    # not just the glyph strip (2026-07-20 smoke: "grab and pull" anywhere).
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QTransform
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.add_annotation(TextAnnotationData(
+        text="X", x=10, y=10, wrap_width_mm=80.0, box_height_mm=60.0))
+    p = QPointF(10 + 40, 10 + 50)          # well below the single text line
+    assert scene.itemAt(p, QTransform()) is item
+
+
+def test_grip_outer_half_hits_item_when_selected(qapp):
+    # Grips straddle the border; the outer half must still reach the item.
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QTransform
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    item = scene.add_annotation(TextAnnotationData(
+        text="X", x=10, y=10, wrap_width_mm=80.0, box_height_mm=60.0))
+    item.setSelected(True)
+    grip = item._corner_grip_rects()["BR"]              # scene coords
+    p = grip.center() + QPointF(grip.width() * 0.4,     # outer quadrant,
+                                grip.height() * 0.4)    # beyond the box corner
+    assert scene.itemAt(p, QTransform()) is item
+
+
 def test_item_escape_confirms_pending_placement(qapp):
     from PyQt6.QtGui import QKeyEvent
     from PyQt6.QtCore import QEvent, Qt, QPointF

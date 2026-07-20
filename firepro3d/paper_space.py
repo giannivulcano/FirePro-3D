@@ -873,6 +873,26 @@ class TextAnnotationItem(QGraphicsTextItem):
         pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
         return rect.adjusted(-pad, -pad, pad, pad)
 
+    def shape(self) -> QPainterPath:
+        """Full-box hit area — grab anywhere in the box, not just on the glyphs.
+
+        QGraphicsTextItem's default shape is the text-content rect, which makes
+        the empty area of a tall box (and the outer half of the border-straddling
+        grips) miss the item entirely. While selected, the grip halo is included
+        so every handle square is fully clickable. Only ever WIDER than the
+        default — narrowing shape() breaks Qt's paint culling.
+        """
+        path = QPainterPath()
+        path.addRect(self.boundingRect() if self.isSelected()
+                     else self._box_rect_local())
+        return path
+
+    def contains(self, point) -> bool:
+        """Point hit-test via shape() — QGraphicsTextItem overrides contains()
+        with its own text-content test, so scene point queries (itemAt, click
+        routing) would ignore the widened shape() without this override."""
+        return self.shape().contains(point)
+
     def paint(self, painter: QPainter, option, widget=None) -> None:
         """Paint the text block with opaque fill, edit frame, and selection grips.
 
