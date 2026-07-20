@@ -125,20 +125,26 @@ def test_item_escape_discards_empty_pending_placement(qapp):
     assert scene.undo_stack.index() == idx       # nothing recorded
 
 
-def test_item_escape_reverts_text(qapp):
+def test_item_escape_commits_existing_edit(qapp):
+    """Esc on an existing block commits (not reverts); undo restores the original."""
     from PyQt6.QtGui import QKeyEvent
     from PyQt6.QtCore import QEvent, Qt
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     item = scene.add_annotation(TextAnnotationData(text="Original", x=1, y=1))
+    idx_before = scene.undo_stack.index()
     item.begin_edit()
     item.setPlainText("Changed")
     item.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
                                  Qt.KeyboardModifier.NoModifier))
-    assert item.toPlainText() == "Original"
-    assert item._data.text == "Original"
+    # Esc commits — "Changed" is now the live text
+    assert item._data.text == "Changed"
     assert item._editing is False
-    assert scene._editing_item is None
+    # Undo stack gained exactly one entry (the EditTextCommand)
+    assert scene.undo_stack.index() == idx_before + 1
+    # Undo restores "Original"
+    scene.undo_stack.undo()
+    assert item._data.text == "Original"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
