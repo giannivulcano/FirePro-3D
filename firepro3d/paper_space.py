@@ -2952,6 +2952,14 @@ class PaperScene(QGraphicsScene):
 
     # ── Public API (preserved) ──────────────────────────────────────────
 
+    def set_resolver(self, resolver: ViewResolver) -> None:
+        """Swap the view resolver used for subsequent viewport builds.
+
+        Must be called before update_from_sheet() on a load path so rebuilt
+        SheetViewports capture the new resolver (they take it at construction).
+        """
+        self._resolver = resolver
+
     @property
     def paper_size(self) -> str:
         return self._sheet.paper_size
@@ -3081,6 +3089,19 @@ class PaperSpaceWidget(QWidget):
         """Public: change paper size and fit the view."""
         self.paper_scene.paper_size = size
         self._fit()
+
+    def set_sheet(self, sheet: Sheet, resolver: ViewResolver) -> None:
+        """Public: rebind this widget (and its scene) to *sheet* + *resolver*.
+
+        The single load-path entry point: keeps widget._sheet, the scene's
+        sheet, and the resolver in lockstep so title-block edits and viewport
+        builds target the live project data (a stale widget._sheet previously
+        sent post-load title-block edits into a detached dict).
+        """
+        self._sheet = sheet
+        self._resolver = resolver
+        self.paper_scene.set_resolver(resolver)
+        self.paper_scene.update_from_sheet(sheet)
 
     def set_add_text_mode(self, on: bool) -> None:
         """Public: enter/leave text place mode; emits add_text_mode_toggled."""

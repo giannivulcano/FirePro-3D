@@ -186,3 +186,112 @@ def test_load_and_new_end_clean(_mw, tmp_path):
     assert _mw._modified is False, "open must end clean despite paper rebuild"
     _fresh(_mw)  # new_file
     assert _mw._modified is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Crash recovery + resolver identity
+# ─────────────────────────────────────────────────────────────────────────────
+
+from PyQt6.QtWidgets import QMessageBox
+
+from firepro3d.paper_space import TextAnnotationItem
+
+
+def _find_scene_text(mw, text):
+    scene = mw.paper_space_widget.paper_scene
+    return [it for it in scene.items()
+            if isinstance(it, TextAnnotationItem) and it.data.text == text]
+
+
+def test_recovery_restores_paper_and_survives_save(_mw, tmp_path, monkeypatch):
+    """The money test: recovered sheet annotations are visible AND survive a save."""
+    autosave = tmp_path / "recovery.FPD"
+    monkeypatch.setattr(MainWindow, "_autosave_path",
+                        staticmethod(lambda: str(autosave)))
+
+    # 1. Author a project with a paper text annotation and autosave it.
+    _fresh(_mw)
+    _add_text(_mw, "RECOVER-ME")
+    _mw._autosave()
+    assert autosave.is_file()
+
+    # 2. Simulate the post-crash fresh session.
+    _fresh(_mw)
+    assert not _find_scene_text(_mw, "RECOVER-ME")
+
+    # 3. Accept recovery.
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    _mw._current_file = None
+    _mw._check_recovery()
+
+    # Visible + correctly bound (stale-self._sheet overwrite is the old bug):
+    assert _find_scene_text(_mw, "RECOVER-ME"), "recovered annotation must be on the paper scene"
+    assert _mw._sheet is _mw.scene._sheets[0]
+    assert _mw.paper_space_widget._sheet is _mw._sheet
+    assert _mw._modified is True
+    assert _mw._current_file is None, "recovery must not adopt the temp path (Save → Save-As)"
+    assert not autosave.is_file(), "recovery file cleaned up after handling"
+
+    # 4. Save and reload — the annotation must survive.
+    out = str(tmp_path / "saved.FPD")
+    _mw._current_file = out
+    _mw.save_file()
+    _mw._load_project(out)
+    assert _find_scene_text(_mw, "RECOVER-ME"), "annotation lost on save-after-recovery"
+
+
+def test_recovery_declined_unchanged(_mw, tmp_path, monkeypatch):
+    autosave = tmp_path / "recovery2.FPD"
+    monkeypatch.setattr(MainWindow, "_autosave_path",
+                        staticmethod(lambda: str(autosave)))
+    _fresh(_mw)
+    _add_text(_mw, "DECLINED")
+    _mw._autosave()
+    _fresh(_mw)
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    _mw._check_recovery()
+    assert not _find_scene_text(_mw, "DECLINED")
+    assert not autosave.is_file(), "declined recovery still deletes the autosave"
+    assert _mw._modified is False
+
+
+def test_autosave_contains_paper_only_edit(_mw, tmp_path, monkeypatch):
+    autosave = tmp_path / "recovery3.FPD"
+    monkeypatch.setattr(MainWindow, "_autosave_path",
+                        staticmethod(lambda: str(autosave)))
+    _fresh(_mw)
+    _add_text(_mw, "AUTOSAVED")   # paper-only edit → _modified True (Task 2)
+    _mw._autosave()
+    assert autosave.is_file(), "paper-only edits must be autosave-eligible"
+    import json
+    payload = json.loads(autosave.read_text())
+    assert any(a.get("text") == "AUTOSAVED"
+               for s in payload.get("sheets", []) for a in s.get("annotations", []))
+
+
+def test_resolver_identity_after_load_paths(_mw, tmp_path, monkeypatch):
+    # After open:
+    _fresh(_mw)
+    path = str(tmp_path / "res.FPD")
+    _mw._current_file = path
+    _mw.save_file()
+    _mw._load_project(path)
+    scene = _mw.paper_space_widget.paper_scene
+    assert scene._resolver is _mw._view_resolver, "open must rebind the live resolver"
+    assert _mw.paper_space_widget._sheet is _mw._sheet, "open must rebind widget._sheet"
+
+    # After recovery:
+    autosave = tmp_path / "recovery4.FPD"
+    monkeypatch.setattr(MainWindow, "_autosave_path",
+                        staticmethod(lambda: str(autosave)))
+    _add_text(_mw, "X")
+    _mw._autosave()
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    _mw._check_recovery()
+    assert scene._resolver is _mw._view_resolver, "recovery must rebind the live resolver"

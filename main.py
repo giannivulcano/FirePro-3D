@@ -2536,12 +2536,22 @@ class MainWindow(QMainWindow):
     def _load_project(self, file: str):
         """Load a project file and update all UI state."""
         self._current_file = file
-        self.scene.load_from_file(file)
-        self.level_widget.populate()
-        pass  # level indicator removed
+        self._apply_loaded_file(file)
         self._modified = False
         self._update_title()
         self._add_recent_file(file)
+
+    def _apply_loaded_file(self, file: str):
+        """Shared post-load restore — used by open AND crash recovery.
+
+        Everything a loaded file needs to become the live session: scene,
+        levels, display settings, markers, browser, active plan view, unit
+        prefs, and the paper sheet/resolver rebind. Callers own _current_file,
+        _modified, title, and recent-files bookkeeping (recovery deliberately
+        keeps _current_file=None and _modified=True).
+        """
+        self.scene.load_from_file(file)
+        self.level_widget.populate()
         # Apply display settings: prefer project-embedded settings, fall back to QSettings
         project_ds = getattr(self.scene, '_loaded_display_settings', None)
         if project_ds:
@@ -2565,16 +2575,17 @@ class MainWindow(QMainWindow):
             self._activate_plan_view(active)
         # Override display unit and precision with user's persistent preference
         self._apply_persistent_unit_prefs()
-        # Restore sheet from loaded project
-        if self.scene._sheets:
-            self._sheet = self.scene._sheets[0]
-        else:
-            self._sheet = Sheet.create_default()
-        self.paper_space_widget.paper_scene.update_from_sheet(self._sheet)
+        # Restore sheet from loaded project, resolver first so rebuilt
+        # viewports capture it (resolver-rebind fix).
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
         )
+        if self.scene._sheets:
+            self._sheet = self.scene._sheets[0]
+        else:
+            self._sheet = Sheet.create_default()
+        self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -2630,11 +2641,13 @@ class MainWindow(QMainWindow):
             "Would you like to restore it?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.Yes:
-            self.scene.load_from_file(path)
-            self.level_widget.populate()
+            # Full open parity (grill 2026-07-20): recovery differs from
+            # File→Open only in _current_file (None → first Save prompts
+            # Save-As), _modified (True — unsaved by definition), and no
+            # recent-files entry.
+            self._apply_loaded_file(path)
             self._modified = True
             self._update_title()
-            self._apply_persistent_unit_prefs()
         self._cleanup_autosave()
 
     def _cleanup_autosave(self):
@@ -2712,7 +2725,7 @@ class MainWindow(QMainWindow):
         # paper-space undo stack, so the fresh sheet starts with no history.
         self._sheet = Sheet.create_default()
         self.scene._sheets = [self._sheet]
-        self.paper_space_widget.paper_scene.update_from_sheet(self._sheet)
+        self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
 
         self._modified = False
         self._update_title()
