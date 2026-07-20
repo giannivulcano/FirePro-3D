@@ -141,6 +141,8 @@ SELECTION_OUTLINE_WIDTH_MM = 0.8           # dashed boundary pen width (paper mm
 SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
 SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
 
+TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
+
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's
 # size dropdown and its grow/shrink stepping (units-and-formatting.md).
 FONT_SIZE_LADDER_PT = (8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72)

@@ -22,6 +22,7 @@ from .constants import (
     DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM,
     SELECTION_OUTLINE_COLOR, SELECTION_OUTLINE_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
+    TEXT_BOX_MARGIN_MM,
 )
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
@@ -821,6 +822,9 @@ class TextAnnotationItem(QGraphicsTextItem):
         h = d.height_mm if d.height_mm > 0 else DEFAULT_TEXT_HEIGHT_MM
         scale = h / cap if cap > 0 else 1.0
         self.setScale(scale)
+        # Inner margin: set BEFORE wrap/auto-width so idealWidth() accounts for it.
+        if scale > 0:
+            self.document().setDocumentMargin(TEXT_BOX_MARGIN_MM / scale)
         if d.wrap_width_mm > 0 and scale > 0:
             self.setTextWidth(d.wrap_width_mm / scale)
         else:
@@ -848,16 +852,26 @@ class TextAnnotationItem(QGraphicsTextItem):
         return QRectF(0, 0, width, height)
 
     def boundingRect(self) -> QRectF:
-        """Return the item's visual/selection extent — the box rect.
+        """Return the item's visual/selection extent — padded for the selection halo.
 
-        Expanding boundingRect is safe; it is called after prepareGeometryChange()
-        wherever box_height_mm or wrap changes. Do NOT override shape() narrowly
-        (project gotcha: Qt uses shape() in paint culling).
+        Grips are squares centred ON the box corners (half of each hangs outside
+        the box).  Without padding Qt's dirty-region tracking misses the overhang
+        and leaves stale trails when the item is dragged.  Padding is applied
+        unconditionally (not only when selected) so Qt never needs a
+        prepareGeometryChange on every selection toggle.
+
+        Everything that means "the visual box" (opaque-bg fill, selection boundary,
+        grip placement, resize math) keeps using _box_rect_local() — ONLY
+        boundingRect grows.
 
         Returns:
-            The box rect in local unscaled coordinates.
+            The box rect expanded by the selection-grip halo in local unscaled
+            coordinates.
         """
-        return self._box_rect_local()
+        rect = self._box_rect_local()
+        s = self.scale() or 1.0
+        pad = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
+        return rect.adjusted(-pad, -pad, pad, pad)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         """Paint the text block with opaque fill, edit frame, and selection grips.
@@ -1126,13 +1140,16 @@ class TextAnnotationItem(QGraphicsTextItem):
         """Return the 8 grip hit-rectangles in scene (paper-mm) coordinates.
 
         Each grip is a _GRIP_MM × _GRIP_MM square centred on the corresponding
-        corner or edge midpoint of sceneBoundingRect. Used by mousePressEvent for
-        hit-testing. Keys: "TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR".
+        corner or edge midpoint of the logical box (_box_rect_local mapped to
+        scene coords). Uses _box_rect_local() — not sceneBoundingRect() — so
+        that the padding added to boundingRect() for stale-trail prevention
+        (Fix 1, 2026-07-20) does not displace the grip positions. Used by
+        mousePressEvent for hit-testing. Keys: "TL","TM","TR","ML","MR","BL","BM","BR".
 
         Returns:
             dict mapping handle name → QRectF in scene (paper-mm) coordinates.
         """
-        sbr = self.sceneBoundingRect()
+        sbr = self.mapRectToScene(self._box_rect_local())
         g = self._GRIP_MM
         half = g / 2
         cx = sbr.center().x()

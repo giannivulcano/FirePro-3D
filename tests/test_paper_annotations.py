@@ -391,7 +391,12 @@ def test_grip_press_starts_resizing(qapp):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_eight_grip_rects(qapp):
-    """_corner_grip_rects() returns 8 named rects at corners + edge midpoints."""
+    """_corner_grip_rects() returns 8 named rects at corners + edge midpoints.
+
+    Grips are centred on the LOGICAL BOX corners (mapRectToScene(_box_rect_local)),
+    not on sceneBoundingRect() corners (which include the grip-halo pad added by
+    Fix 1, 2026-07-20).  The test therefore uses the mapped box rect as reference.
+    """
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=20.0, y=30.0, wrap_width_mm=60.0)
@@ -402,10 +407,11 @@ def test_eight_grip_rects(qapp):
     grips = item._corner_grip_rects()
     assert set(grips.keys()) == {"TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"}
 
-    sbr = item.sceneBoundingRect()
+    # Reference: logical box in scene coords (not the padded sceneBoundingRect)
+    sbr = item.mapRectToScene(item._box_rect_local())
     g = item._GRIP_MM
 
-    # Corners centred on the bounding box corners
+    # Corners centred on the box corners
     assert abs(grips["TL"].center().x() - sbr.left())   < 0.5
     assert abs(grips["TL"].center().y() - sbr.top())    < 0.5
     assert abs(grips["TR"].center().x() - sbr.right())  < 0.5
@@ -469,12 +475,16 @@ def test_br_corner_drag_grows_wrap_and_box_height(qapp):
 
 
 def test_tl_corner_drag_moves_anchor_shrinks_box(qapp):
-    """TL drag (+x,+y): x/y move; wrap and box height shrink; BR corner stays fixed (±0.1 mm)."""
+    """TL drag (+x,+y): x/y move; wrap and box height shrink; BR corner stays fixed (±0.1 mm).
+
+    box_height_mm=60 is well above content height (~32mm with margin) so the TL
+    drag at +5mm actually shrinks the box rather than hitting the content clamp.
+    """
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
-                              wrap_width_mm=60.0, box_height_mm=30.0)
+                              wrap_width_mm=60.0, box_height_mm=60.0)
     item = TextAnnotationItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
@@ -582,12 +592,16 @@ def test_bm_drag_changes_only_box_height(qapp):
 
 
 def test_tm_drag_moves_y_shrinks_height_pins_bottom(qapp):
-    """TM drag (+y): y moves down, box height shrinks, bottom edge stays pinned."""
+    """TM drag (+y): y moves down, box height shrinks, bottom edge stays pinned.
+
+    box_height_mm=60 is well above content height (~32mm with margin) so the TM
+    drag at +5mm actually shrinks the box rather than hitting the content clamp.
+    """
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
-                              wrap_width_mm=50.0, box_height_mm=30.0)
+                              wrap_width_mm=50.0, box_height_mm=60.0)
     item = TextAnnotationItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
@@ -612,7 +626,7 @@ def test_tm_drag_moves_y_shrinks_height_pins_bottom(qapp):
     item.mouseMoveEvent(_Move())
 
     assert data.y > 10.0
-    assert data.box_height_mm < 30.0
+    assert data.box_height_mm < 60.0
     sbr_after = item.sceneBoundingRect()
     assert abs(sbr_after.bottom() - bottom_before) < 0.5
 
@@ -786,14 +800,22 @@ def test_boundingrect_grows_to_box_height(qapp):
 
 
 def test_boundingrect_auto_fits_when_box_height_zero(qapp):
-    """When box_height_mm == 0 boundingRect equals the natural text bounding rect."""
+    """When box_height_mm == 0, _box_rect_local() matches the natural text height.
+
+    boundingRect() is padded with the grip halo (Fix 1, 2026-07-20), so it will
+    be slightly larger than the natural text rect; we verify _box_rect_local()
+    (the logical box) against the natural content rect instead.
+    """
     from PyQt6.QtWidgets import QGraphicsTextItem
     data = TextAnnotationData(text="x", height_mm=3.0, wrap_width_mm=50.0,
                               box_height_mm=0.0)
     item = TextAnnotationItem(data)
     natural = QGraphicsTextItem.boundingRect(item)
+    box = item._box_rect_local()
+    assert abs(box.height() - natural.height()) < 0.01
+    # boundingRect is padded beyond the box
     br = item.boundingRect()
-    assert abs(br.height() - natural.height()) < 0.01
+    assert br.height() > box.height()
 
 
 def test_grip_press_hits_mr_handle(qapp):
@@ -1032,3 +1054,73 @@ def test_undo_redo_move_text_end_to_end(qapp):
     assert abs(data.y - 77.0) < 1e-6
     assert abs(item.pos().x() - 42.0) < 1e-6
     assert abs(item.pos().y() - 77.0) < 1e-6
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 1: boundingRect covers grip halo (stale drag trails, 2026-07-20)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_bounding_rect_covers_grip_halo(qapp):
+    # Painted extent (grips centred on box corners) must lie inside boundingRect,
+    # or Qt leaves stale trails on drag (2026-07-20 smoke artifact).
+    from firepro3d.constants import (SELECTION_GRIP_SIZE_MM,
+                                     SELECTION_GRIP_OUTLINE_WIDTH_MM)
+    item = TextAnnotationItem(TextAnnotationData(text="X", wrap_width_mm=50.0))
+    s = item.scale() or 1.0
+    halo = (SELECTION_GRIP_SIZE_MM / 2 + SELECTION_GRIP_OUTLINE_WIDTH_MM) / s
+    box = item._box_rect_local()
+    br = item.boundingRect()
+    assert br.left() <= box.left() - halo + 1e-6
+    assert br.top() <= box.top() - halo + 1e-6
+    assert br.right() >= box.right() + halo - 1e-6
+    assert br.bottom() >= box.bottom() + halo - 1e-6
+
+
+def test_viewport_bounding_rect_covers_grip_rects(qapp):
+    # SheetViewport._grip_rects() must all lie inside boundingRect when selected,
+    # to avoid stale-trail artifacts on viewport drags.
+    from firepro3d.paper_space import SheetViewport, SheetViewData
+    data = SheetViewData(source_view_type="unknown", source_view_name="none",
+                         title="Test", scale=1.0,
+                         x=0.0, y=0.0, w=100.0, h=80.0)
+    resolver = _stub_resolver()
+    vp = SheetViewport(data, resolver)
+    vp.setSelected(True)
+    br = vp.boundingRect()
+    for r in vp._grip_rects():
+        assert br.left() <= r.left() + 1e-6, f"grip left {r.left()} outside br.left {br.left()}"
+        assert br.top() <= r.top() + 1e-6, f"grip top {r.top()} outside br.top {br.top()}"
+        assert br.right() >= r.right() - 1e-6, f"grip right {r.right()} outside br.right {br.right()}"
+        assert br.bottom() >= r.bottom() - 1e-6, f"grip bottom {r.bottom()} outside br.bottom {br.bottom()}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 2: Inner text-box margin (TEXT_BOX_MARGIN_MM)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_document_margin_applied_after_format(qapp):
+    """document().documentMargin() equals TEXT_BOX_MARGIN_MM / scale after _apply_format."""
+    import pytest
+    from firepro3d.constants import TEXT_BOX_MARGIN_MM
+    item = TextAnnotationItem(TextAnnotationData(text="Hello", wrap_width_mm=50.0))
+    s = item.scale() or 1.0
+    expected = TEXT_BOX_MARGIN_MM / s
+    assert item.document().documentMargin() == pytest.approx(expected, abs=1e-6)
+
+
+def test_document_margin_rescales_on_height_change(qapp):
+    """Margin recomputes with new scale when height changes via set_property.
+
+    set_property uses panel key "Height" (not field name "height_mm").
+    Off-scene items go through the direct setattr+_apply_format path.
+    """
+    import pytest
+    from firepro3d.constants import TEXT_BOX_MARGIN_MM
+    item = TextAnnotationItem(TextAnnotationData(text="Hello", height_mm=3.0, wrap_width_mm=50.0))
+    s_before = item.scale() or 1.0
+    # Panel key is "Height" (not "height_mm") — see _text_panel_change
+    item.set_property("Height", 6.0)
+    s_after = item.scale() or 1.0
+    assert abs(s_after - s_before) > 1e-6, "Scale should change when height changes"
+    expected = TEXT_BOX_MARGIN_MM / s_after
+    assert item.document().documentMargin() == pytest.approx(expected, abs=1e-6)
