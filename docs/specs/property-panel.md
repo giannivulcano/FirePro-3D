@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-16
-verified-commit: 778786d
+last-verified: 2026-07-20
+verified-commit: 252b849
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -56,7 +56,7 @@ The panel never imports entity modules for rendering decisions except the specia
 
 `_apply_property(key, value)` → `set_property` on **every** target (multi-select), sprinkler cascade re-run when key ∈ {Manufacturer, Model, Orientation}, then `scene.sceneModified.emit()` (first target with a scene) and a **50 ms single-shot debounced refresh** (`_refresh_timer` → `_do_refresh` → full form rebuild). A `_refreshing` guard makes writes fired during rebuild no-ops (prevents re-entrant loops from `currentTextChanged` firing on `setCurrentText`).
 
-**Write-path contract (grilled 2026-07-08; paper route built 2026-07-09):** direct mutation is **provisional**, not the long-term contract. The pluggable write route is now as-built for paper: `TextAnnotationItem.set_property` pushes commands on its scene's `QUndoStack` (`paper-space.md` §9.6/§17), and `_apply_property` wraps **multi-target** commits in a `beginMacro`/`endMacro` pair (duck-typed on a public `undo_stack` attribute — `Model_View` has none, so model space is unaffected; one panel commit = one undo step). Model-space targets stay direct-mutation **until model-space undo exists**, at which point they migrate to the same route. New target families must not add bare `set_property` writes without considering undo ownership.
+**Write-path contract (grilled 2026-07-08; paper route built 2026-07-09):** direct mutation is **provisional**, not the long-term contract. The pluggable write route is now as-built for paper: `TextAnnotationItem.set_property` pushes commands on its scene's `QUndoStack` (`paper-space.md` §9.6/§17), and `_apply_property` wraps **multi-target** commits in a `beginMacro`/`endMacro` pair (duck-typed on a public `undo_stack` attribute — `Model_View` has none, so model space is unaffected; one panel commit = one undo step). Model-space targets stay direct-mutation **until model-space undo exists**, at which point they migrate to the same route. New target families must not add bare `set_property` writes without considering undo ownership. **The panel is not the only head on this route [2026-07-20]:** the ribbon Font group (`font_group.py`, `ribbon-bar.md`) drives the same `set_property` path with the same macro semantics — plus a pre-filter so no-op gestures push no (empty) macro; any future formatting surface must match both behaviors.
 
 ### 3.4 Hard-coded entity special cases
 
@@ -77,7 +77,7 @@ The generic protocol has four baked-in exceptions (all in `_show_properties_inne
 - `scene.requestPropertyUpdate`, `view_3d.entitySelected`, `model_browser.entitySelected` → `show_properties` directly.
 - Empty selection → `show_properties(PlanViewInfo)` (active plan/detail view info) — the panel is never "about nothing" on a plan tab.
 - Elevation scenes: `scene.entitySelected` → `show_properties` (per-scene connect on creation).
-- **Paper space (built 2026-07-09):** `paper_scene.selectionChanged` + `undo_stack.indexChanged` → `MainWindow.update_paper_property_manager()` — filters selection to `TextAnnotationItem`s, only acts while the paper tab is current; `_on_tab_changed` routes the panel to the active tab's context. `add_text_mode_toggled` shows the text template pre-placement. Viewports still use their dialog (follow-up).
+- **Paper space (built 2026-07-09):** `paper_scene.selectionChanged` + `undo_stack.indexChanged` → `MainWindow.update_paper_property_manager()` — filters selection to `TextAnnotationItem`s, only acts while the paper tab is current; `_on_tab_changed` routes the panel to the active tab's context. `add_text_mode_toggled` shows the text template pre-placement, and **while Add-Text mode is active every refresh keeps showing the template** (an undo mid-placement must not blank it — 2026-07-16 review fix). Viewports still use their dialog (follow-up).
 
 ### 3.7 Template pattern (pre-placement defaults / "last-used defaults")
 

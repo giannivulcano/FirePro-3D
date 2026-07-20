@@ -1,9 +1,10 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-16
-verified-commit: 002cc19
+last-verified: 2026-07-20
+verified-commit: 252b849
 applies-to:
   - firepro3d/ribbon_bar.py
+  - firepro3d/font_group.py
   - main.py (init_ribbon + _init_*_tab helpers + mode-button sync)
 source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (orphan-gate spec forged on first touch)"
 ---
@@ -43,7 +44,7 @@ CAD users get a workflow-ordered command surface (Manage → Draw → Build → 
 
 - Checkable buttons wire `callback` to **`toggled`**; non-checkable to **`clicked`** (`_wire`). A `None` callback is allowed (caller wires signals itself — the Panels dock toggles do this).
 - Menu buttons use `InstantPopup`. **Split buttons** (default action + dropdown) are not a group API — callers build them by hand: `add_large_button(...)` then `setMenu` + `setPopupMode(MenuButtonPopup)` (Line/Rectangle/Wall/Floor/Roof/Room all do this).
-- There is **no API for arbitrary embedded widgets** (combos, spinboxes). The one existing case (Modify → Text group) reaches into `group.layout().insertLayout(0, ...)` directly — see D3. Any new widget-bearing group must either extend the group API deliberately or accept that pattern; don't invent a third way.
+- **Embedded widgets go through `add_widget(widget)`** (built 2026-07-16, resolving D3): parents the widget into the button row, flushing any open small-button column. This is the ONLY sanctioned route — never inject into a group's layouts directly. First consumer: the Draft-tab Font group (`font_group.py` `FontGroupController.container`). The legacy Modify → Text group still uses the old layout-injection hack (migrates on absorption — D2).
 
 ### 3.3 Shortcut scoping (the trap)
 
@@ -51,7 +52,7 @@ CAD users get a workflow-ordered command surface (Manage → Draw → Build → 
 
 ### 3.4 Content ownership (`main.py`)
 
-`init_ribbon()` builds six tabs in order — **Manage** (file I/O, import, settings, snap, undo/redo, gridlines/levels, view, dock-panel toggles), **Draw** (construction geometry, blocks, model-space annotations: Dimension/Text/Hatch), **Build** (walls/floors/roofs/rooms/openings, pipe/sprinkler/water-supply/design-area, library), **Modify** (edit/transform/constraints + selection-contextual Text formatting), **Analyze** (hydraulics, thermal radiation, report export), **Draft** (workspace switch, page setup, plot). It must run **after** the dock widgets exist (Panels toggles bind to them). Each tab is built by a private `_init_<tab>_tab(_I, _btn[, _mode_btn])` helper taking the icon-loader and button-factory closures.
+`init_ribbon()` builds six tabs in order — **Manage** (file I/O, import, settings, snap, undo/redo, gridlines/levels, view, dock-panel toggles), **Draw** (construction geometry, blocks, model-space annotations: Dimension/Text/Hatch), **Build** (walls/floors/roofs/rooms/openings, pipe/sprinkler/water-supply/design-area, library), **Modify** (edit/transform/constraints + selection-contextual Text formatting), **Analyze** (hydraulics, thermal radiation, report export), **Draft** (workspace switch, page setup incl. Refresh/Fit, plot, **Annotate** — sheet-text Add Text mode button, **Font** — the sheet-text Font group; `paper-space.md` §9.5/§9.6 own those behaviors). It must run **after** the dock widgets exist (Panels toggles bind to them). Each tab is built by a private `_init_<tab>_tab(_I, _btn[, _mode_btn])` helper taking the icon-loader and button-factory closures. Ribbon widgets wired to signals connected in `__init__` (pre-`init_ribbon`) must be reached through `getattr(self, ..., None)` guards — those signals can fire before the ribbon exists.
 
 ### 3.5 Mode-button protocol
 
@@ -96,8 +97,8 @@ All ribbon QSS comes from `theme.build_ribbon_qss` at `RibbonBar` construction; 
 | # | Divergence | Status |
 |---|---|---|
 | D1 | `RIBBON_QSS` module constant is dead code (real QSS in `theme.py`). | Cosmetic; delete on next touch of the file header. |
-| D2 | **Modify → Text group bypasses the panel write path**: per-gesture `set_property` + `push_undo_state` loops over selection, `QSpinBox` for pt size, no mixed-value handling — parallel to (and older than) the property-panel contract (`property-panel.md` §3.3). Model-space `NoteAnnotation` only. | **Legacy (grilled 2026-07-16):** intended design is **one entity-aware Word-style Font group** serving model-space text *and* sheet text, routed through each subsystem's proper undo path. This group is absorbed by that work (timing decided in the Font-group feature grill); it must NOT be copied for paper items. |
-| D3 | **No group API for embedded widgets** — the Text group injects a layout via `group.layout().insertLayout(0, ...)`. | **Gap (grilled 2026-07-16):** extend `RibbonGroup` with a deliberate `add_widget`-style primitive as part of the Font-group feature; the Text group's injection hack migrates to it on absorption. Once built, that primitive is the only sanctioned route. |
+| D2 | **Modify → Text group bypasses the panel write path**: per-gesture `set_property` + `push_undo_state` loops over selection, `QSpinBox` for pt size, no mixed-value handling — parallel to (and older than) the property-panel contract (`property-panel.md` §3.3). Model-space `NoteAnnotation` only. | **Legacy; end state half-built (2026-07-20):** the sheet-text half of the entity-aware Font group shipped (`font_group.py`, Draft tab, undo-routed). NoteAnnotation absorption + its data-model upgrade is a filed TODO follow-up; until then this group stays. It must NOT be copied for paper items. |
+| D3 | ~~No group API for embedded widgets~~ | **Resolved 2026-07-16** — `RibbonGroup.add_widget` built (§3.2); the Font group uses it. The legacy Text group's layout-injection migrates when D2's absorption lands. |
 | D4 | `main.py` reaches into `self.ribbon._tab_bar` (private) for the Modify auto-switch and modify-tab index. | Latent inconsistency; add a public accessor with cause. |
 | D5 | `_init_manage_tab` **shadows its `_btn` helper parameter** by rebinding `_btn = g_file.add_small_menu_button(...)` mid-function — the factory is unusable afterwards (later code happens not to call it). | Fragile; rename the locals on next touch. |
 | D6 | Manage → Export group is a permanently-disabled placeholder button. | Intentional stub ("coming soon"); remove or wire when export lands. |
