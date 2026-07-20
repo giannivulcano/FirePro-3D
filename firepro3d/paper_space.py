@@ -2854,18 +2854,6 @@ class PaperScene(QGraphicsScene):
         if not self._applying_command and old_state != new_state:
             self._undo_stack.push(ResizeTextBoxCommand(self, data, old_state, new_state))
 
-    def _push_text_wrap(self, data, old_state, new_state):
-        """Deprecated: push a 2-tuple wrap resize — kept for backward compatibility.
-
-        Translates the old (x, wrap) 2-tuple to the 4-tuple expected by
-        ResizeTextBoxCommand, preserving x and wrap but leaving y and
-        box_height_mm unchanged (0 = auto).
-        """
-        if not self._applying_command and old_state != new_state:
-            old4 = (old_state[0], data.y, old_state[1], data.box_height_mm)
-            new4 = (new_state[0], data.y, new_state[1], data.box_height_mm)
-            self._undo_stack.push(ResizeTextBoxCommand(self, data, old4, new4))
-
     def _push_text_edit(self, data, old_text, new_text):
         """Record an inline-edit commit on the undo stack.
 

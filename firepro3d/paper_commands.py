@@ -79,10 +79,6 @@ class ResizeTextBoxCommand(QUndoCommand):
     def undo(self): self._set(self._old)
 
 
-# Backward-compat alias — existing tests that import WrapResizeTextCommand still work.
-WrapResizeTextCommand = ResizeTextBoxCommand
-
-
 class EditTextCommand(QUndoCommand):
     def __init__(self, scene, data, old_text, new_text):
         super().__init__("Edit Text"); self._scene, self._data = scene, data

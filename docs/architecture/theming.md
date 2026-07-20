@@ -67,6 +67,28 @@ stay circular).
 
 ## UI conventions
 
+### Canvas selection & resize grips (base style)
+
+The canonical look-and-feel for any selectable/resizable canvas item
+(established 2026-07-20 from the paper-space viewport; sheet text conforms;
+future resizable items must too). Values live in `constants.py`
+(`SELECTION_OUTLINE_COLOR`, `SELECTION_OUTLINE_WIDTH_MM`,
+`SELECTION_GRIP_SIZE_MM`, `SELECTION_GRIP_OUTLINE_WIDTH_MM`) — one home,
+deliberately theme-independent (CAD selection blue reads on both themes):
+
+- **Selected boundary** — dashed `SELECTION_OUTLINE_COLOR` outline at
+  `SELECTION_OUTLINE_WIDTH_MM` around the item's box.
+- **Grips** — **8 handles** (4 corners + 4 edge midpoints): white-filled
+  squares of `SELECTION_GRIP_SIZE_MM` with a `SELECTION_OUTLINE_COLOR`
+  outline, centred on the box corners/midpoints. Scaled items divide by their
+  scale so grips stay true paper-mm.
+- **Resize behavior** — corner grips resize both axes anchoring the
+  diagonally-opposite corner; midpoint grips resize one axis; a drag gesture
+  is captured press→release and lands as **one undo command**.
+- **Distinct states keep distinct looks** — e.g. sheet text inline-*editing*
+  uses its own lighter `#88aaff` dashed frame; only the *selected* state uses
+  the base style.
+
 - **Pill buttons** — compact rounded action buttons (`border-radius` ≈ half the
   height, tight padding, content-sized). Used for dense control clusters such as
   the import dialog's File / Preview / Placement rows. Applied via a small local
