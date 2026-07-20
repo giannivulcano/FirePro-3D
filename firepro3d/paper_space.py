@@ -2410,6 +2410,7 @@ class PaperScene(QGraphicsScene):
     """
 
     navigate_to_view = pyqtSignal(str, str)
+    sheetModified = pyqtSignal()
 
     def __init__(self, sheet: Sheet, resolver: ViewResolver):
         super().__init__()
@@ -2426,6 +2427,8 @@ class PaperScene(QGraphicsScene):
         self._pending_text: "TextAnnotationItem | None" = None
         self._undo_stack = QUndoStack(self)
         self._applying_command = False
+        self._suppress_modified = False
+        self._undo_stack.indexChanged.connect(self._on_stack_index_changed)
         self.text_template: "TextAnnotationData | None" = None  # Add-Text seed
         self._setup()
 
@@ -2449,6 +2452,16 @@ class PaperScene(QGraphicsScene):
     def undo_stack(self) -> QUndoStack:
         """The paper-space-scoped QUndoStack owned by this scene."""
         return self._undo_stack
+
+    def _on_stack_index_changed(self, _idx: int) -> None:
+        """Relay undo-stack activity as a sheet-data mutation.
+
+        indexChanged fires on push, undo, redo AND clear(); the clear during
+        a load-path rebuild is suppressed via _suppress_modified so opening a
+        project never marks it dirty.
+        """
+        if not self._suppress_modified:
+            self.sheetModified.emit()
 
     def _setup(self):
         """Build/rebuild all paper scene items."""
@@ -2645,9 +2658,13 @@ class PaperScene(QGraphicsScene):
         Args:
             sheet: The sheet whose persisted content becomes the new scene.
         """
-        self._sheet = sheet
-        self._setup()
-        self._undo_stack.clear()
+        self._suppress_modified = True
+        try:
+            self._sheet = sheet
+            self._setup()
+            self._undo_stack.clear()
+        finally:
+            self._suppress_modified = False
 
     def _update_scale_field(self):
         self._sheet.title_block_fields["Scale"] = _compute_scale_field(self._sheet)
@@ -2941,9 +2958,10 @@ class PaperScene(QGraphicsScene):
 
     @paper_size.setter
     def paper_size(self, size: str):
-        if size in PAPER_SIZES:
+        if size in PAPER_SIZES and size != self._sheet.paper_size:
             self._sheet.paper_size = size
             self._setup()
+            self.sheetModified.emit()
 
     @property
     def sheet(self) -> Sheet:
