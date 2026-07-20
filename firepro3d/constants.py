@@ -133,6 +133,14 @@ DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (pape
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 
+# ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
+# Used by SheetViewport and TextAnnotationItem to draw consistent selected-item
+# dashed boundaries and 8-handle resize grips on all paper-space items.
+SELECTION_OUTLINE_COLOR = "#0055ff"         # selected-item dashed boundary + grip outline
+SELECTION_OUTLINE_WIDTH_MM = 0.8           # dashed boundary pen width (paper mm)
+SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
+SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
+
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's
 # size dropdown and its grow/shrink stepping (units-and-formatting.md).
 FONT_SIZE_LADDER_PT = (8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72)

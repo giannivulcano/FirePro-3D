@@ -18,7 +18,11 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from .constants import DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM
+from .constants import (
+    DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM,
+    SELECTION_OUTLINE_COLOR, SELECTION_OUTLINE_WIDTH_MM,
+    SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
+)
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView,
@@ -34,7 +38,7 @@ from PyQt6.QtGui import (
 )
 from .paper_commands import (
     AddTextAnnotationCommand, DeleteTextAnnotationCommand,
-    MoveTextAnnotationCommand, WrapResizeTextCommand,
+    MoveTextAnnotationCommand, ResizeTextBoxCommand,
     EditTextCommand, FormatTextCommand,
     AddViewportCommand, RemoveViewportCommand,
     ViewportGeometryCommand, ChangeViewportPropertiesCommand,
@@ -256,6 +260,7 @@ class TextAnnotationData:
     y: float = 0.0
     height_mm: float = DEFAULT_TEXT_HEIGHT_MM   # CAP height
     wrap_width_mm: float = 0.0                   # 0 = auto-width; >0 = word-wrap width
+    box_height_mm: float = 0.0                   # 0 = auto-fit content; >0 = stored box height
     font_family: str = ""                        # "" => Arial default
     bold: bool = False
     italic: bool = False
@@ -270,6 +275,7 @@ class TextAnnotationData:
             "type": self.type, "text": self.text,
             "x": self.x, "y": self.y,
             "height_mm": self.height_mm, "wrap_width_mm": self.wrap_width_mm,
+            "box_height_mm": self.box_height_mm,
             "font_family": self.font_family,
             "bold": self.bold, "italic": self.italic, "underline": self.underline,
             "color": self.color, "align": self.align,
@@ -283,6 +289,7 @@ class TextAnnotationData:
             x=d.get("x", 0.0), y=d.get("y", 0.0),
             height_mm=d.get("height_mm", DEFAULT_TEXT_HEIGHT_MM),
             wrap_width_mm=d.get("wrap_width_mm", 0.0),
+            box_height_mm=float(d.get("box_height_mm", 0.0)),
             font_family=d.get("font_family", ""),
             bold=bool(d.get("bold", False)), italic=bool(d.get("italic", False)),
             underline=bool(d.get("underline", False)),
@@ -409,7 +416,7 @@ class ViewResolver:
 # SheetViewport — live viewport on a paper sheet
 # ─────────────────────────────────────────────────────────────────────────────
 
-_GRIP_SIZE = 4.0
+_GRIP_SIZE = SELECTION_GRIP_SIZE_MM   # alias kept for SheetViewport internal use
 _MIN_VIEWPORT_SIZE = 20.0
 _VIEW_TITLE_H = 8.0  # mm height for view title below viewport
 
@@ -530,14 +537,16 @@ class SheetViewport(QGraphicsObject):
         if self._data.show_border:
             painter.setBrush(Qt.BrushStyle.NoBrush)
             if self.isSelected():
-                painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
+                painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
+                                    SELECTION_OUTLINE_WIDTH_MM, Qt.PenStyle.DashLine))
             else:
                 painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
             painter.drawRect(vp_rect)
         elif self.isSelected():
             # Still show selection indicator even without border
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor("#0055ff"), 0.8, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
+                                SELECTION_OUTLINE_WIDTH_MM, Qt.PenStyle.DashLine))
             painter.drawRect(vp_rect)
 
         # View title below viewport (Revit-style)
@@ -613,7 +622,7 @@ class SheetViewport(QGraphicsObject):
         ]
 
     def _draw_grips(self, painter: QPainter):
-        painter.setPen(QPen(QColor("#0055ff"), 0.3))
+        painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR), SELECTION_GRIP_OUTLINE_WIDTH_MM))
         painter.setBrush(QBrush(Qt.GlobalColor.white))
         for r in self._grip_rects():
             painter.drawRect(r)
@@ -757,7 +766,7 @@ class TextAnnotationItem(QGraphicsTextItem):
         "C": Qt.AlignmentFlag.AlignCenter,
         "R": Qt.AlignmentFlag.AlignRight,
     }
-    _GRIP_MM = 2.5   # paper-mm size of the right-edge wrap-resize handle
+    _GRIP_MM = SELECTION_GRIP_SIZE_MM   # paper-mm size of grip squares (shared selection style)
 
     def __init__(self, data: "TextAnnotationData", parent=None):
         super().__init__(data.text, parent)
@@ -766,9 +775,13 @@ class TextAnnotationItem(QGraphicsTextItem):
         self._text_before_edit = data.text
         self._pos_at_press = None
         self._wrap_at_press = None
-        self._x_at_press = None          # anchor x when a left-corner drag starts
-        self._right_at_press = None      # pinned right edge for left-corner drags
-        self._grip_corner = None         # "TL", "TR", "BL", "BR" or None
+        self._box_height_at_press = None    # stored box height at the start of a resize
+        self._x_at_press = None             # anchor x when a left-corner drag starts
+        self._y_at_press = None             # anchor y when a top-handle drag starts
+        self._right_at_press = None         # pinned right edge for left-corner drags
+        self._bottom_at_press = None        # pinned bottom edge for top-handle drags
+        self._grip_handle = None            # handle index 0-7 (TL,TM,TR,ML,MR,BL,BM,BR) or None
+        self._grip_corner = None            # deprecated alias kept for back-compat (unused)
         self._resizing = False
         self.setZValue(15)
         self.setTransformOriginPoint(0, 0)
@@ -814,22 +827,57 @@ class TextAnnotationItem(QGraphicsTextItem):
             self.setTextWidth(-1)
             self.setTextWidth(self.document().idealWidth())
 
-    def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block with opaque fill, edit frame, and resize grip.
+    def _box_rect_local(self) -> QRectF:
+        """Return the box bounding rect in item-local unscaled coordinates.
 
-        Renders in order: (1) solid-white knockout when opaque_bg is set,
-        (2) the text via super(), (3) dashed #88aaff cosmetic border while
-        inline-editing, (4) solid #88aaff grip square on the right edge while
-        selected but not editing. Grip is drawn in item-local unscaled coords
-        at size _GRIP_MM / scale so it appears _GRIP_MM paper-mm on screen.
+        Width comes from the text layout (textWidth already reflects wrap).
+        Height is max(content height, stored box_height_mm / scale) so the box
+        auto-grows with content but never shrinks below the stored height.
+
+        Returns:
+            QRectF(0, 0, width, effective_height) in local unscaled coords.
+        """
+        content = super().boundingRect()
+        width = content.width()
+        scale = self.scale() or 1.0
+        box_h_mm = self._data.box_height_mm
+        if box_h_mm > 0 and scale > 0:
+            height = max(content.height(), box_h_mm / scale)
+        else:
+            height = content.height()
+        return QRectF(0, 0, width, height)
+
+    def boundingRect(self) -> QRectF:
+        """Return the item's visual/selection extent — the box rect.
+
+        Expanding boundingRect is safe; it is called after prepareGeometryChange()
+        wherever box_height_mm or wrap changes. Do NOT override shape() narrowly
+        (project gotcha: Qt uses shape() in paint culling).
+
+        Returns:
+            The box rect in local unscaled coordinates.
+        """
+        return self._box_rect_local()
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        """Paint the text block with opaque fill, edit frame, and selection grips.
+
+        Renders in order: (1) solid-white knockout over the box rect when
+        opaque_bg is set, (2) the text via super(), (3) dashed #88aaff cosmetic
+        border while inline-editing (distinct state), (4) canonical selection
+        dashed boundary + 8 grips while selected but not editing.
+
+        Grips are drawn in item-local unscaled coords at SELECTION_GRIP_SIZE_MM /
+        scale so they appear the correct paper-mm size on screen and in export.
 
         Args:
             painter: Active QPainter for the scene.
             option: Style option (passed through to super).
             widget: Optional target widget (passed through to super).
         """
+        box = self._box_rect_local()
         if self._data.opaque_bg:
-            painter.fillRect(self.boundingRect(), QColor("#ffffff"))
+            painter.fillRect(box, QColor("#ffffff"))
         super().paint(painter, option, widget)
         if self._editing:
             pen = QPen(QColor("#88aaff"))
@@ -837,21 +885,34 @@ class TextAnnotationItem(QGraphicsTextItem):
             pen.setCosmetic(True)
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(self.boundingRect())
+            painter.drawRect(box)
         elif self.isSelected():
             s = self.scale() or 1.0
+            # Dashed selection boundary
+            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
+                                SELECTION_OUTLINE_WIDTH_MM / s, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(box)
+            # 8 grip squares at corners + edge midpoints
             gs = self._GRIP_MM / s
-            br = self.boundingRect()
             half = gs / 2
-            # Four corner grips in item-local unscaled coords
-            corners = [
-                QRectF(br.left() - half, br.top() - half, gs, gs),     # TL
-                QRectF(br.right() - half, br.top() - half, gs, gs),    # TR
-                QRectF(br.left() - half, br.bottom() - half, gs, gs),  # BL
-                QRectF(br.right() - half, br.bottom() - half, gs, gs), # BR
+            cx = (box.left() + box.right()) / 2
+            cy = (box.top() + box.bottom()) / 2
+            handles = [
+                QRectF(box.left()  - half, box.top()    - half, gs, gs),  # TL
+                QRectF(cx          - half, box.top()    - half, gs, gs),  # TM
+                QRectF(box.right() - half, box.top()    - half, gs, gs),  # TR
+                QRectF(box.left()  - half, cy           - half, gs, gs),  # ML
+                QRectF(box.right() - half, cy           - half, gs, gs),  # MR
+                QRectF(box.left()  - half, box.bottom() - half, gs, gs),  # BL
+                QRectF(cx          - half, box.bottom() - half, gs, gs),  # BM
+                QRectF(box.right() - half, box.bottom() - half, gs, gs),  # BR
             ]
-            for grip in corners:
-                painter.fillRect(grip, QColor("#88aaff"))
+            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
+                                SELECTION_GRIP_OUTLINE_WIDTH_MM / s))
+            painter.setBrush(QBrush(Qt.GlobalColor.white))
+            for h in handles:
+                painter.drawRect(h)
 
     # ── A. Edit lifecycle ──────────────────────────────────────────────────
 
@@ -1052,91 +1113,144 @@ class TextAnnotationItem(QGraphicsTextItem):
             self.sync_data_from_item()
         return super().itemChange(change, value)
 
-    # ── C. Corner wrap-resize grips ───────────────────────────────────────────
+    # ── C. 8-handle box resize grips ─────────────────────────────────────────
+
+    # Handle index map (mirrors SheetViewport handle ordering):
+    # 0=TL, 1=TM, 2=TR, 3=ML, 4=MR, 5=BL, 6=BM, 7=BR
+    _LEFT_HANDLES  = (0, 3, 5)   # move x + shrink/grow wrap (right edge pinned)
+    _RIGHT_HANDLES = (2, 4, 7)   # grow/shrink wrap (anchor x pinned)
+    _TOP_HANDLES   = (0, 1, 2)   # move y + shrink/grow box height (bottom pinned)
+    _BOTTOM_HANDLES = (5, 6, 7)  # grow/shrink box height (anchor y pinned)
 
     def _corner_grip_rects(self) -> dict:
-        """Return the four corner grip hit-rectangles in scene (paper-mm) coordinates.
+        """Return the 8 grip hit-rectangles in scene (paper-mm) coordinates.
 
         Each grip is a _GRIP_MM × _GRIP_MM square centred on the corresponding
-        corner of sceneBoundingRect. Used by mousePressEvent for hit-testing and
-        by paint() to render the grips.
+        corner or edge midpoint of sceneBoundingRect. Used by mousePressEvent for
+        hit-testing. Keys: "TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR".
 
         Returns:
-            dict with keys "TL", "TR", "BL", "BR" mapping to QRectF in scene coords.
+            dict mapping handle name → QRectF in scene (paper-mm) coordinates.
         """
         sbr = self.sceneBoundingRect()
         g = self._GRIP_MM
         half = g / 2
+        cx = sbr.center().x()
+        cy = sbr.center().y()
         return {
-            "TL": QRectF(sbr.left() - half, sbr.top() - half, g, g),
-            "TR": QRectF(sbr.right() - half, sbr.top() - half, g, g),
-            "BL": QRectF(sbr.left() - half, sbr.bottom() - half, g, g),
+            "TL": QRectF(sbr.left()  - half, sbr.top()    - half, g, g),
+            "TM": QRectF(cx          - half, sbr.top()    - half, g, g),
+            "TR": QRectF(sbr.right() - half, sbr.top()    - half, g, g),
+            "ML": QRectF(sbr.left()  - half, cy           - half, g, g),
+            "MR": QRectF(sbr.right() - half, cy           - half, g, g),
+            "BL": QRectF(sbr.left()  - half, sbr.bottom() - half, g, g),
+            "BM": QRectF(cx          - half, sbr.bottom() - half, g, g),
             "BR": QRectF(sbr.right() - half, sbr.bottom() - half, g, g),
         }
 
-    def _hit_corner(self, scene_pos) -> "str | None":
-        """Return the name of the corner grip hit by scene_pos, or None.
+    def _hit_grip_handle(self, scene_pos) -> "int | None":
+        """Return the 0-based handle index hit by scene_pos, or None.
+
+        Handle indices: 0=TL, 1=TM, 2=TR, 3=ML, 4=MR, 5=BL, 6=BM, 7=BR.
 
         Args:
             scene_pos: QPointF in scene (paper-mm) coordinates.
 
         Returns:
-            One of "TL", "TR", "BL", "BR", or None if no grip was hit.
+            Integer handle index (0-7), or None if no grip was hit.
         """
-        for name, rect in self._corner_grip_rects().items():
-            if rect.contains(scene_pos):
-                return name
+        names = ["TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"]
+        grips = self._corner_grip_rects()
+        for i, name in enumerate(names):
+            if grips[name].contains(scene_pos):
+                return i
         return None
 
     def mousePressEvent(self, event) -> None:
-        """Start a corner wrap-resize drag when a grip is hit; otherwise begin move.
+        """Start an 8-handle box resize drag when a grip is hit; otherwise begin move.
 
-        Right corners (TR/BR) pin the anchor and expand/shrink from the right.
-        Left corners (TL/BL) pin the right edge and move the anchor left/right.
-        On auto-width (wrap_width_mm == 0) the effective wrap at press is taken
-        from the current visual width (sceneBoundingRect().width()) so the drag
-        starts from what the user sees.
+        Left handles (TL/ML/BL): pin right edge, move anchor + adjust wrap.
+        Right handles (TR/MR/BR): pin anchor, adjust wrap (x unchanged).
+        Top handles (TL/TM/TR): pin bottom edge, move anchor y + adjust box height.
+        Bottom handles (BL/BM/BR): pin anchor y, adjust box height.
+        Corners = both axes. Midpoints = one axis only.
+
+        On auto-width (wrap_width_mm == 0), seeds from visual width.
+        On auto-height (box_height_mm == 0), seeds from current content height in mm.
         """
         if self.isSelected():
-            corner = self._hit_corner(event.scenePos())
-            if corner is not None:
+            handle = self._hit_grip_handle(event.scenePos())
+            if handle is not None:
                 self._resizing = True
-                self._grip_corner = corner
+                self._grip_handle = handle
+                # Seed x/wrap
                 self._x_at_press = self._data.x
-                # If auto-width, treat visual width as the effective wrap at press
                 if self._data.wrap_width_mm > 0:
                     self._wrap_at_press = self._data.wrap_width_mm
                 else:
                     self._wrap_at_press = self.sceneBoundingRect().width()
-                # For left-corner drags, record the pinned right edge
                 self._right_at_press = self._x_at_press + self._wrap_at_press
+                # Seed y/box_height
+                self._y_at_press = self._data.y
+                scale = self.scale() or 1.0
+                content_h_mm = super().boundingRect().height() * scale
+                if self._data.box_height_mm > 0:
+                    self._box_height_at_press = self._data.box_height_mm
+                else:
+                    self._box_height_at_press = content_h_mm
+                self._bottom_at_press = self._y_at_press + self._box_height_at_press
+                # Keep legacy alias in sync for any code still reading _grip_corner
+                _names = ["TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"]
+                self._grip_corner = _names[handle]
                 event.accept()
                 return
         self._pos_at_press = (self._data.x, self._data.y)
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event) -> None:
-        """Adjust wrap_width_mm (and optionally x) while dragging a corner grip.
+        """Adjust wrap_width_mm, box_height_mm, x, and y during an 8-handle drag.
 
-        Right corners (TR/BR): only wrap width changes; anchor x stays fixed.
-        Left corners (TL/BL): right edge is pinned; both x and wrap update.
-        Vertical drag component is ignored — box height auto-fits content.
+        Left handles: pin right edge; x and wrap adjust.
+        Right handles: pin anchor x; only wrap adjusts.
+        Top handles: pin bottom edge; y and box_height adjust.
+        Bottom handles: pin anchor y; only box_height adjusts.
+        Corner handles: both axes. Mid-edge handles: one axis.
+        Vertical resize never touches font height_mm.
         """
         if self._resizing:
+            handle = self._grip_handle
             sx = event.scenePos().x()
-            if self._grip_corner in ("TR", "BR"):
-                # Right-corner: pin anchor, drag right edge
-                new_w = max(MIN_TEXT_WRAP_WIDTH_MM, sx - self._x_at_press)
-                self._data.wrap_width_mm = new_w
-            else:
-                # Left-corner: pin right edge, move anchor + shrink wrap
+            sy = event.scenePos().y()
+            scale = self.scale() or 1.0
+            content_h_mm = super().boundingRect().height() * scale
+
+            # Horizontal axis
+            if handle in self._LEFT_HANDLES:
                 right = self._right_at_press
                 new_x = min(sx, right - MIN_TEXT_WRAP_WIDTH_MM)
                 new_w = right - new_x
                 self._data.x = new_x
                 self._data.wrap_width_mm = new_w
-                # Move the item (goes through itemChange clamping/sync)
                 self.setPos(new_x, self._data.y)
+            elif handle in self._RIGHT_HANDLES:
+                new_w = max(MIN_TEXT_WRAP_WIDTH_MM, sx - self._x_at_press)
+                self._data.wrap_width_mm = new_w
+
+            # Vertical axis
+            if handle in self._TOP_HANDLES:
+                bottom = self._bottom_at_press
+                min_h = content_h_mm
+                new_h = max(min_h, bottom - sy)
+                actual_dy = self._box_height_at_press - new_h
+                new_y = self._y_at_press + actual_dy
+                self._data.y = new_y
+                self._data.box_height_mm = new_h
+                self.setPos(self._data.x, new_y)
+            elif handle in self._BOTTOM_HANDLES:
+                min_h = content_h_mm
+                new_h = max(min_h, sy - self._y_at_press)
+                self._data.box_height_mm = new_h
+
             self.prepareGeometryChange()
             self._apply_format()
             event.accept()
@@ -1147,14 +1261,20 @@ class TextAnnotationItem(QGraphicsTextItem):
         """Finish a resize or move drag and notify the undo hook."""
         if self._resizing:
             self._resizing = False
-            corner = self._grip_corner
+            handle = self._grip_handle
+            self._grip_handle = None
             self._grip_corner = None
-            old_state = (self._x_at_press, self._wrap_at_press)
-            new_state = (self._data.x, self._data.wrap_width_mm)
+            old_state = (self._x_at_press, self._y_at_press,
+                         self._wrap_at_press, self._box_height_at_press)
+            new_state = (self._data.x, self._data.y,
+                         self._data.wrap_width_mm, self._data.box_height_mm)
             self._x_at_press = None
+            self._y_at_press = None
             self._wrap_at_press = None
+            self._box_height_at_press = None
             self._right_at_press = None
-            self._on_wrap_resized(old_state, new_state)
+            self._bottom_at_press = None
+            self._on_box_resized(old_state, new_state)
             event.accept()
             return
         super().mouseReleaseEvent(event)
@@ -1179,20 +1299,23 @@ class TextAnnotationItem(QGraphicsTextItem):
         if scene is not None and hasattr(scene, "_push_text_move"):
             scene._push_text_move(self._data, old_xy, new_xy)
 
-    def _on_wrap_resized(self, old_state: tuple, new_state: tuple) -> None:
-        """Hook called after a completed corner wrap-resize drag.
+    def _on_box_resized(self, old_state: tuple, new_state: tuple) -> None:
+        """Hook called after a completed 8-handle box resize drag.
 
-        Routes to the scene's _push_text_wrap helper to record a
-        WrapResizeTextCommand on the undo stack. Both x and wrap_width_mm are
-        already updated live by mouseMoveEvent; the command is for undo history.
+        Routes to the scene's _push_text_box_resize helper to record a
+        ResizeTextBoxCommand on the undo stack. x, y, wrap_width_mm, and
+        box_height_mm are already updated live by mouseMoveEvent; the command
+        is for undo history only.
 
         Args:
-            old_state: ``(old_x, old_wrap_width_mm)`` before the resize.
-            new_state: ``(new_x, new_wrap_width_mm)`` after the resize.
+            old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
+                       before the resize.
+            new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
+                       after the resize.
         """
         scene = self.scene()
-        if scene is not None and hasattr(scene, "_push_text_wrap"):
-            scene._push_text_wrap(self._data, old_state, new_state)
+        if scene is not None and hasattr(scene, "_push_text_box_resize"):
+            scene._push_text_box_resize(self._data, old_state, new_state)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2716,18 +2839,32 @@ class PaperScene(QGraphicsScene):
         if not self._applying_command and old != new:
             self._undo_stack.push(MoveTextAnnotationCommand(self, data, old, new))
 
-    def _push_text_wrap(self, data, old_state, new_state):
-        """Push a WrapResizeTextCommand for a completed wrap-resize gesture.
+    def _push_text_box_resize(self, data, old_state, new_state):
+        """Push a ResizeTextBoxCommand for a completed 8-handle box resize gesture.
 
-        No-op while a command is being applied or when neither x nor wrap changed.
+        No-op while a command is being applied or when all four fields are unchanged.
 
         Args:
             data: The TextAnnotationData being resized.
-            old_state: ``(old_x, old_wrap_width_mm)`` before the gesture.
-            new_state: ``(new_x, new_wrap_width_mm)`` after the gesture.
+            old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
+                       before the gesture.
+            new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
+                       after the gesture.
         """
         if not self._applying_command and old_state != new_state:
-            self._undo_stack.push(WrapResizeTextCommand(self, data, old_state, new_state))
+            self._undo_stack.push(ResizeTextBoxCommand(self, data, old_state, new_state))
+
+    def _push_text_wrap(self, data, old_state, new_state):
+        """Deprecated: push a 2-tuple wrap resize — kept for backward compatibility.
+
+        Translates the old (x, wrap) 2-tuple to the 4-tuple expected by
+        ResizeTextBoxCommand, preserving x and wrap but leaving y and
+        box_height_mm unchanged (0 = auto).
+        """
+        if not self._applying_command and old_state != new_state:
+            old4 = (old_state[0], data.y, old_state[1], data.box_height_mm)
+            new4 = (new_state[0], data.y, new_state[1], data.box_height_mm)
+            self._undo_stack.push(ResizeTextBoxCommand(self, data, old4, new4))
 
     def _push_text_edit(self, data, old_text, new_text):
         """Record an inline-edit commit on the undo stack.

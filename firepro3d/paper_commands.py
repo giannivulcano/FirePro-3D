@@ -44,36 +44,43 @@ class MoveTextAnnotationCommand(QUndoCommand):
     def undo(self): self._set(self._old)
 
 
-class WrapResizeTextCommand(QUndoCommand):
-    """Undo/redo a corner-grip wrap-resize gesture.
+class ResizeTextBoxCommand(QUndoCommand):
+    """Undo/redo an 8-handle box resize gesture.
 
-    Carries both x-position and wrap_width_mm so a left-corner drag (which
-    moves the anchor while pinning the right edge) is restored atomically.
-    A right-corner drag is the x-unchanged case: pass the same x for old and
-    new.
+    Carries x, y, wrap_width_mm, and box_height_mm so that any combination of
+    left/right/top/bottom handle drags (which may move the anchor and/or change
+    size) is restored atomically.
 
     Args:
         scene: The PaperScene that owns the annotation.
         data: The TextAnnotationData being resized.
-        old_state: ``(old_x, old_wrap_width_mm)`` — state before the gesture.
-        new_state: ``(new_x, new_wrap_width_mm)`` — state after the gesture.
+        old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
+                   — state before the gesture.
+        new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
+                   — state after the gesture.
     """
     def __init__(self, scene, data, old_state, new_state):
-        super().__init__("Resize Text"); self._scene, self._data = scene, data
+        super().__init__("Resize Text Box"); self._scene, self._data = scene, data
         self._old, self._new = old_state, new_state
     def _set(self, state):
-        x, w = state
+        x, y, w, bh = state
         def op():
             self._data.x = x
+            self._data.y = y
             self._data.wrap_width_mm = w
+            self._data.box_height_mm = bh
             it = _find_text_item(self._scene, self._data)
             if it is not None:
-                it.setPos(x, self._data.y)
+                it.setPos(x, y)
                 it.prepareGeometryChange()
                 it._apply_format()
         self._scene._apply(op)
     def redo(self): self._set(self._new)
     def undo(self): self._set(self._old)
+
+
+# Backward-compat alias — existing tests that import WrapResizeTextCommand still work.
+WrapResizeTextCommand = ResizeTextBoxCommand
 
 
 class EditTextCommand(QUndoCommand):

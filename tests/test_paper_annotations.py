@@ -1,6 +1,7 @@
 from PyQt6.QtGui import QFontMetricsF
 
 from firepro3d.paper_space import TextAnnotationData, Sheet, TextAnnotationItem
+from firepro3d.paper_commands import ResizeTextBoxCommand
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -289,7 +290,7 @@ def test_grip_mm_class_constant(qapp):
 
 
 def test_wrap_resize_updates_wrap_width(qapp):
-    """mouseMoveEvent while _resizing (BR corner) updates wrap_width_mm above MIN."""
+    """mouseMoveEvent while _resizing (BR=handle 7) updates wrap_width_mm above MIN."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     from firepro3d.constants import MIN_TEXT_WRAP_WIDTH_MM
@@ -299,12 +300,15 @@ def test_wrap_resize_updates_wrap_width(qapp):
     scene.addItem(item)
     item.setPos(10.0, 10.0)
 
-    # Simulate entering resize mode directly (right-corner drag)
+    # Simulate entering resize mode directly (BR = handle index 7 = right + bottom)
     item._resizing = True
-    item._grip_corner = "BR"
+    item._grip_handle = 7   # BR
     item._x_at_press = 10.0
+    item._y_at_press = 10.0
     item._wrap_at_press = 50.0
+    item._box_height_at_press = 0.0
     item._right_at_press = 60.0
+    item._bottom_at_press = 10.0
 
     # Synthesise a fake mouse-move event at scene x=100, item origin x=10 → new_w=90
     class _FakeEvent:
@@ -329,11 +333,15 @@ def test_wrap_resize_clamps_to_min(qapp):
     scene.addItem(item)
     item.setPos(10.0, 10.0)
 
+    # BR = handle index 7
     item._resizing = True
-    item._grip_corner = "BR"
+    item._grip_handle = 7   # BR
     item._x_at_press = 10.0
+    item._y_at_press = 10.0
     item._wrap_at_press = 50.0
+    item._box_height_at_press = 0.0
     item._right_at_press = 60.0
+    item._bottom_at_press = 10.0
 
     class _FakeEvent:
         def scenePos(self):
@@ -379,11 +387,11 @@ def test_grip_press_starts_resizing(qapp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Four-corner resize grips (Revit-style box resize) — TDD new tests
+# 8-handle box resize grips — viewport-parity model
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_four_corner_grip_rects(qapp):
-    """_corner_grip_rects() returns 4 named rects centred on the sceneBoundingRect corners."""
+def test_eight_grip_rects(qapp):
+    """_corner_grip_rects() returns 8 named rects at corners + edge midpoints."""
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
     data = TextAnnotationData(text="word " * 10, x=20.0, y=30.0, wrap_width_mm=60.0)
@@ -392,30 +400,37 @@ def test_four_corner_grip_rects(qapp):
     item.setPos(20.0, 30.0)
 
     grips = item._corner_grip_rects()
-    assert set(grips.keys()) == {"TL", "TR", "BL", "BR"}
+    assert set(grips.keys()) == {"TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"}
 
     sbr = item.sceneBoundingRect()
     g = item._GRIP_MM
-    half = g / 2.0
 
-    # Each grip is a g×g square centred on the corresponding corner of sbr.
-    # TL: centred on (sbr.left(), sbr.top())
-    assert abs(grips["TL"].center().x() - sbr.left()) < 0.5
-    assert abs(grips["TL"].center().y() - sbr.top()) < 0.5
-    assert abs(grips["TL"].width() - g) < 0.01
-    # TR: centred on (sbr.right(), sbr.top())
-    assert abs(grips["TR"].center().x() - sbr.right()) < 0.5
-    assert abs(grips["TR"].center().y() - sbr.top()) < 0.5
-    # BL: centred on (sbr.left(), sbr.bottom())
-    assert abs(grips["BL"].center().x() - sbr.left()) < 0.5
+    # Corners centred on the bounding box corners
+    assert abs(grips["TL"].center().x() - sbr.left())   < 0.5
+    assert abs(grips["TL"].center().y() - sbr.top())    < 0.5
+    assert abs(grips["TR"].center().x() - sbr.right())  < 0.5
+    assert abs(grips["TR"].center().y() - sbr.top())    < 0.5
+    assert abs(grips["BL"].center().x() - sbr.left())   < 0.5
     assert abs(grips["BL"].center().y() - sbr.bottom()) < 0.5
-    # BR: centred on (sbr.right(), sbr.bottom())
-    assert abs(grips["BR"].center().x() - sbr.right()) < 0.5
+    assert abs(grips["BR"].center().x() - sbr.right())  < 0.5
     assert abs(grips["BR"].center().y() - sbr.bottom()) < 0.5
+    # Midpoints centred on edge midpoints
+    cx = sbr.center().x(); cy = sbr.center().y()
+    assert abs(grips["TM"].center().x() - cx)           < 0.5
+    assert abs(grips["TM"].center().y() - sbr.top())    < 0.5
+    assert abs(grips["BM"].center().x() - cx)           < 0.5
+    assert abs(grips["BM"].center().y() - sbr.bottom()) < 0.5
+    assert abs(grips["ML"].center().x() - sbr.left())   < 0.5
+    assert abs(grips["ML"].center().y() - cy)           < 0.5
+    assert abs(grips["MR"].center().x() - sbr.right())  < 0.5
+    assert abs(grips["MR"].center().y() - cy)           < 0.5
+    # Each grip is g×g
+    for r in grips.values():
+        assert abs(r.width() - g) < 0.01
 
 
-def test_right_corner_drag_widens_wrap(qapp):
-    """Dragging BR grip right by ~20 mm increases wrap_width_mm by ~20; data.x unchanged."""
+def test_br_corner_drag_grows_wrap_and_box_height(qapp):
+    """BR drag (+x,+y): wrap AND box_height grow; data.x and data.y unchanged."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
@@ -426,9 +441,9 @@ def test_right_corner_drag_widens_wrap(qapp):
     item.setSelected(True)
 
     original_x = data.x
+    original_y = data.y
     original_wrap = data.wrap_width_mm
 
-    # Press BR grip
     grips = item._corner_grip_rects()
     br_center = grips["BR"].center()
 
@@ -439,30 +454,36 @@ def test_right_corner_drag_widens_wrap(qapp):
     item.mousePressEvent(_Press())
     assert item._resizing is True
 
-    # Move +20 mm to the right
-    new_x = br_center.x() + 20.0
+    new_sx = br_center.x() + 20.0
+    new_sy = br_center.y() + 15.0
 
     class _Move:
-        def scenePos(self): return QPointF(new_x, br_center.y())
+        def scenePos(self): return QPointF(new_sx, new_sy)
         def accept(self): pass
 
     item.mouseMoveEvent(_Move())
     assert abs(data.wrap_width_mm - (original_wrap + 20.0)) < 1.0
+    assert data.box_height_mm > 0, "box_height_mm should be set after BR drag"
     assert abs(data.x - original_x) < 0.01
+    assert abs(data.y - original_y) < 0.01
 
 
-def test_left_corner_drag_pins_right_edge(qapp):
-    """Dragging TL grip right by 10 mm shrinks wrap and shifts anchor; right edge stays fixed."""
+def test_tl_corner_drag_moves_anchor_shrinks_box(qapp):
+    """TL drag (+x,+y): x/y move; wrap and box height shrink; BR corner stays fixed (±0.1 mm)."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
-    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=60.0)
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
+                              wrap_width_mm=60.0, box_height_mm=30.0)
     item = TextAnnotationItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
     item.setSelected(True)
 
-    right_before = item.sceneBoundingRect().right()
+    # Record bottom-right corner before drag
+    sbr_before = item.sceneBoundingRect()
+    br_before_x = sbr_before.right()
+    br_before_y = sbr_before.bottom()
 
     grips = item._corner_grip_rects()
     tl_center = grips["TL"].center()
@@ -472,9 +493,8 @@ def test_left_corner_drag_pins_right_edge(qapp):
         def accept(self): pass
 
     item.mousePressEvent(_Press())
-    assert item._resizing is True
 
-    move_target = QPointF(tl_center.x() + 10.0, tl_center.y())
+    move_target = QPointF(tl_center.x() + 10.0, tl_center.y() + 5.0)
 
     class _Move:
         def scenePos(self): return move_target
@@ -482,51 +502,20 @@ def test_left_corner_drag_pins_right_edge(qapp):
 
     item.mouseMoveEvent(_Move())
 
-    assert abs(data.x - 20.0) < 1.0         # x shifted ~10 mm right
-    assert abs(data.wrap_width_mm - 50.0) < 1.0  # wrap shrank ~10 mm
-    # Right edge pinned
-    right_after = item.sceneBoundingRect().right()
-    assert abs(right_after - right_before) < 0.5
+    # Anchor moved right/down
+    assert data.x > 10.0
+    assert data.y > 10.0
+    # Wrap shrank
+    assert data.wrap_width_mm < 60.0
+    # Box height shrank (or content-clamped, but not grown)
+    # BR corner should be approximately pinned
+    sbr_after = item.sceneBoundingRect()
+    assert abs(sbr_after.right()  - br_before_x) < 0.5
+    assert abs(sbr_after.bottom() - br_before_y) < 0.5
 
 
-def test_left_corner_drag_clamps_min_width(qapp):
-    """Dragging TL far past right edge clamps to MIN_TEXT_WRAP_WIDTH_MM."""
-    from PyQt6.QtCore import QPointF
-    from firepro3d.paper_space import PaperScene
-    from firepro3d.constants import MIN_TEXT_WRAP_WIDTH_MM
-    scene = PaperScene(Sheet.create_default(), _stub_resolver())
-    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=60.0)
-    item = TextAnnotationItem(data)
-    scene.addItem(item)
-    item.setPos(10.0, 10.0)
-    item.setSelected(True)
-
-    right_edge = item.sceneBoundingRect().right()  # = 10 + 60 = 70
-
-    grips = item._corner_grip_rects()
-    tl_center = grips["TL"].center()
-
-    class _Press:
-        def scenePos(self): return tl_center
-        def accept(self): pass
-
-    item.mousePressEvent(_Press())
-
-    # Drag way past the right edge
-    far_right = QPointF(right_edge + 50.0, tl_center.y())
-
-    class _Move:
-        def scenePos(self): return far_right
-        def accept(self): pass
-
-    item.mouseMoveEvent(_Move())
-
-    assert abs(data.wrap_width_mm - MIN_TEXT_WRAP_WIDTH_MM) < 0.01
-    assert abs(data.x - (right_edge - MIN_TEXT_WRAP_WIDTH_MM)) < 0.5
-
-
-def test_vertical_component_ignored(qapp):
-    """Dragging BR straight down does not change wrap_width_mm or data.x."""
+def test_mr_drag_changes_only_wrap(qapp):
+    """MR drag: only wrap_width_mm changes; y and box_height_mm unchanged."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
@@ -536,41 +525,178 @@ def test_vertical_component_ignored(qapp):
     item.setPos(10.0, 10.0)
     item.setSelected(True)
 
+    orig_y = data.y
+    orig_bh = data.box_height_mm
+
     grips = item._corner_grip_rects()
-    br_center = grips["BR"].center()
+    mr_center = grips["MR"].center()
 
     class _Press:
-        def scenePos(self): return br_center
+        def scenePos(self): return mr_center
         def accept(self): pass
 
     item.mousePressEvent(_Press())
+    assert item._resizing is True
 
-    # Move purely downward (same x)
     class _Move:
-        def scenePos(self): return QPointF(br_center.x(), br_center.y() + 30.0)
+        def scenePos(self): return QPointF(mr_center.x() + 20.0, mr_center.y())
         def accept(self): pass
 
-    original_wrap = data.wrap_width_mm
-    original_x = data.x
     item.mouseMoveEvent(_Move())
+    assert abs(data.wrap_width_mm - 70.0) < 1.0
+    assert abs(data.y - orig_y) < 0.01
+    assert data.box_height_mm == orig_bh  # unchanged
 
-    assert abs(data.wrap_width_mm - original_wrap) < 0.5
-    assert abs(data.x - original_x) < 0.01
 
-
-def test_corner_resize_single_undo_restores_x_and_wrap(qapp):
-    """Full TL press/move/release pushes exactly one undo entry; undo restores x and wrap."""
+def test_bm_drag_changes_only_box_height(qapp):
+    """BM drag: only box_height_mm changes; wrap_width_mm and x unchanged."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
-    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=60.0)
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=50.0)
     item = TextAnnotationItem(data)
     scene.addItem(item)
     item.setPos(10.0, 10.0)
     item.setSelected(True)
 
-    orig_x = data.x
     orig_wrap = data.wrap_width_mm
+    orig_x = data.x
+
+    grips = item._corner_grip_rects()
+    bm_center = grips["BM"].center()
+
+    class _Press:
+        def scenePos(self): return bm_center
+        def accept(self): pass
+
+    item.mousePressEvent(_Press())
+
+    class _Move:
+        def scenePos(self): return QPointF(bm_center.x(), bm_center.y() + 20.0)
+        def accept(self): pass
+
+    item.mouseMoveEvent(_Move())
+    assert data.box_height_mm > 0
+    assert abs(data.wrap_width_mm - orig_wrap) < 0.01
+    assert abs(data.x - orig_x) < 0.01
+
+
+def test_tm_drag_moves_y_shrinks_height_pins_bottom(qapp):
+    """TM drag (+y): y moves down, box height shrinks, bottom edge stays pinned."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
+                              wrap_width_mm=50.0, box_height_mm=30.0)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    sbr_before = item.sceneBoundingRect()
+    bottom_before = sbr_before.bottom()
+
+    grips = item._corner_grip_rects()
+    tm_center = grips["TM"].center()
+
+    class _Press:
+        def scenePos(self): return tm_center
+        def accept(self): pass
+
+    item.mousePressEvent(_Press())
+
+    class _Move:
+        def scenePos(self): return QPointF(tm_center.x(), tm_center.y() + 5.0)
+        def accept(self): pass
+
+    item.mouseMoveEvent(_Move())
+
+    assert data.y > 10.0
+    assert data.box_height_mm < 30.0
+    sbr_after = item.sceneBoundingRect()
+    assert abs(sbr_after.bottom() - bottom_before) < 0.5
+
+
+def test_box_height_clamps_at_content_height(qapp):
+    """Dragging BM up past content height clamps box_height_mm at content height."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    from PyQt6.QtGui import QFontMetricsF
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=50.0,
+                              box_height_mm=30.0)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    # Content height in mm
+    from firepro3d.paper_space import TextAnnotationItem as TAI
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    content_h_mm = QGraphicsTextItem.boundingRect(item).height() * item.scale()
+
+    grips = item._corner_grip_rects()
+    bm_center = grips["BM"].center()
+
+    class _Press:
+        def scenePos(self): return bm_center
+        def accept(self): pass
+
+    item.mousePressEvent(_Press())
+
+    # Drag the bottom well above the top — minimum should be content height
+    class _Move:
+        def scenePos(self): return QPointF(bm_center.x(), data.y - 100.0)
+        def accept(self): pass
+
+    item.mouseMoveEvent(_Move())
+    assert data.box_height_mm >= content_h_mm - 0.1
+
+
+def test_width_clamps_at_min_wrap(qapp):
+    """Dragging MR left past minimum clamps wrap_width_mm at MIN_TEXT_WRAP_WIDTH_MM."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    from firepro3d.constants import MIN_TEXT_WRAP_WIDTH_MM
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0, wrap_width_mm=50.0)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    grips = item._corner_grip_rects()
+    mr_center = grips["MR"].center()
+
+    class _Press:
+        def scenePos(self): return mr_center
+        def accept(self): pass
+
+    item.mousePressEvent(_Press())
+
+    # Drag way left of the anchor
+    class _Move:
+        def scenePos(self): return QPointF(data.x - 50.0, mr_center.y())
+        def accept(self): pass
+
+    item.mouseMoveEvent(_Move())
+    assert data.wrap_width_mm == MIN_TEXT_WRAP_WIDTH_MM
+
+
+def test_box_resize_single_undo_restores_all_four(qapp):
+    """Full TL press/move/release pushes one entry; undo restores x, y, wrap, box_height."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
+                              wrap_width_mm=60.0, box_height_mm=30.0)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    orig_x, orig_y = data.x, data.y
+    orig_wrap, orig_bh = data.wrap_width_mm, data.box_height_mm
 
     grips = item._corner_grip_rects()
     tl_center = grips["TL"].center()
@@ -580,11 +706,11 @@ def test_corner_resize_single_undo_restores_x_and_wrap(qapp):
         def accept(self): pass
 
     class _Move:
-        def scenePos(self): return QPointF(tl_center.x() + 15.0, tl_center.y())
+        def scenePos(self): return QPointF(tl_center.x() + 10.0, tl_center.y() + 5.0)
         def accept(self): pass
 
     class _Release:
-        def scenePos(self): return QPointF(tl_center.x() + 15.0, tl_center.y())
+        def scenePos(self): return QPointF(tl_center.x() + 10.0, tl_center.y() + 5.0)
         def accept(self): pass
 
     item.mousePressEvent(_Press())
@@ -595,11 +721,83 @@ def test_corner_resize_single_undo_restores_x_and_wrap(qapp):
 
     scene._undo_stack.undo()
     assert abs(data.x - orig_x) < 0.5
+    assert abs(data.y - orig_y) < 0.5
     assert abs(data.wrap_width_mm - orig_wrap) < 0.5
+    assert abs(data.box_height_mm - orig_bh) < 0.5
 
 
-def test_mid_right_grip_removed(qapp):
-    """The old single mid-right grip is gone; no hit at the mid-right edge point."""
+def test_font_height_untouched_by_grip_drag(qapp):
+    """No grip drag (any handle) touches height_mm (font size)."""
+    from PyQt6.QtCore import QPointF
+    from firepro3d.paper_space import PaperScene
+    scene = PaperScene(Sheet.create_default(), _stub_resolver())
+    data = TextAnnotationData(text="word " * 10, x=10.0, y=10.0,
+                              wrap_width_mm=50.0, height_mm=4.7625)
+    item = TextAnnotationItem(data)
+    scene.addItem(item)
+    item.setPos(10.0, 10.0)
+    item.setSelected(True)
+
+    orig_h = data.height_mm
+    grips = item._corner_grip_rects()
+    br_center = grips["BR"].center()
+
+    class _Press:
+        def scenePos(self): return br_center
+        def accept(self): pass
+
+    class _Move:
+        def scenePos(self): return QPointF(br_center.x() + 10.0, br_center.y() + 10.0)
+        def accept(self): pass
+
+    class _Release:
+        def scenePos(self): return QPointF(br_center.x() + 10.0, br_center.y() + 10.0)
+        def accept(self): pass
+
+    item.mousePressEvent(_Press())
+    item.mouseMoveEvent(_Move())
+    item.mouseReleaseEvent(_Release())
+
+    assert abs(data.height_mm - orig_h) < 1e-9, "Grip drag must never touch height_mm"
+
+
+def test_box_height_mm_serialization_round_trip():
+    """box_height_mm survives to_dict() → from_dict()."""
+    d = TextAnnotationData(text="x", x=1.0, y=2.0, box_height_mm=25.5)
+    out = TextAnnotationData.from_dict(d.to_dict())
+    assert abs(out.box_height_mm - 25.5) < 1e-9
+
+
+def test_box_height_mm_legacy_default():
+    """from_dict on a dict missing box_height_mm defaults to 0.0."""
+    out = TextAnnotationData.from_dict({"text": "x"})
+    assert out.box_height_mm == 0.0
+
+
+def test_boundingrect_grows_to_box_height(qapp):
+    """boundingRect height grows to box_height_mm / scale when that exceeds content."""
+    data = TextAnnotationData(text="x", height_mm=3.0, wrap_width_mm=50.0,
+                              box_height_mm=100.0)
+    item = TextAnnotationItem(data)
+    br = item.boundingRect()
+    scale = item.scale()
+    expected_min_height = 100.0 / scale
+    assert br.height() >= expected_min_height - 0.1
+
+
+def test_boundingrect_auto_fits_when_box_height_zero(qapp):
+    """When box_height_mm == 0 boundingRect equals the natural text bounding rect."""
+    from PyQt6.QtWidgets import QGraphicsTextItem
+    data = TextAnnotationData(text="x", height_mm=3.0, wrap_width_mm=50.0,
+                              box_height_mm=0.0)
+    item = TextAnnotationItem(data)
+    natural = QGraphicsTextItem.boundingRect(item)
+    br = item.boundingRect()
+    assert abs(br.height() - natural.height()) < 0.01
+
+
+def test_grip_press_hits_mr_handle(qapp):
+    """mousePressEvent on the MR grip enters _resizing=True."""
     from PyQt6.QtCore import QPointF
     from firepro3d.paper_space import PaperScene
     scene = PaperScene(Sheet.create_default(), _stub_resolver())
@@ -609,16 +807,15 @@ def test_mid_right_grip_removed(qapp):
     item.setPos(10.0, 10.0)
     item.setSelected(True)
 
-    # Old mid-right grip point: right edge, center y
-    sbr = item.sceneBoundingRect()
-    mid_right = QPointF(sbr.right() - 0.5, sbr.center().y())
-
-    # _grip_scene_rect should no longer exist; _corner_grip_rects must not hit mid-right
-    assert not hasattr(item, "_grip_scene_rect"), \
-        "_grip_scene_rect must be removed (replaced by _corner_grip_rects)"
     grips = item._corner_grip_rects()
-    assert not any(r.contains(mid_right) for r in grips.values()), \
-        "Mid-right edge point should not be inside any corner grip"
+    mr_center = grips["MR"].center()
+
+    class _FakeEvent:
+        def scenePos(self): return mr_center
+        def accept(self): pass
+
+    item.mousePressEvent(_FakeEvent())
+    assert item._resizing is True
 
 
 def test_delete_key_vs_edit_mode(qapp):

@@ -18,7 +18,7 @@ from firepro3d.paper_space import (
 )
 from firepro3d.paper_commands import (
     AddTextAnnotationCommand, DeleteTextAnnotationCommand,
-    MoveTextAnnotationCommand, WrapResizeTextCommand,
+    MoveTextAnnotationCommand, WrapResizeTextCommand, ResizeTextBoxCommand,
     EditTextCommand, FormatTextCommand,
     AddViewportCommand, RemoveViewportCommand,
     ViewportGeometryCommand, ChangeViewportPropertiesCommand,
@@ -102,12 +102,12 @@ def test_move_text_command_redo_undo(qapp):
 
 
 def test_wrap_resize_text_command_redo_undo(qapp):
-    """WrapResizeTextCommand restores both x and wrap_width_mm on undo."""
+    """WrapResizeTextCommand (alias for ResizeTextBoxCommand) restores x and wrap on undo."""
     scene = _text_scene()
     data = TextAnnotationData(text="word " * 20, x=10, y=10, wrap_width_mm=0.0)
     scene._do_add_annotation(data)
-    # Right-corner drag: x unchanged (10, 10), wrap changes 0→60
-    cmd = WrapResizeTextCommand(scene, data, (10.0, 0.0), (10.0, 60.0))
+    # Right-corner drag: x/y unchanged (10, 10), wrap changes 0→60, box_height 0→0
+    cmd = WrapResizeTextCommand(scene, data, (10.0, 10.0, 0.0, 0.0), (10.0, 10.0, 60.0, 0.0))
     cmd.redo()
     assert data.wrap_width_mm == 60.0
     assert data.x == pytest.approx(10.0)
@@ -117,12 +117,12 @@ def test_wrap_resize_text_command_redo_undo(qapp):
 
 
 def test_wrap_resize_text_command_left_corner_redo_undo(qapp):
-    """Left-corner WrapResizeTextCommand restores both x and wrap atomically."""
+    """Left-corner WrapResizeTextCommand restores x and wrap atomically (4-tuple form)."""
     scene = _text_scene()
     data = TextAnnotationData(text="word " * 20, x=10, y=10, wrap_width_mm=60.0)
     scene._do_add_annotation(data)
-    # Left-corner drag: x moves from 10→20, wrap shrinks from 60→50
-    cmd = WrapResizeTextCommand(scene, data, (10.0, 60.0), (20.0, 50.0))
+    # Left-corner drag: x moves from 10→20, wrap shrinks from 60→50, y/bh unchanged
+    cmd = WrapResizeTextCommand(scene, data, (10.0, 10.0, 60.0, 0.0), (20.0, 10.0, 50.0, 0.0))
     cmd.redo()
     assert data.x == pytest.approx(20.0)
     assert data.wrap_width_mm == pytest.approx(50.0)
@@ -132,6 +132,38 @@ def test_wrap_resize_text_command_left_corner_redo_undo(qapp):
     assert data.x == pytest.approx(10.0)
     assert data.wrap_width_mm == pytest.approx(60.0)
     assert it.pos().x() == pytest.approx(10.0)
+
+
+def test_resize_text_box_command_4tuple_redo_undo(qapp):
+    """ResizeTextBoxCommand restores x, y, wrap_width_mm, and box_height_mm on undo."""
+    scene = _text_scene()
+    data = TextAnnotationData(text="word " * 20, x=10, y=10,
+                              wrap_width_mm=60.0, box_height_mm=0.0)
+    scene._do_add_annotation(data)
+    # Simulate a TL drag: x+5, y+3, wrap-5, box_height from auto to 25
+    old = (10.0, 10.0, 60.0, 0.0)
+    new = (15.0, 13.0, 55.0, 25.0)
+    cmd = ResizeTextBoxCommand(scene, data, old, new)
+    cmd.redo()
+    assert data.x == pytest.approx(15.0)
+    assert data.y == pytest.approx(13.0)
+    assert data.wrap_width_mm == pytest.approx(55.0)
+    assert data.box_height_mm == pytest.approx(25.0)
+    it = _find_text_item(scene, data)
+    assert it.pos().x() == pytest.approx(15.0)
+    assert it.pos().y() == pytest.approx(13.0)
+    cmd.undo()
+    assert data.x == pytest.approx(10.0)
+    assert data.y == pytest.approx(10.0)
+    assert data.wrap_width_mm == pytest.approx(60.0)
+    assert data.box_height_mm == pytest.approx(0.0)
+    assert it.pos().x() == pytest.approx(10.0)
+    assert it.pos().y() == pytest.approx(10.0)
+
+
+def test_wrap_resize_alias_is_resize_text_box(qapp):
+    """WrapResizeTextCommand is an alias for ResizeTextBoxCommand."""
+    assert WrapResizeTextCommand is ResizeTextBoxCommand
 
 
 def test_edit_text_command_redo_undo(qapp):
