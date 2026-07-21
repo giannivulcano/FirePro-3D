@@ -1,9 +1,12 @@
 """Tests for the parametric title block template system (data + solver + I/O)."""
 import copy
+import os
 
+import pytest
 from PyQt6.QtGui import QFontMetricsF
 from PyQt6.QtWidgets import QApplication
 
+import firepro3d.titleblock_template as tbt
 from firepro3d.constants import TB_CELL_PAD_MM
 from firepro3d.titleblock_template import (
     BorderStyle, CellSpec, TemplateVariant, TitleBlockTemplate,
@@ -311,9 +314,6 @@ class TestIdenticalPairIndex:
         assert 1 in sl.cell_revision_rows
 
 
-import firepro3d.titleblock_template as tbt
-
-
 class TestLibrary:
     def _tpl(self, uuid="u-lib", modified="2026-07-21"):
         return TitleBlockTemplate(
@@ -356,3 +356,49 @@ class TestLibrary:
         tbt.save_to_library(embedded)
         assert tbt.library_diverges(embedded) is False
         assert tbt.library_diverges(self._tpl(uuid="unknown")) is False
+
+    def test_corrupt_file_skipped_wrong_shape(self, tmp_path, monkeypatch):
+        """Wrong-shape JSON (list not dict) must be skipped, not raise."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        (tmp_path / "wrongshape.json").write_text("[1, 2, 3]", encoding="utf-8")
+        tbt.save_to_library(self._tpl())
+        loaded = tbt.load_library()          # must not raise
+        assert len(loaded) == 1
+
+    def test_save_returns_path_and_file_exists(self, tmp_path, monkeypatch):
+        """save_to_library returns the written path and the file must exist."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        returned = tbt.save_to_library(self._tpl())
+        assert os.path.isfile(returned)
+
+    def test_delete_absent_uuid_is_noop(self, tmp_path, monkeypatch):
+        """Deleting a uuid that was never saved must not raise."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        tbt.delete_from_library("does-not-exist")  # must not raise
+
+    def test_non_json_files_ignored(self, tmp_path, monkeypatch):
+        """Non-.json files in the library dir are ignored by load_library."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        (tmp_path / "readme.txt").write_text("ignore me", encoding="utf-8")
+        (tmp_path / "template.json.bak").write_text("{}", encoding="utf-8")
+        tbt.save_to_library(self._tpl())
+        loaded = tbt.load_library()
+        assert len(loaded) == 1
+
+    def test_save_evil_uuid_raises_value_error(self, tmp_path, monkeypatch):
+        """A uuid with path separators must raise ValueError and write nothing."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        evil = self._tpl()
+        evil.uuid = "..\\evil"
+        with pytest.raises(ValueError):
+            tbt.save_to_library(evil)
+        # Nothing must have been written outside (or inside) the tmp dir.
+        assert list(tmp_path.iterdir()) == []
+
+    def test_save_empty_uuid_raises_value_error(self, tmp_path, monkeypatch):
+        """An empty uuid must raise ValueError."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        empty = self._tpl()
+        empty.uuid = ""
+        with pytest.raises(ValueError):
+            tbt.save_to_library(empty)

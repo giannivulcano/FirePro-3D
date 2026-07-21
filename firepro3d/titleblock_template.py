@@ -8,8 +8,11 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import logging
 import os
 from dataclasses import dataclass, field
+
+_log = logging.getLogger("FirePro3D")
 
 from PyQt6.QtCore import QRectF
 from PyQt6.QtGui import QFont, QFontMetricsF
@@ -398,13 +401,48 @@ def _library_dir() -> str:
     return os.path.join(base, "FirePro3D", "titleblocks")
 
 
+def _library_path(uuid: str) -> str:
+    """Validated library file path for *uuid* (rejects path separators/empty).
+
+    Args:
+        uuid: The template UUID to resolve to a file path.
+
+    Returns:
+        Absolute path ``<library_dir>/<uuid>.json``.
+
+    Raises:
+        ValueError: If *uuid* is empty, contains path separators, or is a
+            reserved name (``"."`` or ``".."``).
+    """
+    if not uuid or os.path.basename(uuid) != uuid or uuid in (".", ".."):
+        raise ValueError(f"Invalid template uuid for library storage: {uuid!r}")
+    return os.path.join(_library_dir(), f"{uuid}.json")
+
+
 def save_to_library(template: TitleBlockTemplate) -> str:
-    """Write *template* to the user library; returns the file path."""
-    d = _library_dir()
+    """Write *template* to the user library; returns the file path.
+
+    Uses an atomic write (tmp → replace) so a crash mid-write never leaves a
+    truncated file that the skip guard would silently drop.
+
+    Args:
+        template: The template to persist.
+
+    Returns:
+        Absolute path of the written ``.json`` file.
+
+    Raises:
+        ValueError: If ``template.uuid`` is not safe for use as a file name.
+        OSError: If the library directory cannot be created or the file cannot
+            be written.
+    """
+    path = _library_path(template.uuid)
+    d = os.path.dirname(path)
     os.makedirs(d, exist_ok=True)
-    path = os.path.join(d, f"{template.uuid}.json")
-    with open(path, "w", encoding="utf-8") as fh:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(template.to_dict(), fh, indent=2)
+    os.replace(tmp, path)
     return path
 
 
@@ -421,21 +459,38 @@ def load_library() -> list[TitleBlockTemplate]:
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 out.append(TitleBlockTemplate.from_dict(json.load(fh)))
-        except (OSError, ValueError, KeyError) as exc:
-            print(f"[titleblock] skipping unreadable template {name}: {exc}")
+        except Exception as exc:
+            _log.warning("Skipping unreadable title block template %s: %s",
+                         name, exc)
     return out
 
 
 def delete_from_library(uuid: str) -> None:
-    """Remove the library file for *uuid* (no-op when absent)."""
-    path = os.path.join(_library_dir(), f"{uuid}.json")
+    """Remove the library file for *uuid* (no-op when absent).
+
+    Args:
+        uuid: UUID of the template to remove.
+
+    Raises:
+        ValueError: If *uuid* is not safe for use as a file name.
+    """
+    path = _library_path(uuid)
     if os.path.isfile(path):
         os.remove(path)
 
 
 def library_diverges(embedded: TitleBlockTemplate) -> bool:
     """True when the library holds the same uuid with a different modified stamp."""
-    for t in load_library():
-        if t.uuid == embedded.uuid:
-            return t.modified != embedded.modified
-    return False
+    try:
+        path = _library_path(embedded.uuid)
+    except ValueError:
+        return False
+    if not os.path.isfile(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        lib_modified = data.get("modified", "")
+    except Exception:
+        return False
+    return lib_modified != embedded.modified
