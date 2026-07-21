@@ -23,6 +23,7 @@ from .constants import (
     SELECTION_OUTLINE_COLOR, SELECTION_OUTLINE_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_BOX_MARGIN_MM,
+    TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
 )
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
@@ -32,7 +33,7 @@ from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
     QMenu, QCheckBox, QColorDialog,
 )
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, pyqtSignal
 from PyQt6.QtGui import (
     QPen, QBrush, QColor, QPainter, QFont, QFontMetricsF, QTransform, QPixmap,
     QPainterPath, QImage, QUndoStack,
@@ -2401,6 +2402,180 @@ class TitleBlockItem(QGraphicsItem):
         painter.setPen(pen_thick)
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(QRectF(x, y, w, h))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Parametric title block (docs/specs/titleblock-template-system.md)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PROJECT_STD_KEYS = {"Project": "name", "Project Number": "number",
+                     "Address": "address", "City": "city", "State": "state",
+                     "Client": "client", "Designer": "designer",
+                     "Description": "description"}
+
+
+def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
+    """Resolve field values: auto → per-sheet → Project Info → "".
+
+    Precedence per spec §Value Model: later assignments below override earlier
+    ones, so Project Info seeds first, sheet fields override it, and the
+    auto-computed keys (Scale, Date (auto)) always win.
+
+    Args:
+        sheet: The sheet being rendered.
+        project_info: The Model_Space._project_info dict.
+
+    Returns:
+        Flat value dict for the layout solver; "__revisions__" carries the
+        sheet's revision list (oldest-first).
+    """
+    vals: dict = {}
+    for display, info_key in _PROJECT_STD_KEYS.items():
+        if project_info.get(info_key):
+            vals[display] = project_info[info_key]
+    for row in project_info.get("custom", []):
+        if isinstance(row, dict) and row.get("key"):
+            vals[row["key"]] = row.get("value", "")
+    vals.update({k: v for k, v in sheet.title_block_fields.items() if v})
+    vals["Scale"] = _compute_scale_field(sheet)           # auto wins
+    vals["Date (auto)"] = datetime.date.today().strftime("%d %b %Y")
+    vals["__revisions__"] = list(sheet.revisions)
+    return vals
+
+
+class TitleBlockTemplateItem(QGraphicsItem):
+    """Paints a SolvedLayout — the single render path for template blocks.
+
+    mm-sized by construction (§9.4): text draws through a painter scale from
+    a setPixelSize reference font (point-size APIs are banned here per §9.4).
+    Renders fills first, then per-cell content clipped to the strip, then
+    borders on top.
+    """
+
+    def __init__(self, layout, variant, values: dict, parent=None):
+        super().__init__(parent)
+        self._layout = layout
+        self._variant = variant
+        self._values = values
+        self.warnings: list[str] = list(layout.warnings)
+        self._logo_pixmaps: dict[int, QPixmap] = {}
+        for i, cell in enumerate(variant.cells):
+            if cell.kind == "logo" and cell.logo_data:
+                pm = QPixmap()
+                raw = QByteArray.fromBase64(cell.logo_data.encode("ascii"))
+                if not pm.loadFromData(raw, "PNG") or pm.isNull():
+                    self.warnings.append("Logo image could not be decoded.")
+                else:
+                    self._logo_pixmaps[i] = pm
+        self.setZValue(1)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+
+    def boundingRect(self) -> QRectF:
+        return self._layout.strip_rect.united(self._layout.area_rect)
+
+    def _draw_border(self, painter: QPainter, rect: QRectF, style) -> None:
+        if not style.visible:
+            return
+        painter.setPen(QPen(QColor(style.color), style.width_mm))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if style.corner == "fillet" and style.fillet_radius_mm > 0:
+            path = QPainterPath()
+            path.addRoundedRect(rect, style.fillet_radius_mm,
+                                style.fillet_radius_mm)
+            painter.drawPath(path)
+        else:
+            painter.drawRect(rect)
+
+    def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
+                      cell, *, cap_mm: float | None = None,
+                      bold: bool | None = None) -> None:
+        """Draw wrapped lines at a paper-mm cap height (mm primitive)."""
+        f = QFont(cell.font_family or "Arial")
+        f.setBold(cell.bold if bold is None else bold)
+        f.setItalic(cell.italic)
+        f.setPixelSize(TEXT_METRIC_REF_PX)
+        fm = QFontMetricsF(f)
+        cap_px = fm.capHeight() or 1.0
+        s = (cap_mm if cap_mm is not None else cell.cap_height_mm) / cap_px
+        if s <= 0:
+            return
+        painter.save()
+        painter.setFont(f)
+        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
+        painter.translate(rect.topLeft())
+        painter.scale(s, s)
+        align = {"left": Qt.AlignmentFlag.AlignLeft,
+                 "center": Qt.AlignmentFlag.AlignHCenter,
+                 "right": Qt.AlignmentFlag.AlignRight}.get(
+                     cell.alignment, Qt.AlignmentFlag.AlignLeft)
+        y = 0.0
+        for line in lines:
+            painter.drawText(
+                QRectF(0, y, rect.width() / s, fm.lineSpacing()),
+                align | Qt.AlignmentFlag.AlignVCenter, line)
+            y += fm.lineSpacing()
+        painter.restore()
+
+    def _draw_label(self, painter: QPainter, rect: QRectF, cell) -> None:
+        if not cell.label:
+            return
+        cap = max(1.2, cell.cap_height_mm * TB_LABEL_CAP_FRAC)
+        self._draw_text_mm(painter, rect, [cell.label.upper()], cell,
+                           cap_mm=cap, bold=False)
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        lay, var = self._layout, self._variant
+        for i, cell in enumerate(var.cells):
+            if cell.fill_color:
+                painter.fillRect(lay.cell_rects[i], QColor(cell.fill_color))
+        for i, cell in enumerate(var.cells):
+            rect = lay.cell_rects[i]
+            inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
+                                  -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
+            painter.save()
+            painter.setClipRect(lay.strip_rect)      # clip overflow (spec DD-8)
+            self._draw_label(painter, inner, cell)
+            content = inner.adjusted(
+                0, TB_LABEL_ROW_MM if cell.label else 0.0, 0, 0)
+            if cell.kind in ("field", "static_text"):
+                self._draw_text_mm(painter, content, lay.cell_lines[i], cell)
+            elif cell.kind == "logo":
+                pm = self._logo_pixmaps.get(i)
+                if pm is not None:
+                    target = QRectF(content)
+                    scaled = pm.size().scaled(
+                        int(target.width()), int(target.height()),
+                        Qt.AspectRatioMode.KeepAspectRatio)
+                    dx = (target.width() - scaled.width()) / 2
+                    dy = (target.height() - scaled.height()) / 2
+                    painter.drawPixmap(
+                        QRectF(target.left() + dx, target.top() + dy,
+                               scaled.width(), scaled.height()),
+                        pm, QRectF(pm.rect()))
+                # empty logo_data: reserved bordered box, no warning
+            elif cell.kind == "revision_table":
+                rows = lay.cell_revision_rows.get(i, [])
+                y = content.top()
+                painter.setPen(QPen(Qt.GlobalColor.black, 0.2))
+                for rev in rows:
+                    line = (f'{rev.get("no", "")}  '
+                            f'{rev.get("description", "")}  '
+                            f'{rev.get("date", "")}')
+                    self._draw_text_mm(
+                        painter,
+                        QRectF(content.left(), y, content.width(),
+                               TB_REV_ROW_MM),
+                        [line], cell, cap_mm=2.0, bold=False)
+                    y += TB_REV_ROW_MM
+                    painter.drawLine(QPointF(content.left(), y),
+                                     QPointF(content.right(), y))
+            # "stamp": reserved empty bordered area — nothing to draw
+            painter.restore()
+        for i, cell in enumerate(var.cells):
+            if cell.border.visible:
+                self._draw_border(painter, lay.cell_rects[i], cell.border)
+        self._draw_border(painter, lay.area_rect, var.area_border)
+        self._draw_border(painter, lay.strip_rect, var.strip_border)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

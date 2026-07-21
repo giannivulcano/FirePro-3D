@@ -53,6 +53,95 @@ class TestSheetRevisions:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# build_field_values + TitleBlockTemplateItem renderer
+# Pure QGraphicsItem tests — no MainWindow fixture needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QImage, QPainter
+
+from firepro3d.paper_space import (TitleBlockTemplateItem, build_field_values,
+                                   PAPER_SIZES)
+from firepro3d.titleblock_template import solve_layout
+
+
+def _render(item, w, h, px=600):
+    img = QImage(px, int(px * h / w), QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFF)
+    p = QPainter(img)
+    p.scale(px / w, px / w)
+    item.paint(p, None, None)
+    p.end()
+    return img
+
+
+class TestBuildFieldValues:
+    def test_resolution_order_auto_sheet_project(self):
+        s = Sheet.create_default()
+        s.title_block_fields = {"Title": "L1 Plan"}
+        s.revisions = [{"no": "1", "description": "x", "date": "d"}]
+        info = {"name": "Plant 9",
+                "custom": [{"key": "Company", "value": "ACME"}]}
+        vals = build_field_values(s, info)
+        assert vals["Title"] == "L1 Plan"          # sheet
+        assert vals["Project"] == "Plant 9"        # project standard
+        assert vals["Company"] == "ACME"           # project custom
+        assert vals["Scale"] == ""                 # auto (no viewports)
+        assert vals["__revisions__"] == s.revisions
+
+    def test_sheet_overrides_project(self):
+        s = Sheet.create_default()
+        s.title_block_fields = {"Project": "Sheet-level"}
+        vals = build_field_values(s, {"name": "Project-level"})
+        assert vals["Project"] == "Sheet-level"
+
+    def test_scale_auto_always_wins(self):
+        s = Sheet.create_default()
+        s.title_block_fields = {"Scale": "STALE MANUAL"}
+        vals = build_field_values(s, {})
+        assert vals["Scale"] == ""   # computed (no viewports), manual ignored
+
+
+class TestRenderer:
+    def _make(self, values=None, mutate=None):
+        from firepro3d.titleblock_template import make_default_template
+        t = make_default_template()
+        v = t.variants["ANSI D"]
+        if mutate:
+            mutate(v)
+        w, h = PAPER_SIZES["ANSI D"]
+        values = values or {}
+        sl = solve_layout(v, w, h, values)
+        return TitleBlockTemplateItem(sl, v, values), w, h
+
+    def test_strip_renders_nonwhite(self):
+        item, w, h = self._make({"Title": "L1 PLAN"})
+        img = _render(item, w, h)
+        strip_x = int(img.width() * (w - 50) / w)     # mid-strip column
+        col = [img.pixel(strip_x, y) for y in range(0, img.height(), 5)]
+        assert any(c != 0xFFFFFFFF for c in col)      # borders/text drew
+
+    def test_bounding_rect_covers_area_and_strip(self):
+        item, w, h = self._make()
+        br = item.boundingRect()
+        assert br.width() >= w - 25    # spans area+strip inside margins
+        assert br.height() >= h - 25
+
+    def test_empty_logo_is_calm_missing_is_warned(self):
+        item, w, h = self._make()
+        assert item.warnings == []                    # empty logo: reserved box
+        item2, _, _ = self._make(
+            mutate=lambda v: setattr(v.cells[0], "logo_data", "!!!notbase64!!!"))
+        assert item2.warnings                         # undecodable: warned
+
+    def test_no_pointsize_in_renderer(self):
+        import inspect
+        from firepro3d import paper_space
+        src = inspect.getsource(paper_space.TitleBlockTemplateItem)
+        assert "setPointSizeF" not in src
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # scene_io embed — uses the MainWindow fixture (same pattern as test_paper_persistence.py)
 # ─────────────────────────────────────────────────────────────────────────────
 
