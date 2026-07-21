@@ -457,7 +457,7 @@ class TestMigration:
             {"key": "Company", "value": "Keep Me"}]}
         sheet_fields = dict(self.LEGACY)
         migrate_legacy_fields([sheet_fields], info)
-        before = (dict(info), dict(sheet_fields))
+        before = (copy.deepcopy(info), copy.deepcopy(sheet_fields))
         migrate_legacy_fields([sheet_fields], info)
         assert (dict(info), dict(sheet_fields)) == before
         assert info["name"] == "Existing"
