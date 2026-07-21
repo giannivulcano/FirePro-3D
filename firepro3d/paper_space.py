@@ -2529,19 +2529,19 @@ class TitleBlockTemplateItem(QGraphicsItem):
 
         Exposes _SHEET_KEYS as editable string rows. Panel-managed project
         fields (Company, Project, etc.) are intentionally omitted — those are
-        set via Project Info. A "Revisions…" button row follows for opening the
-        revision editor (T11).
+        set via Project Info. An "Edit Revisions…" button row follows for
+        opening the revision editor (callback wired in T13).
 
         Returns:
             Ordered dict in PropertyManager meta format (§property-panel.md §3.1).
         """
         scene = self.scene()
-        sheet = scene._sheet if scene is not None else None
+        sheet = getattr(scene, "_sheet", None)
         fields = sheet.title_block_fields if sheet is not None else {}
         props = {}
         for key in self._SHEET_KEYS:
             props[key] = {"type": "string", "value": fields.get(key, "")}
-        props["Revisions…"] = {
+        props[""] = {
             "type": "button",
             "value": "Edit Revisions…",
             "callback": None,   # wired in T13 (MainWindow wiring)
@@ -2554,10 +2554,14 @@ class TitleBlockTemplateItem(QGraphicsItem):
         For keys in _SHEET_KEYS, pushes a SetSheetFieldCommand on the scene's
         undo stack so the change is undoable and the §17.7 dirty-flag relay
         (indexChanged → sheetModified) fires automatically. Unknown keys (e.g.
-        "Revisions…" button) are silently ignored.
+        the "Edit Revisions…" button row) are silently ignored.
 
-        When the scene has no undo stack (template-preview scenes), writes
-        directly to the sheet field and calls _refresh_titleblock.
+        No-op when *value* matches the field already stored on the sheet (avoids
+        spurious undo entries when the panel re-commits an unchanged value).
+
+        When the scene has no undo stack (e.g. a bare QGraphicsScene used in a
+        T12 editor preview), writes directly to ``self._values`` and calls
+        ``update()`` — a PaperScene is required for the full undo path.
 
         Args:
             key: Panel property key (one of _SHEET_KEYS, or ignored otherwise).
@@ -2566,15 +2570,22 @@ class TitleBlockTemplateItem(QGraphicsItem):
         if key not in self._SHEET_KEYS:
             return
         scene = self.scene()
-        if scene is None:
-            return
-        sheet = scene._sheet
+        sheet = getattr(scene, "_sheet", None)
         stack = getattr(scene, "undo_stack", None)
+        if sheet is None:
+            # Bare QGraphicsScene (editor preview) — write to live values only.
+            self._values[key] = str(value)
+            self.update()
+            return
+        # No-op guard: don't push an undo command when nothing changed.
+        if str(value) == sheet.title_block_fields.get(key, ""):
+            return
         if stack is not None and not getattr(scene, "_applying_command", False):
             stack.push(SetSheetFieldCommand(scene, sheet, key, str(value)))
         else:
             sheet.title_block_fields[key] = str(value)
-            scene._refresh_titleblock()
+            if hasattr(scene, "_refresh_titleblock"):
+                scene._refresh_titleblock()
 
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
@@ -2776,15 +2787,52 @@ class PaperScene(QGraphicsScene):
         finally:
             self._suppress_modified = False
 
-    def _refresh_titleblock(self) -> None:
-        """Re-render the title block after value/revision changes (undo cmds).
+    def _build_template_item(self, w: float, h: float) -> "TitleBlockTemplateItem | None":
+        """Resolve and construct the template TitleBlockTemplateItem for (w, h).
 
-        Runs _setup emission-suppressed so re-rendering the title block after
-        an undo/redo command does not dirty the project.
+        Adds the new item to the scene and assigns ``self._title_tb``.  Returns
+        ``None`` when the template has no variant for the current paper size (the
+        caller is responsible for any warning/fallback logic — only ``_setup``
+        handles the no-variant case).
+
+        Args:
+            w: Paper width in mm.
+            h: Paper height in mm.
+
+        Returns:
+            The constructed TitleBlockTemplateItem, or None if no variant exists.
         """
+        if self._template is None:
+            return None
+        variant = self._template.variants.get(self._sheet.paper_size)
+        if variant is None:
+            return None
+        from .titleblock_template import solve_layout
+        values = build_field_values(self._sheet, self._scene_project_info)
+        sl = solve_layout(variant, w, h, values)
+        tb = TitleBlockTemplateItem(sl, variant, values)
+        self.addItem(tb)
+        self._title_tb = tb
+        return tb
+
+    def _refresh_titleblock(self) -> None:
+        """Re-solve and swap ONLY the template title-block item.
+
+        Never rebuilds the whole sheet (spec §4.12) — safe to call from
+        undo commands and viewport-event frames.  No-op when no template
+        item is active (legacy chain items don't consume live values).
+        """
+        if not isinstance(self._title_tb, TitleBlockTemplateItem):
+            return
+        w, h = PAPER_SIZES[self._sheet.paper_size]
+        old = self._title_tb
+        was_selected = old.isSelected()
         self._suppress_modified = True
         try:
-            self._setup()
+            self.removeItem(old)
+            new = self._build_template_item(w, h)
+            if new is not None and was_selected:
+                new.setSelected(True)
         finally:
             self._suppress_modified = False
 
@@ -2830,12 +2878,7 @@ class PaperScene(QGraphicsScene):
         if self._template is not None:
             variant = self._template.variants.get(self._sheet.paper_size)
             if variant is not None:
-                from .titleblock_template import solve_layout
-                values = build_field_values(self._sheet, self._scene_project_info)
-                sl = solve_layout(variant, w, h, values)
-                tb = TitleBlockTemplateItem(sl, variant, values)
-                self.addItem(tb)
-                self._title_tb = tb
+                self._build_template_item(w, h)
                 use_external_title = True
             else:
                 self.titleblock_warning = (
@@ -3026,16 +3069,21 @@ class PaperScene(QGraphicsScene):
             self._suppress_modified = False
 
     def _update_scale_field(self):
-        self._sheet.title_block_fields["Scale"] = _compute_scale_field(self._sheet)
+        new_scale = _compute_scale_field(self._sheet)
+        self._sheet.title_block_fields["Scale"] = new_scale
         if self._title:
             self._title.update()
         if self._field_overlay:
             self._field_overlay.update()
         # When the active title block is a template item, re-solve the layout
-        # so the auto-Scale cell reflects the new value.  _refresh_titleblock
-        # runs _setup emission-suppressed, so this does not dirty the project.
+        # only when the Scale string actually changed — a viewport move/resize
+        # that doesn't change scale must not rebuild anything (avoids the
+        # use-after-free crash class: scene items deleted while still on the
+        # call stack from mouseReleaseEvent).
         if isinstance(self._title_tb, TitleBlockTemplateItem):
-            self._refresh_titleblock()
+            current_rendered = self._title_tb._values.get("Scale", "")
+            if new_scale != current_rendered:
+                self._refresh_titleblock()
 
     def _on_navigate(self, view_type: str, view_name: str):
         self.navigate_to_view.emit(view_type, view_name)

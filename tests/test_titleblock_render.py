@@ -632,7 +632,7 @@ class TestPanelAndUndo:
         props = self._tb(sc).get_properties()
         for key, meta in props.items():
             t = meta.get("type", "string")
-            assert t in ("string", "button", "header", "label"), \
+            assert t in {"string", "button"}, \
                 f"Unexpected property type {t!r} for key {key!r}"
 
     # ── set_property / undo / redo ─────────────────────────────────────────
@@ -689,7 +689,6 @@ class TestPanelAndUndo:
         from firepro3d.paper_space import TitleBlockTemplateItem
         from firepro3d.paper_commands import EditRevisionsCommand
         sc, sheet = self._scene()
-        tb_before = self._tb(sc)
         new = [{"no": "1", "description": "IFC", "date": "07-21"}]
         sc.undo_stack.push(EditRevisionsCommand(sc, sheet, new))
         # After the command, _values must carry the new revisions.
@@ -730,3 +729,91 @@ class TestPanelAndUndo:
             f"Expected Scale='1:100' after viewport add, got {scale_val!r}. " \
             "Check _update_scale_field — it must call _refresh_titleblock when " \
             "self._title_tb is a TitleBlockTemplateItem."
+
+    # ── _had_old undo branch: absent key must be removed, not set to "" ───
+
+    def test_had_old_undo_removes_key_not_sets_empty(self):
+        """SetSheetFieldCommand.undo must remove the key when _had_old is False.
+
+        When the field was not present before redo() added it, undo() must call
+        dict.pop() so the key is absent — not leave an empty-string value behind.
+        """
+        from firepro3d.paper_commands import SetSheetFieldCommand
+        sheet = Sheet.create_default()
+        # Remove "Rev" so the key is absent from the start.
+        sheet.title_block_fields.pop("Rev", None)
+        resolver = __import__("unittest.mock", fromlist=["MagicMock"]).MagicMock(
+            spec=__import__("firepro3d.paper_space", fromlist=["ViewResolver"]).ViewResolver
+        )
+        resolver.resolve.return_value = None
+        sc = PaperScene(sheet, resolver)
+        sc.set_template(make_default_template(), project_info={})
+
+        # Confirm "Rev" absent before the command.
+        assert "Rev" not in sheet.title_block_fields
+
+        cmd = SetSheetFieldCommand(sc, sheet, "Rev", "B")
+        sc.undo_stack.push(cmd)
+        assert sheet.title_block_fields.get("Rev") == "B"
+
+        sc.undo_stack.undo()
+        assert "Rev" not in sheet.title_block_fields, (
+            "undo() must remove the key when _had_old=False, not leave '' behind"
+        )
+
+    # ── Rebuild-in-event-frame safety ─────────────────────────────────────
+
+    def test_no_rebuild_on_unchanged_scale(self):
+        """_update_scale_field with unchanged scale must NOT recreate the TB item.
+
+        The scale-changed guard prevents the use-after-free crash class where
+        _refresh_titleblock (formerly _setup) is called from inside a viewport
+        mouseReleaseEvent frame: scene.clear() would hard-delete the viewport
+        whose event is still on the stack.
+
+        This test drives _update_scale_field twice with the same scale and asserts
+        object identity of the TitleBlockTemplateItem is preserved (no rebuild).
+        Then changes the scale and verifies the item IS swapped AND the viewport
+        list object identity is preserved (no full-scene rebuild).
+        """
+        sc, sheet = self._scene()
+
+        # Add a viewport at 1:100 so Scale is set.
+        data = SheetViewData(
+            source_view_type="plan",
+            source_view_name="L1",
+            title="Level 1",
+            scale=0.01,         # 1:100
+            x=10.0, y=10.0,
+            w=100.0, h=80.0,
+        )
+        sc.add_viewport(data)
+
+        tb_id_before = id(self._tb(sc))
+
+        # Drive _update_scale_field twice with the SAME scale (simulates a
+        # move/resize that doesn't change scale) — item must NOT be rebuilt.
+        sc._update_scale_field()
+        assert id(self._tb(sc)) == tb_id_before, \
+            "TB item was rebuilt even though the Scale string did not change"
+        sc._update_scale_field()
+        assert id(self._tb(sc)) == tb_id_before, \
+            "TB item was rebuilt on second call with unchanged scale"
+
+        # Now change the viewport scale so the Scale string changes.
+        vp_item = sc.get_viewports()[0]
+        vp_id_before = id(vp_item)
+
+        data.scale = 0.02   # 1:50
+        sc._update_scale_field()
+
+        tb_id_after = id(self._tb(sc))
+        assert tb_id_after != tb_id_before, \
+            "TB item was NOT rebuilt after scale change — _refresh_titleblock not called"
+        assert sc._title_tb._values.get("Scale") == "1:50", \
+            f"Scale not updated: got {sc._title_tb._values.get('Scale')!r}"
+
+        # Viewports must NOT have been recreated (no full-scene rebuild).
+        vp_id_after = id(sc.get_viewports()[0])
+        assert vp_id_after == vp_id_before, \
+            "Viewport object was recreated — targeted refresh triggered a full _setup()"
