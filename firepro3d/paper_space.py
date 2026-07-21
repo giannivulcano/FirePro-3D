@@ -2633,6 +2633,9 @@ class PaperScene(QGraphicsScene):
         self._suppress_modified = False
         self._undo_stack.indexChanged.connect(self._on_stack_index_changed)
         self.text_template: "TextAnnotationData | None" = None  # Add-Text seed
+        self._template: "TitleBlockTemplate | None" = None
+        self._scene_project_info: dict = {}
+        self.titleblock_warning: str = ""
         self._setup()
 
     def _apply(self, fn):
@@ -2650,6 +2653,40 @@ class PaperScene(QGraphicsScene):
             fn()
         finally:
             self._applying_command = False
+
+    def set_template(self, template: "TitleBlockTemplate | None",
+                     project_info: "dict | None" = None) -> None:
+        """Install the project template (or None) and rebuild the sheet.
+
+        Rebuild runs through _setup, which is emission-suppressed (§17.7) —
+        installing a template never dirties the project by itself.
+
+        Args:
+            template: A TitleBlockTemplate object, or None to revert to the
+                legacy DXF/PDF/programmatic chain.
+            project_info: Optional project-info dict (used by build_field_values).
+                When None the existing _scene_project_info is kept.
+        """
+        self._template = template
+        if project_info is not None:
+            self._scene_project_info = project_info
+        self._suppress_modified = True
+        try:
+            self._setup()
+        finally:
+            self._suppress_modified = False
+
+    def _refresh_titleblock(self) -> None:
+        """Re-render the title block after value/revision changes (undo cmds).
+
+        Runs _setup emission-suppressed so re-rendering the title block after
+        an undo/redo command does not dirty the project.
+        """
+        self._suppress_modified = True
+        try:
+            self._setup()
+        finally:
+            self._suppress_modified = False
 
     @property
     def undo_stack(self) -> QUndoStack:
@@ -2685,11 +2722,29 @@ class PaperScene(QGraphicsScene):
         )
         self._bg_item.setZValue(0)
 
-        # Title block: try DXF (vector) → PDF (raster) → programmatic
+        # Title block resolution: template → DXF → PDF → programmatic (§8.1)
         use_external_title = False
+        self.titleblock_warning = ""
+
+        if self._template is not None:
+            variant = self._template.variants.get(self._sheet.paper_size)
+            if variant is not None:
+                from .titleblock_template import solve_layout
+                values = build_field_values(self._sheet, self._scene_project_info)
+                sl = solve_layout(variant, w, h, values)
+                tb = TitleBlockTemplateItem(sl, variant, values)
+                self.addItem(tb)
+                self._title_tb = tb
+                use_external_title = True
+            else:
+                self.titleblock_warning = (
+                    f"Template '{self._template.name}' has no "
+                    f"{self._sheet.paper_size} variant — using built-in "
+                    "title block."
+                )
 
         dxf_path = TITLE_BLOCK_DXFS.get(self._sheet.paper_size)
-        if dxf_path and os.path.isfile(dxf_path):
+        if not use_external_title and dxf_path and os.path.isfile(dxf_path):
             tb_dxf = TitleBlockDxfItem(dxf_path, w, h)
             if tb_dxf.is_valid():
                 self.addItem(tb_dxf)

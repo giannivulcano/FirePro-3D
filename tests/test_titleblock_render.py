@@ -398,3 +398,64 @@ class TestSceneIOEmbed:
         assert _mw.scene._titleblock_template is None
         assert _mw.scene._project_info.get("name", "") == ""
         assert not _mw.scene._project_info.get("custom")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Resolution chain — no MainWindow needed; mirrors test_paper_space.py fixture
+# ─────────────────────────────────────────────────────────────────────────────
+
+from unittest.mock import MagicMock
+from firepro3d.paper_space import PaperScene, ViewResolver
+
+
+class TestResolutionChain:
+    """§8.1 template-first resolution chain tests.
+
+    These tests exercise PaperScene.set_template() and the _setup priority
+    ordering: template → DXF → PDF → programmatic.
+    """
+
+    def _scene(self, template=None, size="ANSI D"):
+        sheet = Sheet.create_default()
+        sheet.paper_size = size
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        sc = PaperScene(sheet, resolver)
+        if template is not None:
+            sc.set_template(template, project_info={})
+        return sc, sheet
+
+    def test_template_wins_over_dxf(self):
+        sc, _ = self._scene(make_default_template())
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" in kinds
+        assert "TitleBlockDxfItem" not in kinds
+
+    def test_no_template_renders_legacy_chain(self):
+        sc, _ = self._scene(None)
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" not in kinds
+        # ANSI D has a CEL DXF on disk in this repo
+        assert "TitleBlockDxfItem" in kinds or "TitleBlockItem" in kinds
+
+    def test_missing_variant_falls_back_with_warning(self):
+        t = make_default_template()
+        del t.variants["ANSI B"]
+        sc, _ = self._scene(t, size="ANSI B")
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" not in kinds
+        assert sc.titleblock_warning          # surfaced for the status bar
+
+    def test_set_template_none_restores_legacy(self):
+        sc, _ = self._scene(make_default_template())
+        sc.set_template(None)
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" not in kinds
+
+    def test_setup_with_template_emits_no_sheetModified(self):
+        # §17.7: rebuilds are load-suppressed — installing a template must not dirty
+        sc, _ = self._scene(None)
+        emitted = []
+        sc.sheetModified.connect(lambda *a: emitted.append(1))
+        sc.set_template(make_default_template(), project_info={})
+        assert not emitted
