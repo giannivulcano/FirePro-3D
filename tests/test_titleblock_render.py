@@ -817,3 +817,44 @@ class TestPanelAndUndo:
         vp_id_after = id(sc.get_viewports()[0])
         assert vp_id_after == vp_id_before, \
             "Viewport object was recreated — targeted refresh triggered a full _setup()"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RevisionsDialog — table editor for Sheet.revisions
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRevisionsDialog:
+    def test_dialog_round_trips_rows(self):
+        from firepro3d.paper_space import RevisionsDialog
+        revs = [{"no": "1", "description": "Issued", "date": "07-21"}]
+        dlg = RevisionsDialog(revs)
+        dlg._add_row()
+        dlg.table.item(1, 0).setText("2")
+        dlg.table.item(1, 1).setText("As-built")
+        dlg.table.item(1, 2).setText("07-22")
+        out = dlg.result_revisions()
+        assert out[0]["no"] == "1" and out[1]["description"] == "As-built"
+
+    def test_blank_rows_dropped(self):
+        from firepro3d.paper_space import RevisionsDialog
+        dlg = RevisionsDialog([])
+        dlg._add_row()          # left blank
+        dlg._add_row()
+        dlg.table.item(1, 0).setText("1")
+        assert dlg.result_revisions() == [{"no": "1", "description": "",
+                                           "date": ""}]
+
+    def test_remove_row(self):
+        from firepro3d.paper_space import RevisionsDialog
+        dlg = RevisionsDialog([{"no": "1", "description": "a", "date": "d"},
+                               {"no": "2", "description": "b", "date": "d"}])
+        dlg.table.setCurrentCell(0, 0)
+        dlg._remove_row()
+        assert [r["no"] for r in dlg.result_revisions()] == ["2"]
+
+    def test_input_not_mutated(self):
+        from firepro3d.paper_space import RevisionsDialog
+        revs = [{"no": "1", "description": "a", "date": "d"}]
+        dlg = RevisionsDialog(revs)
+        dlg.table.item(0, 1).setText("changed")
+        assert revs[0]["description"] == "a"   # dialog works on a copy

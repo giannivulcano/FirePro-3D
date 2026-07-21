@@ -28,11 +28,12 @@ from .constants import (
 )
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QGraphicsScene, QGraphicsView,
+    QWidget, QVBoxLayout, QHBoxLayout, QGraphicsScene, QGraphicsView,
     QGraphicsItem, QGraphicsPixmapItem, QGraphicsObject, QGraphicsTextItem,
     QGraphicsSceneContextMenuEvent, QComboBox,
     QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QGraphicsDropShadowEffect,
     QMenu, QCheckBox, QColorDialog,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSizeF, QSize, QByteArray, pyqtSignal
 from PyQt6.QtGui import (
@@ -3414,6 +3415,66 @@ class PaperScene(QGraphicsScene):
 # ─────────────────────────────────────────────────────────────────────────────
 # Title-block editor dialog
 # ─────────────────────────────────────────────────────────────────────────────
+
+class RevisionsDialog(QDialog):
+    """No/Description/Date table editor for a sheet's revision history.
+
+    Works on a copy of the input list; the caller reads result_revisions()
+    on accept and pushes an EditRevisionsCommand (T13 wiring).
+    """
+
+    _HEADERS = ["No", "Description", "Date"]
+    _KEYS = ("no", "description", "date")
+
+    def __init__(self, revisions: list[dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sheet Revisions")
+        self.setMinimumSize(420, 300)
+        lay = QVBoxLayout(self)
+        self.table = QTableWidget(len(revisions), 3)
+        self.table.setHorizontalHeaderLabels(self._HEADERS)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        for r, rev in enumerate(revisions):
+            for c, key in enumerate(self._KEYS):
+                self.table.setItem(r, c, QTableWidgetItem(rev.get(key, "")))
+        lay.addWidget(self.table)
+        btns = QHBoxLayout()
+        add = QPushButton("+ Add")
+        rem = QPushButton("- Remove")
+        add.clicked.connect(self._add_row)
+        rem.clicked.connect(self._remove_row)
+        btns.addWidget(add)
+        btns.addWidget(rem)
+        btns.addStretch()
+        lay.addLayout(btns)
+        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                              | QDialogButtonBox.StandardButton.Cancel)
+        bb.accepted.connect(self.accept)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _add_row(self):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        for c in range(3):
+            self.table.setItem(r, c, QTableWidgetItem(""))
+
+    def _remove_row(self):
+        if self.table.currentRow() >= 0:
+            self.table.removeRow(self.table.currentRow())
+
+    def result_revisions(self) -> list[dict]:
+        out = []
+        for r in range(self.table.rowCount()):
+            row = {k: (self.table.item(r, c).text().strip()
+                       if self.table.item(r, c) else "")
+                   for c, k in enumerate(self._KEYS)}
+            if any(row.values()):
+                out.append(row)
+        return out
+
 
 class TitleBlockDialog(QDialog):
     def __init__(self, title_block_or_sheet, parent=None):
