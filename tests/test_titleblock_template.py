@@ -409,11 +409,14 @@ from firepro3d.titleblock_template import make_default_template, migrate_legacy_
 
 class TestDefaultTemplate:
     def test_variants_present_and_valid(self):
+        from firepro3d.paper_space import PAPER_SIZES
         t = make_default_template()
         for size, (w, h) in (("ANSI B", (431.8, 279.4)),
                              ("ANSI D", (863.6, 558.8)),
                              ("Letter", (215.9, 279.4))):
             assert size in t.variants
+            assert size in PAPER_SIZES, (
+                f"Default template variant {size!r} not in PAPER_SIZES")
             assert validate(t.variants[size], w, h) == []
 
     def test_arrangement_a(self):
@@ -469,3 +472,56 @@ class TestMigration:
         migrate_legacy_fields([], info)
         migrate_legacy_fields([{}], info)
         assert "custom" not in info or info["custom"] == []
+
+    # ── Multi-sheet / odd-input hardening (findings 1–2) ─────────────────────
+
+    def test_two_sheets_different_company_first_wins(self):
+        """First non-empty Company across sheets seeds; both sheets lose the key."""
+        info = {}
+        sheet1 = {"Company": "Alpha Fire", "Title": "S1"}
+        sheet2 = {"Company": "Beta Fire", "Title": "S2"}
+        migrate_legacy_fields([sheet1, sheet2], info)
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert custom["Company"] == "Alpha Fire"     # first non-empty wins
+        assert "Company" not in sheet1
+        assert "Company" not in sheet2
+
+    def test_first_sheet_empty_company_second_sheet_seeds(self):
+        """Empty first-sheet Company is skipped; second sheet's value seeds."""
+        info = {}
+        sheet1 = {"Company": "", "Title": "S1"}
+        sheet2 = {"Company": "Gamma Fire", "Title": "S2"}
+        migrate_legacy_fields([sheet1, sheet2], info)
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert custom["Company"] == "Gamma Fire"
+
+    def test_none_company_skipped_no_crash(self):
+        """Company=None must be skipped without error and must not seed."""
+        info = {}
+        sheet = {"Company": None, "Title": "S1"}
+        migrate_legacy_fields([sheet], info)
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert "Company" not in custom
+        assert "Company" not in sheet          # still popped
+
+    def test_int_company_seeds_as_str(self):
+        """Company=123 (int) must be coerced to "123" and seed Project Info."""
+        info = {}
+        sheet = {"Company": 123, "Title": "S1"}
+        migrate_legacy_fields([sheet], info)
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert custom["Company"] == "123"
+        assert isinstance(custom["Company"], str)
+
+    def test_skip_values_suppresses_shipped_default(self):
+        """A Company matching skip_values is not treated as a donor; key still popped."""
+        shipped_default = "Celerity Engineering Limited"
+        info = {}
+        sheet = {"Company": shipped_default, "Title": "S1"}
+        migrate_legacy_fields(
+            [sheet], info,
+            skip_values={"Company": shipped_default},
+        )
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert "Company" not in custom          # not seeded
+        assert "Company" not in sheet           # but key was still popped

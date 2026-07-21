@@ -502,30 +502,71 @@ def library_diverges(embedded: TitleBlockTemplate) -> bool:
 # Project-scoped legacy keys → Project Info home ("" = custom row of same name)
 _LEGACY_PROJECT_KEYS = {"Company": "", "Project": "name",
                         "Drawn By": "", "Checked By": ""}
-_LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
+
+# Sheet-scoped keys that stay per-sheet after migration (public for scene_io tests).
+LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
+
+# Bump this string whenever the shipped seed design changes so divergence checks
+# pick up the new layout.
+DEFAULT_SEED_MODIFIED = "2026-07-21"
+
+# Accent fill colour shared by the two highlighted cells in the default template.
+_ACCENT_FILL = "#eef2f7"
 
 
-def migrate_legacy_fields(sheet_field_dicts: list[dict],
-                          project_info: dict) -> None:
+def migrate_legacy_fields(
+    sheet_field_dicts: list[dict],
+    project_info: dict,
+    skip_values: dict | None = None,
+) -> None:
     """One-way, idempotent migration of legacy 9-key title_block_fields.
 
     Project-scoped keys seed Project Info only where empty/absent; sheet-scoped
-    keys stay per-sheet; "Scale" drops (auto-computed). Mutates in place.
+    keys (see ``LEGACY_SHEET_KEYS``) stay per-sheet; "Scale" drops
+    (auto-computed). Mutates in place.
+
+    Donor values are coerced to ``str`` and stripped; empty-after-strip values
+    are skipped (guards against non-string junk in hand-edited project files).
+
+    If *skip_values* is provided, a donor value that equals
+    ``skip_values.get(legacy_key)`` is **not** treated as a real donor — it is
+    considered "never edited from the shipped default".  Pass the app's shipped
+    ``DEFAULT_TITLE_BLOCK_FIELDS`` here so that factory strings like
+    "Celerity Engineering Limited" never seed Project Info.  The key is still
+    popped from each sheet dict regardless.
 
     Args:
         sheet_field_dicts: Each sheet's title_block_fields dict (mutated).
         project_info: The project metadata dict (mutated).
+        skip_values: Optional mapping of legacy key → shipped-default value.
+            Donor entries that match are treated as absent.
     """
+    skip_values = skip_values or {}
     donors = [d for d in sheet_field_dicts if d]
     for legacy_key, std_key in _LEGACY_PROJECT_KEYS.items():
-        value = next((d[legacy_key] for d in donors
-                      if d.get(legacy_key)), "")
+        # Find first non-empty, non-skipped donor value across all sheets.
+        value = ""
+        for d in donors:
+            raw = d.get(legacy_key)
+            if raw is None:
+                continue
+            candidate = str(raw).strip()
+            if not candidate:
+                continue
+            if candidate == str(skip_values.get(legacy_key, "")).strip():
+                continue
+            value = candidate
+            break
         if not value:
             continue
         if std_key:                                  # standard field
             if not project_info.get(std_key):
                 project_info[std_key] = value
-        else:                                        # custom row
+        else:
+            # Key-absence (not value-emptiness) guards the custom-row insert:
+            # legacy projects predate custom rows entirely, so an absent key
+            # means "never had one" — we must not overwrite a row the user
+            # already created with this key.
             custom = project_info.setdefault("custom", [])
             if not any(c.get("key") == legacy_key for c in custom):
                 custom.append({"key": legacy_key, "value": value})
@@ -536,7 +577,8 @@ def migrate_legacy_fields(sheet_field_dicts: list[dict],
                 d.pop(k)
 
 
-def _field(key, label, *, h=10.0, cap=2.6, pair=False, fill=""):
+def _field(key: str, label: str, *, h: float = 10.0, cap: float = 2.6,
+           pair: bool = False, fill: str = "") -> CellSpec:
     """Shorthand CellSpec factory for the default template's field cells."""
     return CellSpec(kind="field", field_key=key, label=label,
                     min_height_mm=h, cap_height_mm=cap,
@@ -548,7 +590,7 @@ def make_default_template() -> TitleBlockTemplate:
     def cells() -> list[CellSpec]:
         return [
             CellSpec(kind="logo", min_height_mm=25.0),
-            _field("Company", "Company", h=12.0, fill="#eef2f7"),
+            _field("Company", "Company", h=12.0, fill=_ACCENT_FILL),
             _field("Project", "Project", h=12.0),
             _field("Address", "Address", h=10.0),
             _field("Title", "Sheet Title", h=14.0, cap=3.2),
@@ -557,7 +599,7 @@ def make_default_template() -> TitleBlockTemplate:
             _field("Drawn By", "Drawn", pair=True),
             _field("Checked By", "Checked"),
             _field("Drawing No", "Drawing No", h=14.0, cap=4.0, pair=True,
-                   fill="#eef2f7"),
+                   fill=_ACCENT_FILL),
             _field("Rev", "Rev", h=14.0, cap=4.0),
             CellSpec(kind="revision_table", label="Revisions",
                      min_height_mm=25.0, revision_rows=3),
@@ -570,4 +612,5 @@ def make_default_template() -> TitleBlockTemplate:
                                          strip_width_mm=strip, cells=cells())
     return TitleBlockTemplate(name="FirePro Default",
                               uuid=str(_uuid.uuid4()),
-                              modified="2026-07-21", variants=variants)
+                              modified=DEFAULT_SEED_MODIFIED,
+                              variants=variants)
