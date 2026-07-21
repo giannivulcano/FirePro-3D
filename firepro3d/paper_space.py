@@ -515,11 +515,14 @@ class SheetViewport(QGraphicsObject):
             painter.fillRect(vp_rect, QColor("#e0e0e0"))
             painter.setPen(QPen(QColor("#888888"), 0.5))
             painter.drawRect(vp_rect)
-            f = QFont("Arial", 3)
-            painter.setFont(f)
-            painter.setPen(Qt.GlobalColor.darkRed)
-            painter.drawText(vp_rect, Qt.AlignmentFlag.AlignCenter,
-                             f"View not found:\n{self._data.source_view_name}")
+            _draw_mm_text(
+                painter,
+                vp_rect,
+                f"View not found:\n{self._data.source_view_name}",
+                cap_mm=3.0,
+                color="#8b0000",
+                align=Qt.AlignmentFlag.AlignCenter,
+            )
             return
 
         # White background
@@ -2453,7 +2456,7 @@ def _draw_mm_text(
     cap_mm: float,
     *,
     bold: bool = False,
-    align=Qt.AlignmentFlag.AlignCenter,
+    align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignCenter,
     color: str = "#000000",
 ) -> None:
     """Draw text at a true paper-mm cap height (§9.4 primitive).

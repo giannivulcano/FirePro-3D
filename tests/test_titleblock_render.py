@@ -8,13 +8,25 @@ Covers:
 """
 from __future__ import annotations
 
+import inspect
 import json
+import re
+from unittest.mock import MagicMock
+
 import pytest
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QGraphicsScene
 from PyQt6.QtTest import QTest
+from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtGui import QImage, QPainter
 
-from firepro3d.paper_space import DEFAULT_TITLE_BLOCK_FIELDS, Sheet
+from firepro3d.paper_space import (
+    DEFAULT_TITLE_BLOCK_FIELDS,
+    Sheet,
+    SheetViewport,
+    SheetViewData,
+    ViewResolver,
+)
 from firepro3d.titleblock_template import make_default_template
 
 _app = QApplication.instance() or QApplication([])
@@ -465,66 +477,111 @@ class TestResolutionChain:
 # T9: View-title mm sizing (spec §9.4)
 # ─────────────────────────────────────────────────────────────────────────────
 
-import inspect
-
-from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRectF
-from PyQt6.QtGui import QImage, QPainter
-from firepro3d.paper_space import SheetViewport, SheetViewData
-
 
 class TestViewTitleMmSizing:
     """View-title block below SheetViewport must use mm cap-height primitive (§9.4)."""
 
     def test_no_pointsize_in_viewport_paint(self):
-        """Banned-API lint: view titles must use the mm primitive (spec §9.4)."""
+        """Banned-API lint: view titles must use the mm primitive (spec §9.4).
+
+        Checks both setPointSize/setPointSizeF method calls AND QFont constructor
+        calls that embed a numeric point size (e.g. QFont("Arial", 3)).
+        """
         src = inspect.getsource(SheetViewport.paint)
         assert "setPointSize" not in src, (
             "SheetViewport.paint still calls setPointSize*/setPointSizeF — "
             "must use mm primitive instead (§9.4)"
         )
+        assert not re.search(r'QFont\([^)]*,\s*\d', src), (
+            "SheetViewport.paint still uses QFont(<family>, <pts>) constructor — "
+            "numeric point size is DPI-dependent; use mm primitive instead (§9.4)"
+        )
 
-    def test_title_ink_scales_with_painter(self, qapp):
-        """mm-true text: doubling the painter scale must double the ink height."""
+    def test_title_ink_dpi_invariant(self, qapp):
+        """mm-true text: title strip ink height must be DPI-invariant (spec §9.4).
+
+        Renders the viewport at the same painter scale but at two device DPIs
+        (96 dpi vs 300 dpi).  A point-size font would scale with device DPI;
+        the mm primitive (setPixelSize + painter.scale) is DPI-independent.
+
+        Only the title_rect_above sub-region is measured: the region where the
+        view-title text sits (between title_y and the bubble centre-line).
+        """
+        # ── Build a viewport whose resolver returns a real scene so the
+        #    non-placeholder path runs and the title strip is actually drawn.
         data = SheetViewData(
             source_view_type="plan",
-            source_view_name="Level 1",
-            title="Level 1",
+            source_view_name="LEVEL ONE",   # all-caps, no descenders
+            title="LEVEL ONE",
             scale=0.01,
             x=0.0, y=0.0, w=120.0, h=90.0,
         )
-        # Resolver returns None so the viewport goes into placeholder mode,
-        # but the title strip below is always drawn regardless.
         resolver = MagicMock(spec=ViewResolver)
-        resolver.resolve.return_value = None
+        # resolve() must match the real signature: (view_type, view_name) -> (scene, rect) | None
+        resolver.resolve.return_value = (QGraphicsScene(), QRectF(0, 0, 1, 1))
         vp = SheetViewport(data, resolver)
 
-        # Add to a scene so Qt geometry is valid.
-        scene = QGraphicsScene()
-        scene.addItem(vp)
+        host_scene = QGraphicsScene()
+        host_scene.addItem(vp)
 
-        def render(px_scale: float) -> QImage:
-            # Canvas covers the viewport + title strip (title_y=h+0.5, bubble_r=3, +margin)
-            canvas_w = int(120 * px_scale)
-            canvas_h = int(110 * px_scale)   # extra height for title strip
-            img = QImage(canvas_w, canvas_h, QImage.Format.Format_RGB32)
+        # Geometry mirrored from SheetViewport.paint (keep in sync with spec §9.4)
+        w, h = data.w, data.h
+        title_y    = h + 0.5
+        bubble_r   = 3.0
+        bubble_cx  = bubble_r + 1.0
+        bubble_cy  = title_y + bubble_r + 1.0
+        text_x     = bubble_cx + bubble_r + 1.5
+        # title_rect_above: (text_x, title_y) → (w, bubble_cy - 0.3)
+        tr_left   = text_x
+        tr_top    = title_y
+        tr_right  = w
+        tr_bottom = bubble_cy - 0.3
+
+        # ── px-scale shared across both renders; only device DPI differs ──
+        PX_SCALE = 6.0
+        CANVAS_W  = int(w * PX_SCALE)
+        CANVAS_H  = int((h + 15) * PX_SCALE)   # enough room for title strip
+
+        def render_at_dpi(dpi: int) -> QImage:
+            img = QImage(CANVAS_W, CANVAS_H, QImage.Format.Format_RGB32)
+            dpm = int(dpi / 0.0254)             # dots-per-metre
+            img.setDotsPerMeterX(dpm)
+            img.setDotsPerMeterY(dpm)
             img.fill(0xFFFFFF)
             p = QPainter(img)
-            p.scale(px_scale, px_scale)
+            p.scale(PX_SCALE, PX_SCALE)
             vp.paint(p, None, None)
             p.end()
             return img
 
-        def ink_rows(img: QImage) -> int:
+        def ink_height_in_title_rect(img: QImage) -> int:
+            """Count non-white pixel rows inside the title_rect_above region."""
+            px = PX_SCALE
+            x0 = int(tr_left   * px)
+            x1 = min(int(tr_right  * px), img.width() - 1)
+            y0 = int(tr_top    * px)
+            y1 = min(int(tr_bottom * px), img.height() - 1)
             return sum(
-                1 for y in range(img.height())
-                if any(img.pixel(x, y) != 0xFFFFFFFF
-                       for x in range(img.width()))
+                1 for row in range(y0, y1 + 1)
+                if any(img.pixel(col, row) != 0xFFFFFFFF
+                       for col in range(x0, x1 + 1))
             )
 
-        r1 = ink_rows(render(4))
-        r2 = ink_rows(render(8))
-        assert 1.6 < r2 / max(1, r1) < 2.4, (
-            f"Ink rows at 4× = {r1}, at 8× = {r2}; ratio {r2 / max(1, r1):.2f} "
-            "expected between 1.6 and 2.4 (mm-proportional sizing)"
+        img_96  = render_at_dpi(96)
+        img_300 = render_at_dpi(300)
+        h_96    = ink_height_in_title_rect(img_96)
+        h_300   = ink_height_in_title_rect(img_300)
+
+        assert h_96 > 0, (
+            "No ink in title_rect_above at 96 dpi — title strip was not drawn "
+            "(check that resolver.resolve returns a real (scene, rect) tuple)"
+        )
+        assert h_300 > 0, "No ink in title_rect_above at 300 dpi"
+
+        ratio = h_300 / h_96
+        assert 0.85 <= ratio <= 1.15, (
+            f"Title-strip ink height at 96 dpi = {h_96} px, "
+            f"at 300 dpi = {h_300} px, ratio = {ratio:.3f}.  "
+            "Expected within ±15% (mm-true text ignores device DPI).  "
+            "A ratio far from 1.0 means point-size font is in use."
         )
