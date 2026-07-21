@@ -40,6 +40,7 @@ class TestSerialization:
 
     def test_deep_copy_independent(self):
         t = self._template()
-        t2 = TitleBlockTemplate.from_dict(copy.deepcopy(t.to_dict()))
+        t2 = t.copy()
         t2.variants["ANSI D"].cells[0].label = "changed"
         assert t.variants["ANSI D"].cells[0].label == "Sheet Title"
+        assert t2.to_dict() != t.to_dict()
