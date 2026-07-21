@@ -16,6 +16,7 @@ from .constants import (
     TB_MARGIN_EDGE_DEFAULT_MM, TB_MARGIN_STRIP_DEFAULT_MM,
     TB_STRIP_DEFAULT_MM, TB_DEFAULT_FILLET_MM,
     TB_STRIP_MIN_MM, TB_AREA_MIN_MM, TEXT_METRIC_REF_PX,
+    TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM,
 )
 
 CELL_KINDS = ("field", "static_text", "logo", "revision_table", "stamp")
@@ -183,10 +184,10 @@ class SolvedLayout:
 
     area_rect: QRectF
     strip_rect: QRectF
-    cell_rects: list          # QRectF per cell (index-aligned with cells)
-    cell_lines: list          # list[str] wrapped value lines per cell
-    cell_revision_rows: dict  # cell index -> newest-first list of rev dicts
-    warnings: list
+    cell_rects: list[QRectF]                 # QRectF per cell (index-aligned with cells)
+    cell_lines: list[list[str]]              # wrapped value lines per cell
+    cell_revision_rows: dict[int, list[dict]]  # cell index -> newest-first list of rev dicts
+    warnings: list[str]
 
 
 def _cell_font(cell: CellSpec) -> QFont:
@@ -197,20 +198,15 @@ def _cell_font(cell: CellSpec) -> QFont:
     return f
 
 
-def _wrapped_height_mm(cell: CellSpec, text: str,
-                        width_mm: float) -> tuple[float, list[str]]:
-    """Wrapped height (mm) of *text* at the cell's cap height, plus the lines.
+def _word_wrap_paragraph(fm: QFontMetricsF, text: str,
+                          avail_px: float) -> list[str]:
+    """Greedy word-wrap of a single paragraph (no embedded newlines).
 
-    Text keeps its size and wraps; the cell grows (spec DD-8).
+    Deterministic: matches the renderer path. Always produces at least one
+    entry (even for an empty paragraph → one empty string).
     """
     if not text:
-        return 0.0, []
-    f = _cell_font(cell)
-    fm = QFontMetricsF(f)
-    cap_px = fm.capHeight() or 1.0
-    px_per_mm = cap_px / cell.cap_height_mm
-    avail_px = max(1.0, width_mm * px_per_mm)
-    # Greedy word wrap on advance width (deterministic, matches renderer).
+        return [""]
     lines, cur = [], ""
     for word in text.split():
         trial = f"{cur} {word}".strip()
@@ -221,12 +217,31 @@ def _wrapped_height_mm(cell: CellSpec, text: str,
             cur = trial
     if cur:
         lines.append(cur)
+    return lines
+
+
+def _wrapped_height_mm(cell: CellSpec, text: str,
+                        width_mm: float) -> tuple[float, list[str]]:
+    """Wrapped height (mm) of *text* at the cell's cap height, plus the lines.
+
+    Hard ``\\n`` newlines split into paragraphs first; each paragraph is then
+    word-wrapped independently. An empty paragraph produces one empty line.
+    Text keeps its size and wraps; the cell grows (spec DD-8).
+    """
+    if not text:
+        return 0.0, []
+    f = _cell_font(cell)
+    fm = QFontMetricsF(f)
+    cap_px = fm.capHeight() or 1.0
+    # Guard against zero/negative cap_height_mm to avoid division by zero.
+    px_per_mm = cap_px / max(cell.cap_height_mm, 0.1)
+    avail_px = max(1.0, width_mm * px_per_mm)
+    # Split on hard newlines first, then word-wrap each paragraph.
+    lines: list[str] = []
+    for para in text.split("\n"):
+        lines.extend(_word_wrap_paragraph(fm, para, avail_px))
     line_h_mm = fm.lineSpacing() / px_per_mm
     return len(lines) * line_h_mm, lines
-
-
-_PAD_MM = 1.5      # inner cell padding
-_LABEL_MM = 3.0    # label row height when a label is present
 
 
 def solve_layout(variant: TemplateVariant, paper_w_mm: float,
@@ -242,6 +257,8 @@ def solve_layout(variant: TemplateVariant, paper_w_mm: float,
 
     Returns:
         A SolvedLayout with all rects in paper-mm coordinates.
+        ``cell_revision_rows`` lists are **newest-first**; the input
+        ``__revisions__`` list is oldest-first.
     """
     m, ms, sw = (variant.margin_edge_mm, variant.margin_strip_mm,
                  variant.strip_width_mm)
@@ -260,23 +277,26 @@ def solve_layout(variant: TemplateVariant, paper_w_mm: float,
         group = [cells[i], cells[i + 1]] if pair else [cells[i]]
         cw = strip_rect.width() / len(group)
         heights, lines_group = [], []
-        for cell in group:
+        for j, cell in enumerate(group):
             text = ""
             if cell.kind == "field":
                 text = str(values.get(cell.field_key, ""))
             elif cell.kind == "static_text":
                 text = cell.static_text
             h_text, lines = _wrapped_height_mm(
-                cell, text, cw - 2 * _PAD_MM)
-            extra = _LABEL_MM if cell.label else 0.0
-            h = max(cell.min_height_mm, (h_text + extra + 2 * _PAD_MM)
-                    if text else cell.min_height_mm)
+                cell, text, cw - 2 * TB_CELL_PAD_MM)
+            extra = TB_LABEL_ROW_MM if cell.label else 0.0
+            # Clamp min_height_mm to 0 so negative specs don't produce
+            # negative-height rects.
+            min_h = max(0.0, cell.min_height_mm)
+            h = max(min_h, (h_text + extra + 2 * TB_CELL_PAD_MM)
+                    if text else min_h)
             if cell.kind == "revision_table":
                 revs = list(values.get("__revisions__", []))
                 shown = list(reversed(revs))[: cell.revision_rows]
-                cell_revision_rows[i + group.index(cell)] = shown
-                h = max(cell.min_height_mm,
-                        _LABEL_MM + (len(shown) + 1) * 5.0)
+                cell_revision_rows[i + j] = shown
+                h = max(min_h,
+                        TB_LABEL_ROW_MM + (len(shown) + 1) * TB_REV_ROW_MM)
             heights.append(h)
             lines_group.append(lines)
         row_h = max(heights)
@@ -322,12 +342,26 @@ def validate(variant: TemplateVariant, paper_w_mm: float,
     if area_w < TB_AREA_MIN_MM or area_h < TB_AREA_MIN_MM:
         errs.append(f"Drawing area must be >= {TB_AREA_MIN_MM:g} mm "
                     "in each dimension.")
-    for b in (variant.area_border, variant.strip_border):
-        if b.corner == "fillet" and b.fillet_radius_mm > min(
-                paper_w_mm, paper_h_mm) / 2:
-            errs.append("Fillet radius too large for the paper size.")
+    # Fillet check against the actual rect for each frame, not the paper dims.
+    strip_h = paper_h_mm - 2 * variant.margin_edge_mm
+    strip_w = variant.strip_width_mm
+    if (variant.area_border.corner == "fillet"
+            and variant.area_border.fillet_radius_mm > min(area_w, area_h) / 2):
+        errs.append("Fillet radius too large for the drawing area rect.")
+    if (variant.strip_border.corner == "fillet"
+            and variant.strip_border.fillet_radius_mm
+            > min(strip_w, strip_h) / 2):
+        errs.append("Fillet radius too large for the info-strip rect.")
     if not variant.cells:
         errs.append("Template needs at least one cell.")
+    for c in variant.cells:
+        if c.cap_height_mm <= 0:
+            errs.append("Cell cap height must be > 0.")
+            break
+    for c in variant.cells:
+        if c.min_height_mm < 0:
+            errs.append("Cell minimum height must be >= 0.")
+            break
     for c in variant.cells:
         if c.kind == "field" and not c.field_key:
             errs.append("Every field cell needs a field key.")
@@ -338,7 +372,17 @@ def validate(variant: TemplateVariant, paper_w_mm: float,
         pair = (variant.cells[i].pair_with_next
                 and i + 1 < len(variant.cells))
         group = variant.cells[i:i + 2] if pair else [variant.cells[i]]
-        min_total += max(c.min_height_mm for c in group)
+        row_min = 0.0
+        for c in group:
+            cell_min = c.min_height_mm
+            if c.kind == "revision_table":
+                # Use worst-case full table height so the stack check is
+                # conservative: label row + (revision_rows + 1 header) rows.
+                cell_min = max(cell_min,
+                               TB_LABEL_ROW_MM + (c.revision_rows + 1)
+                               * TB_REV_ROW_MM)
+            row_min = max(row_min, cell_min)
+        min_total += row_min
         i += len(group)
     if min_total > paper_h_mm - 2 * variant.margin_edge_mm:
         errs.append("Minimum cell stack does not fit the strip height.")

@@ -155,3 +155,6 @@ TB_DEFAULT_FILLET_MM = 10.0         # default frame fillet radius
 TB_STRIP_MIN_MM = 20.0              # validation floor: strip width
 TB_AREA_MIN_MM = 100.0              # validation floor: drawing area per dimension
 TB_LABEL_CAP_FRAC = 0.45            # label cap height as fraction of value cap height
+TB_CELL_PAD_MM = 1.5                # inner cell padding (solver + T7 renderer share this)
+TB_LABEL_ROW_MM = 3.0               # label row height when a label is present
+TB_REV_ROW_MM = 5.0                 # height per revision table data row (header + each row)
