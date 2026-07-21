@@ -1,5 +1,7 @@
 """Editor behavior: working copy, save/cancel, snapshot undo, library actions."""
-from PyQt6.QtWidgets import QApplication
+from unittest.mock import patch, MagicMock
+
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 import firepro3d.titleblock_template as tbt
 from firepro3d.titleblock_template import make_default_template
@@ -142,3 +144,165 @@ class TestEditorForm:
         dlg.refresh_preview()
         kinds = [type(i).__name__ for i in dlg._preview_scene.items()]
         assert "TitleBlockTemplateItem" in kinds
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 1: modified-stamp preserved on failed save
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSaveFailedStampPreserved:
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_failed_save_restores_old_modified_and_shows_warning(
+            self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        old_modified = dlg.working.modified
+
+        warnings_shown = []
+
+        import firepro3d.titleblock_editor as te
+        with patch.object(te, "save_to_library", side_effect=OSError("disk full")):
+            with patch.object(QMessageBox, "warning",
+                              side_effect=lambda *a, **kw: warnings_shown.append(a)):
+                result = dlg.save()
+
+        assert result is False
+        assert dlg.working.modified == old_modified
+        assert len(warnings_shown) == 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 2: save_button initial state
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSaveButtonInitialState:
+    def test_save_button_disabled_when_no_template_selected(
+            self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        # Empty library, no project template
+        dlg = TitleBlockEditorDialog(project_template=None)
+        assert not dlg.save_button.isEnabled()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 3: cell-border wiring
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCellBorderWiring:
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_cell_border_visible_toggle_applies_and_snapshots(
+            self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Select first cell
+        dlg._cell_list.setCurrentRow(0)
+        variant = dlg.working.variants[dlg._active_size]
+        # Ensure initial visible=True (the default)
+        variant.cells[0].border.visible = True
+        dlg._on_cell_selected(0)   # repopulate cell form
+
+        snap_count_before = len(dlg._undo_stack)
+
+        # Toggle visible off via the widget signal path
+        dlg._cell_border_group._visible.setChecked(False)
+        # _on_cell_border_changed fires via toggled signal
+
+        assert variant.cells[0].border.visible is False
+        assert len(dlg._undo_stack) == snap_count_before + 1
+
+        # Undo should restore visible=True
+        dlg.undo()
+        assert dlg.working.variants[dlg._active_size].cells[0].border.visible is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 4: set_name snapshots
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSetNameUndoable:
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_set_name_pushes_snapshot_and_undo_restores(
+            self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        old_name = dlg.working.name
+        dlg.set_name("X")
+        assert dlg.working.name == "X"
+        dlg.undo()
+        assert dlg.working.name == old_name
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 5: Ctrl+Shift+Z redo
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCtrlShiftZRedo:
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_ctrl_shift_z_triggers_redo(self, tmp_path, monkeypatch):
+        from PyQt6.QtGui import QKeyEvent
+        from PyQt6.QtCore import QEvent, Qt
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        before = dlg.working.variants[dlg._active_size].strip_width_mm
+        dlg.set_margin_edge(55.0)
+        dlg.undo()
+        assert dlg.working.variants[dlg._active_size].margin_edge_mm != 55.0
+
+        ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
+                       Qt.KeyboardModifier.ControlModifier
+                       | Qt.KeyboardModifier.ShiftModifier)
+        dlg.keyPressEvent(ev)
+        assert ev.isAccepted()
+        assert dlg.working.variants[dlg._active_size].margin_edge_mm == 55.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Finding 6: parse_dimension (imperial input in margin DimensionEdit widget)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDimensionParserImperial:
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_inch_input_in_margin_widget_parses_to_254mm(
+            self, tmp_path, monkeypatch):
+        import pytest
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Drive the margin DimensionEdit widget directly (same pattern as
+        # test_grid_dialog_dimension_input.py: setText + editingFinished.emit)
+        dlg._edge_edit.setText('1"')
+        dlg._edge_edit.editingFinished.emit()
+        assert dlg._edge_edit.value_mm() == pytest.approx(25.4)
+        # The slot must have applied it to the working variant
+        assert (dlg.working.variants[dlg._active_size].margin_edge_mm
+                == pytest.approx(25.4))

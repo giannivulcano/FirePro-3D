@@ -28,6 +28,12 @@ from .titleblock_template import (
 )
 from .paper_space import PAPER_SIZES, TitleBlockTemplateItem
 from .dimension_edit import DimensionEdit
+from .scale_manager import ScaleManager
+
+# Module-level ScaleManager used as dimension parser throughout the editor.
+# ScaleManager() is standalone (pixels_per_mm=1 → 1 px = 1 mm, display_unit=mm),
+# so bare numbers are interpreted as mm, but "1 in" / "1\"" / "1 ft" etc. also work.
+_sm = ScaleManager()
 
 _log = logging.getLogger("FirePro3D")
 
@@ -96,7 +102,7 @@ class _BorderGroup(QGroupBox):
         form.addRow("Visible:", self._visible)
 
         self._width = DimensionEdit(None, initial_mm=0.5,
-                                    parser=_parse_mm_only, minimum=0.0)
+                                    parser=_sm.parse_dimension, minimum=0.0)
         form.addRow("Width (mm):", self._width)
 
         self._color_btn = _make_swatch("#000000", self)
@@ -108,7 +114,7 @@ class _BorderGroup(QGroupBox):
         form.addRow("Corner:", self._corner)
 
         self._fillet = DimensionEdit(None, initial_mm=0.0,
-                                     parser=_parse_mm_only, minimum=0.0)
+                                     parser=_sm.parse_dimension, minimum=0.0)
         form.addRow("Fillet radius (mm):", self._fillet)
         self._corner.currentIndexChanged.connect(self._on_corner_changed)
 
@@ -143,11 +149,16 @@ class _BorderGroup(QGroupBox):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Parse helpers (mm-only; no scale manager needed in the editor)
+# Parse helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _parse_mm_only(text: str) -> float | None:
-    """Parse a plain number or 'N mm' string to float mm. Returns None on failure."""
+    """Parse a plain number or 'N mm' string to float mm. Returns None on failure.
+
+    Kept for reference; all DimensionEdit widgets in this editor now use
+    ``_sm.parse_dimension`` which additionally accepts ``"``, ``in``, ``ft``
+    imperial forms.
+    """
     t = text.strip().lower().removesuffix("mm").strip()
     try:
         return float(t)
@@ -208,6 +219,10 @@ class TitleBlockEditorDialog(QDialog):
         if project_template is not None:
             # Edit a copy so cancel truly discards
             self._edit_copy_of(project_template)
+        else:
+            # No project template: ensure the initial state is reflected
+            # (save_button stays disabled; preview shows empty state)
+            self.refresh_preview()
 
     # ═════════════════════════════════════════════════════════════════════════
     # UI construction
@@ -272,17 +287,17 @@ class TitleBlockEditorDialog(QDialog):
         margins_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self._edge_edit = DimensionEdit(None, initial_mm=10.0,
-                                        parser=_parse_mm_only, minimum=0.0)
+                                        parser=_sm.parse_dimension, minimum=0.0)
         self._edge_edit.valueChanged.connect(self.set_margin_edge)
         margins_form.addRow("Edge margin (mm):", self._edge_edit)
 
         self._strip_margin_edit = DimensionEdit(None, initial_mm=5.0,
-                                                parser=_parse_mm_only, minimum=0.0)
+                                                parser=_sm.parse_dimension, minimum=0.0)
         self._strip_margin_edit.valueChanged.connect(self.set_margin_strip)
         margins_form.addRow("Strip gap (mm):", self._strip_margin_edit)
 
         self._strip_width_edit = DimensionEdit(None, initial_mm=90.0,
-                                               parser=_parse_mm_only, minimum=0.0)
+                                               parser=_sm.parse_dimension, minimum=0.0)
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
         margins_form.addRow("Strip width (mm):", self._strip_width_edit)
 
@@ -366,13 +381,13 @@ class TitleBlockEditorDialog(QDialog):
         cell_form.addRow("Static text:", self._cell_static_text)
 
         self._cell_min_height = DimensionEdit(None, initial_mm=10.0,
-                                              parser=_parse_mm_only, minimum=0.0)
+                                              parser=_sm.parse_dimension, minimum=0.0)
         self._cell_min_height.valueChanged.connect(
             lambda v: self._cell_form_prop_changed("min_height_mm", v))
         cell_form.addRow("Min height (mm):", self._cell_min_height)
 
         self._cell_cap_height = DimensionEdit(None, initial_mm=3.0,
-                                              parser=_parse_mm_only, minimum=0.0)
+                                              parser=_sm.parse_dimension, minimum=0.0)
         self._cell_cap_height.valueChanged.connect(
             lambda v: self._cell_form_prop_changed("cap_height_mm", v))
         cell_form.addRow("Cap height (mm):", self._cell_cap_height)
@@ -419,6 +434,18 @@ class TitleBlockEditorDialog(QDialog):
         self._cell_border_group = _BorderGroup("Cell Border")
         cell_form.addRow(self._cell_border_group)
 
+        # Wire cell border group signals (mirror area/strip border wiring)
+        self._cell_border_group._visible.toggled.connect(
+            self._on_cell_border_changed)
+        self._cell_border_group._width.valueChanged.connect(
+            lambda _: self._on_cell_border_changed())
+        self._cell_border_group._color_btn.clicked.connect(
+            self._on_cell_border_changed)
+        self._cell_border_group._corner.currentIndexChanged.connect(
+            lambda _: self._on_cell_border_changed())
+        self._cell_border_group._fillet.valueChanged.connect(
+            lambda _: self._on_cell_border_changed())
+
         self._cell_logo_btn = QPushButton("Choose logo image…")
         self._cell_logo_btn.clicked.connect(self._pick_logo)
         cell_form.addRow("Logo:", self._cell_logo_btn)
@@ -450,6 +477,7 @@ class TitleBlockEditorDialog(QDialog):
         self._btn_box = QDialogButtonBox()
         self.save_button = self._btn_box.addButton(
             "Save", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.save_button.setEnabled(False)   # disabled until a valid template is loaded
         self.save_button.clicked.connect(self._on_save_clicked)
         cancel_btn = self._btn_box.addButton(
             "Cancel", QDialogButtonBox.ButtonRole.RejectRole)
@@ -544,18 +572,26 @@ class TitleBlockEditorDialog(QDialog):
         self._reload_library()
         self._populate_form()
 
-    def save(self) -> None:
-        """Stamp modified date and write the working template to the library."""
+    def save(self) -> bool:
+        """Stamp modified date and write the working template to the library.
+
+        Returns:
+            True on success, False when working is None or save fails.
+            On failure the modified stamp is restored to its pre-call value
+            so the working copy is not left with a spurious date.
+        """
         if self.working is None:
-            return
+            return False
+        old_modified = self.working.modified
         self.working.modified = datetime.date.today().isoformat()
         try:
             save_to_library(self.working)
         except (OSError, ValueError) as exc:
+            self.working.modified = old_modified
             _log.warning("Failed to save template: %s", exc)
             QMessageBox.warning(self, "Save Failed",
                                 f"Could not save template:\n{exc}")
-            return
+            return False
         self._reload_library()
         # Re-sync list selection
         uid = self.working.uuid
@@ -565,6 +601,7 @@ class TitleBlockEditorDialog(QDialog):
                 self._template_list.setCurrentRow(i)
                 break
         self._loading = False
+        return True
 
     def use_for_project(self) -> None:
         """Set project_template_result to a copy of the working template."""
@@ -611,7 +648,10 @@ class TitleBlockEditorDialog(QDialog):
             return
         if (event.matches(QKeySequence.StandardKey.Redo)
                 or (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and event.key() == Qt.Key.Key_Y)):
+                    and event.key() == Qt.Key.Key_Y)
+                or (event.modifiers() == (Qt.KeyboardModifier.ControlModifier
+                                          | Qt.KeyboardModifier.ShiftModifier)
+                    and event.key() == Qt.Key.Key_Z)):
             self.redo()
             event.accept()
             return
@@ -910,7 +950,7 @@ class TitleBlockEditorDialog(QDialog):
             self._cell_list.setCurrentRow(row + 1)
 
     def _on_border_changed(self) -> None:
-        """Called when any border group widget changes; applies to active variant."""
+        """Called when any area/strip border group widget changes."""
         if self._loading or self.working is None:
             return
         self.push_snapshot()
@@ -921,14 +961,30 @@ class TitleBlockEditorDialog(QDialog):
         variant.strip_border = BorderStyle.from_dict(self._strip_border.read())
         self.refresh_preview()
 
+    def _on_cell_border_changed(self) -> None:
+        """Called when any cell border group widget changes; applies to selected cell."""
+        if self._loading or self.working is None:
+            return
+        row = self._cell_list.currentRow()
+        if row < 0:
+            return
+        variant = self.working.variants.get(self._active_size)
+        if variant is None or row >= len(variant.cells):
+            return
+        self.push_snapshot()
+        variant.cells[row].border = BorderStyle.from_dict(
+            self._cell_border_group.read())
+        self.refresh_preview()
+
     # ═════════════════════════════════════════════════════════════════════════
     # Public form slots (Pass-b API; tested directly)
     # ═════════════════════════════════════════════════════════════════════════
 
     def set_name(self, text: str) -> None:
-        """Set the template name; no snapshot (name edits are minor)."""
+        """Snapshot + set the template name (every user edit is undoable)."""
         if self._loading or self.working is None:
             return
+        self.push_snapshot()
         self.working.name = text
         # Update list widget label
         uid = self.working.uuid
@@ -1140,11 +1196,11 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _on_save_clicked(self) -> None:
-        """Save and accept only when save_button is enabled (valid state)."""
-        if not self.save_button.isEnabled():
+        """Save and accept only when working is set and save succeeds."""
+        if self.working is None or not self.save_button.isEnabled():
             return
-        self.save()
-        self.accept()
+        if self.save():
+            self.accept()
 
     def _remove_selected_cell(self) -> None:
         row = self._cell_list.currentRow()
