@@ -309,3 +309,50 @@ class TestIdenticalPairIndex:
         # Keys must be 0 and 1, not both 0.
         assert 0 in sl.cell_revision_rows
         assert 1 in sl.cell_revision_rows
+
+
+import firepro3d.titleblock_template as tbt
+
+
+class TestLibrary:
+    def _tpl(self, uuid="u-lib", modified="2026-07-21"):
+        return TitleBlockTemplate(
+            name="Lib", uuid=uuid, modified=modified,
+            variants={"ANSI D": TemplateVariant(
+                paper_size="ANSI D",
+                cells=[CellSpec(kind="field", field_key="Title")])})
+
+    def test_save_load_round_trip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = self._tpl()
+        tbt.save_to_library(t)
+        loaded = tbt.load_library()
+        assert len(loaded) == 1 and loaded[0].uuid == "u-lib"
+
+    def test_dir_created_on_first_use(self, tmp_path, monkeypatch):
+        target = tmp_path / "sub" / "titleblocks"
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(target))
+        tbt.save_to_library(self._tpl())
+        assert target.exists()
+
+    def test_corrupt_file_skipped(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        (tmp_path / "bad.json").write_text("{not json", encoding="utf-8")
+        tbt.save_to_library(self._tpl())
+        loaded = tbt.load_library()          # must not raise
+        assert len(loaded) == 1
+
+    def test_delete(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        tbt.save_to_library(self._tpl())
+        tbt.delete_from_library("u-lib")
+        assert tbt.load_library() == []
+
+    def test_divergence(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        tbt.save_to_library(self._tpl(modified="2026-07-01"))
+        embedded = self._tpl(modified="2026-07-21")
+        assert tbt.library_diverges(embedded) is True
+        tbt.save_to_library(embedded)
+        assert tbt.library_diverges(embedded) is False
+        assert tbt.library_diverges(self._tpl(uuid="unknown")) is False

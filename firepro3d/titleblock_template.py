@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import json
+import os
 from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QRectF
@@ -387,3 +389,53 @@ def validate(variant: TemplateVariant, paper_w_mm: float,
     if min_total > paper_h_mm - 2 * variant.margin_edge_mm:
         errs.append("Minimum cell stack does not fit the strip height.")
     return errs
+
+
+# ── User-library I/O ─────────────────────────────────────────────────────────
+
+def _library_dir() -> str:
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "FirePro3D", "titleblocks")
+
+
+def save_to_library(template: TitleBlockTemplate) -> str:
+    """Write *template* to the user library; returns the file path."""
+    d = _library_dir()
+    os.makedirs(d, exist_ok=True)
+    path = os.path.join(d, f"{template.uuid}.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(template.to_dict(), fh, indent=2)
+    return path
+
+
+def load_library() -> list[TitleBlockTemplate]:
+    """All parseable library templates; corrupt files are skipped with a log."""
+    d = _library_dir()
+    out: list[TitleBlockTemplate] = []
+    if not os.path.isdir(d):
+        return out
+    for name in sorted(os.listdir(d)):
+        if not name.lower().endswith(".json"):
+            continue
+        path = os.path.join(d, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                out.append(TitleBlockTemplate.from_dict(json.load(fh)))
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"[titleblock] skipping unreadable template {name}: {exc}")
+    return out
+
+
+def delete_from_library(uuid: str) -> None:
+    """Remove the library file for *uuid* (no-op when absent)."""
+    path = os.path.join(_library_dir(), f"{uuid}.json")
+    if os.path.isfile(path):
+        os.remove(path)
+
+
+def library_diverges(embedded: TitleBlockTemplate) -> bool:
+    """True when the library holds the same uuid with a different modified stamp."""
+    for t in load_library():
+        if t.uuid == embedded.uuid:
+            return t.modified != embedded.modified
+    return False
