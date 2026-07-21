@@ -1767,8 +1767,10 @@ class MainWindow(QMainWindow):
             return
         dpi = int(choice.split()[0])
 
+        tmpl, proj_info = self._current_template()
         try:
-            paper_export.export_pdf([sheet], self._view_resolver, path, dpi)
+            paper_export.export_pdf([sheet], self._view_resolver, path, dpi,
+                                    template=tmpl, project_info=proj_info)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(
                 self, "Export Failed", f"Could not write PDF:\n{exc}")
@@ -1818,12 +1820,12 @@ class MainWindow(QMainWindow):
             self._push_titleblock_template()
             self._on_paper_modified()          # project dirty (§17.7)
 
-    def _push_titleblock_template(self) -> None:
-        """Install the scene's embedded template into the live PaperScene.
+    def _current_template(self):
+        """Return the parsed TitleBlockTemplate embedded in the scene, or None.
 
-        Passes the CURRENT Model_Space._project_info dict by reference; callers
-        must re-push whenever _project_info is REPLACED (e.g. Project Info dialog
-        replaces the entire dict — see _open_project_info).
+        Applies the same corrupt-guard as ``_push_titleblock_template``.
+        Returns ``(template_or_None, project_info_dict)`` so callers can
+        forward both to ``export_pdf`` / ``print_sheets``.
         """
         import logging
         from firepro3d.titleblock_template import TitleBlockTemplate
@@ -1832,13 +1834,31 @@ class MainWindow(QMainWindow):
             t = TitleBlockTemplate.from_dict(raw) if raw else None
         except Exception:
             logging.getLogger(__name__).warning(
-                "Embedded title block template unreadable — using built-in title block.")
-            self.statusBar().showMessage(
-                "Embedded title block template unreadable — using built-in title block.",
-                8000)
+                "Embedded title block template unreadable — treating as None.")
             t = None
+        return t, getattr(self.scene, "_project_info", {})
+
+    def _push_titleblock_template(self) -> None:
+        """Install the scene's embedded template into the live PaperScene.
+
+        Passes the CURRENT Model_Space._project_info dict by reference; callers
+        must re-push whenever _project_info is REPLACED (e.g. Project Info dialog
+        replaces the entire dict — see _open_project_info).
+        """
+        t, project_info = self._current_template()
+        if t is None:
+            # Warn only when a raw dict was present but un-parseable; otherwise
+            # None is expected (no template assigned yet).
+            raw = getattr(self.scene, "_titleblock_template", None)
+            if raw is not None:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Embedded title block template unreadable — using built-in title block.")
+                self.statusBar().showMessage(
+                    "Embedded title block template unreadable — using built-in title block.",
+                    8000)
         ps = self.paper_space_widget.paper_scene
-        ps.set_template(t, project_info=getattr(self.scene, "_project_info", {}))
+        ps.set_template(t, project_info=project_info)
         if ps.titleblock_warning:
             self.statusBar().showMessage(ps.titleblock_warning, 8000)
 

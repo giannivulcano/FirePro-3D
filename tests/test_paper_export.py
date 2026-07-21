@@ -177,3 +177,49 @@ class TestPrintSheets:
         printer = QPrinter()
         with pytest.raises(ValueError):
             paper_export.print_sheets([], resolver, printer)
+
+
+class TestTemplatedExport:
+    def test_templated_sheet_exports_pdf(self, qapp, tmp_path):
+        """export_pdf with a TitleBlockTemplate produces a non-empty PDF."""
+        from firepro3d.titleblock_template import make_default_template
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()
+        sheet.title_block_fields["Title"] = "TEMPLATED EXPORT"
+        out = str(tmp_path / "out.pdf")
+        paper_export.export_pdf(
+            [sheet], resolver, out, dpi=150,
+            template=make_default_template(),
+            project_info={},
+        )
+        import os
+        assert os.path.isfile(out) and os.path.getsize(out) > 2000
+
+    def test_templated_vs_plain_both_produce_pdf(self, qapp, tmp_path):
+        """Template-rendered and plain-rendered sheets both produce valid PDFs.
+
+        The PDFs may differ in size (template renders additional vector content),
+        but both must be > 2 kB.  A strict size-diff assertion is avoided because
+        the headless renderer may produce byte-identical blanks in some CI configs.
+        """
+        from firepro3d.titleblock_template import make_default_template
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+
+        sheet = Sheet.create_default()
+        sheet.title_block_fields["Title"] = "COMPARE"
+
+        out_plain = str(tmp_path / "plain.pdf")
+        out_tmpl = str(tmp_path / "templated.pdf")
+
+        paper_export.export_pdf([sheet], resolver, out_plain, dpi=150)
+        paper_export.export_pdf(
+            [sheet], resolver, out_tmpl, dpi=150,
+            template=make_default_template(),
+            project_info={},
+        )
+
+        import os
+        assert os.path.isfile(out_plain) and os.path.getsize(out_plain) > 2000
+        assert os.path.isfile(out_tmpl) and os.path.getsize(out_tmpl) > 2000

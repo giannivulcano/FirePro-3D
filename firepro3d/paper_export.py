@@ -29,6 +29,12 @@ from PyQt6.QtGui import QPainter, QPdfWriter, QPageSize, QPageLayout
 
 from .paper_space import Sheet, PaperScene, PAPER_SIZES, ViewResolver
 
+# Avoid a hard import of TitleBlockTemplate at module level to keep this
+# module importable without the full template machinery.
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from .titleblock_template import TitleBlockTemplate
+
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 
@@ -60,22 +66,40 @@ def _page_rect(painter: QPainter) -> QRectF:
 
 
 def render_sheet(sheet: Sheet, resolver: ViewResolver,
-                 painter: QPainter, target_rect: QRectF) -> None:
+                 painter: QPainter, target_rect: QRectF,
+                 template: "TitleBlockTemplate | None" = None,
+                 project_info: "dict | None" = None) -> None:
     """Render one *sheet* into *target_rect* (device px) of *painter*.
 
-    Builds a transient PaperScene, renders the paper rectangle (0,0,w,h in mm)
-    into ``target_rect``, then disposes the scene.
+    Builds a transient PaperScene, optionally installs a title-block template,
+    renders the paper rectangle (0,0,w,h in mm) into ``target_rect``, then
+    disposes the scene.
+
+    Args:
+        sheet: The sheet to render.
+        resolver: Shared ViewResolver bridging viewports to source scenes.
+        painter: Active QPainter attached to the output device.
+        target_rect: Target rectangle in device pixels.
+        template: Optional TitleBlockTemplate to install before rendering.
+            When None the legacy DXF/PDF/programmatic chain is used.
+        project_info: Project-info dict passed to ``set_template`` (used by
+            ``build_field_values`` to populate template field values).
+            Ignored when *template* is None.
     """
     w_mm, h_mm = PAPER_SIZES[sheet.paper_size]
     scene = PaperScene(sheet, resolver)
     try:
+        if template is not None:
+            scene.set_template(template, project_info or {})
         scene.render(painter, target_rect, QRectF(0, 0, w_mm, h_mm))
     finally:
         scene.dispose()
 
 
 def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
-               path: str, dpi: int = 300) -> None:
+               path: str, dpi: int = 300,
+               template: "TitleBlockTemplate | None" = None,
+               project_info: "dict | None" = None) -> None:
     """Export *sheets* to a single multi-page vector PDF at *path*.
 
     Args:
@@ -83,6 +107,12 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
         resolver: Shared ViewResolver bridging viewports to source scenes.
         path: Output PDF file path.
         dpi: Render resolution (affects raster title-block crispness + file size).
+        template: Optional TitleBlockTemplate to install on each transient
+            PaperScene before rendering.  When None (default) the legacy
+            DXF/PDF/programmatic chain is used — all existing call sites are
+            byte-identical with the default.
+        project_info: Project-info dict forwarded to ``set_template``
+            (populates template field values).  Ignored when *template* is None.
 
     Raises:
         ValueError: If *sheets* is empty.
@@ -109,13 +139,16 @@ def export_pdf(sheets: "list[Sheet]", resolver: ViewResolver,
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             else:
                 writer.newPage()
-            render_sheet(sheet, resolver, painter, _page_rect(painter))
+            render_sheet(sheet, resolver, painter, _page_rect(painter),
+                         template=template, project_info=project_info)
     finally:
         if painter is not None and painter.isActive():
             painter.end()
 
 
-def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer) -> None:
+def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer,
+                 template: "TitleBlockTemplate | None" = None,
+                 project_info: "dict | None" = None) -> None:
     """Print *sheets* to *printer* (a configured ``QPrinter``), one page each.
 
     The caller owns the QPrinter (typically configured via ``QPrintDialog``).
@@ -125,6 +158,11 @@ def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer) -> None
         sheets: One or more sheets. Must be non-empty.
         resolver: Shared ViewResolver bridging viewports to source scenes.
         printer: A QPrinter the caller has already configured.
+        template: Optional TitleBlockTemplate to install on each transient
+            PaperScene before rendering.  When None (default) the legacy chain
+            is used — existing call sites are byte-identical.
+        project_info: Project-info dict forwarded to ``set_template``.
+            Ignored when *template* is None.
 
     Raises:
         ValueError: If *sheets* is empty.
@@ -144,7 +182,8 @@ def print_sheets(sheets: "list[Sheet]", resolver: ViewResolver, printer) -> None
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             else:
                 printer.newPage()
-            render_sheet(sheet, resolver, painter, _page_rect(painter))
+            render_sheet(sheet, resolver, painter, _page_rect(painter),
+                         template=template, project_info=project_info)
     finally:
         if painter is not None and painter.isActive():
             painter.end()
