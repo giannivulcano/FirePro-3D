@@ -402,3 +402,70 @@ class TestLibrary:
         empty.uuid = ""
         with pytest.raises(ValueError):
             tbt.save_to_library(empty)
+
+
+from firepro3d.titleblock_template import make_default_template, migrate_legacy_fields
+
+
+class TestDefaultTemplate:
+    def test_variants_present_and_valid(self):
+        t = make_default_template()
+        for size, (w, h) in (("ANSI B", (431.8, 279.4)),
+                             ("ANSI D", (863.6, 558.8)),
+                             ("Letter", (215.9, 279.4))):
+            assert size in t.variants
+            assert validate(t.variants[size], w, h) == []
+
+    def test_arrangement_a(self):
+        # mockup-gated 2026-07-21: logo top, stamp/revisions bottom, fillet frames
+        v = make_default_template().variants["ANSI D"]
+        kinds = [c.kind for c in v.cells]
+        assert kinds[0] == "logo"
+        assert kinds[-1] == "stamp"
+        assert "revision_table" in kinds
+        assert v.area_border.corner == "fillet"
+        keys = [c.field_key for c in v.cells if c.kind == "field"]
+        for k in ("Company", "Project", "Title", "Scale", "Date",
+                  "Drawn By", "Checked By", "Drawing No", "Rev"):
+            assert k in keys
+
+    def test_unique_uuid_per_call(self):
+        assert make_default_template().uuid != make_default_template().uuid
+
+
+class TestMigration:
+    LEGACY = {"Company": "ACME Fire", "Project": "Plant 9",
+              "Title": "L1 Plan", "Scale": "1:100", "Drawing No": "FP-1",
+              "Rev": "A", "Date": "01 Jul 2026", "Drawn By": "GV",
+              "Checked By": "JB"}
+
+    def test_seeds_project_info_only_if_empty(self):
+        info = {"name": ""}
+        sheet_fields = dict(self.LEGACY)
+        migrate_legacy_fields([sheet_fields], info)
+        assert info["name"] == "Plant 9"
+        custom = {c["key"]: c["value"] for c in info.get("custom", [])}
+        assert custom["Company"] == "ACME Fire"
+        assert custom["Drawn By"] == "GV"
+        assert custom["Checked By"] == "JB"
+        # sheet-scoped keys stay; Scale dropped (auto)
+        assert sheet_fields["Title"] == "L1 Plan"
+        assert "Scale" not in sheet_fields
+
+    def test_idempotent_and_no_overwrite(self):
+        info = {"name": "Existing", "custom": [
+            {"key": "Company", "value": "Keep Me"}]}
+        sheet_fields = dict(self.LEGACY)
+        migrate_legacy_fields([sheet_fields], info)
+        before = (dict(info), dict(sheet_fields))
+        migrate_legacy_fields([sheet_fields], info)
+        assert (dict(info), dict(sheet_fields)) == before
+        assert info["name"] == "Existing"
+        custom = {c["key"]: c["value"] for c in info["custom"]}
+        assert custom["Company"] == "Keep Me"
+
+    def test_empty_sheets_no_crash(self):
+        info = {}
+        migrate_legacy_fields([], info)
+        migrate_legacy_fields([{}], info)
+        assert "custom" not in info or info["custom"] == []
