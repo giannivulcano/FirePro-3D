@@ -45,6 +45,7 @@ from .paper_commands import (
     EditTextCommand, FormatTextCommand,
     AddViewportCommand, RemoveViewportCommand,
     ViewportGeometryCommand, ChangeViewportPropertiesCommand,
+    SetSheetFieldCommand, EditRevisionsCommand,
     _find_viewport,
 )
 try:
@@ -2517,6 +2518,64 @@ class TitleBlockTemplateItem(QGraphicsItem):
         self.setZValue(1)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
+    # ── Property-panel protocol ───────────────────────────────────────────────
+
+    #: Sheet-scoped keys exposed in the panel (project-wide fields belong in
+    #: Project Info and are edited there, not per-sheet here).
+    _SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
+
+    def get_properties(self) -> dict:
+        """Return the property-panel form dict for the sheet's title block fields.
+
+        Exposes _SHEET_KEYS as editable string rows. Panel-managed project
+        fields (Company, Project, etc.) are intentionally omitted — those are
+        set via Project Info. A "Revisions…" button row follows for opening the
+        revision editor (T11).
+
+        Returns:
+            Ordered dict in PropertyManager meta format (§property-panel.md §3.1).
+        """
+        scene = self.scene()
+        sheet = scene._sheet if scene is not None else None
+        fields = sheet.title_block_fields if sheet is not None else {}
+        props = {}
+        for key in self._SHEET_KEYS:
+            props[key] = {"type": "string", "value": fields.get(key, "")}
+        props["Revisions…"] = {
+            "type": "button",
+            "value": "Edit Revisions…",
+            "callback": None,   # wired in T13 (MainWindow wiring)
+        }
+        return props
+
+    def set_property(self, key: str, value) -> None:
+        """Apply a panel commit for a sheet-scoped title block field.
+
+        For keys in _SHEET_KEYS, pushes a SetSheetFieldCommand on the scene's
+        undo stack so the change is undoable and the §17.7 dirty-flag relay
+        (indexChanged → sheetModified) fires automatically. Unknown keys (e.g.
+        "Revisions…" button) are silently ignored.
+
+        When the scene has no undo stack (template-preview scenes), writes
+        directly to the sheet field and calls _refresh_titleblock.
+
+        Args:
+            key: Panel property key (one of _SHEET_KEYS, or ignored otherwise).
+            value: The committed string value.
+        """
+        if key not in self._SHEET_KEYS:
+            return
+        scene = self.scene()
+        if scene is None:
+            return
+        sheet = scene._sheet
+        stack = getattr(scene, "undo_stack", None)
+        if stack is not None and not getattr(scene, "_applying_command", False):
+            stack.push(SetSheetFieldCommand(scene, sheet, key, str(value)))
+        else:
+            sheet.title_block_fields[key] = str(value)
+            scene._refresh_titleblock()
+
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
         united = lay.strip_rect.united(lay.area_rect)
@@ -2751,7 +2810,8 @@ class PaperScene(QGraphicsScene):
         self._field_overlay = None
         self._viewports = []
         self._annotations = []
-        self._pending_text = None  # any in-progress placement is voided by a rebuild
+        self._pending_text = None    # any in-progress placement is voided by a rebuild
+        self._editing_item = None    # dangling ref after rebuild would crash on focus-out
 
         w, h = PAPER_SIZES[self._sheet.paper_size]
 
@@ -2971,6 +3031,11 @@ class PaperScene(QGraphicsScene):
             self._title.update()
         if self._field_overlay:
             self._field_overlay.update()
+        # When the active title block is a template item, re-solve the layout
+        # so the auto-Scale cell reflects the new value.  _refresh_titleblock
+        # runs _setup emission-suppressed, so this does not dirty the project.
+        if isinstance(self._title_tb, TitleBlockTemplateItem):
+            self._refresh_titleblock()
 
     def _on_navigate(self, view_type: str, view_name: str):
         self.navigate_to_view.emit(view_type, view_name)

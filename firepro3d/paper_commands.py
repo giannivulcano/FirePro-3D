@@ -153,3 +153,63 @@ class ChangeViewportPropertiesCommand(QUndoCommand):
         self._scene._apply(op)
     def redo(self): self._set(self._new)
     def undo(self): self._set(self._old)
+
+
+class SetSheetFieldCommand(QUndoCommand):
+    """Set one per-sheet title block field value.
+
+    Pushes through the paper undo stack so field edits are undoable and the
+    §17.7 dirty-flag relay (indexChanged → sheetModified) fires automatically.
+
+    Args:
+        scene: The PaperScene that owns the sheet.
+        sheet: The Sheet whose title_block_fields entry is being changed.
+        key: The field key (e.g. "Title", "Drawing No").
+        new_value: The new string value to store.
+    """
+
+    def __init__(self, scene, sheet, key: str, new_value: str):
+        super().__init__(f"Title Block {key}")
+        self._scene, self._sheet, self._key = scene, sheet, key
+        self._new = new_value
+        self._old = sheet.title_block_fields.get(key, "")
+        self._had_old = key in sheet.title_block_fields
+
+    def redo(self):
+        self._sheet.title_block_fields[self._key] = self._new
+        self._scene._refresh_titleblock()
+
+    def undo(self):
+        if self._had_old:
+            self._sheet.title_block_fields[self._key] = self._old
+        else:
+            self._sheet.title_block_fields.pop(self._key, None)
+        self._scene._refresh_titleblock()
+
+
+class EditRevisionsCommand(QUndoCommand):
+    """Replace the sheet's revision list wholesale (one command per dialog OK).
+
+    Stores a deep copy of both old and new revision lists so undo/redo never
+    share mutable references with the live sheet data.
+
+    Args:
+        scene: The PaperScene that owns the sheet.
+        sheet: The Sheet whose revisions list is being replaced.
+        new_revisions: The replacement revision list (list of dicts with
+            "no", "description", "date" keys).
+    """
+
+    def __init__(self, scene, sheet, new_revisions: list):
+        super().__init__("Edit Revisions")
+        self._scene, self._sheet = scene, sheet
+        self._new = [dict(r) for r in new_revisions]
+        self._old = [dict(r) for r in sheet.revisions]
+
+    def redo(self):
+        self._sheet.revisions = [dict(r) for r in self._new]
+        self._scene._refresh_titleblock()
+
+    def undo(self):
+        self._sheet.revisions = [dict(r) for r in self._old]
+        self._scene._refresh_titleblock()

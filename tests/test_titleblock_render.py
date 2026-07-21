@@ -585,3 +585,148 @@ class TestViewTitleMmSizing:
             "Expected within ±15% (mm-true text ignores device DPI).  "
             "A ratio far from 1.0 means point-size font is in use."
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T10: Property-panel protocol + undo-routed field/revision commands
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPanelAndUndo:
+    """Panel protocol on TitleBlockTemplateItem + SetSheetFieldCommand/EditRevisionsCommand.
+
+    These tests exercise the property-panel API and undo/redo contract without
+    the MainWindow fixture — a bare PaperScene with a MagicMock resolver.
+    """
+
+    def _scene(self):
+        from unittest.mock import MagicMock
+        from firepro3d.paper_space import PaperScene, ViewResolver
+        sheet = Sheet.create_default()
+        sheet.title_block_fields = {
+            "Title": "Before", "Drawing No": "FP-1",
+            "Rev": "A", "Date": "d",
+        }
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        sc = PaperScene(sheet, resolver)
+        sc.set_template(make_default_template(), project_info={})
+        return sc, sheet
+
+    def _tb(self, sc):
+        """Find the live TitleBlockTemplateItem in the scene."""
+        from firepro3d.paper_space import TitleBlockTemplateItem
+        return next(
+            i for i in sc.items() if isinstance(i, TitleBlockTemplateItem)
+        )
+
+    # ── get_properties ─────────────────────────────────────────────────────
+
+    def test_get_properties_lists_sheet_fields(self):
+        sc, _ = self._scene()
+        props = self._tb(sc).get_properties()
+        assert "Title" in props, f"Expected 'Title' in props, got keys: {list(props)}"
+        assert "Drawing No" in props, f"Expected 'Drawing No' in props, got keys: {list(props)}"
+
+    def test_get_properties_types_are_string_or_button(self):
+        sc, _ = self._scene()
+        props = self._tb(sc).get_properties()
+        for key, meta in props.items():
+            t = meta.get("type", "string")
+            assert t in ("string", "button", "header", "label"), \
+                f"Unexpected property type {t!r} for key {key!r}"
+
+    # ── set_property / undo / redo ─────────────────────────────────────────
+
+    def test_set_property_updates_sheet_field(self):
+        sc, sheet = self._scene()
+        self._tb(sc).set_property("Title", "After")
+        assert sheet.title_block_fields["Title"] == "After"
+
+    def test_set_property_rides_undo_and_dirties(self):
+        """set_property pushes SetSheetFieldCommand; indexChanged relay emits sheetModified."""
+        sc, sheet = self._scene()
+        emitted = []
+        sc.sheetModified.connect(lambda *a: emitted.append(1))
+        self._tb(sc).set_property("Title", "After")
+        assert sheet.title_block_fields["Title"] == "After"
+        assert emitted, "sheetModified not emitted after set_property"
+        # After rebuild the item pointer is stale — use sc.undo_stack directly.
+        sc.undo_stack.undo()
+        assert sheet.title_block_fields["Title"] == "Before"
+        sc.undo_stack.redo()
+        assert sheet.title_block_fields["Title"] == "After"
+
+    def test_set_property_rerenders_template(self):
+        """After set_property, the new TitleBlockTemplateItem has the updated value."""
+        sc, _ = self._scene()
+        self._tb(sc).set_property("Title", "After")
+        tb2 = self._tb(sc)          # fresh item post-rebuild
+        assert tb2._values.get("Title") == "After", \
+            f"Expected 'After' in _values['Title'], got {tb2._values.get('Title')!r}"
+
+    def test_set_property_unknown_key_ignored(self):
+        """set_property for a key not in _SHEET_KEYS must not raise."""
+        sc, sheet = self._scene()
+        before = dict(sheet.title_block_fields)
+        self._tb(sc).set_property("NotAKey", "X")
+        assert sheet.title_block_fields == before
+
+    # ── EditRevisionsCommand ───────────────────────────────────────────────
+
+    def test_edit_revisions_command(self):
+        from firepro3d.paper_commands import EditRevisionsCommand
+        sc, sheet = self._scene()
+        new = [{"no": "1", "description": "Issued", "date": "07-21"}]
+        sc.undo_stack.push(EditRevisionsCommand(sc, sheet, new))
+        assert sheet.revisions == new
+        sc.undo_stack.undo()
+        assert sheet.revisions == []
+        sc.undo_stack.redo()
+        assert sheet.revisions == new
+
+    def test_edit_revisions_rerenders(self):
+        """EditRevisionsCommand redo must call _refresh_titleblock (rebuilds the item)."""
+        from firepro3d.paper_space import TitleBlockTemplateItem
+        from firepro3d.paper_commands import EditRevisionsCommand
+        sc, sheet = self._scene()
+        tb_before = self._tb(sc)
+        new = [{"no": "1", "description": "IFC", "date": "07-21"}]
+        sc.undo_stack.push(EditRevisionsCommand(sc, sheet, new))
+        # After the command, _values must carry the new revisions.
+        tb_after = self._tb(sc)
+        revs = tb_after._values.get("__revisions__", [])
+        assert revs == new, f"Expected {new!r}, got {revs!r}"
+
+    # ── T8 carry-forward: stale Scale after viewport add ──────────────────
+
+    def test_viewport_change_refreshes_template_scale(self):
+        """Adding a viewport must re-solve the template so Scale isn't stale.
+
+        Pre-fix: _update_scale_field only updated the legacy TitleBlockItem and
+        field_overlay, leaving TitleBlockTemplateItem._values["Scale"] stale.
+        Post-fix: _update_scale_field calls _refresh_titleblock when the active
+        title block is a TitleBlockTemplateItem.
+        """
+        sc, sheet = self._scene()
+        # Confirm scale is empty before any viewport.
+        tb_before = self._tb(sc)
+        assert tb_before._values.get("Scale", "") == "", \
+            f"Expected empty Scale before viewport, got {tb_before._values.get('Scale')!r}"
+
+        # Add a viewport with a known scale via the undoable path.
+        data = SheetViewData(
+            source_view_type="plan",
+            source_view_name="L1",
+            title="Level 1",
+            scale=0.01,         # 1:100
+            x=10.0, y=10.0,
+            w=100.0, h=80.0,
+        )
+        sc.add_viewport(data)   # pushes AddViewportCommand; runs _update_scale_field
+
+        tb2 = self._tb(sc)
+        scale_val = tb2._values.get("Scale", "")
+        assert scale_val == "1:100", \
+            f"Expected Scale='1:100' after viewport add, got {scale_val!r}. " \
+            "Check _update_scale_field — it must call _refresh_titleblock when " \
+            "self._title_tb is a TitleBlockTemplateItem."
