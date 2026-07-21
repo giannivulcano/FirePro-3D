@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import re
 from unittest.mock import MagicMock
 
@@ -938,15 +939,86 @@ class TestMainWindowWiring:
             f"After new_file(), TitleBlockTemplateItem must be absent, got: {kinds}"
         )
 
-    def test_maybe_offer_template_push_callable(self, _mw, monkeypatch):
-        """_maybe_offer_template_push can be monkeypatched (test harness hook)."""
+    def test_maybe_offer_fired_on_load(self, _mw, tmp_path, monkeypatch):
+        """_maybe_offer_template_push is called by _load_project (functional hook test)."""
         _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        path = str(tmp_path / "hook_load.fpd")
+        _mw._current_file = path
+        _mw.save_file()
+
         called = []
         monkeypatch.setattr(_mw, "_maybe_offer_template_push",
                             lambda: called.append(1))
-        # Trigger a load path that would normally call it.
-        _mw._maybe_offer_template_push()
-        assert called == [1], "monkeypatch did not intercept _maybe_offer_template_push"
+        _mw._modified = False
+        _mw._load_project(path)
+        assert called == [1], (
+            "_maybe_offer_template_push was not called by _load_project"
+        )
+
+    def test_maybe_offer_push_to_library_on_yes(self, _mw, tmp_path, monkeypatch):
+        """When library diverges and user answers Yes, save_to_library is called
+        and the library file is updated to match the embedded template's modified stamp.
+        """
+        import firepro3d.titleblock_template as tbt
+        from PyQt6.QtWidgets import QMessageBox
+
+        _fresh(_mw)
+        # Build a template with a known stable uuid and modified stamp.
+        tpl = make_default_template()
+        stable_uuid = "test-diverge-uuid-001"
+        tpl.uuid = stable_uuid
+        tpl.modified = "2026-07-21T12:00:00"
+
+        # Write an older library copy (different modified → diverges).
+        lib_dir = str(tmp_path / "lib")
+        os.makedirs(lib_dir, exist_ok=True)
+        old_tpl = make_default_template()
+        old_tpl.uuid = stable_uuid
+        old_tpl.modified = "2026-01-01T00:00:00"
+        lib_file = os.path.join(lib_dir, f"{stable_uuid}.json")
+        with open(lib_file, "w", encoding="utf-8") as fh:
+            json.dump(old_tpl.to_dict(), fh)
+
+        # Patch _library_dir to use tmp_path.
+        monkeypatch.setattr(tbt, "_library_dir", lambda: lib_dir)
+
+        # Embed the newer template in a saved project.
+        _mw.scene._titleblock_template = tpl.to_dict()
+        path = str(tmp_path / "diverge.fpd")
+        _mw._current_file = path
+        _mw.save_file()
+
+        # User answers Yes to the divergence prompt.
+        monkeypatch.setattr(
+            QMessageBox, "question",
+            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.Yes),
+        )
+        _mw._modified = False
+        _mw._load_project(path)
+
+        # Library file must now carry the embedded template's modified stamp.
+        with open(lib_file, encoding="utf-8") as fh:
+            saved = json.load(fh)
+        assert saved.get("modified") == tpl.modified, (
+            f"Library modified not updated: expected {tpl.modified!r}, "
+            f"got {saved.get('modified')!r}"
+        )
+
+    def test_push_corrupt_embed_no_raise_legacy_chain(self, _mw):
+        """Corrupt embedded template must not raise and must show legacy chain."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = {"variants": "garbage"}
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" not in kinds, (
+            "Corrupt embed must fall back to legacy chain (no TitleBlockTemplateItem)"
+        )
+        msg = _mw.statusBar().currentMessage()
+        assert "unreadable" in msg.lower(), (
+            f"Expected 'unreadable' in status bar message, got: {msg!r}"
+        )
 
     def test_maybe_offer_noop_when_no_template(self, _mw):
         """_maybe_offer_template_push is a no-op when no template is embedded."""
@@ -1009,4 +1081,44 @@ class TestMainWindowWiring:
         sc.undo_stack.undo()
         assert sheet.revisions == [], (
             f"Undo did not clear revisions: {sheet.revisions!r}"
+        )
+
+    def test_no_change_revisions_guard(self, _mw, monkeypatch):
+        """Accepting the revisions dialog with identical rows must not emit
+        sheetModified and must not push onto the undo stack (no-change guard).
+        """
+        from firepro3d.paper_space import RevisionsDialog, TitleBlockTemplateItem
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        sheet = sc._sheet
+        existing_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
+        sheet.revisions = list(existing_revs)
+
+        stack_count_before = sc.undo_stack.count()
+        emitted = []
+        sc.sheetModified.connect(lambda *a: emitted.append(1))
+
+        # Fake dialog accepts but returns identical rows.
+        class _FakeRevDlgIdentical:
+            def __init__(self, revisions, parent=None):
+                self._revs = list(revisions)  # same rows passed in
+            def exec(self):
+                return 1  # QDialog.DialogCode.Accepted
+            def result_revisions(self):
+                return list(self._revs)
+
+        monkeypatch.setattr(
+            "firepro3d.paper_space.RevisionsDialog", _FakeRevDlgIdentical
+        )
+
+        tb = next(i for i in sc.items() if isinstance(i, TitleBlockTemplateItem))
+        tb._open_revisions_dialog()
+
+        assert not emitted, (
+            "sheetModified must not fire when revisions are unchanged"
+        )
+        assert sc.undo_stack.count() == stack_count_before, (
+            "Undo stack must not grow when revisions are unchanged"
         )

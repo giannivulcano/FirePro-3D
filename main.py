@@ -1799,12 +1799,19 @@ class MainWindow(QMainWindow):
         """Open the template editor; apply 'Use for this project' on accept."""
         from firepro3d.titleblock_editor import TitleBlockEditorDialog
         from firepro3d.titleblock_template import TitleBlockTemplate
+        import logging
         raw = getattr(self.scene, "_titleblock_template", None)
-        current = TitleBlockTemplate.from_dict(raw) if raw else None
+        try:
+            current = TitleBlockTemplate.from_dict(raw) if raw else None
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Embedded title block template unreadable — proceeding with None")
+            current = None
         dlg = TitleBlockEditorDialog(
             current, parent=self,
             project_info=getattr(self.scene, "_project_info", {}))
-        dlg.exec()
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
         result = dlg.project_template_result
         if result is not None:
             self.scene._titleblock_template = result.to_dict()
@@ -1814,13 +1821,22 @@ class MainWindow(QMainWindow):
     def _push_titleblock_template(self) -> None:
         """Install the scene's embedded template into the live PaperScene.
 
-        Passes the CURRENT Model_Space._project_info dict by value copy; callers
+        Passes the CURRENT Model_Space._project_info dict by reference; callers
         must re-push whenever _project_info is REPLACED (e.g. Project Info dialog
         replaces the entire dict — see _open_project_info).
         """
+        import logging
         from firepro3d.titleblock_template import TitleBlockTemplate
         raw = getattr(self.scene, "_titleblock_template", None)
-        t = TitleBlockTemplate.from_dict(raw) if raw else None
+        try:
+            t = TitleBlockTemplate.from_dict(raw) if raw else None
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Embedded title block template unreadable — using built-in title block.")
+            self.statusBar().showMessage(
+                "Embedded title block template unreadable — using built-in title block.",
+                8000)
+            t = None
         ps = self.paper_space_widget.paper_scene
         ps.set_template(t, project_info=getattr(self.scene, "_project_info", {}))
         if ps.titleblock_warning:
@@ -2605,9 +2621,17 @@ class MainWindow(QMainWindow):
         """Load a project file and update all UI state."""
         self._current_file = file
         self._apply_loaded_file(file)
+        # Clear dirty flag before the divergence prompt so the autosave timer
+        # cannot fire during the modal (autosave is gated on _modified).
         self._modified = False
         self._update_title()
         self._add_recent_file(file)
+        # Offer to push embedded template to library after the project is clean.
+        # Called here (not in _apply_loaded_file) so _modified is already False
+        # and so recovery can skip the prompt (recovery stays dirty by design;
+        # the user has enough dialogs during recovery — divergence re-offers on
+        # the next normal File→Open).
+        self._maybe_offer_template_push()
 
     def _apply_loaded_file(self, file: str):
         """Shared post-load restore — used by open AND crash recovery.
@@ -2658,9 +2682,10 @@ class MainWindow(QMainWindow):
         # parity: all three load paths — open, crash-recovery, new — reach here
         # or the new_file() equivalent below).
         self._push_titleblock_template()
-        # Offer to push embedded template to library if library copy diverges.
-        # Factored as _maybe_offer_template_push so tests can monkeypatch the modal.
-        self._maybe_offer_template_push()
+        # NOTE: _maybe_offer_template_push is intentionally NOT called here.
+        # The open path calls it from _load_project (after _modified=False).
+        # The recovery path skips it entirely (user has enough recovery dialogs;
+        # divergence re-offers on the next normal File→Open).
 
     # ── Recent files ──────────────────────────────────────────────────────
 

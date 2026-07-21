@@ -2602,19 +2602,22 @@ class TitleBlockTemplateItem(QGraphicsItem):
         sheet = getattr(scene, "_sheet", None)
         if sheet is None:
             return
+        # Unreachable on a real PaperScene (undo_stack is always present), but
+        # silently mutating without dirtying would violate §17.7, so return early.
+        stack = getattr(scene, "undo_stack", None)
+        if stack is None:
+            return
         views = scene.views()
         parent_widget = views[0] if views else None
         dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         new_revisions = dlg.result_revisions()
-        stack = getattr(scene, "undo_stack", None)
-        if stack is not None and not getattr(scene, "_applying_command", False):
+        # No-change guard: skip the command (and sheetModified) when nothing changed.
+        if new_revisions == [dict(r) for r in sheet.revisions]:
+            return
+        if not getattr(scene, "_applying_command", False):
             stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
-        else:
-            sheet.revisions = [dict(r) for r in new_revisions]
-            if hasattr(scene, "_refresh_titleblock"):
-                scene._refresh_titleblock()
 
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
