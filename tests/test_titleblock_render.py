@@ -161,10 +161,24 @@ class TestSceneIOEmbed:
         _mw.save_file()
 
         # Verify the raw file has no / null titleblock_template key.
-        raw = json.loads(open(path).read())
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
         assert raw.get("titleblock_template") is None
 
         _mw._modified = False
         _mw._load_project(path)
         scene2 = _mw.scene
         assert scene2._titleblock_template is None
+
+    def test_clear_scene_resets_template_and_project_info(self, _mw):
+        """File->New must not leak the previous project's template/info
+        (regression: _clear_scene resets both)."""
+        _fresh(_mw)
+        scene = _mw.scene
+        scene._titleblock_template = make_default_template().to_dict()
+        scene._project_info = {"name": "Leaky Project",
+                               "custom": [{"key": "Company", "value": "X"}]}
+        _fresh(_mw)   # File->New
+        assert _mw.scene._titleblock_template is None
+        assert _mw.scene._project_info.get("name", "") == ""
+        assert not _mw.scene._project_info.get("custom")

@@ -16,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 
@@ -23,6 +24,8 @@ from PyQt6.QtCore import QPointF
 
 from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from .underlay import Underlay
+
+log = logging.getLogger("FirePro3D")
 
 
 class SceneIOMixin:
@@ -324,11 +327,16 @@ class SceneIOMixin:
         self._titleblock_template = payload.get("titleblock_template", None)
         from .titleblock_template import migrate_legacy_fields
         from .paper_space import DEFAULT_TITLE_BLOCK_FIELDS
-        migrate_legacy_fields(
-            [s.title_block_fields for s in self._sheets],
-            self._project_info,
-            skip_values=DEFAULT_TITLE_BLOCK_FIELDS,
-        )
+        try:
+            migrate_legacy_fields(
+                [s.title_block_fields for s in self._sheets],
+                self._project_info,
+                skip_values=DEFAULT_TITLE_BLOCK_FIELDS,
+            )
+        except Exception as exc:
+            # Migration is best-effort: a malformed project_info container must
+            # never abort project open (load continues with unmigrated fields).
+            log.warning("Legacy title-block migration skipped: %s", exc)
 
         # --- Nodes ---
         # Create each node unconditionally — bypass find_nearby_node so that
