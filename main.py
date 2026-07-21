@@ -1701,8 +1701,8 @@ class MainWindow(QMainWindow):
         _btn = g_pg.add_large_button(
             "Title Block",
             _I("placeholder_icon.svg"),
-            self.paper_space_widget.edit_title_block)
-        _btn.setToolTip("Edit title block fields")
+            self._open_titleblock_editor)
+        _btn.setToolTip("Edit title block template / fields")
 
         _btn = g_pg.add_small_button(
             "Refresh\nViewports",
@@ -1792,6 +1792,70 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Print Failed", str(exc))
             return
         self.statusBar().showMessage("Sent to printer", 5000)
+
+    # ── Title Block editor entry point ────────────────────────────────────────
+
+    def _open_titleblock_editor(self) -> None:
+        """Open the template editor; apply 'Use for this project' on accept."""
+        from firepro3d.titleblock_editor import TitleBlockEditorDialog
+        from firepro3d.titleblock_template import TitleBlockTemplate
+        raw = getattr(self.scene, "_titleblock_template", None)
+        current = TitleBlockTemplate.from_dict(raw) if raw else None
+        dlg = TitleBlockEditorDialog(
+            current, parent=self,
+            project_info=getattr(self.scene, "_project_info", {}))
+        dlg.exec()
+        result = dlg.project_template_result
+        if result is not None:
+            self.scene._titleblock_template = result.to_dict()
+            self._push_titleblock_template()
+            self._on_paper_modified()          # project dirty (§17.7)
+
+    def _push_titleblock_template(self) -> None:
+        """Install the scene's embedded template into the live PaperScene.
+
+        Passes the CURRENT Model_Space._project_info dict by value copy; callers
+        must re-push whenever _project_info is REPLACED (e.g. Project Info dialog
+        replaces the entire dict — see _open_project_info).
+        """
+        from firepro3d.titleblock_template import TitleBlockTemplate
+        raw = getattr(self.scene, "_titleblock_template", None)
+        t = TitleBlockTemplate.from_dict(raw) if raw else None
+        ps = self.paper_space_widget.paper_scene
+        ps.set_template(t, project_info=getattr(self.scene, "_project_info", {}))
+        if ps.titleblock_warning:
+            self.statusBar().showMessage(ps.titleblock_warning, 8000)
+
+    def _maybe_offer_template_push(self) -> None:
+        """Show the library-divergence notice and offer to push to library.
+
+        Factored out of _apply_loaded_file so tests can monkeypatch it
+        (the modal QMessageBox would hang headless test runs).  When there
+        is no embedded template, or the library copy matches, this is a no-op.
+        """
+        from firepro3d.titleblock_template import (
+            TitleBlockTemplate, library_diverges, save_to_library,
+        )
+        raw = getattr(self.scene, "_titleblock_template", None)
+        if not raw:
+            return
+        try:
+            embedded = TitleBlockTemplate.from_dict(raw)
+            diverges = library_diverges(embedded)
+        except Exception:
+            return
+        if not diverges:
+            return
+        resp = QMessageBox.question(
+            self, "Title Block Template",
+            f"The library copy of '{embedded.name}' differs from this "
+            "project's embedded copy.\nPush the project version to the "
+            "library?\n(No keeps both as they are — the project "
+            "renders from its embedded copy either way.)",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No)
+        if resp == QMessageBox.StandardButton.Yes:
+            save_to_library(embedded)
 
     # ── Project Information dialog ────────────────────────────────────────────
 
@@ -1886,6 +1950,10 @@ class MainWindow(QMainWindow):
             if new_custom:
                 new_info["custom"] = new_custom
             self.scene._project_info = new_info
+            # _project_info dict was REPLACED (not mutated) — re-push so the paper
+            # scene renders with the new dict reference (set_template stores it by
+            # value; stale reference would show old project data).
+            self._push_titleblock_template()
 
     # ── Snap Settings ────────────────────────────────────────────────────────
 
@@ -2586,6 +2654,13 @@ class MainWindow(QMainWindow):
         else:
             self._sheet = Sheet.create_default()
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
+        # Push the project-embedded template into the live PaperScene (§17.7
+        # parity: all three load paths — open, crash-recovery, new — reach here
+        # or the new_file() equivalent below).
+        self._push_titleblock_template()
+        # Offer to push embedded template to library if library copy diverges.
+        # Factored as _maybe_offer_template_push so tests can monkeypatch the modal.
+        self._maybe_offer_template_push()
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -2726,6 +2801,8 @@ class MainWindow(QMainWindow):
         self._sheet = Sheet.create_default()
         self.scene._sheets = [self._sheet]
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
+        # Push the template (None after _clear_scene → restores legacy chain).
+        self._push_titleblock_template()
 
         self._modified = False
         self._update_title()

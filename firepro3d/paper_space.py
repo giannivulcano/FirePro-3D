@@ -2545,7 +2545,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
         props[""] = {
             "type": "button",
             "value": "Edit Revisions…",
-            "callback": None,   # wired in T13 (MainWindow wiring)
+            "callback": self._open_revisions_dialog,
         }
         return props
 
@@ -2585,6 +2585,34 @@ class TitleBlockTemplateItem(QGraphicsItem):
             stack.push(SetSheetFieldCommand(scene, sheet, key, str(value)))
         else:
             sheet.title_block_fields[key] = str(value)
+            if hasattr(scene, "_refresh_titleblock"):
+                scene._refresh_titleblock()
+
+    def _open_revisions_dialog(self) -> None:
+        """Open the sheet-revisions table editor; push EditRevisionsCommand on accept.
+
+        Called from the property-panel "Edit Revisions…" button row callback.
+        Acquires scene and sheet via self.scene(); uses the first view as parent
+        widget, falling back to None for headless contexts.
+        """
+        from .paper_commands import EditRevisionsCommand
+        scene = self.scene()
+        if scene is None:
+            return
+        sheet = getattr(scene, "_sheet", None)
+        if sheet is None:
+            return
+        views = scene.views()
+        parent_widget = views[0] if views else None
+        dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_revisions = dlg.result_revisions()
+        stack = getattr(scene, "undo_stack", None)
+        if stack is not None and not getattr(scene, "_applying_command", False):
+            stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+        else:
+            sheet.revisions = [dict(r) for r in new_revisions]
             if hasattr(scene, "_refresh_titleblock"):
                 scene._refresh_titleblock()
 
@@ -3413,7 +3441,7 @@ class PaperScene(QGraphicsScene):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Title-block editor dialog
+# Sheet Revisions dialog
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RevisionsDialog(QDialog):
@@ -3458,7 +3486,7 @@ class RevisionsDialog(QDialog):
     def _add_row(self):
         r = self.table.rowCount()
         self.table.insertRow(r)
-        for c in range(3):
+        for c in range(len(self._KEYS)):
             self.table.setItem(r, c, QTableWidgetItem(""))
 
     def _remove_row(self):
@@ -3468,52 +3496,12 @@ class RevisionsDialog(QDialog):
     def result_revisions(self) -> list[dict]:
         out = []
         for r in range(self.table.rowCount()):
-            row = {k: (self.table.item(r, c).text().strip()
-                       if self.table.item(r, c) else "")
+            row = {k: str(self.table.item(r, c).text().strip()
+                          if self.table.item(r, c) else "")
                    for c, k in enumerate(self._KEYS)}
             if any(row.values()):
                 out.append(row)
         return out
-
-
-class TitleBlockDialog(QDialog):
-    def __init__(self, title_block_or_sheet, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Edit Title Block")
-        # Accept either a TitleBlockItem (legacy) or Sheet
-        if hasattr(title_block_or_sheet, 'title_block_fields'):
-            self._fields = title_block_or_sheet.title_block_fields
-            self._tb = None
-        else:
-            self._tb = title_block_or_sheet
-            self._fields = title_block_or_sheet.fields
-
-        layout = QFormLayout(self)
-        self._edits: dict[str, QLineEdit] = {}
-
-        for key, value in self._fields.items():
-            edit = QLineEdit(value)
-            if key == "Scale":
-                edit.setReadOnly(True)
-                edit.setStyleSheet("background: #f0f0f0;")
-            self._edits[key] = edit
-            layout.addRow(key + ":", edit)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok |
-            QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._save)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-    def _save(self):
-        for key, edit in self._edits.items():
-            if key != "Scale":
-                self._fields[key] = edit.text()
-        if self._tb is not None:
-            self._tb.update()
-        self.accept()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3592,21 +3580,6 @@ class PaperSpaceWidget(QWidget):
     def fit_sheet(self):
         """Public: fit the whole sheet in the view."""
         self._fit()
-
-    def _edit_title(self):
-        fields = self._sheet.title_block_fields
-        before = dict(fields)
-        dlg = TitleBlockDialog(self.paper_scene.title_block, self)
-        dlg.exec()
-        # Sync programmatic title block fields from sheet
-        self.paper_scene.title_block.fields = fields
-        self.paper_scene.refresh_viewport()
-        if fields != before:
-            self.paper_scene.sheetModified.emit()
-
-    def edit_title_block(self):
-        """Public: open the title block editor dialog."""
-        self._edit_title()
 
     def _fit(self):
         self.view.fitInView(self.paper_scene.sceneRect(),

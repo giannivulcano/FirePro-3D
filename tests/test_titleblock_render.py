@@ -858,3 +858,155 @@ class TestRevisionsDialog:
         dlg = RevisionsDialog(revs)
         dlg.table.item(0, 1).setText("changed")
         assert revs[0]["description"] == "a"   # dialog works on a copy
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T13: MainWindow wiring — editor entry, template push, divergence notice,
+#       Edit Revisions hookup, TitleBlockDialog retirement
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestMainWindowWiring:
+    """Integration tests for T13 MainWindow wiring (reuse module-scoped _mw)."""
+
+    def test_titleblock_dialog_retired(self):
+        """TitleBlockDialog must not exist in paper_space after T13 retirement."""
+        import firepro3d.paper_space as ps
+        assert not hasattr(ps, "TitleBlockDialog"), (
+            "TitleBlockDialog was retired in T13 — it must not exist in paper_space"
+        )
+
+    def test_edit_title_block_removed_from_widget(self):
+        """PaperSpaceWidget.edit_title_block must be removed in T13."""
+        from firepro3d.paper_space import PaperSpaceWidget
+        assert not hasattr(PaperSpaceWidget, "edit_title_block"), (
+            "PaperSpaceWidget.edit_title_block was retired in T13"
+        )
+
+    def test_push_template_installs_into_paper_scene(self, _mw):
+        """_push_titleblock_template installs a TitleBlockTemplateItem in the scene."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" in kinds, (
+            f"Expected TitleBlockTemplateItem after push, got: {kinds}"
+        )
+
+    def test_push_none_template_restores_legacy(self, _mw):
+        """_push_titleblock_template with None template → no TitleBlockTemplateItem."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = None
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" not in kinds, (
+            f"Expected NO TitleBlockTemplateItem for None template, got: {kinds}"
+        )
+
+    def test_load_path_pushes_template(self, _mw, tmp_path):
+        """Saving a project with a template and reloading gives TitleBlockTemplateItem."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        path = str(tmp_path / "wiring_load.fpd")
+        _mw._current_file = path
+        _mw.save_file()
+
+        _mw._modified = False
+        _mw._load_project(path)
+
+        sc = _mw.paper_space_widget.paper_scene
+        kinds = [type(i).__name__ for i in sc.items()]
+        assert "TitleBlockTemplateItem" in kinds, (
+            f"After load, expected TitleBlockTemplateItem in paper scene, got: {kinds}"
+        )
+
+    def test_new_file_clears_template_from_paper_scene(self, _mw):
+        """File→New clears template and restores the legacy chain in the paper scene."""
+        _fresh(_mw)
+        # Set a template so there's something to clear.
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        assert any(type(i).__name__ == "TitleBlockTemplateItem" for i in sc.items()), \
+            "Pre-condition: template item must be present before new_file()"
+
+        _fresh(_mw)  # File→New
+        sc2 = _mw.paper_space_widget.paper_scene
+        kinds = [type(i).__name__ for i in sc2.items()]
+        assert "TitleBlockTemplateItem" not in kinds, (
+            f"After new_file(), TitleBlockTemplateItem must be absent, got: {kinds}"
+        )
+
+    def test_maybe_offer_template_push_callable(self, _mw, monkeypatch):
+        """_maybe_offer_template_push can be monkeypatched (test harness hook)."""
+        _fresh(_mw)
+        called = []
+        monkeypatch.setattr(_mw, "_maybe_offer_template_push",
+                            lambda: called.append(1))
+        # Trigger a load path that would normally call it.
+        _mw._maybe_offer_template_push()
+        assert called == [1], "monkeypatch did not intercept _maybe_offer_template_push"
+
+    def test_maybe_offer_noop_when_no_template(self, _mw):
+        """_maybe_offer_template_push is a no-op when no template is embedded."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = None
+        # Must not raise (no library file, no dialog shown headlessly).
+        _mw._maybe_offer_template_push()
+
+    def test_revisions_callback_is_wired(self, _mw):
+        """TitleBlockTemplateItem.get_properties 'Edit Revisions…' callback is not None."""
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        from firepro3d.paper_space import TitleBlockTemplateItem
+        tb = next(
+            (i for i in sc.items() if isinstance(i, TitleBlockTemplateItem)),
+            None,
+        )
+        assert tb is not None, "No TitleBlockTemplateItem in scene after push"
+        props = tb.get_properties()
+        btn_meta = props.get("")
+        assert btn_meta is not None, "Empty-key button row missing from get_properties()"
+        assert btn_meta.get("callback") is not None, (
+            "Edit Revisions… callback is None — must be wired to _open_revisions_dialog"
+        )
+
+    def test_edit_revisions_via_callback(self, _mw, monkeypatch):
+        """Clicking the Edit Revisions… callback updates revisions and is undoable."""
+        from firepro3d.paper_space import RevisionsDialog, TitleBlockTemplateItem
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+        sc = _mw.paper_space_widget.paper_scene
+        sheet = sc._sheet
+        sheet.revisions = []
+
+        new_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
+
+        # Monkeypatch RevisionsDialog to auto-accept with prepared rows.
+        class _FakeRevDlg:
+            def __init__(self, revisions, parent=None):
+                self._revs = new_revs
+            def exec(self):
+                return 1  # Accepted
+            def result_revisions(self):
+                return list(self._revs)
+
+        monkeypatch.setattr(
+            "firepro3d.paper_space.RevisionsDialog", _FakeRevDlg
+        )
+
+        tb = next(i for i in sc.items() if isinstance(i, TitleBlockTemplateItem))
+        tb._open_revisions_dialog()
+
+        assert sheet.revisions == new_revs, (
+            f"Revisions not updated after callback: {sheet.revisions!r}"
+        )
+        # Must be undoable.
+        sc.undo_stack.undo()
+        assert sheet.revisions == [], (
+            f"Undo did not clear revisions: {sheet.revisions!r}"
+        )
