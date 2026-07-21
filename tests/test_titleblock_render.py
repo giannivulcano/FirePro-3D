@@ -459,3 +459,72 @@ class TestResolutionChain:
         sc.sheetModified.connect(lambda *a: emitted.append(1))
         sc.set_template(make_default_template(), project_info={})
         assert not emitted
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T9: View-title mm sizing (spec §9.4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+import inspect
+
+from PyQt6.QtWidgets import QGraphicsScene
+from PyQt6.QtCore import QRectF
+from PyQt6.QtGui import QImage, QPainter
+from firepro3d.paper_space import SheetViewport, SheetViewData
+
+
+class TestViewTitleMmSizing:
+    """View-title block below SheetViewport must use mm cap-height primitive (§9.4)."""
+
+    def test_no_pointsize_in_viewport_paint(self):
+        """Banned-API lint: view titles must use the mm primitive (spec §9.4)."""
+        src = inspect.getsource(SheetViewport.paint)
+        assert "setPointSize" not in src, (
+            "SheetViewport.paint still calls setPointSize*/setPointSizeF — "
+            "must use mm primitive instead (§9.4)"
+        )
+
+    def test_title_ink_scales_with_painter(self, qapp):
+        """mm-true text: doubling the painter scale must double the ink height."""
+        data = SheetViewData(
+            source_view_type="plan",
+            source_view_name="Level 1",
+            title="Level 1",
+            scale=0.01,
+            x=0.0, y=0.0, w=120.0, h=90.0,
+        )
+        # Resolver returns None so the viewport goes into placeholder mode,
+        # but the title strip below is always drawn regardless.
+        resolver = MagicMock(spec=ViewResolver)
+        resolver.resolve.return_value = None
+        vp = SheetViewport(data, resolver)
+
+        # Add to a scene so Qt geometry is valid.
+        scene = QGraphicsScene()
+        scene.addItem(vp)
+
+        def render(px_scale: float) -> QImage:
+            # Canvas covers the viewport + title strip (title_y=h+0.5, bubble_r=3, +margin)
+            canvas_w = int(120 * px_scale)
+            canvas_h = int(110 * px_scale)   # extra height for title strip
+            img = QImage(canvas_w, canvas_h, QImage.Format.Format_RGB32)
+            img.fill(0xFFFFFF)
+            p = QPainter(img)
+            p.scale(px_scale, px_scale)
+            vp.paint(p, None, None)
+            p.end()
+            return img
+
+        def ink_rows(img: QImage) -> int:
+            return sum(
+                1 for y in range(img.height())
+                if any(img.pixel(x, y) != 0xFFFFFFFF
+                       for x in range(img.width()))
+            )
+
+        r1 = ink_rows(render(4))
+        r2 = ink_rows(render(8))
+        assert 1.6 < r2 / max(1, r1) < 2.4, (
+            f"Ink rows at 4× = {r1}, at 8× = {r2}; ratio {r2 / max(1, r1):.2f} "
+            "expected between 1.6 and 2.4 (mm-proportional sizing)"
+        )

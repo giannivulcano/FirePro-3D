@@ -567,15 +567,15 @@ class SheetViewport(QGraphicsObject):
         painter.setBrush(QBrush(Qt.GlobalColor.white))
         painter.drawEllipse(QPointF(bubble_cx, bubble_cy), bubble_r, bubble_r)
         # Number in bubble
-        f_num = QFont("Arial")
-        f_num.setPointSizeF(2.0)
-        f_num.setBold(True)
-        painter.setFont(f_num)
-        painter.setPen(Qt.GlobalColor.black)
-        painter.drawText(QRectF(bubble_cx - bubble_r, bubble_cy - bubble_r,
-                                bubble_r * 2, bubble_r * 2),
-                         Qt.AlignmentFlag.AlignCenter,
-                         self._data.view_number or "1")
+        _draw_mm_text(
+            painter,
+            QRectF(bubble_cx - bubble_r, bubble_cy - bubble_r,
+                   bubble_r * 2, bubble_r * 2),
+            self._data.view_number or "1",
+            2.0,
+            bold=True,
+            align=Qt.AlignmentFlag.AlignCenter,
+        )
 
         # Horizontal line from bubble right perimeter to viewport edge
         line_x_start = bubble_cx + bubble_r
@@ -585,29 +585,30 @@ class SheetViewport(QGraphicsObject):
 
         # Title text — ALL CAPS, bold, ABOVE the line
         text_x = line_x_start + 1.5
-        f_title = QFont("Arial")
-        f_title.setPointSizeF(2.2)
-        f_title.setBold(True)
-        painter.setFont(f_title)
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
         title_rect_above = QRectF(text_x, title_y, w - text_x, bubble_cy - title_y - 0.3)
-        painter.drawText(title_rect_above,
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
-                         self._data.title.upper())
+        _draw_mm_text(
+            painter,
+            title_rect_above,
+            self._data.title.upper(),
+            2.2,
+            bold=True,
+            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
+        )
 
         # Scale text below the line
         if self._data.scale == 0.0:
             scale_text = "NTS"
         else:
             scale_text = float_to_scale_str(self._data.scale)
-        f_scale = QFont("Arial")
-        f_scale.setPointSizeF(1.6)
-        painter.setFont(f_scale)
-        painter.setPen(QPen(QColor("#444444"), 0.1))
         title_rect_below = QRectF(text_x, bubble_cy + 0.3, w - text_x, bubble_r + 0.5)
-        painter.drawText(title_rect_below,
-                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-                         scale_text)
+        _draw_mm_text(
+            painter,
+            title_rect_below,
+            scale_text,
+            1.6,
+            align=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            color="#444444",
+        )
 
         # Resize grips when selected
         if self.isSelected():
@@ -2443,6 +2444,43 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     vals["Date (auto)"] = datetime.date.today().strftime("%d %b %Y")
     vals["__revisions__"] = list(sheet.revisions)
     return vals
+
+
+def _draw_mm_text(
+    painter: QPainter,
+    rect: QRectF,
+    text: str,
+    cap_mm: float,
+    *,
+    bold: bool = False,
+    align=Qt.AlignmentFlag.AlignCenter,
+    color: str = "#000000",
+) -> None:
+    """Draw text at a true paper-mm cap height (§9.4 primitive).
+
+    Uses the same setPixelSize + painter-scale technique as
+    TitleBlockTemplateItem._draw_text_mm so that text size is independent
+    of device DPI (fixes the ~2.4× PDF over-sizing bug for view titles).
+    """
+    f = QFont("Arial")
+    f.setBold(bold)
+    f.setPixelSize(TEXT_METRIC_REF_PX)
+    fm = QFontMetricsF(f)
+    cap_px = fm.capHeight() or 1.0
+    s = cap_mm / cap_px
+    if s <= 0:
+        return
+    painter.save()
+    painter.setFont(f)
+    painter.setPen(QPen(QColor(color), 0.1))
+    painter.translate(rect.topLeft())
+    painter.scale(s, s)
+    painter.drawText(
+        QRectF(0, 0, rect.width() / s, rect.height() / s),
+        align,
+        text,
+    )
+    painter.restore()
 
 
 class TitleBlockTemplateItem(QGraphicsItem):
