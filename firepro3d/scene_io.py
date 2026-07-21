@@ -226,6 +226,7 @@ class SceneIOMixin:
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
             "sheets":              [s.to_dict() for s in self._sheets] if hasattr(self, '_sheets') else [],
+            "titleblock_template": getattr(self, "_titleblock_template", None),
         }
         # Ensure all underlays have cache entries
         self._ensure_underlay_caches(os.path.abspath(filename))
@@ -318,6 +319,16 @@ class SceneIOMixin:
         from .paper_space import Sheet
         sheet_data = payload.get("sheets", [])
         self._sheets = [Sheet.from_dict(d) for d in sheet_data]
+
+        # --- Title block template (embedded copy is authoritative) ---
+        self._titleblock_template = payload.get("titleblock_template", None)
+        from .titleblock_template import migrate_legacy_fields
+        from .paper_space import DEFAULT_TITLE_BLOCK_FIELDS
+        migrate_legacy_fields(
+            [s.title_block_fields for s in self._sheets],
+            self._project_info,
+            skip_values=DEFAULT_TITLE_BLOCK_FIELDS,
+        )
 
         # --- Nodes ---
         # Create each node unconditionally — bypass find_nearby_node so that
@@ -652,6 +663,8 @@ class SceneIOMixin:
         from .gridline import reset_grid_counters
 
         self._project_path = None
+        self._project_info = {}
+        self._titleblock_template = None
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
         self.underlays = []

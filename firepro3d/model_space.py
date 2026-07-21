@@ -150,6 +150,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._pipe_tab_index: int = 0
         self._pipe_tab_pos: QPointF | None = None
         self._project_info: dict = {}            # project metadata (name, address, etc.)
+        self._titleblock_template: dict | None = None  # embedded template dict (authoritative copy)
         self._level_manager = None                             # set by main.py
         self._plan_view_manager = None                         # set by main.py
         # Grip editing (Sprint I)

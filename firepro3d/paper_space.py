@@ -309,6 +309,8 @@ class Sheet:
     title_block_fields: dict[str, str]
     sheet_views: list[SheetViewData]
     annotations: list[TextAnnotationData] = field(default_factory=list)
+    revisions: list[dict] = field(default_factory=list)
+    """Revision history for this sheet. Each entry: {"no", "description", "date"}."""
 
     @classmethod
     def create_default(cls) -> "Sheet":
@@ -329,6 +331,7 @@ class Sheet:
             "title_block_fields": dict(self.title_block_fields),
             "sheet_views": [sv.to_dict() for sv in self.sheet_views],
             "annotations": [a.to_dict() for a in self.annotations],
+            "revisions": [dict(r) for r in self.revisions],
         }
 
     @classmethod
@@ -343,6 +346,7 @@ class Sheet:
                          for sv in d.get("sheet_views", [])],
             annotations=[TextAnnotationData.from_dict(a)
                          for a in d.get("annotations", [])],
+            revisions=[dict(r) for r in d.get("revisions", [])],
         )
 
 
