@@ -255,13 +255,16 @@ Menu action "Export to PDF..." opens a dialog with:
 
 ## 8. Title Block Template System
 
+> **Custom templates are governed by `titleblock-template-system.md`** (proposal, 2026-07-21): **parametric** templates (margins, bordered areas, right-strip cell stack) authored in a dedicated editor, stored in a per-user library and embedded in the `.fpd`, one family per project. That design **supersedes** the earlier custom-DXF/PDF + ATTDEF/JSON-sidecar plan below (never built) — the DXF-artwork chain survives only as the no-template fallback. This section documents the as-built built-in chain.
+
 ### 8.1 Template Resolution Order (Per Sheet)
 
-1. Custom DXF template matching the sheet's paper size → vector rendering via `TitleBlockDxfItem`
-2. Custom PDF template matching the sheet's paper size → raster rendering via `TitleBlockPdfItem`
+0. Project parametric template with a variant for the sheet's paper size → `TitleBlockTemplateItem` (see `titleblock-template-system.md`; proposal — unbuilt)
+1. Built-in DXF template matching the sheet's paper size → vector rendering via `TitleBlockDxfItem`
+2. Built-in PDF template matching the sheet's paper size → raster rendering via `TitleBlockPdfItem`
 3. Built-in programmatic fallback → `TitleBlockItem` with geometric drawing
 
-### 8.2 Template Library Structure
+### 8.2 Built-in Template Files
 
 ```
 firepro3d/
@@ -270,17 +273,12 @@ firepro3d/
     CEL Titleblock (ANSI B) R0.pdf      # existing
     CEL Titleblock (ANSI D) R0.dxf      # existing
     CEL Titleblock (ANSI D) R0.pdf      # existing
-    CEL Titleblock (Letter) R0.dxf      # to add
-  custom titleblocks/                    # user-added templates
-    <firm_name> (ANSI D).dxf
-    <firm_name> (ANSI D).fields.json    # field mapping sidecar
 ```
 
-### 8.3 Field Mapping
+### 8.3 Field Mapping (as built)
 
-- **DXF templates:** `ATTDEF` entities with tag names matching field keys (e.g., tag `PROJECT` maps to the Project field). On render, attribute values are replaced with the sheet's field values and drawn as text at the attribute's insertion point, height, and rotation.
-- **JSON sidecar** (fallback for templates without ATTDEFs): defines field positions, font size, and alignment relative to the template's coordinate system.
-- **Programmatic template:** Field positions hardcoded in `TitleBlockItem` as today.
+- **DXF/PDF templates:** field values are painted over the artwork by `TitleBlockFieldOverlay` at **hardcoded fractional positions** (`_get_field_layout`) — they are *not* measured from the artwork geometry. Known divergence; superseded rather than fixed (custom parametric templates own field placement — `titleblock-template-system.md`).
+- **Programmatic template:** field positions hardcoded in `TitleBlockItem`.
 
 ### 8.4 Field Set
 
