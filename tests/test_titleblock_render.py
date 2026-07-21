@@ -135,10 +135,137 @@ class TestRenderer:
         assert item2.warnings                         # undecodable: warned
 
     def test_no_pointsize_in_renderer(self):
+        """Banned-API guard: all text sizing goes through setPixelSize + painter
+        scale (§9.4).  QFont point-size constructors are covered by the same
+        mm-primitive pattern — no separate check needed.
+        """
         import inspect
         from firepro3d import paper_space
         src = inspect.getsource(paper_space.TitleBlockTemplateItem)
-        assert "setPointSizeF" not in src
+        assert "setPointSize" not in src    # covers setPointSize and setPointSizeF
+
+    def test_non_ascii_logo_data_warns_no_exception(self):
+        """Non-ASCII logo_data must not raise; it must record a warning."""
+        item, _, _ = self._make(
+            mutate=lambda v: setattr(v.cells[0], "logo_data", "ñøŧ-æscii"))
+        assert any("Logo" in w for w in item.warnings)
+
+    def test_real_png_logo_no_warning(self):
+        """A valid base64-PNG logo must load cleanly (no warning) and render
+        non-white pixels in the logo cell region.
+        """
+        from PyQt6.QtCore import QBuffer, QIODevice
+        from PyQt6.QtGui import QImage
+        # Build a tiny 8×8 solid-red PNG in memory.
+        img8 = QImage(8, 8, QImage.Format.Format_RGB32)
+        img8.fill(0xFF0000)
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img8.save(buf, "PNG")
+        b64 = bytes(buf.data().toBase64()).decode("ascii")
+
+        item, w, h = self._make(
+            mutate=lambda v: setattr(v.cells[0], "logo_data", b64))
+        assert item.warnings == [], f"Unexpected warnings: {item.warnings}"
+
+        # Find the logo cell index (cell 0 in make_default_template is logo).
+        from firepro3d.titleblock_template import make_default_template
+        t = make_default_template()
+        v = t.variants["ANSI D"]
+        sl = item._layout
+        logo_rect = sl.cell_rects[0]
+        rendered = _render(item, w, h)
+        # Map mm cell rect to image pixels.
+        px_per_mm = rendered.width() / w
+        rx = int(logo_rect.left() * px_per_mm) + 2
+        ry = int(logo_rect.top() * rendered.height() / h) + 2
+        rw = max(1, int(logo_rect.width() * px_per_mm) - 4)
+        rh = max(1, int(logo_rect.height() * rendered.height() / h) - 4)
+        pixels = [rendered.pixel(rx + dx, ry + dy)
+                  for dx in range(0, rw, max(1, rw // 4))
+                  for dy in range(0, rh, max(1, rh // 4))]
+        assert any(p != 0xFFFFFFFF for p in pixels), \
+            "Logo cell region rendered all-white — logo was not drawn"
+
+    def test_revision_header_renders(self):
+        """A revision table with 2 revisions must differ from one with 0 in the
+        cell region (the header row is always drawn; data rows add more pixels).
+        """
+        from firepro3d.titleblock_template import make_default_template, solve_layout
+        t = make_default_template()
+        v = t.variants["ANSI D"]
+        # Find the first revision_table cell.
+        rev_idx = next(
+            (i for i, c in enumerate(v.cells) if c.kind == "revision_table"),
+            None)
+        assert rev_idx is not None, "Default template has no revision_table cell"
+
+        revisions_2 = [
+            {"no": "1", "description": "Issued for Construction", "date": "07-01"},
+            {"no": "2", "description": "Revised per RFI-001", "date": "07-21"},
+        ]
+        vals_0 = {"__revisions__": []}
+        vals_2 = {"__revisions__": revisions_2}
+
+        sl0 = solve_layout(v, *PAPER_SIZES["ANSI D"], vals_0)
+        sl2 = solve_layout(v, *PAPER_SIZES["ANSI D"], vals_2)
+        item0 = TitleBlockTemplateItem(sl0, v, vals_0)
+        item2 = TitleBlockTemplateItem(sl2, v, vals_2)
+
+        w, h = PAPER_SIZES["ANSI D"]
+        img0 = _render(item0, w, h)
+        img2 = _render(item2, w, h)
+
+        # Locate revision cell rect in image pixels.
+        cell_rect = sl2.cell_rects[rev_idx]
+        px_per_mm = img0.width() / w
+        rx = int(cell_rect.left() * px_per_mm) + 1
+        ry = int(cell_rect.top() * img0.height() / h) + 1
+        rw = max(1, int(cell_rect.width() * px_per_mm) - 2)
+        rh = max(1, int(cell_rect.height() * img0.height() / h) - 2)
+        diffs = sum(
+            img0.pixel(rx + dx, ry + dy) != img2.pixel(rx + dx, ry + dy)
+            for dx in range(0, rw, max(1, rw // 8))
+            for dy in range(0, rh, max(1, rh // 8)))
+        assert diffs > 0, \
+            "Revision cell region is identical for 0 vs 2 revisions — header/data rows not drawn"
+
+    def test_text_renders_distinct_from_empty(self):
+        """Render with an empty Title and with a long Title — images must differ
+        in the Title cell region (pins that text is actually drawn, not just borders).
+        """
+        from firepro3d.titleblock_template import make_default_template, solve_layout
+        t = make_default_template()
+        v = t.variants["ANSI D"]
+        # Find Title cell.
+        title_idx = next(
+            (i for i, c in enumerate(v.cells)
+             if c.kind == "field" and c.field_key == "Title"),
+            None)
+        assert title_idx is not None, "Default template has no Title field cell"
+
+        w, h = PAPER_SIZES["ANSI D"]
+        vals_empty = {"Title": ""}
+        vals_text  = {"Title": "LONG TITLE VALUE FOR PIXELS"}
+        sl_e = solve_layout(v, w, h, vals_empty)
+        sl_t = solve_layout(v, w, h, vals_text)
+        item_e = TitleBlockTemplateItem(sl_e, v, vals_empty)
+        item_t = TitleBlockTemplateItem(sl_t, v, vals_text)
+        img_e = _render(item_e, w, h)
+        img_t = _render(item_t, w, h)
+
+        cell_rect = sl_t.cell_rects[title_idx]
+        px_per_mm = img_e.width() / w
+        rx = int(cell_rect.left() * px_per_mm) + 2
+        ry = int(cell_rect.top() * img_e.height() / h) + 2
+        rw = max(1, int(cell_rect.width() * px_per_mm) - 4)
+        rh = max(1, int(cell_rect.height() * img_e.height() / h) - 4)
+        diffs = sum(
+            img_e.pixel(rx + dx, ry + dy) != img_t.pixel(rx + dx, ry + dy)
+            for dx in range(0, rw, max(1, rw // 8))
+            for dy in range(0, rh, max(1, rh // 8)))
+        assert diffs > 0, \
+            "Title cell region identical for empty vs filled Title — text not rendered"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

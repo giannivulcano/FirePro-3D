@@ -158,3 +158,6 @@ TB_LABEL_CAP_FRAC = 0.45            # label cap height as fraction of value cap 
 TB_CELL_PAD_MM = 1.5                # inner cell padding (solver + T7 renderer share this)
 TB_LABEL_ROW_MM = 3.0               # label row height when a label is present
 TB_REV_ROW_MM = 5.0                 # height per revision table data row (header + each row)
+TB_REV_CAP_MM = 2.0                 # revision row text cap height (header + data rows)
+TB_LABEL_CAP_MIN_MM = 1.2           # floor for computed label cap height
+TB_REV_PEN_MM = 0.2                 # revision table divider pen width (mm)

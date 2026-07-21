@@ -24,6 +24,7 @@ from .constants import (
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
+    TB_REV_CAP_MM, TB_LABEL_CAP_MIN_MM, TB_REV_PEN_MM,
 )
 from .scale_manager import ScaleManager
 from PyQt6.QtWidgets import (
@@ -2408,6 +2409,7 @@ class TitleBlockItem(QGraphicsItem):
 # Parametric title block (docs/specs/titleblock-template-system.md)
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Project→name mapping must stay in sync with _LEGACY_PROJECT_KEYS in titleblock_template.py
 _PROJECT_STD_KEYS = {"Project": "name", "Project Number": "number",
                      "Address": "address", "City": "city", "State": "state",
                      "Client": "client", "Designer": "designer",
@@ -2462,8 +2464,12 @@ class TitleBlockTemplateItem(QGraphicsItem):
         for i, cell in enumerate(variant.cells):
             if cell.kind == "logo" and cell.logo_data:
                 pm = QPixmap()
-                raw = QByteArray.fromBase64(cell.logo_data.encode("ascii"))
-                if not pm.loadFromData(raw, "PNG") or pm.isNull():
+                try:
+                    raw = QByteArray.fromBase64(cell.logo_data.encode("ascii"))
+                    ok = pm.loadFromData(raw, "PNG") and not pm.isNull()
+                except UnicodeEncodeError:
+                    ok = False
+                if not ok:
                     self.warnings.append("Logo image could not be decoded.")
                 else:
                     self._logo_pixmaps[i] = pm
@@ -2471,7 +2477,14 @@ class TitleBlockTemplateItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
     def boundingRect(self) -> QRectF:
-        return self._layout.strip_rect.united(self._layout.area_rect)
+        lay, var = self._layout, self._variant
+        united = lay.strip_rect.united(lay.area_rect)
+        pad = max(
+            var.area_border.width_mm,
+            var.strip_border.width_mm,
+            *(c.border.width_mm for c in var.cells),
+        ) / 2
+        return united.adjusted(-pad, -pad, pad, pad)
 
     def _draw_border(self, painter: QPainter, rect: QRectF, style) -> None:
         if not style.visible:
@@ -2519,7 +2532,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
     def _draw_label(self, painter: QPainter, rect: QRectF, cell) -> None:
         if not cell.label:
             return
-        cap = max(1.2, cell.cap_height_mm * TB_LABEL_CAP_FRAC)
+        cap = max(TB_LABEL_CAP_MIN_MM, cell.cap_height_mm * TB_LABEL_CAP_FRAC)
         self._draw_text_mm(painter, rect, [cell.label.upper()], cell,
                            cap_mm=cap, bold=False)
 
@@ -2528,12 +2541,14 @@ class TitleBlockTemplateItem(QGraphicsItem):
         for i, cell in enumerate(var.cells):
             if cell.fill_color:
                 painter.fillRect(lay.cell_rects[i], QColor(cell.fill_color))
+        # Hoist ONE clip around the whole content loop (composes with caller
+        # clips in export paths via IntersectClip). spec DD-8.
+        painter.save()
+        painter.setClipRect(lay.strip_rect, Qt.ClipOperation.IntersectClip)
         for i, cell in enumerate(var.cells):
             rect = lay.cell_rects[i]
             inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
                                   -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
-            painter.save()
-            painter.setClipRect(lay.strip_rect)      # clip overflow (spec DD-8)
             self._draw_label(painter, inner, cell)
             content = inner.adjusted(
                 0, TB_LABEL_ROW_MM if cell.label else 0.0, 0, 0)
@@ -2543,9 +2558,9 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 pm = self._logo_pixmaps.get(i)
                 if pm is not None:
                     target = QRectF(content)
-                    scaled = pm.size().scaled(
-                        int(target.width()), int(target.height()),
-                        Qt.AspectRatioMode.KeepAspectRatio)
+                    # Use float scaling to avoid truncation at small sizes.
+                    scaled = QSizeF(pm.size()).scaled(
+                        target.size(), Qt.AspectRatioMode.KeepAspectRatio)
                     dx = (target.width() - scaled.width()) / 2
                     dy = (target.height() - scaled.height()) / 2
                     painter.drawPixmap(
@@ -2556,7 +2571,16 @@ class TitleBlockTemplateItem(QGraphicsItem):
             elif cell.kind == "revision_table":
                 rows = lay.cell_revision_rows.get(i, [])
                 y = content.top()
-                painter.setPen(QPen(Qt.GlobalColor.black, 0.2))
+                painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
+                # Header row — the solver's +1 reservation is this header band.
+                self._draw_text_mm(
+                    painter,
+                    QRectF(content.left(), y, content.width(), TB_REV_ROW_MM),
+                    ["No  Description  Date"], cell,
+                    cap_mm=TB_REV_CAP_MM, bold=True)
+                y += TB_REV_ROW_MM
+                painter.drawLine(QPointF(content.left(), y),
+                                 QPointF(content.right(), y))
                 for rev in rows:
                     line = (f'{rev.get("no", "")}  '
                             f'{rev.get("description", "")}  '
@@ -2565,12 +2589,12 @@ class TitleBlockTemplateItem(QGraphicsItem):
                         painter,
                         QRectF(content.left(), y, content.width(),
                                TB_REV_ROW_MM),
-                        [line], cell, cap_mm=2.0, bold=False)
+                        [line], cell, cap_mm=TB_REV_CAP_MM, bold=False)
                     y += TB_REV_ROW_MM
                     painter.drawLine(QPointF(content.left(), y),
                                      QPointF(content.right(), y))
             # "stamp": reserved empty bordered area — nothing to draw
-            painter.restore()
+        painter.restore()
         for i, cell in enumerate(var.cells):
             if cell.border.visible:
                 self._draw_border(painter, lay.cell_rects[i], cell.border)
