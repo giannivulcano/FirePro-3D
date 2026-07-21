@@ -146,3 +146,12 @@ TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's
 # size dropdown and its grow/shrink stepping (units-and-formatting.md).
 FONT_SIZE_LADDER_PT = (8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72)
+
+# ── Title block template system (docs/specs/titleblock-template-system.md) ──
+TB_MARGIN_EDGE_DEFAULT_MM = 10.0    # paper edge → drawing area
+TB_MARGIN_STRIP_DEFAULT_MM = 5.0    # drawing area → info strip
+TB_STRIP_DEFAULT_MM = 90.0          # default info-strip width
+TB_DEFAULT_FILLET_MM = 10.0         # default frame fillet radius
+TB_STRIP_MIN_MM = 20.0              # validation floor: strip width
+TB_AREA_MIN_MM = 100.0              # validation floor: drawing area per dimension
+TB_LABEL_CAP_FRAC = 0.45            # label cap height as fraction of value cap height
