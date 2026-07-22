@@ -2300,6 +2300,10 @@ class TitleBlockItem(QGraphicsItem):
         pen_thin  = QPen(Qt.GlobalColor.black, 0.25)
         white     = QBrush(Qt.GlobalColor.white)
 
+        # Merge with defaults so migrated sheets (keys popped by migrate_legacy_fields)
+        # never cause a KeyError inside Qt paint → silent native crash.
+        f = {**DEFAULT_TITLE_BLOCK_FIELDS, **self.fields}
+
         painter.setBrush(white)
         painter.setPen(pen_thick)
         painter.drawRect(QRectF(x, y, w, h))
@@ -2364,13 +2368,13 @@ class TitleBlockItem(QGraphicsItem):
 
         # Col 0 — company (full height)
         label(QRectF(c0 + 1, r0 + 1, c1 - c0 - 2, h - 2),
-              self.fields["Company"], bold=True, big=True)
+              f["Company"], bold=True, big=True)
 
         # Col 1 rows
         small_label(QRectF(c1, r0, c2 - c1, r1 - r0),
-                    "PROJECT", self.fields["Project"])
+                    "PROJECT", f["Project"])
         small_label(QRectF(c1, r1, c2 - c1, r2 - r1),
-                    "TITLE",   self.fields["Title"])
+                    "TITLE",   f["Title"])
         f3 = QFont("Arial"); f3.setPointSizeF(1.8)
         painter.setFont(f3)
         painter.setPen(QPen(QColor("#666666"), 0.1))
@@ -2384,25 +2388,25 @@ class TitleBlockItem(QGraphicsItem):
         painter.drawText(QRectF(c1 + 1, r2 + (r3 - r2) * 0.4,
                                 (c2 - c1) / 2 - 2, r3 - r2 - (r3 - r2) * 0.4),
                          Qt.AlignmentFlag.AlignLeft,
-                         " " + self.fields["Drawn By"])
+                         " " + f["Drawn By"])
         painter.drawText(QRectF(c1 + (c2 - c1) / 2 + 1, r2 + (r3 - r2) * 0.4,
                                 (c2 - c1) / 2 - 2,
                                 r3 - r2 - (r3 - r2) * 0.4),
                          Qt.AlignmentFlag.AlignLeft,
-                         " " + self.fields["Checked By"])
+                         " " + f["Checked By"])
         # Vertical divider inside col1 bottom row
         painter.setPen(pen_thin)
         painter.drawLine(QPointF(c1 + (c2 - c1) / 2, r2),
                          QPointF(c1 + (c2 - c1) / 2, r3))
 
         # Col 2 rows
-        small_label(QRectF(c2, r0, c3 - c2, r1 - r0), "SCALE",      self.fields["Scale"])
-        small_label(QRectF(c2, r1, c3 - c2, r2 - r1), "DRAWING NO", self.fields["Drawing No"])
+        small_label(QRectF(c2, r0, c3 - c2, r1 - r0), "SCALE",      f["Scale"])
+        small_label(QRectF(c2, r1, c3 - c2, r2 - r1), "DRAWING NO", f["Drawing No"])
         small_label(QRectF(c2, r2, c3 - c2, r3 - r2), "SHEET",      "1 of 1")
 
         # Col 3 rows
-        small_label(QRectF(c3, r0, x + w - c3, r1 - r0), "REV",  self.fields["Rev"])
-        small_label(QRectF(c3, r1, x + w - c3, r2 - r1), "DATE", self.fields["Date"])
+        small_label(QRectF(c3, r0, x + w - c3, r1 - r0), "REV",  f["Rev"])
+        small_label(QRectF(c3, r1, x + w - c3, r2 - r1), "DATE", f["Date"])
         small_label(QRectF(c3, r2, x + w - c3, r3 - r2), "NFPA", "13")
 
         # Outer border (redraw thick on top to cover thin)
@@ -2416,10 +2420,14 @@ class TitleBlockItem(QGraphicsItem):
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Project→name mapping must stay in sync with _LEGACY_PROJECT_KEYS in titleblock_template.py
-_PROJECT_STD_KEYS = {"Project": "name", "Project Number": "number",
-                     "Address": "address", "City": "city", "State": "state",
-                     "Client": "client", "Designer": "designer",
-                     "Description": "description"}
+# Public alias used by titleblock_editor.py to build the picker list so that
+# editor display names always match what build_field_values resolves.
+PROJECT_STD_KEYS = {"Project": "name", "Project Number": "number",
+                    "Address": "address", "City": "city", "State": "state",
+                    "Client": "client", "Designer": "designer",
+                    "Description": "description"}
+# Internal alias kept for back-compat within this module.
+_PROJECT_STD_KEYS = PROJECT_STD_KEYS
 
 
 def build_field_values(sheet: "Sheet", project_info: dict) -> dict:

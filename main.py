@@ -1788,8 +1788,10 @@ class MainWindow(QMainWindow):
         dlg = QPrintDialog(printer, self)
         if dlg.exec() != QPrintDialog.DialogCode.Accepted:
             return
+        tmpl, proj_info = self._current_template()
         try:
-            paper_export.print_sheets([self._sheet], self._view_resolver, printer)
+            paper_export.print_sheets([self._sheet], self._view_resolver, printer,
+                                      template=tmpl, project_info=proj_info)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Print Failed", str(exc))
             return
@@ -1863,14 +1865,20 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(ps.titleblock_warning, 8000)
 
     def _maybe_offer_template_push(self) -> None:
-        """Show the library-divergence notice and offer to push to library.
+        """Show the library-divergence notice (three-way: Push / Pull / Keep Both).
+
+        Per spec DD-5:
+          Yes   → Push to Library: write the embedded copy over the library copy.
+          No    → Pull from Library: replace the embedded copy with the library copy
+                  and dirty the project (pulling changes the project bytes, §17.7).
+          Cancel → Keep Both: no-op (the project renders from its embedded copy).
 
         Factored out of _apply_loaded_file so tests can monkeypatch it
         (the modal QMessageBox would hang headless test runs).  When there
         is no embedded template, or the library copy matches, this is a no-op.
         """
         from firepro3d.titleblock_template import (
-            TitleBlockTemplate, library_diverges, save_to_library,
+            TitleBlockTemplate, library_diverges, save_to_library, load_library,
         )
         raw = getattr(self.scene, "_titleblock_template", None)
         if not raw:
@@ -1885,13 +1893,24 @@ class MainWindow(QMainWindow):
         resp = QMessageBox.question(
             self, "Title Block Template",
             f"The library copy of '{embedded.name}' differs from this "
-            "project's embedded copy.\nPush the project version to the "
-            "library?\n(No keeps both as they are — the project "
-            "renders from its embedded copy either way.)",
+            "project's embedded copy.\n\n"
+            "Yes = Push to Library (overwrite library with project version)\n"
+            "No  = Pull from Library (replace project copy with library version)\n"
+            "Cancel = Keep Both (project continues to render its own embedded copy)",
             QMessageBox.StandardButton.Yes
-            | QMessageBox.StandardButton.No)
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
         if resp == QMessageBox.StandardButton.Yes:
+            # Push: write embedded copy to library.
             save_to_library(embedded)
+        elif resp == QMessageBox.StandardButton.No:
+            # Pull: find the library copy and install it as the embedded template.
+            lib_copies = [t for t in load_library() if t.uuid == embedded.uuid]
+            if lib_copies:
+                self.scene._titleblock_template = lib_copies[0].to_dict()
+                self._push_titleblock_template()
+                self._on_paper_modified()   # pulling changes project bytes → dirty (§17.7)
 
     # ── Project Information dialog ────────────────────────────────────────────
 

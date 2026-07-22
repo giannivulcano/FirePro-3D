@@ -19,14 +19,14 @@ from PyQt6.QtWidgets import (
     QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
-from PyQt6.QtGui import QColor, QImage, QKeySequence
+from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QStandardItemModel
 
 from .titleblock_template import (
     TitleBlockTemplate, TemplateVariant, CellSpec, BorderStyle, CELL_KINDS,
     make_default_template, load_library, save_to_library, delete_from_library,
     solve_layout, validate,
 )
-from .paper_space import PAPER_SIZES, TitleBlockTemplateItem
+from .paper_space import PAPER_SIZES, TitleBlockTemplateItem, PROJECT_STD_KEYS
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 
@@ -37,17 +37,9 @@ _sm = ScaleManager()
 
 _log = logging.getLogger("FirePro3D")
 
-# Standard project info keys (display-name → project_info dict key)
-_STANDARD_PROJECT_KEYS = [
-    ("Project Name",    "name"),
-    ("Project Number",  "number"),
-    ("Address",         "address"),
-    ("City",            "city"),
-    ("State / Province", "state"),
-    ("Client",          "client"),
-    ("Designer",        "designer"),
-    ("Description",     "description"),
-]
+# Standard project info keys — imported from paper_space.PROJECT_STD_KEYS so that
+# picker display names always match what build_field_values resolves.
+# Do NOT add a local copy; edit paper_space.PROJECT_STD_KEYS to add new keys.
 
 # Sample values used in the preview (no build_field_values needed)
 _SAMPLE_VALUES = {
@@ -148,22 +140,6 @@ class _BorderGroup(QGroupBox):
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Parse helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def _parse_mm_only(text: str) -> float | None:
-    """Parse a plain number or 'N mm' string to float mm. Returns None on failure.
-
-    Kept for reference; all DimensionEdit widgets in this editor now use
-    ``_sm.parse_dimension`` which additionally accepts ``"``, ``in``, ``ft``
-    imperial forms.
-    """
-    t = text.strip().lower().removesuffix("mm").strip()
-    try:
-        return float(t)
-    except ValueError:
-        return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -196,6 +172,7 @@ class TitleBlockEditorDialog(QDialog):
         self.working: TitleBlockTemplate | None = None
         self.project_template_result: TitleBlockTemplate | None = None
         self._project_info = project_info or {}
+        self._use_requested = False   # set by use_for_project(); read by _on_save_clicked
 
         # ── Snapshot undo/redo stacks ─────────────────────────────────────
         # Each entry is a dict snapshot from TitleBlockTemplate.to_dict()
@@ -559,8 +536,15 @@ class TitleBlockEditorDialog(QDialog):
         self._populate_form()
 
     def delete_template(self) -> None:
-        """Delete the currently selected template from the library."""
+        """Delete the currently selected template from the library (after confirm)."""
         if self.working is None:
+            return
+        resp = QMessageBox.question(
+            self, "Delete Template",
+            f"Delete '{self.working.name}' from the library?\nThis cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if resp != QMessageBox.StandardButton.Yes:
             return
         try:
             delete_from_library(self.working.uuid)
@@ -604,9 +588,14 @@ class TitleBlockEditorDialog(QDialog):
         return True
 
     def use_for_project(self) -> None:
-        """Set project_template_result to a copy of the working template."""
+        """Set project_template_result to a copy of the working template.
+
+        Also sets ``_use_requested`` so that a subsequent Save will refresh
+        project_template_result from the (possibly modified) post-save working copy.
+        """
         if self.working is None:
             return
+        self._use_requested = True
         self.project_template_result = self.working.copy()
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -692,10 +681,8 @@ class TitleBlockEditorDialog(QDialog):
             enabled = True
 
         # Draw paper background
-        paper_rect = self._preview_scene.addRect(
-            0, 0, paper_w, paper_h)
-        paper_rect.setBrush(__import__("PyQt6.QtGui", fromlist=["QBrush"]).QBrush(
-            __import__("PyQt6.QtGui", fromlist=["QColor"]).QColor("#ffffff")))
+        paper_rect = self._preview_scene.addRect(0, 0, paper_w, paper_h)
+        paper_rect.setBrush(QBrush(QColor("#ffffff")))
 
         # Solve layout and build renderer item regardless (clamp-hardened)
         try:
@@ -888,15 +875,26 @@ class TitleBlockEditorDialog(QDialog):
         self._loading = False
 
     def _populate_field_key_combo(self) -> None:
-        """Fill the field_key combo with auto / sheet / project keys."""
+        """Fill the field_key combo with auto / sheet / project keys.
+
+        "Sheet No" is visible but disabled (auto-computed; cannot be set by user).
+        """
         self._cell_field_key.clear()
         self._cell_field_key.addItems(_AUTO_FIELD_KEYS)
+        # Disable "Sheet No" (index = _AUTO_FIELD_KEYS.index("Sheet No"))
+        sheet_no_idx = _AUTO_FIELD_KEYS.index("Sheet No")
+        model = self._cell_field_key.model()
+        if isinstance(model, QStandardItemModel):
+            item = model.item(sheet_no_idx)
+            if item is not None:
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled
+                              & ~Qt.ItemFlag.ItemIsSelectable)
         self._cell_field_key.insertSeparator(len(_AUTO_FIELD_KEYS))
         self._cell_field_key.addItems(_SHEET_FIELD_KEYS)
         self._cell_field_key.insertSeparator(
             len(_AUTO_FIELD_KEYS) + 1 + len(_SHEET_FIELD_KEYS))
-        # Standard project info display names
-        proj_display = [label for label, _ in _STANDARD_PROJECT_KEYS]
+        # Standard project info display names (PROJECT_STD_KEYS keys = display names).
+        proj_display = list(PROJECT_STD_KEYS.keys())
         self._cell_field_key.addItems(proj_display)
         # Custom keys from project_info
         custom = self._project_info.get("custom", [])
@@ -1196,10 +1194,17 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _on_save_clicked(self) -> None:
-        """Save and accept only when working is set and save succeeds."""
+        """Save and accept only when working is set and save succeeds.
+
+        If use_for_project() was called before Save, refresh project_template_result
+        from the (now stamped + saved) working copy so that any post-Use edits
+        and the fresh modified date are captured.
+        """
         if self.working is None or not self.save_button.isEnabled():
             return
         if self.save():
+            if self._use_requested or self.project_template_result is not None:
+                self.project_template_result = self.working.copy()
             self.accept()
 
     def _remove_selected_cell(self) -> None:

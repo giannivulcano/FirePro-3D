@@ -1122,3 +1122,87 @@ class TestMainWindowWiring:
         assert sc.undo_stack.count() == stack_count_before, (
             "Undo stack must not grow when revisions are unchanged"
         )
+
+    def test_maybe_offer_pull_from_library_on_no(self, _mw, tmp_path, monkeypatch):
+        """When library diverges and user answers No (Pull), the scene gets the
+        library copy and the project is dirtied (§17.7).
+        """
+        import firepro3d.titleblock_template as tbt
+        from PyQt6.QtWidgets import QMessageBox
+
+        _fresh(_mw)
+        tpl = make_default_template()
+        stable_uuid = "test-pull-uuid-001"
+        tpl.uuid = stable_uuid
+        tpl.modified = "2026-07-21T12:00:00"   # embedded: newer
+        tpl.name = "Embedded Version"
+
+        # Library copy has different name/modified (older).
+        lib_dir = str(tmp_path / "lib_pull")
+        os.makedirs(lib_dir, exist_ok=True)
+        lib_tpl = make_default_template()
+        lib_tpl.uuid = stable_uuid
+        lib_tpl.modified = "2026-01-01T00:00:00"
+        lib_tpl.name = "Library Version"
+        lib_file = os.path.join(lib_dir, f"{stable_uuid}.json")
+        with open(lib_file, "w", encoding="utf-8") as fh:
+            json.dump(lib_tpl.to_dict(), fh)
+
+        monkeypatch.setattr(tbt, "_library_dir", lambda: lib_dir)
+
+        # Save project with embedded "Embedded Version" template.
+        _mw.scene._titleblock_template = tpl.to_dict()
+        path = str(tmp_path / "pull_test.fpd")
+        _mw._current_file = path
+        _mw.save_file()
+
+        # User answers No (Pull) → library copy replaces embedded.
+        monkeypatch.setattr(
+            QMessageBox, "question",
+            staticmethod(lambda *a, **kw: QMessageBox.StandardButton.No),
+        )
+        _mw._modified = False
+        _mw._load_project(path)
+
+        # After pull, scene template name must match the library copy.
+        raw = _mw.scene._titleblock_template
+        assert raw is not None, "scene._titleblock_template is None after pull"
+        assert raw.get("name") == "Library Version", (
+            f"Expected library name 'Library Version', got {raw.get('name')!r}"
+        )
+        # Project must be dirtied (§17.7).
+        assert _mw._modified, (
+            "Project must be dirtied after pull (embedded template replaced)"
+        )
+
+    def test_print_passes_template_and_project_info(self, _mw, tmp_path, monkeypatch):
+        """_print_paper must forward template= and project_info= to print_sheets."""
+        import firepro3d.paper_export as pe
+
+        _fresh(_mw)
+        _mw.scene._titleblock_template = make_default_template().to_dict()
+        _mw._push_titleblock_template()
+
+        captured = {}
+
+        def _fake_print_sheets(sheets, resolver, printer, template=None, project_info=None):
+            captured["template"] = template
+            captured["project_info"] = project_info
+
+        monkeypatch.setattr(pe, "print_sheets", _fake_print_sheets)
+
+        # Monkeypatch the print dialog to auto-accept without a real printer.
+        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        monkeypatch.setattr(
+            QPrintDialog, "exec",
+            lambda self: QPrintDialog.DialogCode.Accepted,
+        )
+
+        _mw._print_paper()
+
+        assert captured.get("template") is not None, (
+            "_print_paper did not forward template= to print_sheets"
+        )
+        assert isinstance(captured["project_info"], dict), (
+            "_print_paper did not forward project_info= to print_sheets"
+        )
