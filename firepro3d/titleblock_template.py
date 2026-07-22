@@ -386,16 +386,27 @@ def pair_field(layout: TemplateLayout, field_id: str, row_index: int,
     """Pair *field_id* into rows[row_index] on *side* ("left" | "right").
 
     Dropping onto a single-slot row inserts on that side; dropping a row
-    member onto its own two-slot row swaps sides. A row already holding two
-    OTHER fields is left unchanged (the canvas shows a "full" cue instead).
-    The target row is captured BEFORE the dragged field's slot is removed,
-    so index shifts from the removal cannot retarget the drop.
+    member onto its own two-slot row swaps sides only when the requested
+    *side* differs from the member's current side — dropping on the SAME
+    half is a no-op (spec DD-16).  Dropping a member onto its own
+    single-slot row is also a no-op (avoids a data-lossy unplace).
+    A row already holding two OTHER fields is left unchanged (the canvas
+    shows a "full" cue instead).  The target row is captured BEFORE the
+    dragged field's slot is removed, so index shifts from the removal
+    cannot retarget the drop.
     """
     if not (0 <= row_index < len(layout.rows)):
         return
     target = layout.rows[row_index]
     member_ids = [s.field_id for s in target]
-    if field_id in member_ids and len(target) == 2:
+    if field_id in member_ids:
+        if len(target) == 1:
+            return                # own single-slot row — no-op (DD-16)
+        # Two-slot row: only swap when requested side differs from current side
+        idx = member_ids.index(field_id)
+        current_side = "left" if idx == 0 else "right"
+        if side == current_side:
+            return                # own half — no-op (DD-16)
         target.reverse()          # swap sides
         return
     if len(target) >= 2:

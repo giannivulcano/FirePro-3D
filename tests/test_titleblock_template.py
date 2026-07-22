@@ -875,3 +875,15 @@ class TestArrangementOps:
         move_field(lay, "a", 0)
         assert (lay.rows[0][0].min_height_mm,
                 lay.rows[0][0].sizing) == (33.0, "dynamic")
+
+    def test_pair_own_half_is_noop(self):
+        lay = self._lay()                  # rows [["a"], ["b","c"]]
+        pair_field(lay, "b", 1, "left")    # b already on the left
+        assert [s.field_id for s in lay.rows[1]] == ["b", "c"]
+
+    def test_pair_own_single_row_is_noop(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 33.0)], [Slot("b")]])
+        pair_field(lay, "a", 0, "right")
+        assert [[s.field_id for s in r] for r in lay.rows] == [["a"], ["b"]]
+        assert lay.rows[0][0].min_height_mm == 33.0
