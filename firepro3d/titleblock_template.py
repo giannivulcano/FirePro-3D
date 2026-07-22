@@ -226,12 +226,11 @@ class TitleBlockTemplate:
             "FirePro Default (ANSI D, Portrait)" — non-native portrait
             "My A4 (A4, Landscape)" — non-native landscape on A4
         """
-        base = f"{self.name} ({self.paper_size})"
         nat = native_orientation(self.paper_size)
         if self.orientation != nat:
             label = "Portrait" if self.orientation == "portrait" else "Landscape"
-            return f"{base}, {label})"
-        return base
+            return f"{self.name} ({self.paper_size}, {label})"
+        return f"{self.name} ({self.paper_size})"
 
     def to_dict(self) -> dict:
         return {

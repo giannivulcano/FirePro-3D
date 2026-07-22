@@ -1,7 +1,12 @@
 """Title block template editor — form panel + live preview.
 
-Governing spec: docs/specs/titleblock-template-system.md §Editor. The preview
-hosts the SAME renderer used on sheets (one render path).
+Governing spec: docs/specs/titleblock-template-system.md §Editor (rev 2026-07-22).
+The preview hosts the SAME renderer used on sheets (one render path).
+
+Tab organisation (rev2):
+  Overview    — paper-size + orientation + three margin/strip DimensionEdits
+  Drawing Area — area-border group
+  Info Strip  — strip-border group + cell list + per-cell form
 """
 from __future__ import annotations
 
@@ -16,14 +21,14 @@ from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox,
+    QMenu, QMessageBox, QPushButton, QRadioButton, QSizePolicy, QSpinBox,
     QTabWidget, QVBoxLayout, QWidget,
 )
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QStandardItemModel
 
 from .titleblock_template import (
-    TitleBlockTemplate, TemplateLayout, TemplateVariant, CellSpec, BorderStyle,
-    CELL_KINDS,
+    TitleBlockTemplate, TemplateLayout, CellSpec, BorderStyle,
+    CELL_KINDS, native_orientation,
     make_default_template, load_library, save_to_library, delete_from_library,
     solve_layout, validate,
 )
@@ -55,6 +60,25 @@ _SAMPLE_VALUES = {
 # Field key groups for the cell form picker
 _AUTO_FIELD_KEYS = ["Scale", "Date (auto)", "Sheet No"]
 _SHEET_FIELD_KEYS = ["Title", "Drawing No", "Rev", "Date"]
+
+
+def _template_page_mm(template: TitleBlockTemplate) -> tuple[float, float]:
+    """Return (width_mm, height_mm) of the effective page for *template*.
+
+    Swaps PAPER_SIZES dims when ``template.orientation`` differs from the
+    paper size's native orientation.  This is the single authoritative place
+    for the swap rule in the editor; matches the paper-space helper logic.
+
+    Args:
+        template: The template whose paper size and orientation to resolve.
+
+    Returns:
+        ``(width_mm, height_mm)`` in mm.
+    """
+    w, h = PAPER_SIZES.get(template.paper_size, (297.0, 420.0))
+    if template.orientation != native_orientation(template.paper_size):
+        w, h = h, w
+    return w, h
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -141,8 +165,6 @@ class _BorderGroup(QGroupBox):
         }
 
 
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Main dialog
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,9 +204,6 @@ class TitleBlockEditorDialog(QDialog):
 
         # ── Loading guard (suppress snapshot pushes during UI population) ─
         self._loading = False
-
-        # ── Active paper size for the current session ──────────────────────
-        self._active_size = "ANSI D"
 
         # ── Preview scene (reused across refresh_preview calls) ────────────
         self._preview_scene = QGraphicsScene(self)
@@ -254,51 +273,100 @@ class TitleBlockEditorDialog(QDialog):
         name_row.addWidget(self._name_edit, stretch=1)
         centre.addLayout(name_row)
 
-        # Variant tab widget (one tab per paper size + "+" tab)
-        self._variant_tabs = QTabWidget()
-        self._variant_tabs.currentChanged.connect(self._on_variant_tab_changed)
-        centre.addWidget(self._variant_tabs, stretch=0)
+        # ── Component tabs (Overview / Drawing Area / Info Strip) ──────────
+        self._component_tabs = QTabWidget()
+        centre.addWidget(self._component_tabs, stretch=1)
 
-        # ── Margins group ─────────────────────────────────────────────────
-        margins_group = QGroupBox("Margins")
-        margins_form = QFormLayout(margins_group)
-        margins_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # ── Tab 0: Overview ────────────────────────────────────────────────
+        overview_widget = QWidget()
+        overview_layout = QVBoxLayout(overview_widget)
+        overview_layout.setSpacing(6)
 
+        overview_form_group = QGroupBox("Paper Setup")
+        overview_form = QFormLayout(overview_form_group)
+        overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Paper size combo
+        self._paper_size_combo = QComboBox()
+        self._paper_size_combo.addItems(list(PAPER_SIZES.keys()))
+        self._paper_size_combo.currentTextChanged.connect(
+            lambda t: self.set_paper_size(t))
+        overview_form.addRow("Paper size:", self._paper_size_combo)
+
+        # Orientation toggle (two radio buttons)
+        orient_widget = QWidget()
+        orient_row = QHBoxLayout(orient_widget)
+        orient_row.setContentsMargins(0, 0, 0, 0)
+        self._orient_landscape = QRadioButton("Landscape")
+        self._orient_portrait = QRadioButton("Portrait")
+        self._orient_landscape.setChecked(True)
+        orient_row.addWidget(self._orient_landscape)
+        orient_row.addWidget(self._orient_portrait)
+        orient_row.addStretch()
+        self._orient_landscape.toggled.connect(self._on_orientation_toggled)
+        overview_form.addRow("Orientation:", orient_widget)
+
+        # Three margin/strip DimensionEdits
         self._edge_edit = DimensionEdit(None, initial_mm=10.0,
                                         parser=_sm.parse_dimension, minimum=0.0)
         self._edge_edit.valueChanged.connect(self.set_margin_edge)
-        margins_form.addRow("Edge margin (mm):", self._edge_edit)
+        overview_form.addRow("Edge margin (mm):", self._edge_edit)
 
         self._strip_margin_edit = DimensionEdit(None, initial_mm=5.0,
                                                 parser=_sm.parse_dimension, minimum=0.0)
         self._strip_margin_edit.valueChanged.connect(self.set_margin_strip)
-        margins_form.addRow("Strip gap (mm):", self._strip_margin_edit)
+        overview_form.addRow("Strip gap (mm):", self._strip_margin_edit)
 
         self._strip_width_edit = DimensionEdit(None, initial_mm=90.0,
                                                parser=_sm.parse_dimension, minimum=0.0)
         self._strip_width_edit.valueChanged.connect(self.set_strip_width)
-        margins_form.addRow("Strip width (mm):", self._strip_width_edit)
+        overview_form.addRow("Strip width (mm):", self._strip_width_edit)
 
-        centre.addWidget(margins_group)
+        overview_layout.addWidget(overview_form_group)
+        overview_layout.addStretch()
 
-        # ── Border groups ─────────────────────────────────────────────────
-        borders_row = QHBoxLayout()
+        self._component_tabs.addTab(overview_widget, "Overview")
+
+        # ── Tab 1: Drawing Area ────────────────────────────────────────────
+        area_widget = QWidget()
+        area_layout = QVBoxLayout(area_widget)
+        area_layout.setSpacing(6)
+
         self._area_border = _BorderGroup("Drawing Area Border")
-        self._strip_border = _BorderGroup("Info Strip Border")
-        borders_row.addWidget(self._area_border)
-        borders_row.addWidget(self._strip_border)
-        centre.addLayout(borders_row)
+        area_layout.addWidget(self._area_border)
+        area_layout.addStretch()
 
         # Wire border change signals
-        for widget in (self._area_border, self._strip_border):
-            widget._visible.toggled.connect(self._on_border_changed)
-            widget._width.valueChanged.connect(lambda _: self._on_border_changed())
-            widget._color_btn.clicked.connect(self._on_border_changed)
-            widget._corner.currentIndexChanged.connect(
-                lambda _: self._on_border_changed())
-            widget._fillet.valueChanged.connect(lambda _: self._on_border_changed())
+        self._area_border._visible.toggled.connect(self._on_border_changed)
+        self._area_border._width.valueChanged.connect(
+            lambda _: self._on_border_changed())
+        self._area_border._color_btn.clicked.connect(self._on_border_changed)
+        self._area_border._corner.currentIndexChanged.connect(
+            lambda _: self._on_border_changed())
+        self._area_border._fillet.valueChanged.connect(
+            lambda _: self._on_border_changed())
 
-        # ── Cell list + per-cell form ─────────────────────────────────────
+        self._component_tabs.addTab(area_widget, "Drawing Area")
+
+        # ── Tab 2: Info Strip ──────────────────────────────────────────────
+        strip_widget = QWidget()
+        strip_layout = QVBoxLayout(strip_widget)
+        strip_layout.setSpacing(6)
+
+        self._strip_border = _BorderGroup("Info Strip Border")
+        strip_layout.addWidget(self._strip_border)
+
+        # Wire strip border change signals
+        self._strip_border._visible.toggled.connect(self._on_border_changed)
+        self._strip_border._width.valueChanged.connect(
+            lambda _: self._on_border_changed())
+        self._strip_border._color_btn.clicked.connect(self._on_border_changed)
+        self._strip_border._corner.currentIndexChanged.connect(
+            lambda _: self._on_border_changed())
+        self._strip_border._fillet.valueChanged.connect(
+            lambda _: self._on_border_changed())
+
+        # Cell list + per-cell form
         cells_split = QHBoxLayout()
 
         # Left side: cell list
@@ -357,6 +425,13 @@ class TitleBlockEditorDialog(QDialog):
             lambda: self._cell_form_prop_changed(
                 "static_text", self._cell_static_text.text()))
         cell_form.addRow("Static text:", self._cell_static_text)
+
+        # Sizing combo (Static / Dynamic) — DD-8b
+        self._cell_sizing_combo = QComboBox()
+        self._cell_sizing_combo.addItems(["Static", "Dynamic"])
+        self._cell_sizing_combo.currentTextChanged.connect(
+            self._on_cell_sizing_changed)
+        cell_form.addRow("Sizing:", self._cell_sizing_combo)
 
         self._cell_min_height = DimensionEdit(None, initial_mm=10.0,
                                               parser=_sm.parse_dimension, minimum=0.0)
@@ -429,7 +504,9 @@ class TitleBlockEditorDialog(QDialog):
         cell_form.addRow("Logo:", self._cell_logo_btn)
 
         cells_split.addWidget(self._cell_form_widget)
-        centre.addLayout(cells_split, stretch=1)
+        strip_layout.addLayout(cells_split, stretch=1)
+
+        self._component_tabs.addTab(strip_widget, "Info Strip")
 
         root.addLayout(centre, stretch=1)
 
@@ -469,11 +546,15 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _reload_library(self) -> None:
-        """Reload the library list widget from disk."""
+        """Reload the library list widget from disk.
+
+        Each item displays the template's ``display_name`` ("Name (SIZE)" or
+        "Name (SIZE, Portrait)") with the uuid stored in UserRole.
+        """
         self._loading = True
         self._template_list.clear()
         for tmpl in load_library():
-            item = QListWidgetItem(tmpl.name)
+            item = QListWidgetItem(tmpl.display_name)
             item.setData(Qt.ItemDataRole.UserRole, tmpl.uuid)
             self._template_list.addItem(item)
         self._loading = False
@@ -506,8 +587,6 @@ class TitleBlockEditorDialog(QDialog):
         self.working = tmpl.copy()
         self._undo_stack.clear()
         self._redo_stack.clear()
-        # Sync active size to template's paper_size
-        self._active_size = self.working.paper_size
         self._populate_form()
 
     def new_template(self) -> None:
@@ -517,7 +596,6 @@ class TitleBlockEditorDialog(QDialog):
         self.working = tmpl
         self._undo_stack.clear()
         self._redo_stack.clear()
-        self._active_size = self.working.paper_size
         self._populate_form()
 
     def duplicate_template(self) -> None:
@@ -648,7 +726,11 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def refresh_preview(self) -> None:
-        """Rebuild the preview scene using the current working variant."""
+        """Rebuild the preview scene using the current working template.
+
+        Page dims are computed via ``_template_page_mm`` (swap rule respects
+        orientation vs. native orientation for the selected paper size).
+        """
         self._preview_scene.clear()
         enabled = False
         warnings: list[str] = []
@@ -658,10 +740,9 @@ class TitleBlockEditorDialog(QDialog):
             self.save_button.setEnabled(False)
             return
 
-        # Single-size model: use the template's layout and paper_size
+        # Single-size model: use the template's layout and oriented paper dims
         variant = self.working.layout
-        size = self.working.paper_size
-        paper_w, paper_h = PAPER_SIZES.get(size, (297.0, 420.0))
+        paper_w, paper_h = _template_page_mm(self.working)
 
         # Validate first (save-blocking errors)
         errs = validate(variant, paper_w, paper_h)
@@ -721,68 +802,29 @@ class TitleBlockEditorDialog(QDialog):
     def _populate_form_inner(self) -> None:
         if self.working is None:
             self._name_edit.clear()
-            self._rebuild_variant_tabs()
             self._cell_list.clear()
             return
 
         self._name_edit.setText(self.working.name)
-        self._rebuild_variant_tabs()
+        self._populate_overview_fields()
         self._populate_variant_fields()
         self._rebuild_cell_list()
         # Deselect cell form when repopulating
         self._cell_form_widget.setEnabled(False)
 
-    def _rebuild_variant_tabs(self) -> None:
-        """Rebuild variant tabs from self.working.variants."""
-        self._variant_tabs.blockSignals(True)
-        while self._variant_tabs.count():
-            self._variant_tabs.removeTab(0)
+    def _populate_overview_fields(self) -> None:
+        """Populate paper-size combo + orientation radios from working template."""
         if self.working is None:
-            self._variant_tabs.blockSignals(False)
             return
-        # Add one tab per existing variant
-        for size in self.working.variants:
-            tab = QWidget()
-            self._variant_tabs.addTab(tab, size)
-        # "+" tab for adding new sizes
-        self._variant_tabs.addTab(QWidget(), "+")
-        # Restore active tab
-        for i in range(self._variant_tabs.count() - 1):
-            if self._variant_tabs.tabText(i) == self._active_size:
-                self._variant_tabs.setCurrentIndex(i)
-                break
-        self._variant_tabs.blockSignals(False)
-
-    def _on_variant_tab_changed(self, index: int) -> None:
-        if self._loading or self.working is None:
-            return
-        tab_text = self._variant_tabs.tabText(index)
-        if tab_text == "+":
-            # Show menu of available sizes to add
-            self._show_add_size_menu()
-            # Revert to previous tab
-            for i in range(self._variant_tabs.count() - 1):
-                if self._variant_tabs.tabText(i) == self._active_size:
-                    self._variant_tabs.blockSignals(True)
-                    self._variant_tabs.setCurrentIndex(i)
-                    self._variant_tabs.blockSignals(False)
-                    break
+        # Paper size combo
+        idx = self._paper_size_combo.findText(self.working.paper_size)
+        if idx >= 0:
+            self._paper_size_combo.setCurrentIndex(idx)
+        # Orientation radios
+        if self.working.orientation == "portrait":
+            self._orient_portrait.setChecked(True)
         else:
-            self._active_size = tab_text
-            self._populate_variant_fields()
-            self._rebuild_cell_list()
-            self.refresh_preview()
-
-    def _show_add_size_menu(self) -> None:
-        existing = set(self.working.variants.keys()) if self.working else set()
-        available = [s for s in PAPER_SIZES if s not in existing]
-        if not available:
-            return
-        menu = QMenu(self)
-        for size in available:
-            menu.addAction(size, lambda s=size: self.add_variant(s))
-        menu.exec(self._variant_tabs.mapToGlobal(
-            self._variant_tabs.rect().bottomLeft()))
+            self._orient_landscape.setChecked(True)
 
     def _populate_variant_fields(self) -> None:
         """Update margin/border widgets from the active layout (no snapshot)."""
@@ -814,7 +856,11 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def _on_cell_selected(self, row: int) -> None:
-        """Populate per-cell form without pushing a snapshot (_loading guard)."""
+        """Populate per-cell form without pushing a snapshot (_loading guard).
+
+        The min-height DimensionEdit is disabled when the selected cell has
+        ``sizing == "dynamic"`` (spec DD-8b).
+        """
         if self.working is None or row < 0:
             self._cell_form_widget.setEnabled(False)
             return
@@ -830,6 +876,11 @@ class TitleBlockEditorDialog(QDialog):
             self._cell_field_key.setCurrentText(cell.field_key)
             self._cell_label_edit.setText(cell.label)
             self._cell_static_text.setText(cell.static_text)
+            # Sizing combo
+            sizing_text = "Dynamic" if cell.sizing == "dynamic" else "Static"
+            self._cell_sizing_combo.setCurrentText(sizing_text)
+            # Min-height disabled when dynamic
+            self._cell_min_height.setEnabled(cell.sizing != "dynamic")
             self._cell_min_height.set_value_mm(cell.min_height_mm)
             self._cell_cap_height.set_value_mm(cell.cap_height_mm)
             self._cell_pair.setChecked(cell.pair_with_next)
@@ -844,6 +895,21 @@ class TitleBlockEditorDialog(QDialog):
             self._cell_rev_rows.setVisible(rev_visible)
         finally:
             self._loading = False
+
+    def _on_cell_sizing_changed(self, text: str) -> None:
+        """Handle sizing combo change: mutate cell, update min-height enabled state."""
+        if self._loading:
+            return
+        sizing = "dynamic" if text == "Dynamic" else "static"
+        row = self._cell_list.currentRow()
+        if row < 0:
+            return
+        # Mutate via set_cell_prop (pushes snapshot)
+        self.set_cell_prop(row, "sizing", sizing)
+        # Update min-height enabled state without a reload loop
+        self._loading = True
+        self._cell_min_height.setEnabled(sizing != "dynamic")
+        self._loading = False
 
     def _cell_form_prop_changed(self, prop: str, value) -> None:
         """Called by cell form widgets; pushes snapshot then mutates."""
@@ -957,8 +1023,18 @@ class TitleBlockEditorDialog(QDialog):
             self._cell_border_group.read())
         self.refresh_preview()
 
+    def _on_orientation_toggled(self, checked: bool) -> None:
+        """Called when the Landscape radio button's toggled signal fires."""
+        if self._loading or self.working is None:
+            return
+        # Only act on the "becoming checked" transition to avoid double-fire
+        if not checked:
+            return
+        orientation = "landscape" if self._orient_landscape.isChecked() else "portrait"
+        self.set_orientation(orientation)
+
     # ═════════════════════════════════════════════════════════════════════════
-    # Public form slots (Pass-b API; tested directly)
+    # Public form slots (API; tested directly)
     # ═════════════════════════════════════════════════════════════════════════
 
     def set_name(self, text: str) -> None:
@@ -973,6 +1049,35 @@ class TitleBlockEditorDialog(QDialog):
             if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
                 self._template_list.item(i).setText(text)
                 break
+
+    def set_paper_size(self, size: str) -> None:
+        """Snapshot + set template paper_size; re-solves preview at new dims.
+
+        Args:
+            size: A key in PAPER_SIZES (e.g. ``"ANSI D"``).  Unknown keys are
+                accepted and will produce a fallback page size in the preview.
+        """
+        if self._loading or self.working is None:
+            return
+        if self.working.paper_size == size:
+            return
+        self.push_snapshot()
+        self.working.paper_size = size
+        self.refresh_preview()
+
+    def set_orientation(self, orientation: str) -> None:
+        """Snapshot + set template orientation; re-solves preview at swapped dims.
+
+        Args:
+            orientation: ``"landscape"`` or ``"portrait"``.
+        """
+        if self._loading or self.working is None:
+            return
+        if self.working.orientation == orientation:
+            return
+        self.push_snapshot()
+        self.working.orientation = orientation
+        self.refresh_preview()
 
     def set_margin_edge(self, mm: float) -> None:
         """Snapshot + mutate margin_edge_mm on the active layout."""
@@ -1110,56 +1215,6 @@ class TitleBlockEditorDialog(QDialog):
         except Exception as exc:
             _log.warning("Failed to load logo: %s", exc)
         self.refresh_preview()
-
-    # ── Variant management ────────────────────────────────────────────────
-
-    def add_variant(self, size: str) -> None:
-        """Add a variant for *size*, copying cells from the active variant."""
-        if self.working is None:
-            return
-        if size in self.working.variants:
-            return
-        self.push_snapshot()
-        # Deep-copy cells via dict round-trip so they're independent
-        src = self._active_variant()
-        if src is not None:
-            d = src.to_dict()
-            d["paper_size"] = size
-            new_variant = TemplateVariant.from_dict(d)
-        else:
-            new_variant = TemplateVariant(paper_size=size)
-        self.working.variants[size] = new_variant
-        self._loading = True
-        self._rebuild_variant_tabs()
-        self._loading = False
-        self.refresh_preview()
-
-    def remove_variant(self, size: str) -> None:
-        """Remove the variant for *size* (no-op if it's the last variant)."""
-        if self.working is None:
-            return
-        if size not in self.working.variants:
-            return
-        if len(self.working.variants) <= 1:
-            return
-        self.push_snapshot()
-        del self.working.variants[size]
-        if self._active_size == size:
-            self._active_size = next(iter(self.working.variants))
-        self._loading = True
-        self._rebuild_variant_tabs()
-        self._loading = False
-        self.refresh_preview()
-
-    def set_active_size(self, size: str) -> None:
-        """Switch the active paper size for editing."""
-        if self.working and size in self.working.variants:
-            self._active_size = size
-            self._loading = True
-            self._populate_variant_fields()
-            self._rebuild_cell_list()
-            self._loading = False
-            self.refresh_preview()
 
     # ═════════════════════════════════════════════════════════════════════════
     # Save button / dialog close

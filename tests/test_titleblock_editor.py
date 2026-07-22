@@ -501,3 +501,241 @@ class TestSheetNoDisabled:
                 )
                 break
         assert found, "'Sheet No' not found in the field_key combo model"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rev2 — new slots / UI states (T16)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSetPaperSize:
+    """set_paper_size() mutates working.paper_size, pushes a snapshot, and
+    triggers a preview refresh that places an item in the scene."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_set_paper_size_changes_working(self, tmp_path, monkeypatch):
+        """set_paper_size("ANSI B") must update working.paper_size."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        original = dlg.working.paper_size
+        assert original != "ANSI B", "test requires default != ANSI B"
+        dlg.set_paper_size("ANSI B")
+        assert dlg.working.paper_size == "ANSI B"
+
+    def test_set_paper_size_pushes_snapshot(self, tmp_path, monkeypatch):
+        """set_paper_size must push a snapshot so undo restores the old size."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        original = dlg.working.paper_size
+        dlg.set_paper_size("ANSI B")
+        assert len(dlg._undo_stack) >= 1
+        dlg.undo()
+        assert dlg.working.paper_size == original
+
+    def test_set_paper_size_triggers_preview_item(self, tmp_path, monkeypatch):
+        """After set_paper_size the preview scene must contain a TitleBlockTemplateItem."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.set_paper_size("ANSI B")
+        kinds = [type(i).__name__ for i in dlg._preview_scene.items()]
+        assert "TitleBlockTemplateItem" in kinds
+
+
+class TestSetOrientation:
+    """set_orientation() swaps dims so preview page has h > w for portrait."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()          # ANSI D landscape (native)
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_set_orientation_portrait_makes_h_gt_w(self, tmp_path, monkeypatch):
+        """Switching to portrait on a landscape-native size must flip the page so h > w."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg.working.orientation == "landscape"
+        dlg.set_orientation("portrait")
+        assert dlg.working.orientation == "portrait"
+        # Probe the paper rect in the preview scene: the white background rect
+        # is always added first with dims = (paper_w, paper_h).
+        # After portrait switch on ANSI D: stored dims are (558.8, 863.6) so
+        # swapped dims = (863.6, 558.8) → w=863.6, h=558.8 i.e. w > h still.
+        # But logical page height (h) should be 558.8 and width 863.6 for portrait
+        # i.e. it becomes a taller page when computed via _template_page_mm.
+        # ANSI D stored as (558.8, 863.6) landscape → portrait swap → (863.6, 558.8)
+        # wait — native landscape: w=558.8, h=863.6?
+        # Let's just probe the sceneRect: for portrait the scene height > width.
+        from firepro3d.titleblock_editor import _template_page_mm
+        w, h = _template_page_mm(dlg.working)
+        assert h > w, f"Portrait page should have h > w but got w={w}, h={h}"
+
+    def test_set_orientation_pushes_snapshot_and_undoes(
+            self, tmp_path, monkeypatch):
+        """set_orientation must push a snapshot so undo restores."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.set_orientation("portrait")
+        dlg.undo()
+        assert dlg.working.orientation == "landscape"
+
+
+class TestPickerDisplayName:
+    """Library combo must show template.display_name, not bare name."""
+
+    def test_picker_shows_display_name(self, tmp_path, monkeypatch):
+        """After save, the library list must show 'Name (SIZE)' not 'Name'."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()          # "FirePro Default", ANSI D landscape
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        # The list item text must be the display_name, not just the bare name.
+        texts = [dlg._template_list.item(i).text()
+                 for i in range(dlg._template_list.count())]
+        expected = t.display_name          # "FirePro Default (ANSI D)"
+        assert expected in texts, (
+            f"Expected display_name '{expected}' in list but got {texts}"
+        )
+        # Bare name must NOT appear as a standalone entry
+        assert t.name not in texts, (
+            f"Bare name '{t.name}' must not appear without size suffix"
+        )
+
+    def test_display_name_native_no_orientation_suffix(self, tmp_path, monkeypatch):
+        """Native orientation → no ', Portrait' / ', Landscape' suffix."""
+        t = make_default_template()          # ANSI D landscape (native)
+        dn = t.display_name
+        assert dn == "FirePro Default (ANSI D)", f"Unexpected display_name: {dn!r}"
+
+    def test_display_name_non_native_appends_suffix(self, tmp_path, monkeypatch):
+        """Non-native orientation → suffix appended inside parens."""
+        t = make_default_template()
+        t.orientation = "portrait"          # non-native for ANSI D
+        dn = t.display_name
+        assert dn == "FirePro Default (ANSI D, Portrait)", (
+            f"Non-native display_name wrong: {dn!r}"
+        )
+
+
+class TestSizingComboUI:
+    """set_cell_prop(i, 'sizing', 'dynamic') persists and is undoable;
+    min-height DimensionEdit is disabled when a dynamic cell is selected."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def _stamp_cell_index(self, dlg) -> int:
+        """Return the index of the 'stamp' cell in the default template."""
+        cells = dlg.working.layout.cells
+        for i, c in enumerate(cells):
+            if c.kind == "stamp":
+                return i
+        raise AssertionError("No stamp cell found in default template")
+
+    def test_set_cell_prop_sizing_dynamic_persists(self, tmp_path, monkeypatch):
+        """set_cell_prop(i, 'sizing', 'dynamic') must write cell.sizing."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Use cell 0 (logo) which starts as static
+        dlg.working.layout.cells[0].sizing = "static"
+        dlg.set_cell_prop(0, "sizing", "dynamic")
+        assert dlg.working.layout.cells[0].sizing == "dynamic"
+
+    def test_set_cell_prop_sizing_undoable(self, tmp_path, monkeypatch):
+        """Sizing change must be undoable via snapshot."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.working.layout.cells[0].sizing = "static"
+        dlg.set_cell_prop(0, "sizing", "dynamic")
+        assert dlg.working.layout.cells[0].sizing == "dynamic"
+        dlg.undo()
+        assert dlg.working.layout.cells[0].sizing == "static"
+
+    def test_min_height_disabled_for_dynamic_cell(self, tmp_path, monkeypatch):
+        """Selecting a dynamic cell must disable the min-height DimensionEdit."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        stamp_idx = self._stamp_cell_index(dlg)
+        # Stamp cell is seeded as dynamic
+        assert dlg.working.layout.cells[stamp_idx].sizing == "dynamic", (
+            "Test pre-condition: stamp cell must be dynamic"
+        )
+        dlg._on_cell_selected(stamp_idx)
+        assert not dlg._cell_min_height.isEnabled(), (
+            "min_height edit must be disabled when cell sizing == 'dynamic'"
+        )
+
+    def test_min_height_enabled_for_static_cell(self, tmp_path, monkeypatch):
+        """Selecting a static cell must enable the min-height DimensionEdit."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Cell 0 (logo) is static in the default template
+        assert dlg.working.layout.cells[0].sizing == "static", (
+            "Test pre-condition: cell 0 must be static"
+        )
+        dlg._on_cell_selected(0)
+        assert dlg._cell_min_height.isEnabled(), (
+            "min_height edit must be enabled when cell sizing == 'static'"
+        )
+
+
+class TestComponentTabsExist:
+    """Editor must have an Overview, Drawing Area, and Info Strip tab."""
+
+    def test_three_component_tabs(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        tab = dlg._component_tabs
+        titles = [tab.tabText(i) for i in range(tab.count())]
+        assert "Overview" in titles, f"Missing 'Overview' tab; got {titles}"
+        assert "Drawing Area" in titles, (
+            f"Missing 'Drawing Area' tab; got {titles}")
+        assert "Info Strip" in titles, (
+            f"Missing 'Info Strip' tab; got {titles}")
+
+    def test_no_variant_tabs_attribute(self, tmp_path, monkeypatch):
+        """The old per-size variant QTabWidget (_variant_tabs) must be gone."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        assert not hasattr(dlg, "_variant_tabs"), (
+            "_variant_tabs still present — variant machinery not fully removed"
+        )
+
+    def test_no_active_size_attribute(self, tmp_path, monkeypatch):
+        """The vestigial _active_size attribute must be removed."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        assert not hasattr(dlg, "_active_size"), (
+            "_active_size still present — variant machinery not fully removed"
+        )
+
+
+class TestTemplatePagMm:
+    """_template_page_mm helper: swap rule correctness."""
+
+    def test_native_orientation_no_swap(self):
+        from firepro3d.titleblock_editor import _template_page_mm
+        from firepro3d.titleblock_template import make_default_template
+        t = make_default_template()          # ANSI D landscape (native)
+        w, h = _template_page_mm(t)
+        from firepro3d.paper_space import PAPER_SIZES
+        stored_w, stored_h = PAPER_SIZES["ANSI D"]
+        assert (w, h) == (stored_w, stored_h), (
+            "Native orientation must not swap dims"
+        )
+
+    def test_non_native_orientation_swaps(self):
+        from firepro3d.titleblock_editor import _template_page_mm
+        from firepro3d.titleblock_template import make_default_template
+        from firepro3d.paper_space import PAPER_SIZES
+        t = make_default_template()
+        t.orientation = "portrait"          # non-native for ANSI D
+        w, h = _template_page_mm(t)
+        stored_w, stored_h = PAPER_SIZES["ANSI D"]
+        assert (w, h) == (stored_h, stored_w), (
+            "Non-native orientation must swap dims"
+        )
