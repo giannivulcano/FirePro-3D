@@ -62,8 +62,15 @@ stylesheet styles `QCheckBox::indicator` **and** `QAbstractItemView::indicator`
   unchecked — every new state needs an explicit rule.
 
 The single white-tick SVG works for both variants because the checked fill is
-the blue accent in each. Radio buttons are intentionally left untouched (they
-stay circular).
+the blue accent in each.
+
+### Radio-button indicators
+
+`QRadioButton::indicator` is also styled explicitly (circular, 14 px, same
+border/accent tokens as checkboxes) because QSS replaces native painting
+entirely — an unstyled state renders identically to the base state and becomes
+invisible on the dark theme. States covered: unchecked, `:hover`,
+`:checked` (radial-gradient filled dot), `:disabled`.
 
 ## UI conventions
 

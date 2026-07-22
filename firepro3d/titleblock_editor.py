@@ -189,7 +189,7 @@ class TitleBlockEditorDialog(QDialog):
                  project_info: dict | None = None):
         super().__init__(parent)
         self.setWindowTitle("Title Block Template Editor")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(640, 760)
 
         # ── Public state ──────────────────────────────────────────────────
         self.working: TitleBlockTemplate | None = None
@@ -259,19 +259,9 @@ class TitleBlockEditorDialog(QDialog):
 
         root.addLayout(left)
 
-        # ── Centre: form ──────────────────────────────────────────────────
+        # ── Centre: form (single column — tabs full width) ────────────────
         centre = QVBoxLayout()
         centre.setSpacing(6)
-
-        # Template name row
-        name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Name:"))
-        self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("Template name")
-        self._name_edit.editingFinished.connect(
-            lambda: self.set_name(self._name_edit.text()))
-        name_row.addWidget(self._name_edit, stretch=1)
-        centre.addLayout(name_row)
 
         # ── Component tabs (Overview / Drawing Area / Info Strip) ──────────
         self._component_tabs = QTabWidget()
@@ -285,6 +275,13 @@ class TitleBlockEditorDialog(QDialog):
         overview_form_group = QGroupBox("Paper Setup")
         overview_form = QFormLayout(overview_form_group)
         overview_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+
+        # Name row — first inside Paper Setup (Fix 3)
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("Template name")
+        self._name_edit.editingFinished.connect(
+            lambda: self.set_name(self._name_edit.text()))
+        overview_form.addRow("Name:", self._name_edit)
 
         # Paper size combo
         self._paper_size_combo = QComboBox()
@@ -324,9 +321,27 @@ class TitleBlockEditorDialog(QDialog):
         overview_form.addRow("Strip width (mm):", self._strip_width_edit)
 
         overview_layout.addWidget(overview_form_group)
-        overview_layout.addStretch()
+
+        # Preview group — below Paper Setup, inside Overview tab (Fix 2)
+        preview_group = QGroupBox("Preview")
+        preview_group_layout = QVBoxLayout(preview_group)
+        preview_group_layout.setContentsMargins(4, 4, 4, 4)
+
+        self._preview_view = QGraphicsView(self._preview_scene)
+        self._preview_view.setMinimumHeight(280)
+        self._preview_view.setRenderHint(
+            self._preview_view.renderHints().__class__.Antialiasing)
+        self._preview_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        preview_group_layout.addWidget(self._preview_view)
+
+        overview_layout.addWidget(preview_group, stretch=1)
 
         self._component_tabs.addTab(overview_widget, "Overview")
+
+        # Refresh fitInView when the Overview tab becomes visible so the fit
+        # runs with a realized viewport (avoids the empty-rect on first show).
+        self._component_tabs.currentChanged.connect(self._on_tab_changed)
 
         # ── Tab 1: Drawing Area ────────────────────────────────────────────
         area_widget = QWidget()
@@ -511,24 +526,12 @@ class TitleBlockEditorDialog(QDialog):
 
         root.addLayout(centre, stretch=1)
 
-        # ── Right panel: preview + warnings + buttons ─────────────────────
-        right = QVBoxLayout()
-        right.setSpacing(6)
-        right.addWidget(QLabel("Preview:"))
-
-        self._preview_view = QGraphicsView(self._preview_scene)
-        self._preview_view.setMinimumWidth(300)
-        self._preview_view.setRenderHint(
-            self._preview_view.renderHints().__class__.Antialiasing)
-        self._preview_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        right.addWidget(self._preview_view, stretch=1)
-
+        # ── Bottom: warnings + Save/Cancel (outside tabs, visible on every tab) ──
         self._warning_label = QLabel()
         self._warning_label.setWordWrap(True)
         self._warning_label.setStyleSheet("color: #b8620a; font-size: 11px;")
         self._warning_label.setVisible(False)
-        right.addWidget(self._warning_label)
+        centre.addWidget(self._warning_label)
 
         self._btn_box = QDialogButtonBox()
         self.save_button = self._btn_box.addButton(
@@ -538,9 +541,7 @@ class TitleBlockEditorDialog(QDialog):
         cancel_btn = self._btn_box.addButton(
             "Cancel", QDialogButtonBox.ButtonRole.RejectRole)
         cancel_btn.clicked.connect(self.reject)
-        right.addWidget(self._btn_box)
-
-        root.addLayout(right)
+        centre.addWidget(self._btn_box)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Library management
@@ -1027,6 +1028,19 @@ class TitleBlockEditorDialog(QDialog):
         if variant and row < len(variant.cells) - 1:
             self.move_cell(row, row + 1)
             self._cell_list.setCurrentRow(row + 1)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Re-fit the preview when the Overview tab (index 0) becomes visible.
+
+        fitInView requires the QGraphicsView to have a realized viewport; it
+        fails silently when called before the widget is shown. Calling it here
+        (on tab switch) ensures the viewport geometry is valid.
+        """
+        if index == 0:
+            items_rect = self._preview_scene.itemsBoundingRect()
+            if not items_rect.isEmpty():
+                self._preview_view.fitInView(
+                    items_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_border_changed(self) -> None:
         """Called when any area/strip border group widget changes."""

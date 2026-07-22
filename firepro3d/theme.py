@@ -365,6 +365,27 @@ QCheckBox::indicator:indeterminate, QAbstractItemView::indicator:indeterminate {
 QCheckBox::indicator:disabled, QAbstractItemView::indicator:disabled {{
     border-color: {t.border_subtle};
 }}
+/* Radio-button indicators — styled explicitly because QSS replaces native
+   painting entirely; any state without a rule silently renders as the base
+   state (indistinguishable from unchecked on the dark theme). */
+QRadioButton::indicator {{
+    width: 14px;
+    height: 14px;
+    border: 1px solid {t.border_strong};
+    border-radius: 7px;
+    background: {t.bg_base};
+}}
+QRadioButton::indicator:hover {{
+    border-color: {t.accent_primary};
+}}
+QRadioButton::indicator:checked {{
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0.55 {t.accent_primary}, stop:0.65 {t.bg_base});
+    border-color: {t.accent_primary};
+}}
+QRadioButton::indicator:disabled {{
+    border-color: {t.border_subtle};
+}}
 
 /* ── Tab widgets (dialogs, docks — NOT the ribbon) ──────────────────────── */
 QTabWidget::pane {{

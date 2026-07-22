@@ -826,3 +826,105 @@ class TestPaperSizeChangeResetsOrientation:
             "Changing paper size must reset sheet.orientation to '' "
             "(return to native orientation)"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Smoke round-2 UI fixes
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPreviewInOverviewTab:
+    """Fix 2: _preview_view must be a descendant of the Overview tab page."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        return TitleBlockEditorDialog(project_template=None)
+
+    def test_preview_view_inside_overview_tab(self, tmp_path, monkeypatch):
+        """_preview_view must live inside the Overview tab widget."""
+        from PyQt6.QtWidgets import QGraphicsView
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        overview_page = dlg._component_tabs.widget(0)
+        assert overview_page is not None, "Overview tab (index 0) must exist"
+
+        # Walk parent chain of _preview_view up to overview_page.
+        widget = dlg._preview_view
+        found = False
+        while widget is not None:
+            if widget is overview_page:
+                found = True
+                break
+            widget = widget.parent()
+        assert found, (
+            "_preview_view is not a descendant of the Overview tab page — "
+            "it must be placed inside the Overview tab (below Paper Setup)"
+        )
+
+    def test_overview_tab_is_index_0(self, tmp_path, monkeypatch):
+        """Overview tab must be the first tab (index 0)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg._component_tabs.tabText(0) == "Overview", (
+            "First component tab must be 'Overview'"
+        )
+
+    def test_no_standalone_preview_column(self, tmp_path, monkeypatch):
+        """The dialog root layout must NOT have a standalone right-panel preview
+        (i.e., _preview_view's top-level ancestor should be the Overview page,
+        not the dialog itself)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # _preview_view.parent() must not be the dialog itself.
+        assert dlg._preview_view.parent() is not dlg, (
+            "_preview_view must not be a direct child of the dialog — "
+            "it should be inside the Overview tab group box"
+        )
+
+
+class TestNameEditInPaperSetup:
+    """Fix 3: _name_edit must be a descendant of the Paper Setup group box
+    inside the Overview tab."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        return TitleBlockEditorDialog(project_template=None)
+
+    def test_name_edit_inside_overview_tab(self, tmp_path, monkeypatch):
+        """_name_edit must be a descendant of the Overview tab page."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        overview_page = dlg._component_tabs.widget(0)
+        assert overview_page is not None
+
+        widget = dlg._name_edit
+        found = False
+        while widget is not None:
+            if widget is overview_page:
+                found = True
+                break
+            widget = widget.parent()
+        assert found, (
+            "_name_edit is not inside the Overview tab — "
+            "it must be the first row in the Paper Setup group box"
+        )
+
+    def test_name_edit_inside_paper_setup_group(self, tmp_path, monkeypatch):
+        """_name_edit must be a descendant of a QGroupBox named 'Paper Setup'."""
+        from PyQt6.QtWidgets import QGroupBox
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        overview_page = dlg._component_tabs.widget(0)
+        assert overview_page is not None
+
+        paper_setup_groups = [
+            w for w in overview_page.findChildren(QGroupBox)
+            if w.title() == "Paper Setup"
+        ]
+        assert paper_setup_groups, (
+            "No QGroupBox titled 'Paper Setup' found in Overview tab"
+        )
+        paper_setup = paper_setup_groups[0]
+
+        # _name_edit must be a descendant of paper_setup
+        from PyQt6.QtWidgets import QLineEdit
+        name_edits = paper_setup.findChildren(QLineEdit)
+        assert dlg._name_edit in name_edits, (
+            "_name_edit is not inside the 'Paper Setup' group box"
+        )
