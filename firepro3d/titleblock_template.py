@@ -593,7 +593,10 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
     Returns:
         A SolvedLayout with all rects in paper-mm coordinates.
         ``cell_revision_rows`` lists are **newest-first**; the input
-        ``__revisions__`` list is oldest-first.
+        ``__revisions__`` list is oldest-first.  Warnings are emitted for
+        four conditions: unknown token key in field text, dangling slot
+        dropped (field_id not in layout.fields), image band with no room
+        (band ≤ 0), and cells overflowing the strip bottom.
     """
     m, ms, sw = (variant.margin_edge_mm, variant.margin_strip_mm,
                  variant.strip_width_mm)
@@ -637,24 +640,24 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         lines_group: list[list[str]] = []
         text_heights: list[float] = []
 
-        for slot, field in kept:
+        for slot, fdef in kept:
             # Token resolution (DD-13)
-            resolved, unknown_keys = resolve_text(field.text, values)
+            resolved, unknown_keys = resolve_text(fdef.text, values)
             for key in unknown_keys:
                 warnings.append(
                     f"Unknown field key '@[{key}]' in "
-                    f"'{field.name or field.id}'.")
+                    f"'{fdef.name or fdef.id}'.")
 
             h_text, lines = _wrapped_height_mm(
-                field, resolved, cw - 2 * TB_CELL_PAD_MM)
-            extra = TB_LABEL_ROW_MM if field.label else 0.0
+                fdef, resolved, cw - 2 * TB_CELL_PAD_MM)
+            extra = TB_LABEL_ROW_MM if fdef.label else 0.0
             min_h = max(0.0, slot.min_height_mm)
             h = max(min_h, (h_text + extra + 2 * TB_CELL_PAD_MM)
                     if resolved else min_h)
 
-            if field.kind == "revision_table":
+            if fdef.kind == "revision_table":
                 revs = list(values.get("__revisions__", []))
-                shown = list(reversed(revs))[: field.revision_rows]
+                shown = list(reversed(revs))[: fdef.revision_rows]
                 h = max(min_h,
                         TB_LABEL_ROW_MM + (len(shown) + 1) * TB_REV_ROW_MM)
 
@@ -670,15 +673,15 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         row_spans.append((first_cell_idx, len(kept)))
 
         x = strip_rect.left()
-        for ki, (slot, field) in enumerate(kept):
+        for ki, (slot, fdef) in enumerate(kept):
             flat_idx = first_cell_idx + ki
             cell_rects.append(QRectF(x, y, cw, row_h))
-            cell_field_ids.append(field.id)
+            cell_field_ids.append(fdef.id)
             cell_lines.append(lines_group[ki])
             cell_text_h.append(text_heights[ki])
-            if field.kind == "revision_table":
+            if fdef.kind == "revision_table":
                 revs = list(values.get("__revisions__", []))
-                shown = list(reversed(revs))[: field.revision_rows]
+                shown = list(reversed(revs))[: fdef.revision_rows]
                 cell_revision_rows[flat_idx] = shown
             x += cw
         y += row_h

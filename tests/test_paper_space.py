@@ -1,15 +1,21 @@
 """Unit tests for the Paper Space system (firepro3d/paper_space.py)."""
 from __future__ import annotations
 
+import base64
 import pytest
 from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRectF, QPointF, Qt
+from PyQt6.QtCore import QRectF, QPointF, Qt, QBuffer, QIODevice
+from PyQt6.QtGui import QImage, QPainter
 
 from firepro3d.paper_space import (
     PAPER_SIZES, MARGIN, INNER_MARGIN, TITLE_H,
     TitleBlockItem, PaperScene, PaperSpaceWidget,
     Sheet, ViewResolver, SheetViewData,
+    TitleBlockTemplateItem, build_field_values,
+)
+from firepro3d.titleblock_template import (
+    FieldDef, Slot, TemplateLayout, solve_layout, make_default_template,
 )
 
 
@@ -651,3 +657,88 @@ class TestSerialization:
         assert loaded[0].number == "FP-1.0"
         assert len(loaded[0].sheet_views) == 1
         assert loaded[0].sheet_views[0].scale == pytest.approx(0.01)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fixtures for TitleBlockTemplateItem tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def tiny_png_b64(qapp):
+    """A 4×4 solid-color PNG encoded as base64 ASCII."""
+    img = QImage(4, 4, QImage.Format.Format_RGB32)
+    img.fill(0xFF336699)
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    img.save(buf, "PNG")
+    return base64.b64encode(bytes(buf.data())).decode("ascii")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# build_field_values seeding (DD-13)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestBuildFieldValuesSeeding:
+    def test_standard_keys_seeded_empty(self, qapp):
+        sheet = Sheet("", "", "ANSI D", {}, [])
+        vals = build_field_values(sheet, {})
+        for key in ("Title", "Drawing No", "Rev", "Date",
+                    "Company", "Project", "Address",
+                    "Drawn By", "Checked By"):
+            assert key in vals
+        assert vals["Title"] == ""
+
+    def test_real_values_still_override(self, qapp):
+        sheet = Sheet("", "", "ANSI D", {}, [])
+        sheet.title_block_fields["Title"] = "Plan"
+        vals = build_field_values(sheet, {"name": "Proj X"})
+        assert vals["Title"] == "Plan"
+        assert vals["Project"] == "Proj X"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TitleBlockTemplateItem rev-3 renderer
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTemplateItemRev3:
+    def _render(self, template, values=None):
+        vals = values or {}
+        lay = solve_layout(template.layout, 863.6, 558.8, vals)
+        item = TitleBlockTemplateItem(lay, template.layout, vals)
+        img = QImage(400, 300, QImage.Format.Format_RGB32)
+        img.fill(Qt.GlobalColor.white)
+        p = QPainter(img)
+        p.scale(0.4, 0.4)
+        item.paint(p, None)
+        p.end()
+        return img
+
+    def _nonwhite(self, img):
+        return any(img.pixel(x, y) != 0xFFFFFFFF
+                   for x in range(0, 400, 10) for y in range(0, 300, 10))
+
+    def test_default_template_paints(self, qapp):
+        assert self._nonwhite(self._render(make_default_template()))
+
+    def test_combined_image_and_text_cell_paints(self, qapp, tiny_png_b64):
+        f = FieldDef(id="a", name="Co", label="Company",
+                     text="Acme", image_data=tiny_png_b64)
+        t = make_default_template()
+        t.layout.fields = [f]
+        t.layout.rows = [[Slot("a", 40.0)]]
+        assert self._nonwhite(self._render(t))
+
+    def test_bad_image_data_warns_not_crashes(self, qapp):
+        f = FieldDef(id="a", name="Logo", image_data="not-base64!!!")
+        t = make_default_template()
+        t.layout.fields = [f]
+        t.layout.rows = [[Slot("a", 30.0)]]
+        lay = solve_layout(t.layout, 863.6, 558.8, {})
+        item = TitleBlockTemplateItem(lay, t.layout, {})
+        assert any("could not be decoded" in w for w in item.warnings)
+
+    def test_empty_fields_bounding_rect_no_crash(self, qapp):
+        lay0 = TemplateLayout(fields=[], rows=[])
+        sol = solve_layout(lay0, 863.6, 558.8, {})
+        item = TitleBlockTemplateItem(sol, lay0, {})
+        item.boundingRect()          # must not raise on empty max()

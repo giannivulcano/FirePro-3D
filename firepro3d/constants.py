@@ -161,3 +161,4 @@ TB_REV_ROW_MM = 5.0                 # height per revision table data row (header
 TB_REV_CAP_MM = 2.0                 # revision row text cap height (header + data rows)
 TB_LABEL_CAP_MIN_MM = 1.2           # floor for computed label cap height
 TB_REV_PEN_MM = 0.2                 # revision table divider pen width (mm)
+TB_PREVIEW_MIN_MM = 20.0            # Fields-tab single-field preview: nominal slot min-height for unplaced fields

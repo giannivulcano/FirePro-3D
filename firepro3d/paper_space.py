@@ -2498,8 +2498,17 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     Returns:
         Flat value dict for the layout solver; "__revisions__" carries the
         sheet's revision list (oldest-first).
+        Known-key set (DD-13): token-known == present in this dict, so
+        @[Key] resolution needs no second key list.
     """
     vals: dict = {}
+    # Seed ALL standard keys with "" so the known-key set (DD-13) needs no
+    # second derivation: token-known == present in this dict.
+    for display in _PROJECT_STD_KEYS:
+        vals[display] = ""
+    for key in ("Title", "Drawing No", "Rev", "Date",
+                "Company", "Drawn By", "Checked By"):
+        vals[key] = ""
     for display, info_key in _PROJECT_STD_KEYS.items():
         if project_info.get(info_key):
             vals[display] = project_info[info_key]
@@ -2551,12 +2560,16 @@ def _draw_mm_text(
 
 
 class TitleBlockTemplateItem(QGraphicsItem):
-    """Paints a SolvedLayout — the single render path for template blocks.
+    """Paints a SolvedLayout — the single render path for template blocks (rev 3).
 
     mm-sized by construction (§9.4): text draws through a painter scale from
     a setPixelSize reference font (point-size APIs are banned here per §9.4).
-    Renders fills first, then per-cell content clipped to the strip, then
-    borders on top.
+    Renders fills first, then per-cell content clipped to the strip using the
+    solver's sub-rects (label / image / text), then borders on top.
+
+    Image pixels are decoded once per construction into ``_image_pixmaps``
+    keyed by ``FieldDef.id``.  Unknown/corrupt image data appends a warning
+    and is silently skipped at paint time.
     """
 
     def __init__(self, layout, variant, values: dict, parent=None):
@@ -2565,19 +2578,22 @@ class TitleBlockTemplateItem(QGraphicsItem):
         self._variant = variant
         self._values = values
         self.warnings: list[str] = list(layout.warnings)
-        self._logo_pixmaps: dict[int, QPixmap] = {}
-        for i, cell in enumerate(variant.cells):
-            if cell.kind == "logo" and cell.logo_data:
-                pm = QPixmap()
-                try:
-                    raw = QByteArray.fromBase64(cell.logo_data.encode("ascii"))
-                    ok = pm.loadFromData(raw, "PNG") and not pm.isNull()
-                except UnicodeEncodeError:
-                    ok = False
-                if not ok:
-                    self.warnings.append("Logo image could not be decoded.")
-                else:
-                    self._logo_pixmaps[i] = pm
+        # Per-FieldDef image cache: id → QPixmap (rev 3, replaces per-index logo cache)
+        self._image_pixmaps: dict[str, QPixmap] = {}
+        for f in variant.fields:
+            if not f.image_data:
+                continue
+            pm = QPixmap()
+            try:
+                raw = QByteArray.fromBase64(f.image_data.encode("ascii"))
+                ok = pm.loadFromData(raw, "PNG") and not pm.isNull()
+            except UnicodeEncodeError:
+                ok = False
+            if not ok:
+                self.warnings.append(
+                    f"Image in '{f.name or f.id}' could not be decoded.")
+            else:
+                self._image_pixmaps[f.id] = pm
         self.setZValue(1)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
@@ -2684,10 +2700,12 @@ class TitleBlockTemplateItem(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
         united = lay.strip_rect.united(lay.area_rect)
+        # Guard against empty fields list (no cell borders to iterate).
+        field_border_widths = [f.border.width_mm for f in var.fields]
         pad = max(
-            var.area_border.width_mm,
-            var.strip_border.width_mm,
-            *(c.border.width_mm for c in var.cells),
+            [var.area_border.width_mm, var.strip_border.width_mm]
+            + field_border_widths
+            or [0.0]
         ) / 2
         return united.adjusted(-pad, -pad, pad, pad)
 
@@ -2705,16 +2723,26 @@ class TitleBlockTemplateItem(QGraphicsItem):
             painter.drawRect(rect)
 
     def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
-                      cell, *, cap_mm: float | None = None,
+                      fdef, *, cap_mm: float | None = None,
                       bold: bool | None = None) -> None:
-        """Draw wrapped lines at a paper-mm cap height (mm primitive)."""
-        f = QFont(cell.font_family or "Arial")
-        f.setBold(cell.bold if bold is None else bold)
-        f.setItalic(cell.italic)
+        """Draw wrapped lines at a paper-mm cap height (mm primitive).
+
+        Args:
+            painter: Active QPainter.
+            rect: Target rect in mm scene coordinates.
+            lines: Pre-wrapped text lines from the solver.
+            fdef: FieldDef supplying font_family, bold, italic, cap_height_mm,
+                alignment.
+            cap_mm: Override cap height (mm); defaults to fdef.cap_height_mm.
+            bold: Override bold flag; defaults to fdef.bold.
+        """
+        f = QFont(fdef.font_family or "Arial")
+        f.setBold(fdef.bold if bold is None else bold)
+        f.setItalic(fdef.italic)
         f.setPixelSize(TEXT_METRIC_REF_PX)
         fm = QFontMetricsF(f)
         cap_px = fm.capHeight() or 1.0
-        s = (cap_mm if cap_mm is not None else cell.cap_height_mm) / cap_px
+        s = (cap_mm if cap_mm is not None else fdef.cap_height_mm) / cap_px
         if s <= 0:
             return
         painter.save()
@@ -2725,7 +2753,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
         align = {"left": Qt.AlignmentFlag.AlignLeft,
                  "center": Qt.AlignmentFlag.AlignHCenter,
                  "right": Qt.AlignmentFlag.AlignRight}.get(
-                     cell.alignment, Qt.AlignmentFlag.AlignLeft)
+                     fdef.alignment, Qt.AlignmentFlag.AlignLeft)
         y = 0.0
         for line in lines:
             painter.drawText(
@@ -2734,46 +2762,56 @@ class TitleBlockTemplateItem(QGraphicsItem):
             y += fm.lineSpacing()
         painter.restore()
 
-    def _draw_label(self, painter: QPainter, rect: QRectF, cell) -> None:
-        if not cell.label:
+    def _draw_label(self, painter: QPainter, rect: QRectF, fdef) -> None:
+        """Draw the small-caps label row for a FieldDef.
+
+        Args:
+            painter: Active QPainter.
+            rect: Label sub-rect from the solver (cell_label_rects[i]).
+            fdef: FieldDef supplying label text and typography.
+        """
+        if not fdef.label:
             return
-        cap = max(TB_LABEL_CAP_MIN_MM, cell.cap_height_mm * TB_LABEL_CAP_FRAC)
-        self._draw_text_mm(painter, rect, [cell.label.upper()], cell,
+        cap = max(TB_LABEL_CAP_MIN_MM, fdef.cap_height_mm * TB_LABEL_CAP_FRAC)
+        self._draw_text_mm(painter, rect, [fdef.label.upper()], fdef,
                            cap_mm=cap, bold=False)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
         lay, var = self._layout, self._variant
-        for i, cell in enumerate(var.cells):
-            if cell.fill_color:
-                painter.fillRect(lay.cell_rects[i], QColor(cell.fill_color))
-        # Hoist ONE clip around the whole content loop (composes with caller
-        # clips in export paths via IntersectClip). spec DD-8.
+        fmap = var.field_map()
+        fields = [fmap[fid] for fid in lay.cell_field_ids]
+        # Pass 1: fills (outside clip so fill bleeds to full cell rect)
+        for rect, f in zip(lay.cell_rects, fields):
+            if f.fill_color:
+                painter.fillRect(rect, QColor(f.fill_color))
+        # Pass 2: content, clipped to strip (composes with caller clips via
+        # IntersectClip in export paths). spec DD-8.
         painter.save()
         painter.setClipRect(lay.strip_rect, Qt.ClipOperation.IntersectClip)
-        for i, cell in enumerate(var.cells):
-            rect = lay.cell_rects[i]
-            inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
-                                  -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
-            self._draw_label(painter, inner, cell)
-            content = inner.adjusted(
-                0, TB_LABEL_ROW_MM if cell.label else 0.0, 0, 0)
-            if cell.kind in ("field", "static_text"):
-                self._draw_text_mm(painter, content, lay.cell_lines[i], cell)
-            elif cell.kind == "logo":
-                pm = self._logo_pixmaps.get(i)
-                if pm is not None:
-                    target = QRectF(content)
-                    # Use float scaling to avoid truncation at small sizes.
-                    scaled = QSizeF(pm.size()).scaled(
-                        target.size(), Qt.AspectRatioMode.KeepAspectRatio)
-                    dx = (target.width() - scaled.width()) / 2
-                    dy = (target.height() - scaled.height()) / 2
-                    painter.drawPixmap(
-                        QRectF(target.left() + dx, target.top() + dy,
-                               scaled.width(), scaled.height()),
-                        pm, QRectF(pm.rect()))
-                # empty logo_data: reserved bordered box, no warning
-            elif cell.kind == "revision_table":
+        for i, (rect, f) in enumerate(zip(lay.cell_rects, fields)):
+            # Label sub-rect (solver-computed, None when no label)
+            if lay.cell_label_rects[i] is not None:
+                self._draw_label(painter, lay.cell_label_rects[i], f)
+            # Image band (solver-computed remainder, None when no room or no image)
+            img_rect = lay.cell_image_rects[i]
+            pm = self._image_pixmaps.get(f.id)
+            if img_rect is not None and pm is not None:
+                # Contain-fit: scale to img_rect preserving aspect ratio,
+                # then centre within the band.
+                scaled = QSizeF(pm.size()).scaled(
+                    img_rect.size(), Qt.AspectRatioMode.KeepAspectRatio)
+                dx = (img_rect.width() - scaled.width()) / 2
+                dy = (img_rect.height() - scaled.height()) / 2
+                painter.drawPixmap(
+                    QRectF(img_rect.left() + dx, img_rect.top() + dy,
+                           scaled.width(), scaled.height()),
+                    pm, QRectF(pm.rect()))
+            # Revision table (kind-specific; ignores text/image sub-rects)
+            if f.kind == "revision_table":
+                inner = rect.adjusted(TB_CELL_PAD_MM, TB_CELL_PAD_MM,
+                                      -TB_CELL_PAD_MM, -TB_CELL_PAD_MM)
+                content = inner.adjusted(
+                    0, TB_LABEL_ROW_MM if f.label else 0.0, 0, 0)
                 rows = lay.cell_revision_rows.get(i, [])
                 y = content.top()
                 painter.setPen(QPen(Qt.GlobalColor.black, TB_REV_PEN_MM))
@@ -2781,7 +2819,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
                 self._draw_text_mm(
                     painter,
                     QRectF(content.left(), y, content.width(), TB_REV_ROW_MM),
-                    ["No  Description  Date"], cell,
+                    ["No  Description  Date"], f,
                     cap_mm=TB_REV_CAP_MM, bold=True)
                 y += TB_REV_ROW_MM
                 painter.drawLine(QPointF(content.left(), y),
@@ -2794,15 +2832,19 @@ class TitleBlockTemplateItem(QGraphicsItem):
                         painter,
                         QRectF(content.left(), y, content.width(),
                                TB_REV_ROW_MM),
-                        [line], cell, cap_mm=TB_REV_CAP_MM, bold=False)
+                        [line], f, cap_mm=TB_REV_CAP_MM, bold=False)
                     y += TB_REV_ROW_MM
                     painter.drawLine(QPointF(content.left(), y),
                                      QPointF(content.right(), y))
-            # "stamp": reserved empty bordered area — nothing to draw
+            # Text sub-rect (solver-computed; None for revision_table or zero-height)
+            elif lay.cell_text_rects[i] is not None:
+                self._draw_text_mm(painter, lay.cell_text_rects[i],
+                                   lay.cell_lines[i], f)
         painter.restore()
-        for i, cell in enumerate(var.cells):
-            if cell.border.visible:
-                self._draw_border(painter, lay.cell_rects[i], cell.border)
+        # Pass 3: borders on top of content
+        for rect, f in zip(lay.cell_rects, fields):
+            if f.border.visible:
+                self._draw_border(painter, rect, f.border)
         self._draw_border(painter, lay.area_rect, var.area_border)
         self._draw_border(painter, lay.strip_rect, var.strip_border)
 
