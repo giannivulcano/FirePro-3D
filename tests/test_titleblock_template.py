@@ -7,7 +7,9 @@ from PyQt6.QtGui import QFontMetricsF
 from PyQt6.QtWidgets import QApplication
 
 import firepro3d.titleblock_template as tbt
-from firepro3d.constants import TB_CELL_PAD_MM
+from firepro3d.constants import (
+    TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_STRIP_MIN_MM, TB_AREA_MIN_MM,
+)
 from firepro3d.titleblock_template import (
     BorderStyle, FieldDef, Slot, TemplateLayout, TitleBlockTemplate,
     make_default_template, migrate_legacy_fields, native_orientation,
@@ -18,304 +20,263 @@ from firepro3d.titleblock_template import (
 
 _app = QApplication.instance() or QApplication([])
 
+PAPER_W, PAPER_H = 863.6, 558.8      # ANSI D landscape
+
+
+def _lay3(fields, rows, **kw):
+    return TemplateLayout(fields=fields, rows=rows, **kw)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BROKEN MID-BRANCH — rewritten in Task 5 (rev-3 solver)
+# TestSolveRev3 — rev-3 solver: rows walk, token resolution, sub-rects
 # ─────────────────────────────────────────────────────────────────────────────
 
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestDynamicSolverPass:
-    """DD-8b: dynamic pass distributes leftover strip height."""
+class TestSolveRev3:
+    def test_flat_index_row_major(self):
+        fs = [FieldDef(id=i, name=i, text="x") for i in ("a", "b", "c")]
+        lay = _lay3(fs, [[Slot("a")], [Slot("b"), Slot("c")]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        assert sol.cell_field_ids == ["a", "b", "c"]
+        assert len(sol.cell_rects) == 3
+        assert sol.row_spans == [(0, 1), (1, 2)]
+        assert sol.cell_rects[1].top() == sol.cell_rects[2].top()
+        assert abs(sol.cell_rects[1].width() * 2
+                   - sol.strip_rect.width()) < 1e-6
 
-    PW, PH = 863.6, 558.8  # ANSI D landscape
+    def test_tokens_resolve_and_unknown_warns(self):
+        fs = [FieldDef(id="a", name="A", text="@[Company] @[Nope]")]
+        sol = solve_layout(_lay3(fs, [[Slot("a")]]), PAPER_W, PAPER_H,
+                           {"Company": "Acme"})
+        assert sol.cell_lines[0][0].startswith("Acme")
+        assert any("Nope" in w for w in sol.warnings)
 
-    def _layout(self, cells, strip=90.0):
-        return TemplateLayout(strip_width_mm=strip, cells=cells)
+    def test_image_remainder_band(self):
+        fs = [FieldDef(id="a", name="A", label="Co", text="line",
+                       image_data="AAAA")]
+        sol = solve_layout(_lay3(fs, [[Slot("a", 40.0)]]), PAPER_W, PAPER_H, {})
+        img = sol.cell_image_rects[0]
+        txt = sol.cell_text_rects[0]
+        lbl = sol.cell_label_rects[0]
+        assert img is not None and lbl is not None and txt is not None
+        assert lbl.bottom() <= img.top() + 1e-6
+        assert img.bottom() <= txt.top() + 1e-6
+        assert txt.bottom() <= sol.cell_rects[0].bottom() - TB_CELL_PAD_MM + 1e-6
 
-    def test_single_dynamic_stamp_fills_strip(self):
-        """A single dynamic stamp → last rect bottom == strip bottom (±1e-6)."""
-        cells = [
-            CellSpec(kind="field", field_key="Title", min_height_mm=20.0),
-            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {})
-        last_bottom = sl.cell_rects[-1].bottom()
-        assert abs(last_bottom - sl.strip_rect.bottom()) < 1e-6, (
-            f"last bottom {last_bottom:.4f} != strip bottom "
-            f"{sl.strip_rect.bottom():.4f}"
-        )
+    def test_image_no_room_warns_and_hides(self):
+        fs = [FieldDef(id="a", name="A", text="x\n" * 30, image_data="AAAA")]
+        sol = solve_layout(_lay3(fs, [[Slot("a", 5.0)]]), PAPER_W, PAPER_H, {})
+        assert sol.cell_image_rects[0] is None
+        assert any("no room" in w.lower() for w in sol.warnings)
 
-    def test_two_dynamic_rows_proportional_distribution(self):
-        """Two dynamic rows with min_heights 10 and 30 → extra distributed 1:3."""
-        cells = [
-            CellSpec(kind="stamp", min_height_mm=10.0, sizing="dynamic"),
-            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {})
-        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6
-        h0 = sl.cell_rects[0].height()
-        h1 = sl.cell_rects[1].height()
-        assert abs(h0 / h1 - 10.0 / 30.0) < 1e-3, (
-            f"Expected h0/h1 ≈ 1/3, got {h0:.3f}/{h1:.3f} = {h0/h1:.4f}"
-        )
+    def test_no_image_text_top_aligned_as_rev2(self):
+        fs = [FieldDef(id="a", name="A", label="L", text="hello")]
+        sol = solve_layout(_lay3(fs, [[Slot("a", 30.0)]]), PAPER_W, PAPER_H, {})
+        txt = sol.cell_text_rects[0]
+        exp_top = sol.cell_rects[0].top() + TB_CELL_PAD_MM + TB_LABEL_ROW_MM
+        assert abs(txt.top() - exp_top) < 1e-6
 
-    def test_dynamic_field_wrap_does_not_bias_distribution(self):
-        """Spec DD-8b: proportionality basis is min_height_mm, NOT wrap-grown height."""
-        long_text = "word " * 60
-        cells = [
-            CellSpec(kind="field", field_key="Title", min_height_mm=10.0,
-                     sizing="dynamic", cap_height_mm=3.0),
-            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {"Title": long_text})
-        h0 = sl.cell_rects[0].height()
-        assert h0 > 10.0
-        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6
-        static_cells = [
-            CellSpec(kind="field", field_key="Title", min_height_mm=10.0,
-                     sizing="static", cap_height_mm=3.0),
-            CellSpec(kind="stamp", min_height_mm=30.0, sizing="static"),
-        ]
-        sl_static = solve_layout(self._layout(static_cells),
-                                 self.PW, self.PH, {"Title": long_text})
-        static_h0 = sl_static.cell_rects[0].height()
-        static_h1 = sl_static.cell_rects[1].height()
-        extra0 = sl.cell_rects[0].height() - static_h0
-        extra1 = sl.cell_rects[1].height() - static_h1
-        assert extra0 > 0 and extra1 > 0
-        ratio = extra0 / extra1
-        expected_ratio = 10.0 / 30.0
-        assert abs(ratio - expected_ratio) < 1e-3
+    def test_dynamic_row_fills_strip(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = _lay3(fs, [[Slot("a", 10.0)], [Slot("b", 10.0, sizing="dynamic")]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        assert abs(sol.cell_rects[-1].bottom() - sol.strip_rect.bottom()) < 1e-6
 
-    def test_zero_leftover_no_change(self):
-        cells = [
-            CellSpec(kind="stamp", min_height_mm=400.0),
-            CellSpec(kind="stamp", min_height_mm=400.0, sizing="dynamic"),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {})
-        h1 = sl.cell_rects[1].height()
-        assert h1 == pytest.approx(400.0)
+    def test_dangling_slot_dropped_with_warning(self):
+        fs = [FieldDef(id="a", name="A")]
+        lay = _lay3(fs, [[Slot("a")], [Slot("ghost")]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        assert sol.cell_field_ids == ["a"]
+        assert any("missing field" in w.lower() for w in sol.warnings)
 
-    def test_no_dynamic_cells_unchanged(self):
-        cells = [
-            CellSpec(kind="stamp", min_height_mm=30.0),
-            CellSpec(kind="stamp", min_height_mm=15.0),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {})
-        r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
-        assert r0.height() == pytest.approx(30.0)
-        assert r1.height() == pytest.approx(15.0)
-        assert sl.cell_rects[-1].bottom() < sl.strip_rect.bottom() - 1.0
+    def test_revision_table_rows_newest_first(self):
+        fs = [FieldDef(id="r", name="Revs", kind="revision_table",
+                       label="Revisions", revision_rows=2)]
+        revs = [{"no": "1", "description": "first", "date": "d1"},
+                {"no": "2", "description": "second", "date": "d2"},
+                {"no": "3", "description": "third", "date": "d3"}]
+        sol = solve_layout(_lay3(fs, [[Slot("r", 25.0)]]), PAPER_W, PAPER_H,
+                           {"__revisions__": revs})
+        shown = sol.cell_revision_rows[0]
+        assert [r["no"] for r in shown] == ["3", "2"]
 
-    def test_dynamic_paired_row_grows_as_one(self):
-        cells = [
-            CellSpec(kind="field", field_key="Scale", min_height_mm=10.0,
-                     pair_with_next=True),
-            CellSpec(kind="field", field_key="Date", min_height_mm=10.0,
-                     sizing="dynamic"),
-            CellSpec(kind="stamp", min_height_mm=20.0),
-        ]
-        layout = self._layout(cells)
-        sl = solve_layout(layout, self.PW, self.PH, {})
-        assert sl.cell_rects[0].height() == sl.cell_rects[1].height()
-        assert sl.cell_rects[2].height() == pytest.approx(20.0)
-        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6
+    def test_default_template_solves_clean(self):
+        t = make_default_template()
+        # Seed all standard keys (known-but-empty = no Unknown warning per DD-13)
+        values = {
+            "Company": "Acme", "Title": "Plan", "Scale": "1:100",
+            "Project": "", "Address": "", "Date": "",
+            "Drawn By": "", "Checked By": "", "Drawing No": "", "Rev": "",
+        }
+        sol = solve_layout(t.layout, PAPER_W, PAPER_H, values)
+        assert len(sol.cell_rects) == 13
+        assert [n for _f, n in sol.row_spans] == [1, 1, 1, 1, 1, 2, 2, 2, 1, 1]
+        assert abs(sol.cell_rects[-1].bottom()
+                   - sol.strip_rect.bottom()) < 1e-6      # dynamic stamp
+        # no warnings: all default tokens are known keys or empty-known
+        assert not [w for w in sol.warnings if "Unknown" in w]
 
 
-def _layout(cells, strip=90.0):
-    return TemplateLayout(strip_width_mm=strip, cells=cells)
+# ─────────────────────────────────────────────────────────────────────────────
+# TestSolveRev3Ported — behaviors from the 8 deleted rev-2 classes
+# ─────────────────────────────────────────────────────────────────────────────
 
+class TestSolveRev3Ported:
+    """Rev-2 solver behaviors ported to the rev-3 model via FieldDef/Slot/rows."""
 
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestSolver:
-    PW, PH = 863.6, 558.8   # ANSI D landscape
+    PW, PH = 863.6, 558.8
+
+    # ── Area/strip geometry (was TestSolver.test_area_and_strip_rects) ───────
 
     def test_area_and_strip_rects(self):
-        v = _layout([CellSpec(kind="stamp", min_height_mm=20)])
-        sl = solve_layout(v, self.PW, self.PH, {})
-        assert sl.strip_rect.right() == self.PW - v.margin_edge_mm
-        assert sl.strip_rect.width() == v.strip_width_mm
-        assert sl.area_rect.right() == sl.strip_rect.left() - v.margin_strip_mm
-        assert sl.area_rect.left() == v.margin_edge_mm
+        f = FieldDef(id="s", name="Stamp")
+        lay = _lay3([f], [[Slot("s", 20.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.strip_rect.right() == pytest.approx(self.PW - lay.margin_edge_mm)
+        assert sol.strip_rect.width() == pytest.approx(lay.strip_width_mm)
+        assert sol.area_rect.right() == pytest.approx(
+            sol.strip_rect.left() - lay.margin_strip_mm)
+        assert sol.area_rect.left() == pytest.approx(lay.margin_edge_mm)
+
+    # ── Stack positions & min heights (was TestSolver) ────────────────────────
 
     def test_stack_positions_and_min_heights(self):
-        cells = [CellSpec(kind="stamp", min_height_mm=30),
-                 CellSpec(kind="stamp", min_height_mm=15)]
-        sl = solve_layout(_layout(cells), self.PW, self.PH, {})
-        r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
-        assert r0.top() == sl.strip_rect.top()
-        assert r0.height() == 30
-        assert r1.top() == r0.bottom()
-        assert r1.height() == 15
+        f0 = FieldDef(id="s0", name="S0")
+        f1 = FieldDef(id="s1", name="S1")
+        lay = _lay3([f0, f1], [[Slot("s0", 30.0)], [Slot("s1", 15.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        r0, r1 = sol.cell_rects[0], sol.cell_rects[1]
+        assert r0.top() == pytest.approx(sol.strip_rect.top())
+        assert r0.height() == pytest.approx(30.0)
+        assert r1.top() == pytest.approx(r0.bottom())
+        assert r1.height() == pytest.approx(15.0)
+
+    # ── Two-slot row: half-width + row height = max (was TestSolver) ─────────
 
     def test_pairing_half_width_row_height_max(self):
-        cells = [CellSpec(kind="field", field_key="Scale", min_height_mm=10,
-                          pair_with_next=True),
-                 CellSpec(kind="field", field_key="Date", min_height_mm=14)]
-        sl = solve_layout(_layout(cells), self.PW, self.PH,
-                          {"Scale": "1:100", "Date": "2026-07-21"})
-        r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
-        assert abs(r0.width() - sl.strip_rect.width() / 2) < 1e-6
-        assert r0.top() == r1.top()
-        assert r0.height() == r1.height() == 14
+        fs = [FieldDef(id="sc", name="Scale", text="@[Scale]"),
+              FieldDef(id="dt", name="Date", text="@[Date]")]
+        lay = _lay3(fs, [[Slot("sc", 10.0), Slot("dt", 14.0)]])
+        sol = solve_layout(lay, self.PW, self.PH,
+                           {"Scale": "1:100", "Date": "2026-07-21"})
+        r0, r1 = sol.cell_rects[0], sol.cell_rects[1]
+        assert abs(r0.width() - sol.strip_rect.width() / 2) < 1e-6
+        assert r0.top() == pytest.approx(r1.top())
+        assert r0.height() == pytest.approx(r1.height())
+        assert r0.height() >= 14.0
+
+    # ── Wrap grows and pushes down (was TestSolver) ──────────────────────────
 
     def test_wrap_grows_and_pushes_down(self):
         long_val = "a very long project description " * 16
-        cells = [CellSpec(kind="field", field_key="Project", min_height_mm=8),
-                 CellSpec(kind="stamp", min_height_mm=20)]
-        sl = solve_layout(_layout(cells), self.PW, self.PH,
-                          {"Project": long_val})
-        assert sl.cell_rects[0].height() > 8
-        assert sl.cell_rects[1].top() == sl.cell_rects[0].bottom()
+        f0 = FieldDef(id="p", name="Project", text="@[Project]")
+        f1 = FieldDef(id="s", name="Stamp")
+        lay = _lay3([f0, f1], [[Slot("p", 8.0)], [Slot("s", 20.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {"Project": long_val})
+        assert sol.cell_rects[0].height() > 8.0
+        assert sol.cell_rects[1].top() == pytest.approx(sol.cell_rects[0].bottom())
+
+    # ── Overflow warning (was TestSolver) ─────────────────────────────────────
 
     def test_overflow_past_strip_bottom_warns(self):
-        cells = [CellSpec(kind="stamp", min_height_mm=400),
-                 CellSpec(kind="stamp", min_height_mm=400)]
-        sl = solve_layout(_layout(cells), self.PW, self.PH, {})
-        assert sl.warnings
+        f0 = FieldDef(id="s0", name="S0")
+        f1 = FieldDef(id="s1", name="S1")
+        lay = _lay3([f0, f1], [[Slot("s0", 400.0)], [Slot("s1", 400.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.warnings
+
+    # ── Revision table (was TestSolver) ──────────────────────────────────────
 
     def test_revision_table_rows(self):
-        cells = [CellSpec(kind="revision_table", revision_rows=3,
-                          min_height_mm=10)]
+        f = FieldDef(id="rt", kind="revision_table", name="Revs", revision_rows=3)
+        lay = _lay3([f], [[Slot("rt", 10.0)]])
         revs = [{"no": str(i), "description": f"rev {i}", "date": "07-21"}
                 for i in range(5)]
-        sl = solve_layout(_layout(cells), self.PW, self.PH,
-                          {"__revisions__": revs})
-        assert sl.cell_revision_rows[0][0]["no"] == "4"
-        assert len(sl.cell_revision_rows[0]) == 3
+        sol = solve_layout(lay, self.PW, self.PH, {"__revisions__": revs})
+        assert sol.cell_revision_rows[0][0]["no"] == "4"
+        assert len(sol.cell_revision_rows[0]) == 3
 
-
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestValidate:
-    def test_valid_default(self):
-        v = _layout([CellSpec(kind="field", field_key="Title")])
-        assert validate(v, 863.6, 558.8) == []
-
-    def test_floors(self):
-        v = _layout([CellSpec(kind="field", field_key="Title")], strip=5.0)
-        assert any("strip" in w.lower() for w in validate(v, 863.6, 558.8))
-        v2 = _layout([CellSpec(kind="field", field_key="Title")])
-        v2.margin_edge_mm = -1
-        assert validate(v2, 863.6, 558.8)
-        v3 = _layout([])
-        assert any("cell" in w.lower() for w in validate(v3, 863.6, 558.8))
-        v4 = _layout([CellSpec(kind="field", field_key="")])
-        assert any("field key" in w.lower() for w in validate(v4, 863.6, 558.8))
-        v5 = _layout([CellSpec(kind="field", field_key="Title")], strip=120.0)
-        assert any("drawing area" in w.lower()
-                   for w in validate(v5, 215.9, 279.4))
-
-    def test_minimum_stack_must_fit(self):
-        v = _layout([CellSpec(kind="stamp", min_height_mm=600)])
-        assert any("fit" in w.lower() for w in validate(v, 863.6, 558.8))
-
-
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestCapHeightCrashFix:
-    """Finding #1: zero cap_height_mm must not crash solve_layout or _wrapped_height_mm."""
-
-    PW, PH = 863.6, 558.8
+    # ── Cap height zero guard (was TestCapHeightCrashFix) ────────────────────
 
     def test_solve_does_not_raise_with_zero_cap_height(self):
-        cell = CellSpec(kind="field", field_key="Title", cap_height_mm=0.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {"Title": "Fire Protection Plan"})
-        assert len(sl.cell_rects) == 1
+        f = FieldDef(id="t", name="Title", text="@[Title]", cap_height_mm=0.0)
+        lay = _lay3([f], [[Slot("t")]])
+        sol = solve_layout(lay, self.PW, self.PH, {"Title": "Fire Protection Plan"})
+        assert len(sol.cell_rects) == 1
 
     def test_validate_flags_zero_cap_height(self):
-        cell = CellSpec(kind="field", field_key="Title", cap_height_mm=0.0)
-        v = _layout([cell])
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="t", name="Title", text="@[Title]", cap_height_mm=0.0)
+        lay = _lay3([f], [[Slot("t")]])
+        errs = validate(lay, self.PW, self.PH)
         assert any("cap height" in e.lower() for e in errs)
 
     def test_validate_flags_negative_cap_height(self):
-        cell = CellSpec(kind="stamp", cap_height_mm=-1.0)
-        v = _layout([cell])
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="s", name="Stamp", cap_height_mm=-1.0)
+        lay = _lay3([f], [[Slot("s")]])
+        errs = validate(lay, self.PW, self.PH)
         assert any("cap height" in e.lower() for e in errs)
 
-
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestMinHeightFloor:
-    """Finding #2: negative min_height_mm fails validate and doesn't make negative rects."""
-
-    PW, PH = 863.6, 558.8
+    # ── Min height floor (was TestMinHeightFloor) ─────────────────────────────
 
     def test_validate_flags_negative_min_height(self):
-        cell = CellSpec(kind="stamp", min_height_mm=-5.0)
-        v = _layout([cell])
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="s", name="Stamp")
+        lay = _lay3([f], [[Slot("s", -5.0)]])
+        errs = validate(lay, self.PW, self.PH)
         assert any("minimum height" in e.lower() for e in errs)
 
     def test_solve_clamps_negative_min_height_to_zero(self):
-        cell = CellSpec(kind="stamp", min_height_mm=-5.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {})
-        assert sl.cell_rects[0].height() >= 0.0
+        f = FieldDef(id="s", name="Stamp")
+        lay = _lay3([f], [[Slot("s", -5.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.cell_rects[0].height() >= 0.0
 
     def test_validate_passes_zero_min_height(self):
-        cell = CellSpec(kind="field", field_key="Title", min_height_mm=0.0)
-        v = _layout([cell])
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="t", name="Title", text="@[Title]")
+        lay = _lay3([f], [[Slot("t", 0.0)]])
+        errs = validate(lay, self.PW, self.PH)
         assert not any("minimum height" in e.lower() for e in errs)
 
-
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestFilletCheck:
-    """Finding #3: fillet check uses the actual area/strip rect dims."""
-
-    PW, PH = 863.6, 558.8
+    # ── Fillet check (was TestFilletCheck) ───────────────────────────────────
 
     def test_large_strip_fillet_fails(self):
-        cell = CellSpec(kind="field", field_key="Title")
-        v = _layout([cell])
-        v.strip_border = BorderStyle(corner="fillet", fillet_radius_mm=80.0)
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="t", name="Title", text="@[Title]")
+        lay = _lay3([f], [[Slot("t")]])
+        lay.strip_border = BorderStyle(corner="fillet", fillet_radius_mm=80.0)
+        errs = validate(lay, self.PW, self.PH)
         assert any("fillet radius" in e.lower() for e in errs)
 
     def test_default_fillet_passes(self):
-        cell = CellSpec(kind="field", field_key="Title")
-        v = _layout([cell])
-        assert validate(v, self.PW, self.PH) == []
+        f = FieldDef(id="t", name="Title", text="@[Title]")
+        lay = _lay3([f], [[Slot("t")]])
+        assert validate(lay, self.PW, self.PH) == []
 
     def test_sharp_corner_ignores_radius(self):
-        cell = CellSpec(kind="field", field_key="Title")
-        v = _layout([cell])
-        v.strip_border = BorderStyle(corner="sharp", fillet_radius_mm=999.0)
-        errs = validate(v, self.PW, self.PH)
+        f = FieldDef(id="t", name="Title", text="@[Title]")
+        lay = _lay3([f], [[Slot("t")]])
+        lay.strip_border = BorderStyle(corner="sharp", fillet_radius_mm=999.0)
+        errs = validate(lay, self.PW, self.PH)
         assert not any("fillet radius" in e.lower() for e in errs)
 
-
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestCellLinesContract:
-    """Finding #5: wrapped lines round-trip and fit within the available px width."""
-
-    PW, PH = 863.6, 558.8
+    # ── Cell lines contract (was TestCellLinesContract) ───────────────────────
 
     def test_lines_join_equals_normalized_text(self):
         text = "  The quick brown fox jumps over  the lazy dog  "
-        cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {"K": text})
-        lines = sl.cell_lines[0]
+        f = FieldDef(id="k", name="K", text="@[K]", cap_height_mm=3.0)
+        lay = _lay3([f], [[Slot("k")]])
+        sol = solve_layout(lay, self.PW, self.PH, {"K": text})
+        lines = sol.cell_lines[0]
         assert " ".join(lines) == " ".join(text.split())
 
     def test_lines_fit_available_width(self):
         text = "word " * 40
-        cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {"K": text})
-        lines = sl.cell_lines[0]
-        f = _cell_font(cell)
-        fm = QFontMetricsF(f)
+        f = FieldDef(id="k", name="K", text="@[K]", cap_height_mm=3.0)
+        lay = _lay3([f], [[Slot("k")]])
+        sol = solve_layout(lay, self.PW, self.PH, {"K": text})
+        lines = sol.cell_lines[0]
+        font = _cell_font(f)
+        fm = QFontMetricsF(font)
         cap_px = fm.capHeight() or 1.0
-        px_per_mm = cap_px / max(cell.cap_height_mm, 0.1)
-        cw = sl.strip_rect.width()
+        px_per_mm = cap_px / max(f.cap_height_mm, 0.1)
+        cw = sol.strip_rect.width()
         avail_px = max(1.0, (cw - 2 * TB_CELL_PAD_MM) * px_per_mm)
         for line in lines:
             if " " in line:
@@ -323,38 +284,115 @@ class TestCellLinesContract:
 
     def test_single_unbreakable_word_one_line(self):
         text = "A" * 200
-        cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {"K": text})
-        assert len(sl.cell_lines[0]) == 1
+        f = FieldDef(id="k", name="K", text="@[K]", cap_height_mm=3.0)
+        lay = _lay3([f], [[Slot("k")]])
+        sol = solve_layout(lay, self.PW, self.PH, {"K": text})
+        assert len(sol.cell_lines[0]) == 1
 
+    # ── Hard newlines (was TestHardNewlines) ──────────────────────────────────
 
-@pytest.mark.skip(reason="rev-2 solver tests; rewritten in Task 5")
-class TestHardNewlines:
-    """Finding #6: hard \\n splits into separate lines."""
-
-    PW, PH = 863.6, 558.8
-
-    def test_static_text_hard_newline_yields_two_lines(self):
-        cell = CellSpec(kind="static_text",
-                        static_text="Line one\nLine two",
-                        min_height_mm=5.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {})
-        lines = sl.cell_lines[0]
+    def test_hard_newline_yields_two_lines(self):
+        f = FieldDef(id="t", name="Text", text="Line one\nLine two")
+        lay = _lay3([f], [[Slot("t", 5.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        lines = sol.cell_lines[0]
         assert len(lines) >= 2
         assert lines[0].startswith("Line one")
         assert lines[1].startswith("Line two")
 
     def test_empty_paragraph_produces_empty_line(self):
-        cell = CellSpec(kind="static_text",
-                        static_text="a\n\nb",
-                        min_height_mm=5.0)
-        v = _layout([cell])
-        sl = solve_layout(v, self.PW, self.PH, {})
-        lines = sl.cell_lines[0]
+        f = FieldDef(id="t", name="Text", text="a\n\nb")
+        lay = _lay3([f], [[Slot("t", 5.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        lines = sol.cell_lines[0]
         assert len(lines) == 3
         assert lines[1] == ""
+
+    # ── Dynamic pass DD-8b (was TestDynamicSolverPass) ───────────────────────
+
+    def test_single_dynamic_stamp_fills_strip(self):
+        f0 = FieldDef(id="ti", name="Title", text="@[Title]")
+        f1 = FieldDef(id="st", name="Stamp")
+        lay = _lay3([f0, f1],
+                    [[Slot("ti", 20.0)], [Slot("st", 30.0, sizing="dynamic")]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert abs(sol.cell_rects[-1].bottom() - sol.strip_rect.bottom()) < 1e-6
+
+    def test_two_dynamic_rows_proportional_distribution(self):
+        f0 = FieldDef(id="s0", name="S0")
+        f1 = FieldDef(id="s1", name="S1")
+        lay = _lay3([f0, f1],
+                    [[Slot("s0", 10.0, sizing="dynamic")],
+                     [Slot("s1", 30.0, sizing="dynamic")]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert abs(sol.cell_rects[-1].bottom() - sol.strip_rect.bottom()) < 1e-6
+        h0 = sol.cell_rects[0].height()
+        h1 = sol.cell_rects[1].height()
+        assert abs(h0 / h1 - 10.0 / 30.0) < 1e-3
+
+    def test_zero_leftover_no_change(self):
+        f0 = FieldDef(id="s0", name="S0")
+        f1 = FieldDef(id="s1", name="S1")
+        lay = _lay3([f0, f1],
+                    [[Slot("s0", 400.0)], [Slot("s1", 400.0, sizing="dynamic")]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.cell_rects[1].height() == pytest.approx(400.0)
+
+    def test_no_dynamic_cells_unchanged(self):
+        f0 = FieldDef(id="s0", name="S0")
+        f1 = FieldDef(id="s1", name="S1")
+        lay = _lay3([f0, f1], [[Slot("s0", 30.0)], [Slot("s1", 15.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.cell_rects[0].height() == pytest.approx(30.0)
+        assert sol.cell_rects[1].height() == pytest.approx(15.0)
+        assert sol.cell_rects[-1].bottom() < sol.strip_rect.bottom() - 1.0
+
+    def test_dynamic_paired_row_grows_as_one(self):
+        f0 = FieldDef(id="sc", name="Scale", text="@[Scale]")
+        f1 = FieldDef(id="dt", name="Date", text="@[Date]", )
+        f2 = FieldDef(id="st", name="Stamp")
+        lay = _lay3([f0, f1, f2],
+                    [[Slot("sc", 10.0), Slot("dt", 10.0, sizing="dynamic")],
+                     [Slot("st", 20.0)]])
+        sol = solve_layout(lay, self.PW, self.PH, {})
+        assert sol.cell_rects[0].height() == pytest.approx(sol.cell_rects[1].height())
+        assert sol.cell_rects[2].height() == pytest.approx(20.0)
+        assert abs(sol.cell_rects[-1].bottom() - sol.strip_rect.bottom()) < 1e-6
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestValidateRev3 — rev-3 validate floors
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestValidateRev3:
+    def test_needs_one_placed_row(self):
+        lay = _lay3([FieldDef(id="a", name="A")], [])
+        assert any("placed" in e.lower()
+                   for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_empty_field_is_legal(self):
+        lay = _lay3([FieldDef(id="a", name="Stamp")], [[Slot("a")]])
+        assert validate(lay, PAPER_W, PAPER_H) == []
+
+    def test_row_width_ceiling(self):
+        fs = [FieldDef(id=i) for i in ("a", "b", "c")]
+        lay = _lay3(fs, [[Slot("a"), Slot("b"), Slot("c")]])
+        assert any("two" in e.lower() for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_dangling_field_id_blocks(self):
+        lay = _lay3([FieldDef(id="a")], [[Slot("a")], [Slot("ghost")]])
+        assert any("missing field" in e.lower()
+                   for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_min_stack_must_fit(self):
+        lay = _lay3([FieldDef(id="a")], [[Slot("a", 10_000.0)]])
+        assert any("stack" in e.lower() for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_revision_table_worst_case_in_stack(self):
+        # 200 rev rows × row height blows the strip even with tiny min_height
+        fs = [FieldDef(id="r", kind="revision_table", revision_rows=200)]
+        lay = _lay3(fs, [[Slot("r", 1.0)]])
+        assert any("stack" in e.lower() for e in validate(lay, PAPER_W, PAPER_H))
 
 
 class TestDisplayName:
@@ -766,6 +804,14 @@ class TestMigration:
     def test_missing_id_regenerated(self):
         f = FieldDef.from_dict({"name": "n"})
         assert f.id
+
+    def test_trailing_pair_flag_single_row(self):
+        """pair_with_next=True on the LAST cell migrates to a single row, no crash."""
+        lay = TemplateLayout.from_dict({"cells": [
+            self._old(field_key="Title", pair_with_next=True)]})
+        assert len(lay.rows) == 1
+        assert len(lay.rows[0]) == 1
+        assert lay.fields[0].text == "@[Title]"
 
 
 class TestArrangementOps:
