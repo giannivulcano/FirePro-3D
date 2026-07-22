@@ -9,33 +9,355 @@ from PyQt6.QtWidgets import QApplication
 import firepro3d.titleblock_template as tbt
 from firepro3d.constants import TB_CELL_PAD_MM
 from firepro3d.titleblock_template import (
-    BorderStyle, CellSpec, TemplateVariant, TitleBlockTemplate,
-    _cell_font, solve_layout, validate,
+    BorderStyle, CellSpec, TemplateLayout, TemplateVariant, TitleBlockTemplate,
+    _cell_font, solve_layout, validate, native_orientation,
 )
 
 _app = QApplication.instance() or QApplication([])
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# T15 NEW TESTS — written first (TDD)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDynamicSolverPass:
+    """DD-8b: dynamic pass distributes leftover strip height."""
+
+    PW, PH = 863.6, 558.8  # ANSI D landscape
+
+    def _layout(self, cells, strip=90.0):
+        return TemplateLayout(strip_width_mm=strip, cells=cells)
+
+    def test_single_dynamic_stamp_fills_strip(self):
+        """A single dynamic stamp → last rect bottom == strip bottom (±1e-6)."""
+        cells = [
+            CellSpec(kind="field", field_key="Title", min_height_mm=20.0),
+            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {})
+        last_bottom = sl.cell_rects[-1].bottom()
+        assert abs(last_bottom - sl.strip_rect.bottom()) < 1e-6, (
+            f"last bottom {last_bottom:.4f} != strip bottom "
+            f"{sl.strip_rect.bottom():.4f}"
+        )
+
+    def test_two_dynamic_rows_proportional_distribution(self):
+        """Two dynamic rows with min_heights 10 and 30 → extra distributed 1:3."""
+        cells = [
+            CellSpec(kind="stamp", min_height_mm=10.0, sizing="dynamic"),
+            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {})
+        # Both rects must fill to strip bottom together
+        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6
+        # Heights should be proportional 1:3 to their min_heights
+        h0 = sl.cell_rects[0].height()
+        h1 = sl.cell_rects[1].height()
+        # h0/h1 ≈ 10/30 = 1/3; allow small rounding
+        assert abs(h0 / h1 - 10.0 / 30.0) < 1e-3, (
+            f"Expected h0/h1 ≈ 1/3, got {h0:.3f}/{h1:.3f} = {h0/h1:.4f}"
+        )
+
+    def test_zero_leftover_no_change(self):
+        """Zero leftover (overflowing stack) → no change from static result."""
+        cells = [
+            CellSpec(kind="stamp", min_height_mm=400.0),
+            CellSpec(kind="stamp", min_height_mm=400.0, sizing="dynamic"),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {})
+        # The stack overflows — dynamic cell should not grow further
+        h1 = sl.cell_rects[1].height()
+        assert h1 == pytest.approx(400.0)   # static min_height (no extra from dynamic)
+
+    def test_no_dynamic_cells_unchanged(self):
+        """No dynamic cells → behavior identical to old static-only path."""
+        cells = [
+            CellSpec(kind="stamp", min_height_mm=30.0),
+            CellSpec(kind="stamp", min_height_mm=15.0),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {})
+        # Static: no filling
+        r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
+        assert r0.height() == pytest.approx(30.0)
+        assert r1.height() == pytest.approx(15.0)
+        # Last bottom should NOT fill to strip bottom
+        assert sl.cell_rects[-1].bottom() < sl.strip_rect.bottom() - 1.0
+
+    def test_dynamic_paired_row_grows_as_one(self):
+        """A paired row where one member is dynamic → whole row grows."""
+        cells = [
+            CellSpec(kind="field", field_key="Scale", min_height_mm=10.0,
+                     pair_with_next=True),
+            CellSpec(kind="field", field_key="Date", min_height_mm=10.0,
+                     sizing="dynamic"),  # paired with Scale
+            CellSpec(kind="stamp", min_height_mm=20.0),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {})
+        # Paired cells (indices 0 and 1) should have equal height
+        assert sl.cell_rects[0].height() == sl.cell_rects[1].height()
+        # Last cell is NOT dynamic → static at 20.0
+        assert sl.cell_rects[2].height() == pytest.approx(20.0)
+        # The dynamic row fills to the strip bottom (after static row deducted)
+        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6
+
+
+class TestCellSizingField:
+    """CellSpec.sizing round-trip and unknown value → 'static'."""
+
+    def test_sizing_default_is_static(self):
+        c = CellSpec(kind="stamp")
+        assert c.sizing == "static"
+
+    def test_sizing_round_trip_static(self):
+        c = CellSpec(kind="stamp", sizing="static")
+        d = c.to_dict()
+        assert d["sizing"] == "static"
+        c2 = CellSpec.from_dict(d)
+        assert c2.sizing == "static"
+
+    def test_sizing_round_trip_dynamic(self):
+        c = CellSpec(kind="stamp", sizing="dynamic")
+        d = c.to_dict()
+        assert d["sizing"] == "dynamic"
+        c2 = CellSpec.from_dict(d)
+        assert c2.sizing == "dynamic"
+
+    def test_unknown_sizing_loads_as_static(self):
+        d = CellSpec(kind="stamp").to_dict()
+        d["sizing"] = "future_value"
+        c = CellSpec.from_dict(d)
+        assert c.sizing == "static"
+
+    def test_sizing_absent_loads_as_static(self):
+        d = CellSpec(kind="stamp").to_dict()
+        d.pop("sizing", None)
+        c = CellSpec.from_dict(d)
+        assert c.sizing == "static"
+
+
+class TestBackCompatFromDict:
+    """from_dict accepts old variant-family format."""
+
+    def _old_format_dict(self) -> dict:
+        """Build an old-style template dict with variants key."""
+        cell_d = CellSpec(kind="field", field_key="Title",
+                          min_height_mm=12.0).to_dict()
+        variant_d = {
+            "paper_size": "ANSI D",
+            "margin_edge_mm": 10.0,
+            "margin_strip_mm": 5.0,
+            "strip_width_mm": 90.0,
+            "strip_edge": "right",
+            "area_border": BorderStyle().to_dict(),
+            "strip_border": BorderStyle().to_dict(),
+            "cells": [cell_d],
+        }
+        return {
+            "name": "Legacy Template",
+            "uuid": "old-uuid-1",
+            "modified": "2026-07-20",
+            "variants": {
+                "ANSI D": variant_d,
+                "ANSI B": dict(variant_d, paper_size="ANSI B",
+                               strip_width_mm=70.0),
+            },
+        }
+
+    def test_old_format_yields_first_variant(self):
+        d = self._old_format_dict()
+        t = TitleBlockTemplate.from_dict(d)
+        assert t.name == "Legacy Template"
+        assert t.uuid == "old-uuid-1"
+        # First variant: ANSI D
+        assert t.paper_size == "ANSI D"
+        assert t.layout.strip_width_mm == 90.0
+        assert len(t.layout.cells) == 1
+        assert t.layout.cells[0].field_key == "Title"
+
+    def test_old_format_hoists_correct_orientation(self):
+        d = self._old_format_dict()
+        t = TitleBlockTemplate.from_dict(d)
+        # ANSI D is landscape native
+        assert t.orientation == "landscape"
+
+    def test_old_format_no_paper_size_in_layout(self):
+        """Layout must not carry a paper_size attribute."""
+        d = self._old_format_dict()
+        t = TitleBlockTemplate.from_dict(d)
+        assert not hasattr(t.layout, "paper_size")
+
+    def test_new_format_round_trip(self):
+        """New single-size format serializes and deserializes cleanly."""
+        original = TitleBlockTemplate(
+            name="Test",
+            uuid="u-new-1",
+            modified="2026-07-22",
+            paper_size="A4",
+            orientation="portrait",
+            layout=TemplateLayout(
+                strip_width_mm=60.0,
+                cells=[CellSpec(kind="stamp", min_height_mm=40.0,
+                                sizing="dynamic")],
+            ),
+        )
+        d = original.to_dict()
+        assert "layout" in d
+        assert "variants" not in d
+        assert d["paper_size"] == "A4"
+        assert d["orientation"] == "portrait"
+        t2 = TitleBlockTemplate.from_dict(d)
+        assert t2.paper_size == "A4"
+        assert t2.orientation == "portrait"
+        assert t2.layout.strip_width_mm == 60.0
+        assert t2.layout.cells[0].sizing == "dynamic"
+
+
+class TestDisplayName:
+    """TitleBlockTemplate.display_name property."""
+
+    def test_landscape_native_no_suffix(self):
+        t = TitleBlockTemplate(name="FirePro Default", uuid="u", modified="",
+                               paper_size="ANSI D", orientation="landscape",
+                               layout=TemplateLayout())
+        assert t.display_name == "FirePro Default (ANSI D)"
+
+    def test_portrait_native_no_suffix(self):
+        t = TitleBlockTemplate(name="My A4", uuid="u", modified="",
+                               paper_size="A4", orientation="portrait",
+                               layout=TemplateLayout())
+        assert t.display_name == "My A4 (A4)"
+
+    def test_portrait_nonnative_appends_label(self):
+        # ANSI D is natively landscape → portrait is non-native
+        t = TitleBlockTemplate(name="FirePro Default", uuid="u", modified="",
+                               paper_size="ANSI D", orientation="portrait",
+                               layout=TemplateLayout())
+        name = t.display_name
+        assert "ANSI D" in name
+        assert "Portrait" in name
+
+    def test_landscape_nonnative_appends_label(self):
+        # A4 is natively portrait → landscape is non-native
+        t = TitleBlockTemplate(name="My A4", uuid="u", modified="",
+                               paper_size="A4", orientation="landscape",
+                               layout=TemplateLayout())
+        name = t.display_name
+        assert "A4" in name
+        assert "Landscape" in name
+
+
+class TestNativeOrientation:
+    """native_orientation() helper covers all PAPER_SIZES entries."""
+
+    def test_ansi_landscape(self):
+        assert native_orientation("ANSI B") == "landscape"
+        assert native_orientation("ANSI D") == "landscape"
+
+    def test_iso_portrait(self):
+        for size in ("A4", "A3", "A2", "A1", "A0"):
+            assert native_orientation(size) == "portrait", size
+
+    def test_letter_portrait(self):
+        assert native_orientation("Letter") == "portrait"
+
+    def test_d_size_portrait(self):
+        # D-size is 558.8 × 863.6 → portrait (h > w)
+        assert native_orientation("D-size") == "portrait"
+
+    def test_unknown_defaults_landscape(self):
+        assert native_orientation("Unknown-X9") == "landscape"
+
+
+class TestSeedDefault:
+    """make_default_template() — rev2 contract."""
+
+    def test_single_size_ansi_d(self):
+        t = tbt.make_default_template()
+        assert t.paper_size == "ANSI D"
+
+    def test_orientation_landscape(self):
+        t = tbt.make_default_template()
+        assert t.orientation == "landscape"
+
+    def test_no_variants_attribute_on_dict(self):
+        """to_dict must not emit 'variants'."""
+        d = tbt.make_default_template().to_dict()
+        assert "variants" not in d
+        assert "layout" in d
+
+    def test_stamp_cell_is_dynamic(self):
+        t = tbt.make_default_template()
+        stamp_cells = [c for c in t.layout.cells if c.kind == "stamp"]
+        assert stamp_cells, "Default template has no stamp cell"
+        assert all(c.sizing == "dynamic" for c in stamp_cells), (
+            "All stamp cells in default must be dynamic"
+        )
+
+    def test_validate_passes_on_ansi_d(self):
+        from firepro3d.paper_space import PAPER_SIZES
+        t = tbt.make_default_template()
+        w, h = PAPER_SIZES["ANSI D"]
+        assert validate(t.layout, w, h) == []
+
+    def test_arrangement_a_still_present(self):
+        t = tbt.make_default_template()
+        kinds = [c.kind for c in t.layout.cells]
+        assert kinds[0] == "logo"
+        assert kinds[-1] == "stamp"
+        assert "revision_table" in kinds
+        assert t.layout.area_border.corner == "fillet"
+
+    def test_field_keys_present(self):
+        t = tbt.make_default_template()
+        keys = [c.field_key for c in t.layout.cells if c.kind == "field"]
+        for k in ("Company", "Project", "Title", "Scale", "Date",
+                  "Drawn By", "Checked By", "Drawing No", "Rev"):
+            assert k in keys
+
+    def test_unique_uuid_per_call(self):
+        assert tbt.make_default_template().uuid != tbt.make_default_template().uuid
+
+    def test_dynamic_stamp_fills_strip(self):
+        """Integration: solve_layout with default template fills the strip."""
+        from firepro3d.paper_space import PAPER_SIZES
+        t = tbt.make_default_template()
+        w, h = PAPER_SIZES["ANSI D"]
+        sl = solve_layout(t.layout, w, h, {})
+        last_bottom = sl.cell_rects[-1].bottom()
+        assert abs(last_bottom - sl.strip_rect.bottom()) < 1e-6
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Existing tests — mechanically updated to new model
+# ─────────────────────────────────────────────────────────────────────────────
+
 class TestSerialization:
     def _template(self):
         cell = CellSpec(kind="field", field_key="Title", label="Sheet Title",
                         min_height_mm=12.0, fill_color="#eef2f7")
-        var = TemplateVariant(paper_size="ANSI D", cells=[cell])
+        layout = TemplateLayout(cells=[cell])
         return TitleBlockTemplate(name="Test", uuid="u-1",
                                   modified="2026-07-21",
-                                  variants={"ANSI D": var})
+                                  paper_size="ANSI D",
+                                  orientation="landscape",
+                                  layout=layout)
 
     def test_round_trip(self):
         t = self._template()
         t2 = TitleBlockTemplate.from_dict(t.to_dict())
         assert t2.to_dict() == t.to_dict()
-        assert t2.variants["ANSI D"].cells[0].field_key == "Title"
-        assert t2.variants["ANSI D"].cells[0].border.corner in ("sharp", "fillet")
+        assert t2.layout.cells[0].field_key == "Title"
+        assert t2.layout.cells[0].border.corner in ("sharp", "fillet")
 
     def test_unknown_keys_ignored(self):
         d = self._template().to_dict()
         d["future_field"] = 42
-        d["variants"]["ANSI D"]["cells"][0]["mystery"] = "x"
+        d["layout"]["cells"][0]["mystery"] = "x"
         t2 = TitleBlockTemplate.from_dict(d)   # must not raise
         assert t2.name == "Test"
 
@@ -45,27 +367,33 @@ class TestSerialization:
         assert c.border.visible is True
         b = BorderStyle()
         assert b.corner == "fillet" and b.fillet_radius_mm == 10.0
-        v = TemplateVariant(paper_size="ANSI B")
+        # TemplateVariant alias still works
+        v = TemplateVariant()
         assert v.strip_edge == "right"
 
     def test_deep_copy_independent(self):
         t = self._template()
         t2 = t.copy()
-        t2.variants["ANSI D"].cells[0].label = "changed"
-        assert t.variants["ANSI D"].cells[0].label == "Sheet Title"
+        t2.layout.cells[0].label = "changed"
+        assert t.layout.cells[0].label == "Sheet Title"
         assert t2.to_dict() != t.to_dict()
 
+    def test_variants_property_compat_shim(self):
+        """The .variants property returns {paper_size: layout} for old callers."""
+        t = self._template()
+        assert "ANSI D" in t.variants
+        assert t.variants["ANSI D"] is t.layout
 
-def _variant(cells, strip=90.0):
-    return TemplateVariant(paper_size="ANSI D", strip_width_mm=strip,
-                           cells=cells)
+
+def _layout(cells, strip=90.0):
+    return TemplateLayout(strip_width_mm=strip, cells=cells)
 
 
 class TestSolver:
     PW, PH = 863.6, 558.8   # ANSI D landscape
 
     def test_area_and_strip_rects(self):
-        v = _variant([CellSpec(kind="stamp", min_height_mm=20)])
+        v = _layout([CellSpec(kind="stamp", min_height_mm=20)])
         sl = solve_layout(v, self.PW, self.PH, {})
         # strip: right edge, inside 10mm margins
         assert sl.strip_rect.right() == self.PW - v.margin_edge_mm
@@ -77,7 +405,7 @@ class TestSolver:
     def test_stack_positions_and_min_heights(self):
         cells = [CellSpec(kind="stamp", min_height_mm=30),
                  CellSpec(kind="stamp", min_height_mm=15)]
-        sl = solve_layout(_variant(cells), self.PW, self.PH, {})
+        sl = solve_layout(_layout(cells), self.PW, self.PH, {})
         r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
         assert r0.top() == sl.strip_rect.top()
         assert r0.height() == 30
@@ -88,7 +416,7 @@ class TestSolver:
         cells = [CellSpec(kind="field", field_key="Scale", min_height_mm=10,
                           pair_with_next=True),
                  CellSpec(kind="field", field_key="Date", min_height_mm=14)]
-        sl = solve_layout(_variant(cells), self.PW, self.PH,
+        sl = solve_layout(_layout(cells), self.PW, self.PH,
                           {"Scale": "1:100", "Date": "2026-07-21"})
         r0, r1 = sl.cell_rects[0], sl.cell_rects[1]
         assert abs(r0.width() - sl.strip_rect.width() / 2) < 1e-6
@@ -99,7 +427,7 @@ class TestSolver:
         long_val = "a very long project description " * 16
         cells = [CellSpec(kind="field", field_key="Project", min_height_mm=8),
                  CellSpec(kind="stamp", min_height_mm=20)]
-        sl = solve_layout(_variant(cells), self.PW, self.PH,
+        sl = solve_layout(_layout(cells), self.PW, self.PH,
                           {"Project": long_val})
         assert sl.cell_rects[0].height() > 8            # grew, text kept size
         assert sl.cell_rects[1].top() == sl.cell_rects[0].bottom()  # pushed
@@ -107,7 +435,7 @@ class TestSolver:
     def test_overflow_past_strip_bottom_warns(self):
         cells = [CellSpec(kind="stamp", min_height_mm=400),
                  CellSpec(kind="stamp", min_height_mm=400)]
-        sl = solve_layout(_variant(cells), self.PW, self.PH, {})
+        sl = solve_layout(_layout(cells), self.PW, self.PH, {})
         assert sl.warnings                                # clipped + warned
 
     def test_revision_table_rows(self):
@@ -115,7 +443,7 @@ class TestSolver:
                           min_height_mm=10)]
         revs = [{"no": str(i), "description": f"rev {i}", "date": "07-21"}
                 for i in range(5)]
-        sl = solve_layout(_variant(cells), self.PW, self.PH,
+        sl = solve_layout(_layout(cells), self.PW, self.PH,
                           {"__revisions__": revs})
         assert sl.cell_revision_rows[0][0]["no"] == "4"   # newest first
         assert len(sl.cell_revision_rows[0]) == 3         # capped
@@ -123,26 +451,26 @@ class TestSolver:
 
 class TestValidate:
     def test_valid_default(self):
-        v = _variant([CellSpec(kind="field", field_key="Title")])
+        v = _layout([CellSpec(kind="field", field_key="Title")])
         assert validate(v, 863.6, 558.8) == []
 
     def test_floors(self):
-        v = _variant([CellSpec(kind="field", field_key="Title")], strip=5.0)
+        v = _layout([CellSpec(kind="field", field_key="Title")], strip=5.0)
         assert any("strip" in w.lower() for w in validate(v, 863.6, 558.8))
-        v2 = _variant([CellSpec(kind="field", field_key="Title")])
+        v2 = _layout([CellSpec(kind="field", field_key="Title")])
         v2.margin_edge_mm = -1
         assert validate(v2, 863.6, 558.8)
-        v3 = _variant([])
+        v3 = _layout([])
         assert any("cell" in w.lower() for w in validate(v3, 863.6, 558.8))
-        v4 = _variant([CellSpec(kind="field", field_key="")])
+        v4 = _layout([CellSpec(kind="field", field_key="")])
         assert any("field key" in w.lower() for w in validate(v4, 863.6, 558.8))
         # drawing area floor: Letter portrait is 215.9 wide; 120mm strip leaves <100
-        v5 = _variant([CellSpec(kind="field", field_key="Title")], strip=120.0)
+        v5 = _layout([CellSpec(kind="field", field_key="Title")], strip=120.0)
         assert any("drawing area" in w.lower()
                    for w in validate(v5, 215.9, 279.4))
 
     def test_minimum_stack_must_fit(self):
-        v = _variant([CellSpec(kind="stamp", min_height_mm=600)])
+        v = _layout([CellSpec(kind="stamp", min_height_mm=600)])
         assert any("fit" in w.lower() for w in validate(v, 863.6, 558.8))
 
 
@@ -154,20 +482,20 @@ class TestCapHeightCrashFix:
     def test_solve_does_not_raise_with_zero_cap_height(self):
         # cap_height_mm=0.0 previously caused ZeroDivisionError in px_per_mm.
         cell = CellSpec(kind="field", field_key="Title", cap_height_mm=0.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {"Title": "Fire Protection Plan"})
         # Must complete without raising; rect must be present.
         assert len(sl.cell_rects) == 1
 
     def test_validate_flags_zero_cap_height(self):
         cell = CellSpec(kind="field", field_key="Title", cap_height_mm=0.0)
-        v = _variant([cell])
+        v = _layout([cell])
         errs = validate(v, self.PW, self.PH)
         assert any("cap height" in e.lower() for e in errs)
 
     def test_validate_flags_negative_cap_height(self):
         cell = CellSpec(kind="stamp", cap_height_mm=-1.0)
-        v = _variant([cell])
+        v = _layout([cell])
         errs = validate(v, self.PW, self.PH)
         assert any("cap height" in e.lower() for e in errs)
 
@@ -179,20 +507,20 @@ class TestMinHeightFloor:
 
     def test_validate_flags_negative_min_height(self):
         cell = CellSpec(kind="stamp", min_height_mm=-5.0)
-        v = _variant([cell])
+        v = _layout([cell])
         errs = validate(v, self.PW, self.PH)
         assert any("minimum height" in e.lower() for e in errs)
 
     def test_solve_clamps_negative_min_height_to_zero(self):
         # Negative min_height should produce non-negative rect heights.
         cell = CellSpec(kind="stamp", min_height_mm=-5.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {})
         assert sl.cell_rects[0].height() >= 0.0
 
     def test_validate_passes_zero_min_height(self):
         cell = CellSpec(kind="field", field_key="Title", min_height_mm=0.0)
-        v = _variant([cell])
+        v = _layout([cell])
         errs = validate(v, self.PW, self.PH)
         assert not any("minimum height" in e.lower() for e in errs)
 
@@ -206,7 +534,7 @@ class TestFilletCheck:
     def test_large_strip_fillet_fails(self):
         # strip min dim = min(90, 538.8) = 90 → max fillet = 45; 80mm > 45mm.
         cell = CellSpec(kind="field", field_key="Title")
-        v = _variant([cell])
+        v = _layout([cell])
         v.strip_border = BorderStyle(corner="fillet", fillet_radius_mm=80.0)
         errs = validate(v, self.PW, self.PH)
         assert any("fillet radius" in e.lower() for e in errs)
@@ -214,14 +542,14 @@ class TestFilletCheck:
     def test_default_fillet_passes(self):
         # Default 10mm fillet << 45mm half-min of strip → must pass.
         cell = CellSpec(kind="field", field_key="Title")
-        v = _variant([cell])
+        v = _layout([cell])
         # area_border and strip_border default to 10mm fillet.
         assert validate(v, self.PW, self.PH) == []
 
     def test_sharp_corner_ignores_radius(self):
         # Sharp corner mode: any radius value should be ignored.
         cell = CellSpec(kind="field", field_key="Title")
-        v = _variant([cell])
+        v = _layout([cell])
         v.strip_border = BorderStyle(corner="sharp", fillet_radius_mm=999.0)
         errs = validate(v, self.PW, self.PH)
         assert not any("fillet radius" in e.lower() for e in errs)
@@ -235,7 +563,7 @@ class TestCellLinesContract:
     def test_lines_join_equals_normalized_text(self):
         text = "  The quick brown fox jumps over  the lazy dog  "
         cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {"K": text})
         lines = sl.cell_lines[0]
         assert " ".join(lines) == " ".join(text.split())
@@ -243,7 +571,7 @@ class TestCellLinesContract:
     def test_lines_fit_available_width(self):
         text = "word " * 40
         cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {"K": text})
         lines = sl.cell_lines[0]
         # Compute the same px metrics the solver uses.
@@ -262,7 +590,7 @@ class TestCellLinesContract:
     def test_single_unbreakable_word_one_line(self):
         text = "A" * 200
         cell = CellSpec(kind="field", field_key="K", cap_height_mm=3.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {"K": text})
         assert len(sl.cell_lines[0]) == 1
 
@@ -276,7 +604,7 @@ class TestHardNewlines:
         cell = CellSpec(kind="static_text",
                         static_text="Line one\nLine two",
                         min_height_mm=5.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {})
         lines = sl.cell_lines[0]
         assert len(lines) >= 2
@@ -288,7 +616,7 @@ class TestHardNewlines:
         cell = CellSpec(kind="static_text",
                         static_text="a\n\nb",
                         min_height_mm=5.0)
-        v = _variant([cell])
+        v = _layout([cell])
         sl = solve_layout(v, self.PW, self.PH, {})
         lines = sl.cell_lines[0]
         assert len(lines) == 3
@@ -307,7 +635,7 @@ class TestIdenticalPairIndex:
         rev_cell2 = CellSpec(kind="revision_table", revision_rows=2,
                              min_height_mm=10.0)
         revs = [{"no": "1", "description": "Initial", "date": "07-21"}]
-        v = _variant([rev_cell, rev_cell2])
+        v = _layout([rev_cell, rev_cell2])
         sl = solve_layout(v, self.PW, self.PH, {"__revisions__": revs})
         # Keys must be 0 and 1, not both 0.
         assert 0 in sl.cell_revision_rows
@@ -316,11 +644,12 @@ class TestIdenticalPairIndex:
 
 class TestLibrary:
     def _tpl(self, uuid="u-lib", modified="2026-07-21"):
+        layout = TemplateLayout(
+            cells=[CellSpec(kind="field", field_key="Title")])
         return TitleBlockTemplate(
             name="Lib", uuid=uuid, modified=modified,
-            variants={"ANSI D": TemplateVariant(
-                paper_size="ANSI D",
-                cells=[CellSpec(kind="field", field_key="Title")])})
+            paper_size="ANSI D", orientation="landscape",
+            layout=layout)
 
     def test_save_load_round_trip(self, tmp_path, monkeypatch):
         monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
@@ -408,26 +737,24 @@ from firepro3d.titleblock_template import make_default_template, migrate_legacy_
 
 
 class TestDefaultTemplate:
-    def test_variants_present_and_valid(self):
+    def test_single_size_ansi_d_valid(self):
+        """Rev2: single-size ANSI D landscape; validate() passes."""
         from firepro3d.paper_space import PAPER_SIZES
         t = make_default_template()
-        for size, (w, h) in (("ANSI B", (431.8, 279.4)),
-                             ("ANSI D", (863.6, 558.8)),
-                             ("Letter", (215.9, 279.4))):
-            assert size in t.variants
-            assert size in PAPER_SIZES, (
-                f"Default template variant {size!r} not in PAPER_SIZES")
-            assert validate(t.variants[size], w, h) == []
+        assert t.paper_size == "ANSI D"
+        assert "ANSI D" in PAPER_SIZES
+        w, h = PAPER_SIZES["ANSI D"]
+        assert validate(t.layout, w, h) == []
 
     def test_arrangement_a(self):
         # mockup-gated 2026-07-21: logo top, stamp/revisions bottom, fillet frames
-        v = make_default_template().variants["ANSI D"]
-        kinds = [c.kind for c in v.cells]
+        t = make_default_template()
+        kinds = [c.kind for c in t.layout.cells]
         assert kinds[0] == "logo"
         assert kinds[-1] == "stamp"
         assert "revision_table" in kinds
-        assert v.area_border.corner == "fillet"
-        keys = [c.field_key for c in v.cells if c.kind == "field"]
+        assert t.layout.area_border.corner == "fillet"
+        keys = [c.field_key for c in t.layout.cells if c.kind == "field"]
         for k in ("Company", "Project", "Title", "Scale", "Date",
                   "Drawn By", "Checked By", "Drawing No", "Rev"):
             assert k in keys

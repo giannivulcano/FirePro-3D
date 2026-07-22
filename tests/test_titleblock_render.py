@@ -27,10 +27,77 @@ from firepro3d.paper_space import (
     SheetViewport,
     SheetViewData,
     ViewResolver,
+    sheet_page_mm,
+    PAPER_SIZES,
 )
 from firepro3d.titleblock_template import make_default_template
 
 _app = QApplication.instance() or QApplication([])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T15 NEW: Sheet.orientation + sheet_page_mm
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSheetOrientation:
+    """Sheet.orientation field: round-trip and sheet_page_mm helper."""
+
+    def test_orientation_default_empty(self):
+        s = Sheet.create_default()
+        assert s.orientation == ""
+
+    def test_orientation_round_trip_landscape(self):
+        s = Sheet.create_default()
+        s.orientation = "landscape"
+        s2 = Sheet.from_dict(s.to_dict())
+        assert s2.orientation == "landscape"
+
+    def test_orientation_round_trip_portrait(self):
+        s = Sheet.create_default()
+        s.orientation = "portrait"
+        s2 = Sheet.from_dict(s.to_dict())
+        assert s2.orientation == "portrait"
+
+    def test_orientation_absent_defaults_empty(self):
+        d = Sheet.create_default().to_dict()
+        d.pop("orientation", None)
+        s = Sheet.from_dict(d)
+        assert s.orientation == ""
+
+    def test_sheet_page_mm_native_native_dims(self):
+        """orientation="" → stored PAPER_SIZES dims unchanged."""
+        s = Sheet.create_default()   # paper_size="ANSI D", orientation=""
+        w, h = sheet_page_mm(s)
+        base = PAPER_SIZES["ANSI D"]
+        assert (w, h) == base
+
+    def test_sheet_page_mm_landscape_swap(self):
+        """orientation="landscape" → (max, min) of stored dims."""
+        # A4 stored as portrait (210, 297); landscape should give (297, 210)
+        s = Sheet.create_default()
+        s.paper_size = "A4"
+        s.orientation = "landscape"
+        w, h = sheet_page_mm(s)
+        base = PAPER_SIZES["A4"]   # (210, 297)
+        assert w == max(base) and h == min(base)
+
+    def test_sheet_page_mm_portrait_swap(self):
+        """orientation="portrait" → (min, max) of stored dims."""
+        # ANSI D stored as landscape (863.6, 558.8); portrait should give (558.8, 863.6)
+        s = Sheet.create_default()
+        s.paper_size = "ANSI D"
+        s.orientation = "portrait"
+        w, h = sheet_page_mm(s)
+        base = PAPER_SIZES["ANSI D"]  # (863.6, 558.8)
+        assert w == min(base) and h == max(base)
+
+    def test_sheet_page_mm_unknown_orientation_falls_back(self):
+        """Unknown orientation string → stored dims unchanged (fallback branch)."""
+        s = Sheet.create_default()
+        s.orientation = "sideways"   # unknown
+        w, h = sheet_page_mm(s)
+        base = PAPER_SIZES["ANSI D"]
+        assert (w, h) == base
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -119,7 +186,7 @@ class TestRenderer:
     def _make(self, values=None, mutate=None):
         from firepro3d.titleblock_template import make_default_template
         t = make_default_template()
-        v = t.variants["ANSI D"]
+        v = t.layout   # single-size model
         if mutate:
             mutate(v)
         w, h = PAPER_SIZES["ANSI D"]
@@ -184,7 +251,7 @@ class TestRenderer:
         # Find the logo cell index (cell 0 in make_default_template is logo).
         from firepro3d.titleblock_template import make_default_template
         t = make_default_template()
-        v = t.variants["ANSI D"]
+        v = t.layout   # single-size model
         sl = item._layout
         logo_rect = sl.cell_rects[0]
         rendered = _render(item, w, h)
@@ -206,7 +273,7 @@ class TestRenderer:
         """
         from firepro3d.titleblock_template import make_default_template, solve_layout
         t = make_default_template()
-        v = t.variants["ANSI D"]
+        v = t.layout   # single-size model
         # Find the first revision_table cell.
         rev_idx = next(
             (i for i, c in enumerate(v.cells) if c.kind == "revision_table"),
@@ -249,7 +316,7 @@ class TestRenderer:
         """
         from firepro3d.titleblock_template import make_default_template, solve_layout
         t = make_default_template()
-        v = t.variants["ANSI D"]
+        v = t.layout   # single-size model
         # Find Title cell.
         title_idx = next(
             (i for i, c in enumerate(v.cells)
@@ -451,9 +518,10 @@ class TestResolutionChain:
         # ANSI D has a CEL DXF on disk in this repo
         assert "TitleBlockDxfItem" in kinds or "TitleBlockItem" in kinds
 
-    def test_missing_variant_falls_back_with_warning(self):
-        t = make_default_template()
-        del t.variants["ANSI B"]
+    def test_size_mismatch_falls_back_with_warning(self):
+        """Rev2: template with ANSI D paper_size on an ANSI B sheet → warning + fallback."""
+        t = make_default_template()  # paper_size="ANSI D"
+        # Put it on an ANSI B sheet → mismatch
         sc, _ = self._scene(t, size="ANSI B")
         kinds = [type(i).__name__ for i in sc.items()]
         assert "TitleBlockTemplateItem" not in kinds
@@ -1006,9 +1074,13 @@ class TestMainWindowWiring:
         )
 
     def test_push_corrupt_embed_no_raise_legacy_chain(self, _mw):
-        """Corrupt embedded template must not raise and must show legacy chain."""
+        """Corrupt embedded template (missing required 'name' key triggers TypeError)
+        must not raise and must show legacy chain.
+        """
         _fresh(_mw)
-        _mw.scene._titleblock_template = {"variants": "garbage"}
+        # Use a dict that causes from_dict to raise (None name triggers error in
+        # to_dict/copy downstream; better: use a non-dict to force TypeError)
+        _mw.scene._titleblock_template = "this is not a dict"
         _mw._push_titleblock_template()
         sc = _mw.paper_space_widget.paper_scene
         kinds = [type(i).__name__ for i in sc.items()]

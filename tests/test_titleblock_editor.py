@@ -21,36 +21,36 @@ class TestEditorSession:
         t = make_default_template()
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
-        dlg.working.variants["ANSI D"].strip_width_mm = 123.0
+        dlg.working.layout.strip_width_mm = 123.0
         dlg.reject()
-        assert tbt.load_library()[0].variants["ANSI D"].strip_width_mm != 123.0
+        assert tbt.load_library()[0].layout.strip_width_mm != 123.0
 
     def test_save_commits_and_stamps_modified(self, tmp_path, monkeypatch):
         t = make_default_template()
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
-        dlg.working.variants["ANSI D"].strip_width_mm = 95.0
+        dlg.working.layout.strip_width_mm = 95.0
         dlg.save()
         lib = tbt.load_library()[0]
-        assert lib.variants["ANSI D"].strip_width_mm == 95.0
+        assert lib.layout.strip_width_mm == 95.0
 
     def test_snapshot_undo_redo(self, tmp_path, monkeypatch):
         t = make_default_template()
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
-        before = dlg.working.variants["ANSI D"].strip_width_mm
+        before = dlg.working.layout.strip_width_mm
         dlg.push_snapshot()
-        dlg.working.variants["ANSI D"].strip_width_mm = 99.0
+        dlg.working.layout.strip_width_mm = 99.0
         dlg.undo()
-        assert dlg.working.variants["ANSI D"].strip_width_mm == before
+        assert dlg.working.layout.strip_width_mm == before
         dlg.redo()
-        assert dlg.working.variants["ANSI D"].strip_width_mm == 99.0
+        assert dlg.working.layout.strip_width_mm == 99.0
 
     def test_save_blocked_on_validation_failure(self, tmp_path, monkeypatch):
         t = make_default_template()
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
-        dlg.working.variants["ANSI D"].strip_width_mm = 5.0   # under floor
+        dlg.working.layout.strip_width_mm = 5.0   # under floor
         dlg.refresh_preview()
         assert not dlg.save_button.isEnabled()
 
@@ -91,7 +91,7 @@ class TestEditorSession:
         t = make_default_template()
         dlg = self._dlg(tmp_path, monkeypatch, t)
         dlg.select_template(t.uuid)
-        dlg.working.variants["ANSI D"].strip_width_mm = 95.0
+        dlg.working.layout.strip_width_mm = 95.0
         dlg.save()
         assert tbt.load_library()[0].modified == datetime.date.today().isoformat()
 
@@ -108,41 +108,30 @@ class TestEditorForm:
     def test_margin_slot_snapshots_and_undo(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
         dlg.set_margin_edge(15.0)
-        assert dlg.working.variants[dlg._active_size].margin_edge_mm == 15.0
+        assert dlg.working.layout.margin_edge_mm == 15.0
         dlg.undo()
-        assert dlg.working.variants[dlg._active_size].margin_edge_mm == 10.0
+        assert dlg.working.layout.margin_edge_mm == 10.0
 
     def test_cell_reorder(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
-        first = dlg.working.variants[dlg._active_size].cells[0].kind
+        first = dlg.working.layout.cells[0].kind
         dlg.move_cell(0, 1)
-        assert dlg.working.variants[dlg._active_size].cells[1].kind == first
+        assert dlg.working.layout.cells[1].kind == first
 
     def test_add_remove_cell(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
-        n = len(dlg.working.variants[dlg._active_size].cells)
+        n = len(dlg.working.layout.cells)
         dlg.add_cell("static_text")
-        assert len(dlg.working.variants[dlg._active_size].cells) == n + 1
+        assert len(dlg.working.layout.cells) == n + 1
         dlg.remove_cell(n)
-        assert len(dlg.working.variants[dlg._active_size].cells) == n
-
-    def test_add_variant_copies_cells_independently(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.set_active_size("ANSI D")
-        dlg.add_variant("A3")
-        assert "A3" in dlg.working.variants
-        a3 = dlg.working.variants["A3"]
-        d = dlg.working.variants["ANSI D"]
-        assert len(a3.cells) == len(d.cells)
-        a3.cells[0].label = "changed"
-        assert d.cells[0].label != "changed"
+        assert len(dlg.working.layout.cells) == n
 
     def test_set_cell_prop_and_border(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
         dlg.set_cell_prop(1, "fill_color", "#ff0000")
-        assert dlg.working.variants[dlg._active_size].cells[1].fill_color == "#ff0000"
+        assert dlg.working.layout.cells[1].fill_color == "#ff0000"
         dlg.set_cell_border_prop(1, "width_mm", 0.7)
-        assert dlg.working.variants[dlg._active_size].cells[1].border.width_mm == 0.7
+        assert dlg.working.layout.cells[1].border.width_mm == 0.7
 
     def test_preview_uses_renderer_item(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
@@ -213,9 +202,9 @@ class TestCellBorderWiring:
         dlg = self._dlg(tmp_path, monkeypatch)
         # Select first cell
         dlg._cell_list.setCurrentRow(0)
-        variant = dlg.working.variants[dlg._active_size]
+        layout = dlg.working.layout
         # Ensure initial visible=True (the default)
-        variant.cells[0].border.visible = True
+        layout.cells[0].border.visible = True
         dlg._on_cell_selected(0)   # repopulate cell form
 
         snap_count_before = len(dlg._undo_stack)
@@ -224,12 +213,12 @@ class TestCellBorderWiring:
         dlg._cell_border_group._visible.setChecked(False)
         # _on_cell_border_changed fires via toggled signal
 
-        assert variant.cells[0].border.visible is False
+        assert layout.cells[0].border.visible is False
         assert len(dlg._undo_stack) == snap_count_before + 1
 
         # Undo should restore visible=True
         dlg.undo()
-        assert dlg.working.variants[dlg._active_size].cells[0].border.visible is True
+        assert dlg.working.layout.cells[0].border.visible is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -273,17 +262,16 @@ class TestCtrlShiftZRedo:
         from PyQt6.QtCore import QEvent, Qt
 
         dlg = self._dlg(tmp_path, monkeypatch)
-        before = dlg.working.variants[dlg._active_size].strip_width_mm
         dlg.set_margin_edge(55.0)
         dlg.undo()
-        assert dlg.working.variants[dlg._active_size].margin_edge_mm != 55.0
+        assert dlg.working.layout.margin_edge_mm != 55.0
 
         ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
                        Qt.KeyboardModifier.ControlModifier
                        | Qt.KeyboardModifier.ShiftModifier)
         dlg.keyPressEvent(ev)
         assert ev.isAccepted()
-        assert dlg.working.variants[dlg._active_size].margin_edge_mm == 55.0
+        assert dlg.working.layout.margin_edge_mm == 55.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -308,9 +296,8 @@ class TestDimensionParserImperial:
         dlg._edge_edit.setText('1"')
         dlg._edge_edit.editingFinished.emit()
         assert dlg._edge_edit.value_mm() == pytest.approx(25.4)
-        # The slot must have applied it to the working variant
-        assert (dlg.working.variants[dlg._active_size].margin_edge_mm
-                == pytest.approx(25.4))
+        # The slot must have applied it to the working layout
+        assert dlg.working.layout.margin_edge_mm == pytest.approx(25.4)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -436,14 +423,12 @@ class TestUseSaveOrdering:
         # Drive _on_save_clicked (save succeeds since the template is valid).
         # Patch accept() so the dialog doesn't try to close.
         accepted = []
-        original_accept = dlg.accept
         monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
         dlg._on_save_clicked()
 
         # project_template_result must carry the new width AND today's modified stamp.
         assert dlg.project_template_result is not None
-        result_width = dlg.project_template_result.variants[
-            dlg._active_size].strip_width_mm
+        result_width = dlg.project_template_result.layout.strip_width_mm
         assert result_width == NEW_WIDTH, (
             f"project_template_result has old width {result_width}, expected {NEW_WIDTH}"
         )

@@ -78,6 +78,31 @@ PAPER_SIZES: dict[str, tuple[float, float]] = {
     "D-size": (558.8,  863.6),
 }
 
+def sheet_page_mm(sheet: "Sheet") -> tuple[float, float]:
+    """Return effective page dimensions (width, height) in mm for *sheet*.
+
+    Applies ``sheet.orientation`` swap rule:
+    - ``""`` (native) → stored PAPER_SIZES dims unchanged.
+    - ``"landscape"`` → (max, min) of base dims.
+    - ``"portrait"``  → (min, max) of base dims.
+
+    Args:
+        sheet: The sheet whose paper_size and orientation to use.
+
+    Returns:
+        ``(width_mm, height_mm)`` as a 2-tuple.
+    """
+    base = PAPER_SIZES.get(sheet.paper_size, (297.0, 420.0))
+    o = sheet.orientation
+    if not o:
+        return base
+    if o == "landscape":
+        return (max(base), min(base))
+    if o == "portrait":
+        return (min(base), max(base))
+    return base
+
+
 # Map paper size name → DXF title block file (preferred, vector)
 TITLE_BLOCK_DXFS: dict[str, str] = {
     "ANSI B": os.path.join(_BASE_DIR, "default titleblocks", "CEL Titleblock (ANSI B) R0.dxf"),
@@ -315,6 +340,8 @@ class Sheet:
     annotations: list[TextAnnotationData] = field(default_factory=list)
     revisions: list[dict] = field(default_factory=list)
     """Revision history for this sheet. Each entry: {"no", "description", "date"}."""
+    orientation: str = ""
+    """Sheet orientation override: "" = native PAPER_SIZES dims, "landscape" or "portrait"."""
 
     @classmethod
     def create_default(cls) -> "Sheet":
@@ -325,6 +352,7 @@ class Sheet:
             title_block_fields=dict(DEFAULT_TITLE_BLOCK_FIELDS),
             sheet_views=[],
             annotations=[],
+            orientation="",
         )
 
     def to_dict(self) -> dict:
@@ -332,6 +360,7 @@ class Sheet:
             "number": self.number,
             "name": self.name,
             "paper_size": self.paper_size,
+            "orientation": self.orientation,
             "title_block_fields": dict(self.title_block_fields),
             "sheet_views": [sv.to_dict() for sv in self.sheet_views],
             "annotations": [a.to_dict() for a in self.annotations],
@@ -344,6 +373,7 @@ class Sheet:
             number=d["number"],
             name=d["name"],
             paper_size=d["paper_size"],
+            orientation=d.get("orientation", ""),
             title_block_fields=d.get("title_block_fields",
                                      dict(DEFAULT_TITLE_BLOCK_FIELDS)),
             sheet_views=[SheetViewData.from_dict(sv)
@@ -1152,7 +1182,7 @@ class TextAnnotationItem(QGraphicsTextItem):
         """
         Change = QGraphicsItem.GraphicsItemChange
         if change == Change.ItemPositionChange and self.scene() is not None:
-            pw, ph = PAPER_SIZES[self.scene().sheet.paper_size]
+            pw, ph = sheet_page_mm(self.scene().sheet)
             return QPointF(max(0.0, min(value.x(), pw)),
                            max(0.0, min(value.y(), ph)))
         if change == Change.ItemPositionHasChanged:
@@ -1942,7 +1972,7 @@ class PaperGraphicsView(QGraphicsView):
             return
         _, src_rect = result
 
-        pw, ph = PAPER_SIZES[self._paper_scene.sheet.paper_size]
+        pw, ph = sheet_page_mm(self._paper_scene.sheet)
         max_w = pw - 2 * (MARGIN + INNER_MARGIN)
         max_h = ph - 2 * (MARGIN + INNER_MARGIN) - TITLE_H
 
@@ -2827,30 +2857,45 @@ class PaperScene(QGraphicsScene):
         finally:
             self._suppress_modified = False
 
+    def _template_matches_sheet(self) -> bool:
+        """True when the active template matches the sheet's paper size + orientation.
+
+        Orientation match: template.orientation == effective sheet orientation.
+        Effective sheet orientation: sheet.orientation if non-empty, else the
+        native orientation for the paper size (from _NATIVE_ORIENTATION in
+        titleblock_template).
+        """
+        if self._template is None:
+            return False
+        from .titleblock_template import native_orientation
+        sheet_eff_orient = (self._sheet.orientation
+                            or native_orientation(self._sheet.paper_size))
+        return (self._template.paper_size == self._sheet.paper_size
+                and self._template.orientation == sheet_eff_orient)
+
     def _build_template_item(self, w: float, h: float) -> "TitleBlockTemplateItem | None":
         """Resolve and construct the template TitleBlockTemplateItem for (w, h).
 
         Adds the new item to the scene and assigns ``self._title_tb``.  Returns
-        ``None`` when the template has no variant for the current paper size (the
-        caller is responsible for any warning/fallback logic — only ``_setup``
-        handles the no-variant case).
+        ``None`` when the template does not match the current paper size/orientation
+        (the caller is responsible for any warning/fallback logic).
 
         Args:
             w: Paper width in mm.
             h: Paper height in mm.
 
         Returns:
-            The constructed TitleBlockTemplateItem, or None if no variant exists.
+            The constructed TitleBlockTemplateItem, or None if no match.
         """
         if self._template is None:
             return None
-        variant = self._template.variants.get(self._sheet.paper_size)
-        if variant is None:
+        if not self._template_matches_sheet():
             return None
+        layout = self._template.layout
         from .titleblock_template import solve_layout
         values = build_field_values(self._sheet, self._scene_project_info)
-        sl = solve_layout(variant, w, h, values)
-        tb = TitleBlockTemplateItem(sl, variant, values)
+        sl = solve_layout(layout, w, h, values)
+        tb = TitleBlockTemplateItem(sl, layout, values)
         self.addItem(tb)
         self._title_tb = tb
         return tb
@@ -2864,7 +2909,7 @@ class PaperScene(QGraphicsScene):
         """
         if not isinstance(self._title_tb, TitleBlockTemplateItem):
             return
-        w, h = PAPER_SIZES[self._sheet.paper_size]
+        w, h = sheet_page_mm(self._sheet)
         old = self._title_tb
         was_selected = old.isSelected()
         self._suppress_modified = True
@@ -2901,7 +2946,7 @@ class PaperScene(QGraphicsScene):
         self._pending_text = None    # any in-progress placement is voided by a rebuild
         self._editing_item = None    # dangling ref after rebuild would crash on focus-out
 
-        w, h = PAPER_SIZES[self._sheet.paper_size]
+        w, h = sheet_page_mm(self._sheet)
 
         # White paper background
         self._bg_item = self.addRect(
@@ -2916,14 +2961,14 @@ class PaperScene(QGraphicsScene):
         self.titleblock_warning = ""
 
         if self._template is not None:
-            variant = self._template.variants.get(self._sheet.paper_size)
-            if variant is not None:
+            if self._template_matches_sheet():
                 self._build_template_item(w, h)
                 use_external_title = True
             else:
                 self.titleblock_warning = (
-                    f"Template '{self._template.name}' has no "
-                    f"{self._sheet.paper_size} variant — using built-in "
+                    f"Template '{self._template.name}' "
+                    f"({self._template.paper_size}) does not match "
+                    f"sheet size {self._sheet.paper_size} — using built-in "
                     "title block."
                 )
 
@@ -3276,7 +3321,7 @@ class PaperScene(QGraphicsScene):
         Returns:
             The newly created TextAnnotationItem in inline-edit mode.
         """
-        pw, ph = PAPER_SIZES[self._sheet.paper_size]
+        pw, ph = sheet_page_mm(self._sheet)
         x = max(0.0, min(pos.x(), pw))
         y = max(0.0, min(pos.y(), ph))
         data = TextAnnotationData(x=x, y=y, text="")

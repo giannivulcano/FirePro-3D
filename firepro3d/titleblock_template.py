@@ -27,6 +27,39 @@ from .constants import (
 
 CELL_KINDS = ("field", "static_text", "logo", "revision_table", "stamp")
 
+# Native orientation for each known paper size:
+# "landscape" means stored dims have w > h; "portrait" means h > w.
+# Derived from PAPER_SIZES in paper_space.py (cannot import — cycle risk);
+# encoded once here. Update when PAPER_SIZES changes.
+_NATIVE_ORIENTATION: dict[str, str] = {
+    # ISO A-series: w < h → portrait
+    "A4":     "portrait",
+    "A3":     "portrait",
+    "A2":     "portrait",
+    "A1":     "portrait",
+    "A0":     "portrait",
+    # ANSI: w > h → landscape
+    "ANSI B": "landscape",
+    "ANSI D": "landscape",
+    # Legacy
+    "Letter": "portrait",   # 215.9 < 279.4 → portrait
+    "D-size": "portrait",   # 558.8 < 863.6 → portrait
+}
+
+
+def native_orientation(paper_size: str) -> str:
+    """Return "landscape" or "portrait" for the named paper size's stored dims.
+
+    Defaults to "landscape" for unknown sizes.
+
+    Args:
+        paper_size: Key into PAPER_SIZES / _NATIVE_ORIENTATION.
+
+    Returns:
+        "landscape" or "portrait".
+    """
+    return _NATIVE_ORIENTATION.get(paper_size, "landscape")
+
 
 @dataclass
 class BorderStyle:
@@ -67,6 +100,7 @@ class CellSpec:
     label: str = ""
     static_text: str = ""
     min_height_mm: float = 10.0
+    sizing: str = "static"               # "static" | "dynamic" (DD-8b)
     pair_with_next: bool = False
     font_family: str = "Arial"
     cap_height_mm: float = 3.0
@@ -86,12 +120,16 @@ class CellSpec:
 
     @classmethod
     def from_dict(cls, d: dict) -> "CellSpec":
+        raw_sizing = d.get("sizing", "static")
+        # Unknown values load as "static" (forward-compat)
+        sizing = raw_sizing if raw_sizing in ("static", "dynamic") else "static"
         return cls(
             kind=d.get("kind", "field"),
             field_key=d.get("field_key", ""),
             label=d.get("label", ""),
             static_text=d.get("static_text", ""),
             min_height_mm=float(d.get("min_height_mm", 10.0)),
+            sizing=sizing,
             pair_with_next=bool(d.get("pair_with_next", False)),
             font_family=d.get("font_family", "Arial"),
             cap_height_mm=float(d.get("cap_height_mm", 3.0)),
@@ -111,10 +149,13 @@ def _frame_border_default() -> BorderStyle:
 
 
 @dataclass
-class TemplateVariant:
-    """Layout parameters for one paper size: margins, strip width, and cell stack."""
+class TemplateLayout:
+    """Layout parameters for a single paper size: margins, strip width, and cell stack.
 
-    paper_size: str
+    Formerly named TemplateVariant (renamed 2026-07-22).  The ``paper_size``
+    field was removed from this class and hoisted to ``TitleBlockTemplate``.
+    """
+
     margin_edge_mm: float = TB_MARGIN_EDGE_DEFAULT_MM
     margin_strip_mm: float = TB_MARGIN_STRIP_DEFAULT_MM
     strip_width_mm: float = TB_STRIP_DEFAULT_MM
@@ -125,7 +166,6 @@ class TemplateVariant:
 
     def to_dict(self) -> dict:
         return {
-            "paper_size": self.paper_size,
             "margin_edge_mm": self.margin_edge_mm,
             "margin_strip_mm": self.margin_strip_mm,
             "strip_width_mm": self.strip_width_mm,
@@ -136,9 +176,8 @@ class TemplateVariant:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "TemplateVariant":
+    def from_dict(cls, d: dict) -> "TemplateLayout":
         return cls(
-            paper_size=d.get("paper_size", ""),
             margin_edge_mm=float(d.get("margin_edge_mm",
                                        TB_MARGIN_EDGE_DEFAULT_MM)),
             margin_strip_mm=float(d.get("margin_strip_mm",
@@ -151,31 +190,94 @@ class TemplateVariant:
         )
 
 
+# Transitional alias for code that still references the old name (T15 compat shim)
+TemplateVariant = TemplateLayout
+
+
 @dataclass
 class TitleBlockTemplate:
-    """Named, versioned collection of per-paper-size TemplateVariants."""
+    """Single-size parametric title block template (revised 2026-07-22).
+
+    A template now holds ONE layout for ONE paper_size + orientation.
+    The old variant-family format (``variants: dict``) is accepted by
+    ``from_dict`` for back-compat (takes the first variant; hoists paper_size).
+    """
 
     name: str
     uuid: str
     modified: str                       # ISO date; divergence compare key
-    variants: dict[str, TemplateVariant] = field(default_factory=dict)
+    paper_size: str = "ANSI D"
+    orientation: str = "landscape"      # "landscape" | "portrait"
+    layout: TemplateLayout = field(default_factory=TemplateLayout)
+
+    # ── back-compat shim: expose .variants as a property so old code reading
+    # template.variants["ANSI D"] continues to work during the T15→T16 window.
+    @property
+    def variants(self) -> dict:  # noqa: D401
+        """Compatibility shim: returns {paper_size: layout} for old callers."""
+        return {self.paper_size: self.layout}
+
+    @property
+    def display_name(self) -> str:
+        """Human-readable name with size; appends orientation when non-native.
+
+        Examples:
+            "FirePro Default (ANSI D)" — landscape ANSI D (native)
+            "FirePro Default (ANSI D, Portrait)" — non-native portrait
+            "My A4 (A4, Landscape)" — non-native landscape on A4
+        """
+        base = f"{self.name} ({self.paper_size})"
+        nat = native_orientation(self.paper_size)
+        if self.orientation != nat:
+            label = "Portrait" if self.orientation == "portrait" else "Landscape"
+            return f"{base}, {label})"
+        return base
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "uuid": self.uuid,
             "modified": self.modified,
-            "variants": {k: v.to_dict() for k, v in self.variants.items()},
+            "paper_size": self.paper_size,
+            "orientation": self.orientation,
+            "layout": self.layout.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "TitleBlockTemplate":
+        # ── Back-compat: old variant-family format ────────────────────────
+        if "variants" in d and "layout" not in d:
+            variants_raw = d["variants"]
+            if isinstance(variants_raw, dict) and variants_raw:
+                # Take the first variant; hoist its paper_size
+                first_key = next(iter(variants_raw))
+                first_v = variants_raw[first_key]
+                hoisted_size = first_v.get("paper_size", first_key) or first_key
+                # Build layout from first variant (ignore its paper_size key)
+                layout_d = dict(first_v)
+                layout_d.pop("paper_size", None)
+                layout = TemplateLayout.from_dict(layout_d)
+                orientation = _NATIVE_ORIENTATION.get(hoisted_size, "landscape")
+                return cls(
+                    name=d.get("name", "Untitled"),
+                    uuid=d.get("uuid", ""),
+                    modified=d.get("modified", ""),
+                    paper_size=hoisted_size,
+                    orientation=orientation,
+                    layout=layout,
+                )
+            # Empty variants dict → fall through to default
+        # ── New single-size format ────────────────────────────────────────
+        layout_d = d.get("layout", {})
+        # Ignore any legacy paper_size that may appear inside layout_d
+        layout_d.pop("paper_size", None)
         return cls(
             name=d.get("name", "Untitled"),
             uuid=d.get("uuid", ""),
             modified=d.get("modified", ""),
-            variants={k: TemplateVariant.from_dict(v)
-                      for k, v in d.get("variants", {}).items()},
+            paper_size=d.get("paper_size", "ANSI D"),
+            orientation=d.get("orientation", "landscape"),
+            layout=TemplateLayout.from_dict(layout_d),
         )
 
     def copy(self) -> "TitleBlockTemplate":
@@ -250,12 +352,12 @@ def _wrapped_height_mm(cell: CellSpec, text: str,
     return len(lines) * line_h_mm, lines
 
 
-def solve_layout(variant: TemplateVariant, paper_w_mm: float,
+def solve_layout(variant: TemplateLayout, paper_w_mm: float,
                  paper_h_mm: float, values: dict) -> SolvedLayout:
     """Solve the parametric layout for one variant on one paper size.
 
     Args:
-        variant: The template variant to solve.
+        variant: The template layout to solve.
         paper_w_mm: Paper width (mm).
         paper_h_mm: Paper height (mm).
         values: Resolved field values; key ``"__revisions__"`` optionally
@@ -275,8 +377,14 @@ def solve_layout(variant: TemplateVariant, paper_w_mm: float,
     cell_rects: list[QRectF] = []
     cell_lines: list[list[str]] = []
     cell_revision_rows: dict[int, list[dict]] = {}
+    # Track which row-index each cell belongs to (for the dynamic pass)
+    cell_row_indices: list[int] = []
+    # Per-row info for dynamic pass: (row_index, is_dynamic, min_h)
+    row_info: list[tuple[int, bool, float]] = []  # (row_idx, dynamic, min_h)
+
     y = strip_rect.top()
     i = 0
+    row_idx = 0
     cells = variant.cells
     while i < len(cells):
         pair = (cells[i].pair_with_next and i + 1 < len(cells))
@@ -306,13 +414,62 @@ def solve_layout(variant: TemplateVariant, paper_w_mm: float,
             heights.append(h)
             lines_group.append(lines)
         row_h = max(heights)
+        # A paired row is dynamic if EITHER member has sizing=="dynamic"
+        row_dynamic = any(c.sizing == "dynamic" for c in group)
+        # Track per-row: start cell index, dynamic flag, static min height
+        row_info.append((len(cell_rects), row_dynamic, row_h))
+
         x = strip_rect.left()
         for cell, lines in zip(group, lines_group):
             cell_rects.append(QRectF(x, y, cw, row_h))
             cell_lines.append(lines)
+            cell_row_indices.append(row_idx)
             x += cw
         y += row_h
         i += len(group)
+        row_idx += 1
+
+    # ── Dynamic pass (DD-8b) ──────────────────────────────────────────────
+    # After the static walk: distribute leftover strip height among dynamic rows.
+    stack_bottom = y  # where static walk ended
+    leftover = strip_rect.bottom() - stack_bottom
+    if leftover > 1e-9:
+        # row_info stores (first_cell_idx, is_dynamic, static_row_h) in order.
+        # Use enumeration index as the row identifier throughout.
+        dyn_row_indices = [(row_i, old_row_h)
+                           for row_i, (_, dyn, old_row_h) in enumerate(row_info)
+                           if dyn]
+        if dyn_row_indices:
+            # Proportional distribution by static row height (min heights)
+            total_min = sum(rh for _, rh in dyn_row_indices)
+            if total_min <= 0:
+                # Equal shares fallback
+                share = leftover / len(dyn_row_indices)
+                extras = {row_i: share for row_i, _ in dyn_row_indices}
+            else:
+                extras = {row_i: leftover * rh / total_min
+                          for row_i, rh in dyn_row_indices}
+
+            # Rebuild rects: second pass with extra heights
+            new_cell_rects: list[QRectF] = []
+            new_y = strip_rect.top()
+            for row_i, (first_cell_idx, row_dynamic, old_row_h) in enumerate(row_info):
+                extra_h = extras.get(row_i, 0.0) if row_dynamic else 0.0
+                new_row_h = old_row_h + extra_h
+                # Find how many cells are in this row
+                if row_i + 1 < len(row_info):
+                    next_first = row_info[row_i + 1][0]
+                    n_cells = next_first - first_cell_idx
+                else:
+                    n_cells = len(cell_rects) - first_cell_idx
+                # Distribute row width equally
+                row_cw = strip_rect.width() / n_cells
+                x = strip_rect.left()
+                for ci in range(first_cell_idx, first_cell_idx + n_cells):
+                    new_cell_rects.append(QRectF(x, new_y, row_cw, new_row_h))
+                    x += row_cw
+                new_y += new_row_h
+            cell_rects = new_cell_rects
 
     if cell_rects and cell_rects[-1].bottom() > strip_rect.bottom() + 1e-6:
         warnings.append(
@@ -325,12 +482,12 @@ def solve_layout(variant: TemplateVariant, paper_w_mm: float,
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
-def validate(variant: TemplateVariant, paper_w_mm: float,
+def validate(variant: TemplateLayout, paper_w_mm: float,
              paper_h_mm: float) -> list[str]:
     """Save-blocking validation floors (spec §Layout Solver).
 
     Args:
-        variant: The template variant to validate.
+        variant: The template layout to validate.
         paper_w_mm: Paper width (mm).
         paper_h_mm: Paper height (mm).
 
@@ -508,7 +665,7 @@ LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
 
 # Bump this string whenever the shipped seed design changes so divergence checks
 # pick up the new layout.
-DEFAULT_SEED_MODIFIED = "2026-07-21"
+DEFAULT_SEED_MODIFIED = "2026-07-22"
 
 # Accent fill colour shared by the two highlighted cells in the default template.
 _ACCENT_FILL = "#eef2f7"
@@ -578,39 +735,43 @@ def migrate_legacy_fields(
 
 
 def _field(key: str, label: str, *, h: float = 10.0, cap: float = 2.6,
-           pair: bool = False, fill: str = "") -> CellSpec:
+           pair: bool = False, fill: str = "",
+           sizing: str = "static") -> CellSpec:
     """Shorthand CellSpec factory for the default template's field cells."""
     return CellSpec(kind="field", field_key=key, label=label,
                     min_height_mm=h, cap_height_mm=cap,
-                    pair_with_next=pair, fill_color=fill)
+                    pair_with_next=pair, fill_color=fill, sizing=sizing)
 
 
 def make_default_template() -> TitleBlockTemplate:
-    """Seeded default: arrangement A 'Corporate top-down', filleted frames."""
-    def cells() -> list[CellSpec]:
-        return [
-            CellSpec(kind="logo", min_height_mm=25.0),
-            _field("Company", "Company", h=12.0, fill=_ACCENT_FILL),
-            _field("Project", "Project", h=12.0),
-            _field("Address", "Address", h=10.0),
-            _field("Title", "Sheet Title", h=14.0, cap=3.2),
-            _field("Scale", "Scale", pair=True),
-            _field("Date", "Date"),
-            _field("Drawn By", "Drawn", pair=True),
-            _field("Checked By", "Checked"),
-            _field("Drawing No", "Drawing No", h=14.0, cap=4.0, pair=True,
-                   fill=_ACCENT_FILL),
-            _field("Rev", "Rev", h=14.0, cap=4.0),
-            CellSpec(kind="revision_table", label="Revisions",
-                     min_height_mm=25.0, revision_rows=3),
-            CellSpec(kind="stamp", min_height_mm=60.0),
-        ]
+    """Seeded default: arrangement A 'Corporate top-down', filleted frames.
 
-    variants = {}
-    for size, strip in (("ANSI B", 70.0), ("ANSI D", 90.0), ("Letter", 60.0)):
-        variants[size] = TemplateVariant(paper_size=size,
-                                         strip_width_mm=strip, cells=cells())
-    return TitleBlockTemplate(name="FirePro Default",
-                              uuid=str(_uuid.uuid4()),
-                              modified=DEFAULT_SEED_MODIFIED,
-                              variants=variants)
+    Single ANSI D landscape template; stamp cell is dynamic (fills to strip
+    bottom).
+    """
+    cells: list[CellSpec] = [
+        CellSpec(kind="logo", min_height_mm=25.0),
+        _field("Company", "Company", h=12.0, fill=_ACCENT_FILL),
+        _field("Project", "Project", h=12.0),
+        _field("Address", "Address", h=10.0),
+        _field("Title", "Sheet Title", h=14.0, cap=3.2),
+        _field("Scale", "Scale", pair=True),
+        _field("Date", "Date"),
+        _field("Drawn By", "Drawn", pair=True),
+        _field("Checked By", "Checked"),
+        _field("Drawing No", "Drawing No", h=14.0, cap=4.0, pair=True,
+               fill=_ACCENT_FILL),
+        _field("Rev", "Rev", h=14.0, cap=4.0),
+        CellSpec(kind="revision_table", label="Revisions",
+                 min_height_mm=25.0, revision_rows=3),
+        CellSpec(kind="stamp", min_height_mm=60.0, sizing="dynamic"),
+    ]
+    layout = TemplateLayout(strip_width_mm=90.0, cells=cells)
+    return TitleBlockTemplate(
+        name="FirePro Default",
+        uuid=str(_uuid.uuid4()),
+        modified=DEFAULT_SEED_MODIFIED,
+        paper_size="ANSI D",
+        orientation="landscape",
+        layout=layout,
+    )

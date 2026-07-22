@@ -22,7 +22,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QStandardItemModel
 
 from .titleblock_template import (
-    TitleBlockTemplate, TemplateVariant, CellSpec, BorderStyle, CELL_KINDS,
+    TitleBlockTemplate, TemplateLayout, TemplateVariant, CellSpec, BorderStyle,
+    CELL_KINDS,
     make_default_template, load_library, save_to_library, delete_from_library,
     solve_layout, validate,
 )
@@ -505,10 +506,8 @@ class TitleBlockEditorDialog(QDialog):
         self.working = tmpl.copy()
         self._undo_stack.clear()
         self._redo_stack.clear()
-        # Pick default active size
-        if self._active_size not in self.working.variants:
-            if self.working.variants:
-                self._active_size = next(iter(self.working.variants))
+        # Sync active size to template's paper_size
+        self._active_size = self.working.paper_size
         self._populate_form()
 
     def new_template(self) -> None:
@@ -518,9 +517,7 @@ class TitleBlockEditorDialog(QDialog):
         self.working = tmpl
         self._undo_stack.clear()
         self._redo_stack.clear()
-        if self._active_size not in self.working.variants:
-            if self.working.variants:
-                self._active_size = next(iter(self.working.variants))
+        self._active_size = self.working.paper_size
         self._populate_form()
 
     def duplicate_template(self) -> None:
@@ -661,16 +658,9 @@ class TitleBlockEditorDialog(QDialog):
             self.save_button.setEnabled(False)
             return
 
-        # Determine active size and paper dimensions
-        size = self._active_size
-        if size not in self.working.variants:
-            size = next(iter(self.working.variants), None)
-        if size is None:
-            self._warning_label.setVisible(False)
-            self.save_button.setEnabled(False)
-            return
-
-        variant = self.working.variants[size]
+        # Single-size model: use the template's layout and paper_size
+        variant = self.working.layout
+        size = self.working.paper_size
         paper_w, paper_h = PAPER_SIZES.get(size, (297.0, 420.0))
 
         # Validate first (save-blocking errors)
@@ -795,12 +785,10 @@ class TitleBlockEditorDialog(QDialog):
             self._variant_tabs.rect().bottomLeft()))
 
     def _populate_variant_fields(self) -> None:
-        """Update margin/border widgets from the active variant (no snapshot)."""
+        """Update margin/border widgets from the active layout (no snapshot)."""
         if self.working is None:
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
+        variant = self.working.layout
         self._edge_edit.set_value_mm(variant.margin_edge_mm)
         self._strip_margin_edit.set_value_mm(variant.margin_strip_mm)
         self._strip_width_edit.set_value_mm(variant.strip_width_mm)
@@ -808,16 +796,13 @@ class TitleBlockEditorDialog(QDialog):
         self._strip_border.load(variant.strip_border)
 
     def _rebuild_cell_list(self) -> None:
-        """Rebuild cell list QListWidget from active variant's cells."""
+        """Rebuild cell list QListWidget from active layout's cells."""
         self._cell_list.blockSignals(True)
         self._cell_list.clear()
         if self.working is None:
             self._cell_list.blockSignals(False)
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            self._cell_list.blockSignals(False)
-            return
+        variant = self.working.layout
         for cell in variant.cells:
             key = cell.field_key or cell.label or cell.static_text or cell.kind
             label = f"{cell.kind}: {key}"
@@ -833,8 +818,8 @@ class TitleBlockEditorDialog(QDialog):
         if self.working is None or row < 0:
             self._cell_form_widget.setEnabled(False)
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None or row >= len(variant.cells):
+        variant = self.working.layout
+        if row >= len(variant.cells):
             self._cell_form_widget.setEnabled(False)
             return
         self._loading = True
@@ -942,7 +927,7 @@ class TitleBlockEditorDialog(QDialog):
         row = self._cell_list.currentRow()
         if self.working is None:
             return
-        variant = self.working.variants.get(self._active_size)
+        variant = self.working.layout
         if variant and row < len(variant.cells) - 1:
             self.move_cell(row, row + 1)
             self._cell_list.setCurrentRow(row + 1)
@@ -952,9 +937,7 @@ class TitleBlockEditorDialog(QDialog):
         if self._loading or self.working is None:
             return
         self.push_snapshot()
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
+        variant = self.working.layout
         variant.area_border = BorderStyle.from_dict(self._area_border.read())
         variant.strip_border = BorderStyle.from_dict(self._strip_border.read())
         self.refresh_preview()
@@ -966,8 +949,8 @@ class TitleBlockEditorDialog(QDialog):
         row = self._cell_list.currentRow()
         if row < 0:
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None or row >= len(variant.cells):
+        variant = self.working.layout
+        if row >= len(variant.cells):
             return
         self.push_snapshot()
         variant.cells[row].border = BorderStyle.from_dict(
@@ -992,41 +975,31 @@ class TitleBlockEditorDialog(QDialog):
                 break
 
     def set_margin_edge(self, mm: float) -> None:
-        """Snapshot + mutate margin_edge_mm on the active variant."""
+        """Snapshot + mutate margin_edge_mm on the active layout."""
         if self._loading or self.working is None:
             return
-        push_mm = mm
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
         self.push_snapshot()
-        variant.margin_edge_mm = push_mm
+        self.working.layout.margin_edge_mm = mm
         self.refresh_preview()
 
     def set_margin_strip(self, mm: float) -> None:
-        """Snapshot + mutate margin_strip_mm on the active variant."""
+        """Snapshot + mutate margin_strip_mm on the active layout."""
         if self._loading or self.working is None:
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
         self.push_snapshot()
-        variant.margin_strip_mm = mm
+        self.working.layout.margin_strip_mm = mm
         self.refresh_preview()
 
     def set_strip_width(self, mm: float) -> None:
-        """Snapshot + mutate strip_width_mm on the active variant."""
+        """Snapshot + mutate strip_width_mm on the active layout."""
         if self._loading or self.working is None:
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
         self.push_snapshot()
-        variant.strip_width_mm = mm
+        self.working.layout.strip_width_mm = mm
         self.refresh_preview()
 
     def set_border_prop(self, which: str, prop: str, value) -> None:
-        """Set a border property on the active variant's area or strip border.
+        """Set a border property on the active layout's area or strip border.
 
         Args:
             which: ``"area"`` or ``"strip"``.
@@ -1035,20 +1008,19 @@ class TitleBlockEditorDialog(QDialog):
         """
         if self.working is None:
             return
-        variant = self.working.variants.get(self._active_size)
-        if variant is None:
-            return
         self.push_snapshot()
-        border = variant.area_border if which == "area" else variant.strip_border
+        border = (self.working.layout.area_border if which == "area"
+                  else self.working.layout.strip_border)
         setattr(border, prop, value)
         self.refresh_preview()
 
     # ── Cell operations ───────────────────────────────────────────────────
 
-    def _active_variant(self) -> TemplateVariant | None:
+    def _active_variant(self) -> TemplateLayout | None:
         if self.working is None:
             return None
-        return self.working.variants.get(self._active_size)
+        # Single-size model: always return the one layout
+        return self.working.layout
 
     def add_cell(self, kind: str) -> None:
         """Append a new cell of *kind* to the active variant."""
