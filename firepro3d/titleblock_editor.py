@@ -1,12 +1,12 @@
 """Title block template editor — form panel + live preview.
 
-Governing spec: docs/specs/titleblock-template-system.md §Editor (rev 2026-07-22).
+Governing spec: docs/specs/titleblock-template-system.md §Editor (rev 3 proposal).
 The preview hosts the SAME renderer used on sheets (one render path).
 
-Tab organisation (rev2):
-  Overview    — paper-size + orientation + three margin/strip DimensionEdits
-  Drawing Area — area-border group
-  Info Strip  — strip-border group + cell list + per-cell form
+Tab organisation (rev3):
+  Overview      — paper-size + orientation + three margin/strip DimensionEdits
+  Drawing Area  — area-border group
+  Fields        — roster + intrinsics form + single-field preview (DD-18)
 """
 from __future__ import annotations
 
@@ -16,25 +16,27 @@ import datetime
 import logging
 import uuid as _uuid
 
-from PyQt6.QtCore import Qt, QBuffer, QIODevice
+from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent
 from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
     QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QRadioButton, QSizePolicy, QSpinBox,
-    QTabWidget, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QPlainTextEdit, QRadioButton,
+    QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QStandardItemModel
 
 from .titleblock_template import (
-    TitleBlockTemplate, TemplateLayout, CellSpec, BorderStyle,
-    CELL_KINDS, native_orientation,
+    TitleBlockTemplate, TemplateLayout, FieldDef, Slot, BorderStyle,
+    KINDS, new_field_id, unplace_field,
+    native_orientation,
     make_default_template, load_library, save_to_library, delete_from_library,
     solve_layout, validate,
 )
 from .paper_space import PAPER_SIZES, TitleBlockTemplateItem, PROJECT_STD_KEYS
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
+from .constants import TB_PREVIEW_MIN_MM
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
 # ScaleManager() is standalone (pixels_per_mm=1 → 1 px = 1 mm, display_unit=mm),
@@ -48,16 +50,18 @@ _log = logging.getLogger("FirePro3D")
 # Do NOT add a local copy; edit paper_space.PROJECT_STD_KEYS to add new keys.
 
 # Sample values used in the preview (no build_field_values needed)
+# DD-13: seed all standard keys so known-but-empty renders empty, not literal.
 _SAMPLE_VALUES = {
     "Company": "Vulcano Fire Design Inc.", "Project": "Sample Project",
     "Address": "123 Example St", "Title": "Level 1 — Sprinkler Plan",
     "Scale": "1:100", "Date": "2026-07-21", "Drawn By": "GV",
     "Checked By": "—", "Drawing No": "FP-101", "Rev": "0",
+    "Sheet No": "",
     "__revisions__": [{"no": "1", "description": "Issued for permit",
                        "date": "07-21"}],
 }
 
-# Field key groups for the cell form picker
+# Field key groups for the Insert field ▾ picker and token helper
 _AUTO_FIELD_KEYS = ["Scale", "Date (auto)", "Sheet No"]
 _SHEET_FIELD_KEYS = ["Title", "Drawing No", "Rev", "Date"]
 
@@ -208,6 +212,9 @@ class TitleBlockEditorDialog(QDialog):
         # ── Preview scene (reused across refresh_preview calls) ────────────
         self._preview_scene = QGraphicsScene(self)
 
+        # ── Field preview scene (single-field preview on Fields tab) ───────
+        self._field_preview_scene = QGraphicsScene(self)
+
         # ── Build UI ──────────────────────────────────────────────────────
         self._build_ui()
 
@@ -263,7 +270,7 @@ class TitleBlockEditorDialog(QDialog):
         centre = QVBoxLayout()
         centre.setSpacing(6)
 
-        # ── Component tabs (Overview / Drawing Area / Info Strip) ──────────
+        # ── Component tabs (Overview / Drawing Area / Fields) ─────────────
         self._component_tabs = QTabWidget()
         centre.addWidget(self._component_tabs, stretch=1)
 
@@ -364,15 +371,12 @@ class TitleBlockEditorDialog(QDialog):
 
         self._component_tabs.addTab(area_widget, "Drawing Area")
 
-        # ── Tab 2: Info Strip ──────────────────────────────────────────────
-        strip_widget = QWidget()
-        strip_layout = QVBoxLayout(strip_widget)
-        strip_layout.setSpacing(6)
-
+        # ── Strip border: PARKED — joins the Arrangements tab in Task 10 (DD-17) ──
+        # Constructed here so strip_border change signals can still wire;
+        # the widget has no parent layout until Task 10.
         self._strip_border = _BorderGroup("Info Strip Border")
-        strip_layout.addWidget(self._strip_border)
 
-        # Wire strip border change signals
+        # Wire strip border change signals (writes strip_border to working + snapshot)
         self._strip_border._visible.toggled.connect(self._on_border_changed)
         self._strip_border._width.valueChanged.connect(
             lambda _: self._on_border_changed())
@@ -382,147 +386,171 @@ class TitleBlockEditorDialog(QDialog):
         self._strip_border._fillet.valueChanged.connect(
             lambda _: self._on_border_changed())
 
-        # Cell list + per-cell form
-        cells_split = QHBoxLayout()
+        # ── Tab 2: Fields (DD-18) ─────────────────────────────────────────
+        fields_widget = QWidget()
+        fields_layout = QHBoxLayout(fields_widget)
+        fields_layout.setSpacing(6)
 
-        # Left side: cell list
-        cell_left = QVBoxLayout()
-        cell_left.addWidget(QLabel("Cells (top → bottom):"))
-        self._cell_list = QListWidget()
-        self._cell_list.setMinimumHeight(180)
-        self._cell_list.currentRowChanged.connect(self._on_cell_selected)
-        cell_left.addWidget(self._cell_list, stretch=1)
+        # ── LEFT: roster ─────────────────────────────────────────────────
+        roster_col = QVBoxLayout()
+        roster_col.addWidget(QLabel("Fields:"))
+        self._field_list = QListWidget()
+        self._field_list.setMinimumWidth(140)
+        self._field_list.setMaximumWidth(180)
+        self._field_list.currentRowChanged.connect(self._on_field_selected)
+        roster_col.addWidget(self._field_list, stretch=1)
 
-        cell_btns = QHBoxLayout()
-        self._cell_up_btn = QPushButton("▲")
-        self._cell_up_btn.setFixedWidth(30)
-        self._cell_up_btn.clicked.connect(self._move_cell_up)
-        self._cell_dn_btn = QPushButton("▼")
-        self._cell_dn_btn.setFixedWidth(30)
-        self._cell_dn_btn.clicked.connect(self._move_cell_down)
-        add_cell_btn = QPushButton("Add")
-        add_cell_btn.clicked.connect(self._show_add_cell_menu)
-        rm_cell_btn = QPushButton("Remove")
-        rm_cell_btn.clicked.connect(self._remove_selected_cell)
-        cell_btns.addWidget(self._cell_up_btn)
-        cell_btns.addWidget(self._cell_dn_btn)
-        cell_btns.addWidget(add_cell_btn)
-        cell_btns.addWidget(rm_cell_btn)
-        cell_left.addLayout(cell_btns)
-        cells_split.addLayout(cell_left)
+        roster_btns = QHBoxLayout()
+        self._new_field_btn = QPushButton("New")
+        self._new_field_btn.clicked.connect(self._new_field)
+        self._dup_field_btn = QPushButton("Duplicate")
+        self._dup_field_btn.clicked.connect(self._duplicate_field)
+        self._delete_field_btn = QPushButton("Delete")
+        self._delete_field_btn.clicked.connect(self._delete_field)
+        roster_btns.addWidget(self._new_field_btn)
+        roster_btns.addWidget(self._dup_field_btn)
+        roster_btns.addWidget(self._delete_field_btn)
+        roster_col.addLayout(roster_btns)
+        fields_layout.addLayout(roster_col)
 
-        # Right side: per-cell form
-        self._cell_form_widget = QWidget()
-        self._cell_form_widget.setMinimumWidth(260)
-        cell_form = QFormLayout(self._cell_form_widget)
-        cell_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        # ── MIDDLE: intrinsics form ───────────────────────────────────────
+        self._field_form_widget = QWidget()
+        self._field_form_widget.setMinimumWidth(260)
+        self._field_form_widget.setEnabled(False)
+        field_form = QFormLayout(self._field_form_widget)
+        field_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self._cell_kind_combo = QComboBox()
-        self._cell_kind_combo.addItems(list(CELL_KINDS))
-        self._cell_kind_combo.currentTextChanged.connect(
-            self._on_kind_combo_changed)
-        cell_form.addRow("Kind:", self._cell_kind_combo)
+        # Name
+        self._fname_edit = QLineEdit()
+        self._fname_edit.editingFinished.connect(
+            lambda: self._field_prop("name", self._fname_edit.text()))
+        field_form.addRow("Name:", self._fname_edit)
 
-        self._cell_field_key = QComboBox()
-        self._cell_field_key.setEditable(True)
-        self._populate_field_key_combo()
-        self._cell_field_key.currentTextChanged.connect(
-            lambda t: self._cell_form_prop_changed("field_key", t))
-        cell_form.addRow("Field key:", self._cell_field_key)
+        # Label
+        self._flabel_edit = QLineEdit()
+        self._flabel_edit.editingFinished.connect(
+            lambda: self._field_prop("label", self._flabel_edit.text()))
+        field_form.addRow("Label:", self._flabel_edit)
 
-        self._cell_label_edit = QLineEdit()
-        self._cell_label_edit.editingFinished.connect(
-            lambda: self._cell_form_prop_changed(
-                "label", self._cell_label_edit.text()))
-        cell_form.addRow("Label:", self._cell_label_edit)
+        # Kind combo
+        self._fkind_combo = QComboBox()
+        self._fkind_combo.addItems(list(KINDS))
+        self._fkind_combo.currentTextChanged.connect(self._on_kind_changed)
+        field_form.addRow("Kind:", self._fkind_combo)
 
-        self._cell_static_text = QLineEdit()
-        self._cell_static_text.editingFinished.connect(
-            lambda: self._cell_form_prop_changed(
-                "static_text", self._cell_static_text.text()))
-        cell_form.addRow("Static text:", self._cell_static_text)
+        # Text (multi-line) + Insert token button
+        text_vbox = QVBoxLayout()
+        text_vbox.setSpacing(2)
+        self._ftext_edit = QPlainTextEdit()
+        self._ftext_edit.setFixedHeight(72)
+        self._ftext_edit.installEventFilter(self)
+        text_vbox.addWidget(self._ftext_edit)
+        self._insert_btn = QPushButton("Insert field ▾")
+        self._insert_btn.clicked.connect(self._show_insert_menu)
+        text_vbox.addWidget(self._insert_btn)
+        field_form.addRow("Text:", text_vbox)
 
-        # Sizing combo (Static / Dynamic) — DD-8b
-        self._cell_sizing_combo = QComboBox()
-        self._cell_sizing_combo.addItems(["Static", "Dynamic"])
-        self._cell_sizing_combo.currentTextChanged.connect(
-            self._on_cell_sizing_changed)
-        cell_form.addRow("Sizing:", self._cell_sizing_combo)
+        # Image row
+        img_row = QHBoxLayout()
+        self._fimg_btn = QPushButton("Choose image…")
+        self._fimg_btn.clicked.connect(self._pick_field_image)
+        img_row.addWidget(self._fimg_btn)
+        self._fimg_clear = QPushButton("Clear")
+        self._fimg_clear.setFixedWidth(46)
+        self._fimg_clear.clicked.connect(
+            lambda: self._field_prop("image_data", ""))
+        img_row.addWidget(self._fimg_clear)
+        self._fimg_thumb = QLabel()
+        self._fimg_thumb.setFixedSize(48, 32)
+        self._fimg_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._fimg_thumb.setStyleSheet("border: 1px solid #888; background: #fff;")
+        img_row.addWidget(self._fimg_thumb)
+        img_row.addStretch()
+        field_form.addRow("Image:", img_row)
 
-        self._cell_min_height = DimensionEdit(None, initial_mm=10.0,
-                                              parser=_sm.parse_dimension, minimum=0.0)
-        self._cell_min_height.valueChanged.connect(
-            lambda v: self._cell_form_prop_changed("min_height_mm", v))
-        cell_form.addRow("Min height (mm):", self._cell_min_height)
+        # Revision rows spinbox (revision_table only)
+        self._frev_rows = QSpinBox()
+        self._frev_rows.setRange(1, 10)
+        self._frev_rows.valueChanged.connect(
+            lambda v: self._field_prop("revision_rows", v))
+        field_form.addRow("Revision rows:", self._frev_rows)
 
-        self._cell_cap_height = DimensionEdit(None, initial_mm=3.0,
-                                              parser=_sm.parse_dimension, minimum=0.0)
-        self._cell_cap_height.valueChanged.connect(
-            lambda v: self._cell_form_prop_changed("cap_height_mm", v))
-        cell_form.addRow("Cap height (mm):", self._cell_cap_height)
+        # Text style: font family
+        self._ffont_combo = QComboBox()
+        self._ffont_combo.addItems(["Arial", "Helvetica", "Times New Roman",
+                                     "Courier New", "Calibri"])
+        self._ffont_combo.setEditable(True)
+        self._ffont_combo.currentTextChanged.connect(
+            lambda t: self._field_prop("font_family", t))
+        field_form.addRow("Font:", self._ffont_combo)
 
-        self._cell_pair = QCheckBox()
-        self._cell_pair.toggled.connect(
-            lambda b: self._cell_form_prop_changed("pair_with_next", b))
-        cell_form.addRow("Pair with next:", self._cell_pair)
+        # Cap height
+        self._fcap_height = DimensionEdit(None, initial_mm=3.0,
+                                          parser=_sm.parse_dimension, minimum=0.0)
+        self._fcap_height.valueChanged.connect(
+            lambda v: self._field_prop("cap_height_mm", v))
+        field_form.addRow("Cap height (mm):", self._fcap_height)
 
-        self._cell_bold = QCheckBox()
-        self._cell_bold.toggled.connect(
-            lambda b: self._cell_form_prop_changed("bold", b))
-        cell_form.addRow("Bold:", self._cell_bold)
+        # Bold / italic checkboxes
+        self._fbold = QCheckBox()
+        self._fbold.toggled.connect(
+            lambda b: self._field_prop("bold", b))
+        field_form.addRow("Bold:", self._fbold)
 
-        self._cell_italic = QCheckBox()
-        self._cell_italic.toggled.connect(
-            lambda b: self._cell_form_prop_changed("italic", b))
-        cell_form.addRow("Italic:", self._cell_italic)
+        self._fitalic = QCheckBox()
+        self._fitalic.toggled.connect(
+            lambda b: self._field_prop("italic", b))
+        field_form.addRow("Italic:", self._fitalic)
 
-        self._cell_align = QComboBox()
-        self._cell_align.addItems(["left", "center", "right"])
-        self._cell_align.currentTextChanged.connect(
-            lambda t: self._cell_form_prop_changed("alignment", t))
-        cell_form.addRow("Alignment:", self._cell_align)
+        # Alignment
+        self._falign = QComboBox()
+        self._falign.addItems(["left", "center", "right"])
+        self._falign.currentTextChanged.connect(
+            lambda t: self._field_prop("alignment", t))
+        field_form.addRow("Alignment:", self._falign)
 
+        # Fill color swatch + None clear
         fill_row = QHBoxLayout()
-        self._cell_fill_swatch = _make_swatch("", self)
-        fill_row.addWidget(self._cell_fill_swatch)
-        self._cell_fill_swatch.clicked.connect(self._pick_cell_fill)
+        self._ffield_fill_swatch = _make_swatch("", self)
+        self._ffield_fill_swatch.clicked.connect(self._pick_field_fill)
+        fill_row.addWidget(self._ffield_fill_swatch)
         fill_clear_btn = QPushButton("None")
         fill_clear_btn.setFixedWidth(40)
-        fill_clear_btn.clicked.connect(lambda: self._cell_form_prop_changed(
-            "fill_color", ""))
+        fill_clear_btn.clicked.connect(
+            lambda: self._field_prop("fill_color", ""))
         fill_row.addWidget(fill_clear_btn)
         fill_row.addStretch()
-        cell_form.addRow("Fill:", fill_row)
+        field_form.addRow("Fill:", fill_row)
 
-        self._cell_rev_rows = QSpinBox()
-        self._cell_rev_rows.setRange(1, 10)
-        self._cell_rev_rows.valueChanged.connect(
-            lambda v: self._cell_form_prop_changed("revision_rows", v))
-        cell_form.addRow("Revision rows:", self._cell_rev_rows)
+        # Cell border group
+        self._field_border_group = _BorderGroup("Cell Border")
+        self._field_border_group._visible.toggled.connect(
+            self._on_field_border_changed)
+        self._field_border_group._width.valueChanged.connect(
+            lambda _: self._on_field_border_changed())
+        self._field_border_group._color_btn.clicked.connect(
+            self._on_field_border_changed)
+        self._field_border_group._corner.currentIndexChanged.connect(
+            lambda _: self._on_field_border_changed())
+        self._field_border_group._fillet.valueChanged.connect(
+            lambda _: self._on_field_border_changed())
+        field_form.addRow(self._field_border_group)
 
-        self._cell_border_group = _BorderGroup("Cell Border")
-        cell_form.addRow(self._cell_border_group)
+        fields_layout.addWidget(self._field_form_widget)
 
-        # Wire cell border group signals (mirror area/strip border wiring)
-        self._cell_border_group._visible.toggled.connect(
-            self._on_cell_border_changed)
-        self._cell_border_group._width.valueChanged.connect(
-            lambda _: self._on_cell_border_changed())
-        self._cell_border_group._color_btn.clicked.connect(
-            self._on_cell_border_changed)
-        self._cell_border_group._corner.currentIndexChanged.connect(
-            lambda _: self._on_cell_border_changed())
-        self._cell_border_group._fillet.valueChanged.connect(
-            lambda _: self._on_cell_border_changed())
+        # ── RIGHT: single-field preview ───────────────────────────────────
+        preview_col = QVBoxLayout()
+        preview_col.addWidget(QLabel("Preview:"))
+        self._field_preview_view = QGraphicsView(self._field_preview_scene)
+        self._field_preview_view.setMinimumWidth(180)
+        self._field_preview_view.setRenderHint(
+            self._field_preview_view.renderHints().__class__.Antialiasing)
+        self._field_preview_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        preview_col.addWidget(self._field_preview_view, stretch=1)
+        fields_layout.addLayout(preview_col)
 
-        self._cell_logo_btn = QPushButton("Choose logo image…")
-        self._cell_logo_btn.clicked.connect(self._pick_logo)
-        cell_form.addRow("Logo:", self._cell_logo_btn)
-
-        cells_split.addWidget(self._cell_form_widget)
-        strip_layout.addLayout(cells_split, stretch=1)
-
-        self._component_tabs.addTab(strip_widget, "Info Strip")
+        self._component_tabs.addTab(fields_widget, "Fields")
 
         root.addLayout(centre, stretch=1)
 
@@ -542,6 +570,15 @@ class TitleBlockEditorDialog(QDialog):
             "Cancel", QDialogButtonBox.ButtonRole.RejectRole)
         cancel_btn.clicked.connect(self.reject)
         centre.addWidget(self._btn_box)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Event filter (FocusOut on QPlainTextEdit commits the text)
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._ftext_edit and event.type() == QEvent.Type.FocusOut:
+            self._commit_field_text()
+        return super().eventFilter(obj, event)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Library management
@@ -810,15 +847,18 @@ class TitleBlockEditorDialog(QDialog):
     def _populate_form_inner(self) -> None:
         if self.working is None:
             self._name_edit.clear()
-            self._cell_list.clear()
+            self._field_list.clear()
+            self._field_form_widget.setEnabled(False)
+            self._field_preview_scene.clear()
             return
 
         self._name_edit.setText(self.working.name)
         self._populate_overview_fields()
         self._populate_variant_fields()
-        self._rebuild_cell_list()
-        # Deselect cell form when repopulating
-        self._cell_form_widget.setEnabled(False)
+        self._rebuild_field_list()
+        # Deselect field form when repopulating
+        self._field_form_widget.setEnabled(False)
+        self._field_preview_scene.clear()
 
     def _populate_overview_fields(self) -> None:
         """Populate paper-size combo + orientation radios from working template."""
@@ -845,189 +885,384 @@ class TitleBlockEditorDialog(QDialog):
         self._area_border.load(variant.area_border)
         self._strip_border.load(variant.strip_border)
 
-    def _rebuild_cell_list(self) -> None:
-        """Rebuild cell list QListWidget from active layout's cells."""
-        self._cell_list.blockSignals(True)
-        self._cell_list.clear()
-        if self.working is None:
-            self._cell_list.blockSignals(False)
-            return
-        variant = self.working.layout
-        for cell in variant.cells:
-            key = cell.field_key or cell.label or cell.static_text or cell.kind
-            label = f"{cell.kind}: {key}"
-            self._cell_list.addItem(label)
-        self._cell_list.blockSignals(False)
-
     # ═════════════════════════════════════════════════════════════════════════
-    # Cell form (per-cell editing)
+    # Fields tab — roster helpers
     # ═════════════════════════════════════════════════════════════════════════
 
-    def _update_kind_dependent_widgets(self, kind: str) -> None:
-        """Show/hide widgets that depend on cell kind.
-
-        Called from both ``_on_cell_selected`` (on selection) and the
-        kind-combo change handler so the UI stays in sync whenever kind changes.
+    def _rebuild_field_list(self, keep_row: bool = False) -> None:
+        """Repopulate the field roster list from active layout's fields.
 
         Args:
-            kind: The cell kind string (e.g. ``"revision_table"``).
+            keep_row: When True, restore the current row after clearing.
         """
-        rev_visible = (kind == "revision_table")
-        self._cell_rev_rows.setVisible(rev_visible)
-
-    def _on_cell_selected(self, row: int) -> None:
-        """Populate per-cell form without pushing a snapshot (_loading guard).
-
-        The min-height DimensionEdit is disabled when the selected cell has
-        ``sizing == "dynamic"`` (spec DD-8b).
-        """
-        if self.working is None or row < 0:
-            self._cell_form_widget.setEnabled(False)
+        prev_row = self._field_list.currentRow() if keep_row else -1
+        self._field_list.blockSignals(True)
+        self._field_list.clear()
+        if self.working is None:
+            self._field_list.blockSignals(False)
             return
-        variant = self.working.layout
-        if row >= len(variant.cells):
-            self._cell_form_widget.setEnabled(False)
+        placed = self.working.layout.placed_ids()
+        for f in self.working.layout.fields:
+            indicator = "●" if f.id in placed else "○"
+            item = QListWidgetItem(f"{indicator} {f.name}")
+            item.setData(Qt.ItemDataRole.UserRole, f.id)
+            self._field_list.addItem(item)
+        self._field_list.blockSignals(False)
+        if keep_row and 0 <= prev_row < self._field_list.count():
+            self._field_list.setCurrentRow(prev_row)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — selection helper
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _sel_field(self) -> FieldDef | None:
+        """Return the currently selected FieldDef, or None if no selection."""
+        i = self._field_list.currentRow()
+        flds = self.working.layout.fields if self.working else []
+        return flds[i] if 0 <= i < len(flds) else None
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — form population
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _on_field_selected(self, row: int) -> None:
+        """Populate per-field form on selection (under _loading guard)."""
+        if self.working is None or row < 0:
+            self._field_form_widget.setEnabled(False)
+            self._field_preview_scene.clear()
+            return
+        flds = self.working.layout.fields
+        if row >= len(flds):
+            self._field_form_widget.setEnabled(False)
+            self._field_preview_scene.clear()
             return
         self._loading = True
         try:
-            cell = variant.cells[row]
-            self._cell_form_widget.setEnabled(True)
-            self._cell_kind_combo.setCurrentText(cell.kind)
-            self._cell_field_key.setCurrentText(cell.field_key)
-            self._cell_label_edit.setText(cell.label)
-            self._cell_static_text.setText(cell.static_text)
-            # Sizing combo
-            sizing_text = "Dynamic" if cell.sizing == "dynamic" else "Static"
-            self._cell_sizing_combo.setCurrentText(sizing_text)
-            # Min-height disabled when dynamic
-            self._cell_min_height.setEnabled(cell.sizing != "dynamic")
-            self._cell_min_height.set_value_mm(cell.min_height_mm)
-            self._cell_cap_height.set_value_mm(cell.cap_height_mm)
-            self._cell_pair.setChecked(cell.pair_with_next)
-            self._cell_bold.setChecked(cell.bold)
-            self._cell_italic.setChecked(cell.italic)
-            self._cell_align.setCurrentText(cell.alignment)
-            _update_swatch(self._cell_fill_swatch, cell.fill_color)
-            self._cell_rev_rows.setValue(cell.revision_rows)
-            self._cell_border_group.load(cell.border)
-            # Refresh kind-dependent widget visibility
-            self._update_kind_dependent_widgets(cell.kind)
+            f = flds[row]
+            self._field_form_widget.setEnabled(True)
+            self._fname_edit.setText(f.name)
+            self._flabel_edit.setText(f.label)
+            self._fkind_combo.setCurrentText(f.kind)
+            self._ftext_edit.setPlainText(f.text)
+            self._fcap_height.set_value_mm(f.cap_height_mm)
+            self._fbold.setChecked(f.bold)
+            self._fitalic.setChecked(f.italic)
+            self._falign.setCurrentText(f.alignment)
+            _update_swatch(self._ffield_fill_swatch, f.fill_color)
+            self._frev_rows.setValue(f.revision_rows)
+            self._field_border_group.load(f.border)
+            # Font combo
+            idx = self._ffont_combo.findText(f.font_family)
+            if idx >= 0:
+                self._ffont_combo.setCurrentIndex(idx)
+            else:
+                self._ffont_combo.setCurrentText(f.font_family)
+            # Thumbnail
+            self._update_field_thumb(f.image_data)
+            # Apply kind-dependent widget visibility
+            self._apply_kind_behavior(f.kind)
         finally:
             self._loading = False
+        self._refresh_field_preview()
 
-    def _on_kind_combo_changed(self, kind: str) -> None:
-        """Handle kind combo change: mutate cell AND refresh kind-dependent widget visibility."""
+    def _populate_field_form(self) -> None:
+        """Re-populate the field form from the currently selected field (no snapshot)."""
+        row = self._field_list.currentRow()
+        self._on_field_selected(row)
+
+    def _apply_kind_behavior(self, kind: str) -> None:
+        """Enable/disable form sections based on field kind."""
+        is_rev = (kind == "revision_table")
+        self._frev_rows.setEnabled(is_rev)
+        self._ftext_edit.setEnabled(not is_rev)
+        self._insert_btn.setEnabled(not is_rev)
+        self._fimg_btn.setEnabled(not is_rev)
+        self._fimg_clear.setEnabled(not is_rev)
+        self._fimg_thumb.setEnabled(not is_rev)
+
+    def _update_field_thumb(self, image_data: str) -> None:
+        """Update the image thumbnail label from base64 image data."""
+        if not image_data:
+            self._fimg_thumb.clear()
+            self._fimg_thumb.setText("")
+            return
+        from PyQt6.QtCore import QByteArray
+        from PyQt6.QtGui import QPixmap
+        try:
+            raw = QByteArray.fromBase64(image_data.encode("ascii"))
+            pm = QPixmap()
+            if pm.loadFromData(raw) and not pm.isNull():
+                self._fimg_thumb.setPixmap(
+                    pm.scaled(48, 32, Qt.AspectRatioMode.KeepAspectRatio,
+                              Qt.TransformationMode.SmoothTransformation))
+            else:
+                self._fimg_thumb.clear()
+        except Exception:
+            self._fimg_thumb.clear()
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — property mutations
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _field_prop(self, prop: str, value) -> None:
+        """Snapshot + mutate a FieldDef property on the selected field.
+
+        No-op when loading, no field selected, or value unchanged (prevents
+        empty snapshots on Qt focus-churn re-emission).
+        """
+        f = self._sel_field()
+        if self._loading or f is None or getattr(f, prop) == value:
+            return
+        self.push_snapshot()
+        setattr(f, prop, value)
+        self._rebuild_field_list(keep_row=True)
+        self.refresh_preview()
+        self._refresh_field_preview()
+
+    def _commit_field_text(self) -> None:
+        """Commit QPlainTextEdit content to the selected field's text property."""
+        f = self._sel_field()
+        if self._loading or f is None:
+            return
+        new_text = self._ftext_edit.toPlainText()
+        if f.text == new_text:
+            return
+        self.push_snapshot()
+        f.text = new_text
+        self._rebuild_field_list(keep_row=True)
+        self.refresh_preview()
+        self._refresh_field_preview()
+
+    def _on_kind_changed(self, kind: str) -> None:
+        """Handle kind combo change: mutate kind + refresh widget visibility."""
         if self._loading:
             return
-        row = self._cell_list.currentRow()
-        if row < 0:
-            return
-        self._cell_form_prop_changed("kind", kind)
-        # Refresh visibility of kind-dependent widgets (e.g. revision_rows
-        # spinbox is only relevant for revision_table cells).
-        self._update_kind_dependent_widgets(kind)
+        self._field_prop("kind", kind)
+        f = self._sel_field()
+        if f is not None:
+            self._apply_kind_behavior(f.kind)
 
-    def _on_cell_sizing_changed(self, text: str) -> None:
-        """Handle sizing combo change: mutate cell, update min-height enabled state."""
-        if self._loading:
+    def _on_field_border_changed(self) -> None:
+        """Called when any field border group widget changes."""
+        if self._loading or self.working is None:
             return
-        sizing = "dynamic" if text == "Dynamic" else "static"
-        row = self._cell_list.currentRow()
-        if row < 0:
+        f = self._sel_field()
+        if f is None:
             return
-        # Mutate via set_cell_prop (pushes snapshot)
-        self.set_cell_prop(row, "sizing", sizing)
-        # Update min-height enabled state without a reload loop
-        self._loading = True
-        self._cell_min_height.setEnabled(sizing != "dynamic")
-        self._loading = False
+        self.push_snapshot()
+        f.border = BorderStyle.from_dict(self._field_border_group.read())
+        self.refresh_preview()
+        self._refresh_field_preview()
 
-    def _cell_form_prop_changed(self, prop: str, value) -> None:
-        """Called by cell form widgets; pushes snapshot then mutates."""
-        if self._loading:
+    def _pick_field_fill(self) -> None:
+        """Open color dialog for the field fill swatch."""
+        if self._sel_field() is None:
             return
-        row = self._cell_list.currentRow()
-        if row < 0:
+        cur = QColor(self._ffield_fill_swatch.property("_color") or "#ffffff")
+        c = QColorDialog.getColor(cur, self)
+        if c.isValid():
+            _update_swatch(self._ffield_fill_swatch, c.name())
+            self._field_prop("fill_color", c.name())
+
+    def _pick_field_image(self) -> None:
+        """Choose an image file and encode it as base64 PNG for the selected field."""
+        f = self._sel_field()
+        if f is None:
             return
-        self.set_cell_prop(row, prop, value)
-        # Update the list label to reflect kind/key change
-        self._loading = True
-        self._rebuild_cell_list()
-        self._cell_list.setCurrentRow(row)
-        self._loading = False
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose Field Image", "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tiff)")
+        if not path:
+            return
+        try:
+            img = QImage(path)
+            if img.isNull():
+                with open(path, "rb") as fh:
+                    raw = fh.read()
+                data = base64.b64encode(raw).decode("ascii")
+            else:
+                buf = QBuffer()
+                buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                img.save(buf, "PNG")
+                data = base64.b64encode(bytes(buf.data())).decode("ascii")
+        except Exception as exc:
+            _log.warning("Failed to load field image: %s", exc)
+            return
+        self._field_prop("image_data", data)
+        self._update_field_thumb(data)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — token insert
+    # ═════════════════════════════════════════════════════════════════════════
 
     def _populate_field_key_combo(self) -> None:
-        """Fill the field_key combo with auto / sheet / project keys.
+        """Build the insert-menu key list (same key groups as the old cell picker).
 
         "Sheet No" is visible but disabled (auto-computed; cannot be set by user).
+        Used by _show_insert_menu to build action groups.
         """
-        self._cell_field_key.clear()
-        self._cell_field_key.addItems(_AUTO_FIELD_KEYS)
-        # Disable "Sheet No" (index = _AUTO_FIELD_KEYS.index("Sheet No"))
-        sheet_no_idx = _AUTO_FIELD_KEYS.index("Sheet No")
-        model = self._cell_field_key.model()
-        if isinstance(model, QStandardItemModel):
-            item = model.item(sheet_no_idx)
-            if item is not None:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled
-                              & ~Qt.ItemFlag.ItemIsSelectable)
-        self._cell_field_key.insertSeparator(len(_AUTO_FIELD_KEYS))
-        self._cell_field_key.addItems(_SHEET_FIELD_KEYS)
-        self._cell_field_key.insertSeparator(
-            len(_AUTO_FIELD_KEYS) + 1 + len(_SHEET_FIELD_KEYS))
-        # Standard project info display names (PROJECT_STD_KEYS keys = display names).
+        # This method is kept for compatibility with existing tests that call it.
+        # The actual insert menu is built dynamically in _show_insert_menu.
+        pass
+
+    def _insert_token(self, key: str) -> None:
+        """Insert @[key] at the cursor in _ftext_edit, then commit."""
+        self._ftext_edit.insertPlainText(f"@[{key}]")
+        self._commit_field_text()
+
+    def _show_insert_menu(self) -> None:
+        """Show a grouped menu for inserting @[Key] tokens at cursor."""
+        menu = QMenu(self)
+
+        # Auto section
+        auto_action = menu.addSection("Auto")
+        for key in _AUTO_FIELD_KEYS:
+            act = menu.addAction(key)
+            if key == "Sheet No":
+                act.setEnabled(False)
+            else:
+                act.triggered.connect(lambda checked=False, k=key: self._insert_token(k))
+
+        # Sheet section
+        menu.addSection("Sheet")
+        for key in _SHEET_FIELD_KEYS:
+            act = menu.addAction(key)
+            act.triggered.connect(lambda checked=False, k=key: self._insert_token(k))
+
+        # Project section
+        menu.addSection("Project")
         proj_display = list(PROJECT_STD_KEYS.keys())
-        self._cell_field_key.addItems(proj_display)
-        # Custom keys from project_info
+        for key in proj_display:
+            act = menu.addAction(key)
+            act.triggered.connect(lambda checked=False, k=key: self._insert_token(k))
+
+        # Custom project keys
         custom = self._project_info.get("custom", [])
         if custom:
-            self._cell_field_key.insertSeparator(
-                len(_AUTO_FIELD_KEYS) + 1 + len(_SHEET_FIELD_KEYS) + 1
-                + len(proj_display))
+            menu.addSection("Custom")
             for entry in custom:
                 k = entry.get("key", "")
                 if k:
-                    self._cell_field_key.addItem(k)
+                    act = menu.addAction(k)
+                    act.triggered.connect(
+                        lambda checked=False, kk=k: self._insert_token(kk))
 
-    def _pick_cell_fill(self) -> None:
-        row = self._cell_list.currentRow()
-        if row < 0:
-            return
-        cur = QColor(self._cell_fill_swatch.property("_color") or "#ffffff")
-        c = QColorDialog.getColor(cur, self)
-        if c.isValid():
-            self._cell_form_prop_changed("fill_color", c.name())
+        sender = self.sender()
+        if sender is not None:
+            menu.exec(sender.mapToGlobal(sender.rect().bottomLeft()))
+        else:
+            menu.exec()
 
-    def _pick_logo(self) -> None:
-        row = self._cell_list.currentRow()
-        if row < 0:
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Choose Logo Image", "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.tiff)")
-        if path:
-            self.set_cell_logo_from_file(row, path)
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — roster actions
+    # ═════════════════════════════════════════════════════════════════════════
 
-    def _show_add_cell_menu(self) -> None:
-        menu = QMenu(self)
-        for kind in CELL_KINDS:
-            menu.addAction(kind, lambda k=kind: self.add_cell(k))
-        menu.exec(self.sender().mapToGlobal(self.sender().rect().bottomLeft()))
-
-    def _move_cell_up(self) -> None:
-        row = self._cell_list.currentRow()
-        if row > 0:
-            self.move_cell(row, row - 1)
-            self._cell_list.setCurrentRow(row - 1)
-
-    def _move_cell_down(self) -> None:
-        row = self._cell_list.currentRow()
+    def _new_field(self) -> None:
+        """Add a new unplaced field to the pool."""
         if self.working is None:
             return
-        variant = self.working.layout
-        if variant and row < len(variant.cells) - 1:
-            self.move_cell(row, row + 1)
-            self._cell_list.setCurrentRow(row + 1)
+        self.push_snapshot()
+        # Generate unique name "New Field", "New Field 2", etc.
+        existing = {f.name for f in self.working.layout.fields}
+        base = "New Field"
+        name = base
+        n = 1
+        while name in existing:
+            n += 1
+            name = f"{base} {n}"
+        new_f = FieldDef(id=new_field_id(), name=name)
+        self.working.layout.fields.append(new_f)
+        self._rebuild_field_list()
+        # Select the new field
+        new_row = len(self.working.layout.fields) - 1
+        self._field_list.setCurrentRow(new_row)
+        self.refresh_preview()
+
+    def _duplicate_field(self) -> None:
+        """Duplicate the selected field with a fresh id and name + ' (copy)'."""
+        f = self._sel_field()
+        if self.working is None or f is None:
+            return
+        self.push_snapshot()
+        new_f = FieldDef.from_dict(f.to_dict())
+        new_f.id = new_field_id()
+        new_f.name = f.name + " (copy)"
+        self.working.layout.fields.append(new_f)
+        self._rebuild_field_list()
+        new_row = len(self.working.layout.fields) - 1
+        self._field_list.setCurrentRow(new_row)
+        self.refresh_preview()
+
+    def _delete_field(self) -> None:
+        """Delete the selected field, warning if it is placed on the strip."""
+        f = self._sel_field()
+        if self.working is None or f is None:
+            return
+        lay = self.working.layout
+        if f.id in lay.placed_ids():
+            resp = QMessageBox.question(
+                self, "Delete Field",
+                f"'{f.name}' is placed on the strip. Delete anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if resp != QMessageBox.StandardButton.Yes:
+                return
+        self.push_snapshot()
+        unplace_field(lay, f.id)
+        lay.fields = [fd for fd in lay.fields if fd.id != f.id]
+        self._rebuild_field_list()
+        self._field_form_widget.setEnabled(False)
+        self._field_preview_scene.clear()
+        self.refresh_preview()
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Fields tab — single-field preview (DD-18)
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _refresh_field_preview(self) -> None:
+        """Rebuild the single-field preview scene for the selected field."""
+        self._field_preview_scene.clear()
+        if self.working is None:
+            return
+        f = self._sel_field()
+        if f is None:
+            return
+        try:
+            lay = self.working.layout
+            # Determine min height: use placed slot's value if placed, else TB_PREVIEW_MIN_MM
+            placed_ids = lay.placed_ids()
+            slot_min_h = TB_PREVIEW_MIN_MM
+            if f.id in placed_ids:
+                for row in lay.rows:
+                    for slot in row:
+                        if slot.field_id == f.id:
+                            slot_min_h = slot.min_height_mm
+                            break
+
+            # Build a minimal one-row layout with just this field
+            from .titleblock_template import Slot as _Slot
+            mini = TemplateLayout(
+                margin_edge_mm=0.0,
+                margin_strip_mm=0.0,
+                strip_width_mm=lay.strip_width_mm,
+                strip_border=BorderStyle(visible=False),
+                fields=[f],
+                rows=[[_Slot(f.id, slot_min_h)]],
+            )
+            strip_w = lay.strip_width_mm
+            preview_h = slot_min_h * 3
+            solved = solve_layout(mini, strip_w, preview_h, _SAMPLE_VALUES)
+            item = TitleBlockTemplateItem(solved, mini, _SAMPLE_VALUES)
+            self._field_preview_scene.addItem(item)
+            if solved.cell_rects:
+                self._field_preview_view.fitInView(
+                    solved.cell_rects[0], Qt.AspectRatioMode.KeepAspectRatio)
+        except Exception as exc:
+            _log.debug("Field preview error: %s", exc)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Tab change handler
+    # ═════════════════════════════════════════════════════════════════════════
 
     def _on_tab_changed(self, index: int) -> None:
         """Re-fit the preview when the Overview tab (index 0) becomes visible.
@@ -1050,21 +1285,6 @@ class TitleBlockEditorDialog(QDialog):
         variant = self.working.layout
         variant.area_border = BorderStyle.from_dict(self._area_border.read())
         variant.strip_border = BorderStyle.from_dict(self._strip_border.read())
-        self.refresh_preview()
-
-    def _on_cell_border_changed(self) -> None:
-        """Called when any cell border group widget changes; applies to selected cell."""
-        if self._loading or self.working is None:
-            return
-        row = self._cell_list.currentRow()
-        if row < 0:
-            return
-        variant = self.working.layout
-        if row >= len(variant.cells):
-            return
-        self.push_snapshot()
-        variant.cells[row].border = BorderStyle.from_dict(
-            self._cell_border_group.read())
         self.refresh_preview()
 
     def _on_orientation_toggled(self, checked: bool) -> None:
@@ -1170,102 +1390,13 @@ class TitleBlockEditorDialog(QDialog):
         setattr(border, prop, value)
         self.refresh_preview()
 
-    # ── Cell operations ───────────────────────────────────────────────────
+    # ── Active variant helper ─────────────────────────────────────────────
 
     def _active_variant(self) -> TemplateLayout | None:
         if self.working is None:
             return None
         # Single-size model: always return the one layout
         return self.working.layout
-
-    def add_cell(self, kind: str) -> None:
-        """Append a new cell of *kind* to the active variant."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None:
-            return
-        self.push_snapshot()
-        cell = CellSpec(kind=kind)
-        variant.cells.append(cell)
-        self._rebuild_cell_list()
-        self.refresh_preview()
-
-    def remove_cell(self, i: int) -> None:
-        """Remove cell at index *i* from the active variant."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None or i < 0 or i >= len(variant.cells):
-            return
-        self.push_snapshot()
-        variant.cells.pop(i)
-        self._rebuild_cell_list()
-        self.refresh_preview()
-
-    def move_cell(self, i: int, j: int) -> None:
-        """Move cell at index *i* to index *j* in the active variant."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None:
-            return
-        cells = variant.cells
-        if i < 0 or i >= len(cells) or j < 0 or j >= len(cells):
-            return
-        self.push_snapshot()
-        cell = cells.pop(i)
-        cells.insert(j, cell)
-        self._rebuild_cell_list()
-        self.refresh_preview()
-
-    def set_cell_prop(self, i: int, prop: str, value) -> None:
-        """Snapshot + set a CellSpec attribute at index *i* in the active variant."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None or i < 0 or i >= len(variant.cells):
-            return
-        self.push_snapshot()
-        setattr(variant.cells[i], prop, value)
-        self.refresh_preview()
-
-    def set_cell_border_prop(self, i: int, prop: str, value) -> None:
-        """Snapshot + set a BorderStyle attribute on cell *i*'s border."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None or i < 0 or i >= len(variant.cells):
-            return
-        self.push_snapshot()
-        setattr(variant.cells[i].border, prop, value)
-        self.refresh_preview()
-
-    def set_cell_logo_from_file(self, i: int, path: str) -> None:
-        """Read *path*, encode as base64 PNG, store in cell[i].logo_data."""
-        if self.working is None:
-            return
-        variant = self._active_variant()
-        if variant is None or i < 0 or i >= len(variant.cells):
-            return
-        self.push_snapshot()
-        try:
-            img = QImage(path)
-            if img.isNull():
-                # Try raw bytes
-                with open(path, "rb") as fh:
-                    raw = fh.read()
-                variant.cells[i].logo_data = base64.b64encode(raw).decode("ascii")
-            else:
-                # Convert to PNG via QBuffer
-                buf = QBuffer()
-                buf.open(QIODevice.OpenModeFlag.WriteOnly)
-                img.save(buf, "PNG")
-                variant.cells[i].logo_data = base64.b64encode(
-                    bytes(buf.data())).decode("ascii")
-        except Exception as exc:
-            _log.warning("Failed to load logo: %s", exc)
-        self.refresh_preview()
 
     # ═════════════════════════════════════════════════════════════════════════
     # Save button / dialog close
@@ -1284,8 +1415,3 @@ class TitleBlockEditorDialog(QDialog):
             if self._use_requested or self.project_template_result is not None:
                 self.project_template_result = self.working.copy()
             self.accept()
-
-    def _remove_selected_cell(self) -> None:
-        row = self._cell_list.currentRow()
-        if row >= 0:
-            self.remove_cell(row)

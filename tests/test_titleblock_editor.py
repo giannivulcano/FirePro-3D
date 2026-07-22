@@ -1,4 +1,9 @@
-"""Editor behavior: working copy, save/cancel, snapshot undo, library actions."""
+"""Editor behavior: working copy, save/cancel, snapshot undo, library actions.
+
+Rev-3 update: Info Strip tab removed; Fields tab added (DD-18). Tests for
+cell-list, cell-form, and sizing-combo widgets removed accordingly. TestFieldsTab
+covers the new Fields tab behavior.
+"""
 from unittest.mock import patch, MagicMock
 
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -96,50 +101,6 @@ class TestEditorSession:
         assert tbt.load_library()[0].modified == datetime.date.today().isoformat()
 
 
-class TestEditorForm:
-    def _dlg(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        t = make_default_template()
-        tbt.save_to_library(t)
-        dlg = TitleBlockEditorDialog(project_template=None)
-        dlg.select_template(t.uuid)
-        return dlg
-
-    def test_margin_slot_snapshots_and_undo(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.set_margin_edge(15.0)
-        assert dlg.working.layout.margin_edge_mm == 15.0
-        dlg.undo()
-        assert dlg.working.layout.margin_edge_mm == 10.0
-
-    def test_cell_reorder(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        first = dlg.working.layout.cells[0].kind
-        dlg.move_cell(0, 1)
-        assert dlg.working.layout.cells[1].kind == first
-
-    def test_add_remove_cell(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        n = len(dlg.working.layout.cells)
-        dlg.add_cell("static_text")
-        assert len(dlg.working.layout.cells) == n + 1
-        dlg.remove_cell(n)
-        assert len(dlg.working.layout.cells) == n
-
-    def test_set_cell_prop_and_border(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.set_cell_prop(1, "fill_color", "#ff0000")
-        assert dlg.working.layout.cells[1].fill_color == "#ff0000"
-        dlg.set_cell_border_prop(1, "width_mm", 0.7)
-        assert dlg.working.layout.cells[1].border.width_mm == 0.7
-
-    def test_preview_uses_renderer_item(self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.refresh_preview()
-        kinds = [type(i).__name__ for i in dlg._preview_scene.items()]
-        assert "TitleBlockTemplateItem" in kinds
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Finding 1: modified-stamp preserved on failed save
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,43 +143,6 @@ class TestSaveButtonInitialState:
         # Empty library, no project template
         dlg = TitleBlockEditorDialog(project_template=None)
         assert not dlg.save_button.isEnabled()
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Finding 3: cell-border wiring
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestCellBorderWiring:
-    def _dlg(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        t = make_default_template()
-        tbt.save_to_library(t)
-        dlg = TitleBlockEditorDialog(project_template=None)
-        dlg.select_template(t.uuid)
-        return dlg
-
-    def test_cell_border_visible_toggle_applies_and_snapshots(
-            self, tmp_path, monkeypatch):
-        dlg = self._dlg(tmp_path, monkeypatch)
-        # Select first cell
-        dlg._cell_list.setCurrentRow(0)
-        layout = dlg.working.layout
-        # Ensure initial visible=True (the default)
-        layout.cells[0].border.visible = True
-        dlg._on_cell_selected(0)   # repopulate cell form
-
-        snap_count_before = len(dlg._undo_stack)
-
-        # Toggle visible off via the widget signal path
-        dlg._cell_border_group._visible.setChecked(False)
-        # _on_cell_border_changed fires via toggled signal
-
-        assert layout.cells[0].border.visible is False
-        assert len(dlg._undo_stack) == snap_count_before + 1
-
-        # Undo should restore visible=True
-        dlg.undo()
-        assert dlg.working.layout.cells[0].border.visible is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -354,48 +278,6 @@ class TestTitleBlockItemPaintSafeGet:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fix 3: picker keys match renderer (PROJECT_STD_KEYS sync)
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestPickerKeyRendererSync:
-    """Every project-group key the picker offers must be resolvable by build_field_values."""
-
-    def test_all_picker_project_keys_resolve(self, tmp_path, monkeypatch):
-        from firepro3d.paper_space import PROJECT_STD_KEYS, build_field_values
-        from firepro3d.paper_space import Sheet
-
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        dlg = TitleBlockEditorDialog(project_template=None)
-
-        # Build project_info with every standard key set to a non-empty value.
-        project_info = {info_key: f"test_{info_key}" for info_key in PROJECT_STD_KEYS.values()}
-        sheet = Sheet.create_default()
-        vals = build_field_values(sheet, project_info)
-
-        # Every display name the picker offers (= PROJECT_STD_KEYS.keys()) must
-        # appear in the resolved vals dict with a non-empty value.
-        for display_name in PROJECT_STD_KEYS.keys():
-            assert vals.get(display_name), (
-                f"Picker key '{display_name}' not resolved by build_field_values — "
-                "picker and renderer are out of sync"
-            )
-
-    def test_picker_combo_contains_all_project_std_keys(self, tmp_path, monkeypatch):
-        """The field_key combo must offer every PROJECT_STD_KEYS display name."""
-        from firepro3d.paper_space import PROJECT_STD_KEYS
-
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        dlg = TitleBlockEditorDialog(project_template=None)
-
-        combo_texts = {dlg._cell_field_key.itemText(i)
-                       for i in range(dlg._cell_field_key.count())}
-        for display_name in PROJECT_STD_KEYS.keys():
-            assert display_name in combo_texts, (
-                f"'{display_name}' missing from field_key picker combo"
-            )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Fix 4: Use→Save ordering
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -475,35 +357,6 @@ class TestDeleteConfirm:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fix 6: Sheet No disabled in picker
-# ─────────────────────────────────────────────────────────────────────────────
-
-class TestSheetNoDisabled:
-    def test_sheet_no_item_is_disabled(self, tmp_path, monkeypatch):
-        """The 'Sheet No' item in the field_key combo must be non-selectable."""
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QStandardItemModel
-
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        dlg = TitleBlockEditorDialog(project_template=None)
-
-        model = dlg._cell_field_key.model()
-        assert isinstance(model, QStandardItemModel)
-
-        # Find "Sheet No" in the model.
-        found = False
-        for i in range(model.rowCount()):
-            item = model.item(i)
-            if item is not None and item.text() == "Sheet No":
-                found = True
-                assert not (item.flags() & Qt.ItemFlag.ItemIsEnabled), (
-                    "'Sheet No' item must be disabled (not selectable)"
-                )
-                break
-        assert found, "'Sheet No' not found in the field_key combo model"
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Rev2 — new slots / UI states (T16)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -561,15 +414,6 @@ class TestSetOrientation:
         assert dlg.working.orientation == "landscape"
         dlg.set_orientation("portrait")
         assert dlg.working.orientation == "portrait"
-        # Probe the paper rect in the preview scene: the white background rect
-        # is always added first with dims = (paper_w, paper_h).
-        # After portrait switch on ANSI D: stored dims are (558.8, 863.6) so
-        # swapped dims = (863.6, 558.8) → w=863.6, h=558.8 i.e. w > h still.
-        # But logical page height (h) should be 558.8 and width 863.6 for portrait
-        # i.e. it becomes a taller page when computed via _template_page_mm.
-        # ANSI D stored as (558.8, 863.6) landscape → portrait swap → (863.6, 558.8)
-        # wait — native landscape: w=558.8, h=863.6?
-        # Let's just probe the sceneRect: for portrait the scene height > width.
         from firepro3d.titleblock_editor import _template_page_mm
         w, h = _template_page_mm(dlg.working)
         assert h > w, f"Portrait page should have h > w but got w={w}, h={h}"
@@ -620,71 +464,8 @@ class TestPickerDisplayName:
         )
 
 
-class TestSizingComboUI:
-    """set_cell_prop(i, 'sizing', 'dynamic') persists and is undoable;
-    min-height DimensionEdit is disabled when a dynamic cell is selected."""
-
-    def _dlg(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
-        t = make_default_template()
-        tbt.save_to_library(t)
-        dlg = TitleBlockEditorDialog(project_template=None)
-        dlg.select_template(t.uuid)
-        return dlg
-
-    def _stamp_cell_index(self, dlg) -> int:
-        """Return the index of the 'stamp' cell in the default template."""
-        cells = dlg.working.layout.cells
-        for i, c in enumerate(cells):
-            if c.kind == "stamp":
-                return i
-        raise AssertionError("No stamp cell found in default template")
-
-    def test_set_cell_prop_sizing_dynamic_persists(self, tmp_path, monkeypatch):
-        """set_cell_prop(i, 'sizing', 'dynamic') must write cell.sizing."""
-        dlg = self._dlg(tmp_path, monkeypatch)
-        # Use cell 0 (logo) which starts as static
-        dlg.working.layout.cells[0].sizing = "static"
-        dlg.set_cell_prop(0, "sizing", "dynamic")
-        assert dlg.working.layout.cells[0].sizing == "dynamic"
-
-    def test_set_cell_prop_sizing_undoable(self, tmp_path, monkeypatch):
-        """Sizing change must be undoable via snapshot."""
-        dlg = self._dlg(tmp_path, monkeypatch)
-        dlg.working.layout.cells[0].sizing = "static"
-        dlg.set_cell_prop(0, "sizing", "dynamic")
-        assert dlg.working.layout.cells[0].sizing == "dynamic"
-        dlg.undo()
-        assert dlg.working.layout.cells[0].sizing == "static"
-
-    def test_min_height_disabled_for_dynamic_cell(self, tmp_path, monkeypatch):
-        """Selecting a dynamic cell must disable the min-height DimensionEdit."""
-        dlg = self._dlg(tmp_path, monkeypatch)
-        stamp_idx = self._stamp_cell_index(dlg)
-        # Stamp cell is seeded as dynamic
-        assert dlg.working.layout.cells[stamp_idx].sizing == "dynamic", (
-            "Test pre-condition: stamp cell must be dynamic"
-        )
-        dlg._on_cell_selected(stamp_idx)
-        assert not dlg._cell_min_height.isEnabled(), (
-            "min_height edit must be disabled when cell sizing == 'dynamic'"
-        )
-
-    def test_min_height_enabled_for_static_cell(self, tmp_path, monkeypatch):
-        """Selecting a static cell must enable the min-height DimensionEdit."""
-        dlg = self._dlg(tmp_path, monkeypatch)
-        # Cell 0 (logo) is static in the default template
-        assert dlg.working.layout.cells[0].sizing == "static", (
-            "Test pre-condition: cell 0 must be static"
-        )
-        dlg._on_cell_selected(0)
-        assert dlg._cell_min_height.isEnabled(), (
-            "min_height edit must be enabled when cell sizing == 'static'"
-        )
-
-
 class TestComponentTabsExist:
-    """Editor must have an Overview, Drawing Area, and Info Strip tab."""
+    """Editor must have Overview, Drawing Area, and Fields tabs (rev 3)."""
 
     def test_three_component_tabs(self, tmp_path, monkeypatch):
         monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
@@ -694,8 +475,17 @@ class TestComponentTabsExist:
         assert "Overview" in titles, f"Missing 'Overview' tab; got {titles}"
         assert "Drawing Area" in titles, (
             f"Missing 'Drawing Area' tab; got {titles}")
-        assert "Info Strip" in titles, (
-            f"Missing 'Info Strip' tab; got {titles}")
+        assert "Fields" in titles, (
+            f"Missing 'Fields' tab; got {titles}")
+
+    def test_no_info_strip_tab(self, tmp_path, monkeypatch):
+        """The old Info Strip tab must be gone (replaced by Fields)."""
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        titles = [dlg._component_tabs.tabText(i)
+                  for i in range(dlg._component_tabs.count())]
+        assert "Info Strip" not in titles, (
+            f"Info Strip tab must be removed in rev 3; got {titles}")
 
     def test_no_variant_tabs_attribute(self, tmp_path, monkeypatch):
         """The old per-size variant QTabWidget (_variant_tabs) must be gone."""
@@ -927,4 +717,148 @@ class TestNameEditInPaperSetup:
         name_edits = paper_setup.findChildren(QLineEdit)
         assert dlg._name_edit in name_edits, (
             "_name_edit is not inside the 'Paper Setup' group box"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rev 3: Fields tab (DD-18)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFieldsTab:
+    """Fields tab: roster + intrinsics form + single-field preview (DD-18)."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_roster_lists_all_with_placed_indicator(self, tmp_path, monkeypatch):
+        """All fields should appear in the roster; seeded default has all placed (●)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        lay = dlg.working.layout
+        assert dlg._field_list.count() == len(lay.fields)
+        assert all("●" in dlg._field_list.item(i).text()
+                   for i in range(dlg._field_list.count()))
+
+    def test_new_field_starts_unplaced(self, tmp_path, monkeypatch):
+        """New fields start unplaced (○ indicator, id not in placed_ids)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        n = len(dlg.working.layout.fields)
+        dlg._new_field_btn.click()
+        lay = dlg.working.layout
+        assert len(lay.fields) == n + 1
+        assert lay.fields[-1].id not in lay.placed_ids()
+        assert "○" in dlg._field_list.item(n).text()
+
+    def test_form_edit_writes_working_and_snapshots(self, tmp_path, monkeypatch):
+        """Editing the name field writes working and pushes a snapshot."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        depth = len(dlg._undo_stack)
+        dlg._fname_edit.setText("Renamed")
+        dlg._fname_edit.editingFinished.emit()
+        assert dlg.working.layout.fields[1].name == "Renamed"
+        assert len(dlg._undo_stack) == depth + 1
+        dlg.undo()
+        assert dlg.working.layout.fields[1].name != "Renamed"
+
+    def test_text_edit_multiline_commit(self, tmp_path, monkeypatch):
+        """QPlainTextEdit text commits as multi-line text to the field."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        dlg._ftext_edit.setPlainText("Line1\nLine2")
+        dlg._commit_field_text()
+        assert dlg.working.layout.fields[1].text == "Line1\nLine2"
+
+    def test_insert_token_at_cursor(self, tmp_path, monkeypatch):
+        """_insert_token appends @[Key] at cursor and commits the text."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        dlg._ftext_edit.setPlainText("By ")
+        cur = dlg._ftext_edit.textCursor()
+        cur.movePosition(cur.MoveOperation.End)
+        dlg._ftext_edit.setTextCursor(cur)
+        dlg._insert_token("Drawn By")
+        assert dlg._ftext_edit.toPlainText() == "By @[Drawn By]"
+        assert dlg.working.layout.fields[1].text == "By @[Drawn By]"
+
+    def test_delete_placed_field_warns_and_removes(self, tmp_path, monkeypatch):
+        """Deleting a placed field shows a warning, then removes it and unplaces it."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        monkeypatch.setattr(QMessageBox, "question", staticmethod(
+            lambda *a, **kw: QMessageBox.StandardButton.Yes))
+        dlg._field_list.setCurrentRow(1)
+        fid = dlg.working.layout.fields[1].id
+        dlg._delete_field_btn.click()
+        lay = dlg.working.layout
+        assert fid not in {f.id for f in lay.fields}
+        assert fid not in lay.placed_ids()
+
+    def test_single_field_preview_populates(self, tmp_path, monkeypatch):
+        """Selecting a field populates the single-field preview scene."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        assert len(dlg._field_preview_scene.items()) > 0
+
+    def test_kind_combo_swaps_inputs(self, tmp_path, monkeypatch):
+        """Switching to 'revision_table' enables revision_rows and disables text/image."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        dlg._fkind_combo.setCurrentText("revision_table")
+        assert dlg._frev_rows.isEnabled()
+        assert not dlg._ftext_edit.isEnabled()
+        assert dlg.working.layout.fields[1].kind == "revision_table"
+
+    def test_tabs_are_overview_drawingarea_fields(self, tmp_path, monkeypatch):
+        """Component tabs must be exactly Overview / Drawing Area / Fields."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        tabs = [dlg._component_tabs.tabText(i)
+                for i in range(dlg._component_tabs.count())]
+        assert tabs == ["Overview", "Drawing Area", "Fields"]
+
+    def test_dup_field_gets_fresh_id_and_copy_suffix(self, tmp_path, monkeypatch):
+        """Duplicate creates a new unplaced field with a fresh id and ' (copy)' suffix."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        orig_id = dlg.working.layout.fields[0].id
+        orig_name = dlg.working.layout.fields[0].name
+        n = len(dlg.working.layout.fields)
+        dlg._dup_field_btn.click()
+        lay = dlg.working.layout
+        assert len(lay.fields) == n + 1
+        new_f = lay.fields[-1]
+        assert new_f.id != orig_id
+        assert new_f.name == orig_name + " (copy)"
+        assert new_f.id not in lay.placed_ids()
+
+    def test_delete_unplaced_field_no_warning(self, tmp_path, monkeypatch):
+        """Deleting an unplaced field does NOT show a warning dialog."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Add a new unplaced field
+        dlg._new_field_btn.click()
+        n_fields = len(dlg.working.layout.fields)
+        new_row = n_fields - 1
+        fid = dlg.working.layout.fields[new_row].id
+        assert fid not in dlg.working.layout.placed_ids()
+
+        question_called = []
+        monkeypatch.setattr(QMessageBox, "question", staticmethod(
+            lambda *a, **kw: question_called.append(1) or QMessageBox.StandardButton.Yes))
+
+        dlg._field_list.setCurrentRow(new_row)
+        dlg._delete_field_btn.click()
+        assert not question_called, "No warning dialog for unplaced field"
+        assert fid not in {f.id for f in dlg.working.layout.fields}
+
+    def test_field_prop_no_snapshot_when_unchanged(self, tmp_path, monkeypatch):
+        """_field_prop must NOT push a snapshot when the value is unchanged."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        f = dlg.working.layout.fields[0]
+        current_name = f.name
+        depth_before = len(dlg._undo_stack)
+        dlg._field_prop("name", current_name)  # same value
+        assert len(dlg._undo_stack) == depth_before, (
+            "_field_prop must not snapshot when value is unchanged"
         )
