@@ -115,6 +115,26 @@ class TestSolveRev3:
         # no warnings: all default tokens are known keys or empty-known
         assert not [w for w in sol.warnings if "Unknown" in w]
 
+    def test_dynamic_distribution_ignores_wrap_growth(self):
+        # Row "a": dynamic, min 10, long text that wrap-grows well past 10.
+        # Row "b": dynamic, min 30, no text.
+        # DD-8b: leftover splits 10:30 by MIN heights, not solved heights.
+        fs = [FieldDef(id="a", text="word " * 60),
+              FieldDef(id="b")]
+        lay = _lay3(fs, [[Slot("a", 10.0, sizing="dynamic")],
+                         [Slot("b", 30.0, sizing="dynamic")]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        grown_a = sol.cell_rects[0].height()
+        grown_b = sol.cell_rects[1].height()
+        # b's extra share must be 3x a's extra share
+        # compare against static solve to isolate the dynamic bonus
+        lay_static = _lay3(fs, [[Slot("a", 10.0)], [Slot("b", 30.0)]])
+        sol_static = solve_layout(lay_static, PAPER_W, PAPER_H, {})
+        extra_a = grown_a - sol_static.cell_rects[0].height()
+        extra_b = grown_b - sol_static.cell_rects[1].height()
+        assert extra_a > 0 and extra_b > 0
+        assert abs(extra_b - 3 * extra_a) < 1e-6
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TestSolveRev3Ported — behaviors from the 8 deleted rev-2 classes
@@ -393,6 +413,29 @@ class TestValidateRev3:
         fs = [FieldDef(id="r", kind="revision_table", revision_rows=200)]
         lay = _lay3(fs, [[Slot("r", 1.0)]])
         assert any("stack" in e.lower() for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_geometric_floors(self):
+        base_fields = [FieldDef(id="a")]
+        # negative margin
+        lay = _lay3(base_fields, [[Slot("a")]], margin_edge_mm=-1.0)
+        assert any("margin" in e.lower() for e in validate(lay, PAPER_W, PAPER_H))
+        # strip width under floor
+        lay = _lay3(base_fields, [[Slot("a")]], strip_width_mm=TB_STRIP_MIN_MM - 1)
+        assert any("strip width" in e.lower()
+                   for e in validate(lay, PAPER_W, PAPER_H))
+        # drawing area squeezed under floor (huge strip)
+        lay = _lay3(base_fields, [[Slot("a")]],
+                    strip_width_mm=PAPER_W - 2 * 10.0 - TB_AREA_MIN_MM + 1)
+        assert any("drawing area" in e.lower()
+                   for e in validate(lay, PAPER_W, PAPER_H))
+
+    def test_unplaced_field_bad_cap_blocks_save(self):
+        # Deliberate decision (Task-5 review): cap>0 floor covers ALL fields,
+        # including unplaced pool fields — a bad pool definition blocks Save.
+        fs = [FieldDef(id="a"), FieldDef(id="pool", cap_height_mm=0.0)]
+        lay = _lay3(fs, [[Slot("a")]])
+        assert any("cap height" in e.lower()
+                   for e in validate(lay, PAPER_W, PAPER_H))
 
 
 class TestDisplayName:
