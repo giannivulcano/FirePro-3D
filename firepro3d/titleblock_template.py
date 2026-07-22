@@ -203,9 +203,74 @@ def _frame_border_default() -> BorderStyle:
     return BorderStyle()
 
 
-def _migrate_cells(cells: list) -> tuple[list, list]:
-    # TODO(Task 3): real migration
-    return [], []
+_KIND_FALLBACK_NAMES = {"logo": "Logo", "stamp": "Stamp",
+                        "revision_table": "Revision Table",
+                        "static_text": "Text", "field": "Field"}
+
+
+def _migrate_cells(cells_raw: list[dict]) -> tuple[list[FieldDef], list[list[Slot]]]:
+    """One-way rev-2 → rev-3 cell migration (spec DD-12/DD-14).
+
+    field_key="X" → text "@[X]"; static_text → text; logo → image-only;
+    stamp → empty field; pair_with_next chains → two-slot rows.
+    Names: label → field_key → kind fallback, deduped with " 2", " 3"…
+    """
+    fields: list[FieldDef] = []
+    rows: list[list[Slot]] = []
+    used_names: set[str] = set()
+
+    def _mk(cell: dict) -> tuple[FieldDef, Slot]:
+        kind = cell.get("kind", "field")
+        text, image = "", ""
+        if kind == "field" and cell.get("field_key"):
+            text = f'@[{cell["field_key"]}]'
+        elif kind == "static_text":
+            text = cell.get("static_text", "")
+        elif kind == "logo":
+            image = cell.get("logo_data", "")
+        base = (cell.get("label", "") or cell.get("field_key", "")
+                or _KIND_FALLBACK_NAMES.get(kind, "Field"))
+        name, n = base, 1
+        while name in used_names:
+            n += 1
+            name = f"{base} {n}"
+        used_names.add(name)
+        fd = FieldDef(
+            id=new_field_id(),
+            kind="revision_table" if kind == "revision_table" else "field",
+            name=name,
+            label=cell.get("label", ""),
+            text=text,
+            image_data=image,
+            image_fit=cell.get("logo_fit", "contain"),
+            font_family=cell.get("font_family", "Arial"),
+            cap_height_mm=float(cell.get("cap_height_mm", 3.0)),
+            bold=bool(cell.get("bold", True)),
+            italic=bool(cell.get("italic", False)),
+            alignment=cell.get("alignment", "left"),
+            fill_color=cell.get("fill_color", ""),
+            border=BorderStyle.from_dict(cell.get("border", {})),
+            revision_rows=int(cell.get("revision_rows", 3)),
+        )
+        raw_sz = cell.get("sizing", "static")
+        slot = Slot(field_id=fd.id,
+                    min_height_mm=float(cell.get("min_height_mm", 10.0)),
+                    sizing=raw_sz if raw_sz in ("static", "dynamic") else "static")
+        return fd, slot
+
+    i = 0
+    while i < len(cells_raw):
+        fd, slot = _mk(cells_raw[i])
+        fields.append(fd)
+        if cells_raw[i].get("pair_with_next") and i + 1 < len(cells_raw):
+            fd2, slot2 = _mk(cells_raw[i + 1])
+            fields.append(fd2)
+            rows.append([slot, slot2])
+            i += 2
+        else:
+            rows.append([slot])
+            i += 1
+    return fields, rows
 
 
 @dataclass
@@ -749,7 +814,7 @@ LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
 
 # Bump this string whenever the shipped seed design changes so divergence checks
 # pick up the new layout.
-DEFAULT_SEED_MODIFIED = "2026-07-22"
+DEFAULT_SEED_MODIFIED = "2026-07-23"
 
 # Accent fill colour shared by the two highlighted cells in the default template.
 _ACCENT_FILL = "#eef2f7"
@@ -818,44 +883,52 @@ def migrate_legacy_fields(
                 d.pop(k)
 
 
-def _field(key: str, label: str, *, h: float = 10.0, cap: float = 2.6,
-           pair: bool = False, fill: str = "",
-           sizing: str = "static") -> CellSpec:
-    """Shorthand CellSpec factory for the default template's field cells."""
-    return CellSpec(kind="field", field_key=key, label=label,
-                    min_height_mm=h, cap_height_mm=cap,
-                    pair_with_next=pair, fill_color=fill, sizing=sizing)
+def _fdef(name: str, text: str, label: str, *, cap: float = 2.6,
+          fill: str = "", image: str = "") -> FieldDef:
+    """Shorthand FieldDef factory for the seeded default's field cells."""
+    return FieldDef(id=new_field_id(), name=name, label=label, text=text,
+                    cap_height_mm=cap, fill_color=fill, image_data=image)
 
 
 def make_default_template() -> TitleBlockTemplate:
-    """Seeded default: arrangement A 'Corporate top-down', filleted frames.
+    """Seeded default: arrangement A 'Corporate top-down' (rev-3 native).
 
-    Single ANSI D landscape template; stamp cell is dynamic (fills to strip
+    Single ANSI D landscape template; stamp is dynamic (fills to strip
     bottom).
     """
-    cells: list[CellSpec] = [
-        CellSpec(kind="logo", min_height_mm=25.0),
-        _field("Company", "Company", h=12.0, fill=_ACCENT_FILL),
-        _field("Project", "Project", h=12.0),
-        _field("Address", "Address", h=10.0),
-        _field("Title", "Sheet Title", h=14.0, cap=3.2),
-        _field("Scale", "Scale", pair=True),
-        _field("Date", "Date"),
-        _field("Drawn By", "Drawn", pair=True),
-        _field("Checked By", "Checked"),
-        _field("Drawing No", "Drawing No", h=14.0, cap=4.0, pair=True,
-               fill=_ACCENT_FILL),
-        _field("Rev", "Rev", h=14.0, cap=4.0),
-        CellSpec(kind="revision_table", label="Revisions",
-                 min_height_mm=25.0, revision_rows=3),
-        CellSpec(kind="stamp", min_height_mm=60.0, sizing="dynamic"),
-    ]
-    layout = TemplateLayout(strip_width_mm=90.0, cells=cells)
-    return TitleBlockTemplate(
-        name="FirePro Default",
-        uuid=str(_uuid.uuid4()),
-        modified=DEFAULT_SEED_MODIFIED,
-        paper_size="ANSI D",
-        orientation="landscape",
-        layout=layout,
+    logo = FieldDef(id=new_field_id(), name="Logo")
+    company = _fdef("Company", "@[Company]", "Company", fill=_ACCENT_FILL)
+    project = _fdef("Project", "@[Project]", "Project")
+    address = _fdef("Address", "@[Address]", "Address")
+    title = _fdef("Sheet Title", "@[Title]", "Sheet Title", cap=3.2)
+    scale = _fdef("Scale", "@[Scale]", "Scale")
+    date = _fdef("Date", "@[Date]", "Date")
+    drawn = _fdef("Drawn", "@[Drawn By]", "Drawn")
+    checked = _fdef("Checked", "@[Checked By]", "Checked")
+    dwg_no = _fdef("Drawing No", "@[Drawing No]", "Drawing No", cap=4.0,
+                   fill=_ACCENT_FILL)
+    rev = _fdef("Rev", "@[Rev]", "Rev", cap=4.0)
+    revtable = FieldDef(id=new_field_id(), kind="revision_table",
+                        name="Revision Table", label="Revisions")
+    stamp = FieldDef(id=new_field_id(), name="Stamp")
+    layout = TemplateLayout(
+        strip_width_mm=90.0,
+        fields=[logo, company, project, address, title, scale, date,
+                drawn, checked, dwg_no, rev, revtable, stamp],
+        rows=[
+            [Slot(logo.id, 25.0)],
+            [Slot(company.id, 12.0)],
+            [Slot(project.id, 12.0)],
+            [Slot(address.id, 10.0)],
+            [Slot(title.id, 14.0)],
+            [Slot(scale.id, 10.0), Slot(date.id, 10.0)],
+            [Slot(drawn.id, 10.0), Slot(checked.id, 10.0)],
+            [Slot(dwg_no.id, 14.0), Slot(rev.id, 14.0)],
+            [Slot(revtable.id, 25.0)],
+            [Slot(stamp.id, 60.0, sizing="dynamic")],
+        ],
     )
+    return TitleBlockTemplate(name="FirePro Default", uuid=str(_uuid.uuid4()),
+                              modified=DEFAULT_SEED_MODIFIED,
+                              paper_size="ANSI D", orientation="landscape",
+                              layout=layout)
