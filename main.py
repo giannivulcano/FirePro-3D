@@ -1800,9 +1800,18 @@ class MainWindow(QMainWindow):
     # ── Title Block editor entry point ────────────────────────────────────────
 
     def _open_titleblock_editor(self) -> None:
-        """Open the template editor; apply 'Use for this project' on accept."""
+        """Open the template editor; apply 'Use for this project' on accept.
+
+        DD-2: when a template is applied (accepted + project_template_result set),
+        the sheet's paper_size and orientation are updated to match the template
+        BEFORE the push so PaperScene rebuilds at the correct dimensions.
+
+        Orientation storage convention: "" means native (PAPER_SIZES dims unchanged),
+        so only non-native orientations are stored as "portrait"/"landscape".  This
+        keeps legacy .fpd files byte-identical when the orientation is native.
+        """
         from firepro3d.titleblock_editor import TitleBlockEditorDialog
-        from firepro3d.titleblock_template import TitleBlockTemplate
+        from firepro3d.titleblock_template import TitleBlockTemplate, native_orientation
         import logging
         raw = getattr(self.scene, "_titleblock_template", None)
         try:
@@ -1818,6 +1827,12 @@ class MainWindow(QMainWindow):
             return
         result = dlg.project_template_result
         if result is not None:
+            # DD-2: template drives sheet — update size/orientation BEFORE push.
+            self._sheet.paper_size = result.paper_size
+            # Store "" for native orientation (keeps legacy files byte-identical).
+            nat = native_orientation(result.paper_size)
+            self._sheet.orientation = ("" if result.orientation == nat
+                                       else result.orientation)
             self.scene._titleblock_template = result.to_dict()
             self._push_titleblock_template()
             self._on_paper_modified()          # project dirty (§17.7)
@@ -2181,8 +2196,21 @@ class MainWindow(QMainWindow):
         m = QMenu(self)
         for name in PAPER_SIZES:
             m.addAction(name,
-                        lambda _, n=name: self.paper_space_widget.change_paper(n))
+                        lambda _, n=name: self._change_paper_with_warning(n))
         return m
+
+    def _change_paper_with_warning(self, size: str) -> None:
+        """Change the paper size and surface any template-mismatch warning.
+
+        After ``change_paper`` the PaperScene rebuilds (_setup runs) and sets
+        ``titleblock_warning`` when the active template no longer matches the
+        new sheet size.  This method reads that warning and shows it in the
+        status bar — mirroring the ``_push_titleblock_template`` pattern.
+        """
+        self.paper_space_widget.change_paper(size)
+        sc = self.paper_space_widget.paper_scene
+        if sc.titleblock_warning:
+            self.statusBar().showMessage(sc.titleblock_warning, 8000)
 
     def _build_snap_angle_menu(self) -> QMenu:
         """Return a QMenu of angle snap increments for Ctrl-constrain."""

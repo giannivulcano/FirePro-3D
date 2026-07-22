@@ -27,7 +27,7 @@ import re
 from PyQt6.QtCore import QRectF, QSizeF, QMarginsF
 from PyQt6.QtGui import QPainter, QPdfWriter, QPageSize, QPageLayout
 
-from .paper_space import Sheet, PaperScene, PAPER_SIZES, ViewResolver
+from .paper_space import Sheet, PaperScene, PAPER_SIZES, ViewResolver, sheet_page_mm
 
 # Avoid a hard import of TitleBlockTemplate at module level to keep this
 # module importable without the full template machinery.
@@ -48,8 +48,12 @@ def default_pdf_filename(sheet: Sheet) -> str:
 
 
 def _set_page(device, sheet: Sheet) -> None:
-    """Configure *device* (QPdfWriter/QPrinter) for *sheet*'s paper size, no margins."""
-    w_mm, h_mm = PAPER_SIZES[sheet.paper_size]
+    """Configure *device* (QPdfWriter/QPrinter) for *sheet*'s paper size, no margins.
+
+    Uses ``sheet_page_mm(sheet)`` so that ``sheet.orientation`` is honoured
+    (portrait/landscape swap applied before writing the page size).
+    """
+    w_mm, h_mm = sheet_page_mm(sheet)
     device.setPageSize(QPageSize(QSizeF(w_mm, h_mm), QPageSize.Unit.Millimeter))
     device.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
 
@@ -86,7 +90,7 @@ def render_sheet(sheet: Sheet, resolver: ViewResolver,
             ``build_field_values`` to populate template field values).
             Ignored when *template* is None.
     """
-    w_mm, h_mm = PAPER_SIZES[sheet.paper_size]
+    w_mm, h_mm = sheet_page_mm(sheet)
     scene = PaperScene(sheet, resolver)
     try:
         if template is not None:

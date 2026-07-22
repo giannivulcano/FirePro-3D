@@ -78,6 +78,30 @@ PAPER_SIZES: dict[str, tuple[float, float]] = {
     "D-size": (558.8,  863.6),
 }
 
+def native_orientation_from_dims(paper_size: str) -> str:
+    """Return "landscape" or "portrait" derived from PAPER_SIZES stored dims.
+
+    Uses ``w > h → landscape`` logic directly from PAPER_SIZES, avoiding the
+    hardcoded ``_NATIVE_ORIENTATION`` map in ``titleblock_template`` (which can
+    drift when PAPER_SIZES changes).  Falls back to "landscape" for unknown sizes.
+
+    This helper lives in paper_space (not in titleblock_template) to avoid the
+    circular-import that would occur if titleblock_template imported PAPER_SIZES.
+
+    Args:
+        paper_size: Key into PAPER_SIZES.
+
+    Returns:
+        "landscape" when stored w > h, "portrait" when h >= w, "landscape" for
+        unknown sizes.
+    """
+    dims = PAPER_SIZES.get(paper_size)
+    if dims is None:
+        return "landscape"
+    w, h = dims
+    return "landscape" if w > h else "portrait"
+
+
 def sheet_page_mm(sheet: "Sheet") -> tuple[float, float]:
     """Return effective page dimensions (width, height) in mm for *sheet*.
 
@@ -2862,14 +2886,15 @@ class PaperScene(QGraphicsScene):
 
         Orientation match: template.orientation == effective sheet orientation.
         Effective sheet orientation: sheet.orientation if non-empty, else the
-        native orientation for the paper size (from _NATIVE_ORIENTATION in
-        titleblock_template).
+        native orientation derived directly from PAPER_SIZES dims
+        (``native_orientation_from_dims``).  This avoids the hardcoded
+        ``_NATIVE_ORIENTATION`` map in ``titleblock_template`` which can drift
+        when PAPER_SIZES changes.
         """
         if self._template is None:
             return False
-        from .titleblock_template import native_orientation
         sheet_eff_orient = (self._sheet.orientation
-                            or native_orientation(self._sheet.paper_size))
+                            or native_orientation_from_dims(self._sheet.paper_size))
         return (self._template.paper_size == self._sheet.paper_size
                 and self._template.orientation == sheet_eff_orient)
 
