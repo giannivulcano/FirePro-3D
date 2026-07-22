@@ -2506,9 +2506,10 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     # second derivation: token-known == present in this dict.
     for display in _PROJECT_STD_KEYS:
         vals[display] = ""
-    for key in ("Title", "Drawing No", "Rev", "Date",
-                "Company", "Drawn By", "Checked By"):
-        vals[key] = ""
+    # Derive from the module-level constant so any future standard key stays
+    # token-known without a second edit here.
+    for key in DEFAULT_TITLE_BLOCK_FIELDS:
+        vals.setdefault(key, "")
     for display, info_key in _PROJECT_STD_KEYS.items():
         if project_info.get(info_key):
             vals[display] = project_info[info_key]
@@ -2700,12 +2701,14 @@ class TitleBlockTemplateItem(QGraphicsItem):
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
         united = lay.strip_rect.united(lay.area_rect)
-        # Guard against empty fields list (no cell borders to iterate).
+        # The list always has ≥2 elements (area + strip borders), so max()
+        # never sees an empty sequence; empty var.fields is naturally handled
+        # because field_border_widths may be [] but is concatenated onto a
+        # non-empty prefix.
         field_border_widths = [f.border.width_mm for f in var.fields]
         pad = max(
             [var.area_border.width_mm, var.strip_border.width_mm]
             + field_border_widths
-            or [0.0]
         ) / 2
         return united.adjusted(-pad, -pad, pad, pad)
 
@@ -2792,10 +2795,11 @@ class TitleBlockTemplateItem(QGraphicsItem):
             # Label sub-rect (solver-computed, None when no label)
             if lay.cell_label_rects[i] is not None:
                 self._draw_label(painter, lay.cell_label_rects[i], f)
-            # Image band (solver-computed remainder, None when no room or no image)
+            # Image band (solver-computed remainder, None when no room or no image).
+            # Revision tables ignore image sub-rects and render their own content.
             img_rect = lay.cell_image_rects[i]
             pm = self._image_pixmaps.get(f.id)
-            if img_rect is not None and pm is not None:
+            if img_rect is not None and pm is not None and f.kind != "revision_table":
                 # Contain-fit: scale to img_rect preserving aspect ratio,
                 # then centre within the band.
                 scaled = QSizeF(pm.size()).scaled(

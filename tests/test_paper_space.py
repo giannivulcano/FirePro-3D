@@ -721,12 +721,44 @@ class TestTemplateItemRev3:
         assert self._nonwhite(self._render(make_default_template()))
 
     def test_combined_image_and_text_cell_paints(self, qapp, tiny_png_b64):
+        """Image pixels (0xFF336699) must appear in the painted output."""
         f = FieldDef(id="a", name="Co", label="Company",
                      text="Acme", image_data=tiny_png_b64)
         t = make_default_template()
         t.layout.fields = [f]
         t.layout.rows = [[Slot("a", 40.0)]]
-        assert self._nonwhite(self._render(t))
+        vals = {}
+        lay = solve_layout(t.layout, 863.6, 558.8, vals)
+
+        def _paint_item(item):
+            img = QImage(400, 300, QImage.Format.Format_RGB32)
+            img.fill(Qt.GlobalColor.white)
+            p = QPainter(img)
+            p.scale(0.4, 0.4)
+            item.paint(p, None)
+            p.end()
+            return img
+
+        # Basic non-white assertion (existing coverage)
+        item = TitleBlockTemplateItem(lay, t.layout, vals)
+        assert self._nonwhite(_paint_item(item))
+
+        # Stronger: fixture colour 0xFF336699 must be present in the output.
+        item_full = TitleBlockTemplateItem(lay, t.layout, vals)
+        img_full = _paint_item(item_full)
+        assert any(
+            img_full.pixel(x, y) == 0xFF336699
+            for x in range(0, 400, 2) for y in range(0, 300, 2)
+        ), "Expected fixture colour 0xFF336699 to appear when image_data is set"
+
+        # RED-verified: clearing the pixmap cache suppresses the colour.
+        item_no_img = TitleBlockTemplateItem(lay, t.layout, vals)
+        item_no_img._image_pixmaps.clear()
+        img_no_img = _paint_item(item_no_img)
+        assert not any(
+            img_no_img.pixel(x, y) == 0xFF336699
+            for x in range(0, 400, 2) for y in range(0, 300, 2)
+        ), "Colour must NOT appear when _image_pixmaps is cleared (sabotage check)"
 
     def test_bad_image_data_warns_not_crashes(self, qapp):
         f = FieldDef(id="a", name="Logo", image_data="not-base64!!!")
