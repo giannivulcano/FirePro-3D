@@ -190,10 +190,6 @@ class TemplateLayout:
         )
 
 
-# Transitional alias for code that still references the old name (T15 compat shim)
-TemplateVariant = TemplateLayout
-
-
 @dataclass
 class TitleBlockTemplate:
     """Single-size parametric title block template (revised 2026-07-22).
@@ -209,13 +205,6 @@ class TitleBlockTemplate:
     paper_size: str = "ANSI D"
     orientation: str = "landscape"      # "landscape" | "portrait"
     layout: TemplateLayout = field(default_factory=TemplateLayout)
-
-    # ── back-compat shim: expose .variants as a property so old code reading
-    # template.variants["ANSI D"] continues to work during the T15→T16 window.
-    @property
-    def variants(self) -> dict:  # noqa: D401
-        """Compatibility shim: returns {paper_size: layout} for old callers."""
-        return {self.paper_size: self.layout}
 
     @property
     def display_name(self) -> str:

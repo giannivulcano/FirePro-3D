@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QApplication
 import firepro3d.titleblock_template as tbt
 from firepro3d.constants import TB_CELL_PAD_MM
 from firepro3d.titleblock_template import (
-    BorderStyle, CellSpec, TemplateLayout, TemplateVariant, TitleBlockTemplate,
+    BorderStyle, CellSpec, TemplateLayout, TitleBlockTemplate,
     _cell_font, solve_layout, validate, native_orientation,
 )
 
@@ -424,8 +424,7 @@ class TestSerialization:
         assert c.border.visible is True
         b = BorderStyle()
         assert b.corner == "fillet" and b.fillet_radius_mm == 10.0
-        # TemplateVariant alias still works
-        v = TemplateVariant()
+        v = TemplateLayout()
         assert v.strip_edge == "right"
 
     def test_deep_copy_independent(self):
@@ -434,12 +433,6 @@ class TestSerialization:
         t2.layout.cells[0].label = "changed"
         assert t.layout.cells[0].label == "Sheet Title"
         assert t2.to_dict() != t.to_dict()
-
-    def test_variants_property_compat_shim(self):
-        """The .variants property returns {paper_size: layout} for old callers."""
-        t = self._template()
-        assert "ANSI D" in t.variants
-        assert t.variants["ANSI D"] is t.layout
 
 
 def _layout(cells, strip=90.0):
