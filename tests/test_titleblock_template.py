@@ -9,9 +9,13 @@ from PyQt6.QtWidgets import QApplication
 import firepro3d.titleblock_template as tbt
 from firepro3d.constants import TB_CELL_PAD_MM
 from firepro3d.titleblock_template import (
-    BorderStyle, CellSpec, TemplateLayout, TitleBlockTemplate,
+    BorderStyle, TemplateLayout, TitleBlockTemplate,
     _cell_font, solve_layout, validate, native_orientation,
 )
+try:
+    from firepro3d.titleblock_template import CellSpec  # removed in rev3; tests below use it
+except ImportError:
+    CellSpec = None  # type: ignore[assignment,misc]
 
 _app = QApplication.instance() or QApplication([])
 
@@ -938,3 +942,50 @@ class TestResolveText:
 
     def test_no_tokens_no_change(self):
         assert resolve_text("plain text", self.VALUES) == ("plain text", [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TestRev3Model — rev-3 data model: FieldDef + Slot + rows (Task 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from firepro3d.titleblock_template import (
+    FieldDef, Slot, new_field_id,
+)
+
+
+class TestRev3Model:
+    def _layout(self):
+        f1 = FieldDef(id="f1", name="Company", text="@[Company]")
+        f2 = FieldDef(id="f2", name="Stamp")            # empty field = stamp
+        f3 = FieldDef(id="f3", name="Spare", text="unplaced")
+        return TemplateLayout(
+            fields=[f1, f2, f3],
+            rows=[[Slot("f1", 12.0)], [Slot("f2", 60.0, sizing="dynamic")]],
+        )
+
+    def test_round_trip(self):
+        lay = self._layout()
+        again = TemplateLayout.from_dict(lay.to_dict())
+        assert again.to_dict() == lay.to_dict()
+
+    def test_pool_and_placed(self):
+        lay = self._layout()
+        assert lay.placed_ids() == {"f1", "f2"}
+        assert [f.id for f in lay.pool_fields()] == ["f3"]
+
+    def test_field_map(self):
+        lay = self._layout()
+        assert lay.field_map()["f1"].name == "Company"
+
+    def test_unknown_keys_ignored_on_load(self):
+        d = self._layout().to_dict()
+        d["future_thing"] = 1
+        d["fields"][0]["future_prop"] = "x"
+        d["rows"][0][0]["future_slot_prop"] = 2
+        TemplateLayout.from_dict(d)      # must not raise
+
+    def test_new_field_id_unique(self):
+        assert new_field_id() != new_field_id()
+
+    def test_image_position_reserved_default(self):
+        assert FieldDef(id="x").image_position == "top"

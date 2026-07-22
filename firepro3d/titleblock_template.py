@@ -26,7 +26,7 @@ from .constants import (
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM,
 )
 
-CELL_KINDS = ("field", "static_text", "logo", "revision_table", "stamp")
+KINDS = ("field", "revision_table")
 
 # Native orientation for each known paper size:
 # "landscape" means stored dims have w > h; "portrait" means h > w.
@@ -124,26 +124,30 @@ def _cell_border_default() -> BorderStyle:
     return BorderStyle(width_mm=0.3, corner="sharp", fillet_radius_mm=0.0)
 
 
-@dataclass
-class CellSpec:
-    """Single cell in the info-strip stack: kind, content source, and typography."""
+def new_field_id() -> str:
+    """Short unique id for a FieldDef (uuid4 hex prefix)."""
+    return _uuid.uuid4().hex[:8]
 
-    kind: str
-    field_key: str = ""
+
+@dataclass
+class FieldDef:
+    """Intrinsic field definition — everything that survives unplacement (DD-11/12)."""
+
+    id: str
+    kind: str = "field"                 # "field" | "revision_table"
+    name: str = ""
     label: str = ""
-    static_text: str = ""
-    min_height_mm: float = 10.0
-    sizing: str = "static"               # "static" | "dynamic" (DD-8b)
-    pair_with_next: bool = False
+    text: str = ""                      # multi-line; @[Key] tokens (DD-13)
+    image_data: str = ""                # base64 PNG; "" = none
+    image_fit: str = "contain"
+    image_position: str = "top"         # reserved (future side-by-side)
     font_family: str = "Arial"
     cap_height_mm: float = 3.0
     bold: bool = True
     italic: bool = False
-    alignment: str = "left"             # "left" | "center" | "right"
-    fill_color: str = ""                # "" = no fill
+    alignment: str = "left"
+    fill_color: str = ""
     border: BorderStyle = field(default_factory=_cell_border_default)
-    logo_data: str = ""                 # base64 PNG
-    logo_fit: str = "contain"
     revision_rows: int = 3
 
     def to_dict(self) -> dict:
@@ -152,18 +156,17 @@ class CellSpec:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict) -> "CellSpec":
-        raw_sizing = d.get("sizing", "static")
-        # Unknown values load as "static" (forward-compat)
-        sizing = raw_sizing if raw_sizing in ("static", "dynamic") else "static"
+    def from_dict(cls, d: dict) -> "FieldDef":
+        kind = d.get("kind", "field")
         return cls(
-            kind=d.get("kind", "field"),
-            field_key=d.get("field_key", ""),
+            id=d.get("id") or new_field_id(),
+            kind=kind if kind in KINDS else "field",
+            name=d.get("name", ""),
             label=d.get("label", ""),
-            static_text=d.get("static_text", ""),
-            min_height_mm=float(d.get("min_height_mm", 10.0)),
-            sizing=sizing,
-            pair_with_next=bool(d.get("pair_with_next", False)),
+            text=d.get("text", ""),
+            image_data=d.get("image_data", ""),
+            image_fit=d.get("image_fit", "contain"),
+            image_position=d.get("image_position", "top"),
             font_family=d.get("font_family", "Arial"),
             cap_height_mm=float(d.get("cap_height_mm", 3.0)),
             bold=bool(d.get("bold", True)),
@@ -171,9 +174,28 @@ class CellSpec:
             alignment=d.get("alignment", "left"),
             fill_color=d.get("fill_color", ""),
             border=BorderStyle.from_dict(d.get("border", {})),
-            logo_data=d.get("logo_data", ""),
-            logo_fit=d.get("logo_fit", "contain"),
             revision_rows=int(d.get("revision_rows", 3)),
+        )
+
+
+@dataclass
+class Slot:
+    """One strip placement of a FieldDef (DD-11/14). Placement facts only."""
+
+    field_id: str
+    min_height_mm: float = 10.0
+    sizing: str = "static"              # "static" | "dynamic" (DD-8b)
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Slot":
+        raw = d.get("sizing", "static")
+        return cls(
+            field_id=d.get("field_id", ""),
+            min_height_mm=float(d.get("min_height_mm", 10.0)),
+            sizing=raw if raw in ("static", "dynamic") else "static",
         )
 
 
@@ -181,12 +203,20 @@ def _frame_border_default() -> BorderStyle:
     return BorderStyle()
 
 
+def _migrate_cells(cells: list) -> tuple[list, list]:
+    # TODO(Task 3): real migration
+    return [], []
+
+
 @dataclass
 class TemplateLayout:
-    """Layout parameters for a single paper size: margins, strip width, and cell stack.
+    """Layout parameters for a single paper size: margins, strip width, field pool, and rows.
 
     Formerly named TemplateVariant (renamed 2026-07-22).  The ``paper_size``
     field was removed from this class and hoisted to ``TitleBlockTemplate``.
+    Rev 3 (2026-07-22): ``cells`` replaced by ``fields`` (pool) + ``rows``
+    (placement grid).  The ``cells`` attribute is still accepted by
+    ``from_dict`` for back-compat via ``_migrate_cells``.
     """
 
     margin_edge_mm: float = TB_MARGIN_EDGE_DEFAULT_MM
@@ -195,7 +225,8 @@ class TemplateLayout:
     strip_edge: str = "right"           # MVP fixed; reserved (spec DD-6)
     area_border: BorderStyle = field(default_factory=_frame_border_default)
     strip_border: BorderStyle = field(default_factory=_frame_border_default)
-    cells: list[CellSpec] = field(default_factory=list)
+    fields: list[FieldDef] = field(default_factory=list)
+    rows: list[list[Slot]] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -205,11 +236,18 @@ class TemplateLayout:
             "strip_edge": self.strip_edge,
             "area_border": self.area_border.to_dict(),
             "strip_border": self.strip_border.to_dict(),
-            "cells": [c.to_dict() for c in self.cells],
+            "fields": [f.to_dict() for f in self.fields],
+            "rows": [[s.to_dict() for s in row] for row in self.rows],
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "TemplateLayout":
+        if "cells" in d and "fields" not in d:
+            fields, rows = _migrate_cells(d.get("cells", []))
+        else:
+            fields = [FieldDef.from_dict(f) for f in d.get("fields", [])]
+            rows = [[Slot.from_dict(s) for s in row]
+                    for row in d.get("rows", [])]
         return cls(
             margin_edge_mm=float(d.get("margin_edge_mm",
                                        TB_MARGIN_EDGE_DEFAULT_MM)),
@@ -219,8 +257,23 @@ class TemplateLayout:
             strip_edge=d.get("strip_edge", "right"),
             area_border=BorderStyle.from_dict(d.get("area_border", {})),
             strip_border=BorderStyle.from_dict(d.get("strip_border", {})),
-            cells=[CellSpec.from_dict(c) for c in d.get("cells", [])],
+            fields=fields,
+            rows=rows,
         )
+
+    # ── Roster helpers ────────────────────────────────────────────────────
+    def field_map(self) -> dict[str, FieldDef]:
+        """Return a dict mapping field id → FieldDef for all fields in the pool."""
+        return {f.id: f for f in self.fields}
+
+    def placed_ids(self) -> set[str]:
+        """Return the set of field ids referenced by at least one Slot."""
+        return {s.field_id for row in self.rows for s in row}
+
+    def pool_fields(self) -> list[FieldDef]:
+        """Return fields not referenced by any Slot (the unplaced pool)."""
+        placed = self.placed_ids()
+        return [f for f in self.fields if f.id not in placed]
 
 
 @dataclass
