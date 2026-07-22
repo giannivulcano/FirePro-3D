@@ -1,7 +1,7 @@
 ---
-status: partial           # data model + solver + sheet — built; editor (T16) + resolution-chain/export (T17) in progress
+status: current           # fully built + user smoke-tested 2026-07-22 (3 rounds)
 last-verified: 2026-07-22
-verified-commit: 90e64e8
+verified-commit: 23fa804
 applies-to:
   - firepro3d/titleblock_template.py   # (new) data model + layout solver + library I/O
   - firepro3d/titleblock_editor.py     # (new) editor window
@@ -18,7 +18,7 @@ Grill 2026-07-21 (scope, parametric-replaces-artwork, storage, value scoping, sa
 
 ## Goal
 
-Users author **parametric title block templates** in a dedicated editor — margins, bordered areas with fillet/sharp corners, and a right-edge info strip built from a stack of typed cells — save them to a personal library, and apply **one template family per project**. Sheets render the template with live field values (project metadata, per-sheet values, auto fields) and export it vector-crisp at true paper-mm size.
+Users author **parametric title block templates** in a dedicated editor — margins, bordered areas with fillet/sharp corners, and a right-edge info strip built from a stack of typed cells — save them to a personal library, and apply **one single-size template per project** (the template drives the sheet's page). Sheets render the template with live field values (project metadata, per-sheet values, auto fields) and export it vector-crisp at true paper-mm size.
 
 ## Motivation
 
@@ -32,7 +32,7 @@ Approach A — arm's-length module trio (read the model → emit results; never 
 
 | Unit | Responsibility |
 |---|---|
-| `titleblock_template.py` (new) | Dataclasses (`TitleBlockTemplate`, `TemplateVariant`, `CellSpec`, `BorderStyle`), **layout solver** (`solve_layout`, `validate` — pure mm math, no QGraphics types), library I/O (`%APPDATA%/FirePro3D/titleblocks/`, `.fpd` embed, divergence compare) |
+| `titleblock_template.py` (new) | Dataclasses (`TitleBlockTemplate`, `TemplateLayout`, `CellSpec`, `BorderStyle`), **layout solver** (`solve_layout`, `validate` — pure mm math, no QGraphics types), library I/O (`%APPDATA%/FirePro3D/titleblocks/`, `.fpd` embed, divergence compare), legacy-field migration |
 | `TitleBlockTemplateItem` in `paper_space.py` | QGraphicsItem painting a `SolvedLayout` + values; slotted at the **top** of the title-block resolution chain |
 | `titleblock_editor.py` (new) | Modal editor window: form panel + live preview; working-copy Save/Cancel; snapshot undo |
 
@@ -140,7 +140,7 @@ Resolution order in `PaperScene._setup` (supersedes paper-space §8.1; revised 2
 2. Project template exists but doesn't match (user changed the sheet size manually after apply) → **warn**, fall to 3.
 3. No template (or fallback): existing chain — DXF → PDF → programmatic (`TitleBlockDxfItem` → `TitleBlockPdfItem` → `TitleBlockItem`), unchanged.
 
-**Template drives the sheet (DD-2):** on apply (editor "Use for this project" accepted, or load-path push), MainWindow sets `sheet.paper_size`/`sheet.orientation` from the template before the rebuild — a freshly applied template therefore always matches; step 2 only arises from later manual size changes.
+**Template drives the sheet (DD-2):** on apply (editor "Use for this project" + Save accepted), MainWindow sets `sheet.paper_size`/`sheet.orientation` from the template before the rebuild — a freshly applied template therefore always matches. The **load path does NOT force** size/orientation (the `.fpd`'s stored sheet page is authoritative; a persisted manual mismatch renders the fallback + warning, never a silent resize). A manual paper-size change resets `sheet.orientation` to native. Step 2 only arises from such manual changes.
 
 Template Save re-renders open sheets and emits `sheetModified` (§17.7).
 
@@ -148,11 +148,11 @@ Template Save re-renders open sheets and emits `sheetModified` (§17.7).
 
 Modal window, ribbon Draft tab → "Title Block".
 
-- **Left form panel:** template picker (library combo listing "Name (SIZE)", New/Duplicate/Delete, "Use for this project"); **component tabs** (2026-07-22):
-  - **Overview** — paper-size dropdown (`PAPER_SIZES` keys), portrait/landscape toggle, the three margin/strip-width `DimensionEdit`s (the drawing-area ↔ info-strip relationship);
+- **Single-column dialog** (smoke round 2): left = template picker (library list showing `display_name` "Name (SIZE[, Portrait])", New/Duplicate/Delete-with-confirm, "Use for this project"); centre = **component tabs** (2026-07-22):
+  - **Overview** — "Paper Setup" group (template **Name**, paper-size dropdown (`PAPER_SIZES` keys), Landscape/Portrait radios (indicators styled app-wide in `theme.py`), the three margin/strip-width `DimensionEdit`s) with the full-sheet live **Preview group below it**;
   - **Drawing Area** — area border group (visible, width, color swatch, sharp/fillet + radius);
   - **Info Strip** — strip border group + cell list (add/remove/reorder; per-cell expander: kind, field-key picker, label, **sizing static/dynamic** (height `DimensionEdit` disabled when dynamic), min height, pairing, text style, fill color, border).
-  The full-sheet live preview stays on the right for all tabs.
+  Validation warning label + Save/Cancel sit below the tabs, visible from every tab.
 - **Field-key picker** groups: Auto (Scale, Date (auto), Sheet No — disabled until multi-sheet) / Sheet (Title, Drawing No, Rev, Date + free-typed new keys) / Project (8 standard Project Info keys + current custom rows, read live).
 - **Right: live preview** — private `QGraphicsScene` + `TitleBlockTemplateItem`, re-solved per form change with sample values; inline warning banner (validation + overflow). Zoom-to-fit.
 - **Session semantics:** working copy; **Save** = write library JSON + project embed + re-render + dirty; **Cancel** discards; **Ctrl+Z/Y** = snapshot stack of the working dict, one snapshot per form gesture (grid-dialog pattern). Save disabled while `validate()` is non-empty.
@@ -192,21 +192,21 @@ Conventions per CLAUDE.md (mm storage, `constants.py` for new literals — strip
 
 ## Acceptance Criteria
 
-- [ ] Editor opens from Draft tab; create/duplicate/delete/save templates in the user library; "Use for this project" (accepted) applies the template AND sets the sheet's size/orientation (DD-2).
-- [ ] Editor is organized as **Overview / Drawing Area / Info Strip tabs** (2026-07-22): Overview = full preview + paper-size dropdown + portrait/landscape + margins; Drawing Area = area border properties; Info Strip = strip width/border + cell list + per-cell form. Template picker lists "Name (SIZE)".
-- [ ] Parametric authoring: margins, area/strip borders (fillet/sharp + radius, width, color), strip width; cell stack with add/remove/reorder, pairing, per-cell fill + border + text style + **static/dynamic sizing** (height input disabled when dynamic); all five cell kinds render; a dynamic row makes the stack fill the strip exactly.
-- [ ] Live preview updates per form change; validation + overflow warnings inline; Save blocked on floors; Cancel discards; in-editor Ctrl+Z/Y.
-- [ ] Sheets render the template (right strip, arrangement per template) with resolved values; PDF export AND print match on-screen at true mm (view-titles included — no pt oversizing in new paths).
-- [ ] One single-size template per project; manual sheet-size mismatch → warning + built-in fallback; no-template projects render exactly as before.
-- [ ] Values: panel edits sheet fields (undo-routed, dirties); Edit Revisions works; Project Info feeds project fields live; legacy fields migrate idempotently.
-- [ ] `.fpd` embed authoritative; divergence notice offers push/pull/keep; template survives save/load/crash-recovery (rides `_apply_loaded_file`).
-- [ ] Seeded default: arrangement A, filleted corners, ANSI D landscape, stamp cell dynamic.
-- [ ] Test suite per §Code Style & Testing green; full suite green (chunked per OneDrive flake protocol).
+- [x] Editor opens from Draft tab; create/duplicate/delete/save templates in the user library; "Use for this project" (accepted) applies the template AND sets the sheet's size/orientation (DD-2).
+- [x] Editor is organized as **Overview / Drawing Area / Info Strip tabs** (2026-07-22): Overview = full preview + paper-size dropdown + portrait/landscape + margins; Drawing Area = area border properties; Info Strip = strip width/border + cell list + per-cell form. Template picker lists "Name (SIZE)".
+- [x] Parametric authoring: margins, area/strip borders (fillet/sharp + radius, width, color), strip width; cell stack with add/remove/reorder, pairing, per-cell fill + border + text style + **static/dynamic sizing** (height input disabled when dynamic); all five cell kinds render; a dynamic row makes the stack fill the strip exactly.
+- [x] Live preview updates per form change; validation + overflow warnings inline; Save blocked on floors; Cancel discards; in-editor Ctrl+Z/Y.
+- [x] Sheets render the template (right strip, arrangement per template) with resolved values; PDF export AND print match on-screen at true mm (view-titles included — no pt oversizing in new paths).
+- [x] One single-size template per project; manual sheet-size mismatch → warning + built-in fallback; no-template projects render exactly as before.
+- [x] Values: panel edits sheet fields (undo-routed, dirties); Edit Revisions works; Project Info feeds project fields live; legacy fields migrate idempotently.
+- [x] `.fpd` embed authoritative; divergence notice offers push/pull/keep; template survives save/load/crash-recovery (rides `_apply_loaded_file`).
+- [x] Seeded default: arrangement A, filleted corners, ANSI D landscape, stamp cell dynamic.
+- [x] Test suite per §Code Style & Testing green; full suite green (chunked per OneDrive flake protocol).
 
 ## Verification Checklist
 
-- [ ] All acceptance criteria demonstrated (user smoke test on a real project incl. plot).
-- [ ] No regression: legacy project opens byte-identical (no template), CEL chain intact.
-- [ ] `sheetModified`/dirty contract honored for Save, panel writes, revisions (§17.7).
-- [ ] paper-space.md §8 updated to link here (Rule A); SPEC-INDEX row added; TODO items reconciled (editor done; overlay-obsoleted noted; pt-bug scoped down to legacy items).
-- [ ] Spec re-audited + stamped (`status: current`, `verified-commit`) at wrap-up.
+- [x] All acceptance criteria demonstrated (user smoke test on a real project incl. plot).
+- [x] No regression: legacy project opens byte-identical (no template), CEL chain intact.
+- [x] `sheetModified`/dirty contract honored for Save, panel writes, revisions (§17.7).
+- [x] paper-space.md §8 updated to link here (Rule A); SPEC-INDEX row added; TODO items reconciled (editor done; overlay-obsoleted noted; pt-bug scoped down to legacy items).
+- [x] Spec re-audited + stamped (`status: current`, `verified-commit`) at wrap-up.

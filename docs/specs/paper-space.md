@@ -2,9 +2,9 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9): ribbon-driven authoring (Draft tab, widget toolbar retired), box model + 8-handle grips, property-panel + Font-group formatting, persisted Add-Text template, the unified paper-space undo/redo stack (§17), and the dirty-flag / crash-recovery persistence contract (§17.7)** are built. Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up).
-**Last verified:** 2026-07-20
-**Verified commit:** 85e0b55
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up).
+**Last verified:** 2026-07-22
+**Verified commit:** 23fa804
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery orchestration — §17.7)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
@@ -102,12 +102,16 @@ Sheet:
   number: str              # user-defined, e.g. "FP-1.0"
   name: str                # e.g. "Level 1 Sprinkler Plan"
   paper_size: str           # key into PAPER_SIZES, e.g. "ANSI D"
-  title_block_template: str # template filename or "programmatic"
-  title_block_fields: dict  # {field_name: value} — Company, Project, etc.
+  orientation: str          # "" = native PAPER_SIZES orientation; "landscape"/"portrait" override
+                            # (effective dims via sheet_page_mm() — one home for the swap rule)
+  title_block_fields: dict  # open {field_name: value}; sheet-scoped keys (Title, Drawing No, Rev, Date) —
+                            # project-scoped legacy keys migrate to Project Info on load (titleblock spec §Value Model)
   sheet_views: list[SheetViewData]
-  annotations: list[AnnotationData]
-  revision_history: list[RevisionEntry]
+  annotations: list[TextAnnotationData]
+  revisions: list[dict]     # {"no","description","date"} — rendered by the template's revision-table cell
 ```
+
+(The parametric template itself embeds at the project level — payload key `titleblock_template`, owned by `titleblock-template-system.md`.)
 
 ### 5.2 Sheet View Data
 
@@ -255,14 +259,14 @@ Menu action "Export to PDF..." opens a dialog with:
 
 ## 8. Title Block Template System
 
-> **Custom templates are governed by `titleblock-template-system.md`** (proposal, 2026-07-21): **parametric** templates (margins, bordered areas, right-strip cell stack) authored in a dedicated editor, stored in a per-user library and embedded in the `.fpd`, one family per project. That design **supersedes** the earlier custom-DXF/PDF + ATTDEF/JSON-sidecar plan below (never built) — the DXF-artwork chain survives only as the no-template fallback. This section documents the as-built built-in chain.
+> **Custom templates are governed by `titleblock-template-system.md`** (current — built 2026-07-22): **parametric** single-size templates (margins, bordered areas, right-strip cell stack) authored in the Title Block editor (Draft tab), stored in a per-user library and embedded in the `.fpd`, one per project; the template drives the sheet's page size/orientation. That design **superseded** the earlier custom-DXF/PDF + ATTDEF/JSON-sidecar plan (never built) — the DXF-artwork chain survives only as the no-template fallback. This section documents the built-in chain; the template layer's contract lives in its own spec (Rule A).
 
 ### 8.1 Template Resolution Order (Per Sheet)
 
-0. Project parametric template with a variant for the sheet's paper size → `TitleBlockTemplateItem` (see `titleblock-template-system.md`; proposal — unbuilt)
+0. Project parametric template matching the sheet's size+orientation → `TitleBlockTemplateItem` (see `titleblock-template-system.md`)
 1. Built-in DXF template matching the sheet's paper size → vector rendering via `TitleBlockDxfItem`
 2. Built-in PDF template matching the sheet's paper size → raster rendering via `TitleBlockPdfItem`
-3. Built-in programmatic fallback → `TitleBlockItem` with geometric drawing
+3. Built-in programmatic fallback → `TitleBlockItem` with geometric drawing (paints via merged `DEFAULT_TITLE_BLOCK_FIELDS` defaults — post-migration sheets may lack project-scoped keys)
 
 ### 8.2 Built-in Template Files
 
@@ -426,7 +430,7 @@ User modifies model while PDF export is in progress → export captures state at
 
 | File | Role |
 |------|------|
-| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData`/**`TextAnnotationData`** (data + serialization), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, **`TextAnnotationItem`**, `PaperScene` (composition + `dispose()` + **`QUndoStack`** owner), `PaperSpaceWidget`, title blocks (`TitleBlockDxfItem`/`PdfItem`/`Item`), dialogs (`SheetViewPropertiesDialog`, `TitleBlockDialog` — sheet text has no dialog; §9.6 panel) |
+| `firepro3d/paper_space.py` | Sheet subsystem: `Sheet`/`SheetViewData`/**`TextAnnotationData`** (data + serialization), `ViewResolver` (view→scene/rect bridge), `SheetViewport`, **`TextAnnotationItem`**, `PaperScene` (composition + `dispose()` + **`QUndoStack`** owner), `PaperSpaceWidget`, title blocks (`TitleBlockTemplateItem` template renderer + legacy `TitleBlockDxfItem`/`PdfItem`/`Item` fallbacks), `sheet_page_mm`, dialogs (`SheetViewPropertiesDialog`, `RevisionsDialog` — `TitleBlockDialog` retired 2026-07-21; sheet text has no dialog; §9.6 panel) |
 | `firepro3d/paper_commands.py` | **(new)** `QUndoCommand` subclasses for paper-space undo/redo — viewport (`Add`/`Remove`/`Geometry`/`ChangeProperties`) + text (`Add`/`Delete`/`Geometry`/`Edit`/`Format`). Keyed on persistent data identity; no `main.py` import (§17) |
 | `firepro3d/paper_export.py` | Plot step: `render_sheet` (transient off-screen scene), `export_pdf(sheets,…)` (vector PDF), `print_sheets(sheets,…)`, `default_pdf_filename` |
 | `firepro3d/paper_display.py` | Paper-space display overrides (B&W/line-weight/visibility) applied per viewport render — `apply_paper_overrides`/`restore_model_display` |

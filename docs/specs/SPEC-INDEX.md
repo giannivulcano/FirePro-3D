@@ -27,7 +27,7 @@
 | **Section view subsystem** | `specs/section-view-subsystem.md` | `section_*.py` (do not exist yet) | **proposal** (unbuilt) |
 | **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | (greenfield) | **proposal** (unbuilt) |
 | **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py` | **partial** (Phase-1 only; export/print/annotations unbuilt) |
-| **Title block templates / editor** | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py` (do not exist yet), `paper_space.py` (title block rendering) | **proposal** (unbuilt) |
+| Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `paper_space.py` (title block rendering) | current |
 
 ## Orphans — no governing spec (forge on first touch)
 
