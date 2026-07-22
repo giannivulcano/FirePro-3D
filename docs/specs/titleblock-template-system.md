@@ -14,7 +14,7 @@ source-tasks:
 
 # Title Block Template System — Design Spec
 
-Grill 2026-07-21 (scope, parametric-replaces-artwork, family model, storage, value scoping, save semantics, edge cases); design approved same day (approach A module trio; mockup-gated: arrangement A "Corporate top-down", filleted default corners).
+Grill 2026-07-21 (scope, parametric-replaces-artwork, storage, value scoping, save semantics, edge cases); design approved same day (approach A module trio; mockup-gated: arrangement A "Corporate top-down", filleted default corners). **Revision 2026-07-22 (smoke-test round 1):** single-size templates replace the per-size variant family; template drives the sheet's size/orientation; dynamic/static cell sizing; editor reorganized into Overview / Drawing Area / Info Strip tabs.
 
 ## Goal
 
@@ -47,13 +47,14 @@ Constraints:
 ## Design Decisions
 
 1. **Parametric replaces artwork** (grill): a project with a template never renders the DXF/PDF chain; that chain remains solely as the no-template fallback. Built-in defaults stay untouched.
-2. **Template = named family of per-paper-size variants; one family per project.** A sheet's paper size selects the variant. Missing variant → built-in default → programmatic fallback, with a warning (status bar + log).
+2. **Template = ONE paper size + orientation; one template per project; the template drives the sheet** (revised 2026-07-22, superseding the variant-family model). A template holds a single layout for a single `paper_size` + `orientation` (landscape/portrait; PAPER_SIZES dims swapped for non-native orientation). Applying a template to the project **sets the sheet's paper size and orientation** (Revit model — the title block defines the page). If the user afterwards changes the sheet size manually and it no longer matches, the sheet falls back to built-in default → programmatic, with a warning (status bar + log). Templates display as "Name (SIZE)" — e.g. "FirePro Default (ANSI D)" — with ", Portrait" appended when non-native.
 3. **Form + live preview** editing (not direct manipulation) — smaller v1, precise `DimensionEdit` input; canvas grips can layer on later.
-4. **One editor window does it all:** ribbon Draft tab → "Title Block" opens it (replacing the retired `TitleBlockDialog` binding). Inside: library picker + New/Duplicate/Delete, variant tabs (+ "Add size…"), parameter groups, cell list, **"Use for this project"**.
+4. **One editor window does it all:** ribbon Draft tab → "Title Block" opens it (replacing the retired `TitleBlockDialog` binding). Inside: library picker (entries "Name (SIZE)") + New/Duplicate/Delete, **component tabs Overview / Drawing Area / Info Strip** (2026-07-22 — replacing the per-size variant tabs), cell list, **"Use for this project"**.
 5. **Storage: user library + full embed.** Library file per template (`<uuid>.json`, logo embedded base64 → self-contained). The `.fpd` embeds the full template dict; **embedded copy is authoritative** on open. Divergence (same uuid, different `modified`) → explicit push/pull/ignore notice; never silent sync.
 6. **Right strip only in MVP.** Strip position (bottom/top for portrait) is a filed future improvement; the data model reserves `strip_edge: "right"` so files stay forward-compatible.
-7. **Seeded default template** (mockup-gated 2026-07-21): arrangement **A — Corporate top-down** (logo, company, project, address, title, paired Scale|Date, Drawn|Checked, Drawing No|Rev, revision table, stamp), **filleted** default corners (radius 10 mm) on drawing-area and strip borders.
+7. **Seeded default template** (mockup-gated 2026-07-21; revised 2026-07-22): arrangement **A — Corporate top-down** (logo, company, project, address, title, paired Scale|Date, Drawn|Checked, Drawing No|Rev, revision table, stamp), **filleted** default corners (radius 10 mm) on drawing-area and strip borders; **ANSI D landscape**, stamp cell **dynamic** (strip fills to the bottom).
 8. **Overflow: keep text size, wrap, push lower cells down** — never shrink text. Clip + warn past the strip bottom; Save is blocked only when the *minimum* (unwrapped) stack can't fit.
+8b. **Dynamic vs static cell sizing** (added 2026-07-22): each cell has `sizing: "static" | "dynamic"` (default static). Static cells behave per DD-8 (stated `min_height_mm`, wrap-grow). After the static pass, leftover strip height is distributed among **dynamic** cells proportionally to their `min_height_mm` (equal shares when equal), each never below its wrapped/static minimum — so a stack containing any dynamic cell always fills the strip exactly. No dynamic cells → DD-8 behavior unchanged. The seeded default marks the **stamp** cell dynamic.
 9. **Value scoping** (grill): project-scoped = Company, Project, Address, Drawn By, Checked By; sheet-scoped = Title, Drawing No, Rev, Date (manual issue date). Auto = Scale (exists), `Sheet No` (reserved for multi-sheet), optional auto-Date.
 10. **Rejected alternatives:** grow-`paper_space.py`-in-place (entangles layout math with paint in the biggest paper module); QTextDocument rendering (no mm/fillet/print control).
 
@@ -77,6 +78,7 @@ class CellSpec:
     label: str = ""                  # small-caps label; "" = no label row
     static_text: str = ""            # static_text cells
     min_height_mm: float = 10.0
+    sizing: str = "static"           # "static" | "dynamic" (DD-8b: dynamic cells absorb leftover strip height)
     pair_with_next: bool = False     # two-per-row; row height = max of the pair
     font_family: str = "Arial"
     cap_height_mm: float = 3.0       # value text; labels render at a fixed fraction
@@ -90,8 +92,7 @@ class CellSpec:
     revision_rows: int = 3           # revision_table: newest-first row count
 
 @dataclass
-class TemplateVariant:
-    paper_size: str                  # key into PAPER_SIZES
+class TemplateLayout:                # formerly TemplateVariant (2026-07-22)
     margin_edge_mm: float = 10.0     # paper edge → drawing area (all sides)
     margin_strip_mm: float = 5.0     # drawing area → info strip
     strip_width_mm: float = 90.0
@@ -101,12 +102,16 @@ class TemplateVariant:
     cells: list[CellSpec] = ...      # top-to-bottom
 
 @dataclass
-class TitleBlockTemplate:
+class TitleBlockTemplate:            # revised 2026-07-22: ONE size per template
     name: str
     uuid: str
     modified: str                    # ISO date; divergence compare key
-    variants: dict[str, TemplateVariant]   # paper_size → variant
+    paper_size: str                  # key into PAPER_SIZES
+    orientation: str                 # "landscape" | "portrait" (PAPER_SIZES dims swapped when non-native)
+    layout: TemplateLayout
 ```
+
+Back-compat: `from_dict` accepts the pre-revision format (`variants: dict`) by taking the first variant as `layout` and hoisting its `paper_size` (unreleased format — light shim only). **Sheet additions (2026-07-22):** `Sheet.orientation: str` ("" = native PAPER_SIZES orientation); effective page dims come from a shared `sheet_page_mm(sheet) -> (w, h)` helper used by `PaperScene._setup` and `paper_export` (one home for the swap rule).
 
 **Sheet additions** (`Sheet.to_dict`): `revisions: list[dict]` (`{"no": str, "description": str, "date": str}`); `title_block_fields` becomes an open dict (arbitrary keys allowed). **Project additions** (`scene_io` payload): `titleblock_template: dict | None` (the full embedded template).
 
@@ -120,6 +125,7 @@ Pure functions; QRectF/QFontMetrics allowed, QGraphics types are not.
   1. Drawing-area rect = paper − `margin_edge_mm` (all sides) − (`strip_width_mm` + `margin_strip_mm`) on the right.
   2. Strip rect down the right edge (full height inside margins).
   3. Cells walk top-to-bottom: start at `min_height_mm`; wrap the value text at cell width (QFontMetrics at cap-height-derived pixel size) → grow the cell and **push lower cells down** if wrapped height exceeds the minimum. `pair_with_next` → two half-width cells; row height = taller of the two. Revision table → header + `revision_rows` newest-first entries. Logo/stamp keep configured heights.
+  3b. **Dynamic pass (DD-8b):** after the static walk, leftover strip height (strip bottom − stack bottom, when positive) is distributed among `sizing == "dynamic"` rows proportionally to their `min_height_mm` (a paired row is dynamic if either member is; the row grows as one). Result: any stack containing a dynamic row fills the strip exactly. Leftover ≤ 0 or no dynamic rows → no-op.
   4. Cells extending past the strip bottom are clipped at the border and flagged in `SolvedLayout.warnings`.
 - `validate(variant) -> list[str]` — save-blocking floors: margins ≥ 0; `strip_width_mm` ≥ 20; drawing area ≥ 100 mm each dimension; `fillet_radius_mm` ≤ half the smaller bordered-rect dimension; ≥ 1 cell; field cells have non-empty `field_key`; the minimum (unwrapped) stack fits the strip.
 - `SolvedLayout`: area/strip rects, per-cell resolved rects (label sub-rect + value sub-rect), wrapped text lines, warnings.
@@ -128,11 +134,13 @@ Pure functions; QRectF/QFontMetrics allowed, QGraphics types are not.
 
 `TitleBlockTemplateItem(QGraphicsItem)` paints a `SolvedLayout`: fills → borders (`QPainterPath.addRoundedRect` when `corner == "fillet"`) → labels/values/static text (mm primitive §9.4) → logo pixmap (placeholder box + warning if `logo_data` missing/undecodable) → revision rows → stamp box (empty bordered area).
 
-Resolution order in `PaperScene._setup` (supersedes paper-space §8.1):
+Resolution order in `PaperScene._setup` (supersedes paper-space §8.1; revised 2026-07-22):
 
-1. Project template has a variant for the sheet's paper size → `TitleBlockTemplateItem`.
-2. Project template exists but lacks the size → **warn**, fall to 3 (grill decision 2).
+1. Project template matches the sheet (`template.paper_size == sheet.paper_size` and orientations agree) → `TitleBlockTemplateItem`.
+2. Project template exists but doesn't match (user changed the sheet size manually after apply) → **warn**, fall to 3.
 3. No template (or fallback): existing chain — DXF → PDF → programmatic (`TitleBlockDxfItem` → `TitleBlockPdfItem` → `TitleBlockItem`), unchanged.
+
+**Template drives the sheet (DD-2):** on apply (editor "Use for this project" accepted, or load-path push), MainWindow sets `sheet.paper_size`/`sheet.orientation` from the template before the rebuild — a freshly applied template therefore always matches; step 2 only arises from later manual size changes.
 
 Template Save re-renders open sheets and emits `sheetModified` (§17.7).
 
@@ -140,7 +148,11 @@ Template Save re-renders open sheets and emits `sheetModified` (§17.7).
 
 Modal window, ribbon Draft tab → "Title Block".
 
-- **Left form panel:** template picker (library combo, New/Duplicate/Delete, "Use for this project"); variant tabs per paper size + "Add size…"; groups: Margins (`DimensionEdit`s), Area/Strip borders (visible, width, color swatch, sharp/fillet + radius), Cells — list widget (add/remove/reorder; per-cell expander: kind, field-key picker, label, min height, pairing, text style, fill color, border).
+- **Left form panel:** template picker (library combo listing "Name (SIZE)", New/Duplicate/Delete, "Use for this project"); **component tabs** (2026-07-22):
+  - **Overview** — paper-size dropdown (`PAPER_SIZES` keys), portrait/landscape toggle, the three margin/strip-width `DimensionEdit`s (the drawing-area ↔ info-strip relationship);
+  - **Drawing Area** — area border group (visible, width, color swatch, sharp/fillet + radius);
+  - **Info Strip** — strip border group + cell list (add/remove/reorder; per-cell expander: kind, field-key picker, label, **sizing static/dynamic** (height `DimensionEdit` disabled when dynamic), min height, pairing, text style, fill color, border).
+  The full-sheet live preview stays on the right for all tabs.
 - **Field-key picker** groups: Auto (Scale, Date (auto), Sheet No — disabled until multi-sheet) / Sheet (Title, Drawing No, Rev, Date + free-typed new keys) / Project (8 standard Project Info keys + current custom rows, read live).
 - **Right: live preview** — private `QGraphicsScene` + `TitleBlockTemplateItem`, re-solved per form change with sample values; inline warning banner (validation + overflow). Zoom-to-fit.
 - **Session semantics:** working copy; **Save** = write library JSON + project embed + re-render + dirty; **Cancel** discards; **Ctrl+Z/Y** = snapshot stack of the working dict, one snapshot per form gesture (grid-dialog pattern). Save disabled while `validate()` is non-empty.
@@ -180,14 +192,15 @@ Conventions per CLAUDE.md (mm storage, `constants.py` for new literals — strip
 
 ## Acceptance Criteria
 
-- [ ] Editor opens from Draft tab; create/duplicate/delete/save templates in the user library; "Use for this project" applies the family.
-- [ ] Parametric authoring: margins, area/strip borders (fillet/sharp + radius, width, color), strip width; cell stack with add/remove/reorder, pairing, per-cell fill + border + text style; all five cell kinds render.
+- [ ] Editor opens from Draft tab; create/duplicate/delete/save templates in the user library; "Use for this project" (accepted) applies the template AND sets the sheet's size/orientation (DD-2).
+- [ ] Editor is organized as **Overview / Drawing Area / Info Strip tabs** (2026-07-22): Overview = full preview + paper-size dropdown + portrait/landscape + margins; Drawing Area = area border properties; Info Strip = strip width/border + cell list + per-cell form. Template picker lists "Name (SIZE)".
+- [ ] Parametric authoring: margins, area/strip borders (fillet/sharp + radius, width, color), strip width; cell stack with add/remove/reorder, pairing, per-cell fill + border + text style + **static/dynamic sizing** (height input disabled when dynamic); all five cell kinds render; a dynamic row makes the stack fill the strip exactly.
 - [ ] Live preview updates per form change; validation + overflow warnings inline; Save blocked on floors; Cancel discards; in-editor Ctrl+Z/Y.
-- [ ] Sheets render the template (right strip, arrangement per template) with resolved values; PDF export matches on-screen at true mm (view-titles included — no pt oversizing in new paths).
-- [ ] One family per project; per-size variants; missing size → warning + built-in fallback; no-template projects render exactly as before.
+- [ ] Sheets render the template (right strip, arrangement per template) with resolved values; PDF export AND print match on-screen at true mm (view-titles included — no pt oversizing in new paths).
+- [ ] One single-size template per project; manual sheet-size mismatch → warning + built-in fallback; no-template projects render exactly as before.
 - [ ] Values: panel edits sheet fields (undo-routed, dirties); Edit Revisions works; Project Info feeds project fields live; legacy fields migrate idempotently.
-- [ ] `.fpd` embed authoritative; divergence notice offers push/pull; template survives save/load/crash-recovery (rides `_apply_loaded_file`).
-- [ ] Seeded default: arrangement A, filleted corners, ANSI B + ANSI D + Letter variants.
+- [ ] `.fpd` embed authoritative; divergence notice offers push/pull/keep; template survives save/load/crash-recovery (rides `_apply_loaded_file`).
+- [ ] Seeded default: arrangement A, filleted corners, ANSI D landscape, stamp cell dynamic.
 - [ ] Test suite per §Code Style & Testing green; full suite green (chunked per OneDrive flake protocol).
 
 ## Verification Checklist
