@@ -10,6 +10,7 @@ import dataclasses
 import json
 import logging
 import os
+import re
 import uuid as _uuid
 from dataclasses import dataclass, field
 
@@ -59,6 +60,38 @@ def native_orientation(paper_size: str) -> str:
         "landscape" or "portrait".
     """
     return _NATIVE_ORIENTATION.get(paper_size, "landscape")
+
+
+#: @[Key] token — one or more non-bracket chars between the brackets.
+TOKEN_RE = re.compile(r"@\[([^\[\]]+)\]")
+
+
+def resolve_text(text: str, values: dict) -> tuple[str, list[str]]:
+    """Substitute @[Key] tokens in *text* from *values* (spec DD-13).
+
+    Known key (present in *values*) → its value, even when empty.
+    Unknown key → token left literally (doubles as the escape hatch) and the
+    key is reported. Malformed tokens don't match and pass through untouched.
+
+    Args:
+        text: Field text template (may be multi-line).
+        values: Resolved value dict; membership defines the known-key set.
+
+    Returns:
+        (resolved_text, unknown_keys) — unknown keys in first-appearance
+        order, deduped.
+    """
+    unknown: list[str] = []
+
+    def _sub(m: "re.Match[str]") -> str:
+        key = m.group(1)
+        if key in values:
+            return str(values[key])
+        if key not in unknown:
+            unknown.append(key)
+        return m.group(0)
+
+    return TOKEN_RE.sub(_sub, text), unknown
 
 
 @dataclass

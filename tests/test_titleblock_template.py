@@ -902,3 +902,39 @@ class TestMigration:
         custom = {c["key"]: c["value"] for c in info.get("custom", [])}
         assert "Company" not in custom          # not seeded
         assert "Company" not in sheet           # but key was still popped
+
+
+from firepro3d.titleblock_template import resolve_text
+
+
+class TestResolveText:
+    VALUES = {"Company": "Acme Fire", "Rev": "", "Scale": "1:100"}
+
+    def test_substitutes_known_key(self):
+        out, unknown = resolve_text("By @[Company]", self.VALUES)
+        assert out == "By Acme Fire"
+        assert unknown == []
+
+    def test_known_empty_renders_empty(self):
+        out, unknown = resolve_text("Rev @[Rev].", self.VALUES)
+        assert out == "Rev ."
+        assert unknown == []
+
+    def test_unknown_key_stays_literal_and_reported(self):
+        out, unknown = resolve_text("@[Drawnig No]", self.VALUES)
+        assert out == "@[Drawnig No]"
+        assert unknown == ["Drawnig No"]
+
+    def test_multiple_tokens_and_multiline(self):
+        out, unknown = resolve_text("@[Company]\n@[Scale] @[Nope]", self.VALUES)
+        assert out == "Acme Fire\n1:100 @[Nope]"
+        assert unknown == ["Nope"]
+
+    def test_malformed_tokens_pass_through(self):
+        for text in ("@[Unclosed", "@[]", "@[a@[b]]"):
+            out, unknown = resolve_text(text, self.VALUES)
+            assert "@[" in out
+        assert resolve_text("@[]", self.VALUES) == ("@[]", [])
+
+    def test_no_tokens_no_change(self):
+        assert resolve_text("plain text", self.VALUES) == ("plain text", [])
