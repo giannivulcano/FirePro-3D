@@ -60,6 +60,63 @@ class TestDynamicSolverPass:
             f"Expected h0/h1 ≈ 1/3, got {h0:.3f}/{h1:.3f} = {h0/h1:.4f}"
         )
 
+    def test_dynamic_field_wrap_does_not_bias_distribution(self):
+        """Spec DD-8b: proportionality basis is min_height_mm, NOT wrap-grown height.
+
+        Row 0: dynamic FIELD cell with min_height=10, field value wraps so
+        solved height > 10.  Row 1: dynamic stamp, min_height=30.  The leftover
+        distribution must still be 1:3 (proportional to 10:30 min heights),
+        NOT proportional to the post-wrap solved heights.
+        """
+        # Long text that will cause wrapping well beyond 10mm
+        long_text = "word " * 60
+        cells = [
+            CellSpec(kind="field", field_key="Title", min_height_mm=10.0,
+                     sizing="dynamic", cap_height_mm=3.0),
+            CellSpec(kind="stamp", min_height_mm=30.0, sizing="dynamic"),
+        ]
+        layout = self._layout(cells)
+        sl = solve_layout(layout, self.PW, self.PH, {"Title": long_text})
+        # Row 0 must have grown beyond its min_height due to wrapping
+        h0 = sl.cell_rects[0].height()
+        assert h0 > 10.0, (
+            f"Row 0 should have wrapped beyond min_height=10, got {h0:.2f}"
+        )
+        # The ratio of EXTRA height added to each row (above their solved static
+        # heights) should still be proportional to min_height_mm (1:3).
+        # Compute static heights (what the solver produced before the dynamic pass).
+        # The strip fills to the bottom, so new_h0 + new_h1 = strip_height.
+        # The leftover was split 1:3 relative to min heights, added to static heights.
+        # Verify that the final heights sum to strip height (fill invariant).
+        assert abs(sl.cell_rects[-1].bottom() - sl.strip_rect.bottom()) < 1e-6, (
+            "Fill invariant: last rect bottom must touch strip bottom"
+        )
+        # Verify the ratio of the EXTRA assigned to each row:
+        # static_h0 + extra0 = h0_final; static_h1 + extra1 = h1_final
+        # extra0 / extra1 == 10 / 30 (1:3).
+        # We need the static heights — re-solve without dynamic to get them.
+        static_cells = [
+            CellSpec(kind="field", field_key="Title", min_height_mm=10.0,
+                     sizing="static", cap_height_mm=3.0),
+            CellSpec(kind="stamp", min_height_mm=30.0, sizing="static"),
+        ]
+        sl_static = solve_layout(self._layout(static_cells),
+                                 self.PW, self.PH, {"Title": long_text})
+        static_h0 = sl_static.cell_rects[0].height()
+        static_h1 = sl_static.cell_rects[1].height()
+        extra0 = sl.cell_rects[0].height() - static_h0
+        extra1 = sl.cell_rects[1].height() - static_h1
+        assert extra0 > 0 and extra1 > 0, (
+            "Both dynamic rows must receive positive extra height"
+        )
+        ratio = extra0 / extra1
+        expected_ratio = 10.0 / 30.0
+        assert abs(ratio - expected_ratio) < 1e-3, (
+            f"Extra distribution must be 1:3 (proportional to min_height_mm), "
+            f"got extra0={extra0:.3f} extra1={extra1:.3f} ratio={ratio:.4f} "
+            f"(expected {expected_ratio:.4f})"
+        )
+
     def test_zero_leftover_no_change(self):
         """Zero leftover (overflowing stack) → no change from static result."""
         cells = [

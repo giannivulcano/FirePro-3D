@@ -304,6 +304,7 @@ class TitleBlockEditorDialog(QDialog):
         orient_row.addWidget(self._orient_portrait)
         orient_row.addStretch()
         self._orient_landscape.toggled.connect(self._on_orientation_toggled)
+        self._orient_portrait.toggled.connect(self._on_orientation_toggled)
         overview_form.addRow("Orientation:", orient_widget)
 
         # Three margin/strip DimensionEdits
@@ -404,7 +405,7 @@ class TitleBlockEditorDialog(QDialog):
         self._cell_kind_combo = QComboBox()
         self._cell_kind_combo.addItems(list(CELL_KINDS))
         self._cell_kind_combo.currentTextChanged.connect(
-            lambda t: self._cell_form_prop_changed("kind", t))
+            self._on_kind_combo_changed)
         cell_form.addRow("Kind:", self._cell_kind_combo)
 
         self._cell_field_key = QComboBox()
@@ -775,9 +776,15 @@ class TitleBlockEditorDialog(QDialog):
 
         self._show_warnings(warnings)
         self.save_button.setEnabled(enabled)
-        self._preview_view.fitInView(
-            self._preview_scene.sceneRect(),
-            Qt.AspectRatioMode.KeepAspectRatio)
+        # Use itemsBoundingRect (not sceneRect) so the rect shrinks when
+        # switching from a large paper size (e.g. ANSI D) to a small one
+        # (e.g. A4). QGraphicsScene.clear() resets sceneRect lazily; stale
+        # huge rects cause the preview to zoom to near-invisible.
+        items_rect = self._preview_scene.itemsBoundingRect()
+        if not items_rect.isEmpty():
+            self._preview_scene.setSceneRect(items_rect)
+            self._preview_view.fitInView(
+                items_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _show_warnings(self, warnings: list[str]) -> None:
         if warnings:
@@ -855,6 +862,18 @@ class TitleBlockEditorDialog(QDialog):
     # Cell form (per-cell editing)
     # ═════════════════════════════════════════════════════════════════════════
 
+    def _update_kind_dependent_widgets(self, kind: str) -> None:
+        """Show/hide widgets that depend on cell kind.
+
+        Called from both ``_on_cell_selected`` (on selection) and the
+        kind-combo change handler so the UI stays in sync whenever kind changes.
+
+        Args:
+            kind: The cell kind string (e.g. ``"revision_table"``).
+        """
+        rev_visible = (kind == "revision_table")
+        self._cell_rev_rows.setVisible(rev_visible)
+
     def _on_cell_selected(self, row: int) -> None:
         """Populate per-cell form without pushing a snapshot (_loading guard).
 
@@ -890,11 +909,22 @@ class TitleBlockEditorDialog(QDialog):
             _update_swatch(self._cell_fill_swatch, cell.fill_color)
             self._cell_rev_rows.setValue(cell.revision_rows)
             self._cell_border_group.load(cell.border)
-            # Show/hide revision rows only for revision_table kind
-            rev_visible = cell.kind == "revision_table"
-            self._cell_rev_rows.setVisible(rev_visible)
+            # Refresh kind-dependent widget visibility
+            self._update_kind_dependent_widgets(cell.kind)
         finally:
             self._loading = False
+
+    def _on_kind_combo_changed(self, kind: str) -> None:
+        """Handle kind combo change: mutate cell AND refresh kind-dependent widget visibility."""
+        if self._loading:
+            return
+        row = self._cell_list.currentRow()
+        if row < 0:
+            return
+        self._cell_form_prop_changed("kind", kind)
+        # Refresh visibility of kind-dependent widgets (e.g. revision_rows
+        # spinbox is only relevant for revision_table cells).
+        self._update_kind_dependent_widgets(kind)
 
     def _on_cell_sizing_changed(self, text: str) -> None:
         """Handle sizing combo change: mutate cell, update min-height enabled state."""
@@ -1024,7 +1054,13 @@ class TitleBlockEditorDialog(QDialog):
         self.refresh_preview()
 
     def _on_orientation_toggled(self, checked: bool) -> None:
-        """Called when the Landscape radio button's toggled signal fires."""
+        """Called when either orientation radio button's toggled signal fires.
+
+        Both Landscape and Portrait radios connect here.  Only acts on the
+        ``checked=True`` transition to avoid double-fire (each toggle emits
+        once for the button becoming checked and once for the other becoming
+        unchecked).
+        """
         if self._loading or self.working is None:
             return
         # Only act on the "becoming checked" transition to avoid double-fire
@@ -1043,11 +1079,12 @@ class TitleBlockEditorDialog(QDialog):
             return
         self.push_snapshot()
         self.working.name = text
-        # Update list widget label
+        # Update list widget label with the full display_name ("Name (SIZE)" or
+        # "Name (SIZE, Portrait)") so the suffix is always current.
         uid = self.working.uuid
         for i in range(self._template_list.count()):
             if self._template_list.item(i).data(Qt.ItemDataRole.UserRole) == uid:
-                self._template_list.item(i).setText(text)
+                self._template_list.item(i).setText(self.working.display_name)
                 break
 
     def set_paper_size(self, size: str) -> None:

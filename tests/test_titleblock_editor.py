@@ -739,3 +739,90 @@ class TestTemplatePagMm:
         assert (w, h) == (stored_h, stored_w), (
             "Non-native orientation must swap dims"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 1 (CRITICAL): Portrait radio wiring — widget-driven test
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPortraitRadioWiring:
+    """_orient_portrait.toggled must be connected so clicking Portrait works.
+
+    These tests drive .click() (not set_orientation()) to verify the actual
+    signal wiring — source-inspection tests would miss a missing connect().
+    """
+
+    def _dlg(self, tmp_path, monkeypatch) -> "TitleBlockEditorDialog":
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()          # ANSI D landscape (native)
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_portrait_click_sets_working_orientation(self, tmp_path, monkeypatch):
+        """Clicking the Portrait radio must update working.orientation to 'portrait'."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg.working.orientation == "landscape", (
+            "Pre-condition: default template is landscape"
+        )
+        dlg._orient_portrait.click()
+        assert dlg.working.orientation == "portrait", (
+            "Portrait radio click must set working.orientation to 'portrait'"
+        )
+
+    def test_portrait_click_makes_preview_page_h_gt_w(self, tmp_path, monkeypatch):
+        """After clicking Portrait, the preview page dims must have h > w."""
+        from firepro3d.titleblock_editor import _template_page_mm
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._orient_portrait.click()
+        w, h = _template_page_mm(dlg.working)
+        assert h > w, (
+            f"Portrait page must have h > w after radio click, got w={w}, h={h}"
+        )
+
+    def test_landscape_click_restores_orientation(self, tmp_path, monkeypatch):
+        """Clicking Portrait then Landscape must return working.orientation to 'landscape'."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._orient_portrait.click()
+        assert dlg.working.orientation == "portrait"
+        dlg._orient_landscape.click()
+        assert dlg.working.orientation == "landscape", (
+            "Landscape radio click must restore working.orientation to 'landscape'"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fix 2: Manual paper-size change clears orientation override
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestPaperSizeChangeResetsOrientation:
+    """PaperScene.paper_size setter must reset sheet.orientation to "" on size change.
+
+    Spec: manual size change returns to the new size's native orientation so
+    the template-mismatch fallback compares native-to-native.
+    """
+
+    def test_change_paper_clears_orientation(self, tmp_path, monkeypatch):
+        """After applying a portrait template (orientation stored 'portrait'),
+        changing the paper size via the scene setter must reset orientation to ''.
+        """
+        from firepro3d.paper_space import PaperScene, Sheet, PAPER_SIZES
+        from unittest.mock import MagicMock
+
+        sheet = Sheet.create_default()
+        sheet.paper_size = "ANSI D"
+        sheet.orientation = "portrait"   # simulate post-portrait-template apply
+        resolver = MagicMock()
+        resolver.model_scene = MagicMock()
+        resolver.model_scene.scale_manager = MagicMock()
+
+        scene = PaperScene(sheet, resolver)
+        assert sheet.orientation == "portrait", "Pre-condition: orientation was set"
+
+        # Trigger size change via the property setter (what change_paper calls)
+        scene.paper_size = "ANSI B"
+        assert sheet.orientation == "", (
+            "Changing paper size must reset sheet.orientation to '' "
+            "(return to native orientation)"
+        )

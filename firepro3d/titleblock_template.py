@@ -378,8 +378,11 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
     cell_revision_rows: dict[int, list[dict]] = {}
     # Track which row-index each cell belongs to (for the dynamic pass)
     cell_row_indices: list[int] = []
-    # Per-row info for dynamic pass: (row_index, is_dynamic, min_h)
-    row_info: list[tuple[int, bool, float]] = []  # (row_idx, dynamic, min_h)
+    # Per-row info for dynamic pass:
+    #   (first_cell_idx, is_dynamic, solved_row_h, row_min_height_mm)
+    # row_min_height_mm = max(cell.min_height_mm) across the row's group;
+    # used as proportionality basis for leftover distribution (spec DD-8b).
+    row_info: list[tuple[int, bool, float, float]] = []
 
     y = strip_rect.top()
     i = 0
@@ -415,8 +418,11 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         row_h = max(heights)
         # A paired row is dynamic if EITHER member has sizing=="dynamic"
         row_dynamic = any(c.sizing == "dynamic" for c in group)
-        # Track per-row: start cell index, dynamic flag, static min height
-        row_info.append((len(cell_rects), row_dynamic, row_h))
+        # Row min height = max of pair members' min_height_mm (clamped ≥ 0).
+        # This is the spec DD-8b proportionality basis, independent of wrapping.
+        row_min_h = max(max(0.0, c.min_height_mm) for c in group)
+        # Track per-row: start cell index, dynamic flag, solved height, min height
+        row_info.append((len(cell_rects), row_dynamic, row_h, row_min_h))
 
         x = strip_rect.left()
         for cell, lines in zip(group, lines_group):
@@ -430,29 +436,33 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
 
     # ── Dynamic pass (DD-8b) ──────────────────────────────────────────────
     # After the static walk: distribute leftover strip height among dynamic rows.
+    # Proportionality basis: row_min_height_mm (spec DD-8b §"Distribution rule").
+    # This is intentionally the designer-set minimum, NOT the post-wrap solved
+    # height, so that a cell whose text happened to wrap at a given field value
+    # does not receive a larger share of the leftover than intended.
     stack_bottom = y  # where static walk ended
     leftover = strip_rect.bottom() - stack_bottom
     if leftover > 1e-9:
-        # row_info stores (first_cell_idx, is_dynamic, static_row_h) in order.
+        # row_info stores (first_cell_idx, is_dynamic, solved_row_h, row_min_h)
         # Use enumeration index as the row identifier throughout.
-        dyn_row_indices = [(row_i, old_row_h)
-                           for row_i, (_, dyn, old_row_h) in enumerate(row_info)
-                           if dyn]
-        if dyn_row_indices:
-            # Proportional distribution by static row height (min heights)
-            total_min = sum(rh for _, rh in dyn_row_indices)
+        dyn_rows = [(row_i, row_min_h)
+                    for row_i, (_, dyn, _rh, row_min_h) in enumerate(row_info)
+                    if dyn]
+        if dyn_rows:
+            # Proportional distribution by min_height_mm (spec DD-8b)
+            total_min = sum(mh for _, mh in dyn_rows)
             if total_min <= 0:
-                # Equal shares fallback
-                share = leftover / len(dyn_row_indices)
-                extras = {row_i: share for row_i, _ in dyn_row_indices}
+                # Equal shares fallback when all dynamic rows have zero min height
+                share = leftover / len(dyn_rows)
+                extras = {row_i: share for row_i, _ in dyn_rows}
             else:
-                extras = {row_i: leftover * rh / total_min
-                          for row_i, rh in dyn_row_indices}
+                extras = {row_i: leftover * mh / total_min
+                          for row_i, mh in dyn_rows}
 
             # Rebuild rects: second pass with extra heights
             new_cell_rects: list[QRectF] = []
             new_y = strip_rect.top()
-            for row_i, (first_cell_idx, row_dynamic, old_row_h) in enumerate(row_info):
+            for row_i, (first_cell_idx, row_dynamic, old_row_h, _) in enumerate(row_info):
                 extra_h = extras.get(row_i, 0.0) if row_dynamic else 0.0
                 new_row_h = old_row_h + extra_h
                 # Find how many cells are in this row

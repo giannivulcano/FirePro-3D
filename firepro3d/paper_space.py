@@ -3490,6 +3490,12 @@ class PaperScene(QGraphicsScene):
     def paper_size(self, size: str):
         if size in PAPER_SIZES and size != self._sheet.paper_size:
             self._sheet.paper_size = size
+            # A manual paper-size change (via ribbon) returns the sheet to the
+            # new size's native orientation.  Clearing the override here means
+            # the template-mismatch check in _template_matches_sheet() compares
+            # the template's orientation against the new size's native, which is
+            # the correct fallback when the template has not been re-applied.
+            self._sheet.orientation = ""
             self._setup()
             self.sheetModified.emit()
 
