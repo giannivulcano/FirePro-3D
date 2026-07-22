@@ -13,6 +13,7 @@ from firepro3d.titleblock_template import (
     make_default_template, migrate_legacy_fields, native_orientation,
     new_field_id, resolve_text, solve_layout, validate,
     _cell_font,
+    place_field, unplace_field, move_field, pair_field,
 )
 
 _app = QApplication.instance() or QApplication([])
@@ -765,3 +766,112 @@ class TestMigration:
     def test_missing_id_regenerated(self):
         f = FieldDef.from_dict({"name": "n"})
         assert f.id
+
+
+class TestArrangementOps:
+    def _lay(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b", "c", "d")]
+        return TemplateLayout(fields=fs,
+                              rows=[[Slot("a")], [Slot("b"), Slot("c")]])
+
+    def test_place_from_pool(self):
+        lay = self._lay()
+        place_field(lay, "d", 1)
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["d"], ["b", "c"]]
+
+    def test_place_already_placed_moves_it(self):
+        lay = self._lay()
+        place_field(lay, "a", 2)          # indexes AFTER removal
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["b", "c"], ["a"]]
+
+    def test_place_unknown_field_noop(self):
+        lay = self._lay()
+        place_field(lay, "ghost", 0)
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_place_index_clamped(self):
+        lay = self._lay()
+        place_field(lay, "d", 99)
+        assert [s.field_id for s in lay.rows[-1]] == ["d"]
+        lay2 = self._lay()
+        place_field(lay2, "d", -5)
+        assert [s.field_id for s in lay2.rows[0]] == ["d"]
+
+    def test_unplace_keeps_definition(self):
+        lay = self._lay()
+        unplace_field(lay, "b")
+        assert [[s.field_id for s in r] for r in lay.rows] == [["a"], ["c"]]
+        assert "b" in {f.id for f in lay.fields}
+
+    def test_unplace_last_of_row_drops_row(self):
+        lay = self._lay()
+        unplace_field(lay, "a")
+        assert [[s.field_id for s in r] for r in lay.rows] == [["b", "c"]]
+
+    def test_unplace_unplaced_noop(self):
+        lay = self._lay()
+        unplace_field(lay, "d")
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_move_reorders(self):
+        lay = self._lay()
+        move_field(lay, "a", 2)           # insertion index after removal
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["b", "c"], ["a"]]
+
+    def test_move_out_of_pair_unpairs(self):
+        lay = self._lay()
+        move_field(lay, "c", 0)
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["c"], ["a"], ["b"]]
+
+    def test_pair_onto_single_row(self):
+        lay = self._lay()
+        pair_field(lay, "d", 0, "right")
+        assert [s.field_id for s in lay.rows[0]] == ["a", "d"]
+        pair2 = self._lay()
+        pair_field(pair2, "d", 0, "left")
+        assert [s.field_id for s in pair2.rows[0]] == ["d", "a"]
+
+    def test_pair_swap_sides_with_partner(self):
+        lay = self._lay()
+        pair_field(lay, "b", 1, "right")   # b drops on its own row -> swap
+        assert [s.field_id for s in lay.rows[1]] == ["c", "b"]
+
+    def test_pair_onto_full_row_is_noop(self):
+        lay = self._lay()
+        pair_field(lay, "d", 1, "left")    # row 1 already has 2 others
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_pair_from_row_above_target(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b", "c")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("a")], [Slot("b")], [Slot("c")]])
+        # pair "a" (its own row 0 disappears) into what WAS row 1 ("b")
+        pair_field(lay, "a", 1, "right")
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["b", "a"], ["c"]]
+
+    def test_pair_unknown_field_noop(self):
+        lay = self._lay()
+        pair_field(lay, "ghost", 0, "left")
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_pair_bad_row_index_noop(self):
+        lay = self._lay()
+        pair_field(lay, "d", 99, "left")
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_ops_preserve_slot_props(self):
+        lay = TemplateLayout(fields=[FieldDef(id="a")],
+                             rows=[[Slot("a", 33.0, sizing="dynamic")]])
+        move_field(lay, "a", 0)
+        assert (lay.rows[0][0].min_height_mm,
+                lay.rows[0][0].sizing) == (33.0, "dynamic")

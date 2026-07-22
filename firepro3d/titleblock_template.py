@@ -341,6 +341,78 @@ class TemplateLayout:
         return [f for f in self.fields if f.id not in placed]
 
 
+# ---------------------------------------------------------------------------
+# Arrangement-mutation helpers (DD-11 / DD-16)
+# ---------------------------------------------------------------------------
+
+def _take_slot(layout: TemplateLayout, field_id: str) -> "Slot | None":
+    """Remove and return *field_id*'s slot; drops its row when emptied."""
+    for ri, row in enumerate(layout.rows):
+        for si, slot in enumerate(row):
+            if slot.field_id == field_id:
+                row.pop(si)
+                if not row:
+                    layout.rows.pop(ri)
+                return slot
+    return None
+
+
+def place_field(layout: TemplateLayout, field_id: str, row_index: int) -> None:
+    """Place *field_id* as a new full-width row at *row_index* (DD-16).
+
+    A previously placed field is moved (one placement per definition, DD-11).
+    *row_index* is interpreted AFTER any removal and clamped to the valid
+    range. Unknown field_id -> no-op.
+    """
+    if field_id not in layout.field_map():
+        return
+    slot = _take_slot(layout, field_id) or Slot(field_id)
+    row_index = max(0, min(row_index, len(layout.rows)))
+    layout.rows.insert(row_index, [slot])
+
+
+def unplace_field(layout: TemplateLayout, field_id: str) -> None:
+    """Return *field_id* to the pool; the definition survives (DD-11)."""
+    _take_slot(layout, field_id)
+
+
+def move_field(layout: TemplateLayout, field_id: str, row_index: int) -> None:
+    """Reorder: alias of place_field (remove + insert as full-width row)."""
+    place_field(layout, field_id, row_index)
+
+
+def pair_field(layout: TemplateLayout, field_id: str, row_index: int,
+               side: str) -> None:
+    """Pair *field_id* into rows[row_index] on *side* ("left" | "right").
+
+    Dropping onto a single-slot row inserts on that side; dropping a row
+    member onto its own two-slot row swaps sides. A row already holding two
+    OTHER fields is left unchanged (the canvas shows a "full" cue instead).
+    The target row is captured BEFORE the dragged field's slot is removed,
+    so index shifts from the removal cannot retarget the drop.
+    """
+    if not (0 <= row_index < len(layout.rows)):
+        return
+    target = layout.rows[row_index]
+    member_ids = [s.field_id for s in target]
+    if field_id in member_ids and len(target) == 2:
+        target.reverse()          # swap sides
+        return
+    if len(target) >= 2:
+        return                    # full — no-op
+    if field_id not in layout.field_map():
+        return
+    slot = _take_slot(layout, field_id) or Slot(field_id)
+    if target not in layout.rows:
+        # target row vanished as a side-effect (defensive; single-slot rows
+        # can't vanish by removing a DIFFERENT field, but keep the guard)
+        return
+    if side == "left":
+        target.insert(0, slot)
+    else:
+        target.append(slot)
+
+
 @dataclass
 class TitleBlockTemplate:
     """Single-size parametric title block template (revised 2026-07-22).
