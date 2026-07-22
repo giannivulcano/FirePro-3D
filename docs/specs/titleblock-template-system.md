@@ -1,7 +1,7 @@
 ---
-status: proposal          # designed 2026-07-21, unbuilt
-last-verified: 2026-07-21
-verified-commit: 2a27d5d
+status: partial           # data model + solver + sheet — built; editor (T16) + resolution-chain/export (T17) in progress
+last-verified: 2026-07-22
+verified-commit: 90e64e8
 applies-to:
   - firepro3d/titleblock_template.py   # (new) data model + layout solver + library I/O
   - firepro3d/titleblock_editor.py     # (new) editor window
