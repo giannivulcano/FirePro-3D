@@ -115,6 +115,16 @@ class TestSolveRev3:
         # no warnings: all default tokens are known keys or empty-known
         assert not [w for w in sol.warnings if "Unknown" in w]
 
+    def test_row_layout_indices_skips_dangling_rows(self):
+        """SolvedLayout.row_layout_indices[k] == index in variant.rows (not solved index)."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = _lay3(fs, [[Slot("ghost")],      # fully dangling → not rendered
+                         [Slot("a", 20.0)], [Slot("b", 20.0)]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        # Two rendered rows (a and b); ghost row is dropped.
+        # Solved row 0 → layout row 1; solved row 1 → layout row 2.
+        assert sol.row_layout_indices == [1, 2]
+
     def test_dynamic_distribution_ignores_wrap_growth(self):
         # Row "a": dynamic, min 10, long text that wrap-grows well past 10.
         # Row "b": dynamic, min 30, no text.

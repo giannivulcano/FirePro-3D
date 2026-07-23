@@ -7,7 +7,7 @@ gestures mutate the layout via the pure ops in titleblock_template.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
 
 from PyQt6.QtCore import (
     QEvent, QPointF, QRectF, Qt, pyqtSignal,
@@ -31,9 +31,12 @@ class DropZone:
     Attributes:
         kind: One of ``"insert"``, ``"pair_left"``, ``"pair_right"``,
             ``"full"``, or ``"outside"``.
-        row_index: For ``"insert"``: insertion index 0..n_rows (append = n_rows).
-            For ``"pair_left"``/``"pair_right"``/``"full"``: the target row
-            index in ``layout.rows``.  ``-1`` when not applicable.
+        row_index: Always a ``layout.rows`` index (not a solved-row index).
+            For ``"insert"``: insertion index 0..len(layout.rows) (append =
+            len).  For ``"pair_left"``/``"pair_right"``/``"full"``: the
+            originating ``layout.rows`` index for the target row (translated
+            via ``SolvedLayout.row_layout_indices``).  ``-1`` when not
+            applicable (``"outside"``).
     """
 
     kind: str
@@ -153,6 +156,13 @@ class StripCanvas(QGraphicsView):
         sr = self.solved.strip_rect
         self._scene.setSceneRect(sr.adjusted(-5, -5, 5, 5))
 
+        # Clear stale selection: if the selected field is no longer rendered,
+        # reset it and notify callers.
+        if (self.selected_field_id
+                and self.selected_field_id not in self.solved.cell_field_ids):
+            self.selected_field_id = ""
+            self.selectionChanged.emit("")
+
         self.viewport().update()
 
     # ── Zoom / fit ────────────────────────────────────────────────────────────
@@ -188,7 +198,7 @@ class StripCanvas(QGraphicsView):
         return -1
 
     def _row_at(self, scene_pos: QPointF) -> int:
-        """Return the row index (into ``layout.rows``) under *scene_pos*, or -1.
+        """Return the solved-row index under *scene_pos*, or -1.
 
         Uses the first-cell rect of each row's span to determine the y band
         [top, bottom) occupied by that row.
@@ -197,7 +207,7 @@ class StripCanvas(QGraphicsView):
             scene_pos: Point in scene (mm) coordinates.
 
         Returns:
-            Row index in ``layout.rows``, or ``-1``.
+            Solved-row index (index into ``solved.row_spans``), or ``-1``.
         """
         if self.solved is None:
             return -1
@@ -206,6 +216,42 @@ class StripCanvas(QGraphicsView):
             if r.top() <= scene_pos.y() < r.bottom():
                 return ri
         return -1
+
+    def _boundaries(self) -> list[float]:
+        """Return the list of insert-boundary y-coordinates (scene mm).
+
+        ``boundaries[k]`` is the y-coordinate of row boundary k:
+
+        * boundary 0 = top of the strip (insert before solved row 0)
+        * boundary k = bottom of solved row k-1 (insert before solved row k)
+
+        Used by :meth:`zone_at` and :meth:`drawForeground`.
+        """
+        sr = self.solved.strip_rect
+        result: list[float] = [sr.top()]
+        for first_idx, _n in self.solved.row_spans:
+            result.append(self.solved.cell_rects[first_idx].bottom())
+        return result
+
+    def _solved_insert_to_layout(self, solved_k: int) -> int:
+        """Translate a solved insertion index to a ``layout.rows`` insertion index.
+
+        Inserting before solved row *k* = inserting before layout row
+        ``row_layout_indices[k]``.  Appending (``k == len(row_spans)``) maps to
+        ``len(layout.rows)`` (append to layout rows too).
+
+        Args:
+            solved_k: Solved-row insertion index (0..n_solved_rows inclusive).
+
+        Returns:
+            Corresponding ``layout.rows`` insertion index.
+        """
+        rli = self.solved.row_layout_indices
+        if solved_k < len(rli):
+            return rli[solved_k]
+        # Append: after all solved rows → after all layout rows.
+        lay = self._layout_ref
+        return len(lay.rows) if lay is not None else solved_k
 
     # ── Zone detection ────────────────────────────────────────────────────────
 
@@ -265,11 +311,9 @@ class StripCanvas(QGraphicsView):
         # boundary[k] is the y-coordinate of row boundary k; inserting at k
         # means "before row k" (boundary 0 = before row 0, boundary n = append).
         # For each boundary k, compute an adaptive per-band that is at most
-        # half the height of each adjacent row, ensuring the row interior is
-        # always reachable regardless of pixel scale.
-        boundaries: list[float] = [sr.top()]
-        for first_idx, _n in self.solved.row_spans:
-            boundaries.append(self.solved.cell_rects[first_idx].bottom())
+        # a quarter of the height of each adjacent row, ensuring the row interior
+        # is always reachable regardless of pixel scale.
+        boundaries = self._boundaries()
 
         # boundary k sits between row k-1 (above) and row k (below).
         # Cap the band to a quarter of each adjacent row's height so that the
@@ -282,48 +326,54 @@ class StripCanvas(QGraphicsView):
             qtr_below = row_heights[k] / 4 if k < n_rows else float("inf")
             eff_band = min(band_mm, qtr_above, qtr_below)
             if abs(scene_pos.y() - by) < eff_band:
-                return DropZone("insert", row_index=k)
+                # Insert index is a layout.rows index.
+                # Inserting before solved row k = before layout row
+                # row_layout_indices[k]; appending (k == n_rows) = len(lay.rows).
+                lay_insert = self._solved_insert_to_layout(k)
+                return DropZone("insert", row_index=lay_insert)
 
-        # Determine which row the cursor is in.
+        # Determine which solved row the cursor is in.
         row_i = self._row_at(scene_pos)
 
         if row_i == -1:
             # Could be above the strip (cursor in the inflated margin above top)
             # or below all rows inside the strip.  Distinguish by y position.
             if scene_pos.y() < sr.top():
-                return DropZone("insert", row_index=0)
+                lay_insert = self._solved_insert_to_layout(0)
+                return DropZone("insert", row_index=lay_insert)
             # Below all rows but inside the strip (and not on the last boundary).
-            return DropZone("insert", row_index=len(self.solved.row_spans))
+            lay_insert = self._solved_insert_to_layout(len(self.solved.row_spans))
+            return DropZone("insert", row_index=lay_insert)
 
-        # Classify within the row.
-        lay = self._layout_ref
-        if lay is None:
-            return DropZone("outside")
+        # Translate solved row index → layout row index for returned DropZone.
+        lay_row_index = self.solved.row_layout_indices[row_i]
 
-        row = lay.rows[row_i]
-        member_ids = [s.field_id for s in row]
-        n = len(row)
+        # Classify within the row using the SOLVED row (what's visibly rendered).
+        # n_solved = number of cells actually rendered in this solved row.
+        first_solved_idx, n_solved = self.solved.row_spans[row_i]
+        solved_cell_ids = self.solved.cell_field_ids[
+            first_solved_idx: first_solved_idx + n_solved]
 
         row_cx = sr.center().x()  # strip centre — row always spans full width
 
-        if n == 1:
-            sole_id = member_ids[0]
+        if n_solved == 1:
+            sole_id = solved_cell_ids[0]
             if dragged_field_id and dragged_field_id == sole_id:
                 # Dragging a field over its own single-slot row → no valid op.
-                return DropZone("full", row_index=row_i)
-            # Offer pair half-zones.
+                return DropZone("full", row_index=lay_row_index)
+            # Offer pair half-zones: one rendered cell, room for a partner.
             if scene_pos.x() < row_cx:
-                return DropZone("pair_left", row_index=row_i)
-            return DropZone("pair_right", row_index=row_i)
+                return DropZone("pair_left", row_index=lay_row_index)
+            return DropZone("pair_right", row_index=lay_row_index)
 
-        # n == 2
-        if dragged_field_id and dragged_field_id in member_ids:
+        # n_solved == 2: two cells rendered in this row.
+        if dragged_field_id and dragged_field_id in solved_cell_ids:
             # Member of this paired row: allow swap targeting.
             if scene_pos.x() < row_cx:
-                return DropZone("pair_left", row_index=row_i)
-            return DropZone("pair_right", row_index=row_i)
+                return DropZone("pair_left", row_index=lay_row_index)
+            return DropZone("pair_right", row_index=lay_row_index)
         # Outsider trying to enter a full paired row → full cue.
-        return DropZone("full", row_index=row_i)
+        return DropZone("full", row_index=lay_row_index)
 
     # ── Coordinate conversion ─────────────────────────────────────────────────
 
@@ -359,9 +409,6 @@ class StripCanvas(QGraphicsView):
             fid = ""
         if fid != self.selected_field_id:
             self.selected_field_id = fid
-            self.selectionChanged.emit(fid)
-        else:
-            # Re-clicking the same cell: still emit to allow callers to react.
             self.selectionChanged.emit(fid)
         self.viewport().update()
 
@@ -409,24 +456,42 @@ class StripCanvas(QGraphicsView):
         zone = self._zone_hint
         if zone is not None and zone.kind != "outside":
             sr = self.solved.strip_rect
-            ri = zone.row_index
+            # zone.row_index is always a layout.rows index; translate to
+            # a solved-row index for visual lookup in boundaries/_row_rect.
+            rli = self.solved.row_layout_indices
+            lay_ri = zone.row_index
 
             if zone.kind == "insert":
                 # Horizontal insertion line at the row boundary y.
-                boundaries: list[float] = [sr.top()]
-                for first_idx, _ in self.solved.row_spans:
-                    boundaries.append(
-                        self.solved.cell_rects[first_idx].bottom())
-                if 0 <= ri < len(boundaries):
-                    by = boundaries[ri]
+                # Find solved boundary index: boundary k = insert before solved row k.
+                # Translate layout insert index back to a solved boundary index.
+                # boundary 0 = strip top; boundary k = bottom of solved row k-1.
+                boundaries = self._boundaries()
+                # Find solved boundary index whose layout translation == lay_ri.
+                # boundary k corresponds to "before solved row k" → layout index rli[k].
+                # Append (k == n_solved) → len(lay.rows).
+                lay = self._layout_ref
+                n_solved = len(rli)
+                solved_bk = None
+                for bk in range(n_solved + 1):
+                    bk_lay = rli[bk] if bk < n_solved else (
+                        len(lay.rows) if lay else n_solved)
+                    if bk_lay == lay_ri:
+                        solved_bk = bk
+                        break
+                if solved_bk is not None and 0 <= solved_bk < len(boundaries):
+                    by = boundaries[solved_bk]
                     pen = QPen(QColor("#2f80ed"), sel_pen_w)
                     painter.setPen(pen)
                     painter.drawLine(QPointF(sr.left(), by),
                                      QPointF(sr.right(), by))
 
             elif zone.kind in ("pair_left", "pair_right", "full"):
-                if 0 <= ri < len(self.solved.row_spans):
-                    row_rect = self._row_rect(ri)
+                # Translate layout row index to solved row index.
+                solved_ri = next(
+                    (k for k, li in enumerate(rli) if li == lay_ri), None)
+                if solved_ri is not None and 0 <= solved_ri < len(self.solved.row_spans):
+                    row_rect = self._row_rect(solved_ri)
                     if zone.kind == "full":
                         color = QColor("#2f80ed")
                         color.setAlpha(40)

@@ -2,6 +2,7 @@
 from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtWidgets import QApplication
 
+from firepro3d.constants import TB_INSERT_BAND_PX
 from firepro3d.titleblock_template import (
     FieldDef, Slot, TemplateLayout, make_default_template,
 )
@@ -74,13 +75,18 @@ class TestZoneDetection:
         assert z.kind == "insert" and z.row_index == 0
 
     def test_single_row_halves_pair(self):
-        canvas, _ = _canvas()
-        r = canvas.solved.cell_rects[1]          # default row 1 = Company, single
+        canvas, lay = _canvas()
+        # Find first single-slot solved row structurally (not by hardcoded index)
+        ri_solved = next(
+            i for i, (first, n) in enumerate(canvas.solved.row_spans)
+            if n == 1
+        )
+        r = canvas.solved.cell_rects[canvas.solved.row_spans[ri_solved][0]]
         mid_y = r.center().y()
         left = canvas.zone_at(QPointF(r.left() + r.width() * 0.25, mid_y))
         right = canvas.zone_at(QPointF(r.left() + r.width() * 0.75, mid_y))
         assert (left.kind, right.kind) == ("pair_left", "pair_right")
-        assert left.row_index == right.row_index == 1
+        assert left.row_index == right.row_index == ri_solved
 
     def test_paired_row_middle_is_full_for_outsider(self):
         canvas, lay = _canvas()
@@ -114,9 +120,14 @@ class TestZoneDetection:
 
     def test_own_single_row_interior_is_full(self):
         canvas, lay = _canvas()
-        # row 1 is single (Company); dragging its own field over its interior
-        fid = lay.rows[1][0].field_id
-        r = canvas.solved.cell_rects[1]
+        # Find first single-slot solved row structurally (not by hardcoded index)
+        ri_solved = next(
+            i for i, (first, n) in enumerate(canvas.solved.row_spans)
+            if n == 1
+        )
+        first_idx = canvas.solved.row_spans[ri_solved][0]
+        fid = canvas.solved.cell_field_ids[first_idx]
+        r = canvas.solved.cell_rects[first_idx]
         z = canvas.zone_at(QPointF(r.center().x(), r.center().y()),
                            dragged_field_id=fid)
         assert z.kind == "full"
@@ -140,12 +151,59 @@ class TestZoneDetection:
     def test_above_strip_gap_inserts_at_top(self):
         canvas, _ = _canvas()
         strip = canvas.solved.strip_rect
-        band = canvas._px_to_mm(6)
+        band = canvas._px_to_mm(TB_INSERT_BAND_PX)
         # just above the top edge, inside the inflated outside-margin,
         # but beyond boundary 0's capped band
         z = canvas.zone_at(QPointF(strip.center().x(),
                                    strip.top() - band * 1.5))
         assert z.kind == "insert" and z.row_index == 0
+
+
+class TestZoneDanglingRows:
+    """Issue 1: zone_at row_index must be a layout.rows index, not a solved-row index."""
+
+    def test_zone_row_index_is_layout_index_with_dangling_row(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("ghost")],      # fully dangling → not rendered
+                                   [Slot("a", 20.0)], [Slot("b", 20.0)]])
+        canvas, _ = _canvas(lay)
+        # first RENDERED row is "a" (solved row 0, layout row 1)
+        r = canvas.solved.cell_rects[0]
+        z = canvas.zone_at(QPointF(r.left() + r.width() * 0.25, r.center().y()))
+        assert z.kind == "pair_left" and z.row_index == 1   # layout index!
+
+    def test_half_dangling_pair_classifies_from_rendered(self):
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("a", 20.0), Slot("ghost")], [Slot("b", 20.0)]])
+        canvas, _ = _canvas(lay)
+        r = canvas.solved.cell_rects[0]     # renders as ONE cell
+        z = canvas.zone_at(QPointF(r.left() + r.width() * 0.75, r.center().y()))
+        # row visibly has ONE rendered cell — there is room for a pair partner.
+        # The zone should reflect what's rendered (pair_right), not full.
+        # NOTE on Task 9 integrity: pair_field on a layout row that still holds
+        # 2 slots (one dangling) will no-op via the len>=2 guard in pair_field;
+        # that is acceptable (op-level guard prevents data corruption) — but the
+        # ZONE should still reflect what the user sees: one rendered cell, room
+        # for a partner on the right.
+        assert z.kind == "pair_right"       # room visibly available, not "full"
+
+
+class TestRefreshClearsStaleSelection:
+    """Issue 2: refresh() must clear selected_field_id when its field is gone."""
+
+    def test_refresh_clears_stale_selection(self):
+        canvas, lay = _canvas()
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        got = []
+        canvas.selectionChanged.connect(got.append)
+        from firepro3d.titleblock_template import unplace_field
+        unplace_field(lay, fid)
+        canvas.refresh()
+        assert canvas.selected_field_id == ""
+        assert got == [""]
 
 
 class TestDeleteKeyUnplace:

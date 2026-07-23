@@ -523,6 +523,10 @@ class SolvedLayout:
     cell_revision_rows: dict[int, list[dict]]
     row_spans: list[tuple[int, int]]            # per row: (first flat idx, n)
     warnings: list[str]
+    row_layout_indices: list[int] = field(default_factory=list)
+    # Per solved row: index of the originating row in variant.rows.
+    # Solved row k → variant.rows[row_layout_indices[k]].
+    # Used by zone_at to return DropZone.row_index as a layout.rows index.
 
 
 def _cell_font(cell: FieldDef) -> QFont:
@@ -618,10 +622,11 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
     #   (first_cell_idx, is_dynamic, solved_row_h, row_min_height_mm)
     row_info: list[tuple[int, bool, float, float]] = []
     row_spans: list[tuple[int, int]] = []
+    row_layout_indices: list[int] = []   # solved row k → variant.rows index
 
     y = strip_rect.top()
 
-    for row in variant.rows:
+    for layout_row_i, row in enumerate(variant.rows):
         # ── Filter dangling slots ──────────────────────────────────────────
         kept: list[tuple["Slot", FieldDef]] = []
         for slot in row:
@@ -671,6 +676,7 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         first_cell_idx = len(cell_rects)
         row_info.append((first_cell_idx, row_dynamic, row_h, row_min_h))
         row_spans.append((first_cell_idx, len(kept)))
+        row_layout_indices.append(layout_row_i)
 
         x = strip_rect.left()
         for ki, (slot, fdef) in enumerate(kept):
@@ -794,6 +800,7 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         cell_revision_rows=cell_revision_rows,
         row_spans=row_spans,
         warnings=warnings,
+        row_layout_indices=row_layout_indices,
     )
 
 
