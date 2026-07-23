@@ -13,7 +13,7 @@ from PyQt6.QtCore import (
     QEvent, QPointF, QRectF, Qt, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QBrush, QColor, QKeyEvent, QMouseEvent, QPainter, QPen,
+    QBrush, QColor, QFocusEvent, QKeyEvent, QMouseEvent, QPainter, QPen,
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
@@ -22,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from .constants import TB_INSERT_BAND_PX
 from .titleblock_template import (
-    TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
+    Slot, TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
 )
 
 
@@ -692,12 +692,30 @@ class StripCanvas(QGraphicsView):
         Public so that :class:`PoolList` (external drag source) can drive the
         overlays without touching canvas privates.
 
+        Zone downgrade: if the raw zone kind is ``"insert"``, ``"pair_left"``,
+        or ``"pair_right"`` but :meth:`_drop_would_mutate` returns False (dead
+        drop — e.g. same-position reinsert, own-half pair, dangling-partner
+        target), the stored hint is downgraded to
+        ``DropZone("full", zone.row_index)`` so the overlay reads red (dead)
+        instead of blue (live).  Ghost label is kept regardless.
+
+        Note on pool-drag vs canvas-drag: pool drags pass the real field_id
+        of an UNPLACED field — an unplaced field's insert is always live, so
+        pool hints are never downgraded by the ``_drop_would_mutate`` check.
+        Canvas drags pass the dragged placed field's id — correct downgrades.
+        The asymmetry is intentional; see also :meth:`apply_pool_drop`'s use
+        of ``dragged_field_id=""`` semantics.
+
         Args:
             scene_pos: Current cursor position in scene (mm) coordinates.
             field_id: The field being dragged (affects zone classification;
                 unplaced pool fields classify identically to ``""``).
         """
-        self._zone_hint = self.zone_at(scene_pos, field_id)
+        zone = self.zone_at(scene_pos, field_id)
+        if (zone.kind in ("insert", "pair_left", "pair_right")
+                and not self._drop_would_mutate(field_id, zone)):
+            zone = DropZone("full", zone.row_index)
+        self._zone_hint = zone
         self._ghost_pos = scene_pos
         fmap = self._layout_ref.field_map() if self._layout_ref else {}
         f = fmap.get(field_id)
@@ -728,6 +746,106 @@ class StripCanvas(QGraphicsView):
         zone = self.zone_at(scene_pos)
         self._apply_drop(field_id, zone)
 
+    def _insert_index_after_removal(self, lay: TemplateLayout,
+                                    field_id: str, raw_index: int) -> int:
+        """Translate a pre-removal insert index to the ops' post-removal index.
+
+        ``zone_at`` returns insertion indices against the CURRENT
+        ``layout.rows``; ``place_field``/``move_field`` interpret the index
+        AFTER the dragged field's own single-slot row has been removed.  When
+        that row sits above the insertion point the index shifts down by one.
+        A pair member's removal does not remove a row → no adjustment.
+
+        Args:
+            lay: The layout whose rows are being examined (trial or live).
+            field_id: The dragged field.
+            raw_index: Insertion index into the current ``layout.rows``.
+
+        Returns:
+            The equivalent insertion index after removal.
+        """
+        for ri, row in enumerate(lay.rows):
+            if len(row) == 1 and row[0].field_id == field_id:
+                if ri < raw_index:
+                    return raw_index - 1
+                break
+        return raw_index
+
+    def _dispatch(self, lay: TemplateLayout, field_id: str,
+                  zone: DropZone) -> None:
+        """Apply the zone's op to *lay* (the insert/pair/outside three-way).
+
+        Shared dispatch used by both :meth:`_apply_drop` (live layout) and
+        :meth:`_drop_would_mutate` (trial layout).  ``full`` zones are
+        rejected before reaching this method.
+
+        Drop prediction: :meth:`_drop_would_mutate` dry-runs these ops on a
+        trial layout — new guards added to the underlying ops
+        (:func:`~firepro3d.titleblock_template.pair_field`,
+        :func:`~firepro3d.titleblock_template.move_field`,
+        :func:`~firepro3d.titleblock_template.unplace_field`) are picked up
+        automatically.
+
+        Args:
+            lay: Layout to mutate (live or trial).
+            field_id: The dragged field.
+            zone: The classified drop zone.
+        """
+        if zone.kind == "insert":
+            move_field(lay, field_id,
+                       self._insert_index_after_removal(lay, field_id,
+                                                        zone.row_index))
+        elif zone.kind in ("pair_left", "pair_right"):
+            pair_field(lay, field_id, zone.row_index,
+                       "left" if zone.kind == "pair_left" else "right")
+        elif zone.kind == "outside":
+            unplace_field(lay, field_id)
+
+    def _drop_would_mutate(self, field_id: str, zone: DropZone) -> bool:
+        """Predict whether applying *zone* for *field_id* mutates the layout.
+
+        Uses a dry-run on a shallow-copied trial layout so that every guard
+        inside the pure ops (``pair_field``, ``move_field``, ``unplace_field``)
+        is automatically honoured — no analytic mirror required.  ``fields``
+        is shared (ops never mutate it); ``rows`` is per-slot-copied so
+        mutations to the trial stay isolated from the live layout.
+
+        Dead-drop detection (returns False):
+        * zone ``full`` or unknown.
+        * unknown field_id.
+        * Any op that leaves ``trial.rows`` structurally identical to the real
+          layout rows (field_id order only; min_height/sizing cannot change
+          from a drop).
+
+        For ``outside`` zones the op is skipped; the check is simpler: a field
+        not currently placed cannot be unplaced.
+
+        Args:
+            field_id: The dragged field.
+            zone: The classified drop zone.
+
+        Returns:
+            True if the drop would change ``layout.rows``.
+        """
+        lay = self._layout_ref
+        if lay is None or field_id not in lay.field_map():
+            return False
+        if zone.kind == "full":
+            return False
+        if zone.kind == "outside":
+            return field_id in lay.placed_ids()
+        # Build a shallow-copy trial: share fields list (never mutated by ops),
+        # deep-copy rows at the Slot level so mutations stay isolated.
+        trial = TemplateLayout(
+            fields=lay.fields,
+            rows=[[Slot(s.field_id, s.min_height_mm, s.sizing) for s in row]
+                  for row in lay.rows],
+        )
+        self._dispatch(trial, field_id, zone)
+        real_ids = [[s.field_id for s in row] for row in lay.rows]
+        trial_ids = [[s.field_id for s in row] for row in trial.rows]
+        return trial_ids != real_ids
+
     def _apply_drop(self, field_id: str, zone: DropZone) -> None:
         """Apply a completed drop: mutate the layout, refresh, signal.
 
@@ -752,94 +870,9 @@ class StripCanvas(QGraphicsView):
         if not self._drop_would_mutate(field_id, zone):
             return
         self.gestureStarting.emit()      # snapshot BEFORE mutation
-        if zone.kind == "insert":
-            move_field(lay, field_id, self._insert_index_after_removal(
-                field_id, zone.row_index))
-        elif zone.kind in ("pair_left", "pair_right"):
-            pair_field(lay, field_id, zone.row_index,
-                       "left" if zone.kind == "pair_left" else "right")
-        elif zone.kind == "outside":
-            unplace_field(lay, field_id)
+        self._dispatch(lay, field_id, zone)
         self.refresh()
         self.gestureCompleted.emit()
-
-    def _drop_would_mutate(self, field_id: str, zone: DropZone) -> bool:
-        """Predict whether applying *zone* for *field_id* mutates the layout.
-
-        Mirrors the no-op guards inside the pure ops so that dead drops never
-        emit gesture signals (no empty undo snapshots).  Analytic rules:
-
-        * ``insert`` — a no-op iff the field currently occupies a
-          SINGLE-slot row at layout index *ri* and the adjusted (post-removal)
-          insertion index equals *ri*: removing that row and re-inserting at
-          *ri* reproduces the original row order.  (Covers both raw indices
-          *ri* and *ri + 1* — "just above" and "just below" the own row.)
-          Extracting a pair member or placing a pool field always mutates.
-        * ``pair_left``/``pair_right`` — mirrors :func:`pair_field`'s guards:
-          own single-slot row, own current half, or a target row that already
-          holds two slots (including a dangling partner) are no-ops.
-        * ``outside`` — mutates only if the field is currently placed.
-        * ``full`` / unknown — never mutates.
-
-        Args:
-            field_id: The dragged field.
-            zone: The classified drop zone.
-
-        Returns:
-            True if the drop would change ``layout.rows``.
-        """
-        lay = self._layout_ref
-        if lay is None or field_id not in lay.field_map():
-            return False
-        if zone.kind == "insert":
-            adjusted = self._insert_index_after_removal(field_id,
-                                                        zone.row_index)
-            for ri, row in enumerate(lay.rows):
-                if len(row) == 1 and row[0].field_id == field_id:
-                    return adjusted != ri
-            return True     # pair member or unplaced: structure changes
-        if zone.kind in ("pair_left", "pair_right"):
-            if not (0 <= zone.row_index < len(lay.rows)):
-                return False
-            target = lay.rows[zone.row_index]
-            member_ids = [s.field_id for s in target]
-            if field_id in member_ids:
-                if len(target) == 1:
-                    return False            # own single-slot row (DD-16)
-                current = ("left" if member_ids.index(field_id) == 0
-                           else "right")
-                wanted = "left" if zone.kind == "pair_left" else "right"
-                return wanted != current    # own half = dead drop
-            return len(target) < 2          # full (incl. dangling) = dead
-        if zone.kind == "outside":
-            return field_id in lay.placed_ids()
-        return False
-
-    def _insert_index_after_removal(self, field_id: str,
-                                    raw_index: int) -> int:
-        """Translate a pre-removal insert index to the ops' post-removal index.
-
-        ``zone_at`` returns insertion indices against the CURRENT
-        ``layout.rows``; ``place_field``/``move_field`` interpret the index
-        AFTER the dragged field's own single-slot row has been removed.  When
-        that row sits above the insertion point the index shifts down by one.
-        A pair member's removal does not remove a row → no adjustment.
-
-        Args:
-            field_id: The dragged field.
-            raw_index: Insertion index into the current ``layout.rows``.
-
-        Returns:
-            The equivalent insertion index after removal.
-        """
-        lay = self._layout_ref
-        if lay is not None:
-            for ri, row in enumerate(lay.rows):
-                if len(row) == 1 and row[0].field_id == field_id:
-                    if ri < raw_index:
-                        return raw_index - 1
-                    break
-        return raw_index
 
     # ── Drag lifecycle ────────────────────────────────────────────────────────
 
@@ -855,6 +888,21 @@ class StripCanvas(QGraphicsView):
         self._drag_field_id = ""
         self._dragging = False
         self.clear_drop_hint()
+
+    def focusOutEvent(self, ev: QFocusEvent) -> None:
+        """Cancel an in-flight drag when the canvas loses keyboard focus.
+
+        If a drag is in progress when focus leaves (e.g. the user
+        Alt-tabs away mid-gesture), the drag is cancelled silently — no
+        mutation and no gesture signals — so the layout is never left in a
+        partially applied state.
+
+        Args:
+            ev: The focus-out event.
+        """
+        if self._dragging:
+            self.cancel_drag()
+        super().focusOutEvent(ev)
 
 
 class PoolList(QListWidget):
@@ -989,3 +1037,18 @@ class PoolList(QListWidget):
             ev.accept()
             return
         super().keyPressEvent(ev)
+
+    def focusOutEvent(self, ev: QFocusEvent) -> None:
+        """Cancel an in-flight pool drag when the pool loses keyboard focus.
+
+        Clears the drag stash and any canvas hint overlays so the layout is
+        never left with a stale drop indicator.
+
+        Args:
+            ev: The focus-out event.
+        """
+        if self._drag_field_id:
+            self._drag_field_id = ""
+            if self._canvas is not None:
+                self._canvas.clear_drop_hint()
+        super().focusOutEvent(ev)

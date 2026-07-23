@@ -1,6 +1,6 @@
 """StripCanvas: render, hit-testing, zone detection, selection, gestures."""
 from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.constants import TB_INSERT_BAND_PX
@@ -521,3 +521,136 @@ class TestPoolDrag:
         assert "hello" in pool.item(2).text()
         assert "world" not in pool.item(2).text()   # first line only
         assert pool.item(0).data(Qt.ItemDataRole.UserRole) == "r"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item 2: Hint downgrade — dead drops must advertise "full" (red), not live
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestHintDowngrade:
+    """show_drop_hint must downgrade insert/pair zones that would be dead drops."""
+
+    def test_hint_downgrades_dead_drop_to_full(self):
+        """Hovering a's own upper boundary (same-position reinsert) → 'full'."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)], [Slot("b", 40.0)]])
+        canvas, _ = _canvas(lay)
+        r0 = canvas.solved.cell_rects[0]
+        # hovering a's own upper boundary (insert at 0 → same-position reinsert = dead)
+        canvas.show_drop_hint(
+            QPointF(r0.center().x(), canvas.solved.strip_rect.top()), "a")
+        assert canvas._zone_hint.kind == "full"
+
+    def test_hint_live_insert_stays_insert(self):
+        """Hovering b's lower boundary with field 'a' → live insert, stays 'insert'."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)], [Slot("b", 40.0)]])
+        canvas, _ = _canvas(lay)
+        b_idx = canvas.solved.cell_field_ids.index("b")
+        r1 = canvas.solved.cell_rects[b_idx]
+        # drop 'a' after 'b' — that is a live reorder
+        canvas.show_drop_hint(QPointF(r1.center().x(), r1.bottom()), "a")
+        assert canvas._zone_hint.kind == "insert"
+
+    def test_hint_own_half_pair_downgrades_to_full(self):
+        """Dragging 'b' (left of a pair) back onto its own left half → 'full'."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(
+            fields=fs, rows=[[Slot("b", 40.0), Slot("a", 40.0)]])
+        canvas, _ = _canvas(lay)
+        b_idx = canvas.solved.cell_field_ids.index("b")
+        r = canvas.solved.cell_rects[b_idx]
+        # b is the left cell; hover its own left-half centre
+        canvas.show_drop_hint(QPointF(r.center().x(), r.center().y()), "b")
+        assert canvas._zone_hint.kind == "full"
+
+    def test_hint_pool_unplaced_insert_stays_live(self):
+        """An unplaced pool field's insert hint must NOT be downgraded."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)]])
+        # "b" is unplaced (pool)
+        canvas, _ = _canvas(lay)
+        r0 = canvas.solved.cell_rects[0]
+        # Drop "b" (unplaced) at top-of-strip insert band → always live
+        canvas.show_drop_hint(
+            QPointF(r0.center().x(), canvas.solved.strip_rect.top()), "b")
+        assert canvas._zone_hint.kind == "insert"
+
+    def test_hint_ghost_label_kept_on_downgrade(self):
+        """Ghost label must still be set even when the hint is downgraded."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)], [Slot("b", 40.0)]])
+        canvas, _ = _canvas(lay)
+        r0 = canvas.solved.cell_rects[0]
+        canvas.show_drop_hint(
+            QPointF(r0.center().x(), canvas.solved.strip_rect.top()), "a")
+        assert canvas._zone_hint.kind == "full"
+        assert canvas._ghost_label == "a"   # name of FieldDef(id="a", name="a")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Item 3: Grab-loss cleanup — focusOutEvent cancels in-flight drags
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestGrabLoss:
+    """focusOutEvent on StripCanvas/PoolList must cancel in-flight drag."""
+
+    def _armed_canvas(self):
+        """Return a canvas with a drag armed past the threshold."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)], [Slot("b", 40.0)]])
+        canvas, _ = _canvas(lay)
+        vp = canvas.viewport()
+        src = QPointF(canvas.mapFromScene(_cell_center(canvas, "a")))
+        far = src + QPointF(0, 60)
+        # Press + move past threshold to arm drag
+        _mouse(vp, QEvent.Type.MouseButtonPress, src)
+        _mouse(vp, QEvent.Type.MouseMove, far)
+        assert canvas._dragging, "drag should be armed"
+        return canvas, lay
+
+    def test_canvas_focusout_cancels_drag(self):
+        """FocusOut while dragging: _dragging cleared, no mutation, no signals."""
+        canvas, lay = self._armed_canvas()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        fo = QFocusEvent(QEvent.Type.FocusOut)
+        QApplication.sendEvent(canvas, fo)
+        assert not canvas._dragging
+        assert canvas._zone_hint is None
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_canvas_focusout_release_is_noop(self):
+        """After focus-out cancel, trailing mouse release does not mutate."""
+        canvas, lay = self._armed_canvas()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        # Cancel via focus-out
+        QApplication.sendEvent(canvas, QFocusEvent(QEvent.Type.FocusOut))
+        # Now simulate the release that might still arrive
+        vp = canvas.viewport()
+        far = QPointF(canvas.mapFromScene(_cell_center(canvas, "b")))
+        _mouse(vp, QEvent.Type.MouseButtonRelease, far,
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_pool_focusout_clears_stash_and_hint(self):
+        """Pool focusOut clears _drag_field_id and canvas hint."""
+        from firepro3d.titleblock_arrange import PoolList
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)]])
+        canvas, _ = _canvas(lay)
+        pool = PoolList()
+        pool.bind_canvas(canvas)
+        pool.set_fields(lay.pool_fields())
+        pool.resize(200, 300)
+        pool.show()
+        # Arm pool drag manually
+        pool._drag_field_id = "b"
+        canvas._zone_hint = DropZone("insert", 1)   # simulate a hint being set
+        # Send focus-out to pool
+        QApplication.sendEvent(pool, QFocusEvent(QEvent.Type.FocusOut))
+        assert pool._drag_field_id == ""
+        assert canvas._zone_hint is None

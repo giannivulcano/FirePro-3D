@@ -363,6 +363,9 @@ def place_field(layout: TemplateLayout, field_id: str, row_index: int) -> None:
     A previously placed field is moved (one placement per definition, DD-11).
     *row_index* is interpreted AFTER any removal and clamped to the valid
     range. Unknown field_id -> no-op.
+
+    Drop prediction: ``StripCanvas._drop_would_mutate`` dry-runs this op on a
+    trial layout — new guards added here are picked up automatically.
     """
     if field_id not in layout.field_map():
         return
@@ -372,7 +375,11 @@ def place_field(layout: TemplateLayout, field_id: str, row_index: int) -> None:
 
 
 def unplace_field(layout: TemplateLayout, field_id: str) -> None:
-    """Return *field_id* to the pool; the definition survives (DD-11)."""
+    """Return *field_id* to the pool; the definition survives (DD-11).
+
+    Drop prediction: ``StripCanvas._drop_would_mutate`` dry-runs this op on a
+    trial layout — new guards added here are picked up automatically.
+    """
     _take_slot(layout, field_id)
 
 
@@ -394,6 +401,9 @@ def pair_field(layout: TemplateLayout, field_id: str, row_index: int,
     shows a "full" cue instead).  The target row is captured BEFORE the
     dragged field's slot is removed, so index shifts from the removal
     cannot retarget the drop.
+
+    Drop prediction: ``StripCanvas._drop_would_mutate`` dry-runs this op on a
+    trial layout — new guards added here are picked up automatically.
     """
     if not (0 <= row_index < len(layout.rows)):
         return
