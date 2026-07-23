@@ -1,11 +1,10 @@
 """Unit tests for the Paper Space system (firepro3d/paper_space.py)."""
 from __future__ import annotations
 
-import base64
 import pytest
 from unittest.mock import MagicMock
 from PyQt6.QtWidgets import QGraphicsScene
-from PyQt6.QtCore import QRectF, QPointF, Qt, QBuffer, QIODevice
+from PyQt6.QtCore import QRectF, QPointF, Qt
 from PyQt6.QtGui import QImage, QPainter
 
 from firepro3d.paper_space import (
@@ -660,20 +659,7 @@ class TestSerialization:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Fixtures for TitleBlockTemplateItem tests
-# ─────────────────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def tiny_png_b64(qapp):
-    """A 4×4 solid-color PNG encoded as base64 ASCII."""
-    img = QImage(4, 4, QImage.Format.Format_RGB32)
-    img.fill(0xFF336699)
-    buf = QBuffer()
-    buf.open(QIODevice.OpenModeFlag.WriteOnly)
-    img.save(buf, "PNG")
-    return base64.b64encode(bytes(buf.data())).decode("ascii")
-
-
+# (tiny_png_b64 fixture for TitleBlockTemplateItem tests moved to conftest.py)
 # ─────────────────────────────────────────────────────────────────────────────
 # build_field_values seeding (DD-13)
 # ─────────────────────────────────────────────────────────────────────────────

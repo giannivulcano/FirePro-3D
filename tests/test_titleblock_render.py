@@ -183,6 +183,13 @@ class TestBuildFieldValues:
 
 
 class TestRenderer:
+    #: Seeded-default token keys, known-but-empty — DD-13: a known key that is
+    #: empty resolves to "" with NO "Unknown field key" warning.  Used by the
+    #: warning-sensitive tests so only image-decode warnings can appear.
+    _KNOWN_EMPTY = {k: "" for k in (
+        "Company", "Project", "Address", "Title", "Scale", "Date",
+        "Drawn By", "Checked By", "Drawing No", "Rev")}
+
     def _make(self, values=None, mutate=None):
         from firepro3d.titleblock_template import make_default_template
         t = make_default_template()
@@ -208,10 +215,16 @@ class TestRenderer:
         assert br.height() >= h - 25
 
     def test_empty_logo_is_calm_missing_is_warned(self):
-        item, w, h = self._make()
+        # Rev-3 port: cells[0].logo_data → fields[0].image_data (the seeded
+        # default's first field is the Logo FieldDef). Same intent: empty image
+        # is calm; undecodable image data records a warning.  Values seed all
+        # standard keys known-but-empty so no DD-13 Unknown-key warnings mix in.
+        item, w, h = self._make(dict(self._KNOWN_EMPTY))
         assert item.warnings == []                    # empty logo: reserved box
         item2, _, _ = self._make(
-            mutate=lambda v: setattr(v.cells[0], "logo_data", "!!!notbase64!!!"))
+            dict(self._KNOWN_EMPTY),
+            mutate=lambda v: setattr(v.fields[0], "image_data",
+                                     "!!!notbase64!!!"))
         assert item2.warnings                         # undecodable: warned
 
     def test_no_pointsize_in_renderer(self):
@@ -225,9 +238,13 @@ class TestRenderer:
         assert "setPointSize" not in src    # covers setPointSize and setPointSizeF
 
     def test_non_ascii_logo_data_warns_no_exception(self):
-        """Non-ASCII logo_data must not raise; it must record a warning."""
+        """Non-ASCII image_data must not raise; it must record a warning.
+
+        Rev-3 port: cells[0].logo_data → fields[0].image_data. The warning
+        names the field ("Image in 'Logo' could not be decoded.").
+        """
         item, _, _ = self._make(
-            mutate=lambda v: setattr(v.cells[0], "logo_data", "ñøŧ-æscii"))
+            mutate=lambda v: setattr(v.fields[0], "image_data", "ñøŧ-æscii"))
         assert any("Logo" in w for w in item.warnings)
 
     def test_real_png_logo_no_warning(self):
@@ -244,14 +261,14 @@ class TestRenderer:
         img8.save(buf, "PNG")
         b64 = bytes(buf.data().toBase64()).decode("ascii")
 
+        # Rev-3 port: cells[0].logo_data → fields[0].image_data.  Known-empty
+        # values suppress DD-13 Unknown-key warnings (image warnings only).
         item, w, h = self._make(
-            mutate=lambda v: setattr(v.cells[0], "logo_data", b64))
+            dict(self._KNOWN_EMPTY),
+            mutate=lambda v: setattr(v.fields[0], "image_data", b64))
         assert item.warnings == [], f"Unexpected warnings: {item.warnings}"
 
-        # Find the logo cell index (cell 0 in make_default_template is logo).
-        from firepro3d.titleblock_template import make_default_template
-        t = make_default_template()
-        v = t.layout   # single-size model
+        # The logo cell is the first solved cell (row 0 of the seeded default).
         sl = item._layout
         logo_rect = sl.cell_rects[0]
         rendered = _render(item, w, h)
@@ -274,11 +291,11 @@ class TestRenderer:
         from firepro3d.titleblock_template import make_default_template, solve_layout
         t = make_default_template()
         v = t.layout   # single-size model
-        # Find the first revision_table cell.
-        rev_idx = next(
-            (i for i, c in enumerate(v.cells) if c.kind == "revision_table"),
-            None)
-        assert rev_idx is not None, "Default template has no revision_table cell"
+        # Rev-3 port: find the revision_table FieldDef in the pool; its flat
+        # cell index comes from solved.cell_field_ids after the solve below.
+        rev_field = next(
+            (f for f in v.fields if f.kind == "revision_table"), None)
+        assert rev_field is not None, "Default template has no revision_table field"
 
         revisions_2 = [
             {"no": "1", "description": "Issued for Construction", "date": "07-01"},
@@ -297,6 +314,7 @@ class TestRenderer:
         img2 = _render(item2, w, h)
 
         # Locate revision cell rect in image pixels.
+        rev_idx = sl2.cell_field_ids.index(rev_field.id)
         cell_rect = sl2.cell_rects[rev_idx]
         px_per_mm = img0.width() / w
         rx = int(cell_rect.left() * px_per_mm) + 1
@@ -317,12 +335,11 @@ class TestRenderer:
         from firepro3d.titleblock_template import make_default_template, solve_layout
         t = make_default_template()
         v = t.layout   # single-size model
-        # Find Title cell.
-        title_idx = next(
-            (i for i, c in enumerate(v.cells)
-             if c.kind == "field" and c.field_key == "Title"),
-            None)
-        assert title_idx is not None, "Default template has no Title field cell"
+        # Rev-3 port: field_key == "Title" → the FieldDef carrying the
+        # "@[Title]" token; flat cell index resolved via cell_field_ids.
+        title_field = next(
+            (f for f in v.fields if "@[Title]" in f.text), None)
+        assert title_field is not None, "Default template has no Title field"
 
         w, h = PAPER_SIZES["ANSI D"]
         vals_empty = {"Title": ""}
@@ -334,6 +351,7 @@ class TestRenderer:
         img_e = _render(item_e, w, h)
         img_t = _render(item_t, w, h)
 
+        title_idx = sl_t.cell_field_ids.index(title_field.id)
         cell_rect = sl_t.cell_rects[title_idx]
         px_per_mm = img_e.width() / w
         rx = int(cell_rect.left() * px_per_mm) + 2
@@ -465,6 +483,43 @@ class TestSceneIOEmbed:
         _mw._load_project(path)
         scene2 = _mw.scene
         assert scene2._titleblock_template is None
+
+    def test_rev2_embed_migrates_and_renders(self, _mw, tmp_path):
+        """A .fpd whose titleblock_template is a REV-2 dict (cells era) loads
+        without exceptions and renders a TitleBlockTemplateItem with the
+        MIGRATED layout (13 FieldDefs, pair chains → two-slot rows)."""
+        import copy as _copy
+        from tests.test_titleblock_template import REV2_DEFAULT_TEMPLATE_DICT
+        from firepro3d.paper_space import TitleBlockTemplateItem
+
+        _fresh(_mw)
+        # Embed the frozen rev-2 dict verbatim (scene_io stores it raw).
+        _mw.scene._titleblock_template = _copy.deepcopy(
+            REV2_DEFAULT_TEMPLATE_DICT)
+        path = str(tmp_path / "rev2_embed.fpd")
+        _mw._current_file = path
+        _mw.save_file()
+
+        # The saved payload must carry the rev-2 "cells" layout untouched.
+        with open(path, encoding="utf-8") as fh:
+            raw = json.load(fh)
+        assert "cells" in raw["titleblock_template"]["layout"]
+
+        _mw._modified = False
+        _mw._load_project(path)
+
+        sc = _mw.paper_space_widget.paper_scene
+        tb = next(
+            (i for i in sc.items() if isinstance(i, TitleBlockTemplateItem)),
+            None)
+        assert tb is not None, (
+            "Rev-2 embedded template must render a TitleBlockTemplateItem"
+        )
+        # The rendered item holds the MIGRATED layout: 13 fields, rev-2 row
+        # structure (pair_with_next chains became two-slot rows).
+        assert len(tb._variant.fields) == 13
+        assert [len(r) for r in tb._variant.rows] == [
+            1, 1, 1, 1, 1, 2, 2, 2, 1, 1]
 
     def test_clear_scene_resets_template_and_project_info(self, _mw):
         """File->New must not leak the previous project's template/info

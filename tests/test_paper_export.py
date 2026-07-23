@@ -196,6 +196,36 @@ class TestTemplatedExport:
         import os
         assert os.path.isfile(out) and os.path.getsize(out) > 2000
 
+    def test_combined_cell_template_exports_pdf(self, qapp, tmp_path,
+                                                tiny_png_b64):
+        """A template cell with BOTH text and image_data exports to a 1-page PDF.
+
+        Rev-3 combined cells (DD-15: label / image band / text band) must
+        survive the full export path — solver sub-rects + renderer image
+        decode + QPdfWriter — without exceptions.
+        """
+        from firepro3d.titleblock_template import make_default_template
+        from firepro3d import paper_export
+        resolver, _ = _real_source_resolver()
+        sheet = Sheet.create_default()
+
+        template = make_default_template()
+        first = template.layout.fields[0]      # Logo field: first strip row
+        first.text = "Acme"
+        first.image_data = tiny_png_b64
+
+        out = str(tmp_path / "combined.pdf")
+        paper_export.export_pdf(
+            [sheet], resolver, out, dpi=150,
+            template=template, project_info={},
+        )
+        import os
+        assert os.path.isfile(out) and os.path.getsize(out) > 2000
+        if _HAVE_QTPDF:
+            doc = QPdfDocument(None)
+            doc.load(out)
+            assert doc.pageCount() == 1
+
     def test_templated_vs_plain_both_produce_pdf(self, qapp, tmp_path):
         """Template-rendered and plain-rendered sheets both produce valid PDFs.
 

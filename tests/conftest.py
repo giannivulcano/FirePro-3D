@@ -7,7 +7,9 @@ This conftest provides a session-scoped fixture for it.
 
 from __future__ import annotations
 
+import base64
 import sys
+
 import pytest
 from PyQt6.QtWidgets import QApplication
 
@@ -21,3 +23,21 @@ def qapp():
     yield app
     # Do not call app.quit() — pytest may run more tests in the same
     # process and Qt dislikes repeated QApplication creation.
+
+
+@pytest.fixture
+def tiny_png_b64(qapp):
+    """A 4×4 solid-color (0xFF336699) PNG encoded as base64 ASCII.
+
+    Shared title-block image fixture (used by test_paper_space.py and
+    test_paper_export.py combined image+text cell tests).
+    """
+    from PyQt6.QtCore import QBuffer, QIODevice
+    from PyQt6.QtGui import QImage
+
+    img = QImage(4, 4, QImage.Format.Format_RGB32)
+    img.fill(0xFF336699)
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    img.save(buf, "PNG")
+    return base64.b64encode(bytes(buf.data())).decode("ascii")

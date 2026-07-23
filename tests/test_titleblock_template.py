@@ -867,6 +867,177 @@ class TestMigration:
         assert lay.fields[0].text == "@[Title]"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TestRev2RenderParity — frozen rev-2 seeded default (regression fixture)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Verbatim serialization of the rev-2 seeded default template, as produced by
+#: ``make_default_template().to_dict()`` at commit 23fa804 (the last rev-2
+#: HEAD), with the random uuid pinned to ``"rev2-fixture-uuid"``.  DO NOT
+#: regenerate from current code — this literal is the frozen rev-2 on-disk
+#: shape that .fpd embeds and library JSONs from that era contain.
+#: Also imported by the .fpd embed regression in tests/test_titleblock_render.py.
+REV2_DEFAULT_TEMPLATE_DICT = {
+    'name': 'FirePro Default',
+    'uuid': 'rev2-fixture-uuid',
+    'modified': '2026-07-22',
+    'paper_size': 'ANSI D',
+    'orientation': 'landscape',
+    'layout': {
+        'margin_edge_mm': 10.0,
+        'margin_strip_mm': 5.0,
+        'strip_width_mm': 90.0,
+        'strip_edge': 'right',
+        'area_border': {'visible': True, 'width_mm': 0.5, 'color': '#000000',
+                        'corner': 'fillet', 'fillet_radius_mm': 10.0},
+        'strip_border': {'visible': True, 'width_mm': 0.5, 'color': '#000000',
+                         'corner': 'fillet', 'fillet_radius_mm': 10.0},
+        'cells': [
+            {'kind': 'logo', 'field_key': '', 'label': '', 'static_text': '',
+             'min_height_mm': 25.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 3.0, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Company', 'label': 'Company',
+             'static_text': '', 'min_height_mm': 12.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '#eef2f7',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Project', 'label': 'Project',
+             'static_text': '', 'min_height_mm': 12.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Address', 'label': 'Address',
+             'static_text': '', 'min_height_mm': 10.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Title', 'label': 'Sheet Title',
+             'static_text': '', 'min_height_mm': 14.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 3.2, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Scale', 'label': 'Scale',
+             'static_text': '', 'min_height_mm': 10.0, 'sizing': 'static',
+             'pair_with_next': True, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Date', 'label': 'Date',
+             'static_text': '', 'min_height_mm': 10.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Drawn By', 'label': 'Drawn',
+             'static_text': '', 'min_height_mm': 10.0, 'sizing': 'static',
+             'pair_with_next': True, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Checked By', 'label': 'Checked',
+             'static_text': '', 'min_height_mm': 10.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 2.6, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Drawing No', 'label': 'Drawing No',
+             'static_text': '', 'min_height_mm': 14.0, 'sizing': 'static',
+             'pair_with_next': True, 'font_family': 'Arial',
+             'cap_height_mm': 4.0, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '#eef2f7',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'field', 'field_key': 'Rev', 'label': 'Rev',
+             'static_text': '', 'min_height_mm': 14.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 4.0, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'revision_table', 'field_key': '', 'label': 'Revisions',
+             'static_text': '', 'min_height_mm': 25.0, 'sizing': 'static',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 3.0, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+            {'kind': 'stamp', 'field_key': '', 'label': '', 'static_text': '',
+             'min_height_mm': 60.0, 'sizing': 'dynamic',
+             'pair_with_next': False, 'font_family': 'Arial',
+             'cap_height_mm': 3.0, 'bold': True, 'italic': False,
+             'alignment': 'left', 'fill_color': '',
+             'border': {'visible': True, 'width_mm': 0.3, 'color': '#000000',
+                        'corner': 'sharp', 'fillet_radius_mm': 0.0},
+             'logo_data': '', 'logo_fit': 'contain', 'revision_rows': 3},
+        ],
+    },
+}
+
+
+class TestRev2RenderParity:
+    """The frozen rev-2 seeded default must migrate and solve with rev-2 geometry."""
+
+    def _migrated(self) -> TitleBlockTemplate:
+        return TitleBlockTemplate.from_dict(
+            copy.deepcopy(REV2_DEFAULT_TEMPLATE_DICT))
+
+    def _solve(self, t):
+        return solve_layout(t.layout, 863.6, 558.8,
+                            {"Company": "Acme", "Title": "Plan"})
+
+    def test_migrates_to_13_fields_10_rows(self):
+        t = self._migrated()
+        assert t.paper_size == "ANSI D"
+        assert t.orientation == "landscape"
+        assert len(t.layout.fields) == 13
+        assert [len(r) for r in t.layout.rows] == [1, 1, 1, 1, 1, 2, 2, 2, 1, 1]
+
+    def test_solves_with_rev2_geometry(self):
+        sol = self._solve(self._migrated())
+        assert len(sol.cell_rects) == 13
+        assert [n for _f, n in sol.row_spans] == [1, 1, 1, 1, 1, 2, 2, 2, 1, 1]
+        # Dynamic stamp: last cell fills to the strip bottom, as in rev 2.
+        assert abs(sol.cell_rects[-1].bottom() - sol.strip_rect.bottom()) < 1e-6
+
+    def test_company_cell_token_parity(self):
+        """field_key="Company" migrates to "@[Company]" and resolves to the
+        same rendered line the rev-2 field_key lookup produced."""
+        t = self._migrated()
+        sol = self._solve(t)
+        company = next(f for f in t.layout.fields if f.name == "Company")
+        assert company.text == "@[Company]"
+        idx = sol.cell_field_ids.index(company.id)
+        assert sol.cell_lines[idx] == ["Acme"]
+
+
 class TestArrangementOps:
     def _lay(self):
         fs = [FieldDef(id=i, name=i) for i in ("a", "b", "c", "d")]
