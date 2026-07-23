@@ -942,3 +942,171 @@ class TestBorderGroupReemitNoSnapshot:
         assert len(dlg._undo_stack) == depth, (
             "_on_field_border_changed must not push a snapshot when border is unchanged"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Quality-review fixes (QR-01..QR-04)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestFontComboCommitSemantics:
+    """QR-01: font combo must not snapshot per-keystroke; commits only on
+    activated (dropdown pick) or editingFinished (typed entry)."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_mid_type_no_snapshot(self, tmp_path, monkeypatch):
+        """setText mid-typing must NOT push additional snapshots."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        depth_before = len(dlg._undo_stack)
+        # Simulate partial typing — "Tim" then "Times New Roman"
+        dlg._ffont_combo.lineEdit().setText("Tim")
+        dlg._ffont_combo.lineEdit().setText("Times New Roman")
+        assert len(dlg._undo_stack) == depth_before, (
+            "Per-keystroke setText must not push snapshots; "
+            f"depth went from {depth_before} to {len(dlg._undo_stack)}"
+        )
+
+    def test_editing_finished_commits_and_snapshots(self, tmp_path, monkeypatch):
+        """editingFinished must commit the typed font family and push exactly one snapshot."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        depth_before = len(dlg._undo_stack)
+        dlg._ffont_combo.lineEdit().setText("Times New Roman")
+        dlg._ffont_combo.lineEdit().editingFinished.emit()
+        f = dlg.working.layout.fields[0]
+        assert f.font_family == "Times New Roman", (
+            f"Expected font_family='Times New Roman', got {f.font_family!r}"
+        )
+        assert len(dlg._undo_stack) == depth_before + 1, (
+            "editingFinished must push exactly one snapshot"
+        )
+
+
+class TestInPlaceRosterUpdate:
+    """QR-02: _field_prop must update roster in-place (no full rebuild),
+    so _refresh_field_preview fires exactly once and image clear is reflected."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_single_preview_refresh_per_field_prop(self, tmp_path, monkeypatch):
+        """_field_prop for bold toggle must call _refresh_field_preview exactly once."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+
+        call_count = [0]
+        original = dlg._refresh_field_preview
+
+        def counting_refresh():
+            call_count[0] += 1
+            original()
+
+        monkeypatch.setattr(dlg, "_refresh_field_preview", counting_refresh)
+
+        # Toggle bold (ensure it actually changes)
+        f = dlg.working.layout.fields[0]
+        dlg._fbold.setChecked(not f.bold)   # drives _field_prop("bold", ...)
+
+        assert call_count[0] == 1, (
+            f"_refresh_field_preview must be called exactly once per _field_prop, "
+            f"got {call_count[0]}"
+        )
+
+    def test_clear_image_removes_thumbnail(self, tmp_path, monkeypatch):
+        """Clicking the Clear image button must clear the thumb pixmap immediately."""
+        import base64
+        from PyQt6.QtGui import QImage, QPixmap
+        from PyQt6.QtCore import QBuffer, QIODevice
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+
+        # Inject a 1×1 white pixel PNG as image_data
+        img = QImage(1, 1, QImage.Format.Format_RGB32)
+        img.fill(0xFFFFFF)
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        img.save(buf, "PNG")
+        data = base64.b64encode(bytes(buf.data())).decode("ascii")
+        dlg._field_prop("image_data", data)
+        # Confirm thumb is set
+        assert dlg._fimg_thumb.pixmap() is not None and not dlg._fimg_thumb.pixmap().isNull(), (
+            "Pre-condition: thumb should be set after image_data assigned"
+        )
+
+        # Now clear
+        dlg._fimg_clear.click()
+
+        pm = dlg._fimg_thumb.pixmap()
+        assert pm is None or pm.isNull(), (
+            "After clearing image, thumb must be null/empty"
+        )
+
+
+class TestFocusOutCommit:
+    """QR-03a: FocusOut on _ftext_edit must commit the text to the field."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_focus_out_commits_text(self, tmp_path, monkeypatch):
+        """FocusOut event on _ftext_edit must call _commit_field_text."""
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QFocusEvent
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        dlg._ftext_edit.setPlainText("Via focus")
+
+        from PyQt6.QtWidgets import QApplication
+        QApplication.sendEvent(
+            dlg._ftext_edit,
+            QFocusEvent(QEvent.Type.FocusOut)
+        )
+        assert dlg.working.layout.fields[0].text == "Via focus", (
+            "FocusOut must commit text to field; "
+            f"got {dlg.working.layout.fields[0].text!r}"
+        )
+
+
+class TestBorderGroupWiring:
+    """QR-03b: _field_border_group visible toggle must update field.border.visible
+    and push exactly one snapshot."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_border_visible_toggle_wired(self, tmp_path, monkeypatch):
+        """Toggling the border visible checkbox must flip field.border.visible
+        and push exactly one snapshot."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        f = dlg.working.layout.fields[0]
+        orig_visible = f.border.visible
+        depth_before = len(dlg._undo_stack)
+
+        # Toggle the _visible checkbox in the border group
+        dlg._field_border_group._visible.toggle()
+
+        f_after = dlg.working.layout.fields[0]
+        assert f_after.border.visible == (not orig_visible), (
+            f"border.visible must flip from {orig_visible} to {not orig_visible}, "
+            f"got {f_after.border.visible}"
+        )
+        assert len(dlg._undo_stack) == depth_before + 1, (
+            f"Expected depth {depth_before + 1}, got {len(dlg._undo_stack)}"
+        )

@@ -14,6 +14,7 @@ import base64
 import copy
 import datetime
 import logging
+import re as _re
 import uuid as _uuid
 
 from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent
@@ -48,6 +49,8 @@ _sm = ScaleManager()
 
 _log = logging.getLogger("FirePro3D")
 
+_UNDO_STACK_MAX = 50
+
 # Standard project info keys — imported from paper_space.PROJECT_STD_KEYS so that
 # picker display names always match what build_field_values resolves.
 # Do NOT add a local copy; edit paper_space.PROJECT_STD_KEYS to add new keys.
@@ -57,7 +60,7 @@ _log = logging.getLogger("FirePro3D")
 # in editor previews and on sheets. Values are illustrative samples.
 _SAMPLE_VALUES = {k: "" for k in PROJECT_STD_KEYS}
 _SAMPLE_VALUES.update({k: "" for k in DEFAULT_TITLE_BLOCK_FIELDS})
-_SAMPLE_VALUES["Date (auto)"] = ""
+_SAMPLE_VALUES["Date (auto)"] = "22 Jul 2026"
 _SAMPLE_VALUES.update({
     "Company": "Vulcano Fire Design Inc.", "Project": "Sample Project",
     "Address": "123 Example St", "Title": "Level 1 — Sprinkler Plan",
@@ -477,6 +480,7 @@ class TitleBlockEditorDialog(QDialog):
         # Revision rows spinbox (revision_table only)
         self._frev_rows = QSpinBox()
         self._frev_rows.setRange(1, 10)
+        self._frev_rows.setKeyboardTracking(False)
         self._frev_rows.valueChanged.connect(
             lambda v: self._field_prop("revision_rows", v))
         field_form.addRow("Revision rows:", self._frev_rows)
@@ -486,8 +490,10 @@ class TitleBlockEditorDialog(QDialog):
         self._ffont_combo.addItems(["Arial", "Helvetica", "Times New Roman",
                                      "Courier New", "Calibri"])
         self._ffont_combo.setEditable(True)
-        self._ffont_combo.currentTextChanged.connect(
-            lambda t: self._field_prop("font_family", t))
+        # Commit only on dropdown pick (activated) or typed entry (editingFinished)
+        # to avoid per-keystroke snapshots from currentTextChanged.
+        self._ffont_combo.activated.connect(self._commit_font_family)
+        self._ffont_combo.lineEdit().editingFinished.connect(self._commit_font_family)
         field_form.addRow("Font:", self._ffont_combo)
 
         # Cap height
@@ -723,10 +729,16 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
 
     def push_snapshot(self) -> None:
-        """Push the current working state onto the undo stack; clears redo."""
+        """Push the current working state onto the undo stack; clears redo.
+
+        The undo stack is capped at ``_UNDO_STACK_MAX`` entries; the oldest
+        entry is dropped when the cap is exceeded.
+        """
         if self.working is None:
             return
         self._undo_stack.append(copy.deepcopy(self.working.to_dict()))
+        if len(self._undo_stack) > _UNDO_STACK_MAX:
+            self._undo_stack.pop(0)
         self._redo_stack.clear()
 
     def undo(self) -> None:
@@ -971,11 +983,6 @@ class TitleBlockEditorDialog(QDialog):
             self._loading = False
         self._refresh_field_preview()
 
-    def _populate_field_form(self) -> None:
-        """Re-populate the field form from the currently selected field (no snapshot)."""
-        row = self._field_list.currentRow()
-        self._on_field_selected(row)
-
     def _apply_kind_behavior(self, kind: str) -> None:
         """Enable/disable form sections based on field kind."""
         is_rev = (kind == "revision_table")
@@ -990,7 +997,6 @@ class TitleBlockEditorDialog(QDialog):
         """Update the image thumbnail label from base64 image data."""
         if not image_data:
             self._fimg_thumb.clear()
-            self._fimg_thumb.setText("")
             return
         from PyQt6.QtCore import QByteArray
         from PyQt6.QtGui import QPixmap
@@ -1010,18 +1016,44 @@ class TitleBlockEditorDialog(QDialog):
     # Fields tab — property mutations
     # ═════════════════════════════════════════════════════════════════════════
 
+    def _update_roster_row(self) -> None:
+        """Update only the currently selected roster item's text in-place.
+
+        Uses a blockSignals guard so no currentRowChanged re-fires (no rebuild,
+        no double preview solve, no form repopulate).
+        """
+        row = self._field_list.currentRow()
+        if self.working is None or row < 0 or row >= self._field_list.count():
+            return
+        flds = self.working.layout.fields
+        if row >= len(flds):
+            return
+        f = flds[row]
+        placed = self.working.layout.placed_ids()
+        indicator = "●" if f.id in placed else "○"
+        item = self._field_list.item(row)
+        if item is not None:
+            self._field_list.blockSignals(True)
+            item.setText(f"{indicator} {f.name}")
+            self._field_list.blockSignals(False)
+
     def _field_prop(self, prop: str, value) -> None:
         """Snapshot + mutate a FieldDef property on the selected field.
 
         No-op when loading, no field selected, or value unchanged (prevents
         empty snapshots on Qt focus-churn re-emission).
+        Updates the roster in-place (no full rebuild) to avoid re-entrant
+        _on_field_selected → double preview solve + form repopulate.
         """
         f = self._sel_field()
         if self._loading or f is None or getattr(f, prop) == value:
             return
         self.push_snapshot()
         setattr(f, prop, value)
-        self._rebuild_field_list(keep_row=True)
+        self._update_roster_row()
+        # Refresh image thumbnail when image_data changes (Clear button)
+        if prop == "image_data":
+            self._update_field_thumb(f.image_data)
         self.refresh_preview()
         self._refresh_field_preview()
 
@@ -1035,9 +1067,18 @@ class TitleBlockEditorDialog(QDialog):
             return
         self.push_snapshot()
         f.text = new_text
-        self._rebuild_field_list(keep_row=True)
+        self._update_roster_row()
         self.refresh_preview()
         self._refresh_field_preview()
+
+    def _commit_font_family(self) -> None:
+        """Commit the current font combo text to the selected field's font_family.
+
+        Called on activated (dropdown pick) and lineEdit().editingFinished (typed
+        entry).  Using these two signals instead of currentTextChanged avoids
+        per-keystroke snapshots while the user is typing.
+        """
+        self._field_prop("font_family", self._ffont_combo.currentText())
 
     def _on_kind_changed(self, kind: str) -> None:
         """Handle kind combo change: mutate kind + refresh widget visibility."""
@@ -1115,7 +1156,7 @@ class TitleBlockEditorDialog(QDialog):
         menu = QMenu(self)
 
         # Auto section
-        auto_action = menu.addSection("Auto")
+        menu.addSection("Auto")
         for key in _AUTO_FIELD_KEYS:
             act = menu.addAction(key)
             if key == "Sheet No":
@@ -1190,7 +1231,6 @@ class TitleBlockEditorDialog(QDialog):
             The name with the copy suffix removed, or *name* unchanged if no
             suffix is present.
         """
-        import re as _re
         return _re.sub(r" \(copy\)( \d+)?$", "", name)
 
     def _new_field(self) -> None:
@@ -1286,7 +1326,7 @@ class TitleBlockEditorDialog(QDialog):
                 self._field_preview_view.fitInView(
                     solved.cell_rects[0], Qt.AspectRatioMode.KeepAspectRatio)
         except Exception as exc:
-            _log.debug("Field preview error: %s", exc)
+            _log.warning("Field preview error: %s", exc)
 
     # ═════════════════════════════════════════════════════════════════════════
     # Tab change handler
@@ -1417,14 +1457,6 @@ class TitleBlockEditorDialog(QDialog):
                   else self.working.layout.strip_border)
         setattr(border, prop, value)
         self.refresh_preview()
-
-    # ── Active variant helper ─────────────────────────────────────────────
-
-    def _active_variant(self) -> TemplateLayout | None:
-        if self.working is None:
-            return None
-        # Single-size model: always return the one layout
-        return self.working.layout
 
     # ═════════════════════════════════════════════════════════════════════════
     # Save button / dialog close
