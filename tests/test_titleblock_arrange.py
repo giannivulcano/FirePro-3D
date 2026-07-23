@@ -85,9 +85,19 @@ class TestZoneDetection:
     def test_paired_row_middle_is_full_for_outsider(self):
         canvas, lay = _canvas()
         ri = next(i for i, row in enumerate(lay.rows) if len(row) == 2)
+        member_ids = {s.field_id for s in lay.rows[ri]}
+        # Pick a field that is in a different (single-slot) row — a real outsider.
+        outsider_id = next(
+            s.field_id
+            for row in lay.rows
+            if len(row) == 1
+            for s in row
+            if s.field_id not in member_ids
+        )
         first, _n = canvas.solved.row_spans[ri]
         r = canvas.solved.cell_rects[first]
-        z = canvas.zone_at(QPointF(r.right(), r.center().y()))
+        z = canvas.zone_at(QPointF(r.right(), r.center().y()),
+                           dragged_field_id=outsider_id)
         assert z.kind == "full"
 
     def test_paired_row_halves_for_member_swap(self):
@@ -96,9 +106,10 @@ class TestZoneDetection:
         member = lay.rows[ri][0].field_id
         first, _n = canvas.solved.row_spans[ri]
         r = canvas.solved.cell_rects[first]      # left cell of the pair
+        # Query the LEFT cell's centre — must land in pair_left exactly.
         z = canvas.zone_at(QPointF(r.center().x(), r.center().y()),
                            dragged_field_id=member)
-        assert z.kind in ("pair_left", "pair_right")
+        assert z.kind == "pair_left"
         assert z.row_index == ri
 
     def test_own_single_row_interior_is_full(self):
@@ -125,6 +136,16 @@ class TestZoneDetection:
         z = canvas.zone_at(QPointF(strip.center().x(),
                                    strip.top() + 200.0))
         assert z.kind == "insert" and z.row_index == 1
+
+    def test_above_strip_gap_inserts_at_top(self):
+        canvas, _ = _canvas()
+        strip = canvas.solved.strip_rect
+        band = canvas._px_to_mm(6)
+        # just above the top edge, inside the inflated outside-margin,
+        # but beyond boundary 0's capped band
+        z = canvas.zone_at(QPointF(strip.center().x(),
+                                   strip.top() - band * 1.5))
+        assert z.kind == "insert" and z.row_index == 0
 
 
 class TestDeleteKeyUnplace:

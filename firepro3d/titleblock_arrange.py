@@ -52,7 +52,7 @@ class StripCanvas(QGraphicsView):
     Hosts a single :class:`~firepro3d.paper_space.TitleBlockTemplateItem` on
     a private ``QGraphicsScene`` and implements hit-testing, zone detection,
     selection, and the Delete-key unplace signal entirely through manual mouse
-    tracking — no native Qt drag-and-drop (spec constraint, DD-48).
+    tracking — no native Qt drag-and-drop (spec constraint, DD-16).
 
     Signals:
         selectionChanged: Emitted with the newly selected ``field_id`` (or
@@ -222,7 +222,7 @@ class StripCanvas(QGraphicsView):
         2. Outside the strip (inflated by ``2 × band_mm`` in scene mm) → ``outside``.
         3. Within the per-boundary hit-band around a row boundary (top of strip
            = boundary 0; each row's first-cell bottom = boundary k) → ``insert``
-           at k.  The per-boundary band is ``min(band_mm, half of each adjacent
+           at k.  The per-boundary band is ``min(band_mm, quarter of each adjacent
            row height)`` so the interior of every row is always reachable even
            when rows are small relative to the pixel band.
         4. Inside a row:
@@ -288,6 +288,10 @@ class StripCanvas(QGraphicsView):
         row_i = self._row_at(scene_pos)
 
         if row_i == -1:
+            # Could be above the strip (cursor in the inflated margin above top)
+            # or below all rows inside the strip.  Distinguish by y position.
+            if scene_pos.y() < sr.top():
+                return DropZone("insert", row_index=0)
             # Below all rows but inside the strip (and not on the last boundary).
             return DropZone("insert", row_index=len(self.solved.row_spans))
 
