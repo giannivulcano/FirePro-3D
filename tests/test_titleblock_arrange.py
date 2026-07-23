@@ -1,5 +1,6 @@
-"""StripCanvas: render, hit-testing, zone detection, selection."""
-from PyQt6.QtCore import QPointF, Qt
+"""StripCanvas: render, hit-testing, zone detection, selection, gestures."""
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.constants import TB_INSERT_BAND_PX
@@ -251,3 +252,272 @@ class TestMousePressSelection:
                          Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(canvas.viewport(), ev)
         assert canvas.selected_field_id == canvas.solved.cell_field_ids[1]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 9: drag gestures + pool drag source
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _mouse(widget, etype, view_pos, button=Qt.MouseButton.LeftButton,
+           buttons=Qt.MouseButton.LeftButton):
+    ev = QMouseEvent(etype, view_pos,
+                     widget.mapToGlobal(view_pos.toPoint()).toPointF(),
+                     button, buttons, Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(widget, ev)
+
+
+def _drag_on_canvas(canvas, scene_from, scene_to):
+    vp = canvas.viewport()
+    p1 = QPointF(canvas.mapFromScene(scene_from))
+    p2 = QPointF(canvas.mapFromScene(scene_to))
+    _mouse(vp, QEvent.Type.MouseButtonPress, p1)
+    _mouse(vp, QEvent.Type.MouseMove, (p1 + p2) / 2)
+    _mouse(vp, QEvent.Type.MouseMove, p2)
+    _mouse(vp, QEvent.Type.MouseButtonRelease, p2,
+           buttons=Qt.MouseButton.NoButton)
+
+
+def _rows(lay):
+    return [[s.field_id for s in r] for r in lay.rows]
+
+
+def _spy_gestures(canvas):
+    starts, completes = [], []
+    canvas.gestureStarting.connect(lambda: starts.append(1))
+    canvas.gestureCompleted.connect(lambda: completes.append(1))
+    return starts, completes
+
+
+def _cell_center(canvas, fid):
+    i = canvas.solved.cell_field_ids.index(fid)
+    return canvas.solved.cell_rects[i].center()
+
+
+class TestCanvasGestures:
+    def _simple(self):
+        fs = [FieldDef(id=i, name=i, text=i) for i in ("a", "b", "c", "d")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("a", 40.0)], [Slot("b", 40.0)],
+                                   [Slot("c", 40.0)]])
+        return _canvas(lay)
+
+    def _paired(self):
+        fs = [FieldDef(id=i, name=i, text=i) for i in ("a", "b", "c")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("a", 40.0)],
+                                   [Slot("b", 40.0), Slot("c", 40.0)]])
+        return _canvas(lay)
+
+    def test_reorder_drag(self):
+        canvas, lay = self._simple()
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "a")
+        c_idx = canvas.solved.cell_field_ids.index("c")
+        dst = QPointF(src.x(), canvas.solved.cell_rects[c_idx].bottom())
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == [["b"], ["c"], ["a"]]
+        assert starts == [1] and completes == [1]
+
+    def test_pair_drag(self):
+        canvas, lay = self._simple()
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "a")
+        b_idx = canvas.solved.cell_field_ids.index("b")
+        r1 = canvas.solved.cell_rects[b_idx]
+        dst = QPointF(r1.left() + r1.width() * 0.75, r1.center().y())
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == [["b", "a"], ["c"]]
+        assert starts == [1] and completes == [1]
+
+    def test_unpair_by_drag_to_insert(self):
+        canvas, lay = self._paired()
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "c")
+        strip = canvas.solved.strip_rect
+        dst = QPointF(strip.center().x(), strip.top())
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == [["c"], ["a"], ["b"]]
+        assert starts == [1] and completes == [1]
+
+    def test_unplace_drag_off_strip(self):
+        canvas, lay = self._simple()
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "a")
+        dst = QPointF(canvas.solved.strip_rect.left() - 80, src.y())
+        _drag_on_canvas(canvas, src, dst)
+        assert "a" not in {s.field_id for r in lay.rows for s in r}
+        assert "a" in {f.id for f in lay.fields}            # still defined
+        assert starts == [1] and completes == [1]
+
+    def test_swap_sides_drag(self):
+        canvas, lay = self._paired()
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "b")
+        dst = _cell_center(canvas, "c")     # right half of the shared row
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == [["a"], ["c", "b"]]
+        assert starts == [1] and completes == [1]
+
+    def test_dead_drop_own_row_interior_no_signals(self):
+        canvas, lay = self._simple()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "a")
+        dst = QPointF(src.x(), src.y() + 6)   # own row interior, off bands
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_dead_drop_own_half_no_signals(self):
+        canvas, lay = self._paired()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        src = _cell_center(canvas, "b")       # left member of the pair
+        dst = QPointF(src.x() + 6, src.y())   # still the left half
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_dead_drop_reinsert_same_position_no_signals(self):
+        canvas, lay = self._simple()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        a_idx = canvas.solved.cell_field_ids.index("a")
+        r0 = canvas.solved.cell_rects[a_idx]
+        src = r0.center()
+        dst = QPointF(src.x(), r0.bottom())   # insert between a and b → no-op
+        _drag_on_canvas(canvas, src, dst)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_escape_cancels_drag(self):
+        canvas, lay = self._simple()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        vp = canvas.viewport()
+        src = QPointF(canvas.mapFromScene(_cell_center(canvas, "a")))
+        _mouse(vp, QEvent.Type.MouseButtonPress, src)
+        _mouse(vp, QEvent.Type.MouseMove, src + QPointF(0, 40))
+        QApplication.sendEvent(canvas, QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+            Qt.KeyboardModifier.NoModifier))
+        _mouse(vp, QEvent.Type.MouseButtonRelease, src + QPointF(0, 40),
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+        assert canvas._zone_hint is None      # overlays cleared
+
+    def test_click_without_drag_only_selects(self):
+        canvas, lay = self._simple()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        vp = canvas.viewport()
+        p = QPointF(canvas.mapFromScene(_cell_center(canvas, "b")))
+        _mouse(vp, QEvent.Type.MouseButtonPress, p)
+        _mouse(vp, QEvent.Type.MouseButtonRelease, p,
+               buttons=Qt.MouseButton.NoButton)
+        assert canvas.selected_field_id == "b"
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_threshold_not_crossed_no_drag(self):
+        canvas, lay = self._simple()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        vp = canvas.viewport()
+        p = QPointF(canvas.mapFromScene(_cell_center(canvas, "a")))
+        _mouse(vp, QEvent.Type.MouseButtonPress, p)
+        _mouse(vp, QEvent.Type.MouseMove, p + QPointF(0, 2))  # < threshold
+        _mouse(vp, QEvent.Type.MouseButtonRelease, p + QPointF(0, 2),
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+
+class TestPoolDrag:
+    def _setup(self):
+        from firepro3d.titleblock_arrange import PoolList
+        fs = [FieldDef(id=i, name=i, text=i) for i in ("a", "b")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("a", 40.0)]])
+        canvas, _ = _canvas(lay)
+        pool = PoolList()
+        pool.bind_canvas(canvas)
+        pool.set_fields(lay.pool_fields())
+        pool.resize(200, 300)
+        pool.show()
+        return canvas, pool, lay
+
+    def _pool_local_for_canvas_scene(self, canvas, pool, scene_pos):
+        """Map a canvas scene point to POOL-viewport-local coords via global."""
+        target_global = canvas.viewport().mapToGlobal(
+            canvas.mapFromScene(scene_pos))
+        return QPointF(pool.viewport().mapFromGlobal(target_global))
+
+    def test_pool_to_canvas_place(self):
+        canvas, pool, lay = self._setup()
+        starts, completes = _spy_gestures(canvas)
+        item_rect = pool.visualItemRect(pool.item(0))
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonPress,
+               QPointF(item_rect.center()))
+        a_idx = canvas.solved.cell_field_ids.index("a")
+        target_scene = QPointF(canvas.solved.strip_rect.center().x(),
+                               canvas.solved.cell_rects[a_idx].bottom())
+        local = self._pool_local_for_canvas_scene(canvas, pool, target_scene)
+        _mouse(pool.viewport(), QEvent.Type.MouseMove, local)
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonRelease, local,
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == [["a"], ["b"]]
+        assert starts == [1] and completes == [1]
+
+    def test_pool_release_outside_canvas_no_op(self):
+        canvas, pool, lay = self._setup()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        item_rect = pool.visualItemRect(pool.item(0))
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonPress,
+               QPointF(item_rect.center()))
+        # A point guaranteed outside the canvas viewport rect.
+        outside_global = canvas.viewport().mapToGlobal(
+            QPointF(-300, -300).toPoint())
+        local = QPointF(pool.viewport().mapFromGlobal(outside_global))
+        _mouse(pool.viewport(), QEvent.Type.MouseMove, local)
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonRelease, local,
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_pool_escape_cancels(self):
+        canvas, pool, lay = self._setup()
+        before = _rows(lay)
+        starts, completes = _spy_gestures(canvas)
+        item_rect = pool.visualItemRect(pool.item(0))
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonPress,
+               QPointF(item_rect.center()))
+        a_idx = canvas.solved.cell_field_ids.index("a")
+        target_scene = QPointF(canvas.solved.strip_rect.center().x(),
+                               canvas.solved.cell_rects[a_idx].bottom())
+        local = self._pool_local_for_canvas_scene(canvas, pool, target_scene)
+        _mouse(pool.viewport(), QEvent.Type.MouseMove, local)
+        assert canvas._zone_hint is not None  # hint shown while over canvas
+        QApplication.sendEvent(pool, QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+            Qt.KeyboardModifier.NoModifier))
+        assert canvas._zone_hint is None
+        _mouse(pool.viewport(), QEvent.Type.MouseButtonRelease, local,
+               buttons=Qt.MouseButton.NoButton)
+        assert _rows(lay) == before
+        assert starts == [] and completes == []
+
+    def test_pool_glyphs(self):
+        from firepro3d.titleblock_arrange import PoolList
+        fs = [FieldDef(id="r", name="Rev", kind="revision_table"),
+              FieldDef(id="i", name="Logo", image_data="abc"),
+              FieldDef(id="t", name="Note", text="hello\nworld")]
+        pool = PoolList()
+        pool.set_fields(fs)
+        assert pool.item(0).text().startswith("▤")
+        assert pool.item(1).text().startswith("🖼")
+        assert pool.item(2).text().startswith("🅣")
+        assert "hello" in pool.item(2).text()
+        assert "world" not in pool.item(2).text()   # first line only
+        assert pool.item(0).data(Qt.ItemDataRole.UserRole) == "r"

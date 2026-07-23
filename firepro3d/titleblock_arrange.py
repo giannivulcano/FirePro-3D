@@ -17,11 +17,13 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsScene, QGraphicsView,
+    QGraphicsScene, QGraphicsView, QListWidget, QListWidgetItem,
 )
 
 from .constants import TB_INSERT_BAND_PX
-from .titleblock_template import TemplateLayout, solve_layout
+from .titleblock_template import (
+    TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
+)
 
 
 @dataclass
@@ -62,6 +64,12 @@ class StripCanvas(QGraphicsView):
             ``""`` when selection is cleared).
         unplaceRequested: Emitted with the selected ``field_id`` when the
             user presses Delete while a cell is selected.
+        gestureStarting: Emitted ONCE per mutating gesture, BEFORE the layout
+            is touched — the editor dialog pushes its undo snapshot here.
+            Never emitted for dead drops (zone ``full``, no-op reinsert,
+            own-half pair) or cancelled drags (Esc).
+        gestureCompleted: Emitted ONCE per mutating gesture, AFTER the layout
+            mutation and ``refresh()`` — the dialog refreshes dependents here.
 
     Notes:
         ``refresh()`` calls ``scene().clear()`` and is therefore unsafe to
@@ -76,6 +84,15 @@ class StripCanvas(QGraphicsView):
 
     #: Emitted with the field_id of the selected cell on Delete key press.
     unplaceRequested = pyqtSignal(str)
+
+    #: Emitted once per mutating gesture BEFORE mutation (undo snapshot hook).
+    gestureStarting = pyqtSignal()
+
+    #: Emitted once per mutating gesture AFTER mutation + refresh().
+    gestureCompleted = pyqtSignal()
+
+    #: Manhattan distance (viewport px) a press must travel to become a drag.
+    DRAG_THRESHOLD_PX = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -98,16 +115,15 @@ class StripCanvas(QGraphicsView):
         # Selection state
         self.selected_field_id: str = ""
 
-        # Drag state stubs — populated by Task 9 DragController; read here for
-        # drawForeground overlays.
+        # Drag overlay state — consumed by drawForeground.
         self._zone_hint: DropZone | None = None
         self._ghost_pos: QPointF | None = None
         self._ghost_label: str = ""
 
-        # Press position (viewport px) — stored for Task 9's gesture threshold.
+        # Drag state machine.
         self._press_view_pos: QPointF | None = None
-        # Field id under press — used by Task 9 to initiate a drag.
         self._drag_field_id: str = ""
+        self._dragging: bool = False
 
     # ── Provider ──────────────────────────────────────────────────────────────
 
@@ -556,15 +572,24 @@ class StripCanvas(QGraphicsView):
         return super().event(ev)
 
     def keyPressEvent(self, ev: QKeyEvent) -> None:
-        """Handle Delete key to unplace the selected field.
+        """Handle Esc (cancel in-flight drag) and Delete (unplace selection).
+
+        Esc while dragging calls :meth:`cancel_drag` — no mutation, no
+        gesture signals (DD-16: cancelled drag = no undo snapshot).  The
+        Esc branch runs BEFORE the Delete branch; a mouse release arriving
+        after the cancel is a no-op because ``cancel_drag`` clears both
+        ``_dragging`` and ``_drag_field_id``.
 
         Emits :attr:`unplaceRequested` with the current ``selected_field_id``
-        when Delete is pressed while a field is selected.  Esc is reserved for
-        Task 9 (cancel in-flight drag).
+        when Delete is pressed while a field is selected.
 
         Args:
             ev: The key press event.
         """
+        if ev.key() == Qt.Key.Key_Escape and self._dragging:
+            self.cancel_drag()
+            ev.accept()
+            return
         if ev.key() == Qt.Key.Key_Delete and self.selected_field_id:
             self.unplaceRequested.emit(self.selected_field_id)
             ev.accept()
@@ -589,8 +614,9 @@ class StripCanvas(QGraphicsView):
     def mousePressEvent(self, ev: QMouseEvent) -> None:
         """Handle left-button press: select the cell under the cursor.
 
-        Also stores ``_press_view_pos`` and ``_drag_field_id`` for Task 9's
-        gesture threshold.
+        Also arms the drag state machine: stores ``_press_view_pos`` and
+        ``_drag_field_id``; the drag itself starts only once the cursor
+        travels :attr:`DRAG_THRESHOLD_PX` (Manhattan, viewport px).
 
         Args:
             ev: The mouse press event.
@@ -599,13 +625,367 @@ class StripCanvas(QGraphicsView):
             scene_pos = self.mapToScene(ev.position().toPoint())
             self.select_at(scene_pos)
             self._press_view_pos = ev.position()
-            # Capture the field under the press for Task 9.
             idx = self.cell_index_at(scene_pos)
             self._drag_field_id = (
                 self.solved.cell_field_ids[idx]
                 if (self.solved is not None and idx >= 0)
                 else ""
             )
+            self._dragging = False
             ev.accept()
         else:
             super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev: QMouseEvent) -> None:
+        """Advance the drag state machine while the left button is held.
+
+        Crosses the Manhattan :attr:`DRAG_THRESHOLD_PX` once, then updates
+        the zone hint + ghost overlays on every move (via
+        :meth:`show_drop_hint`).
+
+        Args:
+            ev: The mouse move event.
+        """
+        if (self._drag_field_id
+                and (ev.buttons() & Qt.MouseButton.LeftButton)
+                and self._press_view_pos is not None):
+            if (not self._dragging
+                    and (ev.position() - self._press_view_pos
+                         ).manhattanLength() > self.DRAG_THRESHOLD_PX):
+                self._dragging = True
+            if self._dragging:
+                sp = self.mapToScene(ev.position().toPoint())
+                self.show_drop_hint(sp, self._drag_field_id)
+            ev.accept()
+            return
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev: QMouseEvent) -> None:
+        """Complete or abandon the gesture on left-button release.
+
+        A completed drag classifies the final zone and applies the drop
+        (:meth:`_apply_drop`); a plain click (threshold never crossed)
+        leaves the press-time selection as-is.  A release after
+        :meth:`cancel_drag` is a no-op (``_dragging`` already cleared).
+
+        Args:
+            ev: The mouse release event.
+        """
+        if (ev.button() == Qt.MouseButton.LeftButton
+                and self._press_view_pos is not None):
+            if self._dragging and self._drag_field_id:
+                zone = self.zone_at(
+                    self.mapToScene(ev.position().toPoint()),
+                    self._drag_field_id)
+                self._apply_drop(self._drag_field_id, zone)
+            self._end_drag()
+            self._press_view_pos = None
+            ev.accept()
+            return
+        super().mouseReleaseEvent(ev)
+
+    # ── Drop hint (public — also used by PoolList as an external drag source) ─
+
+    def show_drop_hint(self, scene_pos: QPointF, field_id: str) -> None:
+        """Show the zone-hint + ghost overlays for a drag over *scene_pos*.
+
+        Public so that :class:`PoolList` (external drag source) can drive the
+        overlays without touching canvas privates.
+
+        Args:
+            scene_pos: Current cursor position in scene (mm) coordinates.
+            field_id: The field being dragged (affects zone classification;
+                unplaced pool fields classify identically to ``""``).
+        """
+        self._zone_hint = self.zone_at(scene_pos, field_id)
+        self._ghost_pos = scene_pos
+        fmap = self._layout_ref.field_map() if self._layout_ref else {}
+        f = fmap.get(field_id)
+        self._ghost_label = f.name if f else ""
+        self.viewport().update()
+
+    def clear_drop_hint(self) -> None:
+        """Clear the zone-hint + ghost overlays (public counterpart)."""
+        self._zone_hint = None
+        self._ghost_pos = None
+        self._ghost_label = ""
+        self.viewport().update()
+
+    # ── Drop application ──────────────────────────────────────────────────────
+
+    def apply_pool_drop(self, field_id: str, scene_pos: QPointF) -> None:
+        """Apply a drop of an UNPLACED (pool) field at *scene_pos*.
+
+        Public entry point for :class:`PoolList`.  Zone classification uses
+        ``dragged_field_id=""`` semantics (pool fields are never rendered, so
+        outsider classification is correct).  ``outside`` drops are dead for
+        pool fields (unplacing an unplaced field would not mutate).
+
+        Args:
+            field_id: The pool field being dropped.
+            scene_pos: Drop position in scene (mm) coordinates.
+        """
+        zone = self.zone_at(scene_pos)
+        self._apply_drop(field_id, zone)
+
+    def _apply_drop(self, field_id: str, zone: DropZone) -> None:
+        """Apply a completed drop: mutate the layout, refresh, signal.
+
+        Emits :attr:`gestureStarting` BEFORE the mutation and
+        :attr:`gestureCompleted` after ``refresh()`` — exactly once each, and
+        ONLY when the drop actually mutates the layout
+        (:meth:`_drop_would_mutate`); dead drops (zone ``full``, own-half
+        pairs, same-position reinserts, unplacing an unplaced field) emit
+        nothing so no empty undo snapshot is pushed.
+
+        ``refresh()`` (scene.clear()) is safe here: this runs from the VIEW's
+        mouse handler with no scene mouse grabber — the press was accepted at
+        the view level and never forwarded to the scene items.
+
+        Args:
+            field_id: The dragged field.
+            zone: The classified drop zone (from :meth:`zone_at`).
+        """
+        lay = self._layout_ref
+        if lay is None or zone.kind == "full":
+            return
+        if not self._drop_would_mutate(field_id, zone):
+            return
+        self.gestureStarting.emit()      # snapshot BEFORE mutation
+        if zone.kind == "insert":
+            move_field(lay, field_id, self._insert_index_after_removal(
+                field_id, zone.row_index))
+        elif zone.kind in ("pair_left", "pair_right"):
+            pair_field(lay, field_id, zone.row_index,
+                       "left" if zone.kind == "pair_left" else "right")
+        elif zone.kind == "outside":
+            unplace_field(lay, field_id)
+        self.refresh()
+        self.gestureCompleted.emit()
+
+    def _drop_would_mutate(self, field_id: str, zone: DropZone) -> bool:
+        """Predict whether applying *zone* for *field_id* mutates the layout.
+
+        Mirrors the no-op guards inside the pure ops so that dead drops never
+        emit gesture signals (no empty undo snapshots).  Analytic rules:
+
+        * ``insert`` — a no-op iff the field currently occupies a
+          SINGLE-slot row at layout index *ri* and the adjusted (post-removal)
+          insertion index equals *ri*: removing that row and re-inserting at
+          *ri* reproduces the original row order.  (Covers both raw indices
+          *ri* and *ri + 1* — "just above" and "just below" the own row.)
+          Extracting a pair member or placing a pool field always mutates.
+        * ``pair_left``/``pair_right`` — mirrors :func:`pair_field`'s guards:
+          own single-slot row, own current half, or a target row that already
+          holds two slots (including a dangling partner) are no-ops.
+        * ``outside`` — mutates only if the field is currently placed.
+        * ``full`` / unknown — never mutates.
+
+        Args:
+            field_id: The dragged field.
+            zone: The classified drop zone.
+
+        Returns:
+            True if the drop would change ``layout.rows``.
+        """
+        lay = self._layout_ref
+        if lay is None or field_id not in lay.field_map():
+            return False
+        if zone.kind == "insert":
+            adjusted = self._insert_index_after_removal(field_id,
+                                                        zone.row_index)
+            for ri, row in enumerate(lay.rows):
+                if len(row) == 1 and row[0].field_id == field_id:
+                    return adjusted != ri
+            return True     # pair member or unplaced: structure changes
+        if zone.kind in ("pair_left", "pair_right"):
+            if not (0 <= zone.row_index < len(lay.rows)):
+                return False
+            target = lay.rows[zone.row_index]
+            member_ids = [s.field_id for s in target]
+            if field_id in member_ids:
+                if len(target) == 1:
+                    return False            # own single-slot row (DD-16)
+                current = ("left" if member_ids.index(field_id) == 0
+                           else "right")
+                wanted = "left" if zone.kind == "pair_left" else "right"
+                return wanted != current    # own half = dead drop
+            return len(target) < 2          # full (incl. dangling) = dead
+        if zone.kind == "outside":
+            return field_id in lay.placed_ids()
+        return False
+
+    def _insert_index_after_removal(self, field_id: str,
+                                    raw_index: int) -> int:
+        """Translate a pre-removal insert index to the ops' post-removal index.
+
+        ``zone_at`` returns insertion indices against the CURRENT
+        ``layout.rows``; ``place_field``/``move_field`` interpret the index
+        AFTER the dragged field's own single-slot row has been removed.  When
+        that row sits above the insertion point the index shifts down by one.
+        A pair member's removal does not remove a row → no adjustment.
+
+        Args:
+            field_id: The dragged field.
+            raw_index: Insertion index into the current ``layout.rows``.
+
+        Returns:
+            The equivalent insertion index after removal.
+        """
+        lay = self._layout_ref
+        if lay is not None:
+            for ri, row in enumerate(lay.rows):
+                if len(row) == 1 and row[0].field_id == field_id:
+                    if ri < raw_index:
+                        return raw_index - 1
+                    break
+        return raw_index
+
+    # ── Drag lifecycle ────────────────────────────────────────────────────────
+
+    def cancel_drag(self) -> None:
+        """Cancel the in-flight drag: no mutation, NO gesture signals (DD-16).
+
+        Clears the drag state so the trailing mouse release is a no-op.
+        """
+        self._end_drag()
+
+    def _end_drag(self) -> None:
+        """Reset the drag state machine and clear all drag overlays."""
+        self._drag_field_id = ""
+        self._dragging = False
+        self.clear_drop_hint()
+
+
+class PoolList(QListWidget):
+    """Unplaced-field cards; manual drag source into the bound canvas.
+
+    Rows show a kind glyph + field name + first text line; the field id is
+    stored under ``Qt.ItemDataRole.UserRole``.  Dragging uses the same manual
+    mouse tracking as :class:`StripCanvas` (no native Qt DnD — DD-16): Qt
+    keeps delivering move/release events to the pressed widget, so the pool
+    maps its local positions through global coordinates onto the canvas
+    viewport and drives the canvas's public drop-hint / drop API.
+
+    Pool refresh stays OUTSIDE this class: the owning tab re-calls
+    :meth:`set_fields` with ``layout.pool_fields()`` after each gesture.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._canvas: StripCanvas | None = None
+        self._drag_field_id: str = ""
+
+    def bind_canvas(self, canvas: StripCanvas) -> None:
+        """Bind the target canvas that receives drops from this pool.
+
+        Args:
+            canvas: The :class:`StripCanvas` to drop onto.
+        """
+        self._canvas = canvas
+
+    def set_fields(self, fields) -> None:
+        """Rebuild the card list from *fields* (the unplaced pool).
+
+        Each row renders ``"<glyph> <name>\n   <first text line>"`` where the
+        glyph is ▤ for a revision table, 🖼 for an image field, 🅣 for a
+        text/empty field.
+
+        Args:
+            fields: Iterable of ``FieldDef`` (typically
+                ``layout.pool_fields()``).
+        """
+        self.clear()
+        for f in fields:
+            first = (f.text.splitlines() or [""])[0]
+            if f.kind == "revision_table":
+                glyph = "▤"
+            elif f.image_data:
+                glyph = "🖼"
+            else:
+                glyph = "🅣"
+            item = QListWidgetItem(f"{glyph} {f.name}\n   {first}")
+            item.setData(Qt.ItemDataRole.UserRole, f.id)
+            self.addItem(item)
+
+    # ── Manual drag source ────────────────────────────────────────────────────
+
+    def _canvas_scene_pos(self, ev: QMouseEvent) -> QPointF | None:
+        """Map the event position onto the canvas scene, or None if outside.
+
+        Args:
+            ev: A mouse event delivered to this widget's viewport.
+
+        Returns:
+            The scene (mm) position on the bound canvas, or ``None`` when no
+            canvas is bound or the cursor is outside the canvas viewport.
+        """
+        if self._canvas is None:
+            return None
+        gp = self.viewport().mapToGlobal(ev.position().toPoint())
+        vp_pos = self._canvas.viewport().mapFromGlobal(gp)
+        if not self._canvas.viewport().rect().contains(vp_pos):
+            return None
+        return self._canvas.mapToScene(vp_pos)
+
+    def mousePressEvent(self, ev: QMouseEvent) -> None:
+        """Stash the pressed card's field id as the drag payload.
+
+        Args:
+            ev: The mouse press event.
+        """
+        super().mousePressEvent(ev)
+        item = self.itemAt(ev.position().toPoint())
+        self._drag_field_id = (item.data(Qt.ItemDataRole.UserRole)
+                               if item is not None else "")
+
+    def mouseMoveEvent(self, ev: QMouseEvent) -> None:
+        """Drive the canvas drop-hint overlays while dragging over it.
+
+        Args:
+            ev: The mouse move event (delivered here — the pool holds the
+                implicit mouse grab).
+        """
+        if (self._drag_field_id
+                and (ev.buttons() & Qt.MouseButton.LeftButton)
+                and self._canvas is not None):
+            sp = self._canvas_scene_pos(ev)
+            if sp is not None:
+                self._canvas.show_drop_hint(sp, self._drag_field_id)
+            else:
+                self._canvas.clear_drop_hint()
+            ev.accept()
+            return
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev: QMouseEvent) -> None:
+        """Drop the dragged field onto the canvas, if released over it.
+
+        Delegates to :meth:`StripCanvas.apply_pool_drop` (gesture signals are
+        emitted by the canvas, only for mutating drops).  Releasing outside
+        the canvas does nothing.  Always clears the hint overlays + stash.
+
+        Args:
+            ev: The mouse release event.
+        """
+        if self._drag_field_id and self._canvas is not None:
+            sp = self._canvas_scene_pos(ev)
+            if sp is not None:
+                self._canvas.apply_pool_drop(self._drag_field_id, sp)
+            self._canvas.clear_drop_hint()
+        self._drag_field_id = ""
+        super().mouseReleaseEvent(ev)
+
+    def keyPressEvent(self, ev: QKeyEvent) -> None:
+        """Esc mid-pool-drag cancels: clear stash + canvas hint, no signals.
+
+        Args:
+            ev: The key press event.
+        """
+        if ev.key() == Qt.Key.Key_Escape and self._drag_field_id:
+            self._drag_field_id = ""
+            if self._canvas is not None:
+                self._canvas.clear_drop_hint()
+            ev.accept()
+            return
+        super().keyPressEvent(ev)
