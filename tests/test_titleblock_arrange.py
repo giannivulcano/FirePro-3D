@@ -654,3 +654,48 @@ class TestGrabLoss:
         QApplication.sendEvent(pool, QFocusEvent(QEvent.Type.FocusOut))
         assert pool._drag_field_id == ""
         assert canvas._zone_hint is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# White paper background + fit-on-first-show
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestCanvasWhiteBackground:
+    def test_canvas_has_white_paper_background(self):
+        canvas, _ = _canvas()
+        from PyQt6.QtWidgets import QGraphicsRectItem
+        rects = [it for it in canvas.scene().items()
+                 if isinstance(it, QGraphicsRectItem)]
+        assert any(r.brush().color().name() == "#ffffff" for r in rects)
+        # must be behind the renderer item
+        bg = next(r for r in rects if r.brush().color().name() == "#ffffff")
+        assert bg.zValue() < 0
+
+    def test_first_show_fits_strip(self):
+        lay = make_default_template().layout
+        canvas = StripCanvas()
+        canvas.set_provider(lambda: (lay, PAPER_W, PAPER_H, {}))
+        canvas.refresh()
+        canvas.resize(400, 600)
+        canvas.show()
+        _app.processEvents()
+        vis = canvas.mapToScene(canvas.viewport().rect()).boundingRect()
+        assert vis.contains(canvas.solved.strip_rect)
+
+    def test_second_show_does_not_refit(self):
+        """After the user zooms in, a second show must NOT reset the zoom."""
+        lay = make_default_template().layout
+        canvas = StripCanvas()
+        canvas.set_provider(lambda: (lay, PAPER_W, PAPER_H, {}))
+        canvas.refresh()
+        canvas.resize(400, 600)
+        canvas.show()
+        _app.processEvents()
+        # Zoom in manually
+        canvas.scale(3.0, 3.0)
+        t_after_zoom = canvas.transform().m11()
+        # Hide + show again (simulates tab switch)
+        canvas.hide()
+        canvas.show()
+        _app.processEvents()
+        assert abs(canvas.transform().m11() - t_after_zoom) < 1e-6

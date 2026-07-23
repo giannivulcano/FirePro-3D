@@ -862,6 +862,15 @@ class TestFieldsTab:
             "_field_prop must not snapshot when value is unchanged"
         )
 
+    def test_field_preview_has_white_background(self, tmp_path, monkeypatch):
+        """Single-field preview scene must contain a white rect behind the item."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(1)
+        from PyQt6.QtWidgets import QGraphicsRectItem
+        rects = [it for it in dlg._field_preview_scene.items()
+                 if isinstance(it, QGraphicsRectItem)]
+        assert any(r.brush().color().name() == "#ffffff" for r in rects)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec-review fixes (DD-13, border no-op, dup-name dedup)

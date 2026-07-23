@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QMenu, QMessageBox, QPushButton, QPlainTextEdit, QRadioButton,
     QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
-from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence
+from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QPen
 
 from .titleblock_template import (
     TitleBlockTemplate, TemplateLayout, FieldDef, Slot, BorderStyle,
@@ -1347,6 +1347,17 @@ class TitleBlockEditorDialog(QDialog):
             strip_w = lay.strip_width_mm
             preview_h = slot_min_h * 3
             solved = solve_layout(mini, strip_w, preview_h, _SAMPLE_VALUES)
+
+            # White paper background so the renderer's fills/text read on
+            # a white ground, not the dark app theme.
+            if solved.cell_rects:
+                cr = solved.cell_rects[0]
+                bg = self._field_preview_scene.addRect(
+                    cr.x(), cr.y(), cr.width(), cr.height())
+                bg.setBrush(QBrush(QColor("#ffffff")))
+                bg.setPen(QPen(QColor("#ffffff"), 0))
+                bg.setZValue(-1)
+
             item = TitleBlockTemplateItem(solved, mini, _SAMPLE_VALUES)
             self._field_preview_scene.addItem(item)
             if solved.cell_rects:

@@ -16,7 +16,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QBrush, QColor, QFocusEvent, QKeyEvent, QMouseEvent, QPainter, QPen,
-    QWheelEvent,
+    QShowEvent, QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox,
@@ -122,6 +122,14 @@ class StripCanvas(QGraphicsView):
         # Reference to the TemplateLayout used in the last solve (for zone logic).
         self._layout_ref: TemplateLayout | None = None
 
+        # Neutral dark-gray viewport background so the white paper edge is
+        # visible against the surrounding canvas area.
+        self.setBackgroundBrush(QColor("#505050"))
+
+        # Fit-on-first-show guard: True once we have auto-fitted the view.
+        # Set to False initially so showEvent() fits on first reveal.
+        self._did_initial_fit: bool = False
+
         # Selection state
         self.selected_field_id: str = ""
 
@@ -170,6 +178,16 @@ class StripCanvas(QGraphicsView):
 
         self._scene.clear()
 
+        # White paper rectangle — placed behind the renderer item so the
+        # renderer's fills/borders/text read correctly on a white ground
+        # instead of the dark app theme.  NoPen would produce a degenerate
+        # bounding rect for thin items (project memory: Qt NoPen lines), but
+        # a filled rect is fine; use a white cosmetic pen to be safe.
+        bg = self._scene.addRect(0, 0, pw, ph)
+        bg.setBrush(QBrush(QColor("#ffffff")))
+        bg.setPen(QPen(QColor("#ffffff"), 0))
+        bg.setZValue(-1)
+
         # Deferred for import cost, not for a cycle: paper_space is a large
         # import hub and is only needed once a canvas actually renders.
         # (There is no circular import — paper_space does not import this
@@ -205,6 +223,22 @@ class StripCanvas(QGraphicsView):
         sr = self.solved.strip_rect
         self.fitInView(sr.adjusted(-2, -2, 2, 2),
                        Qt.AspectRatioMode.KeepAspectRatio)
+
+    def showEvent(self, ev: QShowEvent) -> None:  # noqa: N802
+        """Auto-fit the strip the first time the canvas becomes visible.
+
+        Only fires once; subsequent show events (e.g. tab switches) leave the
+        user's zoom level intact.  ``_did_initial_fit`` is reset to False in
+        ``__init__`` and is never automatically reset, so user zoom is always
+        respected after the first auto-fit.
+
+        Args:
+            ev: The show event.
+        """
+        super().showEvent(ev)
+        if not self._did_initial_fit and self.solved is not None:
+            self.fit_strip()
+            self._did_initial_fit = True
 
     # ── Hit testing ───────────────────────────────────────────────────────────
 
