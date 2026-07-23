@@ -237,11 +237,11 @@ class TestRenderer:
         src = inspect.getsource(paper_space.TitleBlockTemplateItem)
         assert "setPointSize" not in src    # covers setPointSize and setPointSizeF
 
-    def test_non_ascii_logo_data_warns_no_exception(self):
+    def test_non_ascii_image_data_warns_no_exception(self):
         """Non-ASCII image_data must not raise; it must record a warning.
 
-        Rev-3 port: cells[0].logo_data → fields[0].image_data. The warning
-        names the field ("Image in 'Logo' could not be decoded.").
+        Rev-3 port of the rev-2 logo-data test. The warning names the field
+        ("Image in 'Logo' could not be decoded.").
         """
         item, _, _ = self._make(
             mutate=lambda v: setattr(v.fields[0], "image_data", "ñøŧ-æscii"))
