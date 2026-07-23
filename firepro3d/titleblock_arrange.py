@@ -1,9 +1,11 @@
-"""Arrangements tab internals: strip canvas (drag controller + pool in Task 9/10).
+"""Arrangements tab internals: strip canvas, pool list, and tab assembly.
 
 Governing spec: docs/specs/titleblock-template-system.md rev 3 (DD-16/17).
 Manual mouse tracking ONLY — native Qt DnD is banned here (testability).
 The canvas hosts ONE TitleBlockTemplateItem and hit-tests solved rects;
 gestures mutate the layout via the pure ops in titleblock_template.
+:class:`ArrangementsTab` assembles the three DD-17 columns (pool | canvas |
+placement props) as a dumb widget — signals out, ``refresh(layout)`` in.
 """
 from __future__ import annotations
 
@@ -17,13 +19,21 @@ from PyQt6.QtGui import (
     QWheelEvent,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsScene, QGraphicsView, QListWidget, QListWidgetItem,
+    QComboBox, QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox,
+    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
+    QVBoxLayout, QWidget,
 )
 
-from .constants import TB_INSERT_BAND_PX
+from .constants import TB_INSERT_BAND_PX, TB_POOL_CARD_W
+from .dimension_edit import DimensionEdit
+from .scale_manager import ScaleManager
 from .titleblock_template import (
     Slot, TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
 )
+
+# Module-level ScaleManager used as the dimension parser (same pattern as
+# titleblock_editor._sm: standalone → bare numbers parse as mm).
+_sm = ScaleManager()
 
 
 @dataclass
@@ -1052,3 +1062,95 @@ class PoolList(QListWidget):
             if self._canvas is not None:
                 self._canvas.clear_drop_hint()
         super().focusOutEvent(ev)
+
+
+class ArrangementsTab(QWidget):
+    """Three-column Arrangements tab (spec DD-17): pool | canvas | props.
+
+    Deliberately dumb: it owns no dialog/undo knowledge.  Signals flow OUT
+    through the child widgets (:class:`StripCanvas` gesture/selection signals,
+    ``min_height.valueChanged``, ``sizing.currentTextChanged``) and data flows
+    IN through :meth:`refresh`.
+
+    Columns:
+
+    1. "Unplaced fields:" label + :class:`PoolList` (fixed
+       ``TB_POOL_CARD_W`` width).
+    2. Warning banner (hidden when empty) above the :class:`StripCanvas`
+       (pool-bound) + a "Fit" button → :meth:`StripCanvas.fit_strip`.
+    3. "Placement" group (min-height ``DimensionEdit`` + Static/Dynamic
+       sizing combo; disabled until the dialog enables it on selection)
+       above the relocated strip-border group (DD-16: placement props
+       editable without tab-bouncing).
+    """
+
+    def __init__(self, strip_border_group: QWidget,
+                 parent: QWidget | None = None):
+        """Build the three columns.
+
+        Args:
+            strip_border_group: The dialog's "Info Strip Border" group widget;
+                re-parented here by insertion into column 3's layout (DD-17:
+                strip border lives on the Arrangements tab).
+            parent: Optional parent widget.
+        """
+        super().__init__(parent)
+        cols = QHBoxLayout(self)
+        cols.setSpacing(6)
+
+        # ── Column 1: unplaced-field pool ─────────────────────────────────
+        left = QVBoxLayout()
+        left.addWidget(QLabel("Unplaced fields:"))
+        self.pool = PoolList()
+        self.pool.setFixedWidth(TB_POOL_CARD_W)
+        left.addWidget(self.pool, stretch=1)
+        cols.addLayout(left)
+
+        # ── Column 2: warning banner + strip canvas + Fit ─────────────────
+        centre = QVBoxLayout()
+        self.banner = QLabel()
+        self.banner.setWordWrap(True)
+        self.banner.setStyleSheet("color: #b8620a; font-size: 11px;")
+        self.banner.setVisible(False)
+        centre.addWidget(self.banner)
+        self.canvas = StripCanvas()
+        self.pool.bind_canvas(self.canvas)
+        centre.addWidget(self.canvas, stretch=1)
+        fit_btn = QPushButton("Fit")
+        fit_btn.clicked.connect(self.canvas.fit_strip)
+        centre.addWidget(fit_btn)
+        cols.addLayout(centre, stretch=1)
+
+        # ── Column 3: placement props + relocated strip border ────────────
+        right = QVBoxLayout()
+        self.props_group = QGroupBox("Placement")
+        pf = QFormLayout(self.props_group)
+        pf.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self.min_height = DimensionEdit(None, initial_mm=10.0,
+                                        parser=_sm.parse_dimension,
+                                        minimum=0.0)
+        pf.addRow("Min height (mm):", self.min_height)
+        self.sizing = QComboBox()
+        self.sizing.addItems(["Static", "Dynamic"])
+        pf.addRow("Sizing:", self.sizing)
+        self.props_group.setEnabled(False)   # until a placed cell is selected
+        right.addWidget(self.props_group)
+        right.addWidget(strip_border_group)  # re-parented here (DD-17)
+        right.addStretch()
+        cols.addLayout(right)
+
+    def refresh(self, layout: TemplateLayout) -> None:
+        """Re-sync pool + canvas + warning banner from *layout*.
+
+        The canvas re-solves through its provider (which must already point
+        at the same working layout); the banner mirrors the solver warnings.
+
+        Args:
+            layout: The working :class:`TemplateLayout` (or an empty one to
+                clear the tab gracefully).
+        """
+        self.pool.set_fields(layout.pool_fields())
+        self.canvas.refresh()
+        warns = list(self.canvas.solved.warnings) if self.canvas.solved else []
+        self.banner.setText("\n".join(warns))
+        self.banner.setVisible(bool(warns))

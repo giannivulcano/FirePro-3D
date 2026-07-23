@@ -7,6 +7,7 @@ Tab organisation (rev3):
   Overview      — paper-size + orientation + three margin/strip DimensionEdits
   Drawing Area  — area-border group
   Fields        — roster + intrinsics form + single-field preview (DD-18)
+  Arrangements  — pool | strip canvas | placement props + strip border (DD-17)
 """
 from __future__ import annotations
 
@@ -40,6 +41,7 @@ from .paper_space import (
 )
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
+from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
@@ -380,9 +382,9 @@ class TitleBlockEditorDialog(QDialog):
 
         self._component_tabs.addTab(area_widget, "Drawing Area")
 
-        # ── Strip border: PARKED — joins the Arrangements tab in Task 10 (DD-17) ──
-        # Constructed here so strip_border change signals can still wire;
-        # the widget has no parent layout until Task 10.
+        # ── Strip border group — lives on the Arrangements tab (DD-17) ─────
+        # Constructed here so its change signals wire alongside the area
+        # border's; re-parented into the Arrangements tab's third column.
         self._strip_border = _BorderGroup("Info Strip Border")
 
         # Wire strip border change signals (writes strip_border to working + snapshot)
@@ -563,6 +565,20 @@ class TitleBlockEditorDialog(QDialog):
         fields_layout.addLayout(preview_col)
 
         self._component_tabs.addTab(fields_widget, "Fields")
+
+        # ── Tab 3: Arrangements (DD-17) ───────────────────────────────────
+        self._arrange_tab = ArrangementsTab(self._strip_border)
+        self._component_tabs.addTab(self._arrange_tab, "Arrangements")
+        canvas = self._arrange_tab.canvas
+        canvas.set_provider(self._arrange_provider)
+        canvas.gestureStarting.connect(self.push_snapshot)
+        canvas.gestureCompleted.connect(self._after_arrange_gesture)
+        canvas.selectionChanged.connect(self._on_canvas_selection)
+        canvas.unplaceRequested.connect(self._unplace_from_canvas)
+        self._arrange_tab.min_height.valueChanged.connect(
+            self._on_placement_min_height)
+        self._arrange_tab.sizing.currentTextChanged.connect(
+            self._on_placement_sizing)
 
         root.addLayout(centre, stretch=1)
 
@@ -868,6 +884,9 @@ class TitleBlockEditorDialog(QDialog):
             self._field_list.clear()
             self._field_form_widget.setEnabled(False)
             self._field_preview_scene.clear()
+            # Clear the Arrangements tab gracefully: refresh against an empty
+            # layout (provider falls back to the same empty state).
+            self._arrange_tab.refresh(TemplateLayout())
             return
 
         self._name_edit.setText(self.working.name)
@@ -877,6 +896,7 @@ class TitleBlockEditorDialog(QDialog):
         # Deselect field form when repopulating
         self._field_form_widget.setEnabled(False)
         self._field_preview_scene.clear()
+        self._arrange_tab.refresh(self.working.layout)
 
     def _populate_overview_fields(self) -> None:
         """Populate paper-size combo + orientation radios from working template."""
@@ -1245,6 +1265,7 @@ class TitleBlockEditorDialog(QDialog):
         # Select the new field
         new_row = len(self.working.layout.fields) - 1
         self._field_list.setCurrentRow(new_row)
+        self._arrange_tab.refresh(self.working.layout)   # new field → pool
         self.refresh_preview()
 
     def _duplicate_field(self) -> None:
@@ -1260,6 +1281,7 @@ class TitleBlockEditorDialog(QDialog):
         self._rebuild_field_list()
         new_row = len(self.working.layout.fields) - 1
         self._field_list.setCurrentRow(new_row)
+        self._arrange_tab.refresh(self.working.layout)   # copy starts in pool
         self.refresh_preview()
 
     def _delete_field(self) -> None:
@@ -1282,6 +1304,7 @@ class TitleBlockEditorDialog(QDialog):
         self._rebuild_field_list()
         self._field_form_widget.setEnabled(False)
         self._field_preview_scene.clear()
+        self._arrange_tab.refresh(lay)     # pool/canvas drop the deleted field
         self.refresh_preview()
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -1327,6 +1350,106 @@ class TitleBlockEditorDialog(QDialog):
                     solved.cell_rects[0], Qt.AspectRatioMode.KeepAspectRatio)
         except Exception as exc:
             _log.warning("Field preview error: %s", exc)
+
+    # ═════════════════════════════════════════════════════════════════════════
+    # Arrangements tab (DD-17) — provider, gesture hooks, placement props
+    # ═════════════════════════════════════════════════════════════════════════
+
+    def _arrange_provider(self) -> tuple:
+        """Provider for the strip canvas: (layout, paper_w, paper_h, values).
+
+        Falls back to an empty layout at ANSI D dims when no working template
+        is loaded, so the canvas renders a graceful empty state.
+        """
+        if self.working is None:
+            w, h = PAPER_SIZES.get("ANSI D", (863.6, 558.8))
+            return TemplateLayout(), w, h, _SAMPLE_VALUES
+        return (self.working.layout, *_template_page_mm(self.working),
+                _SAMPLE_VALUES)
+
+    def _after_arrange_gesture(self) -> None:
+        """Refresh all dependents after a completed arrangement gesture.
+
+        Connected to ``gestureCompleted`` (the snapshot was already pushed by
+        ``gestureStarting``); also called directly by the placement-prop and
+        Delete-unplace handlers after their own snapshot + mutation.
+        """
+        if self.working is None:
+            return
+        self._arrange_tab.refresh(self.working.layout)
+        self._rebuild_field_list(keep_row=True)      # placed indicators
+        self.refresh_preview()
+        # Re-sync placement props: the refresh may have cleared a stale
+        # selection (emitting selectionChanged("")), or the selected slot's
+        # values may have changed — re-populate from the surviving selection.
+        self._on_canvas_selection(self._arrange_tab.canvas.selected_field_id)
+
+    def _unplace_from_canvas(self, field_id: str) -> None:
+        """Unplace *field_id* on Delete-key request from the canvas.
+
+        Idempotency guard: a stale request for an already-unplaced field
+        (e.g. Delete re-fired on a stale selection) is a no-op — no snapshot.
+
+        Args:
+            field_id: The field to remove from the strip (stays in the pool).
+        """
+        if self.working is None:
+            return
+        if field_id not in self.working.layout.placed_ids():
+            return
+        self.push_snapshot()
+        unplace_field(self.working.layout, field_id)
+        self._after_arrange_gesture()
+
+    def _selected_slot(self) -> Slot | None:
+        """Return the Slot of the canvas's selected field, or None."""
+        fid = self._arrange_tab.canvas.selected_field_id
+        if not fid or self.working is None:
+            return None
+        for row in self.working.layout.rows:
+            for s in row:
+                if s.field_id == fid:
+                    return s
+        return None
+
+    def _on_canvas_selection(self, _field_id: str) -> None:
+        """Enable + populate the placement props for the selected slot.
+
+        Runs under a save/restore ``_loading`` guard so populating the
+        min-height edit and sizing combo never triggers the mutation slots
+        (and never clobbers an outer ``_loading`` context).
+        """
+        slot = self._selected_slot()
+        self._arrange_tab.props_group.setEnabled(slot is not None)
+        if slot is None:
+            return
+        prev_loading = self._loading
+        self._loading = True
+        try:
+            self._arrange_tab.min_height.set_value_mm(slot.min_height_mm)
+            self._arrange_tab.sizing.setCurrentText(
+                "Dynamic" if slot.sizing == "dynamic" else "Static")
+        finally:
+            self._loading = prev_loading
+
+    def _on_placement_min_height(self, mm: float) -> None:
+        """Snapshot + write the selected slot's min height (no-op guarded)."""
+        slot = self._selected_slot()
+        if self._loading or slot is None or slot.min_height_mm == mm:
+            return
+        self.push_snapshot()
+        slot.min_height_mm = mm
+        self._after_arrange_gesture()
+
+    def _on_placement_sizing(self, text: str) -> None:
+        """Snapshot + write the selected slot's sizing mode (no-op guarded)."""
+        slot = self._selected_slot()
+        val = text.lower()
+        if self._loading or slot is None or slot.sizing == val:
+            return
+        self.push_snapshot()
+        slot.sizing = val
+        self._after_arrange_gesture()
 
     # ═════════════════════════════════════════════════════════════════════════
     # Tab change handler

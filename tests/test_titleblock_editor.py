@@ -6,11 +6,14 @@ covers the new Fields tab behavior.
 """
 from unittest.mock import patch, MagicMock
 
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 import firepro3d.titleblock_template as tbt
-from firepro3d.titleblock_template import make_default_template
+from firepro3d.titleblock_template import make_default_template, place_field
 from firepro3d.titleblock_editor import TitleBlockEditorDialog
+from tests.test_titleblock_arrange import _drag_on_canvas, _mouse
 
 _app = QApplication.instance() or QApplication([])
 
@@ -811,11 +814,14 @@ class TestFieldsTab:
         assert dlg.working.layout.fields[1].kind == "revision_table"
 
     def test_tabs_are_overview_drawingarea_fields(self, tmp_path, monkeypatch):
-        """Component tabs must be exactly Overview / Drawing Area / Fields."""
+        """Component tabs: Overview / Drawing Area / Fields / Arrangements.
+
+        (Task 7 pinned three tabs; Task 10 added Arrangements — DD-17.)
+        """
         dlg = self._dlg(tmp_path, monkeypatch)
         tabs = [dlg._component_tabs.tabText(i)
                 for i in range(dlg._component_tabs.count())]
-        assert tabs == ["Overview", "Drawing Area", "Fields"]
+        assert tabs == ["Overview", "Drawing Area", "Fields", "Arrangements"]
 
     def test_dup_field_gets_fresh_id_and_copy_suffix(self, tmp_path, monkeypatch):
         """Duplicate creates a new unplaced field with a fresh id and ' (copy)' suffix."""
@@ -1110,3 +1116,182 @@ class TestBorderGroupWiring:
         assert len(dlg._undo_stack) == depth_before + 1, (
             f"Expected depth {depth_before + 1}, got {len(dlg._undo_stack)}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 10: Arrangements tab assembly + dialog integration (DD-17)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestArrangementsTab:
+    """Arrangements tab: 3-column assembly + snapshot-per-gesture wiring."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def _shown(self, tmp_path, monkeypatch):
+        """Dialog shown with the Arrangements tab current + canvas fitted.
+
+        mapFromScene needs a realized viewport for drag helpers to hit the
+        intended cells, so show + resize + fit before synthesizing mouse
+        events.
+        """
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.resize(1100, 800)
+        dlg.show()
+        dlg._component_tabs.setCurrentWidget(dlg._arrange_tab)
+        dlg._arrange_tab.canvas.fit_strip()
+        return dlg
+
+    @staticmethod
+    def _rows(dlg):
+        return [[s.field_id for s in r] for r in dlg.working.layout.rows]
+
+    @staticmethod
+    def _slot_of(dlg, fid):
+        return next(s for row in dlg.working.layout.rows
+                    for s in row if s.field_id == fid)
+
+    def test_tab_order(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        tabs = [dlg._component_tabs.tabText(i)
+                for i in range(dlg._component_tabs.count())]
+        assert tabs == ["Overview", "Drawing Area", "Fields", "Arrangements"]
+
+    def test_pool_shows_only_unplaced(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg._arrange_tab.pool.count() == 0      # default: all placed
+        dlg._new_field_btn.click()                     # adds unplaced field
+        assert dlg._arrange_tab.pool.count() == 1
+
+    def test_gesture_pushes_exactly_one_snapshot(self, tmp_path, monkeypatch):
+        dlg = self._shown(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        depth = len(dlg._undo_stack)
+        before = self._rows(dlg)
+        src = canvas.solved.cell_rects[1].center()
+        dst = QPointF(src.x(), canvas.solved.cell_rects[4].bottom())
+        _drag_on_canvas(canvas, src, dst)
+        assert self._rows(dlg) != before               # layout mutated
+        assert len(dlg._undo_stack) == depth + 1       # exactly one snapshot
+        dlg.undo()
+        assert self._rows(dlg) == before               # restored
+
+    def test_delete_key_unplaces_and_snapshots(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        depth = len(dlg._undo_stack)
+        QApplication.sendEvent(canvas, QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+            Qt.KeyboardModifier.NoModifier))
+        assert fid not in dlg.working.layout.placed_ids()
+        assert len(dlg._undo_stack) == depth + 1
+        assert dlg._arrange_tab.pool.count() == 1      # back in the pool
+        # Roster indicator flipped to unplaced (○) for that field
+        roster = {dlg._field_list.item(i).data(Qt.ItemDataRole.UserRole):
+                  dlg._field_list.item(i).text()
+                  for i in range(dlg._field_list.count())}
+        assert "○" in roster[fid]
+
+    def test_delete_stale_selection_noop(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        depth = len(dlg._undo_stack)
+        canvas.unplaceRequested.emit(fid)      # real unplace: one snapshot
+        canvas.unplaceRequested.emit(fid)      # stale re-emit: must be no-op
+        assert len(dlg._undo_stack) == depth + 1
+
+    def test_placement_props_follow_selection(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        tab = dlg._arrange_tab
+        canvas = tab.canvas
+        assert not tab.props_group.isEnabled()         # nothing selected yet
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        slot = self._slot_of(dlg, fid)
+        assert tab.props_group.isEnabled()
+        assert abs(tab.min_height.value_mm() - slot.min_height_mm) < 1e-9
+        depth = len(dlg._undo_stack)
+        # Widget-driven edit (setText + editingFinished, like other dim tests)
+        tab.min_height.setText("30")
+        tab.min_height.editingFinished.emit()
+        assert abs(slot.min_height_mm - 30.0) < 1e-6
+        assert len(dlg._undo_stack) == depth + 1
+
+    def test_sizing_change_writes_slot(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        tab = dlg._arrange_tab
+        canvas = tab.canvas
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        slot = self._slot_of(dlg, fid)
+        assert slot.sizing == "static"
+        depth = len(dlg._undo_stack)
+        tab.sizing.setCurrentText("Dynamic")
+        assert slot.sizing == "dynamic"
+        assert len(dlg._undo_stack) == depth + 1
+        # Clear selection, re-select the same field → combo shows Dynamic
+        far = QPointF(canvas.solved.strip_rect.left() - 100,
+                      canvas.solved.strip_rect.top())
+        canvas.select_at(far)
+        idx = canvas.solved.cell_field_ids.index(fid)
+        canvas.select_at(canvas.solved.cell_rects[idx].center())
+        assert tab.sizing.currentText() == "Dynamic"
+
+    def test_strip_border_lives_on_arrangements(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg._strip_border.parent() is not None
+        w = dlg._strip_border
+        while w is not None and w is not dlg._arrange_tab:
+            w = w.parentWidget()
+        assert w is dlg._arrange_tab
+
+    def test_banner_shows_solver_warnings(self, tmp_path, monkeypatch):
+        dlg = self._shown(tmp_path, monkeypatch)
+        lay = dlg.working.layout
+        fid = lay.rows[0][0].field_id
+        lay.field_map()[fid].text = "@[Nope]"          # unknown token → warn
+        dlg._arrange_tab.refresh(lay)
+        assert dlg._arrange_tab.banner.isVisible()
+        assert "Nope" in dlg._arrange_tab.banner.text()
+
+    def test_mid_drag_esc_does_not_close_dialog(self, tmp_path, monkeypatch):
+        dlg = self._shown(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        vp = canvas.viewport()
+        src = QPointF(canvas.mapFromScene(canvas.solved.cell_rects[1].center()))
+        _mouse(vp, QEvent.Type.MouseButtonPress, src)
+        _mouse(vp, QEvent.Type.MouseMove, src + QPointF(0, 40))
+        assert canvas._dragging                        # drag armed
+        QApplication.sendEvent(canvas, QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+            Qt.KeyboardModifier.NoModifier))
+        assert dlg.isVisible()                         # dialog NOT closed
+        assert not canvas._dragging                    # drag cancelled
+        _mouse(vp, QEvent.Type.MouseButtonRelease, src + QPointF(0, 40),
+               buttons=Qt.MouseButton.NoButton)
+        # Esc with no drag in flight → normal dialog reject
+        QApplication.sendEvent(dlg, QKeyEvent(
+            QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+            Qt.KeyboardModifier.NoModifier))
+        assert not dlg.isVisible()
+
+    def test_undo_after_gesture_resyncs_pool(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._new_field_btn.click()                     # unplaced pool field
+        fid = dlg.working.layout.fields[-1].id
+        assert dlg._arrange_tab.pool.count() == 1
+        # Simulate a completed place gesture: snapshot → op → completed hook
+        dlg.push_snapshot()
+        place_field(dlg.working.layout, fid, 0)
+        dlg._after_arrange_gesture()
+        assert dlg._arrange_tab.pool.count() == 0
+        dlg.undo()
+        assert dlg._arrange_tab.pool.count() == 1      # pool re-synced
+        assert fid not in dlg.working.layout.placed_ids()
