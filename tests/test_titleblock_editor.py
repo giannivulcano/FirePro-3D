@@ -813,15 +813,8 @@ class TestFieldsTab:
         assert not dlg._ftext_edit.isEnabled()
         assert dlg.working.layout.fields[1].kind == "revision_table"
 
-    def test_tabs_are_overview_drawingarea_fields(self, tmp_path, monkeypatch):
-        """Component tabs: Overview / Drawing Area / Fields / Arrangements.
-
-        (Task 7 pinned three tabs; Task 10 added Arrangements — DD-17.)
-        """
-        dlg = self._dlg(tmp_path, monkeypatch)
-        tabs = [dlg._component_tabs.tabText(i)
-                for i in range(dlg._component_tabs.count())]
-        assert tabs == ["Overview", "Drawing Area", "Fields", "Arrangements"]
+    # (test_tabs_are_overview_drawingarea_fields removed — duplicate of
+    #  TestArrangementsTab.test_tab_order.)
 
     def test_dup_field_gets_fresh_id_and_copy_suffix(self, tmp_path, monkeypatch):
         """Duplicate creates a new unplaced field with a fresh id and ' (copy)' suffix."""
@@ -1295,3 +1288,66 @@ class TestArrangementsTab:
         dlg.undo()
         assert dlg._arrange_tab.pool.count() == 1      # pool re-synced
         assert fid not in dlg.working.layout.placed_ids()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rev-3 review carry-ins: non-gesture canvas sync + placement-prop staleness
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestNonGestureCanvasSync:
+    """Overview strip-geometry / border edits and undo must keep the
+    Arrangements canvas and placement props in sync."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    @staticmethod
+    def _slot(dlg, fid):
+        return next(s for row in dlg.working.layout.rows
+                    for s in row if s.field_id == fid)
+
+    def test_overview_strip_width_updates_canvas(self, tmp_path, monkeypatch):
+        """A strip-width edit on the Overview tab re-solves the canvas."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        assert abs(canvas.solved.strip_rect.width() - 90.0) < 1e-6
+        dlg._strip_width_edit.setText("70")
+        dlg._strip_width_edit.editingFinished.emit()
+        assert abs(dlg.working.layout.strip_width_mm - 70.0) < 1e-6
+        assert abs(canvas.solved.strip_rect.width() - 70.0) < 1e-6, (
+            "Arrangements canvas not re-solved after Overview strip-width edit"
+        )
+
+    def test_strip_border_toggle_resolves_canvas(self, tmp_path, monkeypatch):
+        """Toggling strip border visibility re-solves the canvas (identity probe)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        canvas = dlg._arrange_tab.canvas
+        solved_before = canvas.solved
+        dlg._strip_border._visible.toggle()
+        assert not dlg.working.layout.strip_border.visible
+        assert canvas.solved is not solved_before, (
+            "Arrangements canvas not re-solved after strip-border change"
+        )
+
+    def test_undo_restores_placement_props_display(self, tmp_path, monkeypatch):
+        """After undoing a min-height edit the DimensionEdit shows the
+        reverted value (pre-fix: widget kept displaying the undone value)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        tab = dlg._arrange_tab
+        canvas = tab.canvas
+        canvas.select_at(canvas.solved.cell_rects[1].center())
+        fid = canvas.selected_field_id
+        orig = self._slot(dlg, fid).min_height_mm
+        tab.min_height.setText("30")
+        tab.min_height.editingFinished.emit()
+        assert abs(self._slot(dlg, fid).min_height_mm - 30.0) < 1e-6
+        dlg.undo()
+        # Model reverted…
+        assert abs(self._slot(dlg, fid).min_height_mm - orig) < 1e-6
+        # …and the widget displays the reverted value.
+        assert abs(tab.min_height.value_mm() - orig) < 1e-6, (
+            "Placement min-height widget shows a stale value after undo"
+        )

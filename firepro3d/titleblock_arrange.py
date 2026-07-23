@@ -170,8 +170,10 @@ class StripCanvas(QGraphicsView):
 
         self._scene.clear()
 
-        # Import here to avoid a circular import at module level
-        # (paper_space imports nothing from titleblock_arrange).
+        # Deferred for import cost, not for a cycle: paper_space is a large
+        # import hub and is only needed once a canvas actually renders.
+        # (There is no circular import — paper_space does not import this
+        # module.)
         from .paper_space import TitleBlockTemplateItem  # noqa: PLC0415
         item = TitleBlockTemplateItem(self.solved, lay, values)
         item.setFlag(

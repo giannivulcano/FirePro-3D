@@ -411,7 +411,10 @@ def pair_field(layout: TemplateLayout, field_id: str, row_index: int,
     member_ids = [s.field_id for s in target]
     if field_id in member_ids:
         if len(target) == 1:
-            return                # own single-slot row — no-op (DD-16)
+            # Own single-slot row — no-op.  Data-loss hardening (not a DD-16
+            # rule): falling through would _take_slot the field and drop its
+            # row, silently unplacing it.
+            return
         # Two-slot row: only swap when requested side differs from current side
         idx = member_ids.index(field_id)
         current_side = "left" if idx == 0 else "right"
@@ -534,8 +537,8 @@ class SolvedLayout:
     row_spans: list[tuple[int, int]]            # per row: (first flat idx, n)
     warnings: list[str]
     row_layout_indices: list[int] = field(default_factory=list)
-    # Per solved row: index of the originating row in variant.rows.
-    # Solved row k → variant.rows[row_layout_indices[k]].
+    # Per solved row: index of the originating row in layout.rows.
+    # Solved row k → layout.rows[row_layout_indices[k]].
     # Used by zone_at to return DropZone.row_index as a layout.rows index.
 
 
@@ -593,12 +596,12 @@ def _wrapped_height_mm(cell: FieldDef, text: str,
     return len(lines) * line_h_mm, lines
 
 
-def solve_layout(variant: TemplateLayout, paper_w_mm: float,
+def solve_layout(layout: TemplateLayout, paper_w_mm: float,
                  paper_h_mm: float, values: dict) -> SolvedLayout:
-    """Solve the parametric layout for one variant on one paper size (rev-3).
+    """Solve the parametric layout on one paper size (rev-3).
 
     Args:
-        variant: The template layout to solve (rev-3: fields + rows).
+        layout: The template layout to solve (rev-3: fields + rows).
         paper_w_mm: Paper width (mm).
         paper_h_mm: Paper height (mm).
         values: Resolved field values; key ``"__revisions__"`` optionally
@@ -612,13 +615,13 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         dropped (field_id not in layout.fields), image band with no room
         (band ≤ 0), and cells overflowing the strip bottom.
     """
-    m, ms, sw = (variant.margin_edge_mm, variant.margin_strip_mm,
-                 variant.strip_width_mm)
+    m, ms, sw = (layout.margin_edge_mm, layout.margin_strip_mm,
+                 layout.strip_width_mm)
     warnings: list[str] = []
     strip_rect = QRectF(paper_w_mm - m - sw, m, sw, paper_h_mm - 2 * m)
     area_rect = QRectF(m, m, paper_w_mm - 2 * m - sw - ms, paper_h_mm - 2 * m)
 
-    fmap = variant.field_map()
+    fmap = layout.field_map()
 
     cell_rects: list[QRectF] = []
     cell_field_ids: list[str] = []
@@ -632,11 +635,11 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
     #   (first_cell_idx, is_dynamic, solved_row_h, row_min_height_mm)
     row_info: list[tuple[int, bool, float, float]] = []
     row_spans: list[tuple[int, int]] = []
-    row_layout_indices: list[int] = []   # solved row k → variant.rows index
+    row_layout_indices: list[int] = []   # solved row k → layout.rows index
 
     y = strip_rect.top()
 
-    for layout_row_i, row in enumerate(variant.rows):
+    for layout_row_i, row in enumerate(layout.rows):
         # ── Filter dangling slots ──────────────────────────────────────────
         kept: list[tuple["Slot", FieldDef]] = []
         for slot in row:
@@ -644,7 +647,7 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
             if f is None:
                 warnings.append(
                     f"Arrangement references a missing field "
-                    f"({slot.field_id!r}); slot dropped.")
+                    f"('{slot.field_id}'); slot dropped.")
             else:
                 kept.append((slot, f))
         if not kept:
@@ -654,6 +657,9 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
         heights: list[float] = []
         lines_group: list[list[str]] = []
         text_heights: list[float] = []
+        # Per-kept-cell revision rows (newest-first), or None for non-tables —
+        # computed ONCE here and reused by the placement loop below.
+        rev_shown_group: list["list | None"] = []
 
         for slot, fdef in kept:
             # Token resolution (DD-13)
@@ -675,6 +681,9 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
                 shown = list(reversed(revs))[: fdef.revision_rows]
                 h = max(min_h,
                         TB_LABEL_ROW_MM + (len(shown) + 1) * TB_REV_ROW_MM)
+                rev_shown_group.append(shown)
+            else:
+                rev_shown_group.append(None)
 
             heights.append(h)
             lines_group.append(lines)
@@ -695,10 +704,8 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
             cell_field_ids.append(fdef.id)
             cell_lines.append(lines_group[ki])
             cell_text_h.append(text_heights[ki])
-            if fdef.kind == "revision_table":
-                revs = list(values.get("__revisions__", []))
-                shown = list(reversed(revs))[: fdef.revision_rows]
-                cell_revision_rows[flat_idx] = shown
+            if rev_shown_group[ki] is not None:
+                cell_revision_rows[flat_idx] = rev_shown_group[ki]
             x += cw
         y += row_h
 
@@ -725,11 +732,7 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
             for row_i, (first_cell_idx, row_dynamic, old_row_h, _) in enumerate(row_info):
                 extra_h = extras.get(row_i, 0.0) if row_dynamic else 0.0
                 new_row_h = old_row_h + extra_h
-                if row_i + 1 < len(row_info):
-                    next_first = row_info[row_i + 1][0]
-                    n_cells = next_first - first_cell_idx
-                else:
-                    n_cells = len(cell_rects) - first_cell_idx
+                n_cells = row_spans[row_i][1]
                 row_cw = strip_rect.width() / n_cells
                 x = strip_rect.left()
                 for ci in range(first_cell_idx, first_cell_idx + n_cells):
@@ -816,12 +819,12 @@ def solve_layout(variant: TemplateLayout, paper_w_mm: float,
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
-def validate(variant: TemplateLayout, paper_w_mm: float,
+def validate(layout: TemplateLayout, paper_w_mm: float,
              paper_h_mm: float) -> list[str]:
     """Save-blocking validation floors (spec §Layout Solver, rev 3).
 
     Args:
-        variant: The template layout to validate.
+        layout: The template layout to validate.
         paper_w_mm: Paper width (mm).
         paper_h_mm: Paper height (mm).
 
@@ -829,49 +832,49 @@ def validate(variant: TemplateLayout, paper_w_mm: float,
         List of error strings; empty list means valid.
     """
     errs: list[str] = []
-    if variant.margin_edge_mm < 0 or variant.margin_strip_mm < 0:
+    if layout.margin_edge_mm < 0 or layout.margin_strip_mm < 0:
         errs.append("Margins must be >= 0.")
-    if variant.strip_width_mm < TB_STRIP_MIN_MM:
+    if layout.strip_width_mm < TB_STRIP_MIN_MM:
         errs.append(f"Strip width must be >= {TB_STRIP_MIN_MM:g} mm.")
-    area_w = (paper_w_mm - 2 * variant.margin_edge_mm
-              - variant.strip_width_mm - variant.margin_strip_mm)
-    area_h = paper_h_mm - 2 * variant.margin_edge_mm
+    area_w = (paper_w_mm - 2 * layout.margin_edge_mm
+              - layout.strip_width_mm - layout.margin_strip_mm)
+    area_h = paper_h_mm - 2 * layout.margin_edge_mm
     if area_w < TB_AREA_MIN_MM or area_h < TB_AREA_MIN_MM:
         errs.append(f"Drawing area must be >= {TB_AREA_MIN_MM:g} mm "
                     "in each dimension.")
     # Fillet check against the actual rect for each frame, not the paper dims.
-    strip_h = paper_h_mm - 2 * variant.margin_edge_mm
-    strip_w = variant.strip_width_mm
-    if (variant.area_border.corner == "fillet"
-            and variant.area_border.fillet_radius_mm > min(area_w, area_h) / 2):
+    strip_h = paper_h_mm - 2 * layout.margin_edge_mm
+    strip_w = layout.strip_width_mm
+    if (layout.area_border.corner == "fillet"
+            and layout.area_border.fillet_radius_mm > min(area_w, area_h) / 2):
         errs.append("Fillet radius too large for the drawing area rect.")
-    if (variant.strip_border.corner == "fillet"
-            and variant.strip_border.fillet_radius_mm
+    if (layout.strip_border.corner == "fillet"
+            and layout.strip_border.fillet_radius_mm
             > min(strip_w, strip_h) / 2):
         errs.append("Fillet radius too large for the info-strip rect.")
     # ── Rev-3 row/field floors ────────────────────────────────────────────
-    if not variant.rows:
+    if not layout.rows:
         errs.append("Template needs at least one placed field.")
-    fmap = variant.field_map()
-    for row in variant.rows:
+    fmap = layout.field_map()
+    for row in layout.rows:
         if len(row) > 2:
             errs.append("A row can hold at most two fields.")
             break
-    for row in variant.rows:
+    for row in layout.rows:
         for slot in row:
             if slot.field_id not in fmap:
                 errs.append(
                     "Arrangement references a missing field "
-                    f"({slot.field_id!r}).")
+                    f"('{slot.field_id}').")
                 break
         else:
             continue
         break
-    for f in variant.fields:
+    for f in layout.fields:
         if f.cap_height_mm <= 0:
             errs.append("Field cap height must be > 0.")
             break
-    for row in variant.rows:
+    for row in layout.rows:
         for slot in row:
             if slot.min_height_mm < 0:
                 errs.append("Cell minimum height must be >= 0.")
@@ -880,9 +883,9 @@ def validate(variant: TemplateLayout, paper_w_mm: float,
             continue
         break
     # Min-stack check: sum of per-row max-slot minimums must fit strip height
-    strip_height = paper_h_mm - 2 * variant.margin_edge_mm
+    strip_height = paper_h_mm - 2 * layout.margin_edge_mm
     min_total = 0.0
-    for row in variant.rows:
+    for row in layout.rows:
         row_min = 0.0
         for slot in row:
             f = fmap.get(slot.field_id)

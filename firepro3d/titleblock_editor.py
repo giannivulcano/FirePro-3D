@@ -897,6 +897,10 @@ class TitleBlockEditorDialog(QDialog):
         self._field_form_widget.setEnabled(False)
         self._field_preview_scene.clear()
         self._arrange_tab.refresh(self.working.layout)
+        # Re-sync placement props from the (possibly restored) canvas
+        # selection so the min-height edit / sizing combo never display
+        # stale pre-undo values.
+        self._on_canvas_selection(self._arrange_tab.canvas.selected_field_id)
 
     def _populate_overview_fields(self) -> None:
         """Populate paper-size combo + orientation radios from working template."""
@@ -1477,6 +1481,21 @@ class TitleBlockEditorDialog(QDialog):
         variant.area_border = BorderStyle.from_dict(self._area_border.read())
         variant.strip_border = BorderStyle.from_dict(self._strip_border.read())
         self.refresh_preview()
+        self._refresh_arrange_canvas()   # strip border renders on the canvas
+
+    def _refresh_arrange_canvas(self) -> None:
+        """Re-solve the Arrangements canvas after a non-gesture edit.
+
+        Strip geometry (margins / strip width) and frame borders change what
+        the canvas renders but arrive from the Overview / border widgets —
+        outside the canvas's own gesture path — so those handlers call this
+        to keep the canvas current.  The ``getattr`` guard covers
+        construction order: during ``_build_ui`` the border/margin signals
+        are wired before ``_arrange_tab`` exists.
+        """
+        tab = getattr(self, "_arrange_tab", None)
+        if tab is not None and self.working is not None:
+            tab.refresh(self.working.layout)
 
     def _on_orientation_toggled(self, checked: bool) -> None:
         """Called when either orientation radio button's toggled signal fires.
@@ -1548,6 +1567,7 @@ class TitleBlockEditorDialog(QDialog):
         self.push_snapshot()
         self.working.layout.margin_edge_mm = mm
         self.refresh_preview()
+        self._refresh_arrange_canvas()   # strip rect depends on edge margin
 
     def set_margin_strip(self, mm: float) -> None:
         """Snapshot + mutate margin_strip_mm on the active layout."""
@@ -1556,6 +1576,7 @@ class TitleBlockEditorDialog(QDialog):
         self.push_snapshot()
         self.working.layout.margin_strip_mm = mm
         self.refresh_preview()
+        self._refresh_arrange_canvas()
 
     def set_strip_width(self, mm: float) -> None:
         """Snapshot + mutate strip_width_mm on the active layout."""
@@ -1564,6 +1585,7 @@ class TitleBlockEditorDialog(QDialog):
         self.push_snapshot()
         self.working.layout.strip_width_mm = mm
         self.refresh_preview()
+        self._refresh_arrange_canvas()
 
     def set_border_prop(self, which: str, prop: str, value) -> None:
         """Set a border property on the active layout's area or strip border.

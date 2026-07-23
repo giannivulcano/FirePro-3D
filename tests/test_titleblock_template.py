@@ -212,7 +212,7 @@ class TestSolveRev3Ported:
         f1 = FieldDef(id="s1", name="S1")
         lay = _lay3([f0, f1], [[Slot("s0", 400.0)], [Slot("s1", 400.0)]])
         sol = solve_layout(lay, self.PW, self.PH, {})
-        assert sol.warnings
+        assert any("overflow" in w.lower() for w in sol.warnings)
 
     # ── Revision table (was TestSolver) ──────────────────────────────────────
 
@@ -708,10 +708,21 @@ class TestResolveText:
         assert unknown == ["Nope"]
 
     def test_malformed_tokens_pass_through(self):
-        for text in ("@[Unclosed", "@[]", "@[a@[b]]"):
-            out, unknown = resolve_text(text, self.VALUES)
-            assert "@[" in out
-        assert resolve_text("@[]", self.VALUES) == ("@[]", [])
+        cases = {
+            "@[Unclosed": ("@[Unclosed", []),
+            "@[]": ("@[]", []),
+            # The inner "@[b]" is a valid-shaped token with an unknown key:
+            # it stays literal AND is reported; the outer malformed wrapper
+            # passes through untouched.
+            "@[a@[b]]": ("@[a@[b]]", ["b"]),
+        }
+        for text, expected in cases.items():
+            assert resolve_text(text, self.VALUES) == expected, text
+
+    def test_repeated_unknown_key_reported_once(self):
+        out, unknown = resolve_text("@[X] and @[X]", self.VALUES)
+        assert out == "@[X] and @[X]"
+        assert unknown == ["X"]          # deduped, first-appearance order
 
     def test_no_tokens_no_change(self):
         assert resolve_text("plain text", self.VALUES) == ("plain text", [])
@@ -865,6 +876,17 @@ class TestMigration:
         assert len(lay.rows) == 1
         assert len(lay.rows[0]) == 1
         assert lay.fields[0].text == "@[Title]"
+
+    def test_cells_ignored_when_fields_present(self):
+        """Dict with BOTH 'cells' and 'fields' keys → fields wins, cells ignored."""
+        d = {
+            "fields": [FieldDef(id="f1", name="New Era").to_dict()],
+            "rows": [[Slot("f1", 12.0).to_dict()]],
+            "cells": [self._old(field_key="Old Era", label="Old Era")],
+        }
+        lay = TemplateLayout.from_dict(d)
+        assert [f.name for f in lay.fields] == ["New Era"]
+        assert [[s.field_id for s in r] for r in lay.rows] == [["f1"]]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1115,6 +1137,21 @@ class TestArrangementOps:
     def test_pair_onto_full_row_is_noop(self):
         lay = self._lay()
         pair_field(lay, "d", 1, "left")    # row 1 already has 2 others
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a"], ["b", "c"]]
+
+    def test_pair_out_of_two_slot_row(self):
+        """Pairing a member OUT of its two-slot row into another row."""
+        fs = [FieldDef(id=i, name=i) for i in ("a", "b", "c")]
+        lay = TemplateLayout(fields=fs,
+                             rows=[[Slot("a")], [Slot("b"), Slot("c")]])
+        pair_field(lay, "c", 0, "right")
+        assert [[s.field_id for s in r] for r in lay.rows] == [
+            ["a", "c"], ["b"]]
+
+    def test_pair_negative_row_index_noop(self):
+        lay = self._lay()
+        pair_field(lay, "d", -1, "left")
         assert [[s.field_id for s in r] for r in lay.rows] == [
             ["a"], ["b", "c"]]
 
