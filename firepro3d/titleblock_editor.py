@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QMenu, QMessageBox, QPushButton, QPlainTextEdit, QRadioButton,
     QSizePolicy, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
-from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence, QStandardItemModel
+from PyQt6.QtGui import QBrush, QColor, QImage, QKeySequence
 
 from .titleblock_template import (
     TitleBlockTemplate, TemplateLayout, FieldDef, Slot, BorderStyle,
@@ -33,7 +33,10 @@ from .titleblock_template import (
     make_default_template, load_library, save_to_library, delete_from_library,
     solve_layout, validate,
 )
-from .paper_space import PAPER_SIZES, TitleBlockTemplateItem, PROJECT_STD_KEYS
+from .paper_space import (
+    PAPER_SIZES, TitleBlockTemplateItem, PROJECT_STD_KEYS,
+    DEFAULT_TITLE_BLOCK_FIELDS,
+)
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 from .constants import TB_PREVIEW_MIN_MM
@@ -49,17 +52,20 @@ _log = logging.getLogger("FirePro3D")
 # picker display names always match what build_field_values resolves.
 # Do NOT add a local copy; edit paper_space.PROJECT_STD_KEYS to add new keys.
 
-# Sample values used in the preview (no build_field_values needed)
-# DD-13: seed all standard keys so known-but-empty renders empty, not literal.
-_SAMPLE_VALUES = {
+# Preview sample values (DD-13): the KEY SET must match build_field_values —
+# derived from the same constants — so token-known/unknown behaves identically
+# in editor previews and on sheets. Values are illustrative samples.
+_SAMPLE_VALUES = {k: "" for k in PROJECT_STD_KEYS}
+_SAMPLE_VALUES.update({k: "" for k in DEFAULT_TITLE_BLOCK_FIELDS})
+_SAMPLE_VALUES["Date (auto)"] = ""
+_SAMPLE_VALUES.update({
     "Company": "Vulcano Fire Design Inc.", "Project": "Sample Project",
     "Address": "123 Example St", "Title": "Level 1 — Sprinkler Plan",
     "Scale": "1:100", "Date": "2026-07-21", "Drawn By": "GV",
     "Checked By": "—", "Drawing No": "FP-101", "Rev": "0",
-    "Sheet No": "",
     "__revisions__": [{"no": "1", "description": "Issued for permit",
                        "date": "07-21"}],
-}
+})
 
 # Field key groups for the Insert field ▾ picker and token helper
 _AUTO_FIELD_KEYS = ["Scale", "Date (auto)", "Sheet No"]
@@ -1049,8 +1055,12 @@ class TitleBlockEditorDialog(QDialog):
         f = self._sel_field()
         if f is None:
             return
+        # No-op guard: skip snapshot when group state matches the field's border.
+        new_border = BorderStyle.from_dict(self._field_border_group.read())
+        if new_border.to_dict() == f.border.to_dict():
+            return
         self.push_snapshot()
-        f.border = BorderStyle.from_dict(self._field_border_group.read())
+        f.border = new_border
         self.refresh_preview()
         self._refresh_field_preview()
 
@@ -1094,16 +1104,6 @@ class TitleBlockEditorDialog(QDialog):
     # ═════════════════════════════════════════════════════════════════════════
     # Fields tab — token insert
     # ═════════════════════════════════════════════════════════════════════════
-
-    def _populate_field_key_combo(self) -> None:
-        """Build the insert-menu key list (same key groups as the old cell picker).
-
-        "Sheet No" is visible but disabled (auto-computed; cannot be set by user).
-        Used by _show_insert_menu to build action groups.
-        """
-        # This method is kept for compatibility with existing tests that call it.
-        # The actual insert menu is built dynamically in _show_insert_menu.
-        pass
 
     def _insert_token(self, key: str) -> None:
         """Insert @[key] at the cursor in _ftext_edit, then commit."""
@@ -1157,19 +1157,48 @@ class TitleBlockEditorDialog(QDialog):
     # Fields tab — roster actions
     # ═════════════════════════════════════════════════════════════════════════
 
+    def _unique_field_name(self, base: str) -> str:
+        """Return a name unique among current field names.
+
+        Tries *base* first; on collision appends " 2", " 3", etc.
+
+        Args:
+            base: The desired base name (e.g. "New Field" or "Logo (copy)").
+
+        Returns:
+            A name that does not appear in the current layout's field name set.
+        """
+        existing = {f.name for f in self.working.layout.fields}
+        if base not in existing:
+            return base
+        n = 2
+        while f"{base} {n}" in existing:
+            n += 1
+        return f"{base} {n}"
+
+    @staticmethod
+    def _copy_base(name: str) -> str:
+        """Strip any trailing ' (copy)' or ' (copy) N' suffix from *name*.
+
+        Used by _duplicate_field so that duplicating a copy re-bases to the
+        canonical "X (copy)" series rather than nesting suffixes.
+
+        Args:
+            name: A field name that may end with " (copy)" or " (copy) N".
+
+        Returns:
+            The name with the copy suffix removed, or *name* unchanged if no
+            suffix is present.
+        """
+        import re as _re
+        return _re.sub(r" \(copy\)( \d+)?$", "", name)
+
     def _new_field(self) -> None:
         """Add a new unplaced field to the pool."""
         if self.working is None:
             return
         self.push_snapshot()
-        # Generate unique name "New Field", "New Field 2", etc.
-        existing = {f.name for f in self.working.layout.fields}
-        base = "New Field"
-        name = base
-        n = 1
-        while name in existing:
-            n += 1
-            name = f"{base} {n}"
+        name = self._unique_field_name("New Field")
         new_f = FieldDef(id=new_field_id(), name=name)
         self.working.layout.fields.append(new_f)
         self._rebuild_field_list()
@@ -1179,14 +1208,14 @@ class TitleBlockEditorDialog(QDialog):
         self.refresh_preview()
 
     def _duplicate_field(self) -> None:
-        """Duplicate the selected field with a fresh id and name + ' (copy)'."""
+        """Duplicate the selected field with a fresh id and a unique name."""
         f = self._sel_field()
         if self.working is None or f is None:
             return
         self.push_snapshot()
         new_f = FieldDef.from_dict(f.to_dict())
         new_f.id = new_field_id()
-        new_f.name = f.name + " (copy)"
+        new_f.name = self._unique_field_name(self._copy_base(f.name) + " (copy)")
         self.working.layout.fields.append(new_f)
         self._rebuild_field_list()
         new_row = len(self.working.layout.fields) - 1
@@ -1240,14 +1269,13 @@ class TitleBlockEditorDialog(QDialog):
                             break
 
             # Build a minimal one-row layout with just this field
-            from .titleblock_template import Slot as _Slot
             mini = TemplateLayout(
                 margin_edge_mm=0.0,
                 margin_strip_mm=0.0,
                 strip_width_mm=lay.strip_width_mm,
                 strip_border=BorderStyle(visible=False),
                 fields=[f],
-                rows=[[_Slot(f.id, slot_min_h)]],
+                rows=[[Slot(f.id, slot_min_h)]],
             )
             strip_w = lay.strip_width_mm
             preview_h = slot_min_h * 3

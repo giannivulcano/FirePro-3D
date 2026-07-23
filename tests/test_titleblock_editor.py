@@ -862,3 +862,83 @@ class TestFieldsTab:
         assert len(dlg._undo_stack) == depth_before, (
             "_field_prop must not snapshot when value is unchanged"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec-review fixes (DD-13, border no-op, dup-name dedup)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSampleValuesKeysetMatchesBuildFieldValues:
+    """DD-13: _SAMPLE_VALUES key set must cover build_field_values keys (minus __revisions__)."""
+
+    def test_sample_values_keyset_matches_build_field_values(self):
+        from firepro3d.paper_space import build_field_values, Sheet
+        from firepro3d.titleblock_editor import _SAMPLE_VALUES
+
+        vals = build_field_values(Sheet.create_default(), {})
+        # Every key produced by build_field_values (except __revisions__) must
+        # be present in _SAMPLE_VALUES so token-known/unknown behaves identically
+        # in editor previews and on sheets.
+        missing = set(vals) - {"__revisions__"} - set(_SAMPLE_VALUES)
+        assert not missing, (
+            f"Keys in build_field_values but absent from _SAMPLE_VALUES: {missing}"
+        )
+        # "Sheet No" must NOT be seeded (Insert-menu action is disabled; hand-typed
+        # @[Sheet No] must render literally + warn in both preview and on sheets).
+        assert "Sheet No" not in _SAMPLE_VALUES, (
+            "'Sheet No' must not be in _SAMPLE_VALUES (not seeded by build_field_values)"
+        )
+
+
+class TestDuplicateNamesDeduped:
+    """Duplicating the same field twice must produce 'X (copy)' then 'X (copy) 2'."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_duplicate_names_deduped(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        orig_name = dlg.working.layout.fields[0].name
+
+        # First duplicate → "X (copy)"
+        dlg._dup_field_btn.click()
+        names = [f.name for f in dlg.working.layout.fields]
+        assert orig_name + " (copy)" in names, (
+            f"First duplicate should be '{orig_name} (copy)'; got {names}"
+        )
+
+        # Select the copy just created (last item) and duplicate it
+        dlg._field_list.setCurrentRow(len(dlg.working.layout.fields) - 1)
+        dlg._dup_field_btn.click()
+        names2 = [f.name for f in dlg.working.layout.fields]
+        assert orig_name + " (copy) 2" in names2, (
+            f"Second duplicate should be '{orig_name} (copy) 2'; got {names2}"
+        )
+
+
+class TestBorderGroupReemitNoSnapshot:
+    """_on_field_border_changed with unchanged state must not push a snapshot."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_border_group_reemit_no_snapshot(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        # Select first field (it will have a default border)
+        dlg._field_list.setCurrentRow(0)
+        f = dlg.working.layout.fields[0]
+        # Load the group with the field's current border (matches current state)
+        dlg._field_border_group.load(f.border)
+        depth = len(dlg._undo_stack)
+        # Call the handler — group state matches field border → must NOT snapshot
+        dlg._on_field_border_changed()
+        assert len(dlg._undo_stack) == depth, (
+            "_on_field_border_changed must not push a snapshot when border is unchanged"
+        )
