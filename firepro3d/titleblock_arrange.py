@@ -15,13 +15,13 @@ from PyQt6.QtCore import (
     QEvent, QPointF, QRectF, Qt, pyqtSignal,
 )
 from PyQt6.QtGui import (
-    QBrush, QColor, QFocusEvent, QKeyEvent, QMouseEvent, QPainter, QPen,
-    QShowEvent, QWheelEvent,
+    QBrush, QColor, QFocusEvent, QHelpEvent, QKeyEvent, QMouseEvent,
+    QPainter, QPen, QShowEvent, QWheelEvent,
 )
 from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QGraphicsScene, QGraphicsView, QGroupBox,
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QVBoxLayout, QWidget,
+    QToolTip, QVBoxLayout, QWidget,
 )
 
 from .constants import TB_INSERT_BAND_PX, TB_POOL_CARD_W
@@ -239,6 +239,32 @@ class StripCanvas(QGraphicsView):
         if not self._did_initial_fit and self.solved is not None:
             self.fit_strip()
             self._did_initial_fit = True
+
+    # ── Tooltips ──────────────────────────────────────────────────────────────
+
+    def viewportEvent(self, ev: QEvent) -> bool:  # noqa: N802
+        """Show a field-name tooltip for the cell under the cursor.
+
+        Field names are invisible on the true render (cells show their
+        OUTPUT — resolved text / image / blank stamp), so hover is the
+        identification affordance (grill 2026-08-04 item 2). Name only;
+        placement facts live in the props panel on click.
+        """
+        if ev.type() == QEvent.Type.ToolTip and isinstance(ev, QHelpEvent):
+            name = ""
+            if self.solved is not None and self._layout_ref is not None:
+                idx = self.cell_index_at(self.mapToScene(ev.pos()))
+                if idx >= 0:
+                    fid = self.solved.cell_field_ids[idx]
+                    f = self._layout_ref.field_map().get(fid)
+                    name = (f.name or fid) if f is not None else ""
+            if name:
+                QToolTip.showText(ev.globalPos(), name, self.viewport())
+            else:
+                QToolTip.hideText()
+            ev.accept()
+            return True
+        return super().viewportEvent(ev)
 
     # ── Hit testing ───────────────────────────────────────────────────────────
 
@@ -999,6 +1025,9 @@ class PoolList(QListWidget):
             else:
                 glyph = "🅣"
             item = QListWidgetItem(f"{glyph} {f.name}\n   {first}")
+            # Field-name tooltip (grill 2026-08-04 item 2): the full name for
+            # cards whose text is elided by the narrow pool column.
+            item.setToolTip(f.name)
             item.setData(Qt.ItemDataRole.UserRole, f.id)
             self.addItem(item)
 

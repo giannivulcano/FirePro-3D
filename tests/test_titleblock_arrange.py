@@ -1,7 +1,7 @@
 """StripCanvas: render, hit-testing, zone detection, selection, gestures."""
-from PyQt6.QtCore import QEvent, QPointF, Qt
-from PyQt6.QtGui import QFocusEvent, QKeyEvent, QMouseEvent
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+from PyQt6.QtGui import QFocusEvent, QHelpEvent, QKeyEvent, QMouseEvent
+from PyQt6.QtWidgets import QApplication, QToolTip
 
 from firepro3d.constants import TB_INSERT_BAND_PX
 from firepro3d.titleblock_template import (
@@ -654,6 +654,95 @@ class TestGrabLoss:
         QApplication.sendEvent(pool, QFocusEvent(QEvent.Type.FocusOut))
         assert pool._drag_field_id == ""
         assert canvas._zone_hint is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Field-name tooltips (grill 2026-08-04 item 2): canvas cells + pool cards
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestTooltips:
+    """Hover identification: cells render their OUTPUT, so the field name is
+    invisible on the true render — the tooltip is the only name affordance.
+    Name only; placement facts live in the props panel."""
+
+    def _send_help_event(self, canvas, vp_pos):
+        ev = QHelpEvent(QEvent.Type.ToolTip, vp_pos,
+                        canvas.viewport().mapToGlobal(vp_pos))
+        QApplication.sendEvent(canvas.viewport(), ev)
+        return ev
+
+    def test_canvas_tooltip_names_field_under_cursor(self):
+        canvas, _ = _canvas()
+        canvas.fit_strip()
+        fid = canvas.solved.cell_field_ids[0]
+        fname = canvas._layout_ref.field_map()[fid].name
+        vp_pos = canvas.mapFromScene(canvas.solved.cell_rects[0].center())
+        self._send_help_event(canvas, vp_pos)
+        assert QToolTip.text() == fname
+
+    def test_canvas_tooltip_names_revision_table_and_stamp(self):
+        # The rev table and the empty stamp are the unidentifiable cells —
+        # they MUST be name-identifiable on hover (grill item 2).
+        canvas, lay = _canvas()
+        canvas.fit_strip()
+        for want in ("Revision Table", "Stamp"):
+            fid = next(f.id for f in lay.fields if f.name == want)
+            idx = canvas.solved.cell_field_ids.index(fid)
+            vp_pos = canvas.mapFromScene(canvas.solved.cell_rects[idx].center())
+            self._send_help_event(canvas, vp_pos)
+            assert QToolTip.text() == want
+
+    def test_canvas_tooltip_empty_off_strip(self, monkeypatch):
+        # QToolTip.hideText() fades out asynchronously (text() can stay stale
+        # for ~300ms), so assert deterministically at the QToolTip API
+        # boundary: an off-strip hover must never showText and must hideText.
+        canvas, _ = _canvas()
+        canvas.fit_strip()
+        shown, hidden = [], []
+        monkeypatch.setattr(QToolTip, "showText",
+                            lambda *a, **kw: shown.append(a))
+        monkeypatch.setattr(QToolTip, "hideText",
+                            lambda: hidden.append(1))
+        off = canvas.solved.strip_rect.topLeft() + QPointF(-30.0, -30.0)
+        vp_pos = canvas.mapFromScene(off)
+        ev = self._send_help_event(canvas, vp_pos)
+        assert shown == []
+        assert hidden == [1]
+        assert ev.isAccepted()
+
+    def test_canvas_tooltip_safe_before_first_refresh(self, monkeypatch):
+        # solved is None until refresh(); a ToolTip event must not crash.
+        shown = []
+        monkeypatch.setattr(QToolTip, "showText",
+                            lambda *a, **kw: shown.append(a))
+        canvas = StripCanvas()        # no provider, never refreshed
+        canvas.resize(200, 200)
+        canvas.show()
+        vp_pos = QPoint(50, 50)
+        ev = QHelpEvent(QEvent.Type.ToolTip, vp_pos,
+                        canvas.viewport().mapToGlobal(vp_pos))
+        QApplication.sendEvent(canvas.viewport(), ev)
+        assert shown == []
+
+    def test_canvas_tooltip_unnamed_field_falls_back_to_id(self):
+        fs = [FieldDef(id="anon", name="", text="hello")]
+        lay = TemplateLayout(fields=fs, rows=[[Slot("anon", 40.0)]])
+        canvas, _ = _canvas(lay)
+        canvas.fit_strip()
+        vp_pos = canvas.mapFromScene(canvas.solved.cell_rects[0].center())
+        self._send_help_event(canvas, vp_pos)
+        assert QToolTip.text() == "anon"
+
+    def test_pool_cards_carry_name_tooltips(self):
+        from firepro3d.titleblock_arrange import PoolList
+        fs = [FieldDef(id="r", name="Rev Table", kind="revision_table"),
+              FieldDef(id="i", name="Logo", image_data="abc"),
+              FieldDef(id="t", name="Note", text="hello\nworld")]
+        pool = PoolList()
+        pool.set_fields(fs)
+        for i, f in enumerate(fs):
+            assert pool.item(i).toolTip() == f.name
+            assert pool.item(i).toolTip()          # non-empty
 
 
 # ─────────────────────────────────────────────────────────────────────────────
