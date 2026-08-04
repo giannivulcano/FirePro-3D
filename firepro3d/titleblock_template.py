@@ -141,6 +141,7 @@ class FieldDef:
     image_data: str = ""                # base64 PNG; "" = none
     image_fit: str = "contain"
     image_position: str = "top"         # reserved (future side-by-side)
+    image_height_mm: float = 0.0        # explicit band height; 0 = remainder-band (legacy DD-15)
     font_family: str = "Arial"
     cap_height_mm: float = 3.0
     bold: bool = True
@@ -167,6 +168,7 @@ class FieldDef:
             image_data=d.get("image_data", ""),
             image_fit=d.get("image_fit", "contain"),
             image_position=d.get("image_position", "top"),
+            image_height_mm=float(d.get("image_height_mm", 0.0)),
             font_family=d.get("font_family", "Arial"),
             cap_height_mm=float(d.get("cap_height_mm", 3.0)),
             bold=bool(d.get("bold", True)),
@@ -673,8 +675,17 @@ def solve_layout(layout: TemplateLayout, paper_w_mm: float,
                 fdef, resolved, cw - 2 * TB_CELL_PAD_MM)
             extra = TB_LABEL_ROW_MM if fdef.label else 0.0
             min_h = max(0.0, slot.min_height_mm)
-            h = max(min_h, (h_text + extra + 2 * TB_CELL_PAD_MM)
-                    if resolved else min_h)
+            explicit_img = (fdef.image_data
+                            and fdef.image_height_mm > 0
+                            and fdef.kind != "revision_table")
+            if explicit_img:
+                # DD-15 (rev 2026-08-04): explicit image height — the cell
+                # grows to fit label + image + text.
+                h = max(min_h, extra + fdef.image_height_mm + h_text
+                        + 2 * TB_CELL_PAD_MM)
+            else:
+                h = max(min_h, (h_text + extra + 2 * TB_CELL_PAD_MM)
+                        if resolved else min_h)
 
             if fdef.kind == "revision_table":
                 revs = list(values.get("__revisions__", []))
@@ -778,9 +789,25 @@ def solve_layout(layout: TemplateLayout, paper_w_mm: float,
                 if th > 0 else None
             )
             band_bottom = inner.bottom() - th if th > 0 else inner.bottom()
-            if band_bottom - top > 1e-6:
-                img: "QRectF | None" = QRectF(
-                    inner.left(), top, inner.width(), band_bottom - top)
+            avail = band_bottom - top
+            if f.image_height_mm > 0:
+                # Explicit band (DD-15 rev): exactly image_height_mm, clamped
+                # to the available space (defensive — the height pass grew the
+                # cell, but a taller pair partner cannot shrink it below).
+                band_h = min(f.image_height_mm, avail)
+                if band_h > 1e-6:
+                    img: "QRectF | None" = QRectF(
+                        inner.left(), top, inner.width(), band_h)
+                    if band_h < f.image_height_mm - 1e-6:
+                        warnings.append(
+                            f"Image height reduced to fit in "
+                            f"'{f.name or f.id}'.")
+                else:
+                    img = None
+                    warnings.append(
+                        f"Image has no room in '{f.name or f.id}'.")
+            elif avail > 1e-6:
+                img = QRectF(inner.left(), top, inner.width(), avail)
             else:
                 img = None
                 warnings.append(

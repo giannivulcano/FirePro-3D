@@ -125,6 +125,44 @@ class TestSolveRev3:
         # Solved row 0 → layout row 1; solved row 1 → layout row 2.
         assert sol.row_layout_indices == [1, 2]
 
+    # ── Explicit image height (DD-15 revision, 2026-08-04) ───────────────────
+
+    def test_image_height_mm_roundtrip_and_default(self):
+        f = FieldDef(id="x", image_height_mm=12.5)
+        assert FieldDef.from_dict(f.to_dict()).image_height_mm == 12.5
+        d = f.to_dict()
+        del d["image_height_mm"]
+        assert FieldDef.from_dict(d).image_height_mm == 0.0   # old dicts → legacy
+
+    def test_explicit_image_height_grows_cell(self):
+        fs = [FieldDef(id="a", name="A", image_data="AAAA",
+                       image_height_mm=15.0)]
+        lay = _lay3(fs, [[Slot("a", 5.0)]])
+        solved = solve_layout(lay, 400.0, 300.0, {})
+        assert solved.cell_rects[0].height() == pytest.approx(
+            15.0 + 2 * TB_CELL_PAD_MM)
+        assert solved.cell_image_rects[0].height() == pytest.approx(15.0)
+
+    def test_explicit_image_height_stacks_with_label_and_text(self):
+        fs = [FieldDef(id="a", name="A", label="Company", text="Hello",
+                       image_data="AAAA", image_height_mm=10.0)]
+        lay = _lay3(fs, [[Slot("a", 5.0)]])
+        solved = solve_layout(lay, 400.0, 300.0, {})
+        img, txt = solved.cell_image_rects[0], solved.cell_text_rects[0]
+        assert img is not None and txt is not None
+        assert img.height() == pytest.approx(10.0)
+        assert solved.cell_rects[0].height() >= (
+            TB_LABEL_ROW_MM + 10.0 + txt.height() + 2 * TB_CELL_PAD_MM - 1e-6)
+
+    def test_zero_image_height_is_legacy_remainder_band(self):
+        fs = [FieldDef(id="a", name="A", image_data="AAAA",
+                       image_height_mm=0.0)]
+        lay = _lay3(fs, [[Slot("a", 5.0)]])
+        solved = solve_layout(lay, 400.0, 300.0, {})
+        assert solved.cell_rects[0].height() == pytest.approx(5.0)
+        assert solved.cell_image_rects[0].height() == pytest.approx(
+            5.0 - 2 * TB_CELL_PAD_MM)
+
     def test_dynamic_distribution_ignores_wrap_growth(self):
         # Row "a": dynamic, min 10, long text that wrap-grows well past 10.
         # Row "b": dynamic, min 30, no text.
