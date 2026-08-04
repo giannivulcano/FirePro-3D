@@ -424,30 +424,44 @@ class TitleBlockEditorDialog(QDialog):
         roster_col.addLayout(roster_btns)
         fields_layout.addLayout(roster_col)
 
-        # ── MIDDLE: intrinsics form ───────────────────────────────────────
+        # ── MIDDLE: intrinsics form (grouped — grill 2026-08-04) ──────────
         self._field_form_widget = QWidget()
         self._field_form_widget.setMinimumWidth(260)
         self._field_form_widget.setEnabled(False)
-        field_form = QFormLayout(self._field_form_widget)
-        field_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form_col = QVBoxLayout(self._field_form_widget)
+        form_col.setSpacing(6)
+
+        def _group(title):
+            box = QGroupBox(title)
+            f = QFormLayout(box)
+            f.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+            return box, f
+
+        # ── Identity group ────────────────────────────────────────────────
+        identity_box, identity_form = _group("Identity")
 
         # Name
         self._fname_edit = QLineEdit()
         self._fname_edit.editingFinished.connect(
             lambda: self._field_prop("name", self._fname_edit.text()))
-        field_form.addRow("Name:", self._fname_edit)
+        identity_form.addRow("Name:", self._fname_edit)
 
         # Label
         self._flabel_edit = QLineEdit()
         self._flabel_edit.editingFinished.connect(
             lambda: self._field_prop("label", self._flabel_edit.text()))
-        field_form.addRow("Label:", self._flabel_edit)
+        identity_form.addRow("Label:", self._flabel_edit)
 
         # Kind combo
         self._fkind_combo = QComboBox()
         self._fkind_combo.addItems(list(KINDS))
         self._fkind_combo.currentTextChanged.connect(self._on_kind_changed)
-        field_form.addRow("Kind:", self._fkind_combo)
+        identity_form.addRow("Kind:", self._fkind_combo)
+
+        form_col.addWidget(identity_box)
+
+        # ── Content group ─────────────────────────────────────────────────
+        content_box, content_form = _group("Content")
 
         # Text (multi-line) + Insert token button
         text_vbox = QVBoxLayout()
@@ -459,7 +473,7 @@ class TitleBlockEditorDialog(QDialog):
         self._insert_btn = QPushButton("Insert field ▾")
         self._insert_btn.clicked.connect(self._show_insert_menu)
         text_vbox.addWidget(self._insert_btn)
-        field_form.addRow("Text:", text_vbox)
+        content_form.addRow("Text:", text_vbox)
 
         # Image row
         img_row = QHBoxLayout()
@@ -477,7 +491,7 @@ class TitleBlockEditorDialog(QDialog):
         self._fimg_thumb.setStyleSheet("border: 1px solid #888; background: #fff;")
         img_row.addWidget(self._fimg_thumb)
         img_row.addStretch()
-        field_form.addRow("Image:", img_row)
+        content_form.addRow("Image:", img_row)
 
         # Revision rows spinbox (revision_table only)
         self._frev_rows = QSpinBox()
@@ -485,7 +499,12 @@ class TitleBlockEditorDialog(QDialog):
         self._frev_rows.setKeyboardTracking(False)
         self._frev_rows.valueChanged.connect(
             lambda v: self._field_prop("revision_rows", v))
-        field_form.addRow("Revision rows:", self._frev_rows)
+        content_form.addRow("Revision rows:", self._frev_rows)
+
+        form_col.addWidget(content_box)
+
+        # ── Text Style group ──────────────────────────────────────────────
+        style_box, style_form = _group("Text Style")
 
         # Text style: font family
         self._ffont_combo = QComboBox()
@@ -496,32 +515,43 @@ class TitleBlockEditorDialog(QDialog):
         # to avoid per-keystroke snapshots from currentTextChanged.
         self._ffont_combo.activated.connect(self._commit_font_family)
         self._ffont_combo.lineEdit().editingFinished.connect(self._commit_font_family)
-        field_form.addRow("Font:", self._ffont_combo)
+        style_form.addRow("Font:", self._ffont_combo)
 
         # Cap height
         self._fcap_height = DimensionEdit(None, initial_mm=3.0,
                                           parser=_sm.parse_dimension, minimum=0.0)
         self._fcap_height.valueChanged.connect(
             lambda v: self._field_prop("cap_height_mm", v))
-        field_form.addRow("Cap height (mm):", self._fcap_height)
+        style_form.addRow("Cap height (mm):", self._fcap_height)
 
-        # Bold / italic checkboxes
+        # Bold / italic checkboxes (one row)
         self._fbold = QCheckBox()
         self._fbold.toggled.connect(
             lambda b: self._field_prop("bold", b))
-        field_form.addRow("Bold:", self._fbold)
-
         self._fitalic = QCheckBox()
         self._fitalic.toggled.connect(
             lambda b: self._field_prop("italic", b))
-        field_form.addRow("Italic:", self._fitalic)
+        bi_row = QHBoxLayout()
+        bi_row.addWidget(self._fbold)
+        bi_row.addWidget(QLabel("Italic:"))
+        bi_row.addWidget(self._fitalic)
+        bi_row.addStretch()
+        style_form.addRow("Bold:", bi_row)
 
         # Alignment
         self._falign = QComboBox()
         self._falign.addItems(["left", "center", "right"])
         self._falign.currentTextChanged.connect(
             lambda t: self._field_prop("alignment", t))
-        field_form.addRow("Alignment:", self._falign)
+        style_form.addRow("Alignment:", self._falign)
+
+        form_col.addWidget(style_box)
+
+        # ── Fill & Border group ───────────────────────────────────────────
+        fb_box = QGroupBox("Fill & Border")
+        fb_col = QVBoxLayout(fb_box)
+        fb_form = QFormLayout()
+        fb_form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         # Fill color swatch + None clear
         fill_row = QHBoxLayout()
@@ -534,7 +564,8 @@ class TitleBlockEditorDialog(QDialog):
             lambda: self._field_prop("fill_color", ""))
         fill_row.addWidget(fill_clear_btn)
         fill_row.addStretch()
-        field_form.addRow("Fill:", fill_row)
+        fb_form.addRow("Fill:", fill_row)
+        fb_col.addLayout(fb_form)
 
         # Cell border group
         self._field_border_group = _BorderGroup("Cell Border")
@@ -548,7 +579,10 @@ class TitleBlockEditorDialog(QDialog):
             lambda _: self._on_field_border_changed())
         self._field_border_group._fillet.valueChanged.connect(
             lambda _: self._on_field_border_changed())
-        field_form.addRow(self._field_border_group)
+        fb_col.addWidget(self._field_border_group)
+
+        form_col.addWidget(fb_box)
+        form_col.addStretch()
 
         fields_layout.addWidget(self._field_form_widget)
 

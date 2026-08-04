@@ -871,6 +871,34 @@ class TestFieldsTab:
                  if isinstance(it, QGraphicsRectItem)]
         assert any(r.brush().color().name() == "#ffffff" for r in rects)
 
+    def test_fields_form_grouped_into_containers(self, tmp_path, monkeypatch):
+        """The Fields intrinsics form is organised into four titled group boxes
+        (grill 2026-08-04 item 5), and each widget lives in its expected group."""
+        from PyQt6.QtWidgets import QGroupBox
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        groups = {g.title(): g for g in
+                  dlg._field_form_widget.findChildren(QGroupBox)}
+        assert {"Identity", "Content", "Text Style",
+                "Fill & Border", "Cell Border"} <= set(groups)
+
+        def owner(widget):
+            p = widget.parent()
+            while p is not None and not isinstance(p, QGroupBox):
+                p = p.parent()
+            return p.title() if p is not None else None
+
+        assert owner(dlg._fname_edit) == "Identity"
+        assert owner(dlg._fkind_combo) == "Identity"
+        assert owner(dlg._ftext_edit) == "Content"
+        assert owner(dlg._fimg_btn) == "Content"
+        assert owner(dlg._frev_rows) == "Content"
+        assert owner(dlg._ffont_combo) == "Text Style"
+        assert owner(dlg._fbold) == "Text Style"
+        assert owner(dlg._fitalic) == "Text Style"
+        assert owner(dlg._ffield_fill_swatch) == "Fill & Border"
+        assert owner(dlg._field_border_group._visible) == "Cell Border"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec-review fixes (DD-13, border no-op, dup-name dedup)
