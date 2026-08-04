@@ -1280,3 +1280,41 @@ class TestArrangementOps:
         pair_field(lay, "a", 0, "right")
         assert [[s.field_id for s in r] for r in lay.rows] == [["a"], ["b"]]
         assert lay.rows[0][0].min_height_mm == 33.0
+
+
+class TestProjectInfoMigration:
+    """One-way, idempotent address→address-lines migration (2026-08-04)."""
+
+    def _mig(self, info):
+        from firepro3d.titleblock_template import migrate_project_info
+        return migrate_project_info(info)
+
+    def test_old_keys_migrate_and_join(self):
+        out = self._mig({"name": "P", "address": "123 Example St",
+                         "city": "Victoria", "state": "BC"})
+        assert out["address1"] == "123 Example St"
+        assert out["address2"] == "Victoria, BC"
+        for gone in ("address", "city", "state"):
+            assert gone not in out
+        assert out["name"] == "P"
+
+    def test_partial_old_keys(self):
+        out = self._mig({"city": "Victoria"})
+        assert out["address2"] == "Victoria"
+        assert "address1" not in out
+
+    def test_new_format_untouched_and_idempotent(self):
+        new = {"address1": "A", "address2": "B", "address3": "C"}
+        assert self._mig(dict(new)) == new
+        once = self._mig({"address": "Old", "city": "V", "state": "BC"})
+        assert self._mig(dict(once)) == once
+
+    def test_new_keys_win_over_old(self):
+        out = self._mig({"address": "Old St", "address1": "New St",
+                         "city": "V", "address2": "Kept"})
+        assert out["address1"] == "New St"
+        assert out["address2"] == "Kept"
+
+    def test_non_dict_returns_empty(self):
+        assert self._mig(None) == {}
+        assert self._mig("junk") == {}

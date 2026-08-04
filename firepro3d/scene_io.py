@@ -325,8 +325,12 @@ class SceneIOMixin:
 
         # --- Title block template (embedded copy is authoritative) ---
         self._titleblock_template = payload.get("titleblock_template", None)
-        from .titleblock_template import migrate_legacy_fields
+        from .titleblock_template import migrate_legacy_fields, migrate_project_info
         from .paper_space import DEFAULT_TITLE_BLOCK_FIELDS
+        # One-way address-key migration (2026-08-04): address/city/state →
+        # address1/address2 before anything reads the dict.
+        self._project_info = migrate_project_info(
+            getattr(self, "_project_info", {}))
         try:
             migrate_legacy_fields(
                 [s.title_block_fields for s in self._sheets],

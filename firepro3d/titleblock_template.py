@@ -1050,6 +1050,37 @@ _LEGACY_PROJECT_KEYS = {"Company": "", "Project": "name",
 # Sheet-scoped keys that stay per-sheet after migration (public for scene_io tests).
 LEGACY_SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
 
+
+def migrate_project_info(info) -> dict:
+    """One-way, idempotent migration of project address keys (2026-08-04).
+
+    ``address`` → ``address1``; ``city`` + ``state`` join (", ") into
+    ``address2``. New-format keys win when both are present; the old keys are
+    removed either way. Non-dict input returns ``{}`` (mirrors the loader's
+    default for a missing/corrupt container).
+
+    Args:
+        info: The raw ``project_info`` dict from a project payload.
+
+    Returns:
+        The migrated dict (a copy when migration applies, the original
+        object when there is nothing to migrate).
+    """
+    if not isinstance(info, dict):
+        return {}
+    if not any(k in info for k in ("address", "city", "state")):
+        return info
+    out = dict(info)
+    old_addr = str(out.pop("address", "") or "").strip()
+    joined = ", ".join(p for p in (str(out.pop("city", "") or "").strip(),
+                                   str(out.pop("state", "") or "").strip())
+                       if p)
+    if old_addr and not out.get("address1"):
+        out["address1"] = old_addr
+    if joined and not out.get("address2"):
+        out["address2"] = joined
+    return out
+
 # Bump this string whenever the shipped seed design changes so divergence checks
 # pick up the new layout.
 DEFAULT_SEED_MODIFIED = "2026-07-23"

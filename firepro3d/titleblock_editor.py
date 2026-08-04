@@ -37,7 +37,7 @@ from .titleblock_template import (
 )
 from .paper_space import (
     PAPER_SIZES, TitleBlockTemplateItem, PROJECT_STD_KEYS,
-    DEFAULT_TITLE_BLOCK_FIELDS,
+    PROJECT_TOKEN_ALIASES, DEFAULT_TITLE_BLOCK_FIELDS,
 )
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
@@ -61,11 +61,14 @@ _UNDO_STACK_MAX = 50
 # derived from the same constants — so token-known/unknown behaves identically
 # in editor previews and on sheets. Values are illustrative samples.
 _SAMPLE_VALUES = {k: "" for k in PROJECT_STD_KEYS}
+_SAMPLE_VALUES.update({k: "" for k in PROJECT_TOKEN_ALIASES})
 _SAMPLE_VALUES.update({k: "" for k in DEFAULT_TITLE_BLOCK_FIELDS})
 _SAMPLE_VALUES["Date (auto)"] = "22 Jul 2026"
 _SAMPLE_VALUES.update({
     "Company": "Vulcano Fire Design Inc.", "Project": "Sample Project",
-    "Address": "123 Example St", "Title": "Level 1 — Sprinkler Plan",
+    "Address Line 1": "123 Example St",
+    "Address": "123 Example St",   # legacy alias mirrors Line 1
+    "Title": "Level 1 — Sprinkler Plan",
     "Scale": "1:100", "Date": "2026-07-21", "Drawn By": "GV",
     "Checked By": "—", "Drawing No": "FP-101", "Rev": "0",
     "__revisions__": [{"no": "1", "description": "Issued for permit",

@@ -1979,14 +1979,17 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(dlg)
 
         _STANDARD_FIELDS = [
-            ("Project Name",      "name"),
-            ("Project Number",    "number"),
-            ("Address",           "address"),
-            ("City",              "city"),
-            ("State / Province",  "state"),
-            ("Client",            "client"),
-            ("Designer",          "designer"),
-            ("Description",       "description"),
+            ("Project Name",           "name"),
+            ("Project Number",         "number"),
+            ("Address Line 1",         "address1"),
+            ("Address Line 2",         "address2"),
+            ("Address Line 3",         "address3"),
+            ("Client",                 "client"),
+            ("Client Address Line 1",  "client_address1"),
+            ("Client Address Line 2",  "client_address2"),
+            ("Client Address Line 3",  "client_address3"),
+            ("Designer",               "designer"),
+            ("Description",            "description"),
         ]
         custom = info.get("custom", [])  # [{"key": ..., "value": ...}, ...]
 

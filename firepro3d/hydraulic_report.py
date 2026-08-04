@@ -488,9 +488,9 @@ class HydraulicReportWidget(QWidget):
         scene = self._scene
 
         info = getattr(scene, "_project_info", {}) or {}
-        addr = ", ".join(p for p in (info.get("address", ""),
-                                     info.get("city", ""),
-                                     info.get("state", "")) if p)
+        addr = ", ".join(p for p in (info.get("address1", ""),
+                                     info.get("address2", ""),
+                                     info.get("address3", "")) if p)
         project = [
             ("Project Name",     info.get("name") or _DASH),
             ("Project Number",   info.get("number") or _DASH),

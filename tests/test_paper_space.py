@@ -681,6 +681,33 @@ class TestBuildFieldValuesSeeding:
         assert vals["Title"] == "Plan"
         assert vals["Project"] == "Proj X"
 
+    def test_address_line_keys_resolve(self, qapp):
+        """2026-08-04: project + client address lines are standard keys."""
+        sheet = Sheet("", "", "ANSI D", {}, [])
+        info = {"address1": "123 Example St", "address2": "Victoria, BC",
+                "client_address1": "9 Client Way"}
+        vals = build_field_values(sheet, info)
+        assert vals["Address Line 1"] == "123 Example St"
+        assert vals["Address Line 2"] == "Victoria, BC"
+        assert vals["Address Line 3"] == ""
+        assert vals["Client Address Line 1"] == "9 Client Way"
+        assert vals["Client Address Line 2"] == ""
+        assert vals["Client Address Line 3"] == ""
+
+    def test_legacy_address_token_aliases(self, qapp):
+        """@[Address] stays token-known and mirrors Line 1; @[City]/@[State]
+        stay known-but-empty (their data migrated into Address Line 2), so
+        old templates render blank there instead of a literal token + warn."""
+        sheet = Sheet("", "", "ANSI D", {}, [])
+        vals = build_field_values(sheet, {"address1": "123 Example St"})
+        assert vals["Address"] == "123 Example St"
+        assert vals["City"] == ""
+        assert vals["State"] == ""
+        # And with no info at all, every alias is still seeded (token-known).
+        empty = build_field_values(sheet, {})
+        for key in ("Address", "City", "State"):
+            assert key in empty and empty[key] == ""
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TitleBlockTemplateItem rev-3 renderer

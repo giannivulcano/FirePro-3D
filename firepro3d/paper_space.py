@@ -2476,12 +2476,27 @@ class TitleBlockItem(QGraphicsItem):
 # Project→name mapping must stay in sync with _LEGACY_PROJECT_KEYS in titleblock_template.py
 # Public alias used by titleblock_editor.py to build the picker list so that
 # editor display names always match what build_field_values resolves.
+# 2026-08-04: City/State replaced by free-form address lines (project + client);
+# migrate_project_info() in titleblock_template.py moves old data on load.
 PROJECT_STD_KEYS = {"Project": "name", "Project Number": "number",
-                    "Address": "address", "City": "city", "State": "state",
-                    "Client": "client", "Designer": "designer",
+                    "Address Line 1": "address1",
+                    "Address Line 2": "address2",
+                    "Address Line 3": "address3",
+                    "Client": "client",
+                    "Client Address Line 1": "client_address1",
+                    "Client Address Line 2": "client_address2",
+                    "Client Address Line 3": "client_address3",
+                    "Designer": "designer",
                     "Description": "description"}
 # Internal alias kept for back-compat within this module.
 _PROJECT_STD_KEYS = PROJECT_STD_KEYS
+
+# Legacy token aliases (2026-08-04): display key → info key it now resolves
+# from. Kept token-known so pre-existing templates render — @[Address] mirrors
+# Address Line 1 (the seeded default uses it); @[City]/@[State] render empty
+# (their data migrated into Address Line 2). NOT shown in the editor's
+# Insert-field picker (that lists PROJECT_STD_KEYS only).
+PROJECT_TOKEN_ALIASES = {"Address": "address1", "City": "", "State": ""}
 
 
 def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
@@ -2506,12 +2521,17 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     # second derivation: token-known == present in this dict.
     for display in _PROJECT_STD_KEYS:
         vals[display] = ""
+    for display in PROJECT_TOKEN_ALIASES:
+        vals[display] = ""
     # Derive from the module-level constant so any future standard key stays
     # token-known without a second edit here.
     for key in DEFAULT_TITLE_BLOCK_FIELDS:
         vals.setdefault(key, "")
     for display, info_key in _PROJECT_STD_KEYS.items():
         if project_info.get(info_key):
+            vals[display] = project_info[info_key]
+    for display, info_key in PROJECT_TOKEN_ALIASES.items():
+        if info_key and project_info.get(info_key):
             vals[display] = project_info[info_key]
     for row in project_info.get("custom", []):
         if isinstance(row, dict) and row.get("key"):
