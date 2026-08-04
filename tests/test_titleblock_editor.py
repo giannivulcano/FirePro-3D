@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 
 import firepro3d.titleblock_template as tbt
 from firepro3d.titleblock_template import make_default_template, place_field
@@ -61,6 +61,7 @@ class TestEditorSession:
         dlg.working.layout.strip_width_mm = 5.0   # under floor
         dlg.refresh_preview()
         assert not dlg.save_button.isEnabled()
+        assert not dlg.save_close_button.isEnabled()  # gating mirrors both
 
     def test_new_duplicate_save(self, tmp_path, monkeypatch):
         dlg = self._dlg(tmp_path, monkeypatch)
@@ -105,6 +106,63 @@ class TestEditorSession:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Save / Save & Close / Close button semantics (grill 2026-08-04 item 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSaveButtonsRow:
+    """Save stays open + emits templateSaved; Save & Close accepts; Close rejects."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg, t
+
+    def test_save_stays_open_and_emits(self, tmp_path, monkeypatch):
+        """Mid-session Save writes the library, emits templateSaved with a COPY,
+        and does NOT close the dialog."""
+        dlg, t = self._dlg(tmp_path, monkeypatch)
+        dlg.show()
+        assert dlg.save_button.isEnabled()
+        received = []
+        dlg.templateSaved.connect(received.append)
+        dlg.working.layout.strip_width_mm = 95.0
+        dlg.save_button.click()
+        assert dlg.isVisible(), "Save must NOT close the dialog"
+        assert len(received) == 1
+        saved = received[0]
+        assert saved.uuid == dlg.working.uuid
+        assert saved is not dlg.working, "templateSaved must carry a copy"
+        lib = {tt.uuid: tt for tt in tbt.load_library()}
+        assert saved.uuid in lib
+        assert lib[saved.uuid].layout.strip_width_mm == 95.0
+        dlg.close()
+
+    def test_save_and_close_accepts(self, tmp_path, monkeypatch):
+        """Save & Close = the pre-2026-08-04 Save behavior (save + accept)."""
+        dlg, t = self._dlg(tmp_path, monkeypatch)
+        dlg.show()
+        dlg.working.layout.strip_width_mm = 96.0
+        dlg.save_close_button.click()
+        assert dlg.result() == QDialog.DialogCode.Accepted
+        assert not dlg.isVisible()
+        assert tbt.load_library()[0].layout.strip_width_mm == 96.0
+
+    def test_close_button_rejects_without_saving(self, tmp_path, monkeypatch):
+        """Close = the old Cancel: reject without any library write."""
+        dlg, t = self._dlg(tmp_path, monkeypatch)
+        dlg.show()
+        calls = []
+        monkeypatch.setattr(dlg, "save", lambda: calls.append(1) or True)
+        dlg.close_button.click()
+        assert dlg.result() == QDialog.DialogCode.Rejected
+        assert not dlg.isVisible()
+        assert not calls, "Close must not call save()"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Finding 1: modified-stamp preserved on failed save
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -146,6 +204,7 @@ class TestSaveButtonInitialState:
         # Empty library, no project template
         dlg = TitleBlockEditorDialog(project_template=None)
         assert not dlg.save_button.isEnabled()
+        assert not dlg.save_close_button.isEnabled()  # gating mirrors both
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -305,11 +364,11 @@ class TestUseSaveOrdering:
         NEW_WIDTH = 111.0
         dlg.set_strip_width(NEW_WIDTH)
 
-        # Drive _on_save_clicked (save succeeds since the template is valid).
-        # Patch accept() so the dialog doesn't try to close.
+        # Drive Save & Close (the pre-2026-08-04 Save; save succeeds since the
+        # template is valid). Patch accept() so the dialog doesn't try to close.
         accepted = []
         monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
-        dlg._on_save_clicked()
+        dlg.save_close_button.click()
 
         # project_template_result must carry the new width AND today's modified stamp.
         assert dlg.project_template_result is not None
@@ -320,7 +379,7 @@ class TestUseSaveOrdering:
         assert dlg.project_template_result.modified == datetime.date.today().isoformat(), (
             "project_template_result.modified not stamped to today"
         )
-        assert accepted, "_on_save_clicked did not call accept()"
+        assert accepted, "Save & Close did not call accept()"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -936,6 +995,18 @@ class TestFieldsTab:
         f = dlg.working.layout.fields[0]
         assert f.border.edge_top is True
         assert grp._corner.isEnabled()
+
+    def test_field_selection_loads_stored_edge_flags_and_gates_corner(
+            self, tmp_path, monkeypatch):
+        """Selecting a field whose STORED border has an edge off must show the
+        edge checkbox unchecked and disable the Corner combo (load-path gating
+        via _BorderGroup.load → _sync_fillet_enabled)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.working.layout.fields[0].border.edge_top = False
+        dlg._field_list.setCurrentRow(0)
+        grp = dlg._field_border_group
+        assert not grp._edge_top.isChecked()
+        assert not grp._corner.isEnabled()
 
     def test_frame_border_groups_have_no_edge_checkboxes(
             self, tmp_path, monkeypatch):

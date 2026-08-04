@@ -18,7 +18,7 @@ import logging
 import re as _re
 import uuid as _uuid
 
-from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent
+from PyQt6.QtCore import Qt, QBuffer, QIODevice, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QGraphicsScene, QGraphicsView,
@@ -199,7 +199,11 @@ class _BorderGroup(QGroupBox):
         self._fillet.setToolTip(tip)
 
     def load(self, style) -> None:
-        """Populate widgets from a BorderStyle (without triggering signals)."""
+        """Populate widgets from a BorderStyle.
+
+        Widget setters DO fire signals; callers must run under the dialog's
+        ``_loading`` guard.
+        """
         self._visible.setChecked(style.visible)
         self._width.set_value_mm(style.width_mm)
         _update_swatch(self._color_btn, style.color)
@@ -254,6 +258,11 @@ class TitleBlockEditorDialog(QDialog):
         Set by use_for_project(); None if the user never clicked "Use for project".
     """
 
+    #: Emitted after a successful mid-session Save with a COPY of the saved
+    #: template. MainWindow uses it to live-refresh the project template
+    #: (uuid match) without waiting for dialog close.
+    templateSaved = pyqtSignal(object)
+
     def __init__(self, project_template: TitleBlockTemplate | None = None,
                  parent: QWidget | None = None,
                  project_info: dict | None = None):
@@ -265,7 +274,7 @@ class TitleBlockEditorDialog(QDialog):
         self.working: TitleBlockTemplate | None = None
         self.project_template_result: TitleBlockTemplate | None = None
         self._project_info = project_info or {}
-        self._use_requested = False   # set by use_for_project(); read by _on_save_clicked
+        self._use_requested = False   # set by use_for_project(); read by _do_save
 
         # ── Snapshot undo/redo stacks ─────────────────────────────────────
         # Each entry is a dict snapshot from TitleBlockTemplate.to_dict()
@@ -696,7 +705,7 @@ class TitleBlockEditorDialog(QDialog):
 
         root.addLayout(centre, stretch=1)
 
-        # ── Bottom: warnings + Save/Cancel (outside tabs, visible on every tab) ──
+        # ── Bottom: warnings + Save / Save && Close / Close (outside tabs) ──
         self._warning_label = QLabel()
         self._warning_label.setWordWrap(True)
         self._warning_label.setStyleSheet("color: #b8620a; font-size: 11px;")
@@ -705,12 +714,16 @@ class TitleBlockEditorDialog(QDialog):
 
         self._btn_box = QDialogButtonBox()
         self.save_button = self._btn_box.addButton(
-            "Save", QDialogButtonBox.ButtonRole.AcceptRole)
+            "Save", QDialogButtonBox.ButtonRole.ApplyRole)
         self.save_button.setEnabled(False)   # disabled until a valid template is loaded
         self.save_button.clicked.connect(self._on_save_clicked)
-        cancel_btn = self._btn_box.addButton(
-            "Cancel", QDialogButtonBox.ButtonRole.RejectRole)
-        cancel_btn.clicked.connect(self.reject)
+        self.save_close_button = self._btn_box.addButton(
+            "Save && Close", QDialogButtonBox.ButtonRole.AcceptRole)
+        self.save_close_button.setEnabled(False)
+        self.save_close_button.clicked.connect(self._on_save_close_clicked)
+        self.close_button = self._btn_box.addButton(
+            "Close", QDialogButtonBox.ButtonRole.RejectRole)
+        self.close_button.clicked.connect(self.reject)
         centre.addWidget(self._btn_box)
 
     # ═════════════════════════════════════════════════════════════════════════
@@ -925,6 +938,7 @@ class TitleBlockEditorDialog(QDialog):
         if self.working is None:
             self._warning_label.setVisible(False)
             self.save_button.setEnabled(False)
+            self.save_close_button.setEnabled(False)
             return
 
         # Single-size model: use the template's layout and oriented paper dims
@@ -949,6 +963,7 @@ class TitleBlockEditorDialog(QDialog):
             warnings.append(f"Layout error: {exc}")
             self._show_warnings(warnings)
             self.save_button.setEnabled(False)
+            self.save_close_button.setEnabled(False)
             return
 
         warnings.extend(layout.warnings)
@@ -962,6 +977,7 @@ class TitleBlockEditorDialog(QDialog):
 
         self._show_warnings(warnings)
         self.save_button.setEnabled(enabled)
+        self.save_close_button.setEnabled(enabled)
         # Use itemsBoundingRect (not sceneRect) so the rect shrinks when
         # switching from a large paper size (e.g. ANSI D) to a small one
         # (e.g. A4). QGraphicsScene.clear() resets sceneRect lazily; stale
@@ -1746,16 +1762,28 @@ class TitleBlockEditorDialog(QDialog):
     # Save button / dialog close
     # ═════════════════════════════════════════════════════════════════════════
 
-    def _on_save_clicked(self) -> None:
-        """Save and accept only when working is set and save succeeds.
+    def _do_save(self) -> bool:
+        """Shared Save core: library write + project-result/live refresh hooks.
 
         If use_for_project() was called before Save, refresh project_template_result
         from the (now stamped + saved) working copy so that any post-Use edits
-        and the fresh modified date are captured.
+        and the fresh modified date are captured. templateSaved is emitted AFTER
+        that refresh so listeners observe the final result state.
         """
         if self.working is None or not self.save_button.isEnabled():
-            return
-        if self.save():
-            if self._use_requested or self.project_template_result is not None:
-                self.project_template_result = self.working.copy()
+            return False
+        if not self.save():
+            return False
+        if self._use_requested or self.project_template_result is not None:
+            self.project_template_result = self.working.copy()
+        self.templateSaved.emit(self.working.copy())
+        return True
+
+    def _on_save_clicked(self) -> None:
+        """Save mid-session: library write + live refresh, dialog stays open."""
+        self._do_save()
+
+    def _on_save_close_clicked(self) -> None:
+        """Save then accept (the pre-2026-08-04 Save behavior)."""
+        if self._do_save():
             self.accept()
