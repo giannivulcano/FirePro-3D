@@ -1,7 +1,7 @@
 ---
-status: current           # rev 3 built + user smoke-tested 2026-07-24 (1 fix round: preview backdrop/fit)
-last-verified: 2026-07-24
-verified-commit: 31d1c99
+status: current           # rev 3 + 2026-08-04 editor-UX batch, user smoke-tested 2026-08-04
+last-verified: 2026-08-04
+verified-commit: 7e89d5d
 applies-to:
   - firepro3d/titleblock_template.py   # data model + layout solver + token engine + arrangement ops + library I/O
   - firepro3d/titleblock_editor.py     # editor window (Overview / Drawing Area / Fields / Arrangements)
@@ -16,7 +16,7 @@ source-tasks:
 
 # Title Block Template System — Design Spec
 
-Grill 2026-07-21 (scope, parametric-replaces-artwork, storage, value scoping, save semantics, edge cases); design approved same day (approach A module trio; mockup-gated: arrangement A "Corporate top-down", filleted default corners). **Revision 2 (2026-07-22, smoke round 1):** single-size templates replace the per-size variant family; template drives the sheet's size/orientation; dynamic/static cell sizing. **Revision 3 (2026-07-22 grill + design; built 2026-07-23/24):** field-definition pool + drag-and-drop Arrangements; cell kinds collapse to `field` + `revision_table`; `@[Key]` token text; editor tabs become Overview / Drawing Area / Fields / Arrangements. This document describes rev-3 as-built behavior.
+Grill 2026-07-21 (scope, parametric-replaces-artwork, storage, value scoping, save semantics, edge cases); design approved same day (approach A module trio; mockup-gated: arrangement A "Corporate top-down", filleted default corners). **Revision 2 (2026-07-22, smoke round 1):** single-size templates replace the per-size variant family; template drives the sheet's size/orientation; dynamic/static cell sizing. **Revision 3 (2026-07-22 grill + design; built 2026-07-23/24):** field-definition pool + drag-and-drop Arrangements; cell kinds collapse to `field` + `revision_table`; `@[Key]` token text; editor tabs become Overview / Drawing Area / Fields / Arrangements. **Editor-UX batch (2026-08-04 grill; built same day):** grouped Fields form; explicit `image_height_mm` (DD-15 revised); per-field `text_color`; per-edge cell borders (DD-19); Save / Save && Close / Close with mid-session live apply (DD-20); Arrangements name tooltips. This document describes as-built behavior.
 
 ## Goal
 
@@ -70,12 +70,19 @@ Constraints:
 12. **Unified field.** Cell kinds are `field` + `revision_table`. A field = name + optional label + one multi-line **text template** with `@[Key]` tokens + optional image (base64 PNG, contain-fit), rendered stacked label → image → text (`image_position: "top"` reserved for future side-by-side). Stamp = empty field (typically dynamic); logo = image-only field. Rev-2 kinds `field_key`/`static_text`/`logo`/`stamp` migrate one-way, idempotently.
 13. **Token semantics.** `@[Key]` resolves through the existing value chain. Known key + empty value → renders empty. Unknown key → renders **literally** + non-blocking warning (doubles as the escape hatch; no escape syntax). Known set = `build_field_values().keys()` — the function seeds all standard project + sheet keys with `""` (derived from `PROJECT_STD_KEYS` + `DEFAULT_TITLE_BLOCK_FIELDS`, one home — no second key list). The editor's `_SAMPLE_VALUES` key set derives from the same constants, so token-known/unknown behaves identically in previews and on sheets. Malformed tokens (unclosed/nested/empty) don't match the regex → literal. `validate()` never sees values, so token issues structurally cannot block Save.
 14. **Explicit rows replace `pair_with_next`.** `TemplateLayout` stores `fields: list[FieldDef]` + `rows: list[list[Slot]]` (1–2 slots per row; the row *is* the pairing; `len(row) ≤ 2` validated). Gestures map 1:1 onto the structure; dangling-pair-flag states are unrepresentable. Pool = fields whose id appears in no row.
-15. **Image = remainder band.** In a combined cell the image gets the space left after label + text: cell height = `max(min_height, label + text + pad)`, text stays sacred (DD-8), image contain-fits between label and text. No image-height knob; the author sizes the cell. Band ≤ 0 → image hidden + non-blocking warning. The solver never decodes images (aspect fitting happens at paint; per-FieldDef pixmap cache keyed by id).
+15. **Image band: remainder by default, explicit by request** (revised 2026-08-04). `FieldDef.image_height_mm = 0` (default, and all migrated/legacy fields) keeps the original remainder-band behavior: cell height = `max(min_height, label + text + pad)`, image contain-fits between label and bottom-anchored text. A positive `image_height_mm` makes the cell grow to `label + image_height + text + 2·pad` and the band exactly that tall (mm is how a printed logo is specified); the band is clamped + warned only in the defensive taller-constraint case, and revision tables ignore the knob in both passes. Band ≤ 0 → image hidden + non-blocking warning. Text stays sacred (DD-8). The solver never decodes images (aspect fitting happens at paint; per-FieldDef pixmap cache keyed by id).
 16. **Manual drag machinery.** A drag state machine (4 px Manhattan threshold) serves intra-canvas drags; `PoolList` is a manual drag source mapping pool-local → global → canvas coordinates, using only public canvas API (`show_drop_hint`/`clear_drop_hint`/`apply_pool_drop`). The canvas hosts **one** renderer item and hit-tests solved rects — no per-cell QGraphicsItems; gestures mutate the working layout via the pure ops → re-solve → re-render. Gesture vocabulary: drag from pool + insertion line = place full-width; vertical drag = reorder; drop on left/right half of a single-slot row = pair (drop on partner's half = swap sides; own half = no-op); paired rows offer above/below zones + "full" cue for outsiders, halves for member swap; drag off strip = unplace; click = select (placement props); select + Delete = unplace (view accepts the Delete ShortcutOverride — known trap); **Esc or focus loss cancels an in-flight drag** (no snapshot; release-after-cancel inert; idle Esc still rejects the dialog).
     - **Zone hit-testing:** insertion bands at row boundaries are `TB_INSERT_BAND_PX` (px, zoom-converted) capped at a quarter of each adjacent row's height, so row interiors stay reachable at any zoom; `DropZone.row_index` is a **`layout.rows` index** (via `SolvedLayout.row_layout_indices`), dangling-slot-safe; pair/full classification follows the *rendered* row occupancy.
     - **No empty snapshots:** drops are gated by a **dry-run prediction** (`_drop_would_mutate` runs the real ops on a trial layout and compares row structure — new op guards are picked up automatically); dead drops emit no gesture signals, and actionable-looking hints for dead drops are downgraded to the "full" cue.
 17. **Arrangements tab = three columns** (mockup-gated 2026-07-22): pool cards (unplaced only; kind glyph + name + first text line) | strip canvas (white paper backdrop on neutral gray, **fit-to-strip on first show**, wheel zoom + Fit button) | placement props on selection (min height `DimensionEdit`, Static/Dynamic combo) above the relocated **strip-border group**. Solver warnings surface in an inline banner. Non-gesture edits that affect the strip (border group, Overview margins/strip width) re-solve the canvas.
-18. **Fields tab = roster + intrinsics + single-field preview.** Roster lists *all* definitions with ●/○ placed indicators. Form: name, label, type combo (field / revision table — the latter swaps text/image inputs for `revision_rows`), multi-line text editor (commit on focus-out) + "Insert field ▾" token menu (Auto / Sheet / Project groups; `Sheet No` disabled until multi-sheet), image choose/clear + thumbnail, text style, fill, cell border. The selected definition renders live as **one true cell** (one-row mini solve at current strip width, white backdrop); preview slot min-height = the placed slot's value when placed, else `TB_PREVIEW_MIN_MM`. One snapshot per form gesture; no-op commits (unchanged values, cancelled color dialogs, per-keystroke churn) push nothing — the font combo commits on `activated`/`editingFinished`, never per keystroke.
+18. **Fields tab = roster + intrinsics + single-field preview.** Roster lists *all* definitions with ●/○ placed indicators. The intrinsics form is **grouped** (2026-08-04): **Identity** (name / label / type combo — revision table swaps text/image inputs for `revision_rows`), **Content** (multi-line text editor, commit on focus-out, + "Insert field ▾" token menu (Auto / Sheet / Project groups; `Sheet No` disabled until multi-sheet); image group = 120×72 thumbnail + choose/clear + **Height (mm)** input (0 = auto, DD-15); revision rows), **Text Style** (font, cap height, bold+italic on one row, alignment, **text colour** swatch — DD-21), **Fill & Border** (fill; cell-border group incl. edge checkboxes — DD-19). The selected definition renders live as **one true cell** (one-row mini solve at current strip width, white backdrop; the mini strip **re-solves at the natural cell height** when content — e.g. an explicit image height — exceeds the nominal preview strip, so the preview never clips what a real sheet would show); preview slot min-height = the placed slot's value when placed, else `TB_PREVIEW_MIN_MM`. One snapshot per form gesture; no-op commits (unchanged values, cancelled color dialogs, per-keystroke churn) push nothing — the font combo commits on `activated`/`editingFinished`, never per keystroke.
+
+**2026-08-04 editor-UX batch decisions:**
+
+19. **Per-edge cell borders.** `BorderStyle` carries `edge_top/edge_bottom/edge_left/edge_right` (default all on). Edge selection applies to **field cells only** — the editor never shows edge checkboxes for the Drawing Area / Info Strip frame groups and omits edge keys from their dicts (soft invariant; the renderer applies flags to any BorderStyle). **Fillet requires all four edges**: with any edge off the Corner/Fillet controls disable (tooltip) and the renderer paints straight per-edge segments (SquareCap closes shared corners). `visible` stays the master toggle; pre-edge dicts load as all-four-on → identical rendering. Note: adjacent cells each paint their own side of a shared boundary — turning one cell's edge off does not remove the neighbour's line.
+20. **Save / Save && Close / Close** (replaces the single Save-and-close button). **Save** (ApplyRole) writes the library, stamps `modified`, and **stays open**, emitting `templateSaved(copy)`; MainWindow live-applies it (embed + sheet size/orientation + rebuild + §17.7 dirty) **iff** the saved uuid matches the project's embedded template — editing an unrelated library template never touches the project. **Save && Close** = Save then accept (the pre-batch behavior; the resulting double-apply is idempotent by contract — see `_apply_titleblock_template`). **Close** rejects; unsaved edits discard, but a **saved use-intent survives**: "Use for this project" followed by a successful Save applies the saved copy even when the dialog is closed via Close (`result_saved` flag). Validation gates both save buttons identically. Live-save keeps embed and library in sync, which reduces divergence prompts (DD-5) rather than interacting badly with them.
+21. **Text colour.** One `text_color` per field (default `#000000`) painted by the single `_draw_text_mm` choke point — label, body text, and revision-table text all take it; revision-table **divider lines stay black** (table chrome). Migration/legacy default renders identically.
+22. **Arrangements tooltips.** Hovering a strip cell shows the field's **name only** (fallback: id) via a `viewportEvent` ToolTip intercept over the solved cell rects; pool cards carry `setToolTip(name)`. Stamps and the revision table — the cells whose render doesn't identify them — are exactly the point. Placement facts stay in the props panel.
 
 ## Data Model
 
@@ -92,13 +99,15 @@ class FieldDef:                      # intrinsic — survives unplacement
     image_data: str = ""             # base64 PNG; "" = no image
     image_fit: str = "contain"
     image_position: str = "top"      # reserved (future side-by-side)
+    image_height_mm: float = 0.0     # explicit band height; 0 = remainder band (DD-15)
     font_family: str = "Arial"
     cap_height_mm: float = 3.0
     bold: bool = True
     italic: bool = False
     alignment: str = "left"
+    text_color: str = "#000000"      # label + body + revision text (DD-21)
     fill_color: str = ""             # "" = no fill
-    border: BorderStyle = ...        # per-cell border
+    border: BorderStyle = ...        # per-cell border; edge_top/bottom/left/right (DD-19)
     revision_rows: int = 3           # revision_table only
 
 @dataclass
@@ -128,7 +137,7 @@ Pure functions; QRectF/QFontMetricsF allowed, QGraphics types are not; never dec
 
 - `solve_layout(layout, paper_w_mm, paper_h_mm, values) -> SolvedLayout`
   1. Drawing-area rect = paper − `margin_edge_mm` (all sides) − (`strip_width_mm` + `margin_strip_mm`) on the right; strip rect down the right edge.
-  2. Rows walk top-to-bottom over `rows`. Slots referencing missing fields are dropped with a warning; fully-dangling rows are skipped. Per slot: resolve the field's text via `resolve_text(field.text, values)` (unknown keys → warnings); wrap at slot width; cell height = `max(min_height_mm, label_row + wrapped_text + 2·pad)`; row height = max of its slots. Revision table → header + `revision_rows` newest-first entries. **Image band** = cell height − label row − text height (remainder, DD-15); ≤ 0 → no band + warning.
+  2. Rows walk top-to-bottom over `rows`. Slots referencing missing fields are dropped with a warning; fully-dangling rows are skipped. Per slot: resolve the field's text via `resolve_text(field.text, values)` (unknown keys → warnings); wrap at slot width; cell height = `max(min_height_mm, label_row + wrapped_text + 2·pad)` — or, with an explicit image height (DD-15: `image_data` + `image_height_mm > 0`, non-revision-table), `max(min_height_mm, label_row + image_height_mm + wrapped_text + 2·pad)`; row height = max of its slots. Revision table → header + `revision_rows` newest-first entries. **Image band** = remainder (cell − label − text) by default, or exactly `image_height_mm` when explicit (clamped + "reduced to fit" warning in the defensive case); ≤ 0 → no band + warning. Both passes share the same explicit-image predicate (incl. the revision-table exclusion) — mirrored-guard drift here caused a spurious-warning bug once.
   3. Dynamic pass (DD-8b): leftover strip height distributed among dynamic rows ∝ `min_height_mm` (designer-set minimum, not wrap-grown height).
   4. Sub-rect pass (after the dynamic pass): per-cell `label_rect / image_rect / text_rect` — the stacking math has one home; the renderer paints, never re-derives. No-image cells keep rev-2 top-aligned text positioning exactly.
   5. Cells past the strip bottom are clipped + flagged.
@@ -141,7 +150,7 @@ Pure functions; QRectF/QFontMetricsF allowed, QGraphics types are not; never dec
 
 ## Renderer & Resolution Chain
 
-`TitleBlockTemplateItem(QGraphicsItem)` paints a `SolvedLayout`: fills → one hoisted strip clip around content (labels, contain-fit image bands from the per-field pixmap cache, revision rows, text — all via solver sub-rects, mm primitive §9.4) → borders (cells, then area, then strip; `addRoundedRect` when fillet). A stamp is an empty field cell — no special paint path. Undecodable images → warning + no paint, never a broken image on a plot.
+`TitleBlockTemplateItem(QGraphicsItem)` paints a `SolvedLayout`: fills → one hoisted strip clip around content (labels, contain-fit image bands from the per-field pixmap cache, revision rows, text — all via solver sub-rects, mm primitive §9.4; the text pen is the field's `text_color`, DD-21) → borders (cells, then area, then strip; `addRoundedRect` when fillet and all four edges on, straight per-edge segments otherwise, DD-19). A stamp is an empty field cell — no special paint path. Undecodable images → warning + no paint, never a broken image on a plot.
 
 Resolution order in `PaperScene._setup` (supersedes paper-space §8.1):
 
@@ -151,7 +160,7 @@ Resolution order in `PaperScene._setup` (supersedes paper-space §8.1):
 
 **Template drives the sheet (DD-2):** on apply, MainWindow sets `sheet.paper_size`/`sheet.orientation` from the template before the rebuild. The load path does NOT force size/orientation (the `.fpd`'s stored page is authoritative; a persisted mismatch renders the fallback + warning, never a silent resize). A manual paper-size change resets `sheet.orientation` to native.
 
-Template Save re-renders open sheets and emits `sheetModified` (§17.7).
+Template Save re-renders open sheets and emits `sheetModified` (§17.7) — both on Save && Close (accept path) and mid-session via `templateSaved` → `MainWindow._on_titleblock_saved_live` (uuid-match, corrupt-embed-guarded; DD-20). `_apply_titleblock_template` is the single apply implementation for both paths and **must stay idempotent** (Save && Close runs it twice with identical payloads).
 
 ## Value Model & Editing Surfaces
 
@@ -179,6 +188,8 @@ Resolution at render happens per **token** (DD-13): **auto → per-sheet → Pro
 - The sheet-mismatch warning names only the paper size; an orientation-only mismatch reads confusingly.
 - Placement props edit the **slot**; on a mixed static|dynamic pair the row solves dynamic while the selected static member displays "Static" (per-slot storage, per-row solve) — needs an "effective" hint.
 - The Fields tab lives inline in `titleblock_editor.py` (a `FieldsTab` widget extraction to mirror `ArrangementsTab` was deferred mid-branch).
+- `_do_save`'s `project_template_result` refresh is not gated on template identity: Use template A → Save → switch to B → edit → Save B applies **B** to the project without an explicit "Use" (pre-existing via the old Save button; more visible since 2026-08-04). Fix direction: uuid-gate the refresh.
+- The editor dialog is not `deleteLater()`'d per open (scene/undo snapshots accumulate per MainWindow session; import dialog sets the precedent).
 
 ## Performance & Security
 
