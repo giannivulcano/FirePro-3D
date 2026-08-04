@@ -123,15 +123,36 @@ def _update_swatch(btn: QPushButton, color: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _BorderGroup(QGroupBox):
-    """Reusable widget for editing a BorderStyle (visible, width, color, corner, fillet)."""
+    """Reusable widget for editing a BorderStyle (visible, width, color, corner, fillet).
 
-    def __init__(self, title: str, parent: QWidget | None = None):
+    With ``show_edges=True`` (field cells only) an "Edges:" row of four
+    per-edge checkboxes is added; fillet requires all four edges on
+    (grill 2026-08-04 3b). Frame groups (area/strip) omit the row.
+    """
+
+    def __init__(self, title: str, parent: QWidget | None = None, *,
+                 show_edges: bool = False):
         super().__init__(title, parent)
+        self._show_edges = show_edges
         form = QFormLayout(self)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self._visible = QCheckBox()
         form.addRow("Visible:", self._visible)
+
+        if show_edges:
+            edges_row = QHBoxLayout()
+            self._edge_top = QCheckBox("Top")
+            self._edge_bottom = QCheckBox("Bottom")
+            self._edge_left = QCheckBox("Left")
+            self._edge_right = QCheckBox("Right")
+            for cb in (self._edge_top, self._edge_bottom,
+                       self._edge_left, self._edge_right):
+                cb.setChecked(True)
+                cb.toggled.connect(self._sync_fillet_enabled)
+                edges_row.addWidget(cb)
+            edges_row.addStretch()
+            form.addRow("Edges:", edges_row)
 
         self._width = DimensionEdit(None, initial_mm=0.5,
                                     parser=_sm.parse_dimension, minimum=0.0)
@@ -157,7 +178,25 @@ class _BorderGroup(QGroupBox):
             _update_swatch(self._color_btn, c.name())
 
     def _on_corner_changed(self, _):
-        self._fillet.setEnabled(self._corner.currentText() == "Fillet")
+        self._fillet.setEnabled(
+            self._all_edges_on() and self._corner.currentText() == "Fillet")
+
+    def _all_edges_on(self) -> bool:
+        if not self._show_edges:
+            return True
+        return all(cb.isChecked() for cb in
+                   (self._edge_top, self._edge_bottom,
+                    self._edge_left, self._edge_right))
+
+    def _sync_fillet_enabled(self) -> None:
+        """Fillet requires all four edges (grill 2026-08-04 3b)."""
+        full = self._all_edges_on()
+        self._corner.setEnabled(full)
+        self._fillet.setEnabled(
+            full and self._corner.currentText() == "Fillet")
+        tip = "" if full else "Fillet requires all four edges"
+        self._corner.setToolTip(tip)
+        self._fillet.setToolTip(tip)
 
     def load(self, style) -> None:
         """Populate widgets from a BorderStyle (without triggering signals)."""
@@ -168,16 +207,32 @@ class _BorderGroup(QGroupBox):
             "Fillet" if style.corner == "fillet" else "Sharp")
         self._fillet.set_value_mm(style.fillet_radius_mm)
         self._fillet.setEnabled(style.corner == "fillet")
+        if self._show_edges:
+            self._edge_top.setChecked(style.edge_top)
+            self._edge_bottom.setChecked(style.edge_bottom)
+            self._edge_left.setChecked(style.edge_left)
+            self._edge_right.setChecked(style.edge_right)
+            self._sync_fillet_enabled()
 
     def read(self) -> dict:
-        """Return a dict suitable for BorderStyle.from_dict()."""
-        return {
+        """Return a dict suitable for BorderStyle.from_dict().
+
+        Edge keys are included only when the group shows edge checkboxes;
+        frame groups omit them (from_dict defaults them to True).
+        """
+        d = {
             "visible": self._visible.isChecked(),
             "width_mm": self._width.value_mm(),
             "color": self._color_btn.property("_color") or "#000000",
             "corner": "fillet" if self._corner.currentText() == "Fillet" else "sharp",
             "fillet_radius_mm": self._fillet.value_mm(),
         }
+        if self._show_edges:
+            d["edge_top"] = self._edge_top.isChecked()
+            d["edge_bottom"] = self._edge_bottom.isChecked()
+            d["edge_left"] = self._edge_left.isChecked()
+            d["edge_right"] = self._edge_right.isChecked()
+        return d
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -588,9 +643,14 @@ class TitleBlockEditorDialog(QDialog):
         fb_col.addLayout(fb_form)
 
         # Cell border group
-        self._field_border_group = _BorderGroup("Cell Border")
+        self._field_border_group = _BorderGroup("Cell Border", show_edges=True)
         self._field_border_group._visible.toggled.connect(
             self._on_field_border_changed)
+        for cb in (self._field_border_group._edge_top,
+                   self._field_border_group._edge_bottom,
+                   self._field_border_group._edge_left,
+                   self._field_border_group._edge_right):
+            cb.toggled.connect(lambda _: self._on_field_border_changed())
         self._field_border_group._width.valueChanged.connect(
             lambda _: self._on_field_border_changed())
         self._field_border_group._color_btn.clicked.connect(

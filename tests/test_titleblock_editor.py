@@ -898,6 +898,7 @@ class TestFieldsTab:
         assert owner(dlg._fitalic) == "Text Style"
         assert owner(dlg._ffield_fill_swatch) == "Fill & Border"
         assert owner(dlg._field_border_group._visible) == "Cell Border"
+        assert owner(dlg._field_border_group) == "Fill & Border"
 
     def test_text_color_swatch_commits(self, tmp_path, monkeypatch):
         """Clicking the text-colour swatch commits text_color via one snapshot
@@ -914,6 +915,35 @@ class TestFieldsTab:
         dlg._ftext_color_swatch.click()
         assert dlg.working.layout.fields[0].text_color == "#0055ff"
         assert len(dlg._undo_stack) == depth + 1
+
+    def test_cell_border_edge_checkboxes_commit_and_gate_fillet(
+            self, tmp_path, monkeypatch):
+        """Edge checkboxes commit per-edge flags (one snapshot per click) and
+        gate the Corner/Fillet controls (grill 2026-08-04 item 3)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        depth = len(dlg._undo_stack)
+        grp = dlg._field_border_group
+
+        grp._edge_top.click()
+        f = dlg.working.layout.fields[0]
+        assert f.border.edge_top is False
+        assert len(dlg._undo_stack) == depth + 1
+        assert not grp._corner.isEnabled()
+        assert not grp._fillet.isEnabled()
+
+        grp._edge_top.click()
+        f = dlg.working.layout.fields[0]
+        assert f.border.edge_top is True
+        assert grp._corner.isEnabled()
+
+    def test_frame_border_groups_have_no_edge_checkboxes(
+            self, tmp_path, monkeypatch):
+        """The area/strip frame border groups must NOT expose edge checkboxes
+        (frames always render closed; grill 2026-08-04 item 3)."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert not hasattr(dlg._area_border, "_edge_top")
+        assert not hasattr(dlg._strip_border, "_edge_top")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

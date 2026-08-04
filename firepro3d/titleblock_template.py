@@ -96,13 +96,23 @@ def resolve_text(text: str, values: dict) -> tuple[str, list[str]]:
 
 @dataclass
 class BorderStyle:
-    """Border appearance for a frame or cell (mm widths, fillet/sharp corners)."""
+    """Border appearance for a frame or cell (mm widths, fillet/sharp corners).
+
+    The ``edge_*`` flags apply to field cells only — the drawing-area and
+    info-strip frames always render closed (their styles keep the all-True
+    defaults). Fillet is honoured only when all four edges are on; with any
+    edge off the renderer paints straight per-edge segments.
+    """
 
     visible: bool = True
     width_mm: float = 0.5
     color: str = "#000000"
     corner: str = "fillet"              # "sharp" | "fillet"
     fillet_radius_mm: float = TB_DEFAULT_FILLET_MM
+    edge_top: bool = True
+    edge_bottom: bool = True
+    edge_left: bool = True
+    edge_right: bool = True
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -116,6 +126,10 @@ class BorderStyle:
             corner=d.get("corner", "fillet"),
             fillet_radius_mm=float(d.get("fillet_radius_mm",
                                          TB_DEFAULT_FILLET_MM)),
+            edge_top=bool(d.get("edge_top", True)),
+            edge_bottom=bool(d.get("edge_bottom", True)),
+            edge_left=bool(d.get("edge_left", True)),
+            edge_right=bool(d.get("edge_right", True)),
         )
 
 

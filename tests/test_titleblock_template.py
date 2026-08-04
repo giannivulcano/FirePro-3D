@@ -143,6 +143,19 @@ class TestSolveRev3:
         del d["text_color"]
         assert FieldDef.from_dict(d).text_color == "#000000"  # old dicts → black
 
+    # ── Per-edge cell borders (grill 2026-08-04 item 3) ──────────────────────
+
+    def test_border_edges_roundtrip_and_default(self):
+        b = BorderStyle(edge_top=False, edge_left=False)
+        b2 = BorderStyle.from_dict(b.to_dict())
+        assert (b2.edge_top, b2.edge_bottom, b2.edge_left, b2.edge_right) \
+            == (False, True, False, True)
+        d = BorderStyle().to_dict()
+        for k in ("edge_top", "edge_bottom", "edge_left", "edge_right"):
+            del d[k]
+        b3 = BorderStyle.from_dict(d)   # pre-edge dict → all four on
+        assert all((b3.edge_top, b3.edge_bottom, b3.edge_left, b3.edge_right))
+
     def test_explicit_image_height_grows_cell(self):
         fs = [FieldDef(id="a", name="A", image_data="AAAA",
                        image_height_mm=15.0)]

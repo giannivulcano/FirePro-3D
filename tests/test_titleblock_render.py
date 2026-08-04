@@ -403,6 +403,55 @@ class TestRenderer:
             f"red={red}, black={black}"
         )
 
+    def test_bottom_only_border_paints_bottom_edge_only(self):
+        """A cell border with only edge_bottom on must paint the bottom edge
+        and nothing along the top edge (grill 2026-08-04 item 3).  Frames are
+        hidden, the field has no text/fill/label, so any dark pixels can only
+        come from the cell border.
+        """
+        from firepro3d.titleblock_template import (BorderStyle, FieldDef,
+                                                   Slot, TemplateLayout,
+                                                   solve_layout)
+        f = FieldDef(id="a", name="A", text="", cap_height_mm=6.0,
+                     fill_color="",
+                     border=BorderStyle(width_mm=1.0, corner="sharp",
+                                        fillet_radius_mm=0.0,
+                                        edge_top=False, edge_left=False,
+                                        edge_right=False, edge_bottom=True))
+        lay = TemplateLayout(
+            strip_width_mm=40.0,
+            area_border=BorderStyle(visible=False),
+            strip_border=BorderStyle(visible=False),
+            fields=[f], rows=[[Slot("a", 20.0)]])
+        w, h = 200.0, 150.0
+        sl = solve_layout(lay, w, h, {})
+        item = TitleBlockTemplateItem(sl, lay, {})
+        img = _render(item, w, h)
+
+        cell = sl.cell_rects[0]
+        px_per_mm = img.width() / w   # same uniform scale _render applies
+
+        def dark_in_band(y_mm):
+            """Scan a ±2px row band at mm y-coord across the cell x-span."""
+            yc = int(y_mm * px_per_mm)
+            x0 = int(cell.left() * px_per_mm) + 3    # inset past L/R edges
+            x1 = int(cell.right() * px_per_mm) - 3
+            for dy in range(-2, 3):
+                y = yc + dy
+                if not (0 <= y < img.height()):
+                    continue
+                for x in range(x0, x1):
+                    p = img.pixel(x, y)
+                    r, g, b = (p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF
+                    if r < 80 and g < 80 and b < 80:
+                        return True
+            return False
+
+        assert dark_in_band(cell.bottom()), \
+            "Bottom edge row has no dark pixels — edge_bottom was not painted"
+        assert not dark_in_band(cell.top()), \
+            "Top edge row has dark pixels despite edge_top=False"
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # scene_io embed — uses the MainWindow fixture (same pattern as test_paper_persistence.py)

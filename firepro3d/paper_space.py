@@ -2715,15 +2715,30 @@ class TitleBlockTemplateItem(QGraphicsItem):
     def _draw_border(self, painter: QPainter, rect: QRectF, style) -> None:
         if not style.visible:
             return
+        edges = (style.edge_top, style.edge_bottom,
+                 style.edge_left, style.edge_right)
         painter.setPen(QPen(QColor(style.color), style.width_mm))
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        if style.corner == "fillet" and style.fillet_radius_mm > 0:
-            path = QPainterPath()
-            path.addRoundedRect(rect, style.fillet_radius_mm,
-                                style.fillet_radius_mm)
-            painter.drawPath(path)
-        else:
-            painter.drawRect(rect)
+        if all(edges):
+            if style.corner == "fillet" and style.fillet_radius_mm > 0:
+                path = QPainterPath()
+                path.addRoundedRect(rect, style.fillet_radius_mm,
+                                    style.fillet_radius_mm)
+                painter.drawPath(path)
+            else:
+                painter.drawRect(rect)
+            return
+        # Partial edges: straight segments only; fillet requires all four
+        # edges (grill 2026-08-04 3b).
+        top, bottom, left, right = edges
+        if top:
+            painter.drawLine(rect.topLeft(), rect.topRight())
+        if bottom:
+            painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        if left:
+            painter.drawLine(rect.topLeft(), rect.bottomLeft())
+        if right:
+            painter.drawLine(rect.topRight(), rect.bottomRight())
 
     def _draw_text_mm(self, painter: QPainter, rect: QRectF, lines: list,
                       fdef, *, cap_mm: float | None = None,
@@ -2750,8 +2765,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         painter.save()
         painter.setFont(f)
-        painter.setPen(QPen(
-            QColor(getattr(fdef, "text_color", "") or "#000000"), 0.1))
+        painter.setPen(QPen(QColor(fdef.text_color or "#000000"), 0.1))
         painter.translate(rect.topLeft())
         painter.scale(s, s)
         align = {"left": Qt.AlignmentFlag.AlignLeft,
