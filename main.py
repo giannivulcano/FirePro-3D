@@ -1813,7 +1813,6 @@ class MainWindow(QMainWindow):
         """
         from firepro3d.titleblock_editor import TitleBlockEditorDialog
         from firepro3d.titleblock_template import TitleBlockTemplate
-        from firepro3d.paper_space import native_orientation_from_dims
         import logging
         raw = getattr(self.scene, "_titleblock_template", None)
         try:
@@ -1825,29 +1824,50 @@ class MainWindow(QMainWindow):
         dlg = TitleBlockEditorDialog(
             current, parent=self,
             project_info=getattr(self.scene, "_project_info", {}))
+        dlg.templateSaved.connect(self._on_titleblock_saved_live)
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         result = dlg.project_template_result
         if result is not None:
-            # DD-2: template drives sheet — update size/orientation BEFORE push.
-            # Direct assignment bypasses PaperScene.paper_size setter intentionally:
-            # the setter would call _setup() at pre-template state, but the push
-            # immediately below rebuilds the scene with the new template applied.
-            self._sheet.paper_size = result.paper_size
-            # Store "" for native orientation so sheet rendering is preserved when
-            # orientation matches the size's native (avoids redundant override).
-            # Uses native_orientation_from_dims (derived from PAPER_SIZES dims)
-            # rather than the titleblock_template hardcoded map, keeping the two
-            # modules in sync when PAPER_SIZES changes.
-            nat = native_orientation_from_dims(result.paper_size)
-            self._sheet.orientation = ("" if result.orientation == nat
-                                       else result.orientation)
-            self.scene._titleblock_template = result.to_dict()
-            self._push_titleblock_template()
-            self._on_paper_modified()          # project dirty (§17.7)
-            # Fit the view after the template (possibly a different paper size)
-            # has been applied — mirrors the ribbon's change_paper() + _fit() path.
-            self.paper_space_widget.fit_sheet()
+            self._apply_titleblock_template(result)
+
+    def _apply_titleblock_template(self, result) -> None:
+        """Apply *result* as the project template (DD-2: template drives sheet).
+
+        Extracted from _open_titleblock_editor so the mid-session Save path
+        (templateSaved) and the accept path share one implementation.
+
+        DD-2: template drives sheet — update size/orientation BEFORE push.
+        Direct assignment bypasses PaperScene.paper_size setter intentionally:
+        the setter would call _setup() at pre-template state, but the push
+        immediately below rebuilds the scene with the new template applied.
+        """
+        from firepro3d.paper_space import native_orientation_from_dims
+        self._sheet.paper_size = result.paper_size
+        # Store "" for native orientation so sheet rendering is preserved when
+        # orientation matches the size's native (avoids redundant override).
+        # Uses native_orientation_from_dims (derived from PAPER_SIZES dims)
+        # rather than the titleblock_template hardcoded map, keeping the two
+        # modules in sync when PAPER_SIZES changes.
+        nat = native_orientation_from_dims(result.paper_size)
+        self._sheet.orientation = ("" if result.orientation == nat
+                                   else result.orientation)
+        self.scene._titleblock_template = result.to_dict()
+        self._push_titleblock_template()
+        self._on_paper_modified()          # project dirty (§17.7)
+        # Fit the view after the template (possibly a different paper size)
+        # has been applied — mirrors the ribbon's change_paper() + _fit() path.
+        self.paper_space_widget.fit_sheet()
+
+    def _on_titleblock_saved_live(self, tmpl) -> None:
+        """Mid-session Save: refresh the project iff it uses this template.
+
+        uuid match against the embedded template — a Save of an unrelated
+        library template must not touch the project (grill 2026-08-04 item 1).
+        """
+        raw = getattr(self.scene, "_titleblock_template", None)
+        if raw and raw.get("uuid") == tmpl.uuid:
+            self._apply_titleblock_template(tmpl)
 
     def _current_template(self):
         """Return the parsed TitleBlockTemplate embedded in the scene, or None.

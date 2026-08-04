@@ -1443,6 +1443,7 @@ class TestMainWindowWiring:
         class _FakeDlg:
             def __init__(self, *a, **kw):
                 self.project_template_result = tpl
+                self.templateSaved = MagicMock()   # main connects before exec
             def exec(self):
                 return QDialog.DialogCode.Accepted
 
@@ -1482,6 +1483,7 @@ class TestMainWindowWiring:
         class _FakeDlg:
             def __init__(self, *a, **kw):
                 self.project_template_result = tpl
+                self.templateSaved = MagicMock()   # main connects before exec
             def exec(self):
                 return QDialog.DialogCode.Accepted
 
@@ -1493,6 +1495,54 @@ class TestMainWindowWiring:
         assert sheet.paper_size == "ANSI D"
         assert sheet.orientation == "", (
             "Native orientation must be stored as '' (byte-identical with legacy files)"
+        )
+
+    def test_titleblock_saved_live_refreshes_only_on_uuid_match(self, _mw):
+        """Mid-session Save (templateSaved) refreshes the project embed iff the
+        saved template's uuid matches the embedded one.
+
+        Deliberately slot-level for the MainWindow side (_on_titleblock_saved_live):
+        the dialog runs modally via exec(), which can't be driven headless. The
+        dialog side of the seam (Save click → templateSaved emit, dialog stays
+        open) is covered widget-driven in
+        tests/test_titleblock_editor.py::TestSaveButtonsRow.
+        """
+        from firepro3d.titleblock_template import make_default_template
+
+        _fresh(_mw)
+        tpl = make_default_template()
+
+        # No embedded template → Save must not attach one (uuid match fails).
+        _mw._on_titleblock_saved_live(tpl)
+        assert getattr(_mw.scene, "_titleblock_template", None) is None, (
+            "Save with no project template must not attach one"
+        )
+
+        _mw.scene._titleblock_template = tpl.to_dict()
+        _mw._push_titleblock_template()
+
+        # Matching uuid → embed refreshed + project dirtied.
+        edited = tpl.copy()
+        edited.layout.strip_width_mm = 123.0
+        _mw._modified = False
+        _mw._on_titleblock_saved_live(edited)
+        embed = _mw.scene._titleblock_template
+        assert embed["layout"]["strip_width_mm"] == 123.0, (
+            "uuid-matching Save must live-refresh the embedded template"
+        )
+        assert _mw._modified, "Live refresh must dirty the project (§17.7)"
+
+        # Unrelated uuid → embed untouched.
+        other = make_default_template()
+        assert other.uuid != tpl.uuid, "Precondition: distinct uuids"
+        other.layout.strip_width_mm = 77.0
+        _mw._on_titleblock_saved_live(other)
+        embed = _mw.scene._titleblock_template
+        assert embed["uuid"] == tpl.uuid, (
+            "Save of an unrelated template must not swap the project template"
+        )
+        assert embed["layout"]["strip_width_mm"] == 123.0, (
+            "Save of an unrelated template must not touch the project embed"
         )
 
     def test_load_path_does_not_force_sheet_size(self, _mw, tmp_path, monkeypatch):
