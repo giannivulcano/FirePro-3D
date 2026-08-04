@@ -790,24 +790,19 @@ def solve_layout(layout: TemplateLayout, paper_w_mm: float,
             )
             band_bottom = inner.bottom() - th if th > 0 else inner.bottom()
             avail = band_bottom - top
-            if f.image_height_mm > 0:
-                # Explicit band (DD-15 rev): exactly image_height_mm, clamped
-                # to the available space (defensive — the height pass grew the
-                # cell, but a taller pair partner cannot shrink it below).
-                band_h = min(f.image_height_mm, avail)
-                if band_h > 1e-6:
-                    img: "QRectF | None" = QRectF(
-                        inner.left(), top, inner.width(), band_h)
-                    if band_h < f.image_height_mm - 1e-6:
-                        warnings.append(
-                            f"Image height reduced to fit in "
-                            f"'{f.name or f.id}'.")
-                else:
-                    img = None
+            # Explicit band (DD-15 rev): exactly image_height_mm, clamped to
+            # the available space (defensive — the height pass grew the cell,
+            # and a partner can only make the row taller).
+            explicit = (f.image_height_mm > 0
+                        and f.kind != "revision_table")
+            band_h = min(f.image_height_mm, avail) if explicit else avail
+            if band_h > 1e-6:
+                img: "QRectF | None" = QRectF(
+                    inner.left(), top, inner.width(), band_h)
+                if explicit and band_h < f.image_height_mm - 1e-6:
                     warnings.append(
-                        f"Image has no room in '{f.name or f.id}'.")
-            elif avail > 1e-6:
-                img = QRectF(inner.left(), top, inner.width(), avail)
+                        f"Image height reduced to fit in "
+                        f"'{f.name or f.id}'.")
             else:
                 img = None
                 warnings.append(

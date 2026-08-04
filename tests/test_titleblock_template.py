@@ -183,6 +183,32 @@ class TestSolveRev3:
         assert extra_a > 0 and extra_b > 0
         assert abs(extra_b - 3 * extra_a) < 1e-6
 
+    def test_revision_table_ignores_explicit_image_height(self):
+        # Hand-edited template: a revision_table carrying image_data +
+        # image_height_mm. The renderer never draws the image; the solver
+        # must not emit "Image height reduced to fit" warnings for it,
+        # and the cell must solve exactly like a plain revision table.
+        fs = [FieldDef(id="r", name="Revs", kind="revision_table",
+                       image_data="AAAA", image_height_mm=10.0)]
+        sol = solve_layout(_lay3(fs, [[Slot("r")]]), PAPER_W, PAPER_H, {})
+        assert not any("Image height" in w for w in sol.warnings)
+        plain = [FieldDef(id="r", name="Revs", kind="revision_table")]
+        sol_plain = solve_layout(_lay3(plain, [[Slot("r")]]),
+                                 PAPER_W, PAPER_H, {})
+        assert sol.cell_rects[0] == sol_plain.cell_rects[0]
+        assert sol.cell_revision_rows[0] == sol_plain.cell_revision_rows[0]
+
+    def test_explicit_band_stays_fixed_beside_taller_partner(self):
+        # DD-15 rev central claim: a taller pair partner stretches the row,
+        # but the explicit image band stays exactly image_height_mm.
+        fs = [FieldDef(id="a", name="A", image_data="AAAA",
+                       image_height_mm=10.0),
+              FieldDef(id="b", name="B")]
+        lay = _lay3(fs, [[Slot("a", 5.0), Slot("b", 40.0)]])
+        sol = solve_layout(lay, PAPER_W, PAPER_H, {})
+        assert sol.cell_rects[0].height() == pytest.approx(40.0)
+        assert sol.cell_image_rects[0].height() == pytest.approx(10.0)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TestSolveRev3Ported — behaviors from the 8 deleted rev-2 classes
