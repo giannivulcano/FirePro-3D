@@ -899,6 +899,22 @@ class TestFieldsTab:
         assert owner(dlg._ffield_fill_swatch) == "Fill & Border"
         assert owner(dlg._field_border_group._visible) == "Cell Border"
 
+    def test_text_color_swatch_commits(self, tmp_path, monkeypatch):
+        """Clicking the text-colour swatch commits text_color via one snapshot
+        (grill 2026-08-04 item 6)."""
+        from PyQt6.QtGui import QColor
+        import firepro3d.titleblock_editor as tbe
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        depth = len(dlg._undo_stack)
+        monkeypatch.setattr(
+            tbe.QColorDialog, "getColor",
+            staticmethod(lambda *a, **kw: QColor("#0055ff")))
+        dlg._ftext_color_swatch.click()
+        assert dlg.working.layout.fields[0].text_color == "#0055ff"
+        assert len(dlg._undo_stack) == depth + 1
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Spec-review fixes (DD-13, border no-op, dup-name dedup)

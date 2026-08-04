@@ -560,6 +560,11 @@ class TitleBlockEditorDialog(QDialog):
             lambda t: self._field_prop("alignment", t))
         style_form.addRow("Alignment:", self._falign)
 
+        # Text colour (label + body + revision text; grill 2026-08-04 item 6)
+        self._ftext_color_swatch = _make_swatch("#000000", self)
+        self._ftext_color_swatch.clicked.connect(self._pick_text_color)
+        style_form.addRow("Text colour:", self._ftext_color_swatch)
+
         form_col.addWidget(style_box)
 
         # ── Fill & Border group ───────────────────────────────────────────
@@ -1039,6 +1044,7 @@ class TitleBlockEditorDialog(QDialog):
             self._fbold.setChecked(f.bold)
             self._fitalic.setChecked(f.italic)
             self._falign.setCurrentText(f.alignment)
+            _update_swatch(self._ftext_color_swatch, f.text_color)
             _update_swatch(self._ffield_fill_swatch, f.fill_color)
             self._frev_rows.setValue(f.revision_rows)
             self._field_border_group.load(f.border)
@@ -1179,6 +1185,17 @@ class TitleBlockEditorDialog(QDialog):
         f.border = new_border
         self.refresh_preview()
         self._refresh_field_preview()
+
+    def _pick_text_color(self) -> None:
+        """Open a colour dialog for the selected field's text colour."""
+        f = self._sel_field()
+        if f is None:
+            return
+        cur = QColor(f.text_color or "#000000")
+        c = QColorDialog.getColor(cur, self)
+        if c.isValid():
+            _update_swatch(self._ftext_color_swatch, c.name())
+            self._field_prop("text_color", c.name())
 
     def _pick_field_fill(self) -> None:
         """Open color dialog for the field fill swatch."""

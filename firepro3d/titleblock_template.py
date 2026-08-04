@@ -147,6 +147,7 @@ class FieldDef:
     bold: bool = True
     italic: bool = False
     alignment: str = "left"
+    text_color: str = "#000000"         # label + body + revision text (grill 2026-08-04)
     fill_color: str = ""
     border: BorderStyle = field(default_factory=_cell_border_default)
     revision_rows: int = 3
@@ -174,6 +175,7 @@ class FieldDef:
             bold=bool(d.get("bold", True)),
             italic=bool(d.get("italic", False)),
             alignment=d.get("alignment", "left"),
+            text_color=d.get("text_color", "#000000"),
             fill_color=d.get("fill_color", ""),
             border=BorderStyle.from_dict(d.get("border", {})),
             revision_rows=int(d.get("revision_rows", 3)),

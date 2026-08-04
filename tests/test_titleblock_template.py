@@ -134,6 +134,15 @@ class TestSolveRev3:
         del d["image_height_mm"]
         assert FieldDef.from_dict(d).image_height_mm == 0.0   # old dicts → legacy
 
+    # ── Per-field text colour (grill 2026-08-04 item 6) ──────────────────────
+
+    def test_text_color_roundtrip_and_default(self):
+        f = FieldDef(id="x", text_color="#ff0000")
+        assert FieldDef.from_dict(f.to_dict()).text_color == "#ff0000"
+        d = f.to_dict()
+        del d["text_color"]
+        assert FieldDef.from_dict(d).text_color == "#000000"  # old dicts → black
+
     def test_explicit_image_height_grows_cell(self):
         fs = [FieldDef(id="a", name="A", image_data="AAAA",
                        image_height_mm=15.0)]

@@ -365,6 +365,44 @@ class TestRenderer:
         assert diffs > 0, \
             "Title cell region identical for empty vs filled Title — text not rendered"
 
+    def test_text_color_renders_red(self):
+        """A field with text_color='#ff0000' must draw its body text red
+        (grill 2026-08-04 item 6).  Frames are hidden and the field has no
+        fill, so black can only come from the thin sharp cell border — red
+        pixel count must exceed black pixel count.
+        """
+        from firepro3d.titleblock_template import (BorderStyle, FieldDef,
+                                                   Slot, TemplateLayout,
+                                                   solve_layout)
+        f = FieldDef(id="a", name="A", text="HELLO", text_color="#ff0000",
+                     cap_height_mm=6.0, fill_color="",
+                     border=BorderStyle(width_mm=0.3, corner="sharp",
+                                        fillet_radius_mm=0.0))
+        lay = TemplateLayout(
+            strip_width_mm=40.0,
+            area_border=BorderStyle(visible=False),
+            strip_border=BorderStyle(visible=False),
+            fields=[f], rows=[[Slot("a", 10.0)]])
+        w, h = 200.0, 150.0
+        sl = solve_layout(lay, w, h, {})
+        item = TitleBlockTemplateItem(sl, lay, {})
+        img = _render(item, w, h)
+
+        red = black = 0
+        for x in range(img.width()):
+            for y in range(img.height()):
+                p = img.pixel(x, y)
+                r, g, b = (p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF
+                if r > 200 and g < 80 and b < 80:
+                    red += 1
+                elif r < 80 and g < 80 and b < 80:
+                    black += 1
+        assert red > 0, "No red pixels — text_color was not applied"
+        assert red > black, (
+            f"Red text should out-pixel the thin black border; "
+            f"red={red}, black={black}"
+        )
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # scene_io embed — uses the MainWindow fixture (same pattern as test_paper_persistence.py)

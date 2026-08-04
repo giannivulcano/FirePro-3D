@@ -2750,7 +2750,8 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         painter.save()
         painter.setFont(f)
-        painter.setPen(QPen(Qt.GlobalColor.black, 0.1))
+        painter.setPen(QPen(
+            QColor(getattr(fdef, "text_color", "") or "#000000"), 0.1))
         painter.translate(rect.topLeft())
         painter.scale(s, s)
         align = {"left": Qt.AlignmentFlag.AlignLeft,
