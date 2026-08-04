@@ -1023,6 +1023,32 @@ class TestFontComboCommitSemantics:
         )
 
 
+class TestImageGroupUI:
+    """Image controls (grill 2026-08-04 item 4): height input + larger thumb."""
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.new_template()
+        return dlg
+
+    def test_image_height_input_commits_and_snapshots_once(
+            self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg._field_list.setCurrentRow(0)
+        depth = len(dlg._undo_stack)
+        # Widget-driven edit (setText + editingFinished, like other dim tests)
+        dlg._fimg_height.setText("12")
+        dlg._fimg_height.editingFinished.emit()
+        assert dlg.working.layout.fields[0].image_height_mm == 12.0
+        assert len(dlg._undo_stack) == depth + 1
+
+    def test_image_thumbnail_is_larger(self, tmp_path, monkeypatch):
+        dlg = self._dlg(tmp_path, monkeypatch)
+        assert dlg._fimg_thumb.width() >= 96
+        assert dlg._fimg_thumb.height() >= 64
+
+
 class TestInPlaceRosterUpdate:
     """QR-02: _field_prop must update roster in-place (no full rebuild),
     so _refresh_field_preview fires exactly once and image clear is reflected."""

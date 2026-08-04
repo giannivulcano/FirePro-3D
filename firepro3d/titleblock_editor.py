@@ -475,22 +475,37 @@ class TitleBlockEditorDialog(QDialog):
         text_vbox.addWidget(self._insert_btn)
         content_form.addRow("Text:", text_vbox)
 
-        # Image row
-        img_row = QHBoxLayout()
+        # Image controls (grill 2026-08-04 item 4): real thumbnail,
+        # Choose/Clear, and an explicit height input (0 = auto band).
+        img_row = QVBoxLayout()
+        img_row.setSpacing(4)
+        self._fimg_thumb = QLabel()
+        self._fimg_thumb.setFixedSize(120, 72)
+        self._fimg_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._fimg_thumb.setStyleSheet(
+            "border: 1px solid #888; background: #fff;")
+        img_row.addWidget(self._fimg_thumb)
+        img_btns = QHBoxLayout()
         self._fimg_btn = QPushButton("Choose image…")
         self._fimg_btn.clicked.connect(self._pick_field_image)
-        img_row.addWidget(self._fimg_btn)
+        img_btns.addWidget(self._fimg_btn)
         self._fimg_clear = QPushButton("Clear")
-        self._fimg_clear.setFixedWidth(46)
         self._fimg_clear.clicked.connect(
             lambda: self._field_prop("image_data", ""))
-        img_row.addWidget(self._fimg_clear)
-        self._fimg_thumb = QLabel()
-        self._fimg_thumb.setFixedSize(48, 32)
-        self._fimg_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._fimg_thumb.setStyleSheet("border: 1px solid #888; background: #fff;")
-        img_row.addWidget(self._fimg_thumb)
-        img_row.addStretch()
+        img_btns.addWidget(self._fimg_clear)
+        img_btns.addStretch()
+        img_row.addLayout(img_btns)
+        height_row = QHBoxLayout()
+        height_row.addWidget(QLabel("Height (mm):"))
+        self._fimg_height = DimensionEdit(None, initial_mm=0.0,
+                                          parser=_sm.parse_dimension,
+                                          minimum=0.0)
+        self._fimg_height.valueChanged.connect(
+            lambda v: self._field_prop("image_height_mm", v))
+        height_row.addWidget(self._fimg_height)
+        height_row.addWidget(QLabel("(0 = auto)"))
+        height_row.addStretch()
+        img_row.addLayout(height_row)
         content_form.addRow("Image:", img_row)
 
         # Revision rows spinbox (revision_table only)
@@ -1033,8 +1048,9 @@ class TitleBlockEditorDialog(QDialog):
                 self._ffont_combo.setCurrentIndex(idx)
             else:
                 self._ffont_combo.setCurrentText(f.font_family)
-            # Thumbnail
+            # Thumbnail + image height
             self._update_field_thumb(f.image_data)
+            self._fimg_height.set_value_mm(f.image_height_mm)
             # Apply kind-dependent widget visibility
             self._apply_kind_behavior(f.kind)
         finally:
@@ -1050,6 +1066,7 @@ class TitleBlockEditorDialog(QDialog):
         self._fimg_btn.setEnabled(not is_rev)
         self._fimg_clear.setEnabled(not is_rev)
         self._fimg_thumb.setEnabled(not is_rev)
+        self._fimg_height.setEnabled(not is_rev)
 
     def _update_field_thumb(self, image_data: str) -> None:
         """Update the image thumbnail label from base64 image data."""
@@ -1063,7 +1080,7 @@ class TitleBlockEditorDialog(QDialog):
             pm = QPixmap()
             if pm.loadFromData(raw) and not pm.isNull():
                 self._fimg_thumb.setPixmap(
-                    pm.scaled(48, 32, Qt.AspectRatioMode.KeepAspectRatio,
+                    pm.scaled(120, 72, Qt.AspectRatioMode.KeepAspectRatio,
                               Qt.TransformationMode.SmoothTransformation))
             else:
                 self._fimg_thumb.clear()
