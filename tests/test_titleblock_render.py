@@ -1440,10 +1440,13 @@ class TestMainWindowWiring:
         tpl.paper_size = "ANSI B"
         tpl.orientation = "portrait"
 
+        created = []
+
         class _FakeDlg:
             def __init__(self, *a, **kw):
                 self.project_template_result = tpl
                 self.templateSaved = MagicMock()   # main connects before exec
+                created.append(self)
             def exec(self):
                 return QDialog.DialogCode.Accepted
 
@@ -1451,6 +1454,13 @@ class TestMainWindowWiring:
 
         _mw._modified = False
         _mw._open_titleblock_editor()
+
+        # Pin the live-refresh seam: main.py must connect templateSaved to
+        # _on_titleblock_saved_live before exec() (untestable otherwise —
+        # deleting the connect line kept everything green pre-pin).
+        assert len(created) == 1
+        created[0].templateSaved.connect.assert_called_once_with(
+            _mw._on_titleblock_saved_live)
 
         sheet = _mw._sheet
         assert sheet.paper_size == "ANSI B", (

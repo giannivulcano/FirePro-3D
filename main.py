@@ -1841,6 +1841,8 @@ class MainWindow(QMainWindow):
         Direct assignment bypasses PaperScene.paper_size setter intentionally:
         the setter would call _setup() at pre-template state, but the push
         immediately below rebuilds the scene with the new template applied.
+        May run twice on Save & Close (live-refresh then accept-path); must
+        stay idempotent.
         """
         from firepro3d.paper_space import native_orientation_from_dims
         self._sheet.paper_size = result.paper_size
