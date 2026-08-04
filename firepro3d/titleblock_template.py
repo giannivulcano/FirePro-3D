@@ -98,10 +98,10 @@ def resolve_text(text: str, values: dict) -> tuple[str, list[str]]:
 class BorderStyle:
     """Border appearance for a frame or cell (mm widths, fillet/sharp corners).
 
-    The ``edge_*`` flags apply to field cells only — the drawing-area and
-    info-strip frames always render closed (their styles keep the all-True
-    defaults). Fillet is honoured only when all four edges are on; with any
-    edge off the renderer paints straight per-edge segments.
+    The ``edge_*`` flags apply to field cells only — the editor never sets
+    edge flags for frame groups (drawing-area and info-strip styles keep the
+    all-True defaults). Fillet is honoured only when all four edges are on;
+    with any edge off the renderer paints straight per-edge segments.
     """
 
     visible: bool = True

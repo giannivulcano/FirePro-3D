@@ -2730,6 +2730,7 @@ class TitleBlockTemplateItem(QGraphicsItem):
             return
         # Partial edges: straight segments only; fillet requires all four
         # edges (grill 2026-08-04 3b).
+        # SquareCap (default) closes shared corners between adjacent edges.
         top, bottom, left, right = edges
         if top:
             painter.drawLine(rect.topLeft(), rect.topRight())
