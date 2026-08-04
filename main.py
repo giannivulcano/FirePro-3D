@@ -1825,10 +1825,12 @@ class MainWindow(QMainWindow):
             current, parent=self,
             project_info=getattr(self.scene, "_project_info", {}))
         dlg.templateSaved.connect(self._on_titleblock_saved_live)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
         result = dlg.project_template_result
-        if result is not None:
+        # A saved use-intent survives Close (grill 2026-08-04 follow-up):
+        # Use-for-project + Save writes the library AND captures the saved
+        # copy; rejecting afterwards discards only post-save edits.
+        if result is not None and (accepted or dlg.result_saved):
             self._apply_titleblock_template(result)
 
     def _apply_titleblock_template(self, result) -> None:
@@ -1866,9 +1868,13 @@ class MainWindow(QMainWindow):
 
         uuid match against the embedded template — a Save of an unrelated
         library template must not touch the project (grill 2026-08-04 item 1).
+        isinstance guard: a hand-corrupted .fpd can hold a non-dict embed,
+        and this runs in a Qt signal handler where an AttributeError would
+        be a silent qFatal (same guard as _current_template /
+        _push_titleblock_template).
         """
         raw = getattr(self.scene, "_titleblock_template", None)
-        if raw and raw.get("uuid") == tmpl.uuid:
+        if isinstance(raw, dict) and raw.get("uuid") == tmpl.uuid:
             self._apply_titleblock_template(tmpl)
 
     def _current_template(self):

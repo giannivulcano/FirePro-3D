@@ -256,6 +256,12 @@ class TitleBlockEditorDialog(QDialog):
     ------------------------
     project_template_result : TitleBlockTemplate | None
         Set by use_for_project(); None if the user never clicked "Use for project".
+    result_saved : bool
+        True once a successful Save has refreshed project_template_result —
+        a SAVED use-intent survives Close (reject), so MainWindow applies the
+        result when either the dialog was accepted or result_saved is True
+        (holistic review 2026-08-04 finding 1). Unsaved use-intents still
+        discard on Close.
     """
 
     #: Emitted after a successful mid-session Save with a COPY of the saved
@@ -273,6 +279,10 @@ class TitleBlockEditorDialog(QDialog):
         # ── Public state ──────────────────────────────────────────────────
         self.working: TitleBlockTemplate | None = None
         self.project_template_result: TitleBlockTemplate | None = None
+        # True once _do_save() has refreshed project_template_result from a
+        # successful library write; project_template_result is never reset
+        # after __init__, so this flag has the same single reset point.
+        self.result_saved: bool = False
         self._project_info = project_info or {}
         self._use_requested = False   # set by use_for_project(); read by _do_save
 
@@ -1491,6 +1501,15 @@ class TitleBlockEditorDialog(QDialog):
             strip_w = lay.strip_width_mm
             preview_h = slot_min_h * 3
             solved = solve_layout(mini, strip_w, preview_h, _SAMPLE_VALUES)
+            # The solver's height pass can grow the cell beyond the nominal
+            # 3x-min preview strip (e.g. an explicit image_height_mm band
+            # taller than a small slot min), and the renderer clips to the
+            # strip — re-solve with the strip sized to the natural cell
+            # height so the content is never chopped in the Fields preview
+            # (holistic review 2026-08-04 finding 3).
+            if solved.cell_rects and solved.cell_rects[0].height() > preview_h:
+                preview_h = solved.cell_rects[0].height()
+                solved = solve_layout(mini, strip_w, preview_h, _SAMPLE_VALUES)
 
             # White paper background so the renderer's fills/text read on
             # a white ground, not the dark app theme.
@@ -1776,6 +1795,9 @@ class TitleBlockEditorDialog(QDialog):
             return False
         if self._use_requested or self.project_template_result is not None:
             self.project_template_result = self.working.copy()
+            # Mark the result as saved: a saved use-intent survives a later
+            # Close/reject (holistic review 2026-08-04 finding 1).
+            self.result_saved = True
         self.templateSaved.emit(self.working.copy())
         return True
 

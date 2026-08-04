@@ -163,6 +163,51 @@ class TestSaveButtonsRow:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Holistic review 2026-08-04 finding 1: saved use-intent survives Close
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestSavedUseIntentSurvivesClose:
+    """Use → Save → Close must NOT silently drop the use-intent the user
+    explicitly saved: result_saved marks project_template_result as a saved
+    copy so main.py can apply it even on Rejected. Unsaved Use still discards.
+    """
+
+    def _dlg(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(tbt, "_library_dir", lambda: str(tmp_path))
+        t = make_default_template()
+        tbt.save_to_library(t)
+        dlg = TitleBlockEditorDialog(project_template=None)
+        dlg.select_template(t.uuid)
+        return dlg
+
+    def test_use_save_close_marks_result_saved(self, tmp_path, monkeypatch):
+        """Use → Save (stays open) → Close: dialog rejects but the saved
+        result survives with result_saved=True."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.show()
+        dlg._use_btn.click()
+        dlg.save_button.click()
+        dlg.close_button.click()
+        assert dlg.result() == QDialog.DialogCode.Rejected
+        assert dlg.project_template_result is not None
+        assert dlg.result_saved is True, (
+            "Use + Save + Close must mark the result as saved so main.py "
+            "applies it despite the rejection"
+        )
+
+    def test_use_without_save_close_not_marked_saved(self, tmp_path, monkeypatch):
+        """Use WITHOUT Save → Close: unsaved use-intent still discards."""
+        dlg = self._dlg(tmp_path, monkeypatch)
+        dlg.show()
+        dlg._use_btn.click()
+        dlg.close_button.click()
+        assert dlg.result() == QDialog.DialogCode.Rejected
+        assert dlg.result_saved is False, (
+            "Use without Save must NOT mark the result as saved"
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Finding 1: modified-stamp preserved on failed save
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -919,6 +964,46 @@ class TestFieldsTab:
         dlg._field_prop("name", current_name)  # same value
         assert len(dlg._undo_stack) == depth_before, (
             "_field_prop must not snapshot when value is unchanged"
+        )
+
+    def test_field_preview_fits_explicit_image_height(self, tmp_path, monkeypatch):
+        """A 40 mm explicit image band on a field whose slot min is small must
+        NOT be clipped by the nominal 3x-min preview strip: the mini-solved
+        band lies fully inside the strip with its full explicit height and no
+        overflow warning (holistic review 2026-08-04 finding 3)."""
+        from firepro3d.paper_space import TitleBlockTemplateItem
+
+        dlg = self._dlg(tmp_path, monkeypatch)
+        lay = dlg.working.layout
+        # Pick a placed non-revision-table field and shrink its slot min to
+        # 5 mm (the finding's repro: 5 mm min -> ~15 mm preview strip).
+        fmap = lay.field_map()
+        slot = next(s for row in lay.rows for s in row
+                    if fmap[s.field_id].kind != "revision_table")
+        slot.min_height_mm = 5.0
+        row_idx = next(i for i, f in enumerate(lay.fields)
+                       if f.id == slot.field_id)
+        dlg._field_list.setCurrentRow(row_idx)
+        # Solver only needs truthy image_data; decodability is a paint concern.
+        dlg._field_prop("image_data", "AAAA")
+        dlg._field_prop("image_height_mm", 40.0)
+
+        items = [it for it in dlg._field_preview_scene.items()
+                 if isinstance(it, TitleBlockTemplateItem)]
+        assert len(items) == 1, "expected exactly one preview item"
+        solved = items[0]._layout
+        bands = [r for r in solved.cell_image_rects if r is not None]
+        assert bands, "expected an image band in the mini-solve"
+        band = bands[0]
+        assert band.height() >= 40.0 - 1e-6, (
+            f"explicit 40 mm image band shrunk to {band.height():.2f} mm "
+            f"in the Fields preview"
+        )
+        assert band.bottom() <= solved.strip_rect.bottom() + 1e-6, (
+            "image band must lie fully inside the preview strip"
+        )
+        assert not any("overflow" in w.lower() for w in solved.warnings), (
+            f"preview mini-solve must not overflow the strip: {solved.warnings}"
         )
 
     def test_field_preview_has_white_background(self, tmp_path, monkeypatch):

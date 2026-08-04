@@ -1445,6 +1445,7 @@ class TestMainWindowWiring:
         class _FakeDlg:
             def __init__(self, *a, **kw):
                 self.project_template_result = tpl
+                self.result_saved = False          # accepted path: no mid-session Save
                 self.templateSaved = MagicMock()   # main connects before exec
                 created.append(self)
             def exec(self):
@@ -1493,6 +1494,7 @@ class TestMainWindowWiring:
         class _FakeDlg:
             def __init__(self, *a, **kw):
                 self.project_template_result = tpl
+                self.result_saved = False          # accepted path: no mid-session Save
                 self.templateSaved = MagicMock()   # main connects before exec
             def exec(self):
                 return QDialog.DialogCode.Accepted
@@ -1505,6 +1507,61 @@ class TestMainWindowWiring:
         assert sheet.paper_size == "ANSI D"
         assert sheet.orientation == "", (
             "Native orientation must be stored as '' (byte-identical with legacy files)"
+        )
+
+    def test_rejected_with_saved_use_intent_still_applies(self, _mw, monkeypatch):
+        """Use-for-project + Save then Close (reject): the SAVED use-intent
+        survives — result_saved=True + result set must apply the template even
+        though exec() returned Rejected (holistic review 2026-08-04 finding 1).
+        A rejected dialog WITHOUT a saved result must still discard.
+        """
+        from PyQt6.QtWidgets import QDialog
+        from firepro3d.titleblock_template import make_default_template
+        import firepro3d.titleblock_editor as tbe
+
+        _fresh(_mw)
+        tpl = make_default_template()
+        tpl.paper_size = "ANSI B"
+        tpl.orientation = "portrait"
+
+        class _FakeDlgRejectedSaved:
+            def __init__(self, *a, **kw):
+                self.project_template_result = tpl
+                self.result_saved = True           # mid-session Save captured it
+                self.templateSaved = MagicMock()
+            def exec(self):
+                return QDialog.DialogCode.Rejected
+
+        monkeypatch.setattr(tbe, "TitleBlockEditorDialog", _FakeDlgRejectedSaved)
+        _mw._open_titleblock_editor()
+
+        sheet = _mw._sheet
+        assert sheet.paper_size == "ANSI B", (
+            "Rejected dialog with a SAVED use-intent must still apply the template"
+        )
+        embed = getattr(_mw.scene, "_titleblock_template", None)
+        assert isinstance(embed, dict) and embed["uuid"] == tpl.uuid, (
+            "Saved use-intent must be embedded despite rejection"
+        )
+
+        # Negative: rejected + result_saved=False discards even with a result.
+        _fresh(_mw)
+        other = make_default_template()
+        other.paper_size = "ANSI B"
+        other.orientation = "portrait"
+
+        class _FakeDlgRejectedUnsaved:
+            def __init__(self, *a, **kw):
+                self.project_template_result = other
+                self.result_saved = False
+                self.templateSaved = MagicMock()
+            def exec(self):
+                return QDialog.DialogCode.Rejected
+
+        monkeypatch.setattr(tbe, "TitleBlockEditorDialog", _FakeDlgRejectedUnsaved)
+        _mw._open_titleblock_editor()
+        assert getattr(_mw.scene, "_titleblock_template", None) is None, (
+            "Rejected dialog without a saved result must NOT apply the template"
         )
 
     def test_titleblock_saved_live_refreshes_only_on_uuid_match(self, _mw):
@@ -1553,6 +1610,22 @@ class TestMainWindowWiring:
         )
         assert embed["layout"]["strip_width_mm"] == 123.0, (
             "Save of an unrelated template must not touch the project embed"
+        )
+
+    def test_titleblock_saved_live_corrupt_embed_no_crash(self, _mw):
+        """A hand-corrupted .fpd can hold a non-dict embed; the live-save
+        handler runs inside a Qt signal, so an AttributeError would be a
+        silent qFatal. It must no-op and leave the embed untouched
+        (holistic review 2026-08-04 finding 2).
+        """
+        from firepro3d.titleblock_template import make_default_template
+
+        _fresh(_mw)
+        _mw.scene._titleblock_template = "corrupt"
+        tpl = make_default_template()
+        _mw._on_titleblock_saved_live(tpl)   # must not raise
+        assert _mw.scene._titleblock_template == "corrupt", (
+            "Corrupt (non-dict) embed must be left untouched by live-save"
         )
 
     def test_load_path_does_not_force_sheet_size(self, _mw, tmp_path, monkeypatch):
