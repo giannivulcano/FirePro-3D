@@ -28,7 +28,7 @@ from firepro3d.paper_space import (
     PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
     PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
     text_template_to_settings, apply_template_settings,
-    native_orientation_from_dims,
+    native_orientation_from_dims, sheet_page_mm,
 )
 from firepro3d.ribbon_bar import RibbonBar
 # view_3d deferred — imports pyvista/VTK which is slow
@@ -2400,6 +2400,19 @@ class MainWindow(QMainWindow):
         ``titleblock_warning`` when the active template no longer matches the
         new sheet size.  This method reads that warning and shows it in the
         status bar — mirroring the ``_push_titleblock_template`` pattern.
+
+        Edge case — same-size ribbon press with a stored orientation override:
+        The ``PaperScene.paper_size`` setter no-ops when size == active
+        sheet.paper_size, so it neither clears the orientation override nor
+        rebuilds the scene.  ``set_paper_all(size, "")`` then writes
+        ``orientation=""`` into the active sheet's DATA only — the rendered
+        page keeps the old orientation until a sheet switch.  We detect this by
+        comparing the scene's rendered paper rect (_bg_item) against
+        sheet_page_mm after set_paper_all runs; a mismatch means the setter
+        skipped the rebuild, so we call _setup() + fit_sheet() directly (the
+        same actions the setter takes on a real size change).  We deliberately
+        do NOT call set_sheet/update_from_sheet because those clear the paper
+        undo stack — §17.5 preserves the stack on the size-change path.
         """
         self.paper_space_widget.change_paper(size)
         # Propagate to all other sheets (spec §19.1 uniform-size rule).
@@ -2410,6 +2423,16 @@ class MainWindow(QMainWindow):
         if self.sheet_mgr.set_paper_all(size, ""):
             self._on_paper_modified()
         sc = self.paper_space_widget.paper_scene
+        # Force a scene rebuild when set_paper_all changed the active sheet's
+        # orientation without the setter having done so (same-size no-op path).
+        w_mm, h_mm = sheet_page_mm(self._sheet)
+        bg = sc._bg_item
+        if bg is not None and (
+            abs(bg.rect().width() - w_mm) > 0.05
+            or abs(bg.rect().height() - h_mm) > 0.05
+        ):
+            sc._setup()
+            self.paper_space_widget.fit_sheet()
         if sc.titleblock_warning:
             self.statusBar().showMessage(sc.titleblock_warning, 8000)
 
@@ -2904,6 +2927,12 @@ class MainWindow(QMainWindow):
         _modified, title, and recent-files bookkeeping (recovery deliberately
         keeps _current_file=None and _modified=True).
         """
+        # Record whether the paper tab was current before the load.  The sheet
+        # rebind at the end of this method must refresh the panel with the new
+        # sheet's adapter when paper was showing — but _activate_plan_view (called
+        # below) may switch the tab away before that happens, so we note it now.
+        _paper_was_current = isinstance(
+            self.central_tabs.currentWidget(), PaperSpaceWidget)
         self.scene.load_from_file(file)
         self.level_widget.populate()
         # Apply display settings: prefer project-embedded settings, fall back to QSettings
@@ -2951,6 +2980,20 @@ class MainWindow(QMainWindow):
         # divergence re-offers on the next normal File→Open).
         self._push_sheet_list()
         self._recompute_placed_views()
+        # Refresh the property panel so it wraps the post-load active sheet, not
+        # the pre-load detached Sheet (stale adapter bug: §19.4).
+        # If the paper tab is current now, the guard in update_paper_property_manager
+        # will fire normally.  If paper was current at load-start but _activate_plan_view
+        # switched the tab away, the panel now holds PlanViewInfo (correct for the plan
+        # tab), so we explicitly push a fresh SheetProperties adapter so that switching
+        # back to the paper tab later — or a direct panel read — uses the new sheet.
+        if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
+            self.update_paper_property_manager()
+        elif _paper_was_current:
+            # The load switched away from paper; proactively seed the panel with
+            # the new sheet so any immediate switch back shows the right adapter.
+            self.prop_manager.show_properties(
+                self._sheet_props_adapter(self._sheet))
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -3095,6 +3138,14 @@ class MainWindow(QMainWindow):
         self._push_titleblock_template()
         self._push_sheet_list()
         self._recompute_placed_views()
+        # Refresh the property panel so it wraps the fresh default sheet, not
+        # any pre-new-file detached Sheet adapter (stale adapter bug: §19.4).
+        if isinstance(self.central_tabs.currentWidget(), PaperSpaceWidget):
+            self.update_paper_property_manager()
+        elif (self.prop_manager._targets
+              and isinstance(self.prop_manager._targets[0], SheetProperties)):
+            self.prop_manager.show_properties(
+                self._sheet_props_adapter(self._sheet))
 
         self._modified = False
         self._update_title()

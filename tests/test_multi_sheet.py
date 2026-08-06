@@ -407,3 +407,86 @@ def test_sheet_switch_does_not_dirty(mw):
     mw._switch_sheet(mw.sheet_mgr.sheets[0])
     mw._switch_sheet(s2)
     assert not mw._modified, "switching sheets changes no bytes"
+
+
+# ---------------------------------------------------------------------------
+# Holistic carry-ins (2026-08-06)
+# ---------------------------------------------------------------------------
+
+def test_same_size_change_clears_orientation_and_rerenders(mw):
+    """Ribbon Paper Size with unchanged size but a stored orientation
+    override must reset the override AND rebuild the active render.
+
+    ANSI D native dims are (863.6, 558.8) — landscape (w > h).
+    We render the scene in "portrait" orientation first (558.8 wide × 863.6 tall),
+    then call _change_paper_with_warning with the same size.  The scene must
+    rebuild with native (landscape) dims: _bg_item.rect().width() must equal
+    863.6, not remain at 558.8.
+    """
+    from firepro3d.paper_space import sheet_page_mm, native_orientation_from_dims
+
+    size = mw._sheet.paper_size
+    native = native_orientation_from_dims(size)
+    override = "portrait" if native == "landscape" else "landscape"
+
+    # Force the scene to render with the override so the render is stale after
+    # set_paper_all clears orientation without rebuilding.
+    mw._sheet.orientation = override
+    mw.paper_space_widget.paper_scene._setup()   # render the override into _bg_item
+
+    sc = mw.paper_space_widget.paper_scene
+    portrait_w, portrait_h = sheet_page_mm(mw._sheet)
+    assert abs(sc._bg_item.rect().width() - portrait_w) < 0.1, (
+        "precondition: scene must be rendered with the override dims"
+    )
+
+    mw._change_paper_with_warning(size)  # same size — triggers the stale-render bug
+
+    # Data: orientation override must be cleared
+    assert mw._sheet.orientation == "", "override must be cleared in data"
+
+    # Render: _bg_item must reflect the cleared (native) dims, not the portrait dims.
+    # sheet_page_mm now returns native since orientation="".
+    native_w, native_h = sheet_page_mm(mw._sheet)
+    bg_rect = sc._bg_item.rect()
+    assert abs(bg_rect.width() - native_w) < 0.1, (
+        f"rendered paper width {bg_rect.width():.1f} must match native sheet width "
+        f"{native_w:.1f} after same-size orientation-clear (was {override!r} / "
+        f"portrait_w={portrait_w:.1f})"
+    )
+    assert abs(bg_rect.height() - native_h) < 0.1, (
+        f"rendered paper height {bg_rect.height():.1f} must match native sheet height "
+        f"{native_h:.1f} after same-size orientation-clear"
+    )
+
+
+def test_load_resets_stale_panel_adapter(mw, tmp_path):
+    """File→Open must rebind the panel to the post-load active sheet.
+
+    Pre-fix: _apply_loaded_file rebinds sheet_mgr/_sheet but never calls
+    update_paper_property_manager(), so the panel keeps wrapping the pre-load
+    Sheet instance.  Edits made via the panel would silently write to the
+    detached (pre-load) Sheet.
+    """
+    from firepro3d.paper_space import SheetProperties
+
+    path = str(tmp_path / "p.fpd")
+    mw._current_file = path
+    mw.save_file()
+
+    mw._activate_paper_sheet()              # paper tab current
+    mw.update_paper_property_manager()      # panel = adapter of current sheet
+    old_sheet = mw.prop_manager._targets[0]._sheet
+
+    mw._load_project(path)                  # rebinds sheets
+
+    t = mw.prop_manager._targets[0]
+    assert isinstance(t, SheetProperties), (
+        "panel must still show a SheetProperties adapter after load"
+    )
+    assert t._sheet is mw._sheet, (
+        "panel adapter must wrap the POST-load active sheet"
+    )
+    assert t._sheet is not old_sheet, (
+        "post-load sheet must be a different object than the pre-load sheet"
+    )
