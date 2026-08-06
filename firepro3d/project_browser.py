@@ -223,15 +223,26 @@ class ProjectBrowser(QWidget):
     def set_sheets(self, sheets: "list[tuple[str, str]]"):
         """Refresh the Paper Space children (pure push from MainWindow).
 
+        Preserves the selected sheet row (by number) across rebuilds so a
+        push triggered by an edit doesn't drop the user's selection.
+
         Args:
             sheets: ``[(number, display_text), …]`` in document-set order.
         """
+        selected = None
+        cur = self._tree.selectedItems()
+        if len(cur) == 1 and cur[0].data(0, _ROLE_TYPE) == "sheet":
+            selected = cur[0].data(0, _ROLE_NAME)
         self._paper_root.takeChildren()
         for number, display in sheets:
             item = QTreeWidgetItem(self._paper_root, [display])
             item.setData(0, _ROLE_TYPE, "sheet")
             item.setData(0, _ROLE_NAME, number)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
+            if number == selected:
+                self._tree.blockSignals(True)
+                self._tree.setCurrentItem(item)
+                self._tree.blockSignals(False)
         self._paper_root.setExpanded(True)
 
     def set_placed_views(self, placed: "set[tuple[str, str]]"):

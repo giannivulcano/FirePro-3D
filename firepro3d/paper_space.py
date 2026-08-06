@@ -527,6 +527,62 @@ class SheetManager:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SheetProperties — property-panel adapter for a Sheet (spec §19.4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SheetProperties:
+    """Property-panel adapter for a Sheet (duck-typed protocol, spec §19.4).
+
+    A plain object (not a QGraphicsItem): PropertyManager only requires
+    get_properties()/set_property(). Sheet-level edits are non-undoable
+    (grill) — writes go straight to the dataclass; the on_change callback
+    lets MainWindow push UI refreshes + the dirty flag.
+    """
+
+    def __init__(self, sheet: "Sheet", manager: "SheetManager",
+                 on_change=None, on_reject=None):
+        self._sheet = sheet
+        self._mgr = manager
+        self._on_change = on_change or (lambda: None)
+        self._on_reject = on_reject or (lambda msg: None)
+
+    def get_properties(self) -> dict:
+        return {
+            "Sheet Number": {"type": "string", "value": self._sheet.number},
+            "Sheet Name": {"type": "string", "value": self._sheet.name},
+            "Paper Size": {"type": "label", "value": self._sheet.paper_size},
+            "Orientation": {"type": "label",
+                            "value": self._sheet.orientation or "native"},
+        }
+
+    def set_property(self, key: str, value) -> None:
+        """Commit an edit to one property field.
+
+        Validates before writing — never partially applies.  Fires
+        *on_change* on a committed mutation, *on_reject* on a validation
+        failure.
+
+        Args:
+            key: Property label from ``get_properties()``.
+            value: New value (coerced to ``str`` and stripped).
+        """
+        value = str(value).strip()
+        if key == "Sheet Number":
+            if value == self._sheet.number:
+                return
+            if not self._mgr.validate_number(value, ignore=self._sheet):
+                self._on_reject(
+                    f'Sheet number "{value}" is empty or already in use.')
+                return
+            self._sheet.number = value
+            self._on_change()
+        elif key == "Sheet Name":
+            if value and value != self._sheet.name:
+                self._sheet.name = value
+                self._on_change()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ViewResolver — bridges source view managers to (scene, source_rect) pairs
 # ─────────────────────────────────────────────────────────────────────────────
 

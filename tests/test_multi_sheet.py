@@ -212,3 +212,74 @@ def test_placed_views_recomputed_on_paper_modified(mw):
     fonts = {elev.child(i).data(0, 0x0101): elev.child(i).font(0).italic()
              for i in range(elev.childCount())}
     assert fonts["North"] is True
+
+
+# ---------------------------------------------------------------------------
+# Task 6: SheetProperties adapter + panel fallback + Esc + browser selection
+# ---------------------------------------------------------------------------
+
+def test_sheet_properties_adapter_validation(qapp):
+    from firepro3d.paper_space import SheetProperties
+    lst = [Sheet.create_default()]
+    s2 = Sheet.create_default()
+    s2.number = "FP-2.0"
+    lst.append(s2)
+    mgr = SheetManager(lst)
+    changes, rejects = [], []
+    props = SheetProperties(s2, mgr,
+                            on_change=lambda: changes.append(1),
+                            on_reject=rejects.append)
+    form = props.get_properties()
+    assert form["Sheet Number"]["value"] == "FP-2.0"
+    assert form["Sheet Name"]["type"] == "string"
+    assert form["Paper Size"]["type"] == "label"
+    # collision rejected, number kept, on_reject fired
+    props.set_property("Sheet Number", "FP-1.0")
+    assert s2.number == "FP-2.0" and rejects and not changes
+    # valid renumber commits + notifies
+    props.set_property("Sheet Number", "FP-9.0")
+    assert s2.number == "FP-9.0" and changes == [1]
+    # name edit
+    props.set_property("Sheet Name", "Cover")
+    assert s2.name == "Cover" and changes == [1, 1]
+    # no-op emits nothing
+    props.set_property("Sheet Name", "Cover")
+    assert changes == [1, 1]
+
+
+def test_panel_shows_sheet_props_on_empty_selection(mw):
+    from firepro3d.paper_space import SheetProperties
+    mw._activate_paper_sheet()              # paper tab current
+    mw.paper_space_widget.paper_scene.clearSelection()
+    mw.update_paper_property_manager()
+    targets = mw.prop_manager._targets
+    assert len(targets) == 1 and isinstance(targets[0], SheetProperties)
+
+
+def test_escape_on_paper_tab_falls_back_to_sheet_props(mw):
+    from firepro3d.paper_space import SheetProperties
+    mw._activate_paper_sheet()
+    mw._on_escape()                          # empty selection: stays on sheet props
+    assert isinstance(mw.prop_manager._targets[0], SheetProperties)
+
+
+def test_browser_sheet_click_populates_panel_with_that_sheet(mw):
+    from firepro3d.paper_space import SheetProperties
+    s2 = mw.sheet_mgr.create()
+    mw._push_sheet_list()
+    root = mw.project_browser._paper_root
+    mw.project_browser._tree.setCurrentItem(root.child(1))   # fires sheetSelected
+    t = mw.prop_manager._targets[0]
+    assert isinstance(t, SheetProperties) and t._sheet is s2
+
+
+def test_renumber_refreshes_tab_title_and_browser(mw):
+    mw._activate_paper_sheet()
+    props = mw._sheet_props_adapter(mw._sheet)
+    props.set_property("Sheet Number", "FP-77.0")
+    idx = mw.central_tabs.indexOf(mw.paper_space_widget)
+    assert mw.central_tabs.tabText(idx).startswith("FP-77.0")
+    from firepro3d.project_browser import _ROLE_NAME
+    root = mw.project_browser._paper_root
+    assert root.child(0).data(0, _ROLE_NAME) == "FP-77.0"
+    assert mw._modified is True

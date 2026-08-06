@@ -111,3 +111,12 @@ def test_placed_views_cover_elevations(browser):
     fonts = {elev.child(i).data(0, _ROLE_NAME): elev.child(i).font(0).italic()
              for i in range(elev.childCount())}
     assert fonts["North"] is True and fonts["South"] is False
+
+
+def test_set_sheets_preserves_selected_row_by_number(browser):
+    browser.set_sheets([("1", "1 - a"), ("2", "2 - b")])
+    browser._tree.setCurrentItem(browser._paper_root.child(1))
+    browser.set_sheets([("1", "1 - a"), ("2", "2 - renamed")])
+    sel = browser._tree.selectedItems()
+    assert len(sel) == 1 and sel[0].data(0, _ROLE_TYPE) == "sheet"
+    assert sel[0].data(0, _ROLE_NAME) == "2", "selection survives push by number"

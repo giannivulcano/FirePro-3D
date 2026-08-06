@@ -25,8 +25,8 @@ from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import (
-    PaperSpaceWidget, Sheet, SheetManager, ViewResolver, PAPER_SIZES,
-    TextAnnotationData, TextAnnotationItem,
+    PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
+    PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
     text_template_to_settings, apply_template_settings,
 )
 from firepro3d.ribbon_bar import RibbonBar
@@ -825,8 +825,30 @@ class MainWindow(QMainWindow):
         self._push_sheet_list()
 
     def _on_browser_sheet_selected(self, number: str):
-        """Sheet row single-click → sheet properties in the panel (Task 6)."""
-        pass
+        """Sheet row single-click → sheet properties in the panel (spec §19.4)."""
+        sheet = self.sheet_mgr.get(number)
+        if sheet is not None:
+            self.prop_manager.show_properties(self._sheet_props_adapter(sheet))
+
+    def _sheet_props_adapter(self, sheet: "Sheet") -> "SheetProperties":
+        """Build a SheetProperties adapter wired to this MainWindow's callbacks.
+
+        Args:
+            sheet: The Sheet to adapt.
+
+        Returns:
+            A SheetProperties instance whose on_change fires _on_sheet_meta_changed
+            and whose on_reject posts a transient status-bar message.
+        """
+        return SheetProperties(
+            sheet, self.sheet_mgr,
+            on_change=self._on_sheet_meta_changed,
+            on_reject=lambda msg: self.statusBar().showMessage(msg, 4000))
+
+    def _on_sheet_meta_changed(self):
+        """Rename/renumber committed: refresh titleblock Sheet No + UI + dirty."""
+        self.paper_space_widget.paper_scene._refresh_titleblock()
+        self._on_paper_modified()
 
     def _activate_paper_sheet(self, number: str | None = None):
         """Open/switch the canonical paper tab; optionally switch sheets.
@@ -3059,6 +3081,13 @@ class MainWindow(QMainWindow):
 
     def _on_escape(self):
         """Escape: cancel current chain in pipe mode, else reset mode."""
+        # Paper tab: Esc = deselect → panel falls back to sheet properties
+        # (§19.4). Never touches the model scene from the paper tab.
+        w = self.central_tabs.currentWidget()
+        if isinstance(w, PaperSpaceWidget):
+            w.paper_scene.clearSelection()
+            self.update_paper_property_manager()
+            return
         # Pipe mode mid-chain: cancel the chain but stay in pipe mode
         if self.scene.mode == "pipe" and self.scene.node_start_pos is not None:
             # Remove the orphan start node if it was newly created and has no pipes
@@ -3368,7 +3397,10 @@ class MainWindow(QMainWindow):
                      if isinstance(it, TextAnnotationItem)]
         except RuntimeError:
             return
-        self.prop_manager.show_properties(items if items else None)
+        # §19.4: the paper panel is never blank — empty selection falls back
+        # to the active sheet's properties.
+        self.prop_manager.show_properties(
+            items if items else self._sheet_props_adapter(self._sheet))
 
     def _on_add_text_mode_toggled(self, checked: bool):
         """Show the text template pre-placement; restore selection view after."""
