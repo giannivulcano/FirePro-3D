@@ -18,14 +18,21 @@ Tree structure
       ▶ Details        (future)
       ▶ Schedules      (future: tabular data)
   ▼ Paper Space
-      Layout 1         ← real sheet, clicking switches to it
-      Layout 2 …       ← additional sheets added dynamically
+      FP-1.0 - Plans   ← sheet rows keyed by Sheet.number; pushed by MainWindow
+      FP-2.0 - Details …
 
-Signals
--------
-activateModelSpace()      — user clicked the Model Space root or any sub-item
-                            that maps to the current model space canvas
-activatePaperSheet(name)  — user double-clicked a Paper Space sheet by name
+Signals (pure push contract)
+-----------------------------
+activateModelSpace()           — model space root / sub-item activated
+activatePaperSheet(number)     — sheet double-clicked; number = Sheet.number
+sheetSelected(number)          — single-click selection → sheet props panel
+createPaperSheet()             — instant create request; MainWindow owns the dialog
+deletePaperSheet(number)       — delete request; MainWindow owns the confirm
+sheetOrderChanged(list[str])   — post-drop reorder; numbers in new document order
+
+The tree never self-mutates from its own gestures (pure-push contract,
+spec §"Multi-sheet design deltas").  Gestures emit signals; MainWindow
+mutates data and pushes authoritative state back via set_sheets().
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ import json
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
-    QMenu, QInputDialog, QAbstractItemView,
+    QMenu, QAbstractItemView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QMimeData, QByteArray
 from PyQt6.QtGui import QFont, QColor, QBrush, QIcon
@@ -55,7 +62,9 @@ _ROLE_VIEW  = Qt.ItemDataRole.UserRole + 2
 # ─────────────────────────────────────────────────────────────────────────────
 
 class _ProjectTree(QTreeWidget):
-    """QTreeWidget with drag support for view items."""
+    """QTreeWidget with drag-out for view items + guarded internal sheet moves."""
+
+    sheetDropped = pyqtSignal(str, str)   # (dragged number, target number|"")
 
     def mimeData(self, items):
         mime = QMimeData()
@@ -75,10 +84,51 @@ class _ProjectTree(QTreeWidget):
                     QByteArray(payload.encode("utf-8")),
                 )
                 break
+            if role_type == "sheet":
+                mime.setData(
+                    "application/x-firepro3d-sheet",
+                    QByteArray(str(item.data(0, _ROLE_NAME)).encode("utf-8")),
+                )
+                break
         return mime
 
     def mimeTypes(self):
-        return ["application/x-firepro3d-view"]
+        return ["application/x-firepro3d-view",
+                "application/x-firepro3d-sheet"]
+
+    def _is_internal_sheet_drag(self, e) -> bool:
+        return (e.source() is self
+                and e.mimeData().hasFormat("application/x-firepro3d-sheet"))
+
+    def dragEnterEvent(self, e):
+        if self._is_internal_sheet_drag(e):
+            e.acceptProposedAction()
+        else:
+            super().dragEnterEvent(e)
+
+    def dragMoveEvent(self, e):
+        if self._is_internal_sheet_drag(e):
+            e.acceptProposedAction()
+        else:
+            super().dragMoveEvent(e)
+
+    def dropEvent(self, e):
+        if not self._is_internal_sheet_drag(e):
+            e.ignore()
+            return
+        number = bytes(
+            e.mimeData().data("application/x-firepro3d-sheet")).decode("utf-8")
+        target = self.itemAt(e.position().toPoint())
+        role = target.data(0, _ROLE_TYPE) if target is not None else None
+        if role not in ("sheet", "paper_root"):
+            e.ignore()                      # drops outside the sheet zone
+            return
+        target_number = target.data(0, _ROLE_NAME) if role == "sheet" else ""
+        # Pure push: NEVER let Qt move the item — data reorders, then
+        # MainWindow pushes set_sheets back.
+        e.setDropAction(Qt.DropAction.IgnoreAction)
+        e.accept()
+        self.sheetDropped.emit(number, target_number or "")
 
 
 class ProjectBrowser(QWidget):
@@ -91,12 +141,15 @@ class ProjectBrowser(QWidget):
     """
 
     activateModelSpace = pyqtSignal()
-    activatePaperSheet = pyqtSignal(str)   # sheet name
+    activatePaperSheet = pyqtSignal(str)   # sheet NUMBER (identity, spec §19.1)
     activateElevation = pyqtSignal(str)    # direction name (North/South/East/West)
     activatePlanView = pyqtSignal(str)     # level name (Level 1, Level 2, etc.)
     activateDetailView = pyqtSignal(str)   # detail view name
     deleteDetailView = pyqtSignal(str)     # detail view name to delete
-    createPaperSheet = pyqtSignal(str)     # new sheet name
+    createPaperSheet = pyqtSignal()        # instant create — MainWindow owns it
+    deletePaperSheet = pyqtSignal(str)     # sheet number; MainWindow confirms
+    sheetSelected = pyqtSignal(str)        # single-click → sheet props panel
+    sheetOrderChanged = pyqtSignal(list)   # numbers in new document-set order
 
     # Stub categories under 2D Model (Plans and Elevations are live)
     _MS_STUBS = ["Schematics", "Schedules"]
@@ -134,7 +187,8 @@ class ProjectBrowser(QWidget):
         self._tree = _ProjectTree()
         self._tree.setHeaderHidden(True)
         self._tree.setDragEnabled(True)
-        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self._tree.setDefaultDropAction(Qt.DropAction.IgnoreAction)
         self._tree.setRootIsDecorated(True)
         self._tree.setIndentation(16)
         self._tree.setStyleSheet(
@@ -147,6 +201,8 @@ class ProjectBrowser(QWidget):
         self._tree.itemDoubleClicked.connect(self._on_item_activated)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        self._tree.sheetDropped.connect(self._on_sheet_dropped)
+        self._tree.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self._tree)
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -164,21 +220,35 @@ class ProjectBrowser(QWidget):
             return self._scale_manager.format_length(elev_mm)
         return f"{elev_mm:.1f} mm"
 
-    def set_sheets(self, sheet_names: list[str]):
-        """
-        Refresh the Paper Space children with the given sheet names.
-        Call this whenever sheets are added/removed.
+    def set_sheets(self, sheets: "list[tuple[str, str]]"):
+        """Refresh the Paper Space children (pure push from MainWindow).
+
+        Args:
+            sheets: ``[(number, display_text), …]`` in document-set order.
         """
         self._paper_root.takeChildren()
-        for name in sheet_names:
-            item = QTreeWidgetItem(self._paper_root, [name])
+        for number, display in sheets:
+            item = QTreeWidgetItem(self._paper_root, [display])
             item.setData(0, _ROLE_TYPE, "sheet")
-            item.setData(0, _ROLE_NAME, name)
+            item.setData(0, _ROLE_NAME, number)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled)
         self._paper_root.setExpanded(True)
 
-    def set_placed_views(self, placed: set[tuple[str, str]]):
-        """Set which views are currently placed on a sheet (shown italic)."""
+    def set_placed_views(self, placed: "set[tuple[str, str]]"):
+        """Italicize placed view rows IN PLACE (covers elevations too)."""
         self._placed_views = placed
+        for role, root in (("plan", self._plans_root),
+                           ("elevation", self._elev_root),
+                           ("detail", self._details_root)):
+            if root is None:
+                continue
+            for i in range(root.childCount()):
+                it = root.child(i)
+                name = it.data(0, _ROLE_NAME)
+                key = f"Plan: {name}" if role == "plan" else name
+                f = it.font(0)
+                f.setItalic((role, key) in placed)
+                it.setFont(0, f)
 
     def set_level_manager(self, level_manager):
         """Set or replace the level manager and rebuild the Plans sub-tree."""
@@ -281,9 +351,7 @@ class ProjectBrowser(QWidget):
         ps_root.setFont(0, f_bold)
         ps_root.setExpanded(True)
         self._paper_root = ps_root
-
-        # Default single sheet
-        self.set_sheets(["Layout 1"])
+        # Tree starts empty — MainWindow pushes authoritative sheet list via set_sheets()
 
     def _on_item_activated(self, item: QTreeWidgetItem, _col: int):
         role = item.data(0, _ROLE_TYPE)
@@ -302,18 +370,43 @@ class ProjectBrowser(QWidget):
             name = item.data(0, _ROLE_NAME)
             self.activatePaperSheet.emit(name)
 
+    def _on_selection_changed(self):
+        items = self._tree.selectedItems()
+        if len(items) == 1 and items[0].data(0, _ROLE_TYPE) == "sheet":
+            self.sheetSelected.emit(items[0].data(0, _ROLE_NAME))
+
+    def _on_sheet_dropped(self, number: str, target_number: str):
+        """Compute the new order from a drop gesture and emit it (pure push)."""
+        order = [self._paper_root.child(i).data(0, _ROLE_NAME)
+                 for i in range(self._paper_root.childCount())]
+        if number not in order:
+            return
+        old = list(order)
+        order.remove(number)
+        if target_number and target_number in order:
+            order.insert(order.index(target_number), number)
+        else:
+            order.append(number)
+        if order != old:
+            self.sheetOrderChanged.emit(order)
+
     def _on_context_menu(self, pos):
         item = self._tree.itemAt(pos)
         if item is None:
             return
         role = item.data(0, _ROLE_TYPE)
         menu = QMenu(self)
-        if role == "paper_root":
-            act = menu.addAction("New Drawing")
-            act.triggered.connect(self._create_new_sheet)
-        elif role == "sheet":
-            act = menu.addAction("New Drawing")
-            act.triggered.connect(self._create_new_sheet)
+        if role in ("paper_root", "sheet"):
+            act_new = menu.addAction("New Drawing")
+            act_new.triggered.connect(self.createPaperSheet.emit)
+            if role == "sheet":
+                number = item.data(0, _ROLE_NAME)
+                act_open = menu.addAction("Open")
+                act_open.triggered.connect(
+                    lambda: self.activatePaperSheet.emit(number))
+                act_del = menu.addAction("Delete")
+                act_del.triggered.connect(
+                    lambda: self.deletePaperSheet.emit(number))
         elif role == "detail":
             name = item.data(0, _ROLE_NAME)
             act_open = menu.addAction("Open")
@@ -323,27 +416,3 @@ class ProjectBrowser(QWidget):
         else:
             return
         menu.exec(self._tree.viewport().mapToGlobal(pos))
-
-    def _create_new_sheet(self):
-        """Prompt for a name and emit createPaperSheet."""
-        # Auto-generate next layout number
-        existing = []
-        for i in range(self._paper_root.childCount()):
-            existing.append(self._paper_root.child(i).text(0))
-        n = len(existing) + 1
-        default_name = f"Layout {n}"
-        while default_name in existing:
-            n += 1
-            default_name = f"Layout {n}"
-
-        name, ok = QInputDialog.getText(
-            self, "New Drawing", "Drawing name:", text=default_name)
-        if ok and name.strip():
-            name = name.strip()
-            # Add to tree
-            child = QTreeWidgetItem(self._paper_root, [name])
-            child.setData(0, _ROLE_TYPE, "sheet")
-            child.setData(0, _ROLE_NAME, name)
-            self._paper_root.setExpanded(True)
-            # Emit signal so main window can open the tab
-            self.createPaperSheet.emit(name)
