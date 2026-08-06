@@ -577,7 +577,10 @@ class SheetProperties:
             self._sheet.number = value
             self._on_change()
         elif key == "Sheet Name":
-            if value and value != self._sheet.name:
+            if not value:
+                self._on_reject("Sheet name cannot be blank.")
+                return
+            if value != self._sheet.name:
                 self._sheet.name = value
                 self._on_change()
 

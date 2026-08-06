@@ -10,6 +10,7 @@ import json
 import pytest
 
 from firepro3d.paper_space import PaperSpaceWidget, Sheet, SheetManager
+from firepro3d.project_browser import _ROLE_NAME
 
 
 @pytest.fixture()
@@ -245,6 +246,9 @@ def test_sheet_properties_adapter_validation(qapp):
     # no-op emits nothing
     props.set_property("Sheet Name", "Cover")
     assert changes == [1, 1]
+    # blank name rejected with feedback, kept
+    props.set_property("Sheet Name", "   ")
+    assert s2.name == "Cover" and len(rejects) == 2
 
 
 def test_panel_shows_sheet_props_on_empty_selection(mw):
@@ -279,7 +283,34 @@ def test_renumber_refreshes_tab_title_and_browser(mw):
     props.set_property("Sheet Number", "FP-77.0")
     idx = mw.central_tabs.indexOf(mw.paper_space_widget)
     assert mw.central_tabs.tabText(idx).startswith("FP-77.0")
-    from firepro3d.project_browser import _ROLE_NAME
     root = mw.project_browser._paper_root
     assert root.child(0).data(0, _ROLE_NAME) == "FP-77.0"
     assert mw._modified is True
+
+
+def test_delete_nonactive_sheet_resets_stale_panel_adapter(mw, monkeypatch):
+    """Deleting a browser-selected non-active sheet must not leave its
+    adapter live in the panel (edits would write to a detached Sheet)."""
+    from PyQt6.QtWidgets import QMessageBox
+    from firepro3d.paper_space import SheetProperties
+    s2 = mw.sheet_mgr.create()          # active = s2 after create
+    mw._switch_sheet(mw.sheet_mgr.sheets[0])   # make FP-1.0 active
+    mw._activate_paper_sheet()          # paper tab current
+    mw._on_browser_sheet_selected(s2.number)   # panel shows s2 (non-active)
+    assert mw.prop_manager._targets[0]._sheet is s2
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    mw._delete_sheet(s2.number)
+    t = mw.prop_manager._targets[0]
+    assert isinstance(t, SheetProperties) and t._sheet is mw._sheet, \
+        "panel must fall back to the active sheet after the delete"
+
+
+def test_browser_sheet_click_ignored_in_add_text_mode(mw):
+    mw._activate_paper_sheet()
+    mw.paper_space_widget.set_add_text_mode(True)
+    template_target = mw.prop_manager._targets[0]
+    mw._on_browser_sheet_selected(mw._sheet.number)
+    assert mw.prop_manager._targets[0] is template_target, \
+        "add-text template must keep the panel"
+    mw.paper_space_widget.set_add_text_mode(False)

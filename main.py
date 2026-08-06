@@ -817,6 +817,10 @@ class MainWindow(QMainWindow):
         if sheet is self._sheet:
             self._switch_sheet(neighbor)
         self._on_paper_modified()
+        # Reset the panel unconditionally: when the deleted sheet was NOT active
+        # the _switch_sheet branch is skipped and the panel may still hold a
+        # SheetProperties adapter wrapping the now-deleted sheet (stale adapter).
+        self.update_paper_property_manager()
 
     def _reorder_sheets(self, numbers: list):
         if self.sheet_mgr.reorder([str(n) for n in numbers]):
@@ -826,6 +830,9 @@ class MainWindow(QMainWindow):
 
     def _on_browser_sheet_selected(self, number: str):
         """Sheet row single-click → sheet properties in the panel (spec §19.4)."""
+        # Add-Text mode owns the panel (shows the text template — §9.6).
+        if self.paper_space_widget.view._add_text_mode:
+            return
         sheet = self.sheet_mgr.get(number)
         if sheet is not None:
             self.prop_manager.show_properties(self._sheet_props_adapter(sheet))
@@ -846,7 +853,11 @@ class MainWindow(QMainWindow):
             on_reject=lambda msg: self.statusBar().showMessage(msg, 4000))
 
     def _on_sheet_meta_changed(self):
-        """Rename/renumber committed: refresh titleblock Sheet No + UI + dirty."""
+        """Rename/renumber committed: refresh titleblock Sheet No + UI + dirty.
+
+        Known: double-panel-rebuild harmless — browser push fires selectionChanged
+        AND the 50ms refresh timer both repopulate the panel; follow-up filed.
+        """
         self.paper_space_widget.paper_scene._refresh_titleblock()
         self._on_paper_modified()
 
