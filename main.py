@@ -25,7 +25,7 @@ from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
 from firepro3d.level_manager import LevelManager, PlanViewManager
 from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import (
-    PaperSpaceWidget, Sheet, ViewResolver, PAPER_SIZES,
+    PaperSpaceWidget, Sheet, SheetManager, ViewResolver, PAPER_SIZES,
     TextAnnotationData, TextAnnotationItem,
     text_template_to_settings, apply_template_settings,
 )
@@ -449,7 +449,9 @@ class MainWindow(QMainWindow):
         self.scene._on_detail_created = self._refresh_detail_browser
 
         # Paper space — ViewResolver + Sheet + widget
-        self._sheet = Sheet.create_default()
+        self.scene._sheets = [Sheet.create_default()]
+        self.sheet_mgr = SheetManager(self.scene._sheets)
+        self._sheet = self.sheet_mgr.sheets[0]
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
@@ -753,6 +755,16 @@ class MainWindow(QMainWindow):
             # Open Plan: Level 1 as the default view
             from firepro3d.constants import DEFAULT_LEVEL
             self._activate_plan_view(DEFAULT_LEVEL)
+
+    def _switch_sheet(self, sheet):
+        """Make *sheet* the active sheet and rebind the canonical widget.
+
+        set_sheet → update_from_sheet clears the paper undo stack (grill:
+        undo history does not survive a sheet switch) and suppresses
+        sheetModified during the rebuild (§17.7).
+        """
+        self._sheet = sheet
+        self.paper_space_widget.set_sheet(sheet, self._view_resolver)
 
     def _activate_paper_sheet(self, name: str):
         """Open or switch to the canonical paper-space tab.
@@ -2698,13 +2710,8 @@ class MainWindow(QMainWindow):
     # MENU BAR HELPERS
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _sync_sheet_before_save(self):
-        """Push the current sheet to the scene so it's included in the save."""
-        self.scene._sheets = [self._sheet]
-
     def save_file(self):
         if self._current_file:
-            self._sync_sheet_before_save()
             if self.scene.save_to_file(self._current_file):
                 self._modified = False
                 self._update_title()
@@ -2716,7 +2723,6 @@ class MainWindow(QMainWindow):
         file, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "FirePro 3D Files (*.FPD)")
         if file:
             self._current_file = file
-            self._sync_sheet_before_save()
             if self.scene.save_to_file(file):
                 self._modified = False
                 self._update_title()
@@ -2783,10 +2789,11 @@ class MainWindow(QMainWindow):
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
         )
-        if self.scene._sheets:
-            self._sheet = self.scene._sheets[0]
-        else:
-            self._sheet = Sheet.create_default()
+        # scene.load_from_file replaced scene._sheets with a NEW list —
+        # rebind the manager over it (empty list → manager seeds a default
+        # into that same list). Active sheet = first (§19.1); never persisted.
+        self.sheet_mgr = SheetManager(self.scene._sheets)
+        self._sheet = self.sheet_mgr.sheets[0]
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
         # Push the project-embedded template into the live PaperScene (§17.7
         # parity: all three load paths — open, crash-recovery, new — reach here
@@ -2838,7 +2845,6 @@ class MainWindow(QMainWindow):
             return
         path = self._autosave_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        self._sync_sheet_before_save()
         self.scene.save_to_file(path)
 
     def _check_recovery(self):
@@ -2933,8 +2939,9 @@ class MainWindow(QMainWindow):
         # Reset the paper sheet to a blank default and rebuild the paper scene
         # (same swap mechanism as _load_project). update_from_sheet() clears the
         # paper-space undo stack, so the fresh sheet starts with no history.
-        self._sheet = Sheet.create_default()
-        self.scene._sheets = [self._sheet]
+        self.scene._sheets = [Sheet.create_default()]
+        self.sheet_mgr = SheetManager(self.scene._sheets)
+        self._sheet = self.sheet_mgr.sheets[0]
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
         # Push the template (None after _clear_scene → restores legacy chain).
         self._push_titleblock_template()
