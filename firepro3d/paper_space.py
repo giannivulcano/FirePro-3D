@@ -2657,6 +2657,7 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     vals.update({k: v for k, v in sheet.title_block_fields.items() if v})
     vals["Scale"] = _compute_scale_field(sheet)           # auto wins
     vals["Date (auto)"] = datetime.date.today().strftime("%d %b %Y")
+    vals["Sheet No"] = sheet.number                       # auto wins (§19.7)
     vals["__revisions__"] = list(sheet.revisions)
     return vals
 

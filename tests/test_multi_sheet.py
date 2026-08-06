@@ -99,3 +99,19 @@ def test_new_file_resets_to_single_default(mw, tmp_path):
     assert len(mw.sheet_mgr.sheets) == 1
     assert mw.sheet_mgr.sheets is mw.scene._sheets
     assert mw._sheet is mw.sheet_mgr.sheets[0]
+
+
+def test_sheet_no_auto_field(qapp):
+    """§19.7: 'Sheet No' resolves to Sheet.number and always wins."""
+    from firepro3d.paper_space import build_field_values
+    sheet = Sheet.create_default()
+    sheet.number = "FP-7.0"
+    sheet.title_block_fields["Sheet No"] = "OVERRIDE-ME"   # sheet field loses
+    vals = build_field_values(sheet, {})
+    assert vals["Sheet No"] == "FP-7.0"
+
+
+def test_sheet_no_sample_parity(qapp):
+    """DD-13: editor sample keyset must include the new auto key."""
+    from firepro3d.titleblock_editor import _SAMPLE_VALUES
+    assert "Sheet No" in _SAMPLE_VALUES and _SAMPLE_VALUES["Sheet No"]

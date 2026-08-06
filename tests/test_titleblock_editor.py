@@ -1121,11 +1121,6 @@ class TestSampleValuesKeysetMatchesBuildFieldValues:
         assert not missing, (
             f"Keys in build_field_values but absent from _SAMPLE_VALUES: {missing}"
         )
-        # "Sheet No" must NOT be seeded (Insert-menu action is disabled; hand-typed
-        # @[Sheet No] must render literally + warn in both preview and on sheets).
-        assert "Sheet No" not in _SAMPLE_VALUES, (
-            "'Sheet No' must not be in _SAMPLE_VALUES (not seeded by build_field_values)"
-        )
 
 
 class TestDuplicateNamesDeduped:

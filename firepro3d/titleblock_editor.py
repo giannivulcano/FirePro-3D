@@ -64,6 +64,7 @@ _SAMPLE_VALUES = {k: "" for k in PROJECT_STD_KEYS}
 _SAMPLE_VALUES.update({k: "" for k in PROJECT_TOKEN_ALIASES})
 _SAMPLE_VALUES.update({k: "" for k in DEFAULT_TITLE_BLOCK_FIELDS})
 _SAMPLE_VALUES["Date (auto)"] = "22 Jul 2026"
+_SAMPLE_VALUES["Sheet No"] = "FP-1.0"
 _SAMPLE_VALUES.update({
     "Company": "Vulcano Fire Design Inc.", "Project": "Sample Project",
     "Address Line 1": "123 Example St",
@@ -1340,10 +1341,7 @@ class TitleBlockEditorDialog(QDialog):
         menu.addSection("Auto")
         for key in _AUTO_FIELD_KEYS:
             act = menu.addAction(key)
-            if key == "Sheet No":
-                act.setEnabled(False)
-            else:
-                act.triggered.connect(lambda checked=False, k=key: self._insert_token(k))
+            act.triggered.connect(lambda checked=False, k=key: self._insert_token(k))
 
         # Sheet section
         menu.addSection("Sheet")
