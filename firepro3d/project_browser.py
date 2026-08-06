@@ -381,6 +381,8 @@ class ProjectBrowser(QWidget):
                  for i in range(self._paper_root.childCount())]
         if number not in order:
             return
+        if number == target_number:
+            return
         old = list(order)
         order.remove(number)
         if target_number and target_number in order:

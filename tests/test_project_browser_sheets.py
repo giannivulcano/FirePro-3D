@@ -97,6 +97,14 @@ def test_placed_views_italicize_in_place(browser):
     assert plans.child(0).font(0).italic() is False
 
 
+def test_reorder_drop_onto_self_is_noop(browser):
+    browser.set_sheets([("1", "1 - a"), ("2", "2 - b"), ("3", "3 - c")])
+    got = []
+    browser.sheetOrderChanged.connect(got.append)
+    browser._on_sheet_dropped("2", "2")     # tiny drag within own row
+    assert got == []
+
+
 def test_placed_views_cover_elevations(browser):
     elev = browser._elev_root
     browser.set_placed_views({("elevation", "North")})
