@@ -314,3 +314,30 @@ def test_browser_sheet_click_ignored_in_add_text_mode(mw):
     assert mw.prop_manager._targets[0] is template_target, \
         "add-text template must keep the panel"
     mw.paper_space_widget.set_add_text_mode(False)
+
+
+# ---------------------------------------------------------------------------
+# Task 7: uniform paper size across all sheets (spec §19.1)
+# ---------------------------------------------------------------------------
+
+def test_paper_size_change_applies_to_all_sheets(mw):
+    s2 = mw.sheet_mgr.create()
+
+    class R:
+        paper_size = "ANSI B"
+        orientation = "portrait"
+
+    # ANSI B native is landscape (431.8 × 279.4); "portrait" is non-native
+    # so stored value must be "portrait" (non-empty).
+    mw._apply_paper_size_result(R())
+    assert all(s.paper_size == "ANSI B" for s in mw.sheet_mgr.sheets)
+    assert all(s.orientation == "portrait" for s in mw.sheet_mgr.sheets)
+
+    # Requesting the native orientation stores "" for all sheets.
+    class RNative:
+        paper_size = "ANSI B"
+        orientation = "landscape"
+
+    mw._apply_paper_size_result(RNative())
+    assert all(s.paper_size == "ANSI B" for s in mw.sheet_mgr.sheets)
+    assert all(s.orientation == "" for s in mw.sheet_mgr.sheets)

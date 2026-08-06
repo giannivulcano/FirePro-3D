@@ -1944,6 +1944,24 @@ class MainWindow(QMainWindow):
         if result is not None and (accepted or dlg.result_saved):
             self._apply_titleblock_template(result)
 
+    def _apply_paper_size_result(self, result) -> None:
+        """Apply paper size + orientation from *result* to ALL sheets (spec §19.1).
+
+        Computes the stored orientation using the same native-orientation logic
+        as ``_apply_titleblock_template``: "" for the native orientation, the
+        explicit string otherwise.  Delegates to ``SheetManager.set_paper_all``
+        so every sheet in the project gets the uniform size.
+
+        Args:
+            result: Any object with ``paper_size`` (str) and ``orientation``
+                (str, e.g. "portrait"/"landscape") attributes.
+        """
+        from firepro3d.paper_space import native_orientation_from_dims
+        nat = native_orientation_from_dims(result.paper_size)
+        stored_orientation = ("" if result.orientation == nat
+                              else result.orientation)
+        self.sheet_mgr.set_paper_all(result.paper_size, stored_orientation)
+
     def _apply_titleblock_template(self, result) -> None:
         """Apply *result* as the project template (DD-2: template drives sheet).
 
@@ -1957,16 +1975,8 @@ class MainWindow(QMainWindow):
         May run twice on Save & Close (live-refresh then accept-path); must
         stay idempotent.
         """
-        from firepro3d.paper_space import native_orientation_from_dims
-        self._sheet.paper_size = result.paper_size
-        # Store "" for native orientation so sheet rendering is preserved when
-        # orientation matches the size's native (avoids redundant override).
-        # Uses native_orientation_from_dims (derived from PAPER_SIZES dims)
-        # rather than the titleblock_template hardcoded map, keeping the two
-        # modules in sync when PAPER_SIZES changes.
-        nat = native_orientation_from_dims(result.paper_size)
-        self._sheet.orientation = ("" if result.orientation == nat
-                                   else result.orientation)
+        # Apply size + orientation to ALL sheets (spec §19.1 uniform-size rule).
+        self._apply_paper_size_result(result)
         self.scene._titleblock_template = result.to_dict()
         self._push_titleblock_template()
         self._on_paper_modified()          # project dirty (§17.7)
@@ -2362,6 +2372,10 @@ class MainWindow(QMainWindow):
         status bar — mirroring the ``_push_titleblock_template`` pattern.
         """
         self.paper_space_widget.change_paper(size)
+        # Propagate to all other sheets (spec §19.1 uniform-size rule).
+        # change_paper() resets the active sheet's orientation to "" (native);
+        # set_paper_all syncs every other sheet to the same size + "" orientation.
+        self.sheet_mgr.set_paper_all(size, "")
         sc = self.paper_space_widget.paper_scene
         if sc.titleblock_warning:
             self.statusBar().showMessage(sc.titleblock_warning, 8000)
