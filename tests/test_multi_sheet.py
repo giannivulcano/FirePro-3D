@@ -363,3 +363,47 @@ def test_ribbon_paper_size_change_dirties_when_only_nonactive_change(mw):
     mw._change_paper_with_warning(active_size)
     assert s2.paper_size == active_size, "non-active sheet must be normalised"
     assert mw._modified is True, "mutation of non-active sheet must dirty the project"
+
+
+# ---------------------------------------------------------------------------
+# Task 9: sweep tests — recovery parity, dirty rules, switch cleanliness
+# ---------------------------------------------------------------------------
+
+def test_recovery_restores_all_sheets(mw, tmp_path):
+    """§17.7 recovery parity now includes the full sheet list."""
+    mw.sheet_mgr.create()
+    mw.sheet_mgr.create()
+    path = str(tmp_path / "wip.fpd")
+    mw.scene.save_to_file(path)
+    mw.new_file()
+    assert len(mw.sheet_mgr.sheets) == 1
+    mw._apply_loaded_file(path)              # the recovery entry point
+    assert len(mw.sheet_mgr.sheets) == 3
+    assert mw._sheet is mw.sheet_mgr.sheets[0]
+
+
+def test_dirty_per_sheet_op(mw, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    mw._modified = False
+    mw._create_sheet()
+    assert mw._modified, "create dirties"
+    mw._modified = False
+    props = mw._sheet_props_adapter(mw._sheet)
+    props.set_property("Sheet Number", "ZZ-1")
+    assert mw._modified, "renumber dirties"
+    mw._modified = False
+    props.set_property("Sheet Number", "ZZ-1")   # no-op
+    assert not mw._modified, "no-op renumber must not dirty"
+    mw._modified = False
+    mw._delete_sheet(mw.sheet_mgr.sheets[-1].number)
+    assert mw._modified, "delete dirties"
+
+
+def test_sheet_switch_does_not_dirty(mw):
+    s2 = mw.sheet_mgr.create()
+    mw._modified = False
+    mw._switch_sheet(mw.sheet_mgr.sheets[0])
+    mw._switch_sheet(s2)
+    assert not mw._modified, "switching sheets changes no bytes"

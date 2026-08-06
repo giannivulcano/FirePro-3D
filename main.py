@@ -366,7 +366,7 @@ class MainWindow(QMainWindow):
         self.plan_view_mgr = PlanViewManager()
         self.scene._plan_view_manager = self.plan_view_mgr
 
-        # Central tab widget: Model Space | 3D View | Layout 1 (Paper Space)
+        # Central tab widget: Model Space | 3D View | Paper Space
         self._splash_progress(35, "Building 3D viewport...")
         # Paper space widget created after managers are initialised (see below)
         self.paper_space_widget = None  # placeholder — set after ViewResolver
@@ -1798,7 +1798,7 @@ class MainWindow(QMainWindow):
             lambda: self.central_tabs.setCurrentIndex(0))
         _btn.setToolTip("Switch to Model Space view")
         _btn = g_ws.add_large_button(
-            "Layout 1\nPaper",
+            "Paper\nSpace",
             _I("placeholder_icon.svg"),
             lambda: self._activate_paper_sheet())
         _btn.setToolTip("Switch to Paper Space layout")
