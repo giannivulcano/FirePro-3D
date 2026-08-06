@@ -419,9 +419,11 @@ class MainWindow(QMainWindow):
         self.project_browser.activatePaperSheet.connect(
             self._activate_paper_sheet
         )
-        self.project_browser.createPaperSheet.connect(
-            self._activate_paper_sheet
-        )
+        self.project_browser.createPaperSheet.connect(self._create_sheet)
+        self.project_browser.deletePaperSheet.connect(self._delete_sheet)
+        self.project_browser.sheetSelected.connect(
+            self._on_browser_sheet_selected)
+        self.project_browser.sheetOrderChanged.connect(self._reorder_sheets)
         self.project_browser.activateElevation.connect(self._activate_elevation)
         self.project_browser.activatePlanView.connect(self._activate_plan_view)
         self.project_browser.activateDetailView.connect(self._activate_detail_view)
@@ -668,6 +670,9 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._initial_fit_done = False  # fit_to_screen deferred to showEvent
 
+        self._push_sheet_list()
+        self._recompute_placed_views()
+
         # Defer recovery check until after the window is fully shown
         QTimer.singleShot(500, self._check_recovery)
 
@@ -765,19 +770,80 @@ class MainWindow(QMainWindow):
         """
         self._sheet = sheet
         self.paper_space_widget.set_sheet(sheet, self._view_resolver)
+        self._push_sheet_list()
+        self.update_paper_property_manager()
 
-    def _activate_paper_sheet(self, name: str):
-        """Open or switch to the canonical paper-space tab.
+    def _paper_tab_title(self) -> str:
+        return f"{self._sheet.number} - {self._sheet.name}"
 
-        Reuses ``self.paper_space_widget`` (the single authoritative widget
-        that owns the sheet scene) so the undo stack, title-block edits, and
-        PDF export all bind to the same scene.  If the tab has not been added
-        yet it is inserted under *name*; subsequent calls simply switch to it.
+    def _push_sheet_list(self):
+        """Push the authoritative sheet list to the browser + tab title."""
+        self.project_browser.set_sheets(
+            [(s.number, f"{s.number} - {s.name}")
+             for s in self.sheet_mgr.sheets])
+        idx = self.central_tabs.indexOf(self.paper_space_widget)
+        if idx != -1:
+            self.central_tabs.setTabText(idx, self._paper_tab_title())
+
+    def _recompute_placed_views(self):
+        """Italics source-of-truth: every sheet's sheet_views (§19.5)."""
+        placed = {(sv.source_view_type, sv.source_view_name)
+                  for s in self.sheet_mgr.sheets for sv in s.sheet_views}
+        self.project_browser.set_placed_views(placed)
+
+    def _create_sheet(self):
+        """Instant create (grill): auto number, default name, becomes active."""
+        sheet = self.sheet_mgr.create()
+        self._switch_sheet(sheet)
+        self._on_paper_modified()
+
+    def _delete_sheet(self, number: str):
+        sheet = self.sheet_mgr.get(number)
+        if sheet is None:
+            return
+        if len(self.sheet_mgr.sheets) <= 1:
+            self.statusBar().showMessage("Cannot delete the last sheet.", 4000)
+            return
+        resp = QMessageBox.question(
+            self, "Delete Sheet",
+            f"Delete sheet {sheet.number} - {sheet.name}?\n"
+            f"{len(sheet.sheet_views)} view(s) and {len(sheet.annotations)} "
+            f"annotation(s) will be removed.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if resp != QMessageBox.StandardButton.Yes:
+            return
+        neighbor = self.sheet_mgr.delete(sheet)
+        if sheet is self._sheet:
+            self._switch_sheet(neighbor)
+        self._on_paper_modified()
+
+    def _reorder_sheets(self, numbers: list):
+        if self.sheet_mgr.reorder([str(n) for n in numbers]):
+            self._on_paper_modified()
+        # Always reconcile the tree — rejected orders push the truth back.
+        self._push_sheet_list()
+
+    def _on_browser_sheet_selected(self, number: str):
+        """Sheet row single-click → sheet properties in the panel (Task 6)."""
+        pass
+
+    def _activate_paper_sheet(self, number: str | None = None):
+        """Open/switch the canonical paper tab; optionally switch sheets.
+
+        Args:
+            number: Sheet number to activate; None keeps the current sheet
+                (ribbon call sites just open the tab).
         """
         w = self.paper_space_widget
+        sheet = self.sheet_mgr.get(number) if number else None
+        if sheet is not None and sheet is not self._sheet:
+            self._switch_sheet(sheet)
         idx = self.central_tabs.indexOf(w)
         if idx == -1:
-            idx = self.central_tabs.addTab(w, name)
+            idx = self.central_tabs.addTab(w, self._paper_tab_title())
+        else:
+            self.central_tabs.setTabText(idx, self._paper_tab_title())
         self.central_tabs.setCurrentIndex(idx)
 
     def _navigate_to_source_view(self, view_type: str, view_name: str):
@@ -1700,7 +1766,7 @@ class MainWindow(QMainWindow):
         _btn = g_ws.add_large_button(
             "Layout 1\nPaper",
             _I("placeholder_icon.svg"),
-            lambda: self._activate_paper_sheet("Layout 1"))
+            lambda: self._activate_paper_sheet())
         _btn.setToolTip("Switch to Paper Space layout")
 
         # --- Page ---
@@ -2803,6 +2869,8 @@ class MainWindow(QMainWindow):
         # The open path calls it from _load_project (after _modified=False).
         # The recovery path skips it entirely (user has enough recovery dialogs;
         # divergence re-offers on the next normal File→Open).
+        self._push_sheet_list()
+        self._recompute_placed_views()
 
     # ── Recent files ──────────────────────────────────────────────────────
 
@@ -2945,6 +3013,8 @@ class MainWindow(QMainWindow):
         self.paper_space_widget.set_sheet(self._sheet, self._view_resolver)
         # Push the template (None after _clear_scene → restores legacy chain).
         self._push_titleblock_template()
+        self._push_sheet_list()
+        self._recompute_placed_views()
 
         self._modified = False
         self._update_title()
@@ -2956,9 +3026,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"FirePro 3D \u2014 {name}{star}")
 
     def _on_paper_modified(self):
-        """A paper-sheet mutation dirties the project (save prompt + autosave)."""
+        """A paper mutation dirties the project (save prompt + autosave)."""
         self._modified = True
         self._update_title()
+        self._push_sheet_list()
+        self._recompute_placed_views()
 
     def _on_scene_modified(self):
         self._modified = True
@@ -3309,7 +3381,7 @@ class MainWindow(QMainWindow):
         """Ribbon Add Text: auto-switch to the paper tab, then enter mode."""
         if checked and not isinstance(
                 self.central_tabs.currentWidget(), PaperSpaceWidget):
-            self._activate_paper_sheet("Layout 1")
+            self._activate_paper_sheet()
         self.paper_space_widget.set_add_text_mode(checked)
 
     def _sync_add_text_ribbon_btn(self, on: bool):

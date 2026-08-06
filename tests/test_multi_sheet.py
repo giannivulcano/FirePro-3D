@@ -115,3 +115,100 @@ def test_sheet_no_sample_parity(qapp):
     """DD-13: editor sample keyset must include the new auto key."""
     from firepro3d.titleblock_editor import _SAMPLE_VALUES
     assert "Sheet No" in _SAMPLE_VALUES and _SAMPLE_VALUES["Sheet No"]
+
+
+# ---------------------------------------------------------------------------
+# Task 5: browser-push + orchestration tests
+# ---------------------------------------------------------------------------
+
+def _browser_rows(mw):
+    from firepro3d.project_browser import _ROLE_NAME
+    root = mw.project_browser._paper_root
+    return [(root.child(i).data(0, _ROLE_NAME), root.child(i).text(0))
+            for i in range(root.childCount())]
+
+
+def test_browser_reflects_sheet_list_on_startup(mw):
+    rows = _browser_rows(mw)
+    assert rows == [("FP-1.0", "FP-1.0 - Fire Suppression Layout")]
+
+
+def test_create_flow_end_to_end(mw):
+    """Browser signal → MainWindow creates → pushed back → active + dirty."""
+    mw._modified = False
+    mw.project_browser.createPaperSheet.emit()
+    assert len(mw.sheet_mgr.sheets) == 2
+    assert mw._sheet is mw.sheet_mgr.sheets[-1], "new sheet becomes active"
+    assert _browser_rows(mw)[-1][0] == mw._sheet.number
+    assert mw._modified is True
+
+
+def test_reorder_flow_and_reconcile(mw):
+    mw.project_browser.createPaperSheet.emit()
+    nums = [s.number for s in mw.sheet_mgr.sheets]
+    mw._modified = False
+    mw.project_browser.sheetOrderChanged.emit(list(reversed(nums)))
+    assert [s.number for s in mw.sheet_mgr.sheets] == list(reversed(nums))
+    assert [r[0] for r in _browser_rows(mw)] == list(reversed(nums))
+    assert mw._modified is True
+    # Garbage order (not a permutation) → data untouched, tree reconciled
+    mw._modified = False
+    mw.project_browser.sheetOrderChanged.emit(["bogus"])
+    assert [r[0] for r in _browser_rows(mw)] == list(reversed(nums))
+    assert mw._modified is False
+
+
+def test_activate_switches_scene_to_sheet(mw):
+    mw.project_browser.createPaperSheet.emit()
+    target = mw.sheet_mgr.sheets[0]
+    mw._activate_paper_sheet(target.number)
+    assert mw._sheet is target
+    assert mw.paper_space_widget._sheet is target
+    assert mw.paper_space_widget.paper_scene._sheet is target
+
+
+def test_undo_stack_clears_on_sheet_switch(mw):
+    from firepro3d.paper_space import TextAnnotationData
+    from firepro3d.paper_commands import AddTextAnnotationCommand
+    scene = mw.paper_space_widget.paper_scene
+    scene.undo_stack.push(
+        AddTextAnnotationCommand(scene, TextAnnotationData(text="x", x=5, y=5)))
+    assert scene.undo_stack.count() == 1
+    s2 = mw.sheet_mgr.create()
+    mw._switch_sheet(s2)
+    assert scene.undo_stack.count() == 0, "grill: undo history dies on switch"
+
+
+def test_delete_confirms_and_activates_neighbor(mw, monkeypatch):
+    from PyQt6.QtWidgets import QMessageBox
+    s2 = mw.sheet_mgr.create()
+    mw._switch_sheet(s2)
+    # Decline → nothing happens
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    mw._delete_sheet(s2.number)
+    assert len(mw.sheet_mgr.sheets) == 2
+    # Accept → deleted, neighbor active
+    monkeypatch.setattr(QMessageBox, "question",
+                        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    mw._delete_sheet(s2.number)
+    assert len(mw.sheet_mgr.sheets) == 1
+    assert mw._sheet is mw.sheet_mgr.sheets[0]
+
+
+def test_delete_last_sheet_blocked(mw):
+    assert len(mw.sheet_mgr.sheets) == 1
+    mw._delete_sheet(mw._sheet.number)      # must not raise, must not delete
+    assert len(mw.sheet_mgr.sheets) == 1
+
+
+def test_placed_views_recomputed_on_paper_modified(mw):
+    from firepro3d.paper_space import SheetViewData
+    mw._sheet.sheet_views.append(SheetViewData(
+        source_view_type="elevation", source_view_name="North",
+        title="North Elevation", scale=100.0, x=10, y=10, w=100, h=100))
+    mw._on_paper_modified()
+    elev = mw.project_browser._elev_root
+    fonts = {elev.child(i).data(0, 0x0101): elev.child(i).font(0).italic()
+             for i in range(elev.childCount())}
+    assert fonts["North"] is True
