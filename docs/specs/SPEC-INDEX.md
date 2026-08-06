@@ -28,6 +28,7 @@
 | **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | (greenfield) | **proposal** (unbuilt) |
 | **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py` | **partial** (Phase-1 only; export/print/annotations unbuilt) |
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
+| Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
 
 ## Orphans — no governing spec (forge on first touch)
 

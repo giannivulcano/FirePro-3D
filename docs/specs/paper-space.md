@@ -2,12 +2,12 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up).
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is designed (§19, 2026-08-06) and in build — §19 is proposal until the build stamps it.**
 **Last verified:** 2026-07-22
 **Verified commit:** 23fa804
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery orchestration — §17.7)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
-**Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`
+**Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`, `project-browser.md` (sheet tree — §19.5), `titleblock-template-system.md` (Sheet No — §19.7)
 
 ---
 
@@ -79,9 +79,9 @@ Multiple templates per paper size. Named anchor points (DXF `ATTDEF` entities or
 
 Each sheet view can independently show or hide any layer, overriding the source view's visibility. Not limited to hide-only.
 
-### 4.10 Mixed Paper Sizes Per Sheet Set
+### 4.10 Mixed Paper Sizes Per Sheet Set [deferred 2026-08-06 — see §19.1]
 
-Different sheets can have different paper sizes. Typical FP set: ANSI D for plans, ANSI B for details, Letter for cover/schedules.
+Different sheets can have different paper sizes. Typical FP set: ANSI D for plans, ANSI B for details, Letter for cover/schedules. **Deferred behind the per-size title-block template library** (the single project template can only dress one size): the multi-sheet MVP enforces a uniform size project-wide (§19.1). The data model keeps per-sheet `paper_size` so this re-enables without a format change.
 
 ### 4.11 Sheet Text Is a Purpose-Built Item, Not a Reused Model-Space Note
 
@@ -520,7 +520,7 @@ User modifies model while PDF export is in progress → export captures state at
 ### MVP
 
 - [ ] Sheet management: create, rename, reorder, delete sheets with user-defined number and name
-- [ ] Mixed paper sizes per sheet within a set
+- [ ] Mixed paper sizes per sheet within a set *(deferred 2026-08-06 — uniform size for the multi-sheet MVP, §4.10/§19.1)*
 - [ ] Sheet views: place plan, detail, and elevation views onto sheets
 - [ ] Placement via drag from project browser + "Add View" toolbar button
 - [ ] Sheet view properties: scale (presets + custom), position, size, optional crop
@@ -630,3 +630,50 @@ Semantics are **latch-until-save** (matching model space): undo/redo dirty; undo
 - **Revision workflow / approvals** — data model defined, workflow process is separate
 - **Custom title block template builder UI** — field mapping defined, authoring tool deferred
 - **Sheet-text follow-ups (deferred from the 2026-06-26 build):** other annotation types (leader / line / rectangle / revision cloud / north arrow / scale bar); legends & schedules as Revit-style **placed tables**; copy / paste / duplicate of text blocks; rotated text; border-box; rich (per-character) text; cross-sheet / shared "same note on every sheet" content; title-block-field-edit undo; paper-space text as a **Display-Manager category** (project-level color / background customization); and the latent **point-size ~2.4× PDF over-sizing** fix for `TitleBlockItem` + viewport view-titles (§4.11).
+
+## 19. Multi-Sheet Management [designed 2026-08-06 — proposal until build stamps it]
+
+Resolves the single-sheet bottleneck: `main.py` currently overwrites `scene._sheets = [self._sheet]` on save and loads only `_sheets[0]`, silently dropping extra sheets — the headline bug this section kills. The `.fpd` format is untouched (the `"sheets"` list already round-trips; **zero `scene_io.py` changes**, and no active-sheet key is ever persisted).
+
+### 19.1 Identity & invariants (grilled 2026-08-06)
+
+- **`Sheet.number` is the identity:** required, unique per project; `name` free-form, non-unique. UI displays `"{number} - {name}"`. Legacy/empty numbers tolerated on load; collisions rejected at entry (old value kept + status-bar message).
+- **≥1 sheet invariant:** deleting the last sheet is blocked. Delete always confirms with a content summary (views/annotations counts).
+- **Sheet-level ops are non-undoable** (create/delete/rename/renumber/reorder); the paper undo stack **clears on sheet switch** (free via `update_from_sheet`, §17.5). Content ops stay undoable per sheet.
+- **Uniform paper size (MVP):** size/orientation changes (ribbon Paper Size, template "Use for this project") apply to **all** sheets. Per-sheet `paper_size` stays in the data model; mixed sizes re-enable when the per-size template library lands (deferred follow-up).
+- **Active sheet rules:** first in list on load; new sheet on create; successor (else predecessor) on deleting the active sheet. Never persisted.
+
+### 19.2 `SheetManager`
+
+Pure-Python class in `paper_space.py` operating **by reference** on the same list `scene._sheets` binds (the persisted home). Owns: ordered `sheets`, `get(number)`, `validate_number(number, ignore)`, `suggest_number()` (pattern-following: FP-1.0 → FP-2.0, plain 1 → 2), `create()` (auto number + default name, appended, instant — no dialog), `delete(sheet)` (raises on last; returns the neighbor to activate), `reorder(numbers)`. No Qt imports — invariants are plain-unit-testable. `MainWindow` orchestrates: call manager → switch via the existing `PaperSpaceWidget.set_sheet(sheet, resolver)` primitive → push UI (browser `set_sheets`, tab title `"{number} - {name}"`, panel) → dirty.
+
+### 19.3 Dirty-flag additions (§17.7 table extension)
+
+| Surface | Emits? | Mechanism |
+|---|---|---|
+| Sheet create / delete / rename / renumber / reorder | Yes (real change only) | `MainWindow` calls `_on_paper_modified()` directly after the manager op |
+| Rejected rename/renumber, cancelled delete, no-op reorder | No | no data change |
+| Sheet switch | No | `update_from_sheet` rebuild is `_suppress_modified`-guarded (unchanged) |
+
+### 19.4 Sheet properties panel & Esc
+
+- `SheetProperties` adapter (duck-typed `get_properties`/`set_property`, `property-panel.md` protocol) wraps `(sheet, manager, callbacks)`. Rows: **Number** (validated), **Name**; read-only Paper Size / Orientation. Renumbering the active sheet refreshes tab title, browser row, titleblock Sheet No, and dirties.
+- **Panel precedence (paper tab):** paper-scene selection → else browser-selected sheet (`sheetSelected`) → else **active sheet**. The panel is never blank on the paper tab.
+- **Esc:** `_on_escape` branches on the paper tab — clears `PaperScene` selection (not the model scene), panel falls back to sheet properties; Esc on empty selection is a panel no-op. (Model-space Esc-blanks-panel is a filed follow-up: empty selection should show active-view properties.)
+
+### 19.5 Browser contract
+
+Sheet-tree mechanics (pure push, row keying by number, `createPaperSheet()`/`deletePaperSheet(number)`/`sheetSelected(number)`/`sheetOrderChanged(list)`, guarded internal-move `dropEvent`, in-place `set_placed_views` restyle) are owned by `project-browser.md` §"Multi-sheet design deltas" — Rule A, link only. Placed-views recompute triggers live here: on load, on `_on_paper_modified`, after sheet ops (from all sheets' `sheet_views`).
+
+### 19.6 Batch export & print (activates §7.1/§7.5)
+
+New `paper_export_dialog.py`: sheet checklist in document-set order (all checked, Select All), mode radio (single multi-page PDF / separate files), output picker (file vs directory per mode), DPI combo (150/**300**/600), OK disabled at zero selection. Multi-page mode feeds the selection straight to `paper_export.export_pdf(sheets, …)` (already loops `newPage()`); separate-files mode loops per sheet, naming `{number} - {name}.pdf` with `\/:*?"<>|` → `_`. Print reuses the dialog (path/DPI hidden) → `QPrintDialog` → `print_sheets(selection, …)`. Page order = list order. Zero-viewport sheets export (cover sheets, §10.5).
+
+### 19.7 "Sheet No" auto field
+
+`build_field_values` resolves "Sheet No" → the sheet's `number` (manually authored in the sheet properties panel — one home); the editor's disabled picker entry flips enabled (+ `_SAMPLE_VALUES` sample). Batch export renders it per-sheet via the existing per-sheet `render_sheet` values.
+
+### 19.8 Testing contract (grilled)
+
+Unit: manager invariants (uniqueness, suggest, ≥1, neighbor, reorder), Sheet No in `build_field_values`, placed-views computation, filename sanitization. Widget-driven: browser create/delete/reorder flows end-to-end incl. phantom-free cancel; panel number/name commits via `editingFinished`; Esc fallback. Integration: **3-sheet save→load→save round-trip** (headline regression), batch page count == selection, per-file naming, per-op dirty emissions, undo-clear on switch, legacy single-sheet `.fpd` intact, recovery restores all sheets. Never construct a real-driver `QPrinter` in tests (`QPdfWriter`/mocks only — known SEH hazard).
+
