@@ -15,13 +15,22 @@ from firepro3d.project_browser import _ROLE_NAME
 
 @pytest.fixture()
 def mw(qapp):
+    """Fresh MainWindow per test with safe teardown.
+
+    Saves/restores module-level constants MainWindow.__init__ overwrites from
+    QSettings (snap tolerance) — without this, running these tests before the
+    snap suite halves the snap search radius and fails 6 matrix tests.
+    """
     import main as main_mod
     from firepro3d.view_3d import View3D
+    from firepro3d import snap_engine
     main_mod.View3D = View3D
+    saved_tol = snap_engine.SNAP_TOLERANCE_PX
     w = main_mod.MainWindow()
     yield w
     w._modified = False
     w.close()
+    snap_engine.SNAP_TOLERANCE_PX = saved_tol
 
 
 def test_three_sheet_round_trip(mw, tmp_path):
