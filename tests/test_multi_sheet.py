@@ -341,3 +341,25 @@ def test_paper_size_change_applies_to_all_sheets(mw):
     mw._apply_paper_size_result(RNative())
     assert all(s.paper_size == "ANSI B" for s in mw.sheet_mgr.sheets)
     assert all(s.orientation == "" for s in mw.sheet_mgr.sheets)
+
+
+def test_ribbon_paper_size_change_dirties_when_only_nonactive_change(mw):
+    """Active sheet already at target size: setter no-ops, but non-active
+    sheets still mutate — the project must dirty (§19.3 bytes rule).
+
+    _change_paper_with_warning takes a str arg and has no dialog of its own
+    (the menu lambda fires the dialog choice; this method is called after the
+    user selects a size).  No monkeypatch needed.
+    """
+    s2 = mw.sheet_mgr.create()
+    active_size = mw._sheet.paper_size      # e.g. "ANSI D"
+    # craft mixed state: s2 has a different size so set_paper_all will mutate it
+    other_size = next(s for s in ("ANSI A", "ANSI B", "ANSI C", "ANSI D", "ANSI E")
+                      if s != active_size)
+    s2.paper_size = other_size              # non-active sheet diverges
+    mw._modified = False
+    # Call the ribbon handler with the *active* size → active-sheet setter no-ops
+    # but set_paper_all still normalises s2.
+    mw._change_paper_with_warning(active_size)
+    assert s2.paper_size == active_size, "non-active sheet must be normalised"
+    assert mw._modified is True, "mutation of non-active sheet must dirty the project"

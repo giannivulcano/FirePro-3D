@@ -28,6 +28,7 @@ from firepro3d.paper_space import (
     PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
     PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
     text_template_to_settings, apply_template_settings,
+    native_orientation_from_dims,
 )
 from firepro3d.ribbon_bar import RibbonBar
 # view_3d deferred — imports pyvista/VTK which is slow
@@ -1956,7 +1957,6 @@ class MainWindow(QMainWindow):
             result: Any object with ``paper_size`` (str) and ``orientation``
                 (str, e.g. "portrait"/"landscape") attributes.
         """
-        from firepro3d.paper_space import native_orientation_from_dims
         nat = native_orientation_from_dims(result.paper_size)
         stored_orientation = ("" if result.orientation == nat
                               else result.orientation)
@@ -2375,7 +2375,10 @@ class MainWindow(QMainWindow):
         # Propagate to all other sheets (spec §19.1 uniform-size rule).
         # change_paper() resets the active sheet's orientation to "" (native);
         # set_paper_all syncs every other sheet to the same size + "" orientation.
-        self.sheet_mgr.set_paper_all(size, "")
+        # Even when the active-sheet setter no-ops (size unchanged), non-active
+        # sheets may still be mutated — dirty the project in that case (§19.3).
+        if self.sheet_mgr.set_paper_all(size, ""):
+            self._on_paper_modified()
         sc = self.paper_space_widget.paper_scene
         if sc.titleblock_warning:
             self.statusBar().showMessage(sc.titleblock_warning, 8000)
