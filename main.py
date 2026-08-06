@@ -1859,50 +1859,57 @@ class MainWindow(QMainWindow):
     # ── Paper-space plot (PDF export / print) ─────────────────────────────────
 
     def _export_paper_pdf(self):
-        """Export the current paper sheet to a vector PDF."""
-        from PyQt6.QtWidgets import QFileDialog, QInputDialog, QMessageBox
+        """Export selected sheets to PDF (batch — spec §19.6)."""
+        from PyQt6.QtWidgets import QDialog, QMessageBox
         from firepro3d import paper_export
+        from firepro3d.paper_export_dialog import PaperExportDialog
 
-        sheet = self._sheet
-        default_name = paper_export.default_pdf_filename(sheet)
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export Sheet to PDF", default_name, "PDF Files (*.pdf)")
-        if not path:
+        dlg = PaperExportDialog(self.sheet_mgr.sheets, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        if not path.lower().endswith(".pdf"):
-            path += ".pdf"
-
-        items = ["150 DPI", "300 DPI", "600 DPI"]
-        choice, ok = QInputDialog.getItem(
-            self, "Export Resolution", "Resolution:", items, 1, False)
-        if not ok:
-            return
-        dpi = int(choice.split()[0])
-
+        sel = dlg.selection()
         tmpl, proj_info = self._current_template()
         try:
-            paper_export.export_pdf([sheet], self._view_resolver, path, dpi,
-                                    template=tmpl, project_info=proj_info)
+            if sel.separate_files:
+                for sheet in sel.sheets:
+                    out = os.path.join(
+                        sel.path, paper_export.default_pdf_filename(sheet))
+                    paper_export.export_pdf(
+                        [sheet], self._view_resolver, out, sel.dpi,
+                        template=tmpl, project_info=proj_info)
+                done = f"Exported {len(sel.sheets)} PDF file(s)"
+            else:
+                path = sel.path
+                if not path.lower().endswith(".pdf"):
+                    path += ".pdf"
+                paper_export.export_pdf(
+                    sel.sheets, self._view_resolver, path, sel.dpi,
+                    template=tmpl, project_info=proj_info)
+                done = f"Exported {os.path.basename(path)}"
         except (OSError, ValueError) as exc:
             QMessageBox.critical(
                 self, "Export Failed", f"Could not write PDF:\n{exc}")
             return
-        self.statusBar().showMessage(
-            f"Exported {os.path.basename(path)}", 5000)
+        self.statusBar().showMessage(done, 5000)
 
     def _print_paper(self):
-        """Print the current paper sheet via the system print dialog."""
+        """Print selected sheets via the system print dialog (batch)."""
         from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtWidgets import QDialog, QMessageBox
         from firepro3d import paper_export
+        from firepro3d.paper_export_dialog import PaperExportDialog
 
+        dlg = PaperExportDialog(self.sheet_mgr.sheets, self, print_mode=True)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        sel = dlg.selection()
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dlg = QPrintDialog(printer, self)
-        if dlg.exec() != QPrintDialog.DialogCode.Accepted:
+        pdlg = QPrintDialog(printer, self)
+        if pdlg.exec() != QPrintDialog.DialogCode.Accepted:
             return
         tmpl, proj_info = self._current_template()
         try:
-            paper_export.print_sheets([self._sheet], self._view_resolver, printer,
+            paper_export.print_sheets(sel.sheets, self._view_resolver, printer,
                                       template=tmpl, project_info=proj_info)
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Print Failed", str(exc))
