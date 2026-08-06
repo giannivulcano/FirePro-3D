@@ -1869,27 +1869,50 @@ class MainWindow(QMainWindow):
             return
         sel = dlg.selection()
         tmpl, proj_info = self._current_template()
-        try:
-            if sel.separate_files:
-                for sheet in sel.sheets:
-                    out = os.path.join(
-                        sel.path, paper_export.default_pdf_filename(sheet))
+        if sel.separate_files:
+            existing = [paper_export.default_pdf_filename(s)
+                        for s in sel.sheets
+                        if os.path.exists(os.path.join(
+                            sel.path, paper_export.default_pdf_filename(s)))]
+            if existing:
+                resp = QMessageBox.question(
+                    self, "Overwrite Files?",
+                    f"{len(existing)} file(s) already exist and will be "
+                    "overwritten:\n" + "\n".join(existing[:8])
+                    + ("\n…" if len(existing) > 8 else ""),
+                    QMessageBox.StandardButton.Yes
+                    | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No)
+                if resp != QMessageBox.StandardButton.Yes:
+                    return
+            for sheet in sel.sheets:
+                fname = paper_export.default_pdf_filename(sheet)
+                out = os.path.join(sel.path, fname)
+                try:
                     paper_export.export_pdf(
                         [sheet], self._view_resolver, out, sel.dpi,
                         template=tmpl, project_info=proj_info)
-                done = f"Exported {len(sel.sheets)} PDF file(s)"
-            else:
-                path = sel.path
-                if not path.lower().endswith(".pdf"):
-                    path += ".pdf"
+                except (OSError, ValueError) as exc:
+                    QMessageBox.critical(
+                        self, "Export Failed",
+                        f"Could not write {fname}:\n{exc}\n"
+                        "Files exported before this one remain on disk.")
+                    return
+            done = f"Exported {len(sel.sheets)} PDF file(s)"
+        else:
+            path = sel.path
+            if not path.lower().endswith(".pdf"):
+                path += ".pdf"
+            try:
                 paper_export.export_pdf(
                     sel.sheets, self._view_resolver, path, sel.dpi,
                     template=tmpl, project_info=proj_info)
-                done = f"Exported {os.path.basename(path)}"
-        except (OSError, ValueError) as exc:
-            QMessageBox.critical(
-                self, "Export Failed", f"Could not write PDF:\n{exc}")
-            return
+            except (OSError, ValueError) as exc:
+                QMessageBox.critical(
+                    self, "Export Failed",
+                    f"Could not write {os.path.basename(path)}:\n{exc}")
+                return
+            done = f"Exported {os.path.basename(path)}"
         self.statusBar().showMessage(done, 5000)
 
     def _print_paper(self):

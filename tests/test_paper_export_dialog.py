@@ -103,3 +103,10 @@ def test_separate_files_naming(tmp_path):
     s = Sheet.create_default()
     s.number, s.name = "FP-1.0", 'Bad:Name?*'
     assert default_pdf_filename(s) == "FP-1.0 - Bad_Name__.pdf"
+
+
+def test_select_all_reflects_manual_deselection(dlg):
+    dlg._checks[0].setChecked(False)
+    assert not dlg._select_all.isChecked(), "Select All must drop on partial"
+    dlg._checks[0].setChecked(True)
+    assert dlg._select_all.isChecked(), "Select All returns when all checked"

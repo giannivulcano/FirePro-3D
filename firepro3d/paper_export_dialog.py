@@ -9,18 +9,22 @@ The caller (MainWindow) owns the actual export/print calls.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from firepro3d.paper_space import Sheet
 
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QRadioButton, QScrollArea, QVBoxLayout,
-    QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QRadioButton, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 
 @dataclass
 class ExportSelection:
     """Result of the dialog: selected sheets in document-set order."""
-    sheets: list
+    sheets: list[Sheet]
     separate_files: bool
     path: str
     dpi: int
@@ -65,6 +69,9 @@ class PaperExportDialog(QDialog):
 
         self._radio_single = QRadioButton("Single multi-page PDF")
         self._radio_separate = QRadioButton("Separate file per sheet")
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.addButton(self._radio_single)
+        self._mode_group.addButton(self._radio_separate)
         self._radio_single.setChecked(True)
         self._radio_single.toggled.connect(self._on_mode_changed)
 
@@ -120,9 +127,13 @@ class PaperExportDialog(QDialog):
             self._path_edit.setText(path)
 
     def _update_ok(self):
-        any_checked = any(cb.isChecked() for cb in self._checks)
+        checked = [cb.isChecked() for cb in self._checks]
+        any_checked = any(checked)
         path_ok = self._print_mode or bool(self._path_edit.text().strip())
         self._ok_btn.setEnabled(any_checked and path_ok)
+        self._select_all.blockSignals(True)
+        self._select_all.setChecked(bool(checked) and all(checked))
+        self._select_all.blockSignals(False)
 
     def selection(self) -> ExportSelection:
         """Selected sheets in document-set order + mode/path/dpi."""
