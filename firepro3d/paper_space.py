@@ -408,6 +408,124 @@ class Sheet:
         )
 
 
+class SheetManager:
+    """Ordered sheet list + multi-sheet invariants (spec §19.2).
+
+    Operates BY REFERENCE on the same list object ``Model_Space._sheets``
+    binds, so scene_io save/load sees every mutation with no sync step.
+    Pure Python — no Qt — so every invariant is unit-testable.
+    """
+
+    DEFAULT_NAME = "Unnamed"
+    _NUM_RE = re.compile(r"\d+")
+
+    def __init__(self, sheets: "list[Sheet]"):
+        if not sheets:
+            sheets.append(Sheet.create_default())
+        self._sheets = sheets
+
+    @property
+    def sheets(self) -> "list[Sheet]":
+        return self._sheets
+
+    def get(self, number: str) -> "Sheet | None":
+        for s in self._sheets:
+            if s.number == number:
+                return s
+        return None
+
+    def validate_number(self, number: str,
+                        ignore: "Sheet | None" = None) -> bool:
+        """True if *number* is non-empty and unused (excluding *ignore*)."""
+        number = number.strip()
+        if not number:
+            return False
+        return all(s.number != number
+                   for s in self._sheets if s is not ignore)
+
+    def suggest_number(self) -> str:
+        """Pattern-following next number: FP-1.0 → FP-2.0, "1" → "2".
+
+        Increments the FIRST integer group of the last sheet's number
+        (grill 2026-08-06), bumping past collisions. Numbers without
+        digits fall back to the FP-{n}.0 house style.
+        """
+        base = self._sheets[-1].number if self._sheets else ""
+        m = self._NUM_RE.search(base)
+        if m:
+            n = int(m.group())
+            while True:
+                n += 1
+                cand = base[:m.start()] + str(n) + base[m.end():]
+                if self.validate_number(cand):
+                    return cand
+        n = len(self._sheets) + 1
+        while not self.validate_number(f"FP-{n}.0"):
+            n += 1
+        return f"FP-{n}.0"
+
+    def create(self) -> "Sheet":
+        """Append a new active-ready sheet (instant create — no dialog).
+
+        Inherits the project-uniform paper size/orientation (§19.1).
+        """
+        ref = self._sheets[0] if self._sheets else None
+        sheet = Sheet(
+            number=self.suggest_number(),
+            name=self.DEFAULT_NAME,
+            paper_size=ref.paper_size if ref else "ANSI D",
+            title_block_fields=dict(DEFAULT_TITLE_BLOCK_FIELDS),
+            sheet_views=[],
+            annotations=[],
+            revisions=[],
+            orientation=ref.orientation if ref else "",
+        )
+        self._sheets.append(sheet)
+        return sheet
+
+    def delete(self, sheet: "Sheet") -> "Sheet":
+        """Remove *sheet*; return the neighbor to activate (§19.1).
+
+        Successor if one exists, else predecessor.
+
+        Raises:
+            ValueError: on the last remaining sheet, or an unknown sheet.
+        """
+        if len(self._sheets) <= 1:
+            raise ValueError("cannot delete the last sheet")
+        i = self._sheets.index(sheet)
+        self._sheets.pop(i)
+        return self._sheets[min(i, len(self._sheets) - 1)]
+
+    def reorder(self, numbers: "list[str]") -> bool:
+        """Reorder to match *numbers*. Returns True iff the order changed.
+
+        Refuses (returns False) anything that is not a strict permutation
+        of the current unique numbers — the browser tree is never trusted.
+        """
+        current = [s.number for s in self._sheets]
+        if (len(set(current)) != len(current)
+                or sorted(numbers) != sorted(current)
+                or numbers == current):
+            return False
+        by_num = {s.number: s for s in self._sheets}
+        self._sheets[:] = [by_num[n] for n in numbers]
+        return True
+
+    def set_paper_all(self, size: str, orientation: str) -> bool:
+        """Uniform-size rule (§19.1): apply size+orientation to ALL sheets.
+
+        Returns True iff any sheet actually changed.
+        """
+        changed = False
+        for s in self._sheets:
+            if s.paper_size != size or s.orientation != orientation:
+                s.paper_size = size
+                s.orientation = orientation
+                changed = True
+        return changed
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ViewResolver — bridges source view managers to (scene, source_rect) pairs
 # ─────────────────────────────────────────────────────────────────────────────
