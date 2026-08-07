@@ -1,7 +1,7 @@
 ---
 status: current           # rev 3 + 2026-08-04 editor-UX batch, user smoke-tested 2026-08-04
-last-verified: 2026-08-04
-verified-commit: 7e89d5d
+last-verified: 2026-08-07
+verified-commit: 91a1d38
 applies-to:
   - firepro3d/titleblock_template.py   # data model + layout solver + token engine + arrangement ops + library I/O
   - firepro3d/titleblock_editor.py     # editor window (Overview / Drawing Area / Fields / Arrangements)
@@ -166,9 +166,10 @@ Template Save re-renders open sheets and emits `sheetModified` (§17.7) — both
 
 Resolution at render happens per **token** (DD-13): **auto → per-sheet → Project Info (standard, then custom rows) → ""** for known keys; unknown keys stay literal. `build_field_values` seeds every standard key with `""` (known-key set = its key set).
 
-- **Per-sheet values:** property panel when the rendered title block is selected on the sheet (duck-typed `get_properties`/`set_property`, display-keyed — no field ids; writes ride the paper `QUndoStack`; §17.7 dirty). Plus **Edit Revisions…** panel button → table dialog writing `sheet.revisions`.
+- **Identity-derived tokens (2026-08-07, multi-sheet):** **"Sheet No"** and **"Drawing No"** resolve to `Sheet.number`, **"Title"** to `Sheet.name` — always auto-wins, authored only in the sheet properties panel (`paper-space.md §19.4/§19.7`). All three sit in the editor picker's Auto group.
+- **Per-sheet values** (now **Rev + Date** only): property panel when the rendered title block is selected on the sheet (duck-typed `get_properties`/`set_property`, display-keyed — no field ids; writes ride the paper `QUndoStack`; §17.7 dirty). Plus **Edit Revisions…** panel button → table dialog writing `sheet.revisions`.
 - **Project values:** Project Information dialog only (existing surface; writes exactly the keys `PROJECT_STD_KEYS` maps from, plus custom rows).
-- **Migration on load** (legacy 9-key `title_block_fields`), one-way + idempotent: Company → Project Info custom "Company" *if absent*; Project → `name` *if empty*; Drawn By/Checked By → custom rows *if absent*; Title/Drawing No/Rev/Date stay per-sheet; Scale key dropped (auto).
+- **Migration on load** (legacy 9-key `title_block_fields`), one-way + idempotent: Company → Project Info custom "Company" *if absent*; Project → `name` *if empty*; Drawn By/Checked By → custom rows *if absent*; Rev/Date stay per-sheet; Scale key dropped (auto). **Title/Drawing No** (2026-08-07): user-authored typed values adopt into `Sheet.name`/`Sheet.number` then drop; never-edited shipped seeds drop without adopting (shipped-defaults filter — `paper-space.md §19.7` owns the rule).
 
 ## Edge Cases & Error Handling
 

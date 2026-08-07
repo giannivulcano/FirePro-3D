@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-09
 **Complexity:** Large
-**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is designed (§19, 2026-08-06) and in build — §19 is proposal until the build stamps it.**
-**Last verified:** 2026-07-22
-**Verified commit:** 23fa804
-**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery orchestration — §17.7)
+**Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is built (§19 — designed 2026-08-06, shipped + smoke-tested 2026-08-07): sheet create/rename/renumber/reorder/delete, pure-push browser sheet tree, sheet properties panel, uniform paper size, identity-derived title block fields, batch PDF export/print.**
+**Last verified:** 2026-08-07
+**Verified commit:** 91a1d38
+**Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_export_dialog.py` (batch export/print dialog — §19.6), `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery + sheet orchestration — §17.7/§19)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`, `project-browser.md` (sheet tree — §19.5), `titleblock-template-system.md` (Sheet No — §19.7)
 
@@ -104,7 +104,8 @@ Sheet:
   paper_size: str           # key into PAPER_SIZES, e.g. "ANSI D"
   orientation: str          # "" = native PAPER_SIZES orientation; "landscape"/"portrait" override
                             # (effective dims via sheet_page_mm() — one home for the swap rule)
-  title_block_fields: dict  # open {field_name: value}; sheet-scoped keys (Title, Drawing No, Rev, Date) —
+  title_block_fields: dict  # open {field_name: value}; sheet-scoped keys now Rev + Date only —
+                            # Title/Drawing No derive from name/number (§19.7, 2026-08-07);
                             # project-scoped legacy keys migrate to Project Info on load (titleblock spec §Value Model)
   sheet_views: list[SheetViewData]
   annotations: list[TextAnnotationData]
@@ -286,7 +287,7 @@ firepro3d/
 
 ### 8.4 Field Set
 
-Current 9 fields (extensible): Company, Project, Title, Scale (auto-populated from sheet view), Drawing No, Rev, Date, Drawn By, Checked By.
+Current fields (extensible): Company, Project, Scale (auto from sheet view), Rev, Date, Drawn By, Checked By — plus the identity-derived Title / Drawing No / Sheet No (§19.7; not typed fields since 2026-08-07).
 
 ### 8.5 Scale Field Auto-Population
 
@@ -519,7 +520,7 @@ User modifies model while PDF export is in progress → export captures state at
 
 ### MVP
 
-- [ ] Sheet management: create, rename, reorder, delete sheets with user-defined number and name
+- [x] Sheet management: create, rename, reorder, delete sheets with user-defined number and name *(built 2026-08-07, §19)*
 - [ ] Mixed paper sizes per sheet within a set *(deferred 2026-08-06 — uniform size for the multi-sheet MVP, §4.10/§19.1)*
 - [ ] Sheet views: place plan, detail, and elevation views onto sheets
 - [ ] Placement via drag from project browser + "Add View" toolbar button
@@ -529,11 +530,11 @@ User modifies model while PDF export is in progress → export captures state at
 - [ ] Live rendering via dirty-flag `scene.render()` on source scene
 - [ ] View-only interaction with double-click / right-click "Go to View" navigation
 - [ ] Title block: 3-tier rendering (DXF → PDF → programmatic), editable fields
-- [ ] Sheet persistence: full round-trip save/load in project JSON
-- [x] PDF export: **single sheet, vector output** (`paper_export.export_pdf`) — batch multi-page / per-sheet files deferred (blocked on multi-sheet management)
-- [x] Print: **single sheet** via system dialog (`paper_export.print_sheets`) — batch deferred
-- [ ] Project browser: sheet tree with drag-to-reorder
-- [ ] Backward compatibility: projects without sheets load normally
+- [x] Sheet persistence: full round-trip save/load in project JSON *(all sheets, 2026-08-07 — the single-sheet collapse bug is dead, §19)*
+- [x] PDF export: vector output — single sheet, **batch multi-page, and per-sheet separate files** (§19.6, 2026-08-07)
+- [x] Print: system dialog, single + **batch** via the sheet-selection dialog (§19.6, 2026-08-07)
+- [x] Project browser: sheet tree with drag-to-reorder *(pure push, number-keyed — `project-browser.md`; 2026-08-07)*
+- [x] Backward compatibility: projects without sheets load normally *(+ legacy typed Title/Drawing No adoption, §19.7)*
 
 ### Phase 2
 
@@ -631,7 +632,7 @@ Semantics are **latch-until-save** (matching model space): undo/redo dirty; undo
 - **Custom title block template builder UI** — field mapping defined, authoring tool deferred
 - **Sheet-text follow-ups (deferred from the 2026-06-26 build):** other annotation types (leader / line / rectangle / revision cloud / north arrow / scale bar); legends & schedules as Revit-style **placed tables**; copy / paste / duplicate of text blocks; rotated text; border-box; rich (per-character) text; cross-sheet / shared "same note on every sheet" content; title-block-field-edit undo; paper-space text as a **Display-Manager category** (project-level color / background customization); and the latent **point-size ~2.4× PDF over-sizing** fix for `TitleBlockItem` + viewport view-titles (§4.11).
 
-## 19. Multi-Sheet Management [designed 2026-08-06 — proposal until build stamps it]
+## 19. Multi-Sheet Management [designed 2026-08-06; as-built 2026-08-07]
 
 Resolves the single-sheet bottleneck: `main.py` currently overwrites `scene._sheets = [self._sheet]` on save and loads only `_sheets[0]`, silently dropping extra sheets — the headline bug this section kills. The `.fpd` format is untouched (the `"sheets"` list already round-trips; **zero `scene_io.py` changes**, and no active-sheet key is ever persisted).
 
@@ -645,21 +646,24 @@ Resolves the single-sheet bottleneck: `main.py` currently overwrites `scene._she
 
 ### 19.2 `SheetManager`
 
-Pure-Python class in `paper_space.py` operating **by reference** on the same list `scene._sheets` binds (the persisted home). Owns: ordered `sheets`, `get(number)`, `validate_number(number, ignore)`, `suggest_number()` (pattern-following: FP-1.0 → FP-2.0, plain 1 → 2), `create()` (auto number + default name, appended, instant — no dialog), `delete(sheet)` (raises on last; returns the neighbor to activate), `reorder(numbers)`. No Qt imports — invariants are plain-unit-testable. `MainWindow` orchestrates: call manager → switch via the existing `PaperSpaceWidget.set_sheet(sheet, resolver)` primitive → push UI (browser `set_sheets`, tab title `"{number} - {name}"`, panel) → dirty.
+Pure-Python class in `paper_space.py` operating **by reference** on the same list `scene._sheets` binds (the persisted home). Owns: ordered `sheets`, `get(number)`, `validate_number(number, ignore)`, `suggest_number()` (pattern-following — increments the FIRST integer group: FP-1.0 → FP-2.0, plain 1 → 2; digit-less falls back to FP-{n}.0), `create()` (auto number + default name "Unnamed", inherits the project-uniform paper size, appended, instant — no dialog), `delete(sheet)` (raises on last; returns successor-else-predecessor to activate), `reorder(numbers)` (refuses non-permutations and duplicate-number lists — the browser tree is never trusted), `set_paper_all(size, orientation)` (§19.1 uniform rule; returns True iff anything changed). No Qt imports — invariants are plain-unit-testable (`tests/test_sheet_manager.py`). `MainWindow` orchestrates: call manager → switch via the existing `PaperSpaceWidget.set_sheet(sheet, resolver)` primitive → push UI (browser `set_sheets`, tab title `"{number} - {name}"`, panel) → dirty.
 
 ### 19.3 Dirty-flag additions (§17.7 table extension)
 
 | Surface | Emits? | Mechanism |
 |---|---|---|
 | Sheet create / delete / rename / renumber / reorder | Yes (real change only) | `MainWindow` calls `_on_paper_modified()` directly after the manager op |
+| Ribbon size change where only NON-active sheets change (active already at target → scene setter no-ops) | Yes | `set_paper_all` return-value guard in `_change_paper_with_warning`; a data/render mismatch on the active sheet additionally forces the scene rebuild (same-size orientation-override edge) |
 | Rejected rename/renumber, cancelled delete, no-op reorder | No | no data change |
 | Sheet switch | No | `update_from_sheet` rebuild is `_suppress_modified`-guarded (unchanged) |
 
+`_on_paper_modified` (as-built) also pushes the sheet list to the browser/tab title and recomputes placed-view italics on every emission — bounded O(sheets × sheet_views), acknowledged per-edit cost (follow-up filed to gate the recompute to viewport changes).
+
 ### 19.4 Sheet properties panel & Esc
 
-- `SheetProperties` adapter (duck-typed `get_properties`/`set_property`, `property-panel.md` protocol) wraps `(sheet, manager, callbacks)`. Rows: **Number** (validated), **Name**; read-only Paper Size / Orientation. Renumbering the active sheet refreshes tab title, browser row, titleblock Sheet No, and dirties.
-- **Panel precedence (paper tab):** paper-scene selection → else browser-selected sheet (`sheetSelected`) → else **active sheet**. The panel is never blank on the paper tab.
-- **Esc:** `_on_escape` branches on the paper tab — clears `PaperScene` selection (not the model scene), panel falls back to sheet properties; Esc on empty selection is a panel no-op. (Model-space Esc-blanks-panel is a filed follow-up: empty selection should show active-view properties.)
+- `SheetProperties` adapter (duck-typed `get_properties`/`set_property`, `property-panel.md` protocol; a plain object, not a QGraphicsItem) wraps `(sheet, manager, on_change, on_reject)`. Rows: **Sheet Number** (validated; collision/empty → `on_reject` → status-bar message, old value kept), **Sheet Name** (blank rejected with feedback); read-only Paper Size / Orientation labels. Writes never partially apply; sheet-level edits are non-undoable (grill) so they bypass the undo stack. Rename/renumber → `_on_sheet_meta_changed` → titleblock re-render + tab title + browser row + dirty.
+- **Panel precedence (paper tab):** paper-scene selection → else browser-selected sheet (`sheetSelected`; ignored while Add-Text mode owns the panel — §9.6) → else **active sheet**. The panel is never blank on the paper tab. Stale-adapter guards: `_delete_sheet`, `_apply_loaded_file`, and `new_file` all reset the panel so an adapter never outlives its sheet across delete/load boundaries.
+- **Esc:** `_on_escape` branches on the paper tab — clears `PaperScene` selection (not the model scene), panel falls back to sheet properties; Esc on empty selection is a panel no-op. The paper view's ShortcutOverride (inline text edit / add-text mode) still wins ahead of this. (Model-space Esc-blanks-panel is a filed follow-up: empty selection should show active-view properties.)
 
 ### 19.5 Browser contract
 
@@ -667,11 +671,11 @@ Sheet-tree mechanics (pure push, row keying by number, `createPaperSheet()`/`del
 
 ### 19.6 Batch export & print (activates §7.1/§7.5)
 
-New `paper_export_dialog.py`: sheet checklist in document-set order (all checked, Select All), mode radio (single multi-page PDF / separate files), output picker (file vs directory per mode), DPI combo (150/**300**/600), OK disabled at zero selection. Multi-page mode feeds the selection straight to `paper_export.export_pdf(sheets, …)` (already loops `newPage()`); separate-files mode loops per sheet, naming `{number} - {name}.pdf` with `\/:*?"<>|` → `_`. Print reuses the dialog (path/DPI hidden) → `QPrintDialog` → `print_sheets(selection, …)`. Page order = list order. Zero-viewport sheets export (cover sheets, §10.5).
+`paper_export_dialog.py` (`PaperExportDialog` + `ExportSelection`): sheet checklist in document-set order (all checked; Select All stays two-way in sync with individual toggles via a signal-blocked resync), mode radio in an explicit `QButtonGroup` (single multi-page PDF / separate files), output picker (file vs directory per mode; path cleared on mode switch), DPI combo (150/**300**/600), OK disabled at zero selection or (export mode) empty path. Multi-page mode feeds the selection straight to `paper_export.export_pdf(sheets, …)` (already loops `newPage()`); separate-files mode pre-flights an **overwrite confirmation** listing colliding filenames, then loops per sheet — naming via `default_pdf_filename` (`{number} - {name}.pdf`, `\/:*?"<>|` → `_`) — with **per-file error attribution** (a mid-batch failure names the failing file; earlier files remain on disk). Print reuses the dialog (`print_mode=True` hides path/DPI) → `QPrintDialog` → `print_sheets(selection, …)`; cancelling the sheet dialog never constructs a `QPrinter`. Page order = list order. Zero-viewport sheets export (cover sheets, §10.5).
 
-### 19.7 "Sheet No" auto field
+### 19.7 Identity-derived title block fields [revised 2026-08-07, smoke-round decision]
 
-`build_field_values` resolves "Sheet No" → the sheet's `number` (manually authored in the sheet properties panel — one home); the editor's disabled picker entry flips enabled (+ `_SAMPLE_VALUES` sample). Batch export renders it per-sheet via the existing per-sheet `render_sheet` values.
+**"Sheet No"**, **"Drawing No"** (synonyms → `Sheet.number`) and **"Title"** (→ `Sheet.name`) are auto-resolved by `build_field_values` — the sheet identity is the ONE authoring home (the sheet properties panel; §19.4). The typed per-sheet fields are retired: `TitleBlockTemplateItem._SHEET_KEYS` shrinks to `("Rev", "Date")` (the title block's own panel shows only those + Edit Revisions), `DEFAULT_TITLE_BLOCK_FIELDS` no longer seeds Title/Drawing No, and the editor's Insert-field picker lists all three tokens under the Auto group. **Legacy adoption on load** (`Sheet.from_dict`): a user-authored typed Title/Drawing No is adopted into `name`/`number` so old files keep printing the same text, then the keys are dropped; never-edited shipped seeds (`_LEGACY_TITLE_DEFAULT`/`_LEGACY_DRAWING_NO_DEFAULT`) are dropped **without** adopting (shipped-defaults filter — unconditional adoption would clobber names and duplicate numbers across pre-filter multi-sheet saves). Batch export renders per-sheet via the existing `render_sheet` values. Token semantics beyond this live in `titleblock-template-system.md` (Rule A).
 
 ### 19.8 Testing contract (grilled)
 

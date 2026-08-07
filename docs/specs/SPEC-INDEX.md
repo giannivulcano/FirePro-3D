@@ -26,7 +26,7 @@
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |
 | **Section view subsystem** | `specs/section-view-subsystem.md` | `section_*.py` (do not exist yet) | **proposal** (unbuilt) |
 | **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | (greenfield) | **proposal** (unbuilt) |
-| **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py` | **partial** (Phase-1 only; export/print/annotations unbuilt) |
+| **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py`, `paper_export.py`, `paper_export_dialog.py`, `paper_display.py`, `paper_commands.py` | **partial** (Phase-1 + plot + text annotations + multi-sheet management built; remaining annotation types / layer overrides pending) |
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
 

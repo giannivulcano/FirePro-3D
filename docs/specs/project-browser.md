@@ -1,7 +1,7 @@
 ---
 status: current
-last-verified: 2026-08-05
-verified-commit: 8f6cd90
+last-verified: 2026-08-07
+verified-commit: 91a1d38
 applies-to:
   - firepro3d/project_browser.py
   - main.py (ProjectBrowser wiring in MainWindow.__init__)
@@ -59,8 +59,11 @@ The user's mental model is Revit's: views are discovered and opened from a brows
 | `activateElevation` | direction | activating an elevation item | `_activate_elevation` |
 | `activateDetailView` | detail name | activating / context-"Open" on a detail | `_activate_detail_view` |
 | `deleteDetailView` | detail name | context-"Delete" on a detail | `_delete_detail_view` |
-| `activatePaperSheet` | sheet name | activating a sheet item | `_activate_paper_sheet` |
-| `createPaperSheet` | new name | context-"New Drawing" (see divergence D2) | `_activate_paper_sheet` (D2) |
+| `activatePaperSheet` | sheet **number** | activating a sheet item / context-"Open" | `_activate_paper_sheet(number)` |
+| `createPaperSheet` | — | context-"New Drawing" (instant create) | `_create_sheet` |
+| `deletePaperSheet` | sheet number | context-"Delete" on a sheet | `_delete_sheet` (owns the confirm) |
+| `sheetSelected` | sheet number | single-click selection of a sheet row | `_on_browser_sheet_selected` (sheet props → panel; skipped in Add-Text mode) |
+| `sheetOrderChanged` | numbers, new order | internal sheet drag-drop (`sheetDropped` → order computation) | `_reorder_sheets` (reorder + reconcile push) |
 
 Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the same dispatcher (`_on_item_activated`); on Windows these can double-fire for one double-click — harmless today because every handler is idempotent, but new handlers must stay idempotent or the wiring must be deduplicated.
 
@@ -68,7 +71,7 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 
 - `refresh_levels()` — rebuild Plans from `level_manager.levels`; tooltip shows elevation via the injected `ScaleManager` (`levelsChanged` from level widget + level dialog).
 - `refresh_details(names)` — rebuild Details (`MainWindow` after detail-view changes).
-- `set_sheets(names)` — rebuild Paper Space children (see divergence D1).
+- `set_sheets([(number, display), …])` — rebuild Paper Space children from the authoritative list (`MainWindow._push_sheet_list` on every load/sheet-op/`_on_paper_modified`). The whole rebuild is signal-blocked and preserves the selected sheet row by number (D1 resolved 2026-08-07).
 - `set_level_manager(lm)` / `set_scale_manager(sm)` — swap injected managers (project load).
 - `set_placed_views(set)` — record which views are placed on sheets for italic styling (see divergence D3).
 
@@ -78,17 +81,17 @@ Activation = `itemActivated` **and** `itemDoubleClicked`, both connected to the 
 - `detail` → **Open** / **Delete**.
 - All other roles → no menu.
 
-## Divergences (as-built gaps, verified 8f6cd90; classifications grilled 2026-08-05)
+## Divergences (classifications grilled 2026-08-05; D1/D2/D3/D5/D7 **resolved by the multi-sheet build, 2026-08-07**)
 
-- **D1 — `set_sheets` has no external caller.** The Paper Space branch shows only the `_build_tree` default `["Layout 1"]`; a loaded project's real sheet name(s) never reach the tree. Single-sheet-era gap; the multi-sheet task must make `MainWindow` push the authoritative sheet list on every load/create/rename/delete/reorder.
-- **D2 — `createPaperSheet` creates nothing.** The browser optimistically appends a tree item, but `main.py` connects the signal to `_activate_paper_sheet` — no `Sheet` is created, so the tree shows a phantom entry naming a sheet that doesn't exist (activating it opens the one real sheet). **Bug** (grilled): the optimistic local append violates the pure-push contract and is removed by the multi-sheet task — the tree reflects data pushed back via `set_sheets`, never self-mutates.
-- **D3 — `set_placed_views` is dead code.** No caller, so the italic placed-on-sheet styling in `refresh_levels` / `refresh_details` / elevations can never activate. **Intended feature, unwired** (grilled): keep the API; `MainWindow` wires it with multi-sheet (recompute from every `Sheet.sheet_views` on load/`sheetModified`).
-- **D4 — `_ROLE_VIEW` declared, never used.**
-- **D5 — `activatePaperSheet`'s name argument is ignored** by `_activate_paper_sheet` (single-sheet world; the multi-sheet task makes it meaningful).
+- **D1 — RESOLVED.** `MainWindow._push_sheet_list` pushes the authoritative `(number, display)` list on every load/sheet-op/paper-mutation; the `_build_tree` "Layout 1" default is gone (tree starts empty until pushed).
+- **D2 — RESOLVED.** The optimistic local append and `QInputDialog` are deleted; `createPaperSheet()` is parameterless and `MainWindow._create_sheet` owns instant creation (auto number, becomes active). The tree never self-mutates (pure-push contract honored; drop-onto-self is an explicit no-op).
+- **D3 — RESOLVED.** `set_placed_views` restyles view rows **in place** (plans, elevations, details) and is driven by `MainWindow._recompute_placed_views` from every `Sheet.sheet_views` on load/`_on_paper_modified`/sheet ops.
+- **D4 — `_ROLE_VIEW` declared, never used.** (Still latent.)
+- **D5 — RESOLVED.** `activatePaperSheet` carries the sheet **number** (identity) and `_activate_paper_sheet(number)` switches sheets by it.
 - **D6 — drag supports only the first selected item** (`break` in `mimeData`). **Intended** (grilled): multi-view drop has no designed drop-layout semantics; each placement needs individual position/scale.
-- **D7 — sheets are not drag-reorderable** (`DragOnly` mode). **Deliberate deferral with confirmed target** (grilled): drag-to-reorder in the tree is the intended order-editing mechanism (`paper-space.md` §14; order = document-set order = batch page order); lands with multi-sheet. Sheet items accept internal moves between sheet siblings only, coexisting with drag-out for view items.
+- **D7 — RESOLVED.** Internal sheet drag-reorder via guarded `dropEvent` (`application/x-firepro3d-sheet` mime; accepts only sheet-row/paper-root targets; `IgnoreAction` — Qt never moves the item; emits `sheetDropped` → order computed → `sheetOrderChanged`), coexisting with drag-out for view items. UX polish note: the drop cursor shows over non-sheet rows even though the drop is rejected (follow-up filed).
 
-## Multi-sheet design deltas [designed 2026-08-06 — proposal until the multi-sheet build stamps them]
+## Multi-sheet design deltas [designed 2026-08-06; as-built 2026-08-07]
 
 Bound by `paper-space.md §19` (sheet semantics live there — Rule A). Browser-side changes:
 
@@ -99,9 +102,9 @@ Bound by `paper-space.md §19` (sheet semantics live there — Rule A). Browser-
 
 ## Acceptance Criteria
 
-- [x] Spec documents the as-built tree structure, roles, signals, refresh API, drag payload, and context menus (verified against `project_browser.py` @ 8f6cd90).
+- [x] Spec documents the as-built tree structure, roles, signals, refresh API, drag payload, and context menus (verified against `project_browser.py` @ 91a1d38).
 - [x] All known gaps recorded as divergences D1–D7 rather than silently specced as intended behavior.
-- [ ] Multi-sheet task resolves D1/D2/D5 (and decides D7) — update this spec in place when it lands.
+- [x] Multi-sheet task resolved D1/D2/D3/D5/D7 (2026-08-07); D4/D6 remain intended/latent.
 
 ## Verification Checklist
 
