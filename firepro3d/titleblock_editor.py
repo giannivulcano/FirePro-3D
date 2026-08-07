@@ -76,9 +76,10 @@ _SAMPLE_VALUES.update({
                        "date": "07-21"}],
 })
 
-# Field key groups for the Insert field ▾ picker and token helper
-_AUTO_FIELD_KEYS = ["Scale", "Date (auto)", "Sheet No"]
-_SHEET_FIELD_KEYS = ["Title", "Drawing No", "Rev", "Date"]
+# Field key groups for the Insert field ▾ picker and token helper.
+# Title and Drawing No are identity-derived (auto), not user-typed per-sheet.
+_AUTO_FIELD_KEYS = ["Scale", "Date (auto)", "Sheet No", "Drawing No", "Title"]
+_SHEET_FIELD_KEYS = ["Rev", "Date"]
 
 
 def _template_page_mm(template: TitleBlockTemplate) -> tuple[float, float]:

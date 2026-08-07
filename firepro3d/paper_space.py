@@ -252,13 +252,13 @@ def _compute_scale_field(sheet: "Sheet") -> str:
 DEFAULT_TITLE_BLOCK_FIELDS: dict[str, str] = {
     "Company": "Celerity Engineering Limited",
     "Project": "",
-    "Title": "Fire Suppression Layout",
     "Scale": "1:100",
-    "Drawing No": "FP-001",
     "Rev": "A",
     "Date": datetime.date.today().strftime("%d %b %Y"),
     "Drawn By": "",
     "Checked By": "",
+    # NOTE: "Title" and "Drawing No" are intentionally absent — they derive from
+    # Sheet.name and Sheet.number respectively (build_field_values always wins).
 }
 
 
@@ -393,13 +393,26 @@ class Sheet:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Sheet":
+        number = d["number"]
+        name = d["name"]
+        tbf = dict(d.get("title_block_fields", DEFAULT_TITLE_BLOCK_FIELDS))
+        # 2026-08-07: Title/Drawing No derive from sheet identity (name/number).
+        # Adopt legacy typed values so old files keep printing the same text,
+        # then drop the keys — new saves never write them.
+        # Note: legacy files were always single-sheet, so number uniqueness
+        # cannot be violated here.
+        legacy_title = (tbf.pop("Title", "") or "").strip()
+        legacy_no = (tbf.pop("Drawing No", "") or "").strip()
+        if legacy_title:
+            name = legacy_title
+        if legacy_no:
+            number = legacy_no
         return cls(
-            number=d["number"],
-            name=d["name"],
+            number=number,
+            name=name,
             paper_size=d["paper_size"],
             orientation=d.get("orientation", ""),
-            title_block_fields=d.get("title_block_fields",
-                                     dict(DEFAULT_TITLE_BLOCK_FIELDS)),
+            title_block_fields=tbf,
             sheet_views=[SheetViewData.from_dict(sv)
                          for sv in d.get("sheet_views", [])],
             annotations=[TextAnnotationData.from_dict(a)
@@ -2533,7 +2546,9 @@ class TitleBlockItem(QGraphicsItem):
 
         # Merge with defaults so migrated sheets (keys popped by migrate_legacy_fields)
         # never cause a KeyError inside Qt paint → silent native crash.
-        f = {**DEFAULT_TITLE_BLOCK_FIELDS, **self.fields}
+        # "Title" and "Drawing No" are no longer in DEFAULT_TITLE_BLOCK_FIELDS
+        # (identity-derived since 2026-08-07); seed "" so paint never KeyErrors.
+        f = {"Title": "", "Drawing No": "", **DEFAULT_TITLE_BLOCK_FIELDS, **self.fields}
 
         painter.setBrush(white)
         painter.setPen(pen_thick)
@@ -2717,6 +2732,8 @@ def build_field_values(sheet: "Sheet", project_info: dict) -> dict:
     vals["Scale"] = _compute_scale_field(sheet)           # auto wins
     vals["Date (auto)"] = datetime.date.today().strftime("%d %b %Y")
     vals["Sheet No"] = sheet.number                       # auto wins (§19.7)
+    vals["Drawing No"] = sheet.number                     # synonym of Sheet No
+    vals["Title"] = sheet.name                            # sheet identity owns it
     vals["__revisions__"] = list(sheet.revisions)
     return vals
 
@@ -2800,15 +2817,19 @@ class TitleBlockTemplateItem(QGraphicsItem):
 
     #: Sheet-scoped keys exposed in the panel (project-wide fields belong in
     #: Project Info and are edited there, not per-sheet here).
-    _SHEET_KEYS = ("Title", "Drawing No", "Rev", "Date")
+    #: Title and Drawing No are intentionally omitted — they derive from
+    #: Sheet.name and Sheet.number (owned by the sheet identity, edited in the
+    #: Sheet Properties / project browser, not here).
+    _SHEET_KEYS = ("Rev", "Date")
 
     def get_properties(self) -> dict:
         """Return the property-panel form dict for the sheet's title block fields.
 
-        Exposes _SHEET_KEYS as editable string rows. Panel-managed project
-        fields (Company, Project, etc.) are intentionally omitted — those are
-        set via Project Info. An "Edit Revisions…" button row follows for
-        opening the revision editor (callback wired in T13).
+        Exposes _SHEET_KEYS (Rev, Date) as editable string rows. Title and
+        Drawing No are intentionally absent — they derive from Sheet.name /
+        Sheet.number and are edited via the Sheet Properties panel / project
+        browser. Panel-managed project fields (Company, Project, etc.) belong
+        in Project Info, not here. An "Edit Revisions…" button row follows.
 
         Returns:
             Ordered dict in PropertyManager meta format (§property-panel.md §3.1).

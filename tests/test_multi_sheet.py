@@ -91,14 +91,23 @@ def test_active_sheet_rules(mw):
 
 
 def test_legacy_single_sheet_load_intact(mw, tmp_path):
-    """A pre-feature single-sheet .fpd opens with its one sheet untouched."""
+    """A pre-feature single-sheet .fpd opens with its one sheet intact.
+
+    2026-08-07: Title/Drawing No now derive from sheet identity.  A legacy
+    file that carried Title in title_block_fields has it adopted into
+    sheet.name on load; the typed field is dropped so new saves never
+    double-write it.  The printed title is preserved via sheet.name.
+    """
     mw._sheet.title_block_fields["Title"] = "Legacy Title"
     path = str(tmp_path / "legacy.fpd")
     mw._current_file = path
     mw.save_file()
     mw._load_project(path)
     assert len(mw.sheet_mgr.sheets) == 1
-    assert mw._sheet.title_block_fields["Title"] == "Legacy Title"
+    # OLD contract: title_block_fields["Title"] == "Legacy Title"  (removed 2026-08-07)
+    # NEW contract: adopted into sheet.name, dropped from fields.
+    assert mw._sheet.name == "Legacy Title"
+    assert "Title" not in mw._sheet.title_block_fields
 
 
 def test_new_file_resets_to_single_default(mw, tmp_path):
@@ -125,6 +134,37 @@ def test_sheet_no_sample_parity(qapp):
     """DD-13: editor sample keyset must include the new auto key."""
     from firepro3d.titleblock_editor import _SAMPLE_VALUES
     assert "Sheet No" in _SAMPLE_VALUES and _SAMPLE_VALUES["Sheet No"]
+
+
+def test_title_and_drawing_no_derive_from_sheet_identity(qapp):
+    """Title/Drawing No must resolve from sheet.name/number, not title_block_fields."""
+    from firepro3d.paper_space import build_field_values
+    sheet = Sheet.create_default()
+    sheet.number, sheet.name = "FP-3.0", "Riser Details"
+    sheet.title_block_fields["Title"] = "STALE"
+    sheet.title_block_fields["Drawing No"] = "STALE"
+    vals = build_field_values(sheet, {})
+    assert vals["Title"] == "Riser Details"
+    assert vals["Drawing No"] == "FP-3.0" == vals["Sheet No"]
+
+
+def test_legacy_typed_title_drawing_no_adopted_on_load(qapp):
+    """from_dict must adopt legacy Title/Drawing No into sheet identity and drop the keys."""
+    d = Sheet.create_default().to_dict()
+    d["title_block_fields"]["Title"] = "Legacy Plan Title"
+    d["title_block_fields"]["Drawing No"] = "FP-101"
+    s = Sheet.from_dict(d)
+    assert s.name == "Legacy Plan Title"
+    assert s.number == "FP-101"
+    assert "Title" not in s.title_block_fields
+    assert "Drawing No" not in s.title_block_fields
+
+
+def test_new_sheets_carry_no_title_drawing_no_fields(qapp):
+    """New sheets must not seed Title/Drawing No in title_block_fields (identity owns them)."""
+    s = Sheet.create_default()
+    assert "Title" not in s.title_block_fields
+    assert "Drawing No" not in s.title_block_fields
 
 
 # ---------------------------------------------------------------------------

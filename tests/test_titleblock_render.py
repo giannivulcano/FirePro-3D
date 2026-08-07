@@ -158,12 +158,15 @@ def _render(item, w, h, px=600):
 class TestBuildFieldValues:
     def test_resolution_order_auto_sheet_project(self):
         s = Sheet.create_default()
-        s.title_block_fields = {"Title": "L1 Plan"}
+        s.name = "L1 Plan"  # Title derives from Sheet.name (2026-08-07)
+        # Typed title_block_fields["Title"] is no longer authoritative — sheet
+        # identity always wins; stale typed value is silently ignored.
+        s.title_block_fields = {"Title": "STALE"}
         s.revisions = [{"no": "1", "description": "x", "date": "d"}]
         info = {"name": "Plant 9",
                 "custom": [{"key": "Company", "value": "ACME"}]}
         vals = build_field_values(s, info)
-        assert vals["Title"] == "L1 Plan"          # sheet
+        assert vals["Title"] == "L1 Plan"          # sheet.name (identity wins)
         assert vals["Project"] == "Plant 9"        # project standard
         assert vals["Company"] == "ACME"           # project custom
         assert vals["Scale"] == ""                 # auto (no viewports)
@@ -813,10 +816,11 @@ class TestPanelAndUndo:
         from unittest.mock import MagicMock
         from firepro3d.paper_space import PaperScene, ViewResolver
         sheet = Sheet.create_default()
-        sheet.title_block_fields = {
-            "Title": "Before", "Drawing No": "FP-1",
-            "Rev": "A", "Date": "d",
-        }
+        # Title/Drawing No now derive from sheet identity (2026-08-07);
+        # only Rev/Date remain as typed per-sheet fields.
+        sheet.name = "Before"
+        sheet.number = "FP-1"
+        sheet.title_block_fields = {"Rev": "A", "Date": "d"}
         resolver = MagicMock(spec=ViewResolver)
         resolver.resolve.return_value = None
         sc = PaperScene(sheet, resolver)
@@ -833,10 +837,17 @@ class TestPanelAndUndo:
     # ── get_properties ─────────────────────────────────────────────────────
 
     def test_get_properties_lists_sheet_fields(self):
+        # 2026-08-07: Title/Drawing No removed from _SHEET_KEYS — identity-derived.
+        # Panel now shows only Rev + Date (+ Edit Revisions… button).
         sc, _ = self._scene()
         props = self._tb(sc).get_properties()
-        assert "Title" in props, f"Expected 'Title' in props, got keys: {list(props)}"
-        assert "Drawing No" in props, f"Expected 'Drawing No' in props, got keys: {list(props)}"
+        assert "Rev" in props, f"Expected 'Rev' in props, got keys: {list(props)}"
+        assert "Date" in props, f"Expected 'Date' in props, got keys: {list(props)}"
+        # OLD contract: Title and Drawing No were panel rows — no longer.
+        assert "Title" not in props, \
+            "Title must NOT appear in panel (derived from sheet.name)"
+        assert "Drawing No" not in props, \
+            "Drawing No must NOT appear in panel (derived from sheet.number)"
 
     def test_get_properties_types_are_string_or_button(self):
         sc, _ = self._scene()
@@ -849,31 +860,43 @@ class TestPanelAndUndo:
     # ── set_property / undo / redo ─────────────────────────────────────────
 
     def test_set_property_updates_sheet_field(self):
+        # 2026-08-07: Rev is now the archetypal _SHEET_KEYS entry (Title removed).
         sc, sheet = self._scene()
-        self._tb(sc).set_property("Title", "After")
-        assert sheet.title_block_fields["Title"] == "After"
+        self._tb(sc).set_property("Rev", "B")
+        assert sheet.title_block_fields["Rev"] == "B"
 
     def test_set_property_rides_undo_and_dirties(self):
-        """set_property pushes SetSheetFieldCommand; indexChanged relay emits sheetModified."""
+        """set_property pushes SetSheetFieldCommand; indexChanged relay emits sheetModified.
+
+        2026-08-07: Test migrated from 'Title' (now identity-derived) to 'Rev'
+        (still a typed per-sheet field) to exercise the same undo/redo path.
+        """
         sc, sheet = self._scene()
         emitted = []
         sc.sheetModified.connect(lambda *a: emitted.append(1))
-        self._tb(sc).set_property("Title", "After")
-        assert sheet.title_block_fields["Title"] == "After"
+        self._tb(sc).set_property("Rev", "B")
+        assert sheet.title_block_fields["Rev"] == "B"
         assert emitted, "sheetModified not emitted after set_property"
         # After rebuild the item pointer is stale — use sc.undo_stack directly.
         sc.undo_stack.undo()
-        assert sheet.title_block_fields["Title"] == "Before"
+        assert sheet.title_block_fields["Rev"] == "A"
         sc.undo_stack.redo()
-        assert sheet.title_block_fields["Title"] == "After"
+        assert sheet.title_block_fields["Rev"] == "B"
 
     def test_set_property_rerenders_template(self):
-        """After set_property, the new TitleBlockTemplateItem has the updated value."""
-        sc, _ = self._scene()
-        self._tb(sc).set_property("Title", "After")
+        """After set_property, the new TitleBlockTemplateItem has the updated value.
+
+        2026-08-07: Title is identity-derived (always equals sheet.name after
+        build_field_values); verify that set_property for 'Rev' also rerenders.
+        """
+        sc, sheet = self._scene()
+        self._tb(sc).set_property("Rev", "C")
         tb2 = self._tb(sc)          # fresh item post-rebuild
-        assert tb2._values.get("Title") == "After", \
-            f"Expected 'After' in _values['Title'], got {tb2._values.get('Title')!r}"
+        assert tb2._values.get("Rev") == "C", \
+            f"Expected 'C' in _values['Rev'], got {tb2._values.get('Rev')!r}"
+        # Also verify Title derives from sheet.name (not a typed field).
+        assert tb2._values.get("Title") == sheet.name, \
+            f"Title must equal sheet.name={sheet.name!r}, got {tb2._values.get('Title')!r}"
 
     def test_set_property_unknown_key_ignored(self):
         """set_property for a key not in _SHEET_KEYS must not raise."""

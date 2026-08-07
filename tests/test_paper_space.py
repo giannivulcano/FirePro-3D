@@ -413,13 +413,14 @@ class TestSheetViewData:
 class TestSheet:
     def _make_sheet(self):
         from firepro3d.paper_space import Sheet, SheetViewData
+        # 2026-08-07: Title and Drawing No removed from title_block_fields —
+        # they are identity-derived from Sheet.name / Sheet.number.
         return Sheet(
             number="FP-1.0", name="Fire Suppression Layout",
             paper_size="ANSI D",
             title_block_fields={
                 "Company": "Test Corp", "Project": "Test Project",
-                "Title": "Level 1 Plan", "Scale": "1:100",
-                "Drawing No": "FP-001", "Rev": "A",
+                "Scale": "1:100", "Rev": "A",
                 "Date": "10 May 2026", "Drawn By": "GV", "Checked By": "",
             },
             sheet_views=[
@@ -432,10 +433,14 @@ class TestSheet:
         sheet = self._make_sheet()
         d = sheet.to_dict()
         restored = Sheet.from_dict(d)
+        # number and name are identity fields; title_block_fields no longer carries
+        # Title or Drawing No (both were removed from the constant 2026-08-07).
         assert restored.number == "FP-1.0"
         assert restored.name == "Fire Suppression Layout"
         assert restored.paper_size == "ANSI D"
         assert restored.title_block_fields["Company"] == "Test Corp"
+        assert "Title" not in restored.title_block_fields
+        assert "Drawing No" not in restored.title_block_fields
         assert len(restored.sheet_views) == 1
         assert restored.sheet_views[0].source_view_name == "Level 1"
 
@@ -675,10 +680,13 @@ class TestBuildFieldValuesSeeding:
         assert vals["Title"] == ""
 
     def test_real_values_still_override(self, qapp):
-        sheet = Sheet("", "", "ANSI D", {}, [])
-        sheet.title_block_fields["Title"] = "Plan"
+        # 2026-08-07: Title derives from sheet.name, not title_block_fields["Title"].
+        # A stale typed Title field is silently ignored (identity always wins).
+        sheet = Sheet("FP-2.0", "Plan", "ANSI D", {}, [])
+        sheet.title_block_fields["Title"] = "STALE"
         vals = build_field_values(sheet, {"name": "Proj X"})
-        assert vals["Title"] == "Plan"
+        assert vals["Title"] == "Plan"          # sheet.name wins over typed field
+        assert vals["Drawing No"] == "FP-2.0"  # sheet.number wins
         assert vals["Project"] == "Proj X"
 
     def test_address_line_keys_resolve(self, qapp):
