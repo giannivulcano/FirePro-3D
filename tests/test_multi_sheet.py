@@ -160,6 +160,22 @@ def test_legacy_typed_title_drawing_no_adopted_on_load(qapp):
     assert "Drawing No" not in s.title_block_fields
 
 
+def test_default_seeded_title_drawing_no_not_adopted(qapp):
+    """Shipped-defaults filter: branch-era saves seeded "Fire Suppression
+    Layout"/"FP-001" onto EVERY sheet — adopting those would clobber names
+    and duplicate numbers project-wide.  Only user-authored values adopt;
+    the keys are dropped either way."""
+    d = Sheet.create_default().to_dict()
+    d["number"], d["name"] = "FP-2.0", "Details"
+    d["title_block_fields"]["Title"] = "Fire Suppression Layout"
+    d["title_block_fields"]["Drawing No"] = "FP-001"
+    s = Sheet.from_dict(d)
+    assert s.number == "FP-2.0" and s.name == "Details", \
+        "never-edited seeds must not overwrite the identity"
+    assert "Title" not in s.title_block_fields
+    assert "Drawing No" not in s.title_block_fields
+
+
 def test_new_sheets_carry_no_title_drawing_no_fields(qapp):
     """New sheets must not seed Title/Drawing No in title_block_fields (identity owns them)."""
     s = Sheet.create_default()

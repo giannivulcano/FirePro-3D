@@ -261,6 +261,11 @@ DEFAULT_TITLE_BLOCK_FIELDS: dict[str, str] = {
     # Sheet.name and Sheet.number respectively (build_field_values always wins).
 }
 
+# Shipped defaults of the retired typed fields — used only by Sheet.from_dict's
+# legacy adoption to distinguish user-authored values from never-edited seeds.
+_LEGACY_TITLE_DEFAULT = "Fire Suppression Layout"
+_LEGACY_DRAWING_NO_DEFAULT = "FP-001"
+
 
 @dataclass
 class SheetViewData:
@@ -398,14 +403,16 @@ class Sheet:
         tbf = dict(d.get("title_block_fields", DEFAULT_TITLE_BLOCK_FIELDS))
         # 2026-08-07: Title/Drawing No derive from sheet identity (name/number).
         # Adopt legacy typed values so old files keep printing the same text,
-        # then drop the keys — new saves never write them.
-        # Note: legacy files were always single-sheet, so number uniqueness
-        # cannot be violated here.
+        # then drop the keys — new saves never write them. Never-edited shipped
+        # defaults are NOT adopted (shipped-defaults filter, mirroring
+        # migrate_project_info): pre-filter files seeded "Fire Suppression
+        # Layout"/"FP-001" onto EVERY sheet, so unconditional adoption would
+        # clobber names and duplicate numbers across a multi-sheet file.
         legacy_title = (tbf.pop("Title", "") or "").strip()
         legacy_no = (tbf.pop("Drawing No", "") or "").strip()
-        if legacy_title:
+        if legacy_title and legacy_title != _LEGACY_TITLE_DEFAULT:
             name = legacy_title
-        if legacy_no:
+        if legacy_no and legacy_no != _LEGACY_DRAWING_NO_DEFAULT:
             number = legacy_no
         return cls(
             number=number,
