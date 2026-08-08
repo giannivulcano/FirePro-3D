@@ -409,6 +409,9 @@ class GridlineItem(QGraphicsLineItem):
 
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
+        # Write-together unit: the three _paper_* attributes are set only by
+        # paper_display's override pass (_apply_gridline / restore) — never
+        # mutate one without the others.
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
         self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)

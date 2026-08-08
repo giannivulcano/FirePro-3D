@@ -102,9 +102,9 @@ class TestExportPdf:
         calls = {"n": 0}
         orig = pd.apply_paper_overrides
 
-        def spy(scene, rect):
+        def spy(scene, rect, paper_scale=1.0):
             calls["n"] += 1
-            return orig(scene, rect)
+            return orig(scene, rect, paper_scale=paper_scale)
 
         monkeypatch.setattr(pd, "apply_paper_overrides", spy)
 

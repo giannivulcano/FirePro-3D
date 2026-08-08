@@ -787,7 +787,11 @@ class SheetViewport(QGraphicsObject):
         # Render source scene with paper-space display overrides
         if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
             from .paper_display import apply_paper_overrides, restore_model_display
-            saved = apply_paper_overrides(self._source_scene, self._source_rect)
+            # True geometric scale (paper mm per model mm) — correct even for
+            # NTS viewports where the declared scale is 0.0 (§9.9.1).
+            paper_scale = vp_rect.width() / self._source_rect.width()
+            saved = apply_paper_overrides(self._source_scene, self._source_rect,
+                                          paper_scale=paper_scale)
             try:
                 self._source_scene.render(painter, vp_rect, self._source_rect)
             finally:

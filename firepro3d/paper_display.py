@@ -345,19 +345,44 @@ def _apply_pipe(pipe, cat, color_mode, lw_mm):
     pipe.update()
 
 
-def _apply_gridline(gl, cat, color_mode, lw_mm):
-    """Apply paper overrides to a GridlineItem — sets _grid_color + bubbles."""
-    from PyQt6.QtGui import QColor, QBrush, QPen
+def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
+    """Apply paper overrides to a GridlineItem — colors + true-scale geometry (§9.9.1)."""
+    from PyQt6.QtGui import QColor, QBrush
+    from .gridline import bubble_paper_geometry
+
+    S = max(paper_scale, 1e-9)
+    cap_mm = cat.get("bubble_label_height_mm", 3.0)
+    r_mm, em_mm = bubble_paper_geometry(cap_mm)
+
+    gl._paper_render = True          # write-together unit with the two floats below
+    gl._paper_line_w = lw_mm / S
+    gl._paper_bubble_r = r_mm / S
+
     if color_mode != PaperColorMode.FULL_COLOR:
         gl._grid_color = QColor(cat["color"])
-        for bubble in (gl.bubble1, gl.bubble2):
-            bp = bubble.pen()
-            bp.setColor(QColor(cat["color"]))
-            bubble.setPen(bp)
-            bubble._label.setDefaultTextColor(QColor(cat["color"]))
-        if cat["fill"] is not None:
-            gl.bubble1.setBrush(QBrush(QColor(cat["fill"])))
-            gl.bubble2.setBrush(QBrush(QColor(cat["fill"])))
+    # Authored color in full-color mode — suppresses the duplicate-warning
+    # orange in ALL modes (a warning is not authored content, §9.9.1).
+    pen_color = (QColor(cat["color"]) if color_mode != PaperColorMode.FULL_COLOR
+                 else QColor(gl._grid_color))
+
+    for bubble in (gl.bubble1, gl.bubble2):
+        bubble._paper_saved = bubble.enter_paper_mode(r_mm / S, em_mm / S)
+        # Model-side Display Manager bubble scale multiplier never affects
+        # paper output (§9.9.1 isolation) — the multiplier is applied as an
+        # item scale on each bubble, which would compound the paper radius.
+        bubble.setScale(1.0)
+        bp = bubble.pen()
+        bp.setColor(pen_color)
+        bp.setWidthF(lw_mm / S)
+        bp.setCosmetic(False)
+        bubble.setPen(bp)
+        bubble._label.setDefaultTextColor(pen_color)
+        if color_mode != PaperColorMode.FULL_COLOR and cat["fill"] is not None:
+            bubble.setBrush(QBrush(QColor(cat["fill"])))
+
+    gl._grip1.setVisible(False)
+    gl._grip2.setVisible(False)
+    gl._lock_indicator.setVisible(False)
     gl.setOpacity(cat["opacity"] / 100.0)
     gl.update()
 
@@ -378,12 +403,21 @@ def _apply_marker(marker, cat, color_mode, lw_mm, color_attr="_marker_color"):
 
 
 def _save_gridline_state(gl) -> dict:
-    """Capture gridline state for restore."""
+    """Capture gridline state for restore.
+
+    Full pen/brush objects (not color names) and per-bubble entries — the two
+    bubbles can legitimately differ (e.g. duplicate-warning pen).
+    """
+    from PyQt6.QtGui import QPen, QBrush
     return {
         "grid_color": gl._grid_color.name(),
-        "bubble_pen": gl.bubble1.pen().color().name(),
-        "bubble_brush": gl.bubble1.brush().color().name(),
-        "label_color": gl.bubble1._label.defaultTextColor().name(),
+        "bubble_pen": [QPen(b.pen()) for b in (gl.bubble1, gl.bubble2)],
+        "bubble_brush": [QBrush(b.brush()) for b in (gl.bubble1, gl.bubble2)],
+        "label_color": [b._label.defaultTextColor()
+                        for b in (gl.bubble1, gl.bubble2)],
+        "bubble_scale": [gl.bubble1.scale(), gl.bubble2.scale()],
+        "grip_vis": (gl._grip1.isVisible(), gl._grip2.isVisible()),
+        "lock_vis": gl._lock_indicator.isVisible(),
     }
 
 
@@ -401,12 +435,18 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     }
 
 
-def apply_paper_overrides(scene, source_rect) -> list[dict]:
+def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0) -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
 
     Type-aware: each item type is handled according to how its paint()
     method reads display properties. Returns a list of saved-state dicts
     for ``restore_model_display()``.
+
+    Args:
+        scene: Source QGraphicsScene being rendered through a viewport.
+        source_rect: Model-space crop rect of the viewport.
+        paper_scale: True geometric scale (paper mm per model mm) of the
+            viewport render — drives true-scale gridline bubbles (§9.9.1).
     """
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
@@ -422,6 +462,12 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
 
     for item in items:
         if not item.isVisible():
+            continue
+        if item.data(0) == "origin":
+            # Model origin cross — authoring aid, never plots (§9.9.1).
+            saved.append({"item": item, "cat_key": None,
+                          "visible": item.isVisible()})
+            item.setVisible(False)
             continue
         cat_key = _category_for_item(item)
         if cat_key is None:
@@ -465,7 +511,7 @@ def apply_paper_overrides(scene, source_rect) -> list[dict]:
         if isinstance(item, Pipe):
             _apply_pipe(item, cat, color_mode, lw_mm)
         elif isinstance(item, GridlineItem):
-            _apply_gridline(item, cat, color_mode, lw_mm)
+            _apply_gridline(item, cat, color_mode, lw_mm, paper_scale)
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
             if color_mode != PaperColorMode.FULL_COLOR:
                 _set_svg_tint(item, cat["color"], cat.get("fill"))
@@ -528,6 +574,11 @@ def restore_model_display(saved: list[dict]):
         item = entry["item"]
         cat_key = entry.get("cat_key")
 
+        if cat_key is None:
+            # Origin-cross entry — visibility only (§9.9.1).
+            item.setVisible(entry.get("visible", True))
+            continue
+
         # Restore visibility and opacity (common to all)
         item.setVisible(entry.get("visible", True))
         item.setOpacity(entry["opacity"])
@@ -540,13 +591,22 @@ def restore_model_display(saved: list[dict]):
         elif isinstance(item, GridlineItem):
             gs = entry.get("gridline", {})
             item._grid_color = QColor(gs["grid_color"])
-            for bubble in (item.bubble1, item.bubble2):
-                bp = bubble.pen()
-                bp.setColor(QColor(gs["bubble_pen"]))
-                bubble.setPen(bp)
-                bubble._label.setDefaultTextColor(QColor(gs["label_color"]))
-            item.bubble1.setBrush(QBrush(QColor(gs["bubble_brush"])))
-            item.bubble2.setBrush(QBrush(QColor(gs["bubble_brush"])))
+            for i, bubble in enumerate((item.bubble1, item.bubble2)):
+                # Matched pair with _apply_gridline's enter_paper_mode — but
+                # the geometry stage is skipped when the category is hidden
+                # (visibility continue), so guard on the saved marker.
+                pm = getattr(bubble, "_paper_saved", None)
+                if pm is not None:
+                    bubble.exit_paper_mode(pm)
+                    del bubble._paper_saved
+                bubble.setScale(gs["bubble_scale"][i])
+                bubble.setPen(gs["bubble_pen"][i])
+                bubble.setBrush(gs["bubble_brush"][i])
+                bubble._label.setDefaultTextColor(gs["label_color"][i])
+            item._grip1.setVisible(gs["grip_vis"][0])
+            item._grip2.setVisible(gs["grip_vis"][1])
+            item._lock_indicator.setVisible(gs["lock_vis"])
+            item._paper_render = False
             item.update()
 
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
