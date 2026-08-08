@@ -185,12 +185,39 @@ class GridBubble(QGraphicsEllipseItem):
         br = self._label.boundingRect()
         self._label.setPos(-br.width() / 2, -br.height() / 2)
 
+    def enter_paper_mode(self, radius_scene: float, em_scene: float) -> dict:
+        """Switch to scene-unit geometry for a paper render pass (§9.9.1)."""
+        saved = {
+            "rect": QRectF(self.rect()),
+            "font": QFont(self._label.font()),
+            "label_scale": self._label.scale(),
+            "label_pos": QPointF(self._label.pos()),
+        }
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, False)
+        self.setRect(-radius_scene, -radius_scene, 2 * radius_scene, 2 * radius_scene)
+        f = QFont(self._label.font())
+        f.setPixelSize(TEXT_METRIC_REF_PX)          # §9.4: ref px + geometric scale
+        self._label.setFont(f)
+        self._label.setScale(em_scene / TEXT_METRIC_REF_PX)
+        br = self._label.boundingRect()
+        s = self._label.scale()
+        self._label.setPos(-br.width() * s / 2, -br.height() * s / 2)
+        return saved
+
+    def exit_paper_mode(self, saved: dict):
+        """Restore screen-pixel geometry after a paper render pass (§9.9.1)."""
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setRect(saved["rect"])
+        self._label.setFont(saved["font"])
+        self._label.setScale(saved["label_scale"])
+        self._label.setPos(saved["label_pos"])
+
     # ── Selection: bubble click selects parent gridline ────────────────────
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
         parent = self.parentItem()
-        if parent is not None and parent.isSelected():
+        if parent is not None and parent.isSelected() and not getattr(parent, "_paper_render", False):
             r = self.RADIUS_PX
             # Use the gridline's assigned colour for the highlight ring
             base_color = getattr(parent, "_grid_color", QColor(GRID_COLOR))
@@ -382,6 +409,9 @@ class GridlineItem(QGraphicsLineItem):
 
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
+        self._paper_render = False        # True during a paper override pass
+        self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
+        self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)
 
     # ── Geometry overrides ────────────────────────────────────────────────
 
@@ -482,14 +512,19 @@ class GridlineItem(QGraphicsLineItem):
         so it meets the bubble at the closest edge rather than its centre."""
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        # Calculate pen width to maintain ~GRID_WIDTH screen pixels
-        vt = painter.deviceTransform()
-        sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
-        pen_w = GRID_WIDTH / sx
+        if self._paper_render:
+            pen_w = self._paper_line_w
+            scene_r = self._paper_bubble_r
+        else:
+            # Calculate pen width to maintain ~GRID_WIDTH screen pixels
+            vt = painter.deviceTransform()
+            sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
+            pen_w = GRID_WIDTH / sx
+            scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
 
         # Shorten line to meet visible bubbles at their edge.
-        # Bubbles use ItemIgnoresTransformations, so convert pixel radius
-        # back to scene units using the current view scale.
+        # Bubbles use ItemIgnoresTransformations (screen mode) or scene-unit
+        # geometry (paper mode); scene_r is set appropriately above.
         line = self.line()
         p1, p2 = line.p1(), line.p2()
         dx = p2.x() - p1.x()
@@ -497,7 +532,6 @@ class GridlineItem(QGraphicsLineItem):
         length = math.sqrt(dx * dx + dy * dy)
         if length > 1e-9:
             ux, uy = dx / length, dy / length
-            scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
             draw_p1 = QPointF(p1.x() + ux * scene_r, p1.y() + uy * scene_r) if self.bubble1.isVisible() else p1
             draw_p2 = QPointF(p2.x() - ux * scene_r, p2.y() - uy * scene_r) if self.bubble2.isVisible() else p2
         else:
@@ -507,7 +541,7 @@ class GridlineItem(QGraphicsLineItem):
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
-        if self.isSelected():
+        if self.isSelected() and not self._paper_render:
             sel_pen = QPen(self._grid_color.lighter(150),
                            pen_w * 2, Qt.PenStyle.DashDotLine)
             painter.setPen(sel_pen)

@@ -90,7 +90,8 @@ class TestGridLineCategoryModel:
         assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
 
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, QRectF
+from PyQt6.QtWidgets import QGraphicsItem
 
 from firepro3d.gridline import GridlineItem
 
@@ -107,3 +108,29 @@ class TestPerItemFieldRetired:
         gl2 = GridlineItem.from_dict(d)
         assert gl2.grid_label == "1"        # loads cleanly
         assert not hasattr(gl2, "paper_height_mm")
+
+
+def _full_bubble_state(b):
+    return (QRectF(b.rect()),
+            b._label.font().pixelSize(), b._label.font().family(), b._label.font().bold(),
+            b._label.scale(), b._label.pos().x(), b._label.pos().y(),
+            bool(b.flags() & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations))
+
+
+class TestBubblePaperMode:
+    def test_enter_sets_scene_geometry(self, qapp):
+        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+        b = gl.bubble1
+        saved = b.enter_paper_mode(radius_scene=476.0, em_scene=428.0)
+        assert not (b.flags() & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        assert b.rect() == QRectF(-476.0, -476.0, 952.0, 952.0)
+        assert b._label.scale() == pytest.approx(428.0 / 1000)  # TEXT_METRIC_REF_PX
+        assert saved  # opaque state dict for exit_paper_mode
+
+    def test_exit_restores_exactly(self, qapp):
+        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+        b = gl.bubble1
+        before = _full_bubble_state(b)
+        saved = b.enter_paper_mode(radius_scene=476.0, em_scene=428.0)
+        b.exit_paper_mode(saved)
+        assert _full_bubble_state(b) == before
