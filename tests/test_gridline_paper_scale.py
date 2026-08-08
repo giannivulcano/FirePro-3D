@@ -571,14 +571,17 @@ class TestExportParity:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestRepaintEcho:
-    def test_one_shot_swallow_clears_flag_and_unblocks_next_change(
+    def test_scene_flag_swallow_survives_emission_and_clears_on_timer(
             self, qapp, two_scale_sheet, monkeypatch):
-        """Fix 1+2: one-shot swallow clears the flag; a subsequent model change propagates.
+        """Scene-scoped guard: swallow for ALL viewports, no in-handler clear.
 
-        Strategy: one-shot swallow variant — set the flag directly, emit a
-        model-scene ``changed`` signal, processEvents, assert the flag is now
-        False (swallowed exactly once) and that a SECOND model mutation triggers
-        mark_dirty (counted via a monkeypatched mark_dirty).
+        Strategy: signal-flow variant — arm the scene flag and schedule the
+        singleShot(0) clear exactly as the paint pass would, emit a model-scene
+        ``changed`` signal, assert NO viewport marks dirty AND the flag is
+        still True (an in-handler clear would un-swallow the same coalesced
+        emission for sibling viewports).  After a processEvents turn the
+        singleShot has cleared the flag, and a second emission must reach
+        mark_dirty.
 
         This variant is used because PyQt6 does not reliably propagate Python
         exceptions raised inside item.paint() through QGraphicsScene.render()
@@ -587,12 +590,12 @@ class TestRepaintEcho:
         """
         ts = two_scale_sheet
         from firepro3d.paper_space import SheetViewport
+        from PyQt6.QtCore import QTimer
 
         # Grab the two SheetViewport items wired to ts.model.
         vps = [it for it in ts.paper.items()
                if isinstance(it, SheetViewport)]
-        assert vps, "fixture must have at least one SheetViewport"
-        vp = vps[0]
+        assert len(vps) >= 2, "fixture must expose two viewports of one model scene"
 
         # _on_source_changed is a direct Qt connection — it fires synchronously
         # inside changed.emit([]), so we can assert flag/count without
@@ -600,34 +603,38 @@ class TestRepaintEcho:
         dirty_calls = {"n": 0}
         orig_dirty = SheetViewport.mark_dirty
         def counting_dirty(self_vp, *a, **k):
-            # Count only calls on the target viewport (other viewports in the
-            # fixture have their flag clear and will legitimately call mark_dirty).
-            if self_vp is vp:
-                dirty_calls["n"] += 1
+            dirty_calls["n"] += 1
             return orig_dirty(self_vp, *a, **k)
         monkeypatch.setattr(SheetViewport, "mark_dirty", counting_dirty)
 
-        # Arm the suppress flag as the paint pass would.
-        vp._suppress_source_echo = True
+        # Arm the scene flag and schedule the clear as the paint pass would.
+        ts.model._suppress_paper_echo = True
+        QTimer.singleShot(0, lambda s=ts.model: setattr(s, "_suppress_paper_echo", False))
 
-        # First emission — one-shot swallow fires synchronously inside emit().
+        # First emission — swallowed synchronously inside emit() for BOTH
+        # viewports; the handler must NOT clear the flag.
         ts.model.changed.emit([])
 
-        # Flag must already be cleared — no processEvents() needed.
-        assert vp._suppress_source_echo is False, (
-            "flag must be cleared by the one-shot swallow"
+        assert ts.model._suppress_paper_echo is True, (
+            "handler must not clear the scene flag — an in-handler clear would "
+            "un-swallow the same emission for sibling viewports"
         )
-        swallow_dirty = dirty_calls["n"]
-        assert swallow_dirty == 0, (
-            f"mark_dirty must not be called on vp during the swallowed echo, got {swallow_dirty}"
+        assert dirty_calls["n"] == 0, (
+            f"no viewport may mark_dirty during the swallowed echo, got {dirty_calls['n']}"
         )
 
-        # Second emission — flag is clear, so this one MUST reach mark_dirty on vp.
+        # One event-loop turn — the singleShot(0) clears the scene flag.
+        qapp.processEvents()
+        assert ts.model._suppress_paper_echo is False, (
+            "singleShot(0) must clear the scene flag on the next event turn"
+        )
+
+        # Second emission — flag is clear, so this one MUST reach mark_dirty.
         dirty_calls["n"] = 0
         ts.model.changed.emit([])
 
         assert dirty_calls["n"] >= 1, (
-            "second model change must propagate to mark_dirty after the echo is consumed"
+            "second model change must propagate to mark_dirty after the clear"
         )
 
     def test_viewport_paints_settle(self, qapp, two_scale_sheet, monkeypatch):
@@ -658,12 +665,29 @@ class TestRepaintEcho:
         for _ in range(20):
             qapp.processEvents()
         idle_40_delta = counts["n"]
+        # Phase 2: dirty ONE viewport only.  A per-viewport echo guard swallows
+        # that viewport's own echo but lets it reach the sibling (flag clear),
+        # whose repaint echoes back — permanent alternating ping-pong (~20
+        # paints over 20 turns).  The scene-scoped guard swallows the echo for
+        # all viewports of the source scene.
+        vps = [it for it in ts.paper.items() if isinstance(it, SheetViewport)]
+        assert len(vps) >= 2, "fixture must expose two viewports of one model scene"
+        counts["n"] = 0
+        vps[0].update()
+        for _ in range(20):
+            qapp.processEvents()
+        single_dirty = counts["n"]
         view.close()
         # Report the measured counts regardless of pass/fail for spec evidence
-        print(f"\n[echo-evidence] idle-20={idle_20}, idle-40-delta={idle_40_delta}")
+        print(f"\n[echo-evidence] idle-20={idle_20}, idle-40-delta={idle_40_delta}, "
+              f"single-dirty-20={single_dirty}")
         assert idle_20 <= 4, (
             f"viewport repainted {idle_20} times in 20 idle turns — echo loop "
             f"(idle-40-delta={idle_40_delta})"
+        )
+        assert single_dirty <= 4, (
+            f"single-viewport dirty caused {single_dirty} paints over 20 idle "
+            f"turns — cross-viewport echo ping-pong"
         )
 
 

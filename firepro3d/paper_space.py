@@ -708,11 +708,11 @@ class SheetViewport(QGraphicsObject):
 
         self._source_scene = None
         self._source_rect = QRectF()
-        # Guard: suppress source-scene ``changed`` echoes fired by our own
-        # override pass.  Set True before apply_paper_overrides, cleared via
-        # QTimer.singleShot(0) so any *real* model changes during the event
-        # turn are still caught (they arrive after the singleShot clears it).
-        self._suppress_source_echo = False
+        # Echo guard note: the suppress flag lives on the SOURCE SCENE
+        # (``_suppress_paper_echo``), not on this viewport — the scene's
+        # ``changed`` signal is per-scene, so a per-viewport flag would let one
+        # viewport's echo reach sibling viewports of the same scene and start a
+        # permanent alternating repaint ping-pong.  See paint().
         self._reconnect_source()
 
     @property
@@ -736,8 +736,12 @@ class SheetViewport(QGraphicsObject):
         self._source_scene.changed.connect(self._on_source_changed)
 
     def _on_source_changed(self, rects=None):
-        if self._suppress_source_echo:
-            self._suppress_source_echo = False   # one-shot: swallow only the pass's own echo
+        # Scene-scoped guard: Qt delivers one coalesced ``changed`` emission to
+        # ALL connected viewport handlers.  Do NOT clear the flag here — the
+        # first handler clearing it would un-swallow the same emission for
+        # sibling viewports.  It is cleared only by the singleShot scheduled in
+        # paint().
+        if getattr(self._source_scene, "_suppress_paper_echo", False):
             return
         self.mark_dirty()
 
@@ -806,10 +810,14 @@ class SheetViewport(QGraphicsObject):
                 vp_rect.height() / self._source_rect.height(),
             )
             # Suppress the source-scene ``changed`` echo fired by our own
-            # item mutations.  Cleared via QTimer.singleShot(0) so any *real*
-            # model change that arrives in the same event turn (after the
-            # singleShot fires) still propagates normally (§9.9.1 guard).
-            self._suppress_source_echo = True
+            # item mutations.  The flag lives on the SOURCE SCENE so the echo
+            # is swallowed for every viewport of that scene, not just this one
+            # (§9.9.1 guard).  Ordering: the scene's queued ``changed``
+            # emission is scheduled during this pass, BEFORE the singleShot
+            # below — same-turn FIFO delivery guarantees the echo arrives (and
+            # is swallowed) before the flag clears, while any *real* model
+            # change after the clear still propagates normally.
+            self._source_scene._suppress_paper_echo = True
             try:
                 saved = apply_paper_overrides(self._source_scene, self._source_rect,
                                               paper_scale=paper_scale)
@@ -818,7 +826,9 @@ class SheetViewport(QGraphicsObject):
                 finally:
                     restore_model_display(saved)
             finally:
-                QTimer.singleShot(0, lambda: setattr(self, "_suppress_source_echo", False))
+                # Bind the scene at schedule time — self._source_scene may be
+                # rebound before the timer fires (setattr is safe regardless).
+                QTimer.singleShot(0, lambda s=self._source_scene: setattr(s, "_suppress_paper_echo", False))
 
         # Release clip
         painter.setClipping(False)
