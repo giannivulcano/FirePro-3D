@@ -15,12 +15,13 @@ Auto-numbering: vertical grids → A, B, C…  horizontal → 1, 2, 3…
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from PyQt6.QtWidgets import (
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsTextItem,
     QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
-from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker
-from .constants import Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION
+from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
+from .constants import Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX, GRIDLINE_BUBBLE_LABEL_EM_FRAC
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -309,6 +310,29 @@ class _LockIndicator(QGraphicsPathItem):
 
 GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
+
+
+@lru_cache(maxsize=8)
+def bubble_paper_geometry(cap_mm: float) -> tuple[float, float]:
+    """Return (radius_mm, em_mm) of a bubble head on paper for a label cap height.
+
+    em derives from cap via Consolas-bold metrics at TEXT_METRIC_REF_PX
+    (paper-space spec §9.4 technique); the head radius keeps the historic
+    screen proportion em = GRIDLINE_BUBBLE_LABEL_EM_FRAC × radius.
+
+    Args:
+        cap_mm: Desired cap height of the label text on paper, in mm.
+
+    Returns:
+        A tuple of (radius_mm, em_mm) where radius_mm is the bubble head
+        radius and em_mm is the corresponding font em size, both in mm.
+    """
+    f = QFont("Consolas")
+    f.setBold(True)
+    f.setPixelSize(TEXT_METRIC_REF_PX)
+    cap_ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
+    em_mm = cap_mm / cap_ratio if cap_ratio > 0 else cap_mm
+    return em_mm / GRIDLINE_BUBBLE_LABEL_EM_FRAC, em_mm
 
 
 class GridlineItem(QGraphicsLineItem):

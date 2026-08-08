@@ -131,6 +131,7 @@ PIPE_COLORS: dict[str, str] = {
 # ── Paper-space sheet text annotations ──────────────────────────────────────
 DEFAULT_TEXT_HEIGHT_MM = 4.7625  # 3/16" — default sheet-note CAP height (paper mm)
 TEXT_METRIC_REF_PX = 1000        # device-independent reference px size for QFont metrics
+GRIDLINE_BUBBLE_LABEL_EM_FRAC = 0.9  # bubble label em height = 0.9 × head radius (historic screen ratio)
 MIN_TEXT_WRAP_WIDTH_MM = 5.0     # smallest draggable wrap width
 
 # ── App-wide selection / grip style (owned by docs/architecture/theming.md) ──
