@@ -1,6 +1,7 @@
 """Tests for gridline-bubble true-scale paper rendering (paper-space spec §9.9.1)."""
 import pytest
 
+from firepro3d.constants import GRIDLINE_BUBBLE_LABEL_EM_FRAC, TEXT_METRIC_REF_PX
 from firepro3d.gridline import bubble_paper_geometry
 
 
@@ -31,6 +32,9 @@ class TestBubblePaperGeometry:
     def test_absolute_values_in_expected_band(self, qapp):
         # Independently-derived expectation: Consolas-bold cap/em ratio is
         # ~0.63-0.72 on Windows, so 3.0mm cap -> em 4.1-4.8mm, radius = em/0.9.
+        # The literal 0.9 is intentional: it guards against the constant being
+        # changed wrongly.  The companion assertion below makes that fail loudly.
+        assert GRIDLINE_BUBBLE_LABEL_EM_FRAC == 0.9
         radius_mm, em_mm = bubble_paper_geometry(3.0)
         assert 4.1 <= em_mm <= 4.8
         assert radius_mm == pytest.approx(em_mm / 0.9)
@@ -132,7 +136,7 @@ class TestBubblePaperMode:
         saved = b.enter_paper_mode(radius_scene=476.0, em_scene=428.0)
         assert not (b.flags() & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
         assert b.rect() == QRectF(-476.0, -476.0, 952.0, 952.0)
-        assert b._label.scale() == pytest.approx(428.0 / 1000)  # TEXT_METRIC_REF_PX
+        assert b._label.scale() == pytest.approx(428.0 / TEXT_METRIC_REF_PX)
         assert saved  # opaque state dict for exit_paper_mode
 
     def test_exit_restores_exactly(self, qapp):
@@ -276,10 +280,7 @@ def _np_bgr(img):
 
 class TestViewportTrueScale:
     def _measure_head(self, ts, center_x_mm, center_y_mm):
-        img = getattr(ts, "_img", None)
-        if img is None:
-            img = _render_paper(ts.paper)
-            ts._img = img
+        img = _render_paper(ts.paper)
         cx, cy = _paper_px(ts.paper, center_x_mm, center_y_mm)
         # Scan the row through the bubble center, strictly inside the viewport
         # (excludes the viewport border lines).

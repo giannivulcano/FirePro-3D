@@ -615,6 +615,8 @@ def restore_model_display(saved: list[dict]):
             item._grip2.setVisible(gs["grip_vis"][1])
             item._lock_indicator.setVisible(gs["lock_vis"])
             item._paper_render = False
+            item._paper_line_w = 0.0
+            item._paper_bubble_r = 0.0
             item.update()
 
         elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
