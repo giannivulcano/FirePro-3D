@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
     QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
-    QAbstractItemView, QTabWidget,
+    QAbstractItemView, QTabWidget, QLineEdit,
 )
 from PyQt6.QtGui import QColor, QFont, QBrush, QPen, QPainter, QPixmap, QIcon
 from PyQt6.QtCore import Qt, QSettings, QByteArray
@@ -1807,7 +1807,8 @@ class DisplayManager(QDialog):
             widgets["opacity"].setValue(factory["opacity"])
             widgets["vis"].setChecked(factory.get("visible", True))
             if key == "Grid Line":
-                widgets["bubble_ht"].set_value_mm(3.0)
+                widgets["bubble_ht"].set_value_mm(
+                    factory["bubble_label_height_mm"])
         self._suppress = False
         self._apply_color_mode_ui(PaperColorMode.BW)
         self._apply_paper_preview()
@@ -2206,7 +2207,6 @@ class DisplayManager(QDialog):
                                             opacity_spin)
 
                 # ── Bubble label height (Grid Line only) ─────────────
-                from PyQt6.QtWidgets import QLineEdit as _QLE
                 if key == "Grid Line":
                     from .dimension_edit import DimensionEdit
                     ht_edit = DimensionEdit(
@@ -2217,7 +2217,7 @@ class DisplayManager(QDialog):
                     ht_edit.editingFinished.connect(
                         self._on_paper_bubble_ht_changed)
                 else:
-                    ht_edit = _QLE()
+                    ht_edit = QLineEdit()
                     ht_edit.setStyleSheet(_disabled_ss)
                     ht_edit.setEnabled(False)
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_LABEL_HT,

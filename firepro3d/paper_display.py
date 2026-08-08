@@ -187,7 +187,7 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
                     try:
                         entry[prop] = float(raw)
                     except (ValueError, TypeError):
-                        entry[prop] = raw
+                        pass  # unparseable stored value — keep factory default
                 # else: factory default already in entry from dict(factory) above
         result[key] = entry
     return result

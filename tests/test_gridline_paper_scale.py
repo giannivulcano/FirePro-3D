@@ -1,8 +1,21 @@
 """Tests for gridline-bubble true-scale paper rendering (paper-space spec §9.9.1)."""
+import copy
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import fitz  # PyMuPDF — already a project dependency
 import pytest
 
+from PyQt6.QtCore import QPointF, QRectF, QSettings, Qt
+from PyQt6.QtGui import QColor, QImage, QPainter, QPen
+from PyQt6.QtWidgets import QGraphicsItem
+
+import firepro3d.paper_display as pd
 from firepro3d.constants import GRIDLINE_BUBBLE_LABEL_EM_FRAC, TEXT_METRIC_REF_PX
-from firepro3d.gridline import bubble_paper_geometry
+from firepro3d.gridline import GridlineItem, bubble_paper_geometry
+from firepro3d.paper_display import (
+    FACTORY_PAPER_CATEGORIES, load_paper_categories, save_paper_categories,
+    get_paper_display_for_save, apply_paper_display_from_project)
 
 
 @pytest.fixture(autouse=True)
@@ -38,13 +51,6 @@ class TestBubblePaperGeometry:
         radius_mm, em_mm = bubble_paper_geometry(3.0)
         assert 4.1 <= em_mm <= 4.8
         assert radius_mm == pytest.approx(em_mm / 0.9)
-
-
-from PyQt6.QtCore import QSettings
-
-from firepro3d.paper_display import (
-    FACTORY_PAPER_CATEGORIES, load_paper_categories, save_paper_categories,
-    get_paper_display_for_save, apply_paper_display_from_project)
 
 
 @pytest.fixture
@@ -102,12 +108,6 @@ class TestGridLineCategoryModel:
         assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
 
 
-from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtWidgets import QGraphicsItem
-
-from firepro3d.gridline import GridlineItem
-
-
 class TestPerItemFieldRetired:
     def test_to_dict_omits_paper_height(self, qapp):
         gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
@@ -151,16 +151,6 @@ class TestBubblePaperMode:
 # ─────────────────────────────────────────────────────────────────────────────
 # Render-measurement tests — bubbles true-scale through sheet viewports
 # ─────────────────────────────────────────────────────────────────────────────
-
-import copy
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QImage, QPainter, QPen
-
-import firepro3d.paper_display as pd
-
 
 PX_PER_MM = 8  # render density for measurement tests
 
@@ -484,9 +474,6 @@ class TestAspectDivergedViewport:
 # ─────────────────────────────────────────────────────────────────────────────
 # Export-DPI parity — WYSIWYG: PaperScene → QPdfWriter → rasterized measurement
 # ─────────────────────────────────────────────────────────────────────────────
-
-import fitz  # PyMuPDF — already a project dependency
-
 
 class TestExportParity:
     """Bubble head measures the same true-scale mm at both export DPIs.

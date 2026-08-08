@@ -149,7 +149,11 @@ def apply_duplicate_warnings(gridlines: list) -> None:
 # GridBubble — circle + text, fixed screen size
 # ─────────────────────────────────────────────────────────────────────────────
 
-BUBBLE_RADIUS_MM = 8.0 * 25.4   # 8-inch radius in mm (zoom-dependent scene units)
+# Model-unit (mm) proportioning base for elevation/detail markers and
+# elevation-scene bubbles (they size off this constant).  NOT the plan-view
+# bubble size (screen bubbles are RADIUS_PX ItemIgnoresTransformations) and
+# NOT the paper size (paper bubbles derive from bubble_paper_geometry, §9.9.1).
+BUBBLE_RADIUS_MM = 8.0 * 25.4
 
 
 class GridBubble(QGraphicsEllipseItem):
