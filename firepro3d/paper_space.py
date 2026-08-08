@@ -737,6 +737,7 @@ class SheetViewport(QGraphicsObject):
 
     def _on_source_changed(self, rects=None):
         if self._suppress_source_echo:
+            self._suppress_source_echo = False   # one-shot: swallow only the pass's own echo
             return
         self.mark_dirty()
 
@@ -809,12 +810,14 @@ class SheetViewport(QGraphicsObject):
             # model change that arrives in the same event turn (after the
             # singleShot fires) still propagates normally (§9.9.1 guard).
             self._suppress_source_echo = True
-            saved = apply_paper_overrides(self._source_scene, self._source_rect,
-                                          paper_scale=paper_scale)
             try:
-                self._source_scene.render(painter, vp_rect, self._source_rect)
+                saved = apply_paper_overrides(self._source_scene, self._source_rect,
+                                              paper_scale=paper_scale)
+                try:
+                    self._source_scene.render(painter, vp_rect, self._source_rect)
+                finally:
+                    restore_model_display(saved)
             finally:
-                restore_model_display(saved)
                 QTimer.singleShot(0, lambda: setattr(self, "_suppress_source_echo", False))
 
         # Release clip

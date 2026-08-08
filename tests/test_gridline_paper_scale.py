@@ -584,6 +584,65 @@ class TestExportParity:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestRepaintEcho:
+    def test_one_shot_swallow_clears_flag_and_unblocks_next_change(
+            self, qapp, two_scale_sheet, monkeypatch):
+        """Fix 1+2: one-shot swallow clears the flag; a subsequent model change propagates.
+
+        Strategy: one-shot swallow variant — set the flag directly, emit a
+        model-scene ``changed`` signal, processEvents, assert the flag is now
+        False (swallowed exactly once) and that a SECOND model mutation triggers
+        mark_dirty (counted via a monkeypatched mark_dirty).
+
+        This variant is used because PyQt6 does not reliably propagate Python
+        exceptions raised inside item.paint() through QGraphicsScene.render()
+        in all environments (C++ paint path swallows them); the signal-flow
+        path is pure Python and fully reliable.
+        """
+        ts = two_scale_sheet
+        from firepro3d.paper_space import SheetViewport
+
+        # Grab the two SheetViewport items wired to ts.model.
+        vps = [it for it in ts.paper.items()
+               if isinstance(it, SheetViewport)]
+        assert vps, "fixture must have at least one SheetViewport"
+        vp = vps[0]
+
+        # _on_source_changed is a direct Qt connection — it fires synchronously
+        # inside changed.emit([]), so we can assert flag/count without
+        # processEvents() and avoid any interaction with pending paint passes.
+        dirty_calls = {"n": 0}
+        orig_dirty = SheetViewport.mark_dirty
+        def counting_dirty(self_vp, *a, **k):
+            # Count only calls on the target viewport (other viewports in the
+            # fixture have their flag clear and will legitimately call mark_dirty).
+            if self_vp is vp:
+                dirty_calls["n"] += 1
+            return orig_dirty(self_vp, *a, **k)
+        monkeypatch.setattr(SheetViewport, "mark_dirty", counting_dirty)
+
+        # Arm the suppress flag as the paint pass would.
+        vp._suppress_source_echo = True
+
+        # First emission — one-shot swallow fires synchronously inside emit().
+        ts.model.changed.emit([])
+
+        # Flag must already be cleared — no processEvents() needed.
+        assert vp._suppress_source_echo is False, (
+            "flag must be cleared by the one-shot swallow"
+        )
+        swallow_dirty = dirty_calls["n"]
+        assert swallow_dirty == 0, (
+            f"mark_dirty must not be called on vp during the swallowed echo, got {swallow_dirty}"
+        )
+
+        # Second emission — flag is clear, so this one MUST reach mark_dirty on vp.
+        dirty_calls["n"] = 0
+        ts.model.changed.emit([])
+
+        assert dirty_calls["n"] >= 1, (
+            "second model change must propagate to mark_dirty after the echo is consumed"
+        )
+
     def test_viewport_paints_settle(self, qapp, two_scale_sheet, monkeypatch):
         ts = two_scale_sheet
         from firepro3d.paper_space import SheetViewport
