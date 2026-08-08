@@ -312,6 +312,7 @@ GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
 
+# Requires a live QApplication (QFontMetricsF); never call at module import time.
 @lru_cache(maxsize=8)
 def bubble_paper_geometry(cap_mm: float) -> tuple[float, float]:
     """Return (radius_mm, em_mm) of a bubble head on paper for a label cap height.
@@ -331,7 +332,7 @@ def bubble_paper_geometry(cap_mm: float) -> tuple[float, float]:
     f.setBold(True)
     f.setPixelSize(TEXT_METRIC_REF_PX)
     cap_ratio = QFontMetricsF(f).capHeight() / TEXT_METRIC_REF_PX
-    em_mm = cap_mm / cap_ratio if cap_ratio > 0 else cap_mm
+    em_mm = cap_mm / (cap_ratio if cap_ratio > 0 else 0.7)
     return em_mm / GRIDLINE_BUBBLE_LABEL_EM_FRAC, em_mm
 
 
