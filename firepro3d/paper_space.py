@@ -789,7 +789,13 @@ class SheetViewport(QGraphicsObject):
             from .paper_display import apply_paper_overrides, restore_model_display
             # True geometric scale (paper mm per model mm) — correct even for
             # NTS viewports where the declared scale is 0.0 (§9.9.1).
-            paper_scale = vp_rect.width() / self._source_rect.width()
+            # render() below defaults to KeepAspectRatio, so when a grip-resize
+            # diverges the viewport aspect from the source rect's, the true
+            # scale is the min ratio (height is non-empty per the guard above).
+            paper_scale = min(
+                vp_rect.width() / self._source_rect.width(),
+                vp_rect.height() / self._source_rect.height(),
+            )
             saved = apply_paper_overrides(self._source_scene, self._source_rect,
                                           paper_scale=paper_scale)
             try:

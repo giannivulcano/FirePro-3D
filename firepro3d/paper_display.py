@@ -458,102 +458,110 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0) -> list[
     color_mode = load_paper_color_mode()
     cats = load_paper_categories()
     saved: list[dict] = []
-    items = scene.items(source_rect)
+    try:
+        items = scene.items(source_rect)
 
-    for item in items:
-        if not item.isVisible():
-            continue
-        if item.data(0) == "origin":
-            # Model origin cross — authoring aid, never plots (§9.9.1).
-            saved.append({"item": item, "cat_key": None,
-                          "visible": item.isVisible()})
-            item.setVisible(False)
-            continue
-        cat_key = _category_for_item(item)
-        if cat_key is None:
-            continue
-        cat = cats.get(cat_key)
-        if cat is None:
-            continue
+        for item in items:
+            if not item.isVisible():
+                continue
+            if item.data(0) == "origin":
+                # Model origin cross — authoring aid, never plots (§9.9.1).
+                saved.append({"item": item, "cat_key": None,
+                              "visible": item.isVisible()})
+                item.setVisible(False)
+                continue
+            cat_key = _category_for_item(item)
+            if cat_key is None:
+                continue
+            cat = cats.get(cat_key)
+            if cat is None:
+                continue
 
-        # --- Save current state ---
-        entry: dict = {
-            "item": item,
-            "cat_key": cat_key,
-            "display_color": getattr(item, "_display_color", None),
-            "display_fill_color": getattr(item, "_display_fill_color", None),
-            "display_section_color": getattr(item, "_display_section_color", None),
-            "opacity": item.opacity(),
-            "visible": item.isVisible(),
-            "pen": item.pen() if hasattr(item, "pen") else None,
-        }
+            # --- Save current state ---
+            entry: dict = {
+                "item": item,
+                "cat_key": cat_key,
+                "display_color": getattr(item, "_display_color", None),
+                "display_fill_color": getattr(item, "_display_fill_color", None),
+                "display_section_color": getattr(item, "_display_section_color", None),
+                "opacity": item.opacity(),
+                "visible": item.isVisible(),
+                "pen": item.pen() if hasattr(item, "pen") else None,
+            }
 
-        # Type-specific extra state
-        if isinstance(item, Pipe):
-            entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
-        elif isinstance(item, GridlineItem):
-            entry["gridline"] = _save_gridline_state(item)
-        elif cat_key == "Elevation Marker":
-            entry["marker"] = _save_marker_state(item, "_marker_color")
-        elif cat_key == "Detail Marker":
-            entry["marker"] = _save_marker_state(item, "_tag_color")
+            # Type-specific extra state
+            if isinstance(item, Pipe):
+                entry["paper_pen_width"] = getattr(item, "_paper_pen_width", None)
+            elif isinstance(item, GridlineItem):
+                entry["gridline"] = _save_gridline_state(item)
+            elif cat_key == "Elevation Marker":
+                entry["marker"] = _save_marker_state(item, "_marker_color")
+            elif cat_key == "Detail Marker":
+                entry["marker"] = _save_marker_state(item, "_tag_color")
 
-        saved.append(entry)
+            saved.append(entry)
 
-        # --- Visibility override ---
-        if not cat.get("visible", True):
-            item.setVisible(False)
-            continue
+            # --- Visibility override ---
+            if not cat.get("visible", True):
+                item.setVisible(False)
+                continue
 
-        # --- Apply type-specific overrides ---
-        lw_mm = resolve_line_weight_mm(cat["line_weight"])
+            # --- Apply type-specific overrides ---
+            lw_mm = resolve_line_weight_mm(cat["line_weight"])
 
-        if isinstance(item, Pipe):
-            _apply_pipe(item, cat, color_mode, lw_mm)
-        elif isinstance(item, GridlineItem):
-            _apply_gridline(item, cat, color_mode, lw_mm, paper_scale)
-        elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
-            if color_mode != PaperColorMode.FULL_COLOR:
-                _set_svg_tint(item, cat["color"], cat.get("fill"))
-            item.setOpacity(cat["opacity"] / 100.0)
-        elif cat_key == "Elevation Marker":
-            _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
-        elif cat_key == "Detail Marker":
-            _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
-        else:
-            _apply_generic(item, cat, color_mode, lw_mm)
-
-    # --- Fittings (wrappers, not QGraphicsItems) ---
-    if hasattr(scene, "sprinkler_system"):
-        fitting_cat = cats.get("Fitting")
-        if fitting_cat is not None:
-            for node in scene.sprinkler_system.nodes:
-                f = node.fitting
-                if f is None or f.symbol is None or not f.symbol.isVisible():
-                    continue
-                if not source_rect.contains(f.symbol.scenePos()):
-                    continue
-                entry = {
-                    "item": f.symbol,
-                    "cat_key": "Fitting",
-                    "fitting": f,
-                    "display_color": getattr(f, "_display_color", None),
-                    "display_fill_color": getattr(f, "_display_fill_color", None),
-                    "opacity": f.symbol.opacity(),
-                    "visible": f.symbol.isVisible(),
-                    "pen": None,
-                }
-                saved.append(entry)
-                if not fitting_cat.get("visible", True):
-                    f.symbol.setVisible(False)
-                    continue
+            if isinstance(item, Pipe):
+                _apply_pipe(item, cat, color_mode, lw_mm)
+            elif isinstance(item, GridlineItem):
+                _apply_gridline(item, cat, color_mode, lw_mm, paper_scale)
+            elif isinstance(item, (Sprinkler, WaterSupply, HydraulicNodeBadge)):
                 if color_mode != PaperColorMode.FULL_COLOR:
-                    _set_svg_tint(f.symbol, fitting_cat["color"],
-                                  fitting_cat.get("fill"))
-                    f._display_color = fitting_cat["color"]
-                    f._display_fill_color = fitting_cat.get("fill")
-                f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
+                    _set_svg_tint(item, cat["color"], cat.get("fill"))
+                item.setOpacity(cat["opacity"] / 100.0)
+            elif cat_key == "Elevation Marker":
+                _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
+            elif cat_key == "Detail Marker":
+                _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+            else:
+                _apply_generic(item, cat, color_mode, lw_mm)
 
+        # --- Fittings (wrappers, not QGraphicsItems) ---
+        if hasattr(scene, "sprinkler_system"):
+            fitting_cat = cats.get("Fitting")
+            if fitting_cat is not None:
+                for node in scene.sprinkler_system.nodes:
+                    f = node.fitting
+                    if f is None or f.symbol is None or not f.symbol.isVisible():
+                        continue
+                    if not source_rect.contains(f.symbol.scenePos()):
+                        continue
+                    entry = {
+                        "item": f.symbol,
+                        "cat_key": "Fitting",
+                        "fitting": f,
+                        "display_color": getattr(f, "_display_color", None),
+                        "display_fill_color": getattr(f, "_display_fill_color", None),
+                        "opacity": f.symbol.opacity(),
+                        "visible": f.symbol.isVisible(),
+                        "pen": None,
+                    }
+                    saved.append(entry)
+                    if not fitting_cat.get("visible", True):
+                        f.symbol.setVisible(False)
+                        continue
+                    if color_mode != PaperColorMode.FULL_COLOR:
+                        _set_svg_tint(f.symbol, fitting_cat["color"],
+                                      fitting_cat.get("fill"))
+                        f._display_color = fitting_cat["color"]
+                        f._display_fill_color = fitting_cat.get("fill")
+                    f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
+
+    except Exception:
+        # A mid-pass failure must not escape before the caller receives
+        # `saved` -- already-applied items would be stuck in paper geometry
+        # (and the next pass would snapshot that as model state). Unwind
+        # whatever was applied, then re-raise.
+        restore_model_display(saved)
+        raise
     return saved
 
 

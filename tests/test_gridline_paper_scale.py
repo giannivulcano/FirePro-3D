@@ -389,3 +389,92 @@ class TestViewportTrueScale:
         assert heavy > light
         assert heavy == pytest.approx(0.50 * PX_PER_MM, abs=2)
         assert 1 <= light <= 2  # 0.13mm × 8px/mm ≈ 1px
+
+
+class TestOverridePassExceptionSafety:
+    def test_mid_pass_failure_unwinds_applied_overrides(self, two_scale_sheet,
+                                                        monkeypatch):
+        """A raise inside a per-item apply must not strand items in paper mode.
+
+        Without the unwind, the exception escapes before the caller receives
+        `saved`, so everything mutated up to that point stays stuck in paper
+        geometry — and the next pass would snapshot that as model state.
+        """
+        ts = two_scale_sheet
+        b1_rect_before = QRectF(ts.gl.bubble1.rect())
+        real_apply = pd._apply_gridline
+
+        def apply_then_boom(*args, **kwargs):
+            real_apply(*args, **kwargs)   # gridline reaches paper mode first
+            raise RuntimeError("mid-pass failure")
+
+        monkeypatch.setattr(pd, "_apply_gridline", apply_then_boom)
+        with pytest.raises(RuntimeError):
+            pd.apply_paper_overrides(ts.model, QRectF(_CROPS["V50"]),
+                                     paper_scale=0.02)
+        # The gridline's saved entry precedes the raise, so restore must have
+        # run: not stuck in paper mode, bubble geometry back to model state.
+        assert ts.gl._paper_render is False
+        assert bool(ts.gl.bubble1.flags()
+                    & QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations)
+        assert ts.gl.bubble1.rect() == b1_rect_before
+        # Origin-cross entries are visibility-only saves — restored too.
+        origin_items = [it for it in ts.model.items() if it.data(0) == "origin"]
+        assert origin_items and all(it.isVisible() for it in origin_items)
+
+
+@pytest.fixture
+def aspect_diverged_sheet(qapp, paper_env):
+    """One 80x40mm viewport of the square V50 crop (grip-resized aspect).
+
+    scene.render() defaults to KeepAspectRatio, so the true render scale is
+    min(w_ratio, h_ratio) = the height ratio here — half the width ratio.
+    """
+    from firepro3d.model_space import Model_Space
+    from firepro3d.paper_space import Sheet, SheetViewData, PaperScene, ViewResolver
+
+    scene = Model_Space()
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
+    scene.addItem(gl)
+    scene._gridlines.append(gl)
+
+    resolver = MagicMock(spec=ViewResolver)
+    resolver.resolve.side_effect = lambda vt, vn: (scene, QRectF(_CROPS[vn]))
+
+    sheet = Sheet.create_default()
+    sheet.paper_size = "A4"  # programmatic title block — no DXF artwork load
+    sheet.sheet_views = [
+        SheetViewData("plan", "V50", "V50", 0.02,
+                      _VP1_X, _VP1_Y, _VP_W, _VP_W / 2),
+    ]
+    paper = PaperScene(sheet, resolver)
+    yield SimpleNamespace(model=scene, gl=gl, paper=paper, env=paper_env)
+    paper.dispose()
+
+
+class TestAspectDivergedViewport:
+    def test_head_measures_true_rendered_size_under_keep_aspect(
+            self, aspect_diverged_sheet):
+        ts = aspect_diverged_sheet
+        ts.env.cats["Grid Line"]["fill"] = "#000000"  # solid head → run = diameter
+        crop = _CROPS["V50"]
+        vp_h = _VP_W / 2
+        # True geometric scale under KeepAspectRatio is the min ratio — and it
+        # genuinely diverges from the width-only ratio in this fixture.
+        true_scale = min(_VP_W / crop.width(), vp_h / crop.height())
+        assert true_scale < _VP_W / crop.width()
+        # paint() must author the bubble at radius r_mm / true_scale scene
+        # units; rendered at true_scale that measures exactly 2*r_mm on paper.
+        # (Width-only S would author r_mm / (2*true_scale) → half-size head.)
+        radius_mm, _ = bubble_paper_geometry(3.0)
+        expected = 2 * (radius_mm / true_scale) * true_scale * PX_PER_MM
+        img = _render_paper(ts.paper)
+        # KeepAspectRatio centers the square crop in the 80x40 viewport, so
+        # bubble1 (scene (0,0) = crop center) sits at the viewport center.
+        cx_mm = _VP1_X + _VP_W / 2
+        cy_mm = _VP1_Y + vp_h / 2
+        _, cy = _paper_px(ts.paper, cx_mm, cy_mm)
+        x0, _ = _paper_px(ts.paper, cx_mm - _VP_W / 2 + 2, 0)
+        x1, _ = _paper_px(ts.paper, cx_mm + _VP_W / 2 - 2, 0)
+        measured = _dark_run_width(img, cy, x0, x1)
+        assert measured == pytest.approx(expected, abs=PX_PER_MM)  # ±1mm equiv
