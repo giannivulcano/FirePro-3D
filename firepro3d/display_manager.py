@@ -1806,6 +1806,8 @@ class DisplayManager(QDialog):
                 widgets["lw_combo"].setCurrentIndex(idx)
             widgets["opacity"].setValue(factory["opacity"])
             widgets["vis"].setChecked(factory.get("visible", True))
+            if key == "Grid Line":
+                widgets["bubble_ht"].set_value_mm(3.0)
         self._suppress = False
         self._apply_color_mode_ui(PaperColorMode.BW)
         self._apply_paper_preview()
@@ -2007,6 +2009,7 @@ class DisplayManager(QDialog):
     _PS_COL_SECTION = 4
     _PS_COL_LW      = 5
     _PS_COL_OPACITY = 6
+    _PS_COL_LABEL_HT = 7
 
     # Paper-space category groups
     _PS_GROUPS = {
@@ -2052,10 +2055,10 @@ class DisplayManager(QDialog):
 
         # ── Category tree ───────────────────────────────────────────
         self._ps_tree = QTreeWidget()
-        self._ps_tree.setColumnCount(7)
+        self._ps_tree.setColumnCount(8)
         self._ps_tree.setHeaderLabels(
             ["Name", "Vis", "Colour", "Fill", "Section", "Line Weight",
-             "Opacity"])
+             "Opacity", "Label Ht"])
         self._ps_tree.setRootIsDecorated(True)
         self._ps_tree.setIndentation(20)
         self._ps_tree.setSelectionMode(
@@ -2076,6 +2079,9 @@ class DisplayManager(QDialog):
         hdr.setSectionResizeMode(self._PS_COL_OPACITY,
                                  QHeaderView.ResizeMode.Interactive)
         self._ps_tree.setColumnWidth(self._PS_COL_OPACITY, 90)
+        hdr.setSectionResizeMode(self._PS_COL_LABEL_HT,
+                                 QHeaderView.ResizeMode.Fixed)
+        self._ps_tree.setColumnWidth(self._PS_COL_LABEL_HT, 90)
 
         # Load data
         cats = load_paper_categories(self._settings)
@@ -2199,6 +2205,24 @@ class DisplayManager(QDialog):
                 self._ps_tree.setItemWidget(tree_item, self._PS_COL_OPACITY,
                                             opacity_spin)
 
+                # ── Bubble label height (Grid Line only) ─────────────
+                from PyQt6.QtWidgets import QLineEdit as _QLE
+                if key == "Grid Line":
+                    from .dimension_edit import DimensionEdit
+                    ht_edit = DimensionEdit(
+                        getattr(self._scene, "scale_manager", None),
+                        initial_mm=cat.get("bubble_label_height_mm", 3.0),
+                        minimum=0.5)
+                    ht_edit.setFixedHeight(22)
+                    ht_edit.editingFinished.connect(
+                        self._on_paper_bubble_ht_changed)
+                else:
+                    ht_edit = _QLE()
+                    ht_edit.setStyleSheet(_disabled_ss)
+                    ht_edit.setEnabled(False)
+                self._ps_tree.setItemWidget(tree_item, self._PS_COL_LABEL_HT,
+                                            ht_edit)
+
                 self._paper_cat_data[key] = {
                     "tree_item": tree_item,
                     "vis": vis_cb,
@@ -2207,6 +2231,7 @@ class DisplayManager(QDialog):
                     "section_btn": section_btn,
                     "lw_combo": lw_combo,
                     "opacity": opacity_spin,
+                    "bubble_ht": ht_edit,
                 }
 
         self._suppress = False
@@ -2310,6 +2335,17 @@ class DisplayManager(QDialog):
         from .paper_display import load_paper_categories, save_paper_categories
         cats = load_paper_categories(self._settings)
         cats[key]["line_weight"] = text
+        save_paper_categories(cats, self._settings)
+        self._apply_paper_preview()
+
+    def _on_paper_bubble_ht_changed(self):
+        """Bubble label height DimensionEdit committed for Grid Line."""
+        if self._suppress:
+            return
+        from .paper_display import load_paper_categories, save_paper_categories
+        edit = self._paper_cat_data["Grid Line"]["bubble_ht"]
+        cats = load_paper_categories(self._settings)
+        cats["Grid Line"]["bubble_label_height_mm"] = edit.value_mm()
         save_paper_categories(cats, self._settings)
         self._apply_paper_preview()
 

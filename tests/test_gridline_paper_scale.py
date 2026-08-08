@@ -678,3 +678,44 @@ class TestRepaintEcho:
             f"viewport repainted {idle_20} times in 20 idle turns — echo loop "
             f"(idle-40-delta={idle_40_delta})"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Display Manager — "Label Ht" column on the Paper Space tab
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestDisplayManagerLabelHt:
+    """Widget-driven tests: drive the DimensionEdit, verify QSettings round-trip."""
+
+    def test_grid_line_row_edits_height(self, qapp, clean_paper_settings):
+        """Editing the Label Ht cell for Grid Line persists bubble_label_height_mm."""
+        from firepro3d.display_manager import DisplayManager
+        from firepro3d.model_space import Model_Space
+        from firepro3d.paper_display import load_paper_categories
+        from PyQt6.QtCore import QSettings
+
+        scene = Model_Space()
+        dlg = DisplayManager(scene)
+        try:
+            edit = dlg._paper_cat_data["Grid Line"]["bubble_ht"]
+            edit.setText("5mm")
+            edit.editingFinished.emit()
+
+            settings = QSettings("GV", "FirePro3D")
+            cats = load_paper_categories(settings)
+            assert cats["Grid Line"]["bubble_label_height_mm"] == pytest.approx(5.0)
+        finally:
+            dlg.close()
+
+    def test_other_rows_disabled(self, qapp, clean_paper_settings):
+        """Non-Grid-Line rows have a disabled (grayed-out) bubble_ht widget."""
+        from firepro3d.display_manager import DisplayManager
+        from firepro3d.model_space import Model_Space
+
+        scene = Model_Space()
+        dlg = DisplayManager(scene)
+        try:
+            assert not dlg._paper_cat_data["Wall"]["bubble_ht"].isEnabled()
+            assert not dlg._paper_cat_data["Pipe"]["bubble_ht"].isEnabled()
+        finally:
+            dlg.close()
