@@ -730,3 +730,20 @@ class TestDisplayManagerLabelHt:
             assert not dlg._paper_cat_data["Pipe"]["bubble_ht"].isEnabled()
         finally:
             dlg.close()
+
+
+class TestViewportLifecycle:
+    def test_removed_viewport_disconnects_source(self, qapp, two_scale_sheet):
+        """Deleting a viewport must unsubscribe it from the model scene.
+
+        _do_remove_viewport_by_data removed the item but left its changed
+        subscription alive (found during the 2026-08-08 crash investigation);
+        the removed viewport kept reacting to model edits until GC.
+        """
+        ts = two_scale_sheet
+        vp0 = ts.paper.get_viewports()[0]
+        calls = []
+        vp0.mark_dirty = lambda: calls.append(1)   # bound at call time
+        ts.paper.remove_viewport(vp0)              # RemoveViewportCommand path
+        ts.model.changed.emit([])
+        assert not calls, "removed viewport still subscribed to scene.changed"

@@ -3420,6 +3420,10 @@ class PaperScene(QGraphicsScene):
             if vp.data is data:
                 self._viewports.remove(vp)
                 self.removeItem(vp)
+                # Unsubscribe from the source scene — the removed item must
+                # not keep reacting to model edits until GC collects it
+                # (undo recreates a fresh, freshly-connected viewport).
+                vp.disconnect_source()
         # Identity removal (not value `.remove`): only drop the exact object, so
         # a value-identical sibling viewport is left untouched.
         self._sheet.sheet_views[:] = [
