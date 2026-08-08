@@ -479,3 +479,101 @@ class TestAspectDivergedViewport:
         x1, _ = _paper_px(ts.paper, cx_mm + _VP_W / 2 - 2, 0)
         measured = _dark_run_width(img, cy, x0, x1)
         assert measured == pytest.approx(expected, abs=PX_PER_MM)  # ±1mm equiv
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Export-DPI parity — WYSIWYG: PaperScene → QPdfWriter → rasterized measurement
+# ─────────────────────────────────────────────────────────────────────────────
+
+import fitz  # PyMuPDF — already a project dependency
+
+
+class TestExportParity:
+    """Bubble head measures the same true-scale mm at both export DPIs.
+
+    Strategy: export the two_scale_sheet via export_pdf at 150 and 300 dpi,
+    rasterize the PDF with PyMuPDF at a fixed 300 dpi (independent of export
+    dpi), scan the widest dark horizontal run through the bubble centre in VP1,
+    convert pixels → mm, and assert ≈ 2×radius_mm (±0.4mm).  Both DPIs must
+    also agree within 0.2mm of each other.
+    """
+
+    # Raster density used for all PDF measurements — independent of export DPI.
+    _RASTER_DPI = 300
+    _PX_PER_MM = _RASTER_DPI / 25.4   # ≈ 11.811 px/mm
+
+    def _head_mm_from_pdf(self, pdf_path: str) -> float:
+        """Rasterise the first PDF page and measure the bubble-head diameter in mm.
+
+        Scans VP1 (top viewport) only — both viewports host the same bubble so
+        one measurement suffices.  VP1 centre in paper mm is (105, 70) for the
+        A4 two_scale_sheet fixture.
+        """
+        doc = fitz.open(str(pdf_path))
+        try:
+            page = doc[0]
+            pm = page.get_pixmap(dpi=self._RASTER_DPI)
+            # page.rect is in PDF points (72 pt/in); convert to mm then to px.
+            page_w_mm = page.rect.width / 72 * 25.4
+            page_h_mm = page.rect.height / 72 * 25.4
+            px_per_mm = pm.width / page_w_mm   # exact for this render
+
+            # VP1 centre in paper mm: x = _VP1_X + _VP_W/2, y = _VP1_Y + _VP_W/2
+            cx_mm = _VP1_X + _VP_W / 2   # 65 + 40 = 105
+            cy_mm = _VP1_Y + _VP_W / 2   # 30 + 40 = 70
+
+            # Row through bubble centre (y ↓ in both paper-mm and pixel space)
+            row_px = int(cy_mm * px_per_mm)
+            # Scan x-extent: inside VP1 boundary, 2mm guard from each edge
+            x0_px = int((_VP1_X + 2) * px_per_mm)
+            x1_px = int((_VP1_X + _VP_W - 2) * px_per_mm)
+
+            # stride arithmetic — pm.n=3 (RGB), pm.stride=pm.width*pm.n
+            buf = pm.samples
+            stride = pm.stride
+            n = pm.n
+
+            best = run = 0
+            for x in range(x0_px, min(x1_px, pm.width)):
+                off = row_px * stride + x * n
+                r, g, b = buf[off], buf[off + 1], buf[off + 2]
+                lightness = (max(r, g, b) + min(r, g, b)) // 2
+                if lightness < 200:
+                    run += 1
+                    if run > best:
+                        best = run
+                else:
+                    run = 0
+
+            return best / px_per_mm  # pixels → mm
+        finally:
+            doc.close()
+
+    def test_export_dpi_parity(self, two_scale_sheet, tmp_path):
+        """Bubble head is true-scale in mm at both export DPIs."""
+        from firepro3d import paper_export
+
+        ts = two_scale_sheet
+        # Solid fill so the head produces a contiguous dark run.
+        ts.env.cats["Grid Line"]["fill"] = "#000000"
+
+        radius_mm, _ = bubble_paper_geometry(3.0)
+        expected_mm = 2 * radius_mm
+
+        measured = {}
+        for dpi in (150, 300):
+            out = tmp_path / f"bubble_{dpi}dpi.pdf"
+            paper_export.export_pdf([ts.sheet], ts.paper._resolver,
+                                    str(out), dpi=dpi)
+            measured[dpi] = self._head_mm_from_pdf(out)
+
+        assert measured[150] == pytest.approx(expected_mm, abs=0.4), (
+            f"150dpi: measured {measured[150]:.3f}mm, expected {expected_mm:.3f}mm"
+        )
+        assert measured[300] == pytest.approx(expected_mm, abs=0.4), (
+            f"300dpi: measured {measured[300]:.3f}mm, expected {expected_mm:.3f}mm"
+        )
+        assert abs(measured[150] - measured[300]) <= 0.2, (
+            f"DPI agreement: 150dpi={measured[150]:.3f}mm, "
+            f"300dpi={measured[300]:.3f}mm, diff={abs(measured[150]-measured[300]):.3f}mm"
+        )
