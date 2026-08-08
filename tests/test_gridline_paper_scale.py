@@ -577,3 +577,45 @@ class TestExportParity:
             f"DPI agreement: 150dpi={measured[150]:.3f}mm, "
             f"300dpi={measured[300]:.3f}mm, diff={abs(measured[150]-measured[300]):.3f}mm"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Repaint-echo settling test (spec §9.9.1 evidence gate)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class TestRepaintEcho:
+    def test_viewport_paints_settle(self, qapp, two_scale_sheet, monkeypatch):
+        ts = two_scale_sheet
+        from firepro3d.paper_space import SheetViewport
+        counts = {"n": 0}
+        orig = SheetViewport.paint
+        def counting_paint(self, *a, **k):
+            counts["n"] += 1
+            return orig(self, *a, **k)
+        monkeypatch.setattr(SheetViewport, "paint", counting_paint)
+        # A real on-screen view is needed for Qt's update/paint cycle.
+        # This test creates no MainWindow/View3D, only a bare QGraphicsView of
+        # the PaperScene, so a real window is fine — it will briefly flash,
+        # acceptable.
+        from PyQt6.QtWidgets import QGraphicsView
+        view = QGraphicsView(ts.paper)
+        view.resize(800, 600)
+        view.show()
+        for _ in range(5):
+            qapp.processEvents()          # initial paint settles
+        counts["n"] = 0
+        for _ in range(20):
+            qapp.processEvents()          # idle turns — echo would keep painting
+        idle_20 = counts["n"]
+        # Continue to 40 idle turns to distinguish flat vs growing
+        counts["n"] = 0
+        for _ in range(20):
+            qapp.processEvents()
+        idle_40_delta = counts["n"]
+        view.close()
+        # Report the measured counts regardless of pass/fail for spec evidence
+        print(f"\n[echo-evidence] idle-20={idle_20}, idle-40-delta={idle_40_delta}")
+        assert idle_20 <= 4, (
+            f"viewport repainted {idle_20} times in 20 idle turns — echo loop "
+            f"(idle-40-delta={idle_40_delta})"
+        )

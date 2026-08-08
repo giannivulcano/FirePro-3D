@@ -708,6 +708,11 @@ class SheetViewport(QGraphicsObject):
 
         self._source_scene = None
         self._source_rect = QRectF()
+        # Guard: suppress source-scene ``changed`` echoes fired by our own
+        # override pass.  Set True before apply_paper_overrides, cleared via
+        # QTimer.singleShot(0) so any *real* model changes during the event
+        # turn are still caught (they arrive after the singleShot clears it).
+        self._suppress_source_echo = False
         self._reconnect_source()
 
     @property
@@ -731,6 +736,8 @@ class SheetViewport(QGraphicsObject):
         self._source_scene.changed.connect(self._on_source_changed)
 
     def _on_source_changed(self, rects=None):
+        if self._suppress_source_echo:
+            return
         self.mark_dirty()
 
     def disconnect_source(self):
@@ -787,6 +794,7 @@ class SheetViewport(QGraphicsObject):
         # Render source scene with paper-space display overrides
         if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
             from .paper_display import apply_paper_overrides, restore_model_display
+            from PyQt6.QtCore import QTimer
             # True geometric scale (paper mm per model mm) — correct even for
             # NTS viewports where the declared scale is 0.0 (§9.9.1).
             # render() below defaults to KeepAspectRatio, so when a grip-resize
@@ -796,12 +804,18 @@ class SheetViewport(QGraphicsObject):
                 vp_rect.width() / self._source_rect.width(),
                 vp_rect.height() / self._source_rect.height(),
             )
+            # Suppress the source-scene ``changed`` echo fired by our own
+            # item mutations.  Cleared via QTimer.singleShot(0) so any *real*
+            # model change that arrives in the same event turn (after the
+            # singleShot fires) still propagates normally (§9.9.1 guard).
+            self._suppress_source_echo = True
             saved = apply_paper_overrides(self._source_scene, self._source_rect,
                                           paper_scale=paper_scale)
             try:
                 self._source_scene.render(painter, vp_rect, self._source_rect)
             finally:
                 restore_model_display(saved)
+                QTimer.singleShot(0, lambda: setattr(self, "_suppress_source_echo", False))
 
         # Release clip
         painter.setClipping(False)
