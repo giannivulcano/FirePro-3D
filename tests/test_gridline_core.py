@@ -187,14 +187,12 @@ class TestSerialization:
         gl = GridlineItem(QPointF(100, 200), QPointF(100, 5200), label="C")
         gl.locked = True
         gl.set_bubble_visible(1, False)
-        gl.paper_height_mm = 4.5
 
         d = gl.to_dict()
         gl2 = GridlineItem.from_dict(d)
 
         assert gl2.grid_label == "C"
         assert gl2.locked is True
-        assert gl2.paper_height_mm == pytest.approx(4.5)
         assert gl2.line().p1().x() == pytest.approx(100.0)
         assert gl2.line().p1().y() == pytest.approx(200.0)
         assert gl2.line().p2().x() == pytest.approx(100.0)
@@ -217,14 +215,13 @@ class TestSerialization:
         assert gl.locked is True
         assert gl.line().p1().x() == pytest.approx(500.0)
         assert gl.line().p2().y() == pytest.approx(3000.0)
-        assert gl.paper_height_mm == pytest.approx(3.0)
 
     def test_missing_fields_get_defaults(self, scene):
         """Minimal dict gets sensible defaults."""
         d = {"p1": [0, 0], "p2": [0, 1000], "label": "Z"}
         gl = GridlineItem.from_dict(d)
         assert gl.locked is False
-        assert gl.paper_height_mm == pytest.approx(3.0)
+        assert not hasattr(gl, "paper_height_mm")
 
 
 class TestElevationFiltering:

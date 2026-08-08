@@ -380,7 +380,6 @@ class GridlineItem(QGraphicsLineItem):
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
 
-        self.paper_height_mm: float = 3.0
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
 
@@ -649,7 +648,6 @@ class GridlineItem(QGraphicsLineItem):
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
             "locked": self._locked,
-            "paper_height_mm": self.paper_height_mm,
         }
         if self._display_overrides:
             d["display_overrides"] = self._display_overrides
@@ -671,7 +669,6 @@ class GridlineItem(QGraphicsLineItem):
         item.bubble1.setVisible(b1_vis)
         item.bubble2.setVisible(b2_vis)
         item._locked = d.get("locked", False)
-        item.paper_height_mm = d.get("paper_height_mm", 3.0)
         item._display_overrides = d.get("display_overrides", {})
         # Silently ignore "level" and "axis" keys from old files
         return item

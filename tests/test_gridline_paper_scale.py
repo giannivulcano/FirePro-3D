@@ -88,3 +88,22 @@ class TestGridLineCategoryModel:
         apply_paper_display_from_project(snapshot)
         # Assert: bubble height survived the round-trip.
         assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
+
+
+from PyQt6.QtCore import QPointF
+
+from firepro3d.gridline import GridlineItem
+
+
+class TestPerItemFieldRetired:
+    def test_to_dict_omits_paper_height(self, qapp):
+        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+        assert "paper_height_mm" not in gl.to_dict()
+
+    def test_from_dict_ignores_legacy_key(self, qapp):
+        gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+        d = gl.to_dict()
+        d["paper_height_mm"] = 7.7          # legacy .fpd content
+        gl2 = GridlineItem.from_dict(d)
+        assert gl2.grid_label == "1"        # loads cleanly
+        assert not hasattr(gl2, "paper_height_mm")
