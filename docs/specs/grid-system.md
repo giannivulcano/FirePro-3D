@@ -339,15 +339,14 @@ Single category: **"Grid Line"**
 
 Per-instance overrides via `_display_overrides` take precedence over category defaults.
 
-### 10.2 Paper Space Bridge
+### 10.2 Paper Space Bridge [redesigned 2026-08-07 — build pending]
 
-Per `docs/specs/paper-space.md` §9.2:
+Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for the render-pass contract). Grid-system-side summary:
 
-- **Thin-lines ON (default):** Bubbles use `ItemIgnoresTransformations` — fixed screen size, always readable.
-- **Thin-lines OFF:** Bubbles render at `paper_height_mm` in model units — WYSIWYG print preview.
-- **Sheet view rendering:** Bubbles always render at `paper_height_mm` × sheet view scale factor.
-
-The `paper_height_mm` property on `GridlineItem` is the bridge between the two systems.
+- **Model-space editing:** unchanged — bubbles stay `ItemIgnoresTransformations`, fixed screen size, always readable. (The thin-lines WYSIWYG-preview toggle is deferred.)
+- **Sheet view rendering:** bubbles render at a true paper size derived from the Grid Line paper category's `bubble_label_height_mm` (label cap height, factory 3.0 mm); the category line weight drives both the gridline line and the bubble border on paper.
+- **Retired:** the per-item `GridlineItem.paper_height_mm` field. `to_dict` stops writing it; `from_dict` ignores the legacy key. Sizing is uniform per category (grill decision 2026-08-07).
+- Selection ring, pull-tab grips, lock indicator, and the duplicate-label warning color never plot.
 
 ## 11. Design Decisions
 
@@ -412,7 +411,7 @@ The `paper_height_mm` property on `GridlineItem` is the bridge between the two s
 - [ ] Lock/unlock prevents grip drag, body drag, and spacing edit
 - [ ] Visible pull-tab grips at endpoints (on selection/hover)
 - [ ] Perpendicular body drag with directional constraint
-- [ ] `ItemIgnoresTransformations` on bubbles with `paper_height_mm` for paper space bridge
+- [ ] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired)
 - [ ] Angled gridlines supported as first-class (arbitrary p1/p2)
 - [ ] Elevation views show only exactly-cardinal gridlines (perpendicular to viewing plane)
 - [ ] Auto-numbering counters sync to max existing label on load/undo/dialog accept

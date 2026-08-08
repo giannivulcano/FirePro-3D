@@ -357,13 +357,29 @@ Authored color and the opaque-background fill plot **as authored, independent of
 
 Annotations round-trip via `Sheet.to_dict`/`from_dict` under the `"sheets"` key — **no `scene_io.py` or `paper_export.py` changes.** Export/print are free because `PaperScene._setup` rebuilds annotation items from `Sheet.annotations`, and the transient export scene (`paper_export.render_sheet`) reuses `_setup`. **Invariant:** `Sheet.annotations` is authoritative — every move/edit/format/wrap-resize writes through to the data object **live** (export and print read the dataclass, not the live items, and do *not* call `_sync_sheet_before_save`), exactly as `SheetViewData` stays current via `SheetViewport.itemChange`.
 
-### 9.9 Model-Space Labels [Phase 2 — pending]
+### 9.9 Model-Space Labels [Phase 2 — gridline bubbles designed 2026-08-07, build pending; other labels pending]
 
-Labels are existing model-space items (room names, pipe sizes, node IDs, gridline bubbles) that render through sheet views. They gain a `paper_height_mm` property — the height they should appear at on paper.
+Labels are existing model-space items (room names, pipe sizes, node IDs, gridline bubbles) that render through sheet views at a true paper height — WYSIWYG 1:1 between the paper tab, PDF export, and print.
 
-- **Model-space editing (thin-lines OFF):** Labels render at `paper_height_mm` in model units. At 1:1 they are tiny. This is "true scale" — WYSIWYG preview of print output.
-- **Model-space editing (thin-lines ON, default):** Labels render at a fixed readable screen size via `ItemIgnoresTransformations`. Standard editing workflow.
-- **Sheet view rendering:** Labels always render at `paper_height_mm` scaled by the sheet view's scale factor. Thin-lines toggle has no effect in paper space.
+- **Model-space editing:** unchanged — labels keep their current on-screen behavior (`ItemIgnoresTransformations` fixed screen size for gridline bubbles). The originally-envisioned thin-lines OFF "true-scale preview" toggle is **deferred** (follow-up; no UI exists).
+- **Sheet view rendering:** the configured *paper* height is authoritative — the render pass converts it to model units per viewport (paper mm ÷ viewport scale), so the label measures the same on paper at every viewport scale (see §9.9.1).
+- **Label height ownership:** paper heights are **Display-Manager paper-category settings**, not per-item fields (grill decision 2026-08-07: uniform sizing per category; a per-item override can return if a real need appears). Room/pipe labels adopt this mechanism in a later task — they are sized in model units today (not broken, just not paper-driven).
+
+#### 9.9.1 Gridline bubbles — true-scale mechanism [designed 2026-08-07 — build pending]
+
+The Grid Line paper category (§ Display Manager Paper Space tab) carries `bubble_label_height_mm` (factory 3.0 — the **cap height** of the bubble label on paper, §9.4 convention). Head geometry derives from it: `em = cap / capRatio(Consolas bold)` via `QFontMetricsF` at the large reference pixel size, `radius = em / GRIDLINE_BUBBLE_LABEL_EM_FRAC` (constants.py; 0.9 = the historic screen ratio) — 3 mm cap ≈ 9.5 mm head.
+
+**Render pass (extends the §7 mutate/render/restore pipeline):**
+
+- `SheetViewport.paint` computes the true geometric scale `S = vp_rect.width() / source_rect.width()` (paper mm per model mm; correct even for NTS viewports where declared scale is 0.0) and passes it to `apply_paper_overrides(scene, rect, paper_scale=S)`.
+- `_apply_gridline` adds a geometry stage: bubble `ItemIgnoresTransformations` OFF; ellipse radius `r_paper / S` model units; label font via ref-pixel-size + `setScale` (§9.4 — no integer-pixel quantization) sized to `bubble_label_height_mm / S` cap; label re-centred. `_save_gridline_state` / `restore_model_display` capture and restore ITT flag, rect, pens, font/scale/pos exactly — the model view repaints untouched.
+- **Line weight:** the category line weight drives **both** the gridline line and the bubble border (`lw_mm / S` model units, non-cosmetic). This wires up the previously dead `lw_mm` parameter in `_apply_gridline`. Factory Grid Line weight bumped Very Light → **Medium** (mockup-gated 2026-08-07); saved projects keep their saved weight.
+- **Authoring aids never plot:** a `_paper_render` flag set during the pass makes `GridBubble.paint` skip the selection ring and the duplicate-label warning color in **all** color modes (Full Color renders the authored `_grid_color`); pull-tab grips and the lock indicator are hidden during the pass; `apply_paper_overrides` also hides items tagged `data(0) == "origin"` (the model origin cross). All restored after render.
+- `paper_export`/print need no changes — the transient `PaperScene`'s viewports run the same `paint()` (WYSIWYG is structural, one choke point).
+- **Isolation:** the model-side Display Manager bubble scale multiplier never affects paper output.
+- **Repaint-echo contingency:** `_on_source_changed → mark_dirty` has no echo guard and the existing color pass already mutates during paint; measure first — if an echo loop is confirmed, `SheetViewport` suppresses source-changed between the override pass and a `QTimer.singleShot(0)` reset.
+
+**Retired:** the per-item `GridlineItem.paper_height_mm` field — `to_dict` no longer writes it; `from_dict` reads and ignores the legacy key (it was seeded 3.0 on every save, never consumed, never user-editable).
 
 ### 9.10 Constraint Filter
 
