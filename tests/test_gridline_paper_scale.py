@@ -31,13 +31,25 @@ class TestBubblePaperGeometry:
 from PyQt6.QtCore import QSettings
 
 from firepro3d.paper_display import (
-    FACTORY_PAPER_CATEGORIES, load_paper_categories, save_paper_categories)
+    FACTORY_PAPER_CATEGORIES, load_paper_categories, save_paper_categories,
+    get_paper_display_for_save, apply_paper_display_from_project)
 
 
 @pytest.fixture
 def temp_settings(tmp_path):
     s = QSettings(str(tmp_path / "t.ini"), QSettings.Format.IniFormat)
     yield s
+
+
+@pytest.fixture
+def clean_paper_settings():
+    """Clear paper/* from the real QSettings before and after (mirrors TestProjectRoundTrip)."""
+    s = QSettings("GV", "FirePro3D")
+    s.remove("paper")
+    s.sync()
+    yield
+    s.remove("paper")
+    s.sync()
 
 
 class TestGridLineCategoryModel:
@@ -64,3 +76,15 @@ class TestGridLineCategoryModel:
         cats["Grid Line"]["bubble_label_height_mm"] = 4.5
         save_paper_categories(cats, temp_settings)
         assert load_paper_categories(temp_settings)["Grid Line"]["bubble_label_height_mm"] == 4.5
+
+    def test_project_snapshot_round_trips_bubble_height(self, clean_paper_settings):
+        # Arrange: write a non-default bubble height into the real QSettings.
+        cats = load_paper_categories()
+        cats["Grid Line"]["bubble_label_height_mm"] = 4.5
+        save_paper_categories(cats)
+        # Act: capture a project snapshot, wipe settings back to factory, then restore.
+        snapshot = get_paper_display_for_save()
+        save_paper_categories(FACTORY_PAPER_CATEGORIES)  # wipe
+        apply_paper_display_from_project(snapshot)
+        # Assert: bubble height survived the round-trip.
+        assert load_paper_categories()["Grid Line"]["bubble_label_height_mm"] == pytest.approx(4.5)
