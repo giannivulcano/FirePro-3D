@@ -1,7 +1,7 @@
 ---
-status: current          # implemented; §7.3/§7.3.2/§7.6 updated as-built 2026-07-16
-last-verified: 2026-07-16
-verified-commit: 778786d
+status: current          # implemented; §10.2 paper-space bridge as-built 2026-08-08 (per-item paper_height_mm retired)
+last-verified: 2026-08-08
+verified-commit: 90fc7ce
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/grid_lines_dialog.py
@@ -43,7 +43,7 @@ Gridlines support arbitrary angles (not just cardinal). The angle is implicit in
 ### 3.5 Cross-References
 
 - **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules.
-- **Paper space:** The thin-lines toggle and `paper_height_mm` rendering are defined in `docs/specs/paper-space.md` §9.2. This spec defines the `paper_height_mm` property; paper space owns the rendering mode switching.
+- **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is a Grid Line paper-category setting; there is no per-item property). See §10.2.
 
 ## 4. Data Model
 
@@ -60,9 +60,8 @@ Gridlines support arbitrary angles (not just cardinal). The angle is implicit in
 | `_display_overrides` | `dict` | `{}` | Per-instance display overrides |
 | `_display_scale` | `float` | `1.0` | Bubble scale factor (from Display Manager) |
 | `_grid_color` | `QColor` | `#4488cc` | Line + bubble border color |
-| `paper_height_mm` | `float` | `3.0` | Label height for paper space rendering |
 
-**Removed fields:** `level` (gridlines are level-independent).
+**Removed fields:** `level` (gridlines are level-independent); `paper_height_mm` (retired 2026-08-08 — bubble label height is category-owned, paper-space §9.9.1).
 
 ### 4.2 `GridBubble` (Child)
 
@@ -90,8 +89,6 @@ Gridlines support arbitrary angles (not just cardinal). The angle is implicit in
     "locked": false,
     "bubble1_vis": true,
     "bubble2_vis": true,
-    "user_layer": "Default",
-    "paper_height_mm": 3.0,
     "display_overrides": {}
 }
 ```
@@ -316,8 +313,7 @@ The `from_dict()` loader handles both old (`GridLine`) and current (`GridlineIte
 | `"axis": "x"/"y"` | (removed) | Ignored — orientation derived from p1/p2 |
 | `"locked": true` | `"locked": true` | Passes through |
 | `"bubble_start"/"bubble_end"` | `"bubble1_vis"/"bubble2_vis"` | Key rename |
-| No `"user_layer"` | `"user_layer": "Default"` | Default applied |
-| No `"paper_height_mm"` | `"paper_height_mm": 3.0` | Default applied |
+| Legacy keys (`user_layer`, `paper_height_mm`) | — | Ignored on load (layer system removed; per-item paper height retired) |
 
 ### 9.3 `level` Field Removal
 
@@ -339,7 +335,7 @@ Single category: **"Grid Line"**
 
 Per-instance overrides via `_display_overrides` take precedence over category defaults.
 
-### 10.2 Paper Space Bridge [redesigned 2026-08-07 — build pending]
+### 10.2 Paper Space Bridge [as-built 2026-08-08]
 
 Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for the render-pass contract). Grid-system-side summary:
 
@@ -411,7 +407,7 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 - [ ] Lock/unlock prevents grip drag, body drag, and spacing edit
 - [ ] Visible pull-tab grips at endpoints (on selection/hover)
 - [ ] Perpendicular body drag with directional constraint
-- [ ] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired)
+- [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired) — built 2026-08-08
 - [ ] Angled gridlines supported as first-class (arbitrary p1/p2)
 - [ ] Elevation views show only exactly-cardinal gridlines (perpendicular to viewing plane)
 - [ ] Auto-numbering counters sync to max existing label on load/undo/dialog accept

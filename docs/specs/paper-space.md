@@ -3,8 +3,8 @@
 **Date:** 2026-04-09
 **Complexity:** Large
 **Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is built (§19 — designed 2026-08-06, shipped + smoke-tested 2026-08-07): sheet create/rename/renumber/reorder/delete, pure-push browser sheet tree, sheet properties panel, uniform paper size, identity-derived title block fields, batch PDF export/print.**
-**Last verified:** 2026-08-07
-**Verified commit:** 91a1d38
+**Last verified:** 2026-08-08
+**Verified commit:** 90fc7ce
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_export_dialog.py` (batch export/print dialog — §19.6), `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery + sheet orchestration — §17.7/§19)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`, `project-browser.md` (sheet tree — §19.5), `titleblock-template-system.md` (Sheet No — §19.7)
@@ -357,7 +357,7 @@ Authored color and the opaque-background fill plot **as authored, independent of
 
 Annotations round-trip via `Sheet.to_dict`/`from_dict` under the `"sheets"` key — **no `scene_io.py` or `paper_export.py` changes.** Export/print are free because `PaperScene._setup` rebuilds annotation items from `Sheet.annotations`, and the transient export scene (`paper_export.render_sheet`) reuses `_setup`. **Invariant:** `Sheet.annotations` is authoritative — every move/edit/format/wrap-resize writes through to the data object **live** (export and print read the dataclass, not the live items, and do *not* call `_sync_sheet_before_save`), exactly as `SheetViewData` stays current via `SheetViewport.itemChange`.
 
-### 9.9 Model-Space Labels [Phase 2 — gridline bubbles designed 2026-08-07, build pending; other labels pending]
+### 9.9 Model-Space Labels [Phase 2 — gridline bubbles as-built 2026-08-08; other labels pending]
 
 Labels are existing model-space items (room names, pipe sizes, node IDs, gridline bubbles) that render through sheet views at a true paper height — WYSIWYG 1:1 between the paper tab, PDF export, and print.
 
@@ -365,7 +365,7 @@ Labels are existing model-space items (room names, pipe sizes, node IDs, gridlin
 - **Sheet view rendering:** the configured *paper* height is authoritative — the render pass converts it to model units per viewport (paper mm ÷ viewport scale), so the label measures the same on paper at every viewport scale (see §9.9.1).
 - **Label height ownership:** paper heights are **Display-Manager paper-category settings**, not per-item fields (grill decision 2026-08-07: uniform sizing per category; a per-item override can return if a real need appears). Room/pipe labels adopt this mechanism in a later task — they are sized in model units today (not broken, just not paper-driven).
 
-#### 9.9.1 Gridline bubbles — true-scale mechanism [designed 2026-08-07 — build pending]
+#### 9.9.1 Gridline bubbles — true-scale mechanism [as-built 2026-08-08]
 
 The Grid Line paper category (§ Display Manager Paper Space tab) carries `bubble_label_height_mm` (factory 3.0 — the **cap height** of the bubble label on paper, §9.4 convention). Head geometry derives from it: `em = cap / capRatio(Consolas bold)` via `QFontMetricsF` at the large reference pixel size, `radius = em / GRIDLINE_BUBBLE_LABEL_EM_FRAC` (constants.py; 0.9 = the historic screen ratio) — 3 mm cap ≈ 9.5 mm head.
 
@@ -377,7 +377,8 @@ The Grid Line paper category (§ Display Manager Paper Space tab) carries `bubbl
 - **Authoring aids never plot:** a `_paper_render` flag set during the pass makes `GridBubble.paint` skip the selection ring and the duplicate-label warning color in **all** color modes (Full Color renders the authored `_grid_color`); pull-tab grips and the lock indicator are hidden during the pass; `apply_paper_overrides` also hides items tagged `data(0) == "origin"` (the model origin cross). All restored after render.
 - `paper_export`/print need no changes — the transient `PaperScene`'s viewports run the same `paint()` (WYSIWYG is structural, one choke point).
 - **Isolation:** the model-side Display Manager bubble scale multiplier never affects paper output.
-- **Repaint-echo contingency:** `_on_source_changed → mark_dirty` has no echo guard and the existing color pass already mutates during paint; measure first — if an echo loop is confirmed, `SheetViewport` suppresses source-changed between the override pass and a `QTimer.singleShot(0)` reset.
+- **Repaint-echo guard [confirmed + built]:** measurement (2026-08-08) confirmed a pre-existing self-perpetuating repaint loop — the override pass's own scene mutations re-fired `changed` at 1 repaint per idle event-loop turn. The guard is **scene-scoped** (per-viewport flags ping-pong between sibling viewports of the same scene — probed and red-verified): `paint` sets `source_scene._suppress_paper_echo` before the pass; `_on_source_changed` swallows without clearing (an in-handler clear would un-swallow the coalesced emission for siblings); the flag clears only via `QTimer.singleShot(0)` in an **outer finally** (exception-safe — a failed pass must not freeze change tracking). Same-turn FIFO guarantees the echo emission is delivered before the clear.
+- **Exception safety:** `apply_paper_overrides` unwinds (restores `saved` and re-raises) if any per-item apply fails mid-pass — mutated geometry must never outlive a failed pass. Removed viewports call `disconnect_source()` in `_do_remove_viewport_by_data` (undo recreates a freshly-connected item).
 
 **Retired:** the per-item `GridlineItem.paper_height_mm` field — `to_dict` no longer writes it; `from_dict` reads and ignores the legacy key (it was seeded 3.0 on every save, never consumed, never user-editable).
 
@@ -521,7 +522,7 @@ User modifies model while PDF export is in progress → export captures state at
 - Full layer visibility overrides per sheet view (show/hide any layer)
 - Paper-space annotations: text, leaders, lines, rectangles, revision clouds, north arrows, scale bars
 - Per-sheet revision history (rev, date, description, drawn_by)
-- Label thin-lines toggle + `paper_height_mm` property on label items
+- True-scale label rendering (§9.9 — gridline bubbles built 2026-08-08; room/pipe labels + the thin-lines toggle pending)
 - Constraint rendering filter in sheet views
 - Title block template library with field mapping (ATTDEF + JSON sidecar)
 
@@ -566,7 +567,7 @@ User modifies model while PDF export is in progress → export captures state at
   - [ ] One canonical `PaperScene` drives the visible tab, edits, save, and export (duplicate-widget prerequisite collapsed)
 - [ ] Leader / line / rectangle / revision cloud / north arrow / scale bar annotations (deferred — §18)
 - [ ] Per-sheet revision history (rev, date, description, drawn_by)
-- [ ] Label thin-lines toggle + `paper_height_mm` property on label items
+- [x] True-scale labels — gridline bubbles through sheet viewports (§9.9.1, built 2026-08-08); room/pipe label adoption + thin-lines toggle remain follow-ups
 - [ ] Constraint rendering filter in sheet views
 - [ ] Title block template library with field mapping (ATTDEF + JSON sidecar)
 
