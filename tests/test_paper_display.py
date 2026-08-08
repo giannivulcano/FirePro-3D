@@ -104,8 +104,9 @@ class TestPaperCategories:
     def test_factory_pipe_medium(self):
         assert FACTORY_PAPER_CATEGORIES["Pipe"]["line_weight"] == "Medium"
 
-    def test_factory_grid_very_light(self):
-        assert FACTORY_PAPER_CATEGORIES["Grid Line"]["line_weight"] == "Very Light"
+    def test_factory_grid_medium(self):
+        # Grid Line factory weight upgraded to Medium (Task 2: bubble-label true-scale)
+        assert FACTORY_PAPER_CATEGORIES["Grid Line"]["line_weight"] == "Medium"
 
     def test_round_trip_qsettings(self):
         cats = load_paper_categories()

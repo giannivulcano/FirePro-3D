@@ -128,14 +128,14 @@ _FACTORY_LW = {
     "Pipe": "Medium", "Sprinkler": "Medium", "Fitting": "Medium",
     "Water Supply": "Medium", "Node": "Light", "Hydraulic Badge": "Very Light",
     "Wall": "Heavy", "Roof": "Medium", "Room": "Very Light", "Floor": "Medium",
-    "Grid Line": "Very Light", "Level Datum": "Very Light",
+    "Grid Line": "Medium", "Level Datum": "Very Light",
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
 }
 
 
 def _make_factory_category(key: str) -> dict:
     """Build the factory default paper-space settings for one category."""
-    return {
+    cat = {
         "color": "#000000",
         "fill": "#ffffff" if key in _HAS_FILL else None,
         "section_color": "#000000" if key in _HAS_SECTION else None,
@@ -143,6 +143,9 @@ def _make_factory_category(key: str) -> dict:
         "opacity": 100,
         "visible": True,
     }
+    if key == "Grid Line":
+        cat["bubble_label_height_mm"] = 3.0
+    return cat
 
 
 FACTORY_PAPER_CATEGORIES: dict[str, dict] = {
@@ -157,7 +160,8 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
     result: dict[str, dict] = {}
     for key in _CATEGORY_KEYS:
         factory = FACTORY_PAPER_CATEGORIES[key]
-        entry: dict = {}
+        # Start with factory defaults so any new keys are backfilled automatically.
+        entry: dict = dict(factory)
         for prop in ("color", "fill", "section_color", "line_weight",
                      "opacity", "visible"):
             raw = settings.value(f"paper/categories/{key}/{prop}")
@@ -173,8 +177,18 @@ def load_paper_categories(settings: QSettings | None = None) -> dict[str, dict]:
                         entry[prop] = bool(raw)
                 else:
                     entry[prop] = raw
-            else:
-                entry[prop] = factory[prop]
+            # else: factory default already set above
+        # Load any category-specific numeric extras (e.g. bubble_label_height_mm).
+        for prop in factory:
+            if prop not in entry or prop not in ("color", "fill", "section_color",
+                                                  "line_weight", "opacity", "visible"):
+                raw = settings.value(f"paper/categories/{key}/{prop}")
+                if raw is not None:
+                    try:
+                        entry[prop] = float(raw)
+                    except (ValueError, TypeError):
+                        entry[prop] = raw
+                # else: factory default already in entry from dict(factory) above
         result[key] = entry
     return result
 
@@ -194,6 +208,16 @@ def save_paper_categories(cats: dict[str, dict],
                                  str(val).lower() if prop == "visible" else val)
             else:
                 settings.remove(f"paper/categories/{key}/{prop}")
+        # Persist any category-specific numeric extras present in the factory.
+        factory = FACTORY_PAPER_CATEGORIES[key]
+        for prop in factory:
+            if prop not in ("color", "fill", "section_color",
+                            "line_weight", "opacity", "visible"):
+                val = entry.get(prop)
+                if val is not None:
+                    settings.setValue(f"paper/categories/{key}/{prop}", val)
+                else:
+                    settings.remove(f"paper/categories/{key}/{prop}")
     settings.sync()
 
 
