@@ -93,7 +93,11 @@ class Underlay:
             locked      = d.get("locked", False),
             page        = d.get("page", 0),
             dpi         = d.get("dpi", 150),
-            colour      = d.get("colour", "#ffffff"),
+            # PDF dicts never carry colour (to_dict omits it) — default to the
+            # dataclass gray so reloaded PDF vector pens keep today's look;
+            # DXF keeps the legacy white fallback for colour-less old files.
+            colour      = d.get("colour",
+                                "#c0c0c0" if d["type"] == "pdf" else "#ffffff"),
             line_weight = d.get("line_weight", 0),
             level         = d.get("level", DEFAULT_LEVEL),
             visible       = d.get("visible", True),

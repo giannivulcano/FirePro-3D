@@ -62,6 +62,11 @@ GRIDLINE_BUBBLE_OVERSHOOT_FRAC = 0.06
 # the gridline on-screen width (GRID_WIDTH in gridline.py).
 UNDERLAY_LINE_WIDTH_PX = 1.5
 
+# Screen-hint conversion for named underlay line weights (§16.3):
+# px = width_mm * UNDERLAY_MM_TO_PX_HINT. 6.0 makes Medium (0.25mm) ≈ 1.5px
+# so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
+UNDERLAY_MM_TO_PX_HINT = 6.0
+
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 

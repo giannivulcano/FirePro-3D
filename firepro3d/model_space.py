@@ -37,6 +37,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
+                       UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
@@ -53,6 +54,24 @@ import os
 
 from .scene_io import SceneIOMixin
 from .scene_tools import SceneToolsMixin
+
+
+def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
+    """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
+
+    No effective weight -> exactly UNDERLAY_LINE_WIDTH_PX (today's look).
+    Named weight -> width_mm * UNDERLAY_MM_TO_PX_HINT, still cosmetic.
+    """
+    colour = QColor(record.effective_layer_colour(layer))
+    weight_name = record.effective_layer_weight(layer)
+    if weight_name:
+        from .paper_display import resolve_line_weight_mm
+        width_px = resolve_line_weight_mm(weight_name) * UNDERLAY_MM_TO_PX_HINT
+    else:
+        width_px = UNDERLAY_LINE_WIDTH_PX
+    pen = QPen(colour, width_px)
+    pen.setCosmetic(True)
+    return pen
 
 
 class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
@@ -2027,29 +2046,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     t["size"] = g["size"] * s
             transformed.append(t)
 
-        color, lw = QColor("#c0c0c0"), UNDERLAY_LINE_WIDTH_PX
-
-        result = self._build_batched_underlay_group(transformed, color, lw)
-        if result is None:
-            self.set_mode(None)
-            return
-
-        group, all_layers = result
-        group.setPos(insert_pt)
         file_type = getattr(params, "file_type", "dxf")
-        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
-        group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
-        group.setData(2, all_layers)
-        group.setData(5, params.geom_list)  # raw pre-transform geom for cache
-        group.setData(6, not _cache_written)  # dirty until cached on save
-
         rotation = getattr(params, "rotation", 0.0)
         record = Underlay(
             type=file_type, path=params.file_path,
             x=insert_pt.x(), y=insert_pt.y(),
             rotation=rotation,
-            colour=color.name(),
-            line_weight=lw,
+            colour="#c0c0c0",
+            line_weight=UNDERLAY_LINE_WIDTH_PX,
             import_scale=s,
             import_base_x=bx,
             import_base_y=by,
@@ -2059,6 +2063,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             layout=getattr(params, "layout", ""),
             import_bounds=getattr(params, "import_bounds", None),
         )
+
+        result = self._build_batched_underlay_group(transformed, record)
+        if result is None:
+            self.set_mode(None)
+            return
+
+        group, all_layers = result
+        group.setPos(insert_pt)
+        _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
+        group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
+        group.setData(2, all_layers)
+        group.setData(5, params.geom_list)  # raw pre-transform geom for cache
+        group.setData(6, not _cache_written)  # dirty until cached on save
+
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
         self._attach_snap_index(group, transformed, record)
@@ -2191,10 +2209,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        # Fixed cosmetic pixel width (constant on-screen, independent of import scale)
-        lw = UNDERLAY_LINE_WIDTH_PX
+        record = params["_record"] or Underlay(
+            type=params.get("file_type", "dxf"), path=params["file_path"],
+            x=params["x"], y=params["y"],
+            colour=color.name(),
+            line_weight=params.get("line_weight", UNDERLAY_LINE_WIDTH_PX),
+            level=self.active_level,
+            layout=params.get("layout", ""),
+        )
 
-        result = self._build_batched_underlay_group(geom_list, color, lw)
+        result = self._build_batched_underlay_group(geom_list, record)
 
         if result is None:
             progress.close()
@@ -2203,14 +2227,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         group, all_layers = result
         group.setPos(params["x"], params["y"])
-        record = params["_record"] or Underlay(
-            type=params.get("file_type", "dxf"), path=params["file_path"],
-            x=params["x"], y=params["y"],
-            colour=color.name(),
-            line_weight=params.get("line_weight", lw),
-            level=self.active_level,
-            layout=params.get("layout", ""),
-        )
 
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
@@ -2316,8 +2332,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _build_batched_underlay_group(
         self,
         geom_list: list[dict],
-        color: QColor,
-        line_weight: float,
+        record: Underlay,
     ) -> tuple[QGraphicsItemGroup, list[str]] | None:
         """Build a batched underlay group from geometry dicts.
 
@@ -2326,6 +2341,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Each layer gets up to two path items: one for stroked geometry
         (lines, arcs, circles, polylines) and one for filled text.
 
+        Pens are per-layer and record-driven (spec §16.3): each layer's
+        stroke item gets ``underlay_layer_pen(record, layer)`` (always
+        cosmetic — constant on-screen width regardless of zoom or import
+        scale); text items are NoPen with a brush in the layer's
+        effective colour.
+
         Returns ``(group, sorted_layer_list)`` or ``None`` if no items.
         """
         # Group geometry by layer
@@ -2333,11 +2354,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for g in geom_list:
             layer = g.get("layer", "0")
             by_layer.setdefault(layer, []).append(g)
-
-        pen = QPen(color, line_weight)
-        # Cosmetic: width is in device pixels, so underlay lines stay a constant
-        # thickness regardless of zoom or import scale (see UNDERLAY_LINE_WIDTH_PX).
-        pen.setCosmetic(True)
 
         items: list[QGraphicsItem] = []
 
@@ -2353,7 +2369,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             if not geom_path.isEmpty():
                 item = QGraphicsPathItem(geom_path)
-                item.setPen(pen)
+                item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
                 item.setData(1, layer)  # layer tag for visibility toggling
@@ -2362,7 +2378,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if not text_path.isEmpty():
                 item = QGraphicsPathItem(text_path)
                 item.setPen(QPen(Qt.PenStyle.NoPen))
-                item.setBrush(QBrush(color))
+                item.setBrush(QBrush(QColor(
+                    record.effective_layer_colour(layer))))
                 item.setZValue(Z_UNDERLAY)
                 item.setData(1, layer)
                 items.append(item)
@@ -2562,8 +2579,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             import_bounds=(_record.import_bounds
                            if _record is not None else None))
 
-        color = QColor("#c0c0c0")
-
         # Snapshot raw geom for cache-on-save (before transform mutates)
         _raw_geom = geom_list
 
@@ -2607,9 +2622,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 transformed.append(t)
             geom_list = transformed
 
-        lw = UNDERLAY_LINE_WIDTH_PX
+        record = _record or Underlay(
+            type="pdf", path=file_path,
+            x=x, y=y,
+            dpi=dpi, page=page,
+            level=self.active_level,
+            import_mode=import_mode,
+        )
 
-        result = self._build_batched_underlay_group(geom_list, color, lw)
+        result = self._build_batched_underlay_group(geom_list, record)
 
         if result is None:
             log.warning("PDF vector extraction yielded 0 items for %s", file_path)
@@ -2624,14 +2645,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         group.setData(0, "PDF Underlay")
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
         group.setData(6, not _cache_written)  # dirty until cached on save
-
-        record = _record or Underlay(
-            type="pdf", path=file_path,
-            x=x, y=y,
-            dpi=dpi, page=page,
-            level=self.active_level,
-            import_mode=import_mode,
-        )
 
         self._apply_underlay_display(group, record)
         self._apply_underlay_hidden_layers(group, record)
@@ -3743,10 +3756,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             geom_list = transformed
 
         # Build batched render items (same as _commit_place_import)
-        color = QColor("#c0c0c0")
-        lw = UNDERLAY_LINE_WIDTH_PX
-
-        result = self._build_batched_underlay_group(geom_list, color, lw)
+        result = self._build_batched_underlay_group(geom_list, record)
         if result is None:
             return False
 
