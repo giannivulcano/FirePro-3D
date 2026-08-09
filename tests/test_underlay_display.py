@@ -4,9 +4,22 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtWidgets import QGraphicsPathItem
 
+from firepro3d import paper_display as pd
 from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX, UNDERLAY_MM_TO_PX_HINT
 from firepro3d.model_space import Model_Space, underlay_layer_pen
 from firepro3d.underlay import Underlay
+
+
+@pytest.fixture(autouse=True)
+def _factory_line_weights(monkeypatch):
+    """Isolate weight-dependent tests from live QSettings (paper/line_weights).
+
+    underlay_layer_pen -> resolve_line_weight_mm -> load_line_weights reads the
+    developer's real QSettings; pin the module global to factory defaults
+    (same idiom as tests/test_gridline_paper_scale.py::paper_env).
+    """
+    monkeypatch.setattr(pd, "load_line_weights",
+                        lambda settings=None: list(pd.FACTORY_LINE_WEIGHTS))
 
 
 def _geoms(layers=("A-WALL", "A-DOOR")):
