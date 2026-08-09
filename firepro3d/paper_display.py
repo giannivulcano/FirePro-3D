@@ -435,7 +435,8 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
     }
 
 
-def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0) -> list[dict]:
+def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
+                          source_view_key: str = "") -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
 
     Type-aware: each item type is handled according to how its paint()
@@ -447,7 +448,13 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0) -> list[
         source_rect: Model-space crop rect of the viewport.
         paper_scale: True geometric scale (paper mm per model mm) of the
             viewport render — drives true-scale gridline bubbles (§9.9.1).
+        source_view_key: The rendering viewport's
+            ``f"{source_view_type}:{source_view_name}"`` — drives per-view
+            underlay exclusion (§16.5). ``""`` means no per-view filtering.
     """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QBrush, QColor, QPen
+    from PyQt6.QtWidgets import QGraphicsPathItem
     from .display_manager import _set_svg_tint
     from .sprinkler import Sprinkler
     from .water_supply import WaterSupply
@@ -555,6 +562,47 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0) -> list[
                         f._display_fill_color = fitting_cat.get("fill")
                     f.symbol.setOpacity(fitting_cat["opacity"] / 100.0)
 
+        # ── Underlays (§16.5) — records drive per-layer paper appearance ──
+        for record, group in getattr(scene, "underlays", []):
+            if group is None:
+                continue
+            try:
+                was_visible = group.isVisible()
+            except RuntimeError:
+                continue
+            if not group.sceneBoundingRect().intersects(source_rect):
+                continue
+            entry = {"underlay_group": group, "visible": was_visible,
+                     "children": []}
+            saved.append(entry)
+            if source_view_key and source_view_key in record.hidden_in_views:
+                group.setVisible(False)
+                continue
+            if not was_visible:
+                continue          # model-side hidden: leave untouched
+            for child in group.childItems():
+                layer = child.data(1)
+                if layer is None or not isinstance(child, QGraphicsPathItem):
+                    continue
+                entry["children"].append({"item": child, "pen": child.pen(),
+                                          "brush": child.brush()})
+                # Black ONLY in BW (spec D6): Full Color AND Custom keep
+                # the authored effective layer colours.
+                colour = (QColor("#000000")
+                          if color_mode == PaperColorMode.BW
+                          else QColor(record.effective_layer_colour(layer)))
+                if child.pen().style() == Qt.PenStyle.NoPen:
+                    child.setBrush(QBrush(colour))      # text batch
+                    continue
+                pen = QPen(child.pen())
+                pen.setColor(colour)
+                weight_name = record.effective_layer_weight(layer)
+                if weight_name:
+                    pen.setWidthF(resolve_line_weight_mm(weight_name)
+                                  / max(paper_scale, 1e-9))
+                    pen.setCosmetic(False)  # true mm on paper (§9.9.1 pattern)
+                child.setPen(pen)
+
     except Exception:
         # A mid-pass failure must not escape before the caller receives
         # `saved` -- already-applied items would be stuck in paper geometry
@@ -579,6 +627,20 @@ def restore_model_display(saved: list[dict]):
     from PyQt6.QtGui import QColor, QBrush, QPen
 
     for entry in saved:
+        if "underlay_group" in entry:
+            # Underlay-stage entry (§16.5) — pens/brushes then group visibility.
+            for ch in entry["children"]:
+                try:
+                    ch["item"].setPen(ch["pen"])
+                    ch["item"].setBrush(ch["brush"])
+                except RuntimeError:
+                    pass
+            try:
+                entry["underlay_group"].setVisible(entry["visible"])
+            except RuntimeError:
+                pass
+            continue
+
         item = entry["item"]
         cat_key = entry.get("cat_key")
 

@@ -820,7 +820,9 @@ class SheetViewport(QGraphicsObject):
             self._source_scene._suppress_paper_echo = True
             try:
                 saved = apply_paper_overrides(self._source_scene, self._source_rect,
-                                              paper_scale=paper_scale)
+                                              paper_scale=paper_scale,
+                                              source_view_key=(f"{self._data.source_view_type}:"
+                                                               f"{self._data.source_view_name}"))
                 try:
                     self._source_scene.render(painter, vp_rect, self._source_rect)
                 finally:

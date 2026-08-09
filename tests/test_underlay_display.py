@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import pytest
+from PyQt6.QtCore import QRectF
 from PyQt6.QtWidgets import QGraphicsPathItem
 
 from firepro3d import paper_display as pd
 from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX, UNDERLAY_MM_TO_PX_HINT
 from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space, underlay_layer_pen
+from firepro3d.paper_display import (apply_paper_overrides,
+                                     restore_model_display, PaperColorMode,
+                                     save_paper_color_mode)
 from firepro3d.underlay import Underlay
 
 
@@ -171,6 +175,17 @@ class TestPerViewVisibility:
         scene = Model_Space()
         assert scene.active_view_key == ""
 
+    def test_all_levels_underlay_can_be_view_hidden(self, qapp):
+        """Pins the clause ordering BEFORE the level=='*' early-visible branch."""
+        scene = Model_Space()
+        rec = _record(level="*", hidden_in_views=["plan:Plan: Level 1"])
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        lm = LevelManager()
+        scene.active_view_key = "plan:Plan: Level 1"
+        lm.apply_to_scene(scene, "Level 1")
+        assert not group.isVisible()
+
 
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp):
@@ -222,3 +237,127 @@ class TestTabSwitchVisibility:
             # Shared fixture: leave no cross-test state behind.
             scene.underlays.remove((rec, group))
             scene.removeItem(group)
+
+    def test_detail_activation_sets_detail_view_key(self, main_window,
+                                                    monkeypatch):
+        """Slot-level by necessity: the pure-key assertion is the target.
+
+        _apply_detail_level's key format is not reachable through a widget
+        without building a real detail marker; stub get_marker with a minimal
+        fake and assert the ``detail:<name>`` key lands on the scene.
+        """
+        win = main_window
+        scene = win.scene
+
+        class _FakeMarker:
+            level_name = scene.active_level
+            view_height = None
+            view_depth = None
+
+        prior_key = scene.active_view_key
+        monkeypatch.setattr(win.detail_manager, "get_marker",
+                            lambda name: _FakeMarker())
+        try:
+            win._apply_detail_level("Riser")
+            assert scene.active_view_key == "detail:Riser"
+        finally:
+            scene.active_view_key = prior_key
+
+
+@pytest.fixture(autouse=True)
+def _restore_color_mode():
+    prior = pd.load_paper_color_mode()
+    yield
+    save_paper_color_mode(prior)
+
+
+def _paper_scene_setup(qapp, **rec_kw):
+    scene = Model_Space()
+    rec = _record(**rec_kw)
+    group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+    scene.underlays.append((rec, group))
+    rect = QRectF(-500, -500, 2000, 2000)
+    return scene, rec, group, rect
+
+
+class TestPaperUnderlayStage:
+    def test_bw_mode_blackens_strokes_and_restores(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(qapp)
+        save_paper_color_mode(PaperColorMode.BW)
+        child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
+        before = child.pen().color().name()
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:Plan: Level 1")
+        assert child.pen().color().name() == "#000000"
+        restore_model_display(saved)
+        assert child.pen().color().name() == before
+
+    def test_full_color_keeps_authored_colours(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(
+            qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
+        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:x")
+        assert child.pen().color().name() == "#ff0000"
+        restore_model_display(saved)
+
+    def test_custom_mode_keeps_authored_colours(self, qapp):
+        """Spec D6: black ONLY in BW — Custom keeps authored colours too."""
+        scene, rec, group, rect = _paper_scene_setup(
+            qapp, layer_overrides={"A-WALL": {"colour": "#ff0000"}})
+        save_paper_color_mode(PaperColorMode.CUSTOM)
+        child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:x")
+        assert child.pen().color().name() == "#ff0000"
+        restore_model_display(saved)
+
+    def test_named_weight_true_mm_pen(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(
+            qapp, line_weight_name="Heavy")     # factory 0.35mm
+        save_paper_color_mode(PaperColorMode.BW)
+        child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
+        paper_scale = 0.02
+        saved = apply_paper_overrides(scene, rect, paper_scale=paper_scale,
+                                      source_view_key="plan:x")
+        assert not child.pen().isCosmetic()
+        assert child.pen().widthF() == pytest.approx(0.35 / paper_scale)
+        restore_model_display(saved)
+        assert child.pen().isCosmetic()      # screen pen back
+
+    def test_no_weight_keeps_cosmetic_hairline(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(qapp)
+        child = next(c for c in group.childItems() if c.data(1) == "A-WALL")
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:x")
+        assert child.pen().isCosmetic()
+        assert child.pen().widthF() == pytest.approx(UNDERLAY_LINE_WIDTH_PX)
+        restore_model_display(saved)
+
+    def test_excluded_view_hides_group_and_restores(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(
+            qapp, hidden_in_views=["plan:Plan: Level 1"])
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:Plan: Level 1")
+        assert not group.isVisible()
+        restore_model_display(saved)
+        assert group.isVisible()
+
+    def test_other_view_unaffected(self, qapp):
+        scene, rec, group, rect = _paper_scene_setup(
+            qapp, hidden_in_views=["plan:Plan: Level 1"])
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="detail:Riser")
+        assert group.isVisible()
+        restore_model_display(saved)
+
+    def test_model_hidden_group_stays_hidden(self, qapp):
+        """A group hidden by the model-side pass is left alone (§16.5)."""
+        scene, rec, group, rect = _paper_scene_setup(qapp)
+        group.setVisible(False)
+        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
+                                      source_view_key="plan:x")
+        assert not group.isVisible()
+        restore_model_display(saved)
+        assert not group.isVisible()
