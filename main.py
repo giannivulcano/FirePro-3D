@@ -960,6 +960,7 @@ class MainWindow(QMainWindow):
 
     def _apply_plan_level(self, level_name: str):
         """Set the active level and refresh visibility for a plan view."""
+        self.scene.active_view_key = f"plan:Plan: {level_name}"
         self.scene.active_level = level_name
         pv = self.plan_view_mgr.get(f"Plan: {level_name}")
         if pv is not None:
@@ -1119,6 +1120,7 @@ class MainWindow(QMainWindow):
         marker = self.detail_manager.get_marker(detail_name)
         if marker is None:
             return
+        self.scene.active_view_key = f"detail:{detail_name}"
         level_name = marker.level_name
         self.scene.active_level = level_name
         vh = marker.view_height

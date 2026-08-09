@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QGraphicsPathItem
 
 from firepro3d import paper_display as pd
 from firepro3d.constants import UNDERLAY_LINE_WIDTH_PX, UNDERLAY_MM_TO_PX_HINT
+from firepro3d.level_manager import LevelManager
 from firepro3d.model_space import Model_Space, underlay_layer_pen
 from firepro3d.underlay import Underlay
 
@@ -134,3 +135,90 @@ class TestLayerHiddenChokePoint:
         scene.underlaysChanged.connect(lambda: fired.append(1))
         scene.set_underlay_layer_hidden(rec, group, "A-WALL", False)  # already shown
         assert fired == []
+
+
+class TestPerViewVisibility:
+    def _scene_with_underlay(self, qapp, hidden_in=()):
+        scene = Model_Space()
+        rec = _record(level="Level 1",
+                      hidden_in_views=list(hidden_in))
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        return scene, rec, group
+
+    def test_hidden_in_active_view(self, qapp):
+        scene, rec, group = self._scene_with_underlay(
+            qapp, hidden_in=["plan:Plan: Level 1"])
+        lm = LevelManager()
+        scene.active_view_key = "plan:Plan: Level 1"
+        lm.apply_to_scene(scene, "Level 1")
+        assert not group.isVisible()
+        # switch to a view not in the exclusion set -> visible again
+        scene.active_view_key = "detail:Riser"
+        lm.apply_to_scene(scene, "Level 1")
+        assert group.isVisible()
+
+    def test_exclusion_composes_with_visible_flag(self, qapp):
+        """visible=False wins regardless of view (additive AND, §16.1)."""
+        scene, rec, group = self._scene_with_underlay(qapp)
+        rec.visible = False
+        lm = LevelManager()
+        scene.active_view_key = "plan:Plan: Level 1"
+        lm.apply_to_scene(scene, "Level 1")
+        assert not group.isVisible()
+
+    def test_default_scene_has_empty_view_key(self, qapp):
+        scene = Model_Space()
+        assert scene.active_view_key == ""
+
+
+@pytest.fixture(scope="module")
+def _main_window_singleton(qapp):
+    """Module-scoped MainWindow shared by tab-switch tests (VTK-heavy).
+
+    Same idiom as tests/test_ribbon_draft_tab.py: pre-import View3D,
+    save/restore snap_engine.SNAP_TOLERANCE_PX (MainWindow overwrites it
+    from QSettings), and clear _modified before close so teardown never
+    hits the unsaved-changes prompt.  Imports are inside the fixture so
+    the lightweight tests above don't pay the View3D import cost.
+    """
+    from PyQt6.QtTest import QTest
+    from firepro3d import snap_engine
+    import main as _main_module
+    from firepro3d.view_3d import View3D  # heavy import, required before MainWindow()
+    _main_module.View3D = View3D
+    from main import MainWindow
+
+    saved_tol = snap_engine.SNAP_TOLERANCE_PX
+    win = MainWindow()
+    win.show()
+    QTest.qWaitForWindowExposed(win)
+    yield win
+    win._modified = False
+    win.close()
+    win.deleteLater()
+    qapp.processEvents()
+    snap_engine.SNAP_TOLERANCE_PX = saved_tol
+
+
+@pytest.fixture
+def main_window(_main_window_singleton):
+    return _main_window_singleton
+
+
+class TestTabSwitchVisibility:
+    def test_plan_activation_applies_exclusion(self, main_window):
+        win = main_window
+        scene = win.scene
+        rec = _record(level=scene.active_level,
+                      hidden_in_views=[f"plan:Plan: {scene.active_level}"])
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        try:
+            win._activate_plan_view(scene.active_level)
+            assert not group.isVisible()
+            assert scene.active_view_key == f"plan:Plan: {scene.active_level}"
+        finally:
+            # Shared fixture: leave no cross-test state behind.
+            scene.underlays.remove((rec, group))
+            scene.removeItem(group)

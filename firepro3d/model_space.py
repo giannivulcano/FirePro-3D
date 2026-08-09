@@ -124,6 +124,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.design_areas: list = []                          # list[DesignArea]
         self.active_design_area = None                        # DesignArea | None
         self.active_level: str = DEFAULT_LEVEL                     # floor level
+        # Active view identity for per-view underlay visibility (§16.4).
+        # Vocabulary: f"{source_view_type}:{view_name}" — e.g.
+        # "plan:Plan: Level 1", "detail:Enlarged Riser".
+        self.active_view_key: str = ""
         self._design_area_corner1: "QPointF | None" = None
         self._design_area_rect_item = None                    # QGraphicsRectItem preview
         self._da_highlights: list = []                        # pick-mode rings

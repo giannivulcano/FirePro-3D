@@ -499,6 +499,9 @@ class LevelManager:
             if not data.visible:
                 item.setVisible(False)
                 continue
+            if getattr(scene, "active_view_key", "") in data.hidden_in_views:
+                item.setVisible(False)
+                continue
             if data.level == "*":
                 item.setVisible(True)
                 continue
