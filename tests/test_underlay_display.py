@@ -80,9 +80,10 @@ class TestBuilderPerLayerPens:
 class TestPdfRecordColourSeam:
     """Reloaded PDF vector underlays must keep today's gray pen (§16.2 D4).
 
-    PDF records don't serialize ``colour`` (to_dict omits it), so from_dict
-    must default PDFs to the dataclass default "#c0c0c0" — the colour the
-    PDF vector path always rendered with — not the DXF legacy "#ffffff".
+    Old project files predate PDF ``colour`` serialization (pre-§16.6
+    to_dict omitted it), so from_dict must default PDFs to the dataclass
+    default "#c0c0c0" — the colour the PDF vector path always rendered
+    with — not the DXF legacy "#ffffff".
     """
 
     def test_pdf_from_dict_colour_defaults_to_gray(self):
@@ -624,3 +625,114 @@ class TestExportUnderlayParity:
         width_px = _pm_dark_run(pm, row, x0, x1)
         hairline_px = UNDERLAY_LINE_WIDTH_PX * _RASTER_DPI / _EXPORT_DPI
         assert 1 <= width_px <= hairline_px + 2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §16.6 — Display Manager "Underlays" tab (per-instance rows, live apply)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from firepro3d.display_manager import DisplayManager
+
+
+def _dm_scene(qapp):
+    scene = Model_Space()
+    rec = _record(layer_overrides={})
+    group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+    scene.underlays.append((rec, group))
+    return scene, rec, group
+
+
+class TestUnderlaysTab:
+    def test_tab_exists_with_rows(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        names = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+        assert "Underlays" in names
+        tree = dlg._underlay_tree
+        assert tree.topLevelItemCount() == 1
+        file_row = tree.topLevelItem(0)
+        assert file_row.childCount() == 2          # A-WALL, A-DOOR
+        dlg.reject()
+
+    def test_layer_colour_swatch_applies_live(self, qapp, monkeypatch):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        layer_row = tree.topLevelItem(0).child(0)
+        layer_name = layer_row.data(0, Qt.ItemDataRole.UserRole)
+        btn = tree.itemWidget(layer_row, dlg._UL_COL_COLOR)
+        from PyQt6.QtWidgets import QColorDialog
+        monkeypatch.setattr(QColorDialog, "getColor",
+                            staticmethod(lambda *a, **k: QColor("#ff0000")))
+        btn.click()
+        child = next(c for c in group.childItems()
+                     if c.data(1) == layer_name
+                     and c.pen().style() != Qt.PenStyle.NoPen)
+        assert child.pen().color().name() == "#ff0000"          # live
+        assert rec.layer_overrides[layer_name]["colour"] == "#ff0000"
+        dlg.reject()
+
+    def test_layer_weight_combo_applies_live(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        layer_row = tree.topLevelItem(0).child(0)
+        layer_name = layer_row.data(0, Qt.ItemDataRole.UserRole)
+        combo = tree.itemWidget(layer_row, dlg._UL_COL_LW)
+        combo.setCurrentText("Heavy")
+        assert rec.layer_overrides[layer_name]["line_weight"] == "Heavy"
+        child = next(c for c in group.childItems()
+                     if c.data(1) == layer_name
+                     and c.pen().style() != Qt.PenStyle.NoPen)
+        assert child.pen().widthF() == pytest.approx(
+            0.35 * UNDERLAY_MM_TO_PX_HINT)
+        dlg.reject()
+
+    def test_underlay_row_widgets_apply_live(self, qapp, monkeypatch):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        file_row = tree.topLevelItem(0)
+        # opacity
+        spin = tree.itemWidget(file_row, dlg._UL_COL_OPACITY)
+        spin.setValue(40)
+        assert rec.opacity == pytest.approx(0.4)
+        assert group.opacity() == pytest.approx(0.4)
+        # uniform colour cascades to non-overridden layers
+        from PyQt6.QtWidgets import QColorDialog
+        monkeypatch.setattr(QColorDialog, "getColor",
+                            staticmethod(lambda *a, **k: QColor("#00ff00")))
+        tree.itemWidget(file_row, dlg._UL_COL_COLOR).click()
+        assert rec.colour == "#00ff00"
+        child = next(c for c in group.childItems()
+                     if c.pen().style() != Qt.PenStyle.NoPen)
+        assert child.pen().color().name() == "#00ff00"
+        # layer vis checkbox routes through the choke point
+        layer_row = file_row.child(0)
+        layer_name = layer_row.data(0, Qt.ItemDataRole.UserRole)
+        cb = tree.itemWidget(layer_row, dlg._UL_COL_VIS)
+        cb.click()
+        assert layer_name in rec.hidden_layers
+        dlg.reject()
+
+    def test_pdf_row_has_no_layer_children_or_colour(self, qapp):
+        scene = Model_Space()
+        rec = _record(type="pdf", path="x.pdf")
+        from PyQt6.QtWidgets import QGraphicsPixmapItem
+        item = QGraphicsPixmapItem()   # raster placeholder shape (no data(1) children)
+        scene.addItem(item)
+        scene.underlays.append((rec, item))
+        dlg = DisplayManager(scene)
+        # find the Underlays row for the pdf (only one underlay in scene)
+        row = dlg._underlay_tree.topLevelItem(0)
+        assert row.childCount() == 0
+        assert dlg._underlay_tree.itemWidget(row, dlg._UL_COL_COLOR) is None
+        assert dlg._underlay_tree.itemWidget(row, dlg._UL_COL_LW) is None
+        assert dlg._underlay_tree.itemWidget(row, dlg._UL_COL_OPACITY) is not None
+        dlg.reject()
+
+
+class TestPdfColourPersistence:
+    def test_pdf_colour_round_trips(self):
+        rec = _record(type="pdf", path="x.pdf", colour="#123456")
+        assert Underlay.from_dict(rec.to_dict()).colour == "#123456"

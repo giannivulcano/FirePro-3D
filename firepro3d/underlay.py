@@ -60,6 +60,9 @@ class Underlay:
         if self.type == "pdf":
             d["page"] = self.page
             d["dpi"]  = self.dpi
+            # DM colour edits apply to vector-PDF pens too (§16.6);
+            # line_weight stays dxf/dwg-only.
+            d["colour"] = self.colour
         elif self.type in ("dxf", "dwg"):
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
@@ -93,9 +96,10 @@ class Underlay:
             locked      = d.get("locked", False),
             page        = d.get("page", 0),
             dpi         = d.get("dpi", 150),
-            # PDF dicts never carry colour (to_dict omits it) — default to the
-            # dataclass gray so reloaded PDF vector pens keep today's look;
-            # DXF keeps the legacy white fallback for colour-less old files.
+            # Old PDF dicts lack colour (pre-§16.6 to_dict omitted it) —
+            # default to the dataclass gray so reloaded PDF vector pens keep
+            # today's look; DXF keeps the legacy white fallback for
+            # colour-less old files.
             colour      = d.get("colour",
                                 "#c0c0c0" if d["type"] == "pdf" else "#ffffff"),
             line_weight = d.get("line_weight", 0),
