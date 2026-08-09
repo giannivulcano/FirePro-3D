@@ -1,9 +1,27 @@
+---
+status: partial            # §1–§15 current (code-verified); §16 proposal (designed, unbuilt)
+last-verified: 2026-06-23  # §1–§15 claims; §16 authored 2026-08-09 (design, no code yet)
+verified-commit: 3e5b01a
+applies-to:
+  - firepro3d/underlay.py
+  - firepro3d/dxf_preview_dialog.py
+  - firepro3d/dxf_import_worker.py
+  - firepro3d/pdf_import_worker.py
+  - firepro3d/dwg_converter.py
+  - firepro3d/underlay_cache.py
+  - firepro3d/underlay_context_menu.py
+  - firepro3d/calibrate_dialog.py
+source-tasks:
+  - "Underlay display management & view assignment [P1]"
+---
+
 # Underlay Workflow — Specification
 
-> **Status:** North-star design + decomposed follow-ups (spec-only — no code changes delivered by this document)
+> **Status:** §1–§15 describe current behavior (verified per frontmatter). **§16 is a design proposal** (2026-08-09 grill + brainstorm) — it must not be read as current behavior until implemented and re-stamped.
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
-> **Revision:** 7 (import-dialog UI cleanup: pill controls, merged Placement group, level-of-insertion selector, inline custom scale + "Calibrate", "Insert at origin" greys base point, hidden preview scrollbars; checkbox indicators styled globally in `firepro3d/theme.py`)
+> **Revision:** 8 (adds §16 — display management & view assignment design: per-layer colour/weight, per-view visibility, Display Manager Underlays tab)
+> **Revision 7:** import-dialog UI cleanup: pill controls, merged Placement group, level-of-insertion selector, inline custom scale + "Calibrate", "Insert at origin" greys base point, hidden preview scrollbars; checkbox indicators styled globally in `firepro3d/theme.py`
 > **Last verified:** 2026-06-23 (commit `3e5b01a`) — §3.1 data model (`user_layer` removed), §3.4 underlay render pen width (cosmetic, fixed px)
 
 ---
@@ -48,7 +66,7 @@ Underlays are the primary reference material for fire protection design — ever
 | Feature | Reason for deferral |
 |---|---|
 | Batch multi-page PDF import | Low priority; one-page-at-a-time is adequate and each page needs independent placement |
-| ~~Preserve source DXF colours~~ | Implemented — per-entity colour extracted (ACI/true_color/BYLAYER) but currently disabled in rendering; uniform gray used for MVP clarity |
+| ~~Preserve source DXF colours~~ | Implemented — per-entity colour extracted (ACI/true_color/BYLAYER) but currently disabled in rendering; uniform gray used for MVP clarity. **Re-deferred in the 2026-08-09 §16 design (D5):** per-layer overrides land instead; source-colour rendering needs (layer, colour) re-batching and remains a follow-up. |
 | Undoable underlay operations | Performance concern (serializing large geometry groups on every undo capture); underlays change infrequently |
 | ScaleManager cleanup | Stable, out of scope; not broken |
 | Separate underlay manager panel | Browser tree integration covers management needs; revisit if it proves insufficient |
@@ -126,6 +144,8 @@ class Underlay:
 ### 3.4 Rendering (pen width)
 
 Underlay geometry is batched into one `QGraphicsPathItem` per DXF/PDF source layer (`_build_batched_underlay_group` in `model_space.py`). Stroked geometry uses a **cosmetic** pen whose width is a fixed device-pixel constant — `UNDERLAY_LINE_WIDTH_PX` (`constants.py`, currently `1.5`, matching the gridline on-screen width). Because the pen is cosmetic, underlay lines render at a constant on-screen thickness **independent of zoom level and `import_scale`**. The stored `Underlay.line_weight` (mm) is **not** consulted when rendering; all four build sites (interactive placement, DXF import, PDF vector import, reload-from-disk) pass the same fixed pixel width. Text is filled with the underlay colour and `NoPen`.
+
+> **Forward note:** the §16 design (proposal) supersedes the uniform-pen rule with per-layer colour/weight overrides while preserving this section's cosmetic-on-screen invariant (screen pens stay cosmetic; true mm weights apply only in paper output). §3.4 remains the as-built contract until §16 ships.
 
 ---
 
@@ -612,3 +632,133 @@ Tasks to add to `TODO.md` after this spec is approved:
 | P3 | Batch multi-page PDF import | §2.2 |
 | P3 | Preserve source DXF colours option | §2.2 |
 | P3 | Undoable underlay operations | §2.2 |
+
+---
+
+## 16. Display Management & View Assignment — Design (status: proposal)
+
+> **Provenance:** 2026-08-08 grill (scope) + 2026-08-09 brainstorm (design), /todo Large-tier workflow for the P1 TODO item "Underlay display management & view assignment". **Unbuilt** — nothing below is current behavior. On implementation, fold §16.2's fields into §3.2, §16.3's pen rule into §3.4, §16.4's clause into §7.2, and re-stamp the frontmatter.
+
+### 16.1 Goal & settled scope
+
+Give underlays AHJ-grade display control: per-source-layer colour and line weight, per-underlay uniform colour/opacity/visibility, and per-view visibility (which plan/detail views an underlay appears in) — edited from a new Display Manager **Underlays** tab and honoured both on screen and in plotted output.
+
+Scope decisions (binding, from the grill):
+
+1. **View assignment = per-view visibility over plan views + detail views only.** Elevations excluded (underlays never render in elevation scenes); paper viewports inherit from their source view. Stored as *exclusions*; default visible everywhere; new views start all-visible.
+2. **Additive AND** with the existing model: `level` (§7), explicit `visible`, and `hidden_layers` (§8) keep their exact semantics; the per-view set is one more AND condition.
+3. **Import dialog unchanged** — the Level selector (§7.3/§10.1) already covers import-time assignment. The historical TODO part (a) is recorded as shipped.
+4. **Appearance overrides are global per underlay; only visibility is per-view.** (Per-view graphics overrides stay with the deferred view-templates line, `view-relationships.md §7.4` — this design must not preclude them, and doesn't: it never keys appearance by view.)
+5. **Weights are paper-true, screen-hinted:** named Line Weights definitions (shared with the Paper Space tab); real mm in paper output; cosmetic px approximation on screen (never zoom-scales — §3.4 invariant preserved).
+6. **Plot colour follows the sheet colour mode literally:** B&W forces underlays black; per-layer colours render in Full Color (and Custom) modes. *Divergence note: today the paper pass does not touch underlays at all, so B&W plots currently show authored gray — this design intentionally changes existing B&W plot output.*
+7. **DM tab is the only new edit surface**; the browser tree keeps its current actions. Layer visibility remains one state (`hidden_layers`) edited from both surfaces.
+8. **Source-colour rendering deferred** (D5, §16.8).
+
+### 16.2 Data model (`underlay.py`)
+
+New fields, following the §3.3 backward-compat pattern (defaults reproduce current behavior; old files load identically):
+
+```python
+hidden_in_views: list[str] = field(default_factory=list)
+    # View keys where this underlay is hidden. Key vocabulary =
+    # f"{source_view_type}:{view_name}" as used by SheetViewData/ViewResolver,
+    # e.g. "plan:Plan: Level 1", "detail:Enlarged Riser".
+layer_overrides: dict[str, dict] = field(default_factory=dict)
+    # Source layer name → {"colour": "#rrggbb", "line_weight": "<named weight>"}.
+    # Both keys optional per layer; absent key = inherit the underlay default.
+line_weight_name: str = ""
+    # Per-underlay default named weight. "" = no weight: screen hint stays
+    # UNDERLAY_LINE_WIDTH_PX and paper output keeps the cosmetic (hairline) pen.
+```
+
+- **Effective layer appearance** = `layer_overrides[layer]` → fall back to the underlay's `colour` / `line_weight_name`. Two tiers only — the Display Manager three-tier cascade (instance → project → QSettings) does **not** apply; this state is project-content-keyed and lives solely on the record (project file).
+- The existing `colour` field **is** the per-underlay uniform colour (the DM tab edits it; no new field). The legacy `line_weight: float` stays serialized-but-ignored (it never rendered; superseded by `line_weight_name`; no migration).
+- `from_dict` defaults: `hidden_in_views=[]`, `layer_overrides={}`, `line_weight_name=""`.
+- Underlays remain **excluded from the undo path** (§2.2 posture unchanged); DM edits are not undoable, matching all other Display Manager settings.
+
+### 16.3 Rendering & screen hint (`model_space.py`, `constants.py`)
+
+- `_build_batched_underlay_group` stops sharing one pen across layers (all four §3.4 build sites route through it): each layer's stroke item gets its pen from a new pure helper `underlay_layer_pen(record, layer) -> QPen` (colour + hint width, always cosmetic); text items keep NoPen + colour brush fill using the same effective colour.
+- **Screen hint width:** no effective weight → exactly `UNDERLAY_LINE_WIDTH_PX` (pixel-identical to today). With a named weight: `px = width_mm * UNDERLAY_MM_TO_PX_HINT`, new constant chosen so Medium (0.25 mm) ≈ 1.5 px → **`UNDERLAY_MM_TO_PX_HINT = 6.0`** (`constants.py`). Heavier weights read proportionally heavier on screen but never zoom-scale.
+- **Live re-application:** new `Model_Space.repen_underlay(record)` walks the group's children matching `data(1)` layer tags and swaps pens/brushes **in place** — no group rebuild, no `scene.clear()` (items may be mid-event-frame), O(2 × layer count). Called by the DM tab on every edit and on Cancel-restore. Guards deleted C++ objects (`RuntimeError` → skip) like the §7.2 pass.
+- **Cache untouched:** overrides apply at pen level, never baked into cached geometry; `cache_key()` unchanged.
+
+### 16.4 Per-view visibility — model side (`model_space.py`, `level_manager.py`, `main.py`)
+
+- `Model_Space` gains `active_view_key: str` (same vocabulary as §16.2), set by `_apply_plan_level` / `_apply_detail_level` in `main.py` exactly where they already set `active_level` / call `apply_to_scene`.
+- The §7.2 underlay pass in `LevelManager.apply_to_scene` gains one clause after the explicit-`visible` check and **before** the level/`"*"`/Z-range logic:
+
+  ```python
+  if scene.active_view_key in data.hidden_in_views:
+      item.setVisible(False)
+      continue
+  ```
+
+  Everything else in the pass is untouched; AND-composition falls out of the existing early-return structure. Detail tabs already route through `_apply_detail_level` → `apply_to_scene`, so one clause covers both view families.
+- DM view-assignment edits rewrite `hidden_in_views` then re-call `apply_to_scene` for the active view.
+
+### 16.5 Paper pass (`paper_display.py`, `paper_space.py`)
+
+A new **underlay stage** inside the existing `apply_paper_overrides` → render → `restore_model_display` bracket — same scene-scoped echo guard, same exception-safe unwind; no new lifecycle machinery.
+
+- `apply_paper_overrides` gains a `source_view_key: str` parameter; `SheetViewport.paint()` builds it from `_data.source_view_type` / `_data.source_view_name`. `paper_export` inherits the behavior for free (transient `PaperScene` runs the same paint path).
+- **Enumeration:** iterate `scene.underlays` (the `(record, group)` list) directly — underlay children carry no category, so the categorised item walk never sees them. Skip groups whose `sceneBoundingRect()` misses `source_rect` (group-level spatial check is safe here: groups are large batched paths, not thin cosmetic strays).
+- **Per group — save, then mutate:**
+  1. *Visibility:* `source_view_key in record.hidden_in_views` → `group.setVisible(False)`. A group already hidden by the model-side pass stays hidden (viewports respect `isVisible()` — no change needed).
+  2. *Colour:* **B&W** → all stroke pens and text brushes black. **Full Color / Custom** → authored effective per-layer colours (untouched).
+  3. *Weight:* per-layer effective named weight resolved via `resolve_line_weight_mm()` → `pen.setWidthF(width_mm / paper_scale)`, `setCosmetic(False)` — verbatim the gridline §9.9.1 pen pattern (`paper-space.md §9.9`). No effective weight → keep the cosmetic screen pen (plots hairline, as today).
+- **Restore:** saved `(child, pen, brush)` triples + prior group visibility, restored in the existing type-aware restore walk; the stage participates in the pass's existing mid-failure auto-restore.
+
+### 16.6 Display Manager "Underlays" tab (`display_manager.py`)
+
+Fourth tab, `QTreeWidget`, built with the Paper Space tab's construction idiom (`setItemWidget` rows: checkboxes, colour swatches, weight combos):
+
+```
+Underlays
+├─ structural.dxf  [Level 1]  [vis☑] [colour▮] [opacity 100] [weight (none)▾] [Views…]
+│   ├─ A-WALL                 [vis☑] [colour▮] [weight Medium▾]   [↺]
+│   └─ A-FURN                 [vis☐] [colour▮] [weight (inherit)▾] [↺]
+└─ floor1.pdf  [Level 1]      [vis☑] [opacity 80] [Views…]
+```
+
+- **Underlay rows:** visibility (= `record.visible`), colour swatch (= `record.colour`), opacity, default weight combo, **Views…** button. **Layer rows** (DXF/DWG only): visibility (= `hidden_layers` membership), colour swatch + weight combo (= `layer_overrides`), per-layer reset (↺ clears that layer's overrides). Vector PDFs are one pseudo-layer — the underlay-level colour/weight applies, no layer children shown. Raster PDFs show no colour/weight widgets (vis/opacity/Views only). Missing-file rows show the ⚠ marker with all controls enabled (state applies on relink).
+- **Views… button** → checkable menu listing all plan + detail views (checked = visible); writes `hidden_in_views` and re-calls `apply_to_scene`. (Columns-per-view rejected — views are dynamic.)
+- **Layer visibility is the same `hidden_layers` state the browser tree edits**, routed through the existing model-space toggle helper so `underlaysChanged` fires and the browser stays in sync — one state, two surfaces, no parallel store.
+- **Live-apply / Cancel:** every edit mutates the record then calls `repen_underlay` / the visibility passes. On open, snapshot a deep copy per record of `{colour, opacity, visible, hidden_layers, hidden_in_views, layer_overrides, line_weight_name}`; **Cancel** restores the copies and re-applies (including `underlaysChanged` so the browser reverts too). **OK** keeps the live records and marks the scene modified. **No QSettings writes** for this tab — persistence rides `Underlay.to_dict()` in the project file.
+- **Named weights:** combos list the shared Line Weights definitions; the Line Weights tab's *remove-blocked-if-in-use* check extends to scan `scene.underlays` (`line_weight_name` + `layer_overrides`) in addition to paper categories. Weight *rename* likewise updates underlay references.
+
+### 16.7 Edge wiring
+
+- **Refresh-from-disk (§11):** after re-import, re-apply `layer_overrides` and `hidden_layers` by layer name; silently drop stale names from **both**; new layers get inherit-defaults. Same child walk, one place.
+- **Duplicate (§8.3):** the record copy carries all new fields — no extra work.
+- **Level rename:** where `PlanViewManager.rename_level` is invoked, also remap `"plan:Plan: {old}"` → `"plan:Plan: {new}"` across all underlay records; detail-marker renames remap `"detail:{old}"` analogously. **Deleted views:** entries dropped lazily (next DM edit or save-time sweep); a stale key is harmless — it never matches.
+- **Failure posture:** the paper stage inherits the pass's try/unwind; `repen_underlay` and the visibility clause guard deleted C++ objects (`RuntimeError` → skip).
+
+### 16.8 Design decisions
+
+| # | Decision | Alternatives rejected |
+|---|---|---|
+| D1 | **Record-driven, two application points** — state on `Underlay`; model side applied via the §7.2 pass + `repen_underlay`; paper side via a new stage in the §9.9 override pass. | Underlays as dynamic DM categories (fights the static per-category + QSettings design); render-time-only filtering (model tabs have no paint hook — fragments the mechanism). |
+| D2 | View keys = `"{type}:{name}"` shared with `SheetViewData`/`ViewResolver` vocabulary. | Bare view names (plan/detail collision risk); separate per-type lists (two fields, same meaning). |
+| D3 | Screen hint = `width_mm × UNDERLAY_MM_TO_PX_HINT` (6.0), cosmetic. | True-mm screen pens (zoom-scaling — reintroduces the §3.4 thick-line bug); no hint (screen/plot divergence). |
+| D4 | Reuse `record.colour` as the per-underlay uniform colour; retire `line_weight: float` in place (ignored, no migration). | New colour field (duplicate home); float→name migration (field never rendered — nothing to migrate). |
+| D5 | **Source-colour rendering deferred** — requires re-batching by (layer, colour); per-layer overrides cover the AHJ need. Follow-up task in TODO. | Building it now (rebuild/perf risk bundled into an already cross-cutting task). |
+| D6 | B&W literal (black), including underlays — user decision over the screened-gray recommendation. | Screened gray in B&W; per-underlay plot colour. |
+
+### 16.9 Acceptance criteria
+
+- [ ] An underlay can be hidden in any subset of plan/detail views from the DM tab; the exclusion holds in model tabs **and** through paper viewports/PDF export, while sibling viewports of other views are unaffected.
+- [ ] Per-layer colour/weight/visibility and per-underlay colour/opacity/visibility edits apply live; **Cancel** restores the exact prior state (records, pens, browser tree); **OK** persists via the project file.
+- [ ] With no overrides set, screen rendering is pixel-identical to today (cosmetic `UNDERLAY_LINE_WIDTH_PX`) and old `.fpd` files load behavior-identical (backward-compat defaults).
+- [ ] Plotted output: named weights measure at true mm (± tolerance) at the sheet's viewport scale; B&W mode renders underlay strokes/text black; Full Color renders effective layer colours; no-weight underlays plot hairline as today.
+- [ ] `hidden_layers` stays one state: browser toggles reflect in the DM tab and vice versa; `underlaysChanged` fires from both surfaces.
+- [ ] Refresh-from-disk preserves overrides by layer name, drops stale names, defaults new layers; duplicates inherit everything; level/detail renames remap `hidden_in_views`.
+- [ ] Line-weight removal is blocked while any underlay references it; renames follow.
+
+### 16.10 Verification checklist & testing
+
+- Unit (`tests/test_underlay.py`): round-trip + backward-compat defaults for the three new fields; `layer_overrides`/`hidden_in_views` default-factory isolation.
+- Widget-driven (`tests/test_underlay_display.py`, new): DM edits → actual pen colour/width changes on scene children (click/edit-driven, not slot calls); Cancel → identical restore; layer checkbox ↔ browser sync both directions; Views… → `apply_to_scene` hide/show on the current tab; weight remove-blocked + rename-follows.
+- Per-view: tab switches with exclusions → `isVisible()` asserted; viewport render of an excluding view → underlay absent from rendered pixels, sibling viewport unaffected (echo-guard one-observer-dirty case).
+- Export parity (PyMuPDF, `test_gridline_paper_scale.py` style): B&W → black strokes; named weight measures true-mm; no-weight baseline unchanged vs today.
+- Refresh/duplicate preservation; red-verification (fix stashed → key tests fail); full chunked suite green before done.

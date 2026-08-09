@@ -154,6 +154,11 @@ Changes apply live to the canvas. Cancelling the dialog reverts all changes to t
 - **Level Manager** -- sets `_is_section_cut` flag during visibility passes
 - **Scene I/O** -- saves/loads per-instance overrides and project-level category settings
 - **3D View** -- reads display colours for mesh materials
+- **Underlays** -- underlays are *not* categories and do not participate in the
+  three-tier cascade; their display state (per-layer colour/weight, per-view
+  visibility) lives on the `Underlay` record and is specified by
+  [`underlay-workflow.md §16`](../specs/underlay-workflow.md) (design proposal;
+  adds a per-instance "Underlays" tab to the Display Manager dialog)
 
 ## Fitting visibility
 
