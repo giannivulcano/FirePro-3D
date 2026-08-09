@@ -83,3 +83,54 @@ class TestPdfRecordColourSeam:
     def test_dxf_from_dict_colour_keeps_legacy_white(self):
         u = Underlay.from_dict({"type": "dxf", "path": "old.dxf"})
         assert u.colour == "#ffffff"
+
+
+class TestRepenUnderlay:
+    def test_repen_swaps_pens_in_place(self, qapp):
+        scene = Model_Space()
+        rec = _record()
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        child = next(c for c in group.childItems()
+                     if c.data(1) == "A-WALL")
+        assert child.pen().color().name() == "#c0c0c0"
+        rec.layer_overrides["A-WALL"] = {"colour": "#00ff00"}
+        scene.repen_underlay(rec)
+        # same item object, new pen — no rebuild
+        assert child.pen().color().name() == "#00ff00"
+
+    def test_repen_applies_opacity(self, qapp):
+        scene = Model_Space()
+        rec = _record(opacity=0.4)
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        scene.repen_underlay(rec)
+        assert group.opacity() == pytest.approx(0.4)
+
+
+class TestLayerHiddenChokePoint:
+    def test_hide_and_show_layer(self, qapp):
+        scene = Model_Space()
+        rec = _record()
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        fired = []
+        scene.underlaysChanged.connect(lambda: fired.append(1))
+        scene.set_underlay_layer_hidden(rec, group, "A-WALL", True)
+        assert "A-WALL" in rec.hidden_layers
+        assert all(not c.isVisible() for c in group.childItems()
+                   if c.data(1) == "A-WALL")
+        scene.set_underlay_layer_hidden(rec, group, "A-WALL", False)
+        assert "A-WALL" not in rec.hidden_layers
+        assert all(c.isVisible() for c in group.childItems()
+                   if c.data(1) == "A-WALL")
+        assert len(fired) == 2
+
+    def test_noop_does_not_emit(self, qapp):
+        scene = Model_Space()
+        rec = _record()
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        fired = []
+        scene.underlaysChanged.connect(lambda: fired.append(1))
+        scene.set_underlay_layer_hidden(rec, group, "A-WALL", False)  # already shown
+        assert fired == []

@@ -2824,6 +2824,51 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for data, item in snapshot:
             self.refresh_underlay(data, item)
 
+    def repen_underlay(self, record: Underlay):
+        """Re-apply effective per-layer pens/brushes + opacity in place (§16.3).
+
+        Never rebuilds the group (callable from any context, incl. DM live
+        preview). Guards deleted C++ objects like the §7.2 pass.
+        """
+        for data, group in getattr(self, "underlays", []):
+            if data is not record or group is None:
+                continue
+            try:
+                children = group.childItems()
+            except RuntimeError:
+                return
+            for child in children:
+                layer = child.data(1)
+                if layer is None or not isinstance(child, QGraphicsPathItem):
+                    continue
+                if child.pen().style() == Qt.PenStyle.NoPen:
+                    # text batch: colour rides the brush fill
+                    child.setBrush(QBrush(QColor(
+                        record.effective_layer_colour(layer))))
+                else:
+                    child.setPen(underlay_layer_pen(record, layer))
+            group.setOpacity(record.opacity)
+            return
+
+    def set_underlay_layer_hidden(self, record: Underlay, group,
+                                  layer_name: str, hidden: bool):
+        """Single choke point for hidden_layers edits (§16.6 — one state,
+        two surfaces: browser tree and DM tab both route through here).
+        No push_undo_state here — callers decide (browser pushes, DM never)."""
+        if hidden and layer_name not in record.hidden_layers:
+            record.hidden_layers.append(layer_name)
+        elif not hidden and layer_name in record.hidden_layers:
+            record.hidden_layers.remove(layer_name)
+        else:
+            return
+        try:
+            for child in group.childItems():
+                if child.data(1) == layer_name:
+                    child.setVisible(not hidden)
+        except RuntimeError:
+            return
+        self.underlaysChanged.emit()
+
     # -------------------------------------------------------------------------
     # UNDO / REDO
 

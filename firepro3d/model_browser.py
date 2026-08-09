@@ -792,16 +792,8 @@ class ModelBrowser(QWidget):
 
     def _toggle_underlay_layer(self, data, item, layer_name):
         """Toggle a DXF source layer on/off."""
-        if layer_name in data.hidden_layers:
-            data.hidden_layers.remove(layer_name)
-            show = True
-        else:
-            data.hidden_layers.append(layer_name)
-            show = False
-        for child in item.childItems():
-            if child.data(1) == layer_name:
-                child.setVisible(show)
-        self._scene.underlaysChanged.emit()
+        hidden = layer_name not in data.hidden_layers
+        self._scene.set_underlay_layer_hidden(data, item, layer_name, hidden)
         self._scene.push_undo_state()
         self.refresh()
 
