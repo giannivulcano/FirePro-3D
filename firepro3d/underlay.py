@@ -41,6 +41,10 @@ class Underlay:
     # Spatial bounds of area-selected geometry (raw DXF coordinates).
     # Stored so re-extraction can reproduce the same spatial filter.
     import_bounds: list[float] | None = None  # [min_x, min_y, max_x, max_y]
+    # Display management & view assignment (Revision 8, spec §16.2)
+    hidden_in_views: list[str] = field(default_factory=list)
+    layer_overrides: dict = field(default_factory=dict)
+    line_weight_name: str = ""
 
     def to_dict(self) -> dict:
         d = {
@@ -70,6 +74,10 @@ class Underlay:
         d["layout"] = self.layout
         if self.import_bounds is not None:
             d["import_bounds"] = list(self.import_bounds)
+        d["hidden_in_views"] = list(self.hidden_in_views)
+        d["layer_overrides"] = {k: dict(v)
+                                for k, v in self.layer_overrides.items()}
+        d["line_weight_name"] = self.line_weight_name
         return d
 
     @staticmethod
@@ -97,6 +105,10 @@ class Underlay:
             selected_layers = d.get("selected_layers", None),
             layout = d.get("layout", ""),
             import_bounds = d.get("import_bounds", None),
+            hidden_in_views = list(d.get("hidden_in_views", [])),
+            layer_overrides = {k: dict(v)
+                               for k, v in d.get("layer_overrides", {}).items()},
+            line_weight_name = d.get("line_weight_name", ""),
         )
 
     @staticmethod
@@ -138,6 +150,15 @@ class Underlay:
         if os.path.exists(stored_path):
             return stored_path
         return None
+
+    def effective_layer_colour(self, layer: str) -> str:
+        """Two-tier fallback (§16.2): layer override → underlay colour."""
+        return self.layer_overrides.get(layer, {}).get("colour", self.colour)
+
+    def effective_layer_weight(self, layer: str) -> str:
+        """Two-tier fallback (§16.2): layer override → underlay weight name."""
+        return self.layer_overrides.get(layer, {}).get(
+            "line_weight", self.line_weight_name)
 
     def get_properties(self) -> dict:
         """Return property template for the property manager panel.

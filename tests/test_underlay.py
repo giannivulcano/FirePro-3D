@@ -208,3 +208,58 @@ class TestPathResolution:
         dxf.write_text("dummy")
         result = Underlay.resolve_path(str(dxf), "/some/other/dir")
         assert result == str(dxf)
+
+
+class TestDisplayManagementFields:
+    """Spec §16.2 — hidden_in_views / layer_overrides / line_weight_name."""
+
+    def test_defaults(self):
+        u = Underlay(type="dxf", path="a.dxf")
+        assert u.hidden_in_views == []
+        assert u.layer_overrides == {}
+        assert u.line_weight_name == ""
+
+    def test_default_factory_isolation(self):
+        a = Underlay(type="dxf", path="a.dxf")
+        b = Underlay(type="dxf", path="b.dxf")
+        a.hidden_in_views.append("plan:Plan: Level 1")
+        a.layer_overrides["A-WALL"] = {"colour": "#ff0000"}
+        assert b.hidden_in_views == []
+        assert b.layer_overrides == {}
+
+    def test_round_trip(self):
+        u = Underlay(type="dxf", path="a.dxf",
+                     hidden_in_views=["plan:Plan: Level 1", "detail:Riser"],
+                     layer_overrides={"A-WALL": {"colour": "#ff0000",
+                                                 "line_weight": "Heavy"},
+                                      "A-DOOR": {"line_weight": "Light"}},
+                     line_weight_name="Medium")
+        u2 = Underlay.from_dict(u.to_dict())
+        assert u2.hidden_in_views == u.hidden_in_views
+        assert u2.layer_overrides == u.layer_overrides
+        assert u2.line_weight_name == "Medium"
+        assert u2.layer_overrides is not u.layer_overrides
+        assert u2.layer_overrides["A-WALL"] is not u.layer_overrides["A-WALL"]
+
+    def test_backward_compat_old_dict(self):
+        """Pre-§16 project dicts load with behavior-identical defaults."""
+        d = Underlay(type="dxf", path="a.dxf").to_dict()
+        d.pop("hidden_in_views", None)
+        d.pop("layer_overrides", None)
+        d.pop("line_weight_name", None)
+        u = Underlay.from_dict(d)
+        assert u.hidden_in_views == []
+        assert u.layer_overrides == {}
+        assert u.line_weight_name == ""
+
+    def test_effective_layer_fallbacks(self):
+        u = Underlay(type="dxf", path="a.dxf", colour="#c0c0c0",
+                     line_weight_name="Medium",
+                     layer_overrides={"A-WALL": {"colour": "#ff0000"},
+                                      "A-DOOR": {"line_weight": "Heavy"}})
+        assert u.effective_layer_colour("A-WALL") == "#ff0000"
+        assert u.effective_layer_weight("A-WALL") == "Medium"
+        assert u.effective_layer_colour("A-DOOR") == "#c0c0c0"
+        assert u.effective_layer_weight("A-DOOR") == "Heavy"
+        assert u.effective_layer_colour("OTHER") == "#c0c0c0"
+        assert u.effective_layer_weight("OTHER") == "Medium"
