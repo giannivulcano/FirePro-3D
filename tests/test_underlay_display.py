@@ -732,6 +732,143 @@ class TestUnderlaysTab:
         dlg.reject()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# §16.6 — Line Weights tab guards: remove blocked / rename follows underlay refs
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def _paper_lw_isolation(monkeypatch):
+    """Stateful factory-backed fakes for the guards' QSettings I/O.
+
+    _line_weight_in_use / _propagate_lw_rename load-and-save paper categories
+    (and the rename wire saves line weights) through live QSettings; a
+    developer machine with a category set to "Very Heavy" would flip the
+    negative assertions, and rename tests would write real settings.  Pin
+    both load/save pairs to in-memory factory-seeded stores — same isolation
+    intent as the module autouse _factory_line_weights fixture.
+    """
+    cats = {k: dict(v) for k, v in pd.FACTORY_PAPER_CATEGORIES.items()}
+    monkeypatch.setattr(
+        pd, "load_paper_categories",
+        lambda settings=None: {k: dict(v) for k, v in cats.items()})
+
+    def _save_cats(new, settings=None):
+        cats.clear()
+        cats.update({k: dict(v) for k, v in new.items()})
+
+    monkeypatch.setattr(pd, "save_paper_categories", _save_cats)
+
+    weights = [pd.LineWeightDef(d.name, d.width_mm)
+               for d in pd.FACTORY_LINE_WEIGHTS]
+    monkeypatch.setattr(
+        pd, "load_line_weights",
+        lambda settings=None: [pd.LineWeightDef(d.name, d.width_mm)
+                               for d in weights])
+
+    def _save_weights(defs, settings=None):
+        weights[:] = [pd.LineWeightDef(d.name, d.width_mm) for d in defs]
+
+    monkeypatch.setattr(pd, "save_line_weights", _save_weights)
+
+
+@pytest.mark.usefixtures("_paper_lw_isolation")
+class TestLineWeightGuards:
+    def test_remove_blocked_when_underlay_references(self, qapp):
+        """A per-layer override reference blocks removal.
+
+        Uses "Very Heavy" — the one factory weight NO factory category
+        references (paper_display._FACTORY_LW) — so the existing
+        paper-category scan cannot mask a missing underlay scan
+        ("Heavy" is factory-Wall's weight and would pass vacuously).
+        """
+        scene, rec, group = _dm_scene(qapp)
+        rec.layer_overrides["A-WALL"] = {"line_weight": "Very Heavy"}
+        dlg = DisplayManager(scene)
+        assert dlg._line_weight_in_use("Very Heavy")
+        assert not dlg._line_weight_in_use("Ghost")   # nothing references it
+        dlg.reject()
+
+    def test_remove_blocked_by_underlay_default_weight(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        rec.line_weight_name = "Very Heavy"           # not factory-referenced
+        dlg = DisplayManager(scene)
+        assert dlg._line_weight_in_use("Very Heavy")
+        dlg.reject()
+
+    def test_remove_button_disabled_for_referenced_weight(self, qapp):
+        """Widget wire: selecting a referenced weight disables Remove, and
+        the remove handler's backstop refuses to pop it."""
+        scene, rec, group = _dm_scene(qapp)
+        rec.line_weight_name = "Very Heavy"
+        dlg = DisplayManager(scene)
+        row = next(i for i, d in enumerate(dlg._lw_defs)
+                   if d.name == "Very Heavy")
+        dlg._lw_table.setCurrentCell(row, 0)
+        assert not dlg._lw_remove_btn.isEnabled()
+        n = len(dlg._lw_defs)
+        dlg._on_lw_remove()
+        assert len(dlg._lw_defs) == n
+        dlg.reject()
+
+    def test_rename_updates_underlay_refs(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        rec.line_weight_name = "Heavy"
+        rec.layer_overrides["A-WALL"] = {"line_weight": "Heavy"}
+        dlg = DisplayManager(scene)
+        dlg._propagate_lw_rename("Heavy", "AHJ Heavy")
+        assert rec.line_weight_name == "AHJ Heavy"
+        assert rec.layer_overrides["A-WALL"]["line_weight"] == "AHJ Heavy"
+        dlg.reject()
+
+    def test_rename_via_table_refreshes_underlay_combos(self, qapp):
+        """Editing the Name cell drives the full wire (validate → propagate →
+        combo refresh): open Underlays-tab combos show the new name live,
+        matching the paper-tab's _refresh_lw_combos behavior."""
+        scene, rec, group = _dm_scene(qapp)
+        rec.line_weight_name = "Heavy"
+        rec.layer_overrides["A-WALL"] = {"line_weight": "Heavy"}
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        row = next(i for i, d in enumerate(dlg._lw_defs)
+                   if d.name == "Heavy")
+        dlg._lw_table.item(row, 0).setText("AHJ Heavy")   # fires cellChanged
+        assert rec.line_weight_name == "AHJ Heavy"
+        file_row = tree.topLevelItem(0)
+        assert tree.itemWidget(file_row, dlg._UL_COL_LW).currentText() == \
+            "AHJ Heavy"
+        wall_row = next(
+            file_row.child(j) for j in range(file_row.childCount())
+            if file_row.child(j).data(0, Qt.ItemDataRole.UserRole) == "A-WALL")
+        assert tree.itemWidget(wall_row, dlg._UL_COL_LW).currentText() == \
+            "AHJ Heavy"
+        dlg.reject()
+
+
+@pytest.mark.usefixtures("_paper_lw_isolation")
+class TestStaleWeightNameDisplay:
+    """Task 7 review carry-in: stale names (in records but absent from the
+    weight defs — legacy/hand-edited files) must display truthfully, not
+    silently fall back to "(none)"/"(inherit)" (setCurrentText no-ops on
+    non-editable combos when the text isn't an item)."""
+
+    def test_stale_names_shown_in_combos(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        rec.line_weight_name = "Ghost"                # not a defined weight
+        rec.layer_overrides["A-WALL"] = {"line_weight": "Phantom"}
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        file_row = tree.topLevelItem(0)
+        assert tree.itemWidget(file_row, dlg._UL_COL_LW).currentText() == \
+            "Ghost"
+        wall_row = next(
+            file_row.child(j) for j in range(file_row.childCount())
+            if file_row.child(j).data(0, Qt.ItemDataRole.UserRole) == "A-WALL")
+        assert tree.itemWidget(wall_row, dlg._UL_COL_LW).currentText() == \
+            "Phantom"
+        dlg.reject()
+
+
 class TestPdfColourPersistence:
     def test_pdf_colour_round_trips(self):
         rec = _record(type="pdf", path="x.pdf", colour="#123456")

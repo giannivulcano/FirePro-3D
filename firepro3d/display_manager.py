@@ -2446,6 +2446,22 @@ class DisplayManager(QDialog):
     # (repen_underlay / set_underlay_layer_hidden). No QSettings cascade.
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _ul_lw_combo_items(sentinel: str, lw_names: list[str],
+                           current: str | None) -> list[str]:
+        """Combo item list: sentinel + defined weights (+ stale *current*).
+
+        A name still referenced by the record but absent from the weight
+        defs (legacy/hand-edited files — the Line Weights tab's in-use
+        guard prevents new ones) is appended so it displays truthfully
+        instead of silently falling back to the sentinel (setCurrentText
+        no-ops on non-editable combos).
+        """
+        items = [sentinel] + list(lw_names)
+        if current and current not in lw_names:
+            items.append(current)
+        return items
+
     def _build_underlays_tab(self) -> QWidget:
         """Build the per-underlay / per-layer appearance tab."""
         from .paper_display import load_line_weights
@@ -2558,7 +2574,8 @@ class DisplayManager(QDialog):
         # ── Line-weight combo (vector only) ──────────────────────────
         if has_pens:
             lw_combo = QComboBox()
-            lw_combo.addItems(["(none)"] + lw_names)
+            lw_combo.addItems(self._ul_lw_combo_items(
+                "(none)", lw_names, data.line_weight_name))
             lw_combo.setCurrentText(data.line_weight_name or "(none)")
             lw_combo.currentTextChanged.connect(
                 lambda t, d=data: self._on_ul_lw_changed(d, t))
@@ -2619,8 +2636,8 @@ class DisplayManager(QDialog):
 
         # Weight — "(inherit)" = no per-layer override.
         lw_combo = QComboBox()
-        lw_combo.addItems(["(inherit)"] + lw_names)
         cur = data.layer_overrides.get(layer_name, {}).get("line_weight")
+        lw_combo.addItems(self._ul_lw_combo_items("(inherit)", lw_names, cur))
         lw_combo.setCurrentText(cur if cur else "(inherit)")
         lw_combo.currentTextChanged.connect(
             lambda t, d=data, ln=layer_name:
@@ -2850,12 +2867,46 @@ class DisplayManager(QDialog):
             self._lw_table.setItem(row, 1, width_item)
         self._suppress = False
 
+    def _line_weight_in_use(self, name: str) -> bool:
+        """True if *name* is referenced by a paper category or an underlay.
+
+        Underlay references (§16.6): the per-underlay default
+        ``line_weight_name`` and per-layer
+        ``layer_overrides[layer]["line_weight"]``.
+        """
+        from .paper_display import load_paper_categories
+        cats = load_paper_categories(self._settings)
+        if any(v.get("line_weight") == name for v in cats.values()):
+            return True
+        for data, _item in getattr(self._scene, "underlays", []):
+            if data.line_weight_name == name:
+                return True
+            for ov in data.layer_overrides.values():
+                if ov.get("line_weight") == name:
+                    return True
+        return False
+
+    def _propagate_lw_rename(self, old: str, new: str):
+        """Follow a weight rename through every by-name reference."""
+        from .paper_display import load_paper_categories, save_paper_categories
+        cats = load_paper_categories(self._settings)
+        for cat_vals in cats.values():
+            if cat_vals.get("line_weight") == old:
+                cat_vals["line_weight"] = new
+        save_paper_categories(cats, self._settings)
+        for data, _item in getattr(self._scene, "underlays", []):
+            if data.line_weight_name == old:
+                data.line_weight_name = new
+            for ov in data.layer_overrides.values():
+                if ov.get("line_weight") == old:
+                    ov["line_weight"] = new
+
     def _on_lw_cell_changed(self, row, col):
         if self._suppress or row >= len(self._lw_defs):
             return
         from .paper_display import (
             validate_line_weight_name, validate_line_weight_width,
-            save_line_weights, load_paper_categories, save_paper_categories,
+            save_line_weights,
         )
         old_def = self._lw_defs[row]
         text = self._lw_table.item(row, col).text().strip()
@@ -2868,11 +2919,7 @@ class DisplayManager(QDialog):
                 return
             old_name = old_def.name
             old_def.name = text
-            cats = load_paper_categories(self._settings)
-            for cat_vals in cats.values():
-                if cat_vals.get("line_weight") == old_name:
-                    cat_vals["line_weight"] = text
-            save_paper_categories(cats, self._settings)
+            self._propagate_lw_rename(old_name, text)
         else:  # Width changed
             try:
                 new_width = float(text)
@@ -2906,13 +2953,11 @@ class DisplayManager(QDialog):
             self._refresh_lw_combos()
 
     def _on_lw_remove(self):
-        from .paper_display import save_line_weights, load_paper_categories
+        from .paper_display import save_line_weights
         row = self._lw_table.currentRow()
         if row < 0 or row >= len(self._lw_defs):
             return
-        name = self._lw_defs[row].name
-        cats = load_paper_categories(self._settings)
-        if any(v.get("line_weight") == name for v in cats.values()):
+        if self._line_weight_in_use(self._lw_defs[row].name):
             return
         self._lw_defs.pop(row)
         save_line_weights(self._lw_defs, self._settings)
@@ -2922,14 +2967,11 @@ class DisplayManager(QDialog):
 
     def _update_lw_remove_state(self, row, col, prev_row, prev_col):
         """Disable Remove button if the selected weight is in use."""
-        from .paper_display import load_paper_categories
         if row < 0 or row >= len(self._lw_defs):
             self._lw_remove_btn.setEnabled(False)
             return
-        name = self._lw_defs[row].name
-        cats = load_paper_categories(self._settings)
-        in_use = any(v.get("line_weight") == name for v in cats.values())
-        self._lw_remove_btn.setEnabled(not in_use)
+        self._lw_remove_btn.setEnabled(
+            not self._line_weight_in_use(self._lw_defs[row].name))
 
     def _refresh_lw_combos(self):
         """Refresh line weight dropdowns after definitions change."""
@@ -2950,6 +2992,37 @@ class DisplayManager(QDialog):
                 cat_lw = cats[key].get("line_weight", "Medium")
                 idx = combo.findText(cat_lw)
                 combo.setCurrentIndex(max(0, idx))
+        # Underlays-tab combos (paper-tab parity): rebuild from the records —
+        # rename propagation has already updated them, so re-seating from
+        # record state shows the new name live.
+        tree = getattr(self, "_underlay_tree", None)
+        if tree is not None:
+            underlays = getattr(self._scene, "underlays", [])
+            for i in range(tree.topLevelItemCount()):
+                file_row = tree.topLevelItem(i)
+                idx = file_row.data(0, Qt.ItemDataRole.UserRole)
+                if idx is None or idx >= len(underlays):
+                    continue
+                data = underlays[idx][0]
+                combo = tree.itemWidget(file_row, self._UL_COL_LW)
+                if combo is not None:
+                    cur = data.line_weight_name
+                    combo.clear()
+                    combo.addItems(self._ul_lw_combo_items(
+                        "(none)", lw_names, cur))
+                    combo.setCurrentText(cur or "(none)")
+                for j in range(file_row.childCount()):
+                    layer_row = file_row.child(j)
+                    combo = tree.itemWidget(layer_row, self._UL_COL_LW)
+                    if combo is None:
+                        continue
+                    layer_name = layer_row.data(0, Qt.ItemDataRole.UserRole)
+                    cur = data.layer_overrides.get(
+                        layer_name, {}).get("line_weight")
+                    combo.clear()
+                    combo.addItems(self._ul_lw_combo_items(
+                        "(inherit)", lw_names, cur))
+                    combo.setCurrentText(cur if cur else "(inherit)")
         self._suppress = False
 
     # ------------------------------------------------------------------
