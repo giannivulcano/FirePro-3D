@@ -110,11 +110,19 @@ class TestToDictTypeSpecific:
         assert d["page"] == 2
         assert d["dpi"] == 300
 
-    def test_pdf_dict_excludes_dxf_fields(self):
-        u = Underlay(type="pdf", path="sheet.pdf")
+    def test_pdf_dict_excludes_line_weight_includes_colour(self):
+        """PDF dicts persist colour but not line_weight (spec §16.6).
+
+        Vector PDFs support colour edits, so colour must round-trip
+        through the project file; line_weight remains dxf/dwg-only.
+        Old files without a colour key still load gray via the
+        type-aware from_dict default.
+        """
+        u = Underlay(type="pdf", path="sheet.pdf", colour="#00ff00")
         d = u.to_dict()
-        assert "colour" not in d
         assert "line_weight" not in d
+        assert "colour" in d
+        assert d["colour"] == "#00ff00"
 
     def test_dxf_dict_has_colour_and_line_weight(self):
         u = Underlay(type="dxf", path="floor.dxf", colour="#ff0000",
