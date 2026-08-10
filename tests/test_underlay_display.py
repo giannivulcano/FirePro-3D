@@ -789,6 +789,20 @@ class TestUnderlaysTabViewsAndCancel:
         door = next(c for c in group.childItems() if c.data(1) == "A-DOOR")
         assert door.isVisible()                    # layer visibility restored
 
+    def test_cancel_restores_group_visibility(self, qapp):
+        """Cancel must re-show a group hidden via the vis checkbox (mutant
+        killer for the restore path's visibility re-apply)."""
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        file_row = dlg._underlay_tree.topLevelItem(0)
+        cb = dlg._underlay_tree.itemWidget(file_row, dlg._UL_COL_VIS)
+        cb.click()                      # widget path: record + item both hidden
+        assert rec.visible is False
+        assert not group.isVisible()
+        dlg.reject()
+        assert rec.visible is True
+        assert group.isVisible()        # ← the previously-unpinned restore
+
     def test_ok_keeps_edits(self, qapp):
         scene, rec, group = _dm_scene(qapp)
         dlg = DisplayManager(scene)
