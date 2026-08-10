@@ -19,6 +19,7 @@ from firepro3d.pipe import Pipe
 from firepro3d.annotations import NoteAnnotation
 from firepro3d.dxf_preview_dialog import UnderlayImportDialog
 from firepro3d.property_manager import PropertyManager
+from firepro3d.sprinkler_db import SprinklerDatabase
 from firepro3d.scale_manager import DisplayUnit
 from firepro3d.hydraulic_report import HydraulicReportWidget
 from firepro3d.thermal_radiation_report import ThermalRadiationReportWidget
@@ -344,7 +345,11 @@ class MainWindow(QMainWindow):
 
         # Scene + View
         self._splash_progress(10, "Initialising scene...")
+        # One shared sprinkler database, owned here and injected into every
+        # consumer (scene/auto-populate, property panel, manager dialog).
+        self._sprinkler_db = SprinklerDatabase()
         self.scene = Model_Space()
+        self.scene.set_sprinkler_db(self._sprinkler_db)
         # Give templates a scene reference so they can always find the
         # *current* scale_manager (survives _clear_scene resets).
         self.current_pipe_template._scene_ref = self.scene
@@ -397,6 +402,7 @@ class MainWindow(QMainWindow):
         # Property manager (will be added as tab in browser dock)
         self._splash_progress(65, "Setting up panels...")
         self.prop_manager = PropertyManager()
+        self.prop_manager.set_sprinkler_db(self._sprinkler_db)
         self.prop_manager.set_level_manager(self.level_mgr)
         self.scene.requestPropertyUpdate.connect(self.prop_manager.show_properties)
         self.view_3d.entitySelected.connect(self.prop_manager.show_properties)
@@ -2814,9 +2820,7 @@ class MainWindow(QMainWindow):
 
     def open_sprinkler_manager(self):
         """Open the Sprinkler Manager database dialog."""
-        from firepro3d.sprinkler_db import SprinklerManagerDialog, SprinklerDatabase
-        if not hasattr(self, "_sprinkler_db"):
-            self._sprinkler_db = SprinklerDatabase()
+        from firepro3d.sprinkler_db import SprinklerManagerDialog
         dlg = SprinklerManagerDialog(db=self._sprinkler_db, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             record = dlg.selected_record()
