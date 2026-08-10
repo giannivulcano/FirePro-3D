@@ -113,3 +113,27 @@ def test_property_managers_do_not_share_global_state(qapp, tmp_path):
     pm2 = PropertyManager(); pm2.set_sprinkler_db(b)
     assert pm1._get_db() is a
     assert pm2._get_db() is b
+
+
+def test_model_space_passes_injected_db_to_autopopulate(qapp, monkeypatch, tmp_path):
+    from firepro3d.model_space import Model_Space
+    import firepro3d.auto_populate_dialog as ap_mod
+
+    scene = Model_Space()
+    db = SprinklerDatabase(path=str(tmp_path / "s.json"))
+    scene.set_sprinkler_db(db)
+
+    captured = {}
+
+    class _StubDialog:
+        def __init__(self, room, sprinkler_db, **kwargs):
+            captured["db"] = sprinkler_db
+        def exec(self):
+            return 0  # QDialog.DialogCode.Rejected
+
+    # Import site is function-local (`from .auto_populate_dialog import
+    # AutoPopulateDialog`), so patch the source module attribute.
+    monkeypatch.setattr(ap_mod, "AutoPopulateDialog", _StubDialog)
+
+    scene._auto_populate_room_dialog(object())  # room unused by the stub
+    assert captured["db"] is db
