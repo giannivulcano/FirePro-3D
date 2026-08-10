@@ -138,6 +138,20 @@ _DEFAULTS: list[SprinklerRecord] = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stable per-user path
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _default_db_path() -> str:
+    """Resolve the stable, per-user sprinkler-library path.
+
+    Mirrors ``titleblock_template._library_dir()``: roaming ``%APPDATA%`` on
+    Windows, falling back to the home directory elsewhere / when unset.
+    """
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "FirePro3D", "sprinklers.json")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Database
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -159,7 +173,8 @@ class SprinklerDatabase:
     DEFAULT_PATH = "sprinklers.json"
 
     def __init__(self, path: str | None = None):
-        self._path = path or self.DEFAULT_PATH
+        self._is_default_path = path is None
+        self._path = path or _default_db_path()
         self._library: list[SprinklerRecord] = []
         self._templates: list[SprinklerRecord] = []
         self._load()
