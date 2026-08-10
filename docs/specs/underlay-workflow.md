@@ -1,9 +1,15 @@
 ---
-status: partial            # §1–§15 current (code-verified); §16 proposal (designed, unbuilt)
-last-verified: 2026-06-23  # §1–§15 claims; §16 authored 2026-08-09 (design, no code yet)
-verified-commit: 3e5b01a
+status: partial            # §1–§15 current (2026-06-23 verify); §16 built & code-verified 2026-08-10
+last-verified: 2026-08-10  # §16 as-built (§16.7 this commit); §1–§15 last verified 2026-06-23 @ 3e5b01a
+verified-commit: c615632
 applies-to:
   - firepro3d/underlay.py
+  - firepro3d/model_space.py          # §16.3 pens, repen_underlay, §16.4 active_view_key
+  - firepro3d/level_manager.py        # §16.4 per-view visibility clause
+  - firepro3d/level_widget.py         # §16.7 rename remap
+  - firepro3d/paper_display.py        # §16.5 paper override stage
+  - firepro3d/paper_space.py          # §16.5 source_view_key plumbing
+  - firepro3d/display_manager.py      # §16.6 Underlays tab
   - firepro3d/dxf_preview_dialog.py
   - firepro3d/dxf_import_worker.py
   - firepro3d/pdf_import_worker.py
@@ -17,7 +23,7 @@ source-tasks:
 
 # Underlay Workflow — Specification
 
-> **Status:** §1–§15 describe current behavior (verified per frontmatter). **§16 is a design proposal** (2026-08-09 grill + brainstorm) — it must not be read as current behavior until implemented and re-stamped.
+> **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is built and code-verified** (shipped on `feat/underlay-display`, 2026-08-10). Sections below tagged "(as-built)" reflect shipped code; the design rationale is retained inline. The one-time "fold §16.x into §3/§7" reorg noted in the provenance is still pending (§16 remains a self-contained block for now).
 > **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
 > **Revision:** 8 (adds §16 — display management & view assignment design: per-layer colour/weight, per-view visibility, Display Manager Underlays tab)
@@ -635,9 +641,9 @@ Tasks to add to `TODO.md` after this spec is approved:
 
 ---
 
-## 16. Display Management & View Assignment — Design (status: proposal)
+## 16. Display Management & View Assignment (status: built — 2026-08-10)
 
-> **Provenance:** 2026-08-08 grill (scope) + 2026-08-09 brainstorm (design), /todo Large-tier workflow for the P1 TODO item "Underlay display management & view assignment". **Unbuilt** — nothing below is current behavior. On implementation, fold §16.2's fields into §3.2, §16.3's pen rule into §3.4, §16.4's clause into §7.2, and re-stamp the frontmatter.
+> **Provenance:** 2026-08-08 grill (scope) + 2026-08-09 brainstorm (design), /todo Large-tier workflow for the P1 TODO item "Underlay display management & view assignment". **Built** on `feat/underlay-display` (§16.2–§16.7, code-verified 2026-08-10 @ `c615632`). Bullets tagged "(as-built)" note where shipped code refined the design. Deferred reorg (fold §16.2's fields into §3.2, §16.3's pen rule into §3.4, §16.4's clause into §7.2) is still outstanding — §16 stays a self-contained block until then.
 
 ### 16.1 Goal & settled scope
 
@@ -729,9 +735,9 @@ Underlays
 
 ### 16.7 Edge wiring
 
-- **Refresh-from-disk (§11):** after re-import, re-apply `layer_overrides` and `hidden_layers` by layer name; silently drop stale names from **both**; new layers get inherit-defaults. Same child walk, one place.
+- **Refresh-from-disk (§11) (as-built):** `refresh_underlay` re-imports with `_record=data`, so `layer_overrides` / `hidden_layers` / `hidden_in_views` survive on the same record and re-bind by layer name; new layers get inherit-defaults for free (no override → falls back to the underlay default). Stale names (layers gone after re-import) are **not** actively pruned — left dormant in the dict, harmless (`effective_layer_*` is only queried for extant layers). Active stale-name cleanup remains an unshipped nicety, not a correctness gap.
 - **Duplicate (§8.3):** the record copy carries all new fields — no extra work.
-- **Level rename:** where `PlanViewManager.rename_level` is invoked, also remap `"plan:Plan: {old}"` → `"plan:Plan: {new}"` across all underlay records; detail-marker renames remap `"detail:{old}"` analogously. **Deleted views:** entries dropped lazily (next DM edit or save-time sweep); a stale key is harmless — it never matches.
+- **Level rename (as-built):** the sole real rename path is `LevelWidget._on_item_changed` → `LevelManager.rename_level` (the `PlanViewManager.rename_level` referenced at design time is dead code, never invoked). After a successful rename, `LevelWidget._remap_underlay_views` walks `scene.underlays` and, per record: remaps `record.level` (`old` → `new`) **and** the plan-view key `"plan:Plan: {old}"` → `"plan:Plan: {new}"` via `Underlay.remap_view_key`. The `record.level` remap is load-bearing — without it a level-assigned underlay orphans and the §7.2 pass hides it (`lvl_map.get` misses the stale name). *Detail-marker rename is a no-op today: the codebase has no detail-rename path, so the `"detail:{old}"` clause has no trigger — recorded as a P3 dependency (wire it into `_remap_underlay_views` when detail rename ships).* **Deleted views/levels:** entries dropped lazily (next DM edit or save-time sweep); a stale key is harmless — it never matches `active_view_key`.
 - **Failure posture:** the paper stage inherits the pass's try/unwind; `repen_underlay` and the visibility clause guard deleted C++ objects (`RuntimeError` → skip).
 
 ### 16.8 Design decisions
