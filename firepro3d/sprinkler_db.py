@@ -200,6 +200,9 @@ class SprinklerDatabase:
 
     def _save(self):
         try:
+            d = os.path.dirname(self._path)
+            if d:
+                os.makedirs(d, exist_ok=True)
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump({
                     "library":   [r.to_dict() for r in self._library],

@@ -20,3 +20,10 @@ def test_injected_path_still_wins(tmp_path):
     target = tmp_path / "custom.json"
     db = SprinklerDatabase(path=str(target))
     assert db._path == str(target)
+
+
+def test_seed_save_creates_missing_dir(tmp_path):
+    target = tmp_path / "no" / "such" / "dir" / "sprinklers.json"
+    # Injected (non-default) path -> no migration; first run seeds + saves.
+    SprinklerDatabase(path=str(target))
+    assert target.is_file()
