@@ -168,6 +168,24 @@ class Underlay:
         return self.layer_overrides.get(layer, {}).get(
             "line_weight", self.line_weight_name)
 
+    def remap_view_key(self, old_key: str, new_key: str) -> None:
+        """Rewrite a per-view exclusion key in place (§16.7 rename remap).
+
+        Used when a level/detail view is renamed: any ``hidden_in_views``
+        entry keyed to the old view name is retargeted to the new one.
+        No-op if *old_key* is absent; preserves list order and never
+        duplicates *new_key* if it is already present.
+        """
+        if old_key == new_key:
+            return
+        for i, k in enumerate(self.hidden_in_views):
+            if k == old_key:
+                if new_key in self.hidden_in_views:
+                    del self.hidden_in_views[i]
+                else:
+                    self.hidden_in_views[i] = new_key
+                return
+
     def get_properties(self) -> dict:
         """Return property template for the property manager panel.
 

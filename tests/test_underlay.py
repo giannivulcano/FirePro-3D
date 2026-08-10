@@ -263,3 +263,38 @@ class TestDisplayManagementFields:
         assert u.effective_layer_weight("A-DOOR") == "Heavy"
         assert u.effective_layer_colour("OTHER") == "#c0c0c0"
         assert u.effective_layer_weight("OTHER") == "Medium"
+
+
+class TestRemapViewKey:
+    """§16.7 rename remap: swap a per-view exclusion key in place."""
+
+    def test_swaps_present_key_in_place(self):
+        u = Underlay(type="dxf", path="a.dxf",
+                     hidden_in_views=["detail:Riser",
+                                      "plan:Plan: Level 1",
+                                      "detail:Enlarged"])
+        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
+        # order preserved, only the target key rewritten
+        assert u.hidden_in_views == ["detail:Riser",
+                                     "plan:Plan: Level 5",
+                                     "detail:Enlarged"]
+
+    def test_absent_key_is_noop(self):
+        u = Underlay(type="dxf", path="a.dxf",
+                     hidden_in_views=["detail:Riser"])
+        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
+        assert u.hidden_in_views == ["detail:Riser"]
+
+    def test_no_duplicate_when_new_key_already_present(self):
+        u = Underlay(type="dxf", path="a.dxf",
+                     hidden_in_views=["plan:Plan: Level 5",
+                                      "plan:Plan: Level 1"])
+        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
+        # old key dropped, new key not duplicated
+        assert u.hidden_in_views == ["plan:Plan: Level 5"]
+
+    def test_same_key_is_noop(self):
+        u = Underlay(type="dxf", path="a.dxf",
+                     hidden_in_views=["plan:Plan: Level 1"])
+        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 1")
+        assert u.hidden_in_views == ["plan:Plan: Level 1"]

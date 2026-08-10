@@ -192,6 +192,60 @@ class TestPerViewVisibility:
         assert not group.isVisible()
 
 
+class TestLevelRenameRemap:
+    """§16.7: renaming a level remaps underlay per-view exclusion keys."""
+
+    def _find_name_row(self, widget, text):
+        for row in range(widget.table.rowCount()):
+            it = widget.table.item(row, 0)
+            if it is not None and it.text() == text:
+                return row
+        raise AssertionError(f"no level row named {text!r}")
+
+    def _rename(self, lm, scene, old, new):
+        from firepro3d.level_widget import LevelWidget
+        widget = LevelWidget(lm, scene)
+        row = self._find_name_row(widget, old)
+        widget.table.item(row, 0).setText(new)  # drives _on_item_changed
+        widget.deleteLater()
+
+    def test_rename_remaps_view_exclusion_key(self, qapp):
+        # level="*" so only the per-view exclusion (not level filtering) gates visibility
+        scene = Model_Space()
+        rec = _record(level="*", hidden_in_views=["plan:Plan: Level 1"])
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        lm = LevelManager()
+
+        self._rename(lm, scene, "Level 1", "Level 5")
+
+        assert rec.hidden_in_views == ["plan:Plan: Level 5"]
+        # exclusion now applies in the renamed view
+        scene.active_view_key = "plan:Plan: Level 5"
+        lm.apply_to_scene(scene, "Level 5")
+        assert not group.isVisible()
+        # and no longer in the old view key
+        scene.active_view_key = "plan:Plan: Level 1"
+        lm.apply_to_scene(scene, "Level 5")
+        assert group.isVisible()
+
+    def test_rename_remaps_level_assignment(self, qapp):
+        # a level-specific underlay must follow its level's rename, not orphan
+        scene = Model_Space()
+        rec = _record(level="Level 1")
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+        lm = LevelManager()
+
+        self._rename(lm, scene, "Level 1", "Level 5")
+
+        assert rec.level == "Level 5"
+        # still shown on the (renamed) level it belongs to
+        scene.active_view_key = "plan:Plan: Level 5"
+        lm.apply_to_scene(scene, "Level 5")
+        assert group.isVisible()
+
+
 @pytest.fixture(scope="module")
 def _main_window_singleton(qapp):
     """Module-scoped MainWindow shared by tab-switch tests (VTK-heavy).

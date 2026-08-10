@@ -218,6 +218,7 @@ class LevelWidget(QWidget):
                     self._building = False
                 else:
                     item.setData(Qt.ItemDataRole.UserRole, new_name)
+                    self._remap_underlay_views(old_name, new_name)
                     self._highlight_active()
                     self._refresh_active_combo()
                     self.levelsChanged.emit()
@@ -258,6 +259,31 @@ class LevelWidget(QWidget):
             if self.scene:
                 self.manager.update_elevations(self.scene)
             self.levelsChanged.emit()
+
+    def _remap_underlay_views(self, old_name: str, new_name: str):
+        """§16.7: propagate a level rename into underlay records.
+
+        Underlays are stored as records (not scene items), so
+        ``LevelManager.rename_level`` — which only rewrites ``item.level``
+        for QGraphicsItems — never reaches them.  Two things must follow
+        the rename here:
+
+        * ``record.level`` — else a level-specific underlay orphans and the
+          §7.2 pass hides it (``lvl_map.get`` misses the stale name).
+        * per-view exclusion keys — the ``f"plan:Plan: {level}"`` vocabulary
+          matches ``Model_Space.active_view_key``; rewrite so a
+          hide-in-this-view exclusion survives the rename.
+        """
+        scene = self.scene
+        underlays = getattr(scene, "underlays", None) if scene else None
+        if not underlays:
+            return
+        old_key = f"plan:Plan: {old_name}"
+        new_key = f"plan:Plan: {new_name}"
+        for record, _ in underlays:
+            if record.level == old_name:
+                record.level = new_name
+            record.remap_view_key(old_key, new_key)
 
     def _on_active_combo_changed(self, idx: int):
         if self._building or idx < 0:
