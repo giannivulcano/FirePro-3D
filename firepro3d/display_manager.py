@@ -16,9 +16,10 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
     QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
-    QAbstractItemView, QTabWidget, QLineEdit,
+    QAbstractItemView, QTabWidget, QLineEdit, QMenu,
 )
-from PyQt6.QtGui import QColor, QFont, QBrush, QPen, QPainter, QPixmap, QIcon
+from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
+                         QIcon, QCursor)
 from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -916,6 +917,22 @@ class DisplayManager(QDialog):
                     snap[prop] = v
             self._elev_settings_snapshot[key] = snap
 
+        # Underlay records (§16.6): deep-copy the DM-editable fields.
+        # State lives on the records (not QSettings); Cancel restores the
+        # field values IN PLACE (snap-index aliasing — see _restore_snapshot).
+        self._underlay_snapshot = []
+        for data, item in getattr(self._scene, "underlays", []):
+            self._underlay_snapshot.append((data, {
+                "colour": data.colour,
+                "opacity": data.opacity,
+                "visible": data.visible,
+                "line_weight_name": data.line_weight_name,
+                "hidden_layers": list(data.hidden_layers),
+                "hidden_in_views": list(data.hidden_in_views),
+                "layer_overrides": {k: dict(v)
+                                    for k, v in data.layer_overrides.items()},
+            }))
+
     def _restore_snapshot(self):
         """Revert every item to its snapshotted state."""
         from .fitting import Fitting
@@ -1010,6 +1027,41 @@ class DisplayManager(QDialog):
             elev_mgr = getattr(self._scene, "_elevation_manager", None)
             if elev_mgr is not None and hasattr(elev_mgr, "rebuild_all"):
                 elev_mgr.rebuild_all()
+
+        # Restore underlay records (§16.6).  hidden_layers MUST be mutated
+        # in place — UnderlaySnapIndex holds a reference to the same list
+        # (underlay_snap_index.py); reassignment would break the aliasing.
+        for data, snap in getattr(self, "_underlay_snapshot", []):
+            data.colour = snap["colour"]
+            data.opacity = snap["opacity"]
+            data.visible = snap["visible"]
+            data.line_weight_name = snap["line_weight_name"]
+            data.hidden_layers[:] = snap["hidden_layers"]          # in place!
+            data.hidden_in_views[:] = snap["hidden_in_views"]      # in place
+            data.layer_overrides.clear()
+            data.layer_overrides.update(
+                {k: dict(v) for k, v in snap["layer_overrides"].items()})
+        lm = getattr(self._scene, "_level_manager", None)
+        underlays = getattr(self._scene, "underlays", [])
+        for data, item in underlays:
+            if hasattr(self._scene, "repen_underlay"):
+                self._scene.repen_underlay(data)
+            if item is not None:
+                try:
+                    hidden = set(data.hidden_layers)
+                    for child in item.childItems():
+                        ln = child.data(1)
+                        if ln is not None:
+                            child.setVisible(ln not in hidden)
+                except RuntimeError:
+                    pass
+            if lm is None:
+                self._apply_underlay_visibility(data, item)
+        if lm is not None and underlays:
+            lm.apply_to_scene(self._scene)      # one pass, not one per record
+        if getattr(self, "_underlay_snapshot", None) and hasattr(
+                self._scene, "underlaysChanged"):
+            self._scene.underlaysChanged.emit()     # browser reverts too
 
     # ------------------------------------------------------------------
     # Item iteration helpers
@@ -2512,10 +2564,11 @@ class DisplayManager(QDialog):
                 lambda t, d=data: self._on_ul_lw_changed(d, t))
             tree.setItemWidget(file_row, self._UL_COL_LW, lw_combo)
 
-        # ── Views… button (all types) — connected in the view-assignment
-        # step, created here so the column layout is final ─────────────
+        # ── Views… button (all types) ────────────────────────────────
         views_btn = QPushButton("Views…")
         views_btn.setFixedHeight(22)
+        views_btn.clicked.connect(
+            lambda _, d=data: self._build_views_menu(d).exec(QCursor.pos()))
         tree.setItemWidget(file_row, self._UL_COL_VIEWS, views_btn)
 
         # ── Per-layer child rows (dxf/dwg with a live group only) ────
@@ -2585,12 +2638,57 @@ class DisplayManager(QDialog):
 
     # ── Underlays tab event handlers ─────────────────────────────────
 
-    def _apply_underlay_visibility(self, item, visible: bool):
-        """Re-run the level pass if reachable, else toggle the item directly."""
+    def _build_views_menu(self, record) -> QMenu:
+        """Checkable plan+detail view list; checked = visible (§16.6).
+
+        View keys match ``scene.active_view_key`` ("plan:Plan: <level>" /
+        "detail:<name>"); managers are injected on the scene by main.py.
+        """
+        menu = QMenu(self)
+        entries: list[tuple[str, str]] = []      # (label, view_key)
+        pvm = getattr(self._scene, "_plan_view_manager", None)
+        if pvm is not None:
+            for name in pvm._views.keys():        # "Plan: Level 1"
+                entries.append((name, f"plan:{name}"))
+        dm = getattr(self._scene, "_detail_manager", None)
+        if dm is not None:
+            for name in dm.detail_names:
+                entries.append((f"Detail: {name}", f"detail:{name}"))
+        for label, key in entries:
+            act = menu.addAction(label)
+            act.setCheckable(True)
+            act.setChecked(key not in record.hidden_in_views)
+            act.toggled.connect(
+                lambda checked, k=key, r=record: self._set_view_visible(
+                    r, k, checked))
+        return menu
+
+    def _set_view_visible(self, record, view_key: str, visible: bool):
+        if visible:
+            if view_key in record.hidden_in_views:
+                record.hidden_in_views.remove(view_key)
+        elif view_key not in record.hidden_in_views:
+            record.hidden_in_views.append(view_key)
+        # Re-apply for the CURRENT view (record ↔ item lookup by identity)
+        for data, item in getattr(self._scene, "underlays", []):
+            if data is record:
+                self._apply_underlay_visibility(data, item)
+                break
+
+    def _apply_underlay_visibility(self, data, item):
+        """Re-run the level pass if reachable, else toggle the item directly.
+
+        The fallback mirrors the real pass semantics (visible flag AND
+        active-view exclusion — level_manager.apply_to_scene underlay
+        stage); level filtering can't be evaluated without the manager.
+        """
         lm = getattr(self._scene, "_level_manager", None)
         if lm is not None:
             lm.apply_to_scene(self._scene)
         elif item is not None:
+            visible = data.visible and (
+                getattr(self._scene, "active_view_key", "")
+                not in data.hidden_in_views)
             try:
                 item.setVisible(visible)
             except RuntimeError:
@@ -2600,7 +2698,11 @@ class DisplayManager(QDialog):
         if self._suppress:
             return
         data.visible = checked
-        self._apply_underlay_visibility(item, checked)
+        self._apply_underlay_visibility(data, item)
+        # Browser file checkbox reflects data.visible — keep it in sync
+        # (layer toggles already emit via set_underlay_layer_hidden).
+        if hasattr(self._scene, "underlaysChanged"):
+            self._scene.underlaysChanged.emit()
 
     def _on_ul_colour_clicked(self, data, btn, file_row):
         if self._suppress:

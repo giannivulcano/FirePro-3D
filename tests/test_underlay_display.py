@@ -736,3 +736,113 @@ class TestPdfColourPersistence:
     def test_pdf_colour_round_trips(self):
         rec = _record(type="pdf", path="x.pdf", colour="#123456")
         assert Underlay.from_dict(rec.to_dict()).colour == "#123456"
+
+
+class TestUnderlaysTabViewsAndCancel:
+    def test_views_menu_toggles_exclusion(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        # bare Model_Space has no injected managers — mirror main.py:367
+        from firepro3d.level_manager import PlanViewManager
+        scene._plan_view_manager = PlanViewManager()
+        scene._plan_view_manager.create("Level 1", LevelManager())
+        scene.active_view_key = "plan:Plan: Level 1"
+        dlg = DisplayManager(scene)
+        menu = dlg._build_views_menu(rec)          # same menu the button shows
+        actions = {a.text(): a for a in menu.actions()}
+        assert "Plan: Level 1" in actions
+        act = actions["Plan: Level 1"]
+        assert act.isChecked()                     # visible by default
+        act.trigger()                              # uncheck -> exclude
+        assert "plan:Plan: Level 1" in rec.hidden_in_views
+        assert not group.isVisible()               # applied to active view
+        act.trigger()                              # re-check -> include
+        assert "plan:Plan: Level 1" not in rec.hidden_in_views
+        assert group.isVisible()
+        dlg.reject()
+
+    def test_cancel_restores_everything(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        # keep references to prove in-place restoration (snap-index aliasing)
+        hidden_layers_ref = rec.hidden_layers
+        child = next(c for c in group.childItems()
+                     if c.data(1) == "A-WALL"
+                     and c.pen().style() != Qt.PenStyle.NoPen)
+        dlg = DisplayManager(scene)
+        # mutate exactly as the widgets do
+        rec.layer_overrides["A-WALL"] = {"colour": "#ff0000"}
+        scene.repen_underlay(rec)
+        scene.set_underlay_layer_hidden(rec, group, "A-DOOR", True)
+        rec.hidden_in_views.append("plan:Plan: Level 1")
+        rec.colour = "#0000ff"
+        rec.opacity = 0.3
+        rec.visible = False
+        assert child.pen().color().name() == "#ff0000"
+        dlg.reject()                               # Cancel
+        assert rec.layer_overrides == {}
+        assert rec.hidden_layers == []
+        assert rec.hidden_in_views == []
+        assert rec.colour == "#c0c0c0"
+        assert rec.opacity == pytest.approx(1.0)
+        assert rec.visible is True
+        assert rec.hidden_layers is hidden_layers_ref     # same list object!
+        assert child.pen().color().name() == "#c0c0c0"    # re-penned back
+        door = next(c for c in group.childItems() if c.data(1) == "A-DOOR")
+        assert door.isVisible()                    # layer visibility restored
+
+    def test_ok_keeps_edits(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        rec.layer_overrides["A-WALL"] = {"colour": "#ff0000"}
+        scene.repen_underlay(rec)
+        dlg.accept()
+        assert rec.layer_overrides["A-WALL"]["colour"] == "#ff0000"
+
+    def test_dm_layer_toggle_fires_underlaysChanged(self, qapp):
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        fired = []
+        scene.underlaysChanged.connect(lambda: fired.append(1))
+        layer_row = dlg._underlay_tree.topLevelItem(0).child(0)
+        cb = dlg._underlay_tree.itemWidget(layer_row, dlg._UL_COL_VIS)
+        cb.click()
+        assert fired
+        assert rec.hidden_layers
+        dlg.reject()
+
+    def test_file_row_vis_toggle_fires_underlaysChanged(self, qapp):
+        """Browser file checkbox reflects data.visible — DM edits must sync."""
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        fired = []
+        scene.underlaysChanged.connect(lambda: fired.append(1))
+        file_row = dlg._underlay_tree.topLevelItem(0)
+        cb = dlg._underlay_tree.itemWidget(file_row, dlg._UL_COL_VIS)
+        cb.click()
+        assert fired
+        assert rec.visible is False
+        dlg.reject()
+
+    def test_layer_reset_button_restores_inherited(self, qapp, monkeypatch):
+        """Carry-in from Task 7 review: the most intricate handler untested."""
+        scene, rec, group = _dm_scene(qapp)
+        dlg = DisplayManager(scene)
+        tree = dlg._underlay_tree
+        layer_row = tree.topLevelItem(0).child(0)
+        layer_name = layer_row.data(0, Qt.ItemDataRole.UserRole)
+        from PyQt6.QtWidgets import QColorDialog
+        monkeypatch.setattr(QColorDialog, "getColor",
+                            staticmethod(lambda *a, **k: QColor("#ff0000")))
+        tree.itemWidget(layer_row, dlg._UL_COL_COLOR).click()
+        combo = tree.itemWidget(layer_row, dlg._UL_COL_LW)
+        combo.setCurrentText("Heavy")
+        assert rec.layer_overrides[layer_name] == {"colour": "#ff0000",
+                                                   "line_weight": "Heavy"}
+        reset_btn = tree.itemWidget(layer_row, dlg._UL_COL_RESET)
+        reset_btn.click()
+        assert layer_name not in rec.layer_overrides
+        child = next(c for c in group.childItems()
+                     if c.data(1) == layer_name
+                     and c.pen().style() != Qt.PenStyle.NoPen)
+        assert child.pen().color().name() == "#c0c0c0"
+        assert combo.currentText() == "(inherit)"
+        dlg.reject()
