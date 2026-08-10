@@ -38,15 +38,6 @@ from .sprinkler_db import SprinklerDatabase
 from .dimension_edit import DimensionEdit
 from . import theme as th
 
-# Lazy-loaded singleton sprinkler database
-_sprinkler_db: SprinklerDatabase | None = None
-
-def _get_sprinkler_db() -> SprinklerDatabase:
-    global _sprinkler_db
-    if _sprinkler_db is None:
-        _sprinkler_db = SprinklerDatabase()
-    return _sprinkler_db
-
 
 class _MixedStateCheckBox(QCheckBox):
     """Checkbox with Word-like mixed-state semantics for multi-select.
@@ -71,6 +62,7 @@ class PropertyManager(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._sprinkler_db = None
 
         _t = th.detect()
 
@@ -590,9 +582,23 @@ class PropertyManager(QWidget):
                 self._targets if len(self._targets) > 1 else self._targets[0]
             )
 
+    def set_sprinkler_db(self, db):
+        """Inject the shared SprinklerDatabase (called by MainWindow)."""
+        self._sprinkler_db = db
+
+    def _get_db(self):
+        """Return the injected DB, or lazily self-construct a fallback.
+
+        The fallback targets the same %APPDATA% path, keeping standalone /
+        test use working without a MainWindow.
+        """
+        if self._sprinkler_db is None:
+            self._sprinkler_db = SprinklerDatabase()
+        return self._sprinkler_db
+
     def _cascade_sprinkler_props(self, sprinkler: Sprinkler):
         """Update sprinkler property options based on database cascading filters."""
-        db = _get_sprinkler_db()
+        db = self._get_db()
         props = sprinkler._properties
         mfr = props["Manufacturer"]["value"]
 

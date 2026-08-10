@@ -85,3 +85,31 @@ def test_no_legacy_seeds_defaults(monkeypatch, tmp_path):
 
     db = SprinklerDatabase()
     assert len(db.library) == 15                # fresh default seed
+
+
+def test_property_manager_uses_injected_db(qapp, tmp_path):
+    import firepro3d.property_manager as pm_mod
+    from firepro3d.property_manager import PropertyManager
+
+    # Module-level cache must be gone.
+    assert not hasattr(pm_mod, "_sprinkler_db")
+    assert not hasattr(pm_mod, "_get_sprinkler_db")
+
+    db = SprinklerDatabase(path=str(tmp_path / "s.json"))
+    db.add_to_library(_CUSTOM)
+
+    pm = PropertyManager()
+    pm.set_sprinkler_db(db)
+
+    # Panel reads the injected db, so the Manager-added record is visible now.
+    assert "Acme" in pm._get_db().get_unique_manufacturers()
+
+
+def test_property_managers_do_not_share_global_state(qapp, tmp_path):
+    from firepro3d.property_manager import PropertyManager
+    a = SprinklerDatabase(path=str(tmp_path / "a.json"))
+    b = SprinklerDatabase(path=str(tmp_path / "b.json"))
+    pm1 = PropertyManager(); pm1.set_sprinkler_db(a)
+    pm2 = PropertyManager(); pm2.set_sprinkler_db(b)
+    assert pm1._get_db() is a
+    assert pm2._get_db() is b
