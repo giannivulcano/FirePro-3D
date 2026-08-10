@@ -137,3 +137,24 @@ def test_model_space_passes_injected_db_to_autopopulate(qapp, monkeypatch, tmp_p
 
     scene._auto_populate_room_dialog(object())  # room unused by the stub
     assert captured["db"] is db
+
+
+def test_manager_add_visible_in_panel_and_autopopulate(qapp, tmp_path):
+    from firepro3d.property_manager import PropertyManager
+    from firepro3d.sprinkler_db import SprinklerManagerDialog
+
+    db = SprinklerDatabase(path=str(tmp_path / "s.json"))
+
+    # All three consumers share the ONE instance.
+    pm = PropertyManager(); pm.set_sprinkler_db(db)
+    mgr = SprinklerManagerDialog(db=db)
+
+    # User adds a product through the Manager (its CRUD path writes to `db`).
+    mgr._db.add_to_library(_CUSTOM)
+
+    # Property panel (shared object) sees it immediately — no restart.
+    assert "Acme" in pm._get_db().get_unique_manufacturers()
+    # Auto-populate picker, reading the shared db, also sees it.
+    assert any(r.id == "acme_x1" for r in db.library)
+    # And the Manager dialog and panel are the same object, not copies.
+    assert mgr._db is pm._get_db()
