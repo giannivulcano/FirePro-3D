@@ -682,9 +682,12 @@ class TestAutoPopulateDialogDesignPointSeeding:
         return room
 
     def _make_dialog(self, room, qapp):
+        import os
+        import tempfile
         from firepro3d.sprinkler_db import SprinklerDatabase
         from firepro3d.auto_populate_dialog import AutoPopulateDialog
-        db = SprinklerDatabase()
+        # Isolated temp path so the test never touches the real %APPDATA% DB.
+        db = SprinklerDatabase(path=os.path.join(tempfile.mkdtemp(), "sprinklers.json"))
         return AutoPopulateDialog(room=room, sprinkler_db=db)
 
     def test_dialog_seeds_from_room_design_point(self, qapp):
