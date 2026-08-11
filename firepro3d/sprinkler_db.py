@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from dataclasses import dataclass, asdict, field
 from typing import Optional
 
@@ -138,6 +139,41 @@ _DEFAULTS: list[SprinklerRecord] = [
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Stable per-user path
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _default_db_path() -> str:
+    """Resolve the stable, per-user sprinkler-library path.
+
+    Mirrors ``titleblock_template._library_dir()``: roaming ``%APPDATA%`` on
+    Windows, falling back to the home directory elsewhere / when unset.
+    """
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "FirePro3D", "sprinklers.json")
+
+
+def _migrate_legacy_db(target: str) -> None:
+    """One-time copy of a legacy CWD ``sprinklers.json`` to *target*.
+
+    Fires only when *target* is absent and a CWD-relative legacy file exists;
+    copies verbatim (preserving user records + starred templates). Idempotent:
+    once *target* exists this is a no-op. Failures are warned + swallowed.
+    """
+    try:
+        if os.path.exists(target):
+            return
+        legacy = os.path.abspath(SprinklerDatabase.DEFAULT_PATH)  # CWD/sprinklers.json
+        if not os.path.isfile(legacy) or os.path.abspath(legacy) == os.path.abspath(target):
+            return
+        d = os.path.dirname(target)
+        if d:
+            os.makedirs(d, exist_ok=True)
+        shutil.copy2(legacy, target)
+    except Exception as exc:
+        print(f"⚠️  sprinkler_db: legacy migration failed: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Database
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -159,9 +195,12 @@ class SprinklerDatabase:
     DEFAULT_PATH = "sprinklers.json"
 
     def __init__(self, path: str | None = None):
-        self._path = path or self.DEFAULT_PATH
+        self._is_default_path = path is None
+        self._path = path or _default_db_path()
         self._library: list[SprinklerRecord] = []
         self._templates: list[SprinklerRecord] = []
+        if self._is_default_path:
+            _migrate_legacy_db(self._path)
         self._load()
 
     # ── Persistence ──────────────────────────────────────────────────────────
@@ -185,6 +224,9 @@ class SprinklerDatabase:
 
     def _save(self):
         try:
+            d = os.path.dirname(self._path)
+            if d:
+                os.makedirs(d, exist_ok=True)
             with open(self._path, "w", encoding="utf-8") as f:
                 json.dump({
                     "library":   [r.to_dict() for r in self._library],

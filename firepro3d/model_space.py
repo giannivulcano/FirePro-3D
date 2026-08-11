@@ -104,6 +104,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.setItemIndexMethod(QGraphicsScene.ItemIndexMethod.NoIndex)
         self.sprinkler_system = SprinklerSystem()
         self.annotations = Annotation()
+        self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self.underlays: list[tuple[Underlay, QGraphicsItem]] = []  # (data, scene_item)
         self.scale_manager = ScaleManager()
         self.mode = None
@@ -7659,12 +7660,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         )
         menu.exec(screen_pos)
 
+    def set_sprinkler_db(self, db):
+        """Inject the shared SprinklerDatabase (called by MainWindow)."""
+        self._sprinkler_db = db
+
     def _auto_populate_room_dialog(self, room):
         """Open the auto-populate dialog for a room and place sprinklers."""
         from .auto_populate_dialog import AutoPopulateDialog
         from .sprinkler_db import SprinklerDatabase
 
-        db = SprinklerDatabase()
+        db = self._sprinkler_db or SprinklerDatabase()
         dlg = AutoPopulateDialog(
             room, db,
             level_manager=self._level_manager,

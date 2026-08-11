@@ -1,7 +1,7 @@
 ---
 status: current          # §10–§11 code-verified as-built; divergence ledger in §14
-last-verified: 2026-07-14
-verified-commit: 5ba9227
+last-verified: 2026-08-11
+verified-commit: 0b6e6b1
 applies-to:
   - firepro3d/sprinkler.py
   - firepro3d/sprinkler_db.py
@@ -126,7 +126,15 @@ Serialization: `to_dict()` / `from_dict()` with safe defaults for all fields.
 
 ### 4.2 SprinklerDatabase
 
-JSON-backed store at `DEFAULT_PATH = "sprinklers.json"`.
+JSON-backed store. The default path resolves to `%APPDATA%/FirePro3D/sprinklers.json`
+(fallback `~/FirePro3D/sprinklers.json` when `APPDATA` is unset) via
+`_default_db_path()`, mirroring the title-block library resolver. The `path=` ctor
+argument still overrides for tests/injection. On first use of the default path, a
+one-time **copy-if-absent** migration (`_migrate_legacy_db()`) copies any legacy
+CWD-relative `sprinklers.json` verbatim to the new location; idempotent once the
+target exists. `_save()` creates the target directory (`os.makedirs(..., exist_ok=True)`)
+before writing. The legacy class constant `DEFAULT_PATH = "sprinklers.json"` is retained
+only as the migration's CWD lookup source, no longer the runtime default. See §14 D1.
 
 **Collections:**
 - `library` — all products (defaults + user additions)
@@ -722,7 +730,7 @@ No format version bump required for any currently-flagged divergence. All migrat
 
 | # | Divergence | Priority | Current Behavior | Target Behavior | Migration |
 |---|---|---|---|---|---|
-| D1 | Database path + singleton | P1 | CWD-relative `sprinklers.json`; 3 independent instances (MainWindow, model_space, property_manager) | Stable path (`%APPDATA%/FirePro3D/sprinklers.json`); single shared instance on MainWindow passed to all consumers | Move path to platform-appropriate app data dir. Remove direct `SprinklerDatabase()` calls; accept instance parameter everywhere. |
+| ~~D1~~ | ~~Database path + singleton~~ | ~~P1~~ | **Resolved 2026-08-11** (`feat/sprinkler-db-singleton`). Default path now `%APPDATA%/FirePro3D/sprinklers.json` via `_default_db_path()` (fallback `~/FirePro3D/…`; `path=` still injectable) with one-time copy-if-absent migration of any legacy CWD file + `makedirs`-before-save (§4.2). `MainWindow` owns one `SprinklerDatabase` and injects it via `set_sprinkler_db()` into the scene (auto-populate), the property panel, and the Manager dialog; the `property_manager` module-level cache is removed, so Manager edits are visible everywhere with no restart. Leaf consumers keep a `db or SprinklerDatabase()` fallback. Tests: `tests/test_sprinkler_db_singleton.py` (resolver, migration ×3, makedirs, injection, windowless end-to-end shared-state). Follow-up (P3): retire the git-tracked repo seed file once migration has shipped a while. | | |
 | D2 | SprinklerRecord missing fields | P2 | 10 fields (see §4.1) | Add optional: `response_type` (SR/QR/EC/ESFR), `max_s_spacing` (ft), `max_l_spacing` (ft), `thread_size`, `listing`, `deflector_min` (in), `deflector_max` (in) | Add fields with defaults to dataclass. `from_dict` provides defaults for missing fields. No breaking change. |
 | D3 | "Concealed" missing from Orientation | P1 | Sprinkler Orientation options: Upright, Pendent, Sidewall | Add "Concealed" to options list | One-line change to `Sprinkler._properties["Orientation"]["options"]`. |
 | ~~D4~~ | ~~z_offset dual computation path~~ | ~~P2~~ | **Resolved 2026-05-03.** `ceiling_offset` is now sole source of truth. `z_offset` no longer written on save/copy. Old files still read for backward compat. All computation sites (move-to-level, paste, property manager) unified. | | |
