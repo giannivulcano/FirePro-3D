@@ -835,12 +835,21 @@ class GridlineItem(QGraphicsLineItem):
     # ── Properties for property panel ─────────────────────────────────────
 
     def get_properties(self) -> dict:
+        far = self._far_point()
         return {
             "Label": {"type": "string", "value": self._label_text},
+            "Origin X": {"type": "dimension", "value_mm": self._origin.x()},
+            "Origin Y": {"type": "dimension", "value_mm": self._origin.y()},
+            "Length": {"type": "dimension", "value_mm": self._length, "minimum": 1.0},
+            "Angle": {"type": "string", "value": f"{self._angle_deg:.1f}°"},
+            "End X": {"type": "label", "value": f"{far.x():.1f}"},
+            "End Y": {"type": "label", "value": f"{far.y():.1f}"},
             "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
+            "Bubble 1 Offset": {"type": "dimension", "value_mm": self._bubble1_offset, "minimum": 0.0},
             "Bubble 2": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble2.isVisible() else "Hidden"},
+            "Bubble 2 Offset": {"type": "dimension", "value_mm": self._bubble2_offset, "minimum": 0.0},
             "Locked": {"type": "enum", "options": ["True", "False"], "value": str(self._locked)},
         }
 
@@ -850,12 +859,35 @@ class GridlineItem(QGraphicsLineItem):
             sc = self.scene()
             if sc and hasattr(sc, '_gridlines'):
                 apply_duplicate_warnings(sc._gridlines)
+        elif key == "Origin X":
+            self.set_origin_x(float(value))
+        elif key == "Origin Y":
+            self.set_origin_y(float(value))
+        elif key == "Length":
+            self.set_length(float(value))
+        elif key == "Angle":
+            try:
+                self.set_angle_deg(float(str(value).replace("°", "").strip()))
+            except (ValueError, TypeError):
+                return
         elif key == "Bubble 1":
             self.bubble1.setVisible(value == "Visible")
+            self._rebuild_geometry()
         elif key == "Bubble 2":
             self.bubble2.setVisible(value == "Visible")
+            self._rebuild_geometry()
+        elif key == "Bubble 1 Offset":
+            self.set_bubble_offset(1, float(value))
+        elif key == "Bubble 2 Offset":
+            self.set_bubble_offset(2, float(value))
         elif key == "Locked":
             self._locked = value in ("True", True)
+
+        sc = self.scene()
+        if key in ("Origin X", "Origin Y", "Length", "Angle",
+                   "Bubble 1 Offset", "Bubble 2 Offset") and sc is not None \
+                and hasattr(sc, "push_undo_state"):
+            sc.push_undo_state()
 
     # ── Duplicate warning ─────────────────────────────────────────────────
 
