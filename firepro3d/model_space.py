@@ -4319,69 +4319,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self.sceneModified.emit()
 
-    def apply_grid_dialog(self, specs: list[dict]):
-        """Diff-based reconciliation of gridlines from the dialog.
-
-        Each *spec* dict has keys: label, offset (scene), length (scene),
-        angle_deg, and ``_backing`` (an existing ``GridlineItem`` or ``None``).
-        Gridlines present in ``self._gridlines`` but absent from *specs*
-        are deleted; existing ones are updated in place; new ones are created.
-        """
-        if not specs:
-            return
-
-        self.push_undo_state()
-
-        # Determine which existing gridlines are still referenced
-        referenced = set()
-        for spec in specs:
-            backing = spec.get("_backing")
-            if backing is not None:
-                referenced.add(id(backing))
-
-        # Delete unreferenced gridlines
-        to_delete = [gl for gl in self._gridlines if id(gl) not in referenced]
-        for gl in to_delete:
-            self.removeItem(gl)
-            self._gridlines.remove(gl)
-
-        # Create / update
-        for spec in specs:
-            backing = spec.get("_backing")
-            label = spec.get("label", "?")
-            offset = spec.get("offset", 0.0)
-            length = spec.get("length", 1000.0)
-            angle = spec.get("angle_deg", 90.0)
-
-            rad = math.radians(angle)
-            dx = math.cos(rad)
-            dy = -math.sin(rad)
-            px = -dy
-            py = dx
-            ox = offset * px
-            oy = -offset * py
-            p1 = QPointF(ox, oy)
-            p2 = QPointF(ox + length * dx,
-                         oy + length * dy)
-
-            locked = spec.get("locked", False)
-
-            if backing is not None:
-                backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
-                backing.grid_label = label
-                backing._locked = locked
-                backing._update_bubble_positions()
-            else:
-                gl = GridlineItem(p1, p2, label=label)
-                gl._locked = locked
-                self.addItem(gl)
-                apply_category_defaults(gl)
-                self._gridlines.append(gl)
-
-        sync_grid_counters(self._gridlines)
-        apply_duplicate_warnings(self._gridlines)
-        self.sceneModified.emit()
-
 
     # ─────────────────────────────────────────────────────────────────────────
     # OFFSET COMMAND helpers -> see scene_tools.py (SceneToolsMixin)
