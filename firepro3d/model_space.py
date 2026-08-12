@@ -40,7 +40,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY, GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
+                       Z_OVERLAY)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -4276,11 +4276,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         *params* contains key ``"gridlines"`` — a list of dicts with
         keys: label, offset (scene px), length (scene px), angle_deg.
 
-        Gridlines originate at p1 (the bubble end) and extend to p2.
-        The bubble overshoot is a fixed fraction of the gridline length
-        (GRIDLINE_BUBBLE_OVERSHOOT_FRAC) so it is consistent regardless
-        of zoom level.  Positive offset follows architectural convention
-        (right for V, up for H).
+        Gridlines originate at p1 (the origin) and extend to p2.  Bubbles
+        stand off from each endpoint via their own offset property
+        (GRIDLINE_BUBBLE_OFFSET_MM), not a geometric overshoot.  Positive
+        offset follows architectural convention (right for V, up for H).
         """
         specs = params.get("gridlines", [])
         if not specs:
@@ -4306,12 +4305,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ox = offset * px
             oy = -offset * py
 
-            # Zoom-independent bubble overshoot, proportional to length
-            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
-
-            # p1 = bubble end (slightly past origin), p2 = far end
-            p1 = QPointF(ox - bubble_overshoot * dx,
-                         oy - bubble_overshoot * dy)
+            # No geometric overshoot: bubbles stand off via their own offset
+            # property (GRIDLINE_BUBBLE_OFFSET_MM).  p1 = origin, p2 = far end.
+            p1 = QPointF(ox, oy)
             p2 = QPointF(ox + length * dx,
                          oy + length * dy)
 
@@ -4364,9 +4360,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             py = dx
             ox = offset * px
             oy = -offset * py
-            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
-            p1 = QPointF(ox - bubble_overshoot * dx,
-                         oy - bubble_overshoot * dy)
+            p1 = QPointF(ox, oy)
             p2 = QPointF(ox + length * dx,
                          oy + length * dy)
 
