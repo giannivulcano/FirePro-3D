@@ -1355,10 +1355,6 @@ class MainWindow(QMainWindow):
         # --- Project Tools ---
         g_proj = manage_page.add_group("Project Tools")
         _btn = g_proj.add_large_button(
-            "Gridlines", _I("gridline_icon.svg"),
-            self._place_grid_lines)
-        _btn.setToolTip("Open gridline placement dialog")
-        _btn = g_proj.add_large_button(
             "Levels", _I("placeholder_icon.svg"),
             self._open_level_dialog)
         _btn.setToolTip("Open Level Manager dialog")
@@ -1439,6 +1435,7 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
+        _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click)")
         self._single_place_btn = g_geom.add_small_button(
             "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
         self._single_place_btn.setToolTip("Return to Select mode after placing one item")
@@ -2655,7 +2652,7 @@ class MainWindow(QMainWindow):
     # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
 
     _DRAW_MODES = {"draw_line", "construction_line", "draw_rectangle",
-                    "draw_circle", "draw_arc",
+                    "draw_circle", "draw_arc", "draw_gridline",
                     "polyline", "dimension", "text", "pipe", "sprinkler",
                     "water_supply", "design_area", "set_scale", "offset",
                     "offset_side", "wall", "wall_rect", "floor", "floor_rect",
