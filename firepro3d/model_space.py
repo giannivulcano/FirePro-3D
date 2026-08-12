@@ -163,7 +163,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._text_preview: "QGraphicsRectItem | None" = None
         # Gridlines (Sprint U)
         self._gridlines: list[GridlineItem] = []
-        self._gridline_anchor: "QPointF | None" = None  # first click for gridline placement
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -783,8 +782,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._text_preview.scene() is self:
                     self.removeItem(self._text_preview)
                 self._text_preview = None
-        if mode != "gridline":
-            self._gridline_anchor = None
         if mode != "dimension":
             self.dimension_start = None
             self._dim_line1 = None
@@ -4265,7 +4262,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # ─────────────────────────────────────────────────────────────────────────
 
     def place_grid_lines(self, params: dict):
-        """Place gridlines from the GridLinesDialog.
+        """Place gridlines from a batch spec (default-seed builder).
 
         *params* contains key ``"gridlines"`` — a list of dicts with
         keys: label, offset (scene px), length (scene px), angle_deg.

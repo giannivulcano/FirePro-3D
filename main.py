@@ -36,7 +36,6 @@ from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
-from firepro3d.grid_lines_dialog import GridLinesDialog
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d import theme as th
 
@@ -2742,22 +2741,6 @@ class MainWindow(QMainWindow):
             self.scene.array_items(dlg.get_params())
 
     # ── Grid Lines ───────────────────────────────────────────────────────────
-
-    def _place_grid_lines(self):
-        """Open the Grid Lines dialog, populated with current gridlines."""
-        dlg = GridLinesDialog(
-            self,
-            scale_manager=self.scene.scale_manager,
-            existing_gridlines=list(self.scene._gridlines),
-        )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Remove existing gridlines before placing the updated set
-            self.scene.push_undo_state()
-            for gl in list(self.scene._gridlines):
-                if gl.scene() is self.scene:
-                    self.scene.removeItem(gl)
-            self.scene._gridlines.clear()
-            self.scene.place_grid_lines(dlg.get_params())
 
     def _place_default_gridlines(self):
         """Place a default 3 V × 3 H grid for a new project."""
