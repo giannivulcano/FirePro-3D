@@ -345,6 +345,29 @@ class _LockIndicator(QGraphicsPathItem):
 GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
+# Dash-dot geometry in screen pixels (screen path) — Task 12 may retune.
+_DASH_PX = 14.0
+_GAP_PX = 6.0
+_DOT_PX = 2.0
+# Paper path: fixed mm so a PDF reads as dash-dot regardless of DPI.
+_DASH_MM = 6.35   # 1/4"
+_GAP_MM = 3.18
+_DOT_MM = 1.0
+
+
+def _dash_pattern_px(sx: float) -> list[float]:
+    """Dash pattern in scene units rendering a fixed on-screen pixel dash-dot
+    at view scale ``sx``. Entries: dash, gap, dot, gap."""
+    s = 1.0 / max(sx, 1e-9)
+    return [_DASH_PX * s, _GAP_PX * s, _DOT_PX * s, _GAP_PX * s]
+
+
+def _dash_pattern_mm(line_w: float) -> list[float]:
+    """Dash pattern in scene-mm for the paper render path, normalised to the
+    pen width (Qt expresses dash entries in pen-width multiples)."""
+    w = max(line_w, 1e-6)
+    return [_DASH_MM / w, _GAP_MM / w, _DOT_MM / w, _GAP_MM / w]
+
 
 # Requires a live QApplication (QFontMetricsF); never call at module import time.
 @lru_cache(maxsize=8)
@@ -435,7 +458,8 @@ class GridlineItem(QGraphicsLineItem):
         their own bounds independently.
         """
         br = super().boundingRect()
-        m = 20.0  # small scene-unit margin for the gridline pen
+        # Account for bubbles positioned outboard of each endpoint plus pen.
+        m = max(20.0, self._bubble1_offset, self._bubble2_offset) + 20.0
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
@@ -580,45 +604,65 @@ class GridlineItem(QGraphicsLineItem):
 
     # ── Selection highlight (suppress dashed box) ─────────────────────────
 
+    def _build_line_pen(self, sx: float) -> QPen:
+        """Build the screen-path dash-dot pen for view scale ``sx``.
+
+        The pen is non-cosmetic (width in scene units), with an explicit
+        dash pattern computed for a fixed on-screen pixel dash-dot so it
+        stays legible at any zoom (Qt's ``DashDotLine`` pattern is in
+        pen-width multiples and collapses when zoomed out).
+        """
+        pen_w = GRID_WIDTH / max(sx, 1e-9)
+        pen = QPen(self._grid_color, pen_w)
+        pen.setDashPattern(_dash_pattern_px(sx))
+        return pen
+
     def paint(self, painter, option, widget=None):
-        """Draw the gridline with a non-cosmetic pen whose width is
-        calculated from the current view transform so it appears as a
-        constant-width screen line.  The line is shortened at each end
-        so it meets the bubble at the closest edge rather than its centre."""
+        """Draw the gridline as a bubble-spanning dash-dot line.
+
+        The pen width is derived from the current view transform (screen
+        path) or the paper geometry (paper path); the dash pattern is set
+        explicitly so it renders as a legible dash-dot at any zoom and in
+        exported PDF.  The line is shortened at each end so it meets the
+        visible bubble at its edge rather than its centre.
+        """
         option.state &= ~QStyle.StateFlag.State_Selected
 
         if self._paper_render:
             pen_w = self._paper_line_w
             scene_r = self._paper_bubble_r
+            pen = QPen(self._grid_color, pen_w)
+            pen.setDashPattern(_dash_pattern_mm(pen_w))
+            sx = None
         else:
             # Calculate pen width to maintain ~GRID_WIDTH screen pixels
             vt = painter.deviceTransform()
             sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
             pen_w = GRID_WIDTH / sx
             scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
+            pen = self._build_line_pen(sx)
 
         # Shorten line to meet visible bubbles at their edge.
         # Bubbles use ItemIgnoresTransformations (screen mode) or scene-unit
         # geometry (paper mode); scene_r is set appropriately above.
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length = math.sqrt(dx * dx + dy * dy)
+        b1 = self.bubble1.pos()
+        b2 = self.bubble2.pos()
+        dx = b2.x() - b1.x()
+        dy = b2.y() - b1.y()
+        length = math.hypot(dx, dy)
         if length > 1e-9:
             ux, uy = dx / length, dy / length
-            draw_p1 = QPointF(p1.x() + ux * scene_r, p1.y() + uy * scene_r) if self.bubble1.isVisible() else p1
-            draw_p2 = QPointF(p2.x() - ux * scene_r, p2.y() - uy * scene_r) if self.bubble2.isVisible() else p2
+            draw_p1 = QPointF(b1.x() + ux * scene_r, b1.y() + uy * scene_r) if self.bubble1.isVisible() else b1
+            draw_p2 = QPointF(b2.x() - ux * scene_r, b2.y() - uy * scene_r) if self.bubble2.isVisible() else b2
         else:
-            draw_p1, draw_p2 = p1, p2
+            draw_p1, draw_p2 = b1, b2
 
-        pen = QPen(self._grid_color, pen_w, Qt.PenStyle.DashDotLine)
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
         if self.isSelected() and not self._paper_render:
-            sel_pen = QPen(self._grid_color.lighter(150),
-                           pen_w * 2, Qt.PenStyle.DashDotLine)
+            sel_pen = QPen(self._grid_color.lighter(150), pen_w * 2)
+            sel_pen.setDashPattern(_dash_pattern_px(sx))
             painter.setPen(sel_pen)
             painter.drawLine(draw_p1, draw_p2)
 
