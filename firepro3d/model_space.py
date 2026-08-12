@@ -750,7 +750,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._polylines.remove(self._polyline_active)
             self._polyline_active = None
         # Cancel in-progress draw geometry
-        if mode != "draw_line":
+        if mode not in ("draw_line", "draw_gridline"):
             self._draw_line_anchor = None
         if mode != "draw_rectangle":
             self._draw_rect_anchor = None
@@ -1007,7 +1007,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
             "construction_line": "Pick first point",
-            "gridline":       "Pick start point",
+            "draw_gridline":  "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
             "extend":         "Select boundary edge",
@@ -4111,7 +4111,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
 
         # ── Line ──────────────────────────────────────────────────────────
-        if self.mode == "draw_line" and self._draw_line_anchor is not None:
+        if self.mode in ("draw_line", "draw_gridline") and self._draw_line_anchor is not None:
             anchor = self._draw_line_anchor
             def_len, def_ang = _defaults_from(anchor)
 
@@ -4128,13 +4128,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
             )
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = LineItem(anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_lines.append(item)
-            item.setSelected(True)
+            self._make_line_like(anchor, tip)
             self._draw_line_anchor = None
             self.preview_pipe.hide()
             self.push_undo_state()
@@ -4431,13 +4425,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "design_area":              "_move_design_area",
         "polyline":                 "_move_polyline",
         "draw_line":                "_move_draw_line",
+        "draw_gridline":            "_move_draw_line",
         "construction_line":        "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
         "text":                     "_move_text",
-        "gridline":                 "_move_gridline",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
@@ -4580,7 +4574,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_draw_line(self, event, snapped):
         sm = self.scale_manager
-        _anchor = self._draw_line_anchor if self.mode == "draw_line" else self._cline_anchor
+        _anchor = self._draw_line_anchor if self.mode in ("draw_line", "draw_gridline") else self._cline_anchor
         if _anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         if _anchor is not None:
@@ -4753,17 +4747,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     if sm.is_calibrated else
                     f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
                 )
-
-    def _move_gridline(self, event, snapped):
-        if self._gridline_anchor is None:
-            self.update_preview_node(snapped)
-        else:
-            self.preview_node.hide()
-            self.preview_pipe.setLine(
-                self._gridline_anchor.x(), self._gridline_anchor.y(),
-                snapped.x(), snapped.y()
-            )
-            self.preview_pipe.show()
 
     def _move_place_import(self, event, snapped):
         self.preview_node.hide()
@@ -5065,7 +5048,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "dimension":                "_press_dimension",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
-        "gridline":                 "_press_gridline",
+        "draw_gridline":            "_press_draw_line",
         "water_supply":             "_press_water_supply",
         "design_area":              "_press_design_area",
         "room":                     "_press_room",
@@ -5366,7 +5349,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "wall_rect", "floor", "floor_rect", "pipe", "sprinkler",
                             "draw_line", "construction_line", "draw_rectangle",
-                            "draw_circle", "draw_arc", "polyline", "gridline",
+                            "draw_circle", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
@@ -5869,27 +5852,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.set_mode("select")
             else:
                 self.instructionChanged.emit("Pick center point")
-
-    def _press_gridline(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._gridline_anchor is None:
-            self._gridline_anchor = snapped
-            self.instructionChanged.emit("Pick end point")
-        else:
-            # Create gridline from anchor to snapped
-            gl = GridlineItem(self._gridline_anchor, snapped)
-            self.addItem(gl)
-            apply_category_defaults(gl)
-            self._gridlines.append(gl)
-            self.requestPropertyUpdate.emit(gl)
-            gl.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            self._gridline_anchor = None
-            self.preview_pipe.hide()
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick start point")
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Require direct click on a node or pipe (no proximity fallback)
@@ -6756,28 +6718,53 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._polyline_active.append_point(tip)
         # don't let super() deselect items mid-draw
 
+    def _make_line_like(self, anchor, tip):
+        """Factory: build the item for the active line-like draw mode.
+
+        Mode ``"draw_gridline"`` builds a :class:`GridlineItem` (adopting the
+        current Grid Line display defaults); every other line-like mode builds
+        a :class:`LineItem` with the active geometry template's level and
+        colour/line-weight.  Both paths add the item, register it in the right
+        collection, and select it.
+        """
+        if self.mode == "draw_gridline":
+            gl = GridlineItem(anchor, tip)
+            self.addItem(gl)
+            apply_category_defaults(gl)      # adopt current DM Grid Line color/scale
+            self._gridlines.append(gl)
+            gl.setSelected(True)
+            self.requestPropertyUpdate.emit(gl)
+            sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
+            return gl
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = LineItem(anchor, tip, _c, _lw)
+        item.level = tmpl.level
+        self.addItem(item)
+        self._draw_lines.append(item)
+        item.setSelected(True)
+        return item
+
     def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):
+        _is_grid = self.mode == "draw_gridline"
         if self._draw_line_anchor is None:
             self._draw_line_anchor = snapped
             self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick second point")
+            self.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
         else:
-            # Place the line (apply Ctrl constraint if held)
+            # Place the item (apply Ctrl constraint if held)
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._constrain_angle(self._draw_line_anchor, snapped)
             # Reject zero-length lines
             if math.hypot(tip.x() - self._draw_line_anchor.x(),
                           tip.y() - self._draw_line_anchor.y()) < 0.5:
-                self._show_status("Line too short — skipped", timeout=2000)
+                self._show_status(
+                    "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
+                    timeout=2000)
                 return
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = LineItem(self._draw_line_anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_lines.append(item)
-            item.setSelected(True)
+            self._make_line_like(self._draw_line_anchor, tip)
             for v in self.views(): v.viewport().update()
             self._draw_line_anchor = None
             self.preview_pipe.hide()
@@ -6785,7 +6772,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.single_place_mode:
                 self.set_mode("select")
             else:
-                self.instructionChanged.emit("Pick first point")
+                self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
 
     def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cline_anchor is None:
