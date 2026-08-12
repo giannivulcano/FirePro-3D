@@ -37,7 +37,7 @@ from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.grid_lines_dialog import GridLinesDialog
-from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
+from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d import theme as th
 
 
@@ -2767,11 +2767,11 @@ class MainWindow(QMainWindow):
         sm = self.scene.scale_manager
         # Convert a sensible display-unit spacing to scene units
         if sm:
-            spacing = sm.display_to_scene(DEFAULT_GRIDLINE_SPACING_IN)  # 288 in / 24 ft
-            length  = sm.display_to_scene(DEFAULT_GRIDLINE_LENGTH_IN)   # 864 in / 72 ft
+            spacing = sm.display_to_scene(DEFAULT_GRIDLINE_SPACING_MM)  # 288 in / 24 ft
+            length  = sm.display_to_scene(DEFAULT_GRIDLINE_LENGTH_MM)   # 864 in / 72 ft
         else:
-            spacing = DEFAULT_GRIDLINE_SPACING_IN
-            length  = DEFAULT_GRIDLINE_LENGTH_IN
+            spacing = DEFAULT_GRIDLINE_SPACING_MM
+            length  = DEFAULT_GRIDLINE_LENGTH_MM
 
         specs: list[dict] = []
         # 3 vertical gridlines: labels 1, 2, 3

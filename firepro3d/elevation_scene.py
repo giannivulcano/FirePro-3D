@@ -1224,15 +1224,15 @@ class ElevationScene(QGraphicsScene):
         """Compute H range for datum lines to match gridline extents.
 
         Returns (h_min, h_max) in world mm based on the actual gridline
-        positions.  Falls back to DEFAULT_GRIDLINE_LENGTH_IN if no gridlines.
+        positions.  Falls back to DEFAULT_GRIDLINE_LENGTH_MM if no gridlines.
         """
-        from .constants import DEFAULT_GRIDLINE_LENGTH_IN
+        from .constants import DEFAULT_GRIDLINE_LENGTH_MM
         ppm = self._ppm()
 
         gridlines = getattr(self._ms, "_gridlines", [])
         if not gridlines:
             # Fallback: 1000" offset, 864" length (default gridline dims)
-            half = DEFAULT_GRIDLINE_LENGTH_IN / ppm / 2.0
+            half = DEFAULT_GRIDLINE_LENGTH_MM / ppm / 2.0
             return -half, half
 
         # Gather H positions only from gridlines visible in this elevation
@@ -1252,7 +1252,7 @@ class ElevationScene(QGraphicsScene):
             h_vals.extend([h1, h2])
 
         if not h_vals:
-            half = DEFAULT_GRIDLINE_LENGTH_IN / ppm / 2.0
+            half = DEFAULT_GRIDLINE_LENGTH_MM / ppm / 2.0
             return -half, half
 
         margin = abs(max(h_vals) - min(h_vals)) * 0.2 + 500
