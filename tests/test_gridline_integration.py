@@ -20,8 +20,7 @@ class TestDialogReconciliation:
         scene.addItem(gl)
         scene._gridlines.append(gl)
         original_id = id(gl)
-        gl.setLine(2000, 0, 2000, 5000)
-        gl._update_bubble_positions()
+        gl.set_origin_x(2000.0)
         assert id(gl) == original_id
         assert gl.line().p1().x() == pytest.approx(2000.0)
 

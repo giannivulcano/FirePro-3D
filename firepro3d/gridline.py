@@ -21,7 +21,10 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
-from .constants import Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX, GRIDLINE_BUBBLE_LABEL_EM_FRAC
+from .constants import (
+    Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX,
+    GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
+)
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -378,8 +381,7 @@ class GridlineItem(QGraphicsLineItem):
         # transform.  This avoids Qt's cosmetic-pen rasteriser which
         # fails silently after a few zoom steps on some platforms.
         self._grid_color = QColor(GRID_COLOR)
-        pen = QPen(Qt.PenStyle.NoPen)       # suppress default drawing
-        self.setPen(pen)
+        self.setPen(QPen(Qt.PenStyle.NoPen))       # suppress default drawing
 
         # Flags
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
@@ -391,22 +393,24 @@ class GridlineItem(QGraphicsLineItem):
             label = auto_label(p1, p2)
         self._label_text = label
 
-        # Bubbles
-        self.bubble1 = GridBubble(label, self)
-        self.bubble2 = GridBubble(label, self)
-        self._update_bubble_positions()
+        # ── Parametric state (source of truth) ──────────────────────────
+        self._origin = QPointF(p1)
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+        self._length = math.hypot(dx, dy)
+        self._angle_deg = math.degrees(math.atan2(-dy, dx)) % 360.0
+        self._bubble1_offset = float(GRIDLINE_BUBBLE_OFFSET_MM)
+        self._bubble2_offset = float(GRIDLINE_BUBBLE_OFFSET_MM)
 
         # Lock state (must be set before _LockIndicator creation)
-        self._locked: bool = False
+        self._locked = False
 
-        # Pull-tab grips
+        # Bubbles, grips, lock indicator
+        self.bubble1 = GridBubble(label, self)
+        self.bubble2 = GridBubble(label, self)
         self._grip1 = _PullTabGrip(self)
         self._grip2 = _PullTabGrip(self)
-        self._update_grip_positions()
-
-        # Lock indicator (padlock at midpoint)
         self._lock_indicator = _LockIndicator(self)
-        self._update_lock_indicator_pos()
 
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
@@ -419,6 +423,8 @@ class GridlineItem(QGraphicsLineItem):
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
         self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)
+
+        self._rebuild_geometry()
 
     # ── Geometry overrides ────────────────────────────────────────────────
 
@@ -466,16 +472,82 @@ class GridlineItem(QGraphicsLineItem):
             self.bubble2.update()
         return super().itemChange(change, value)
 
-    # ── Bubble positioning ────────────────────────────────────────────────
+    # ── Parametric accessors ──────────────────────────────────────────────
 
-    def _update_bubble_positions(self):
-        line = self.line()
-        self.bubble1.setPos(line.p1())
-        self.bubble2.setPos(line.p2())
-        if hasattr(self, '_grip1'):
-            self._update_grip_positions()
-        if hasattr(self, '_lock_indicator'):
-            self._update_lock_indicator_pos()
+    def origin(self) -> QPointF:
+        return QPointF(self._origin)
+
+    def length(self) -> float:
+        return self._length
+
+    def angle_deg(self) -> float:
+        return self._angle_deg
+
+    def bubble1_offset(self) -> float:
+        return self._bubble1_offset
+
+    def bubble2_offset(self) -> float:
+        return self._bubble2_offset
+
+    def _direction(self) -> tuple[float, float]:
+        th = math.radians(self._angle_deg)
+        return (math.cos(th), -math.sin(th))
+
+    def _far_point(self) -> QPointF:
+        dx, dy = self._direction()
+        return QPointF(self._origin.x() + self._length * dx,
+                       self._origin.y() + self._length * dy)
+
+    def _rebuild_geometry(self):
+        """Single writer: sync the underlying line() + bubbles/grips/lock
+        from the parametric state (_origin/_length/_angle_deg/offsets)."""
+        p1 = self._origin
+        p2 = self._far_point()
+        self.prepareGeometryChange()
+        self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+        dx, dy = self._direction()
+        self.bubble1.setPos(p1.x() - self._bubble1_offset * dx,
+                            p1.y() - self._bubble1_offset * dy)
+        self.bubble2.setPos(p2.x() + self._bubble2_offset * dx,
+                            p2.y() + self._bubble2_offset * dy)
+        self._update_grip_positions()
+        if hasattr(self, "_lock_indicator"):
+            self._lock_indicator.setPos(self.bubble1.pos())
+        self.update()
+
+    # ── Parametric mutators ───────────────────────────────────────────────
+
+    def set_origin_x(self, x: float):
+        if self._locked:
+            return
+        self._origin.setX(float(x))
+        self._rebuild_geometry()
+
+    def set_origin_y(self, y: float):
+        if self._locked:
+            return
+        self._origin.setY(float(y))
+        self._rebuild_geometry()
+
+    def set_length(self, length: float):
+        if self._locked:
+            return
+        self._length = max(1.0, float(length))
+        self._rebuild_geometry()
+
+    def set_angle_deg(self, angle: float):
+        if self._locked:
+            return
+        self._angle_deg = float(angle) % 360.0
+        self._rebuild_geometry()
+
+    def set_bubble_offset(self, end: int, offset: float):
+        val = max(0.0, float(offset))
+        if end == 1:
+            self._bubble1_offset = val
+        else:
+            self._bubble2_offset = val
+        self._rebuild_geometry()
 
     def _update_grip_positions(self):
         """Place grips slightly beyond each endpoint along the line direction."""
@@ -491,10 +563,6 @@ class GridlineItem(QGraphicsLineItem):
         ux, uy = dx / length, dy / length
         self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
         self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
-
-    def _update_lock_indicator_pos(self):
-        """Place lock indicator adjacent to bubble1 (primary bubble)."""
-        self._lock_indicator.setPos(self.bubble1.pos())
 
     # ── Hover events ─────────────────────────────────────────────────────
 
@@ -618,17 +686,11 @@ class GridlineItem(QGraphicsLineItem):
         if self._locked:
             return
         nx, ny = self._perpendicular_vector()
-        line = self.line()
-        p1 = line.p1()
-        p2 = line.p2()
         offset_x = nx * distance
         offset_y = ny * distance
-        self.setLine(
-            p1.x() + offset_x, p1.y() + offset_y,
-            p2.x() + offset_x, p2.y() + offset_y,
-        )
-        self._update_bubble_positions()
-        self.update()
+        self._origin.setX(self._origin.x() + offset_x)
+        self._origin.setY(self._origin.y() + offset_y)
+        self._rebuild_geometry()
 
     def set_perpendicular_position(self, position: float):
         """Move the gridline so its perpendicular coordinate equals *position*.
@@ -670,13 +732,10 @@ class GridlineItem(QGraphicsLineItem):
         dx = new_pos.x() - current.x()
         dy = new_pos.y() - current.y()
 
-        # Translate both endpoints
-        self.setLine(
-            p1.x() + dx, p1.y() + dy,
-            p2.x() + dx, p2.y() + dy,
-        )
-        self._update_bubble_positions()
-        self.update()
+        # Translate the whole gridline (parametric: shift origin)
+        self._origin.setX(self._origin.x() + dx)
+        self._origin.setY(self._origin.y() + dy)
+        self._rebuild_geometry()
 
     # ── Serialisation ─────────────────────────────────────────────────────
 
