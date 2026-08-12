@@ -89,16 +89,20 @@ class TestPerpendicularMove:
 
 
 class TestGripConstraint:
-    def test_grip_translates_entire_gridline(self, vertical_gl):
-        """Grip drag now translates the entire gridline freely in 2D."""
-        p1_before = vertical_gl.line().p1()
+    def test_grip_extends_origin_end_far_fixed(self, vertical_gl):
+        """Grip drag on origin end (index 0) shortens/extends; far end stays fixed."""
+        # vertical_gl: p1=(1000, 0), p2=(1000, 5000)
+        # direction = (0, 1) (angle_deg=270, cos270=0, -sin270=1)
+        # Cursor (1500, -300): proj onto (0,1) from far=(1000,5000) = -300-5000 = -5300
+        # new_origin = (1000, 5000 + (-5300)*1) = (1000, -300), length = 5300
         p2_before = vertical_gl.line().p2()
         vertical_gl.apply_grip(0, QPointF(1500, -300))
-        # Delta from p1 (1000, 0) to new_pos (1500, -300) is (500, -300)
-        assert vertical_gl.line().p1().x() == pytest.approx(1500.0)
+        # Far end is unchanged
+        assert vertical_gl.line().p2().x() == pytest.approx(p2_before.x())
+        assert vertical_gl.line().p2().y() == pytest.approx(p2_before.y())
+        # Origin moved along the line direction (x stays at 1000, y moved to -300)
+        assert vertical_gl.line().p1().x() == pytest.approx(1000.0)
         assert vertical_gl.line().p1().y() == pytest.approx(-300.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(p2_before.x() + 500.0)
-        assert vertical_gl.line().p2().y() == pytest.approx(p2_before.y() - 300.0)
 
 
 class TestLevelIndependence:

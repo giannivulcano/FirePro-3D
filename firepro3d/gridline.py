@@ -754,31 +754,28 @@ class GridlineItem(QGraphicsLineItem):
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
-        """Return the two endpoint positions as scene-space grip handles."""
-        line = self.line()
-        return [line.p1(), line.p2()]
+        return [QPointF(self._origin), self._far_point()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Translate the entire gridline by dragging a grip handle.
-
-        Both grip indices move the whole gridline freely in 2D.
-        Locked gridlines are not affected.
-        """
+        """Extend/shorten along the line; opposite endpoint stays fixed.
+        Cursor is projected onto the line direction (perpendicular discarded)."""
         if self._locked:
             return
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-
-        # Current grip position
-        current = p1 if index == 0 else p2
-
-        # Delta from current to new
-        dx = new_pos.x() - current.x()
-        dy = new_pos.y() - current.y()
-
-        # Translate the whole gridline (parametric: shift origin)
-        self._origin.setX(self._origin.x() + dx)
-        self._origin.setY(self._origin.y() + dy)
+        dx, dy = self._direction()
+        if index == 1:
+            vx = new_pos.x() - self._origin.x()
+            vy = new_pos.y() - self._origin.y()
+            self._length = max(1.0, vx * dx + vy * dy)
+        else:
+            far = self._far_point()
+            vx = new_pos.x() - far.x()
+            vy = new_pos.y() - far.y()
+            proj = vx * dx + vy * dy
+            new_origin = QPointF(far.x() + proj * dx, far.y() + proj * dy)
+            new_len = max(1.0, math.hypot(far.x() - new_origin.x(),
+                                          far.y() - new_origin.y()))
+            self._origin = new_origin
+            self._length = new_len
         self._rebuild_geometry()
 
     # ── Serialisation ─────────────────────────────────────────────────────
