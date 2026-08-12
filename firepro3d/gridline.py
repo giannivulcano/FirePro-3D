@@ -781,13 +781,15 @@ class GridlineItem(QGraphicsLineItem):
     # ── Serialisation ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        line = self.line()
         d = {
-            "p1": [line.p1().x(), line.p1().y()],
-            "p2": [line.p2().x(), line.p2().y()],
-            "label": self._label_text,
+            "origin": [self._origin.x(), self._origin.y()],
+            "length": self._length,
+            "angle": self._angle_deg,
+            "bubble1_offset": self._bubble1_offset,
+            "bubble2_offset": self._bubble2_offset,
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
+            "label": self._label_text,
             "locked": self._locked,
         }
         if self._display_overrides:
@@ -796,22 +798,38 @@ class GridlineItem(QGraphicsLineItem):
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
-        # Migration: old GridLine format used "start"/"end" instead of "p1"/"p2"
-        if "p1" in d:
-            p1 = QPointF(d["p1"][0], d["p1"][1])
-            p2 = QPointF(d["p2"][0], d["p2"][1])
+        if "origin" in d:
+            ox, oy = d["origin"]
+            length = float(d.get("length", 0.0))
+            angle = float(d.get("angle", 0.0))
+            th = math.radians(angle)
+            p1 = QPointF(ox, oy)
+            p2 = QPointF(ox + length * math.cos(th), oy - length * math.sin(th))
+            item = cls(p1, p2, label=d.get("label", "?"))
+            # Override length/angle exactly to avoid float drift from p2 derivation.
+            item._length = length
+            item._angle_deg = angle % 360.0
+            item._bubble1_offset = float(d.get("bubble1_offset", GRIDLINE_BUBBLE_OFFSET_MM))
+            item._bubble2_offset = float(d.get("bubble2_offset", GRIDLINE_BUBBLE_OFFSET_MM))
         else:
-            p1 = QPointF(d["start"][0], d["start"][1])
-            p2 = QPointF(d["end"][0], d["end"][1])
-        item = cls(p1, p2, label=d.get("label", "?"))
+            # LEGACY: two-point geometry ("p1"/"p2" or old "start"/"end").
+            if "p1" in d:
+                p1 = QPointF(d["p1"][0], d["p1"][1])
+                p2 = QPointF(d["p2"][0], d["p2"][1])
+            else:
+                p1 = QPointF(d["start"][0], d["start"][1])
+                p2 = QPointF(d["end"][0], d["end"][1])
+            # __init__ derives origin/length/angle/offsets from the two points.
+            item = cls(p1, p2, label=d.get("label", "?"))
         # Handle old-format key renames for bubble visibility
-        b1_vis = d.get("bubble1_vis", d.get("bubble_start", True))
-        b2_vis = d.get("bubble2_vis", d.get("bubble_end", True))
-        item.bubble1.setVisible(b1_vis)
-        item.bubble2.setVisible(b2_vis)
+        b1 = d.get("bubble1_vis", d.get("bubble_start", True))
+        b2 = d.get("bubble2_vis", d.get("bubble_end", True))
+        item.bubble1.setVisible(b1)
+        item.bubble2.setVisible(b2)
         item._locked = d.get("locked", False)
         item._display_overrides = d.get("display_overrides", {})
-        # Silently ignore "level" and "axis" keys from old files
+        # Silently ignore "level"/"axis" keys from old files.
+        item._rebuild_geometry()
         return item
 
     # ── Properties for property panel ─────────────────────────────────────
