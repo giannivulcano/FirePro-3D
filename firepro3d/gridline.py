@@ -891,6 +891,7 @@ class GridlineItem(QGraphicsLineItem):
                 another gridline in the scene.
         """
         color = QColor("#ff8800") if is_duplicate else self._grid_color
-        pen = QPen(color, 2)
-        self.bubble1.setPen(pen)
-        self.bubble2.setPen(pen)
+        for bubble in (self.bubble1, self.bubble2):
+            pen = bubble.pen()
+            pen.setColor(color)          # width unchanged
+            bubble.setPen(pen)

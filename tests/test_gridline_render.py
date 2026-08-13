@@ -18,3 +18,13 @@ def test_paint_uses_dash_pattern_not_solid(qapp):
     pen = gl._build_line_pen(sx=1.0)
     assert pen.style().name != "SolidLine"
     assert len(pen.dashPattern()) >= 2
+
+
+def test_duplicate_warning_keeps_border_width(qapp):
+    from PyQt6.QtCore import QPointF
+    from firepro3d.gridline import GridlineItem
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000), label="A")
+    w_before = gl.bubble1.pen().widthF()
+    gl.update_duplicate_warning(True)
+    assert gl.bubble1.pen().widthF() == w_before   # only color changes
+    assert gl.bubble1.pen().color().name() == "#ff8800"
