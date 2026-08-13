@@ -138,7 +138,7 @@ class TestCounterSync:
             scene.addItem(gl)
             scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))  # vertical → number
         assert lbl == "6"
 
     def test_sync_letters(self, scene):
@@ -148,7 +148,7 @@ class TestCounterSync:
             scene.addItem(gl)
             scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))  # horizontal → letter
         assert lbl == "D"
 
     def test_sync_multi_letter(self, scene):
@@ -157,7 +157,7 @@ class TestCounterSync:
         scene.addItem(gl)
         scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))  # horizontal → letter
         assert lbl == "AB"
 
     def test_sync_ignores_custom_labels(self, scene):
@@ -166,7 +166,7 @@ class TestCounterSync:
         scene.addItem(gl)
         scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))  # vertical → number
         assert lbl == "1"
 
 

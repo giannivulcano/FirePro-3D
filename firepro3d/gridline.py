@@ -63,15 +63,17 @@ def _next_v_label() -> str:
 
 
 def auto_label(p1: QPointF, p2: QPointF) -> str:
-    """Choose H or V numbering based on the line's angle."""
+    """Auto-label by orientation. Vertical gridlines get NUMBERS (1, 2, 3),
+    horizontal get LETTERS (A, B, C) — matches the default-seed convention
+    (user preference, 2026-08-13)."""
     dx = abs(p2.x() - p1.x())
     dy = abs(p2.y() - p1.y())
     if dy >= dx:
-        # More vertical → letter label (A, B, C)
-        return _next_v_label()
-    else:
-        # More horizontal → number label (1, 2, 3)
+        # More vertical → number label (1, 2, 3)
         return _next_h_label()
+    else:
+        # More horizontal → letter label (A, B, C)
+        return _next_v_label()
 
 
 def _label_to_letter_idx(label: str) -> int | None:

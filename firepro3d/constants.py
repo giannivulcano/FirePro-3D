@@ -49,7 +49,7 @@ Z_CAT_NODE       = 0.5    # Node
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft
 DEFAULT_GRIDLINE_LENGTH_MM  = 21945.6  # 864 in / 72 ft
 
-GRIDLINE_BUBBLE_OFFSET_MM = 457.2   # 18 in — absolute along-axis bubble standoff
+GRIDLINE_BUBBLE_OFFSET_MM = 1000.0  # absolute along-axis bubble standoff (mm)
 
 # ── Underlay rendering ───────────────────────────────────────────────────────
 # Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
