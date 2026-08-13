@@ -195,6 +195,10 @@ def two_scale_sheet(qapp, paper_env):
 
     scene = Model_Space()
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
+    # Bubble standoff is orthogonal to the head-size / true-scale checks here;
+    # zero it so bubble1 sits at the gridline endpoint (= crop/viewport centre).
+    gl.set_bubble_offset(1, 0.0)
+    gl.set_bubble_offset(2, 0.0)
     scene.addItem(gl)
     scene._gridlines.append(gl)
 
@@ -426,6 +430,10 @@ def aspect_diverged_sheet(qapp, paper_env):
 
     scene = Model_Space()
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 10000), label="1")
+    # Bubble standoff is orthogonal to the head-size / true-scale checks here;
+    # zero it so bubble1 sits at the gridline endpoint (= crop/viewport centre).
+    gl.set_bubble_offset(1, 0.0)
+    gl.set_bubble_offset(2, 0.0)
     scene.addItem(gl)
     scene._gridlines.append(gl)
 
