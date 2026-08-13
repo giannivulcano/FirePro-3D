@@ -834,14 +834,21 @@ class GridlineItem(QGraphicsLineItem):
 
     def get_properties(self) -> dict:
         far = self._far_point()
+
+        def _nz(v):
+            # Normalise -0.0 → 0.0 so the panel never shows "-0".
+            return 0.0 if v == 0 else v
+
+        # Display Y in the project's up-positive convention (scene Y is Qt
+        # down-positive), so a value typed as "up" reads/writes correctly.
         return {
             "Label": {"type": "string", "value": self._label_text},
-            "Origin X": {"type": "dimension", "value_mm": self._origin.x()},
-            "Origin Y": {"type": "dimension", "value_mm": self._origin.y()},
+            "Origin X": {"type": "dimension", "value_mm": _nz(self._origin.x())},
+            "Origin Y": {"type": "dimension", "value_mm": _nz(-self._origin.y())},
             "Length": {"type": "dimension", "value_mm": self._length, "minimum": 1.0},
             "Angle": {"type": "string", "value": f"{self._angle_deg:.1f}°"},
-            "End X": {"type": "label", "value": f"{far.x():.1f}"},
-            "End Y": {"type": "label", "value": f"{far.y():.1f}"},
+            "End X": {"type": "label", "value": f"{_nz(far.x()):.1f}"},
+            "End Y": {"type": "label", "value": f"{_nz(-far.y()):.1f}"},
             "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
             "Bubble 1 Offset": {"type": "dimension", "value_mm": self._bubble1_offset, "minimum": 0.0},
@@ -860,7 +867,7 @@ class GridlineItem(QGraphicsLineItem):
         elif key == "Origin X":
             self.set_origin_x(float(value))
         elif key == "Origin Y":
-            self.set_origin_y(float(value))
+            self.set_origin_y(-float(value))   # up-positive input → scene Y-down
         elif key == "Length":
             self.set_length(float(value))
         elif key == "Angle":

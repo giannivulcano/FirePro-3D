@@ -13,6 +13,26 @@ def test_get_properties_exposes_geometry(qapp):
     assert "value_mm" in props["Origin X"]
 
 
+def test_origin_y_displayed_up_positive(qapp):
+    # Scene Y is Qt down-positive; the panel shows up-positive.
+    gl = GridlineItem(QPointF(0, 500), QPointF(0, 1500), label="1")
+    props = gl.get_properties()
+    assert props["Origin Y"]["value_mm"] == -500.0
+    assert props["End Y"]["value"] == f"{-1500.0:.1f}"
+
+
+def test_set_origin_y_up_positive_input(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000), label="1")
+    gl.set_property("Origin Y", 300.0)          # user types up-positive
+    assert gl.origin().y() == -300.0            # stored scene Y-down
+
+
+def test_no_negative_zero_on_origin_y(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(1000, 0), label="1")  # origin (0,0)
+    v = gl.get_properties()["Origin Y"]["value_mm"]
+    assert v == 0.0 and math.copysign(1.0, v) == 1.0   # +0.0, never "-0"
+
+
 def test_set_origin_x_translates(qapp):
     gl = GridlineItem(QPointF(0, 0), QPointF(1000, 0), label="1")
     gl.set_property("Origin X", 300.0)

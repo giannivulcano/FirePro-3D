@@ -803,6 +803,20 @@ class Model_View(QGraphicsView):
                                   event.pos().y() - vp_mid.y()) < 20:
                         self._start_spacing_edit(dim, event.pos())
                         return
+                # Double-click on a gridline body/bubble → select it reliably.
+                # The second press of the double-click can otherwise land on
+                # empty space and clear the selection (see comment above).
+                from .gridline import GridlineItem
+                for it in sc.items(scene_pos):
+                    parent = it.parentItem() if hasattr(it, "parentItem") else None
+                    gl = (it if isinstance(it, GridlineItem)
+                          else parent if isinstance(parent, GridlineItem) else None)
+                    if gl is not None:
+                        sc.clearSelection()
+                        gl.setSelected(True)
+                        if hasattr(sc, "requestPropertyUpdate"):
+                            sc.requestPropertyUpdate.emit(gl)
+                        return
         super().mouseDoubleClickEvent(event)
 
     def _start_spacing_edit(self, dim, screen_pos):
