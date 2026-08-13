@@ -20,6 +20,20 @@ def test_paint_uses_dash_pattern_not_solid(qapp):
     assert len(pen.dashPattern()) >= 2
 
 
+def test_grip_uses_house_selection_style(qapp):
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QColor
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.constants import SELECTION_OUTLINE_COLOR
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 1000), label="A")
+    grip = gl._grip1
+    # white fill
+    assert grip.brush().color() == QColor(Qt.GlobalColor.white)
+    # SELECTION_OUTLINE_COLOR outline (a real pen, not NoPen)
+    assert grip.pen().style() != Qt.PenStyle.NoPen
+    assert grip.pen().color().name().lower() == QColor(SELECTION_OUTLINE_COLOR).name().lower()
+
+
 def test_duplicate_warning_keeps_border_width(qapp):
     from PyQt6.QtCore import QPointF
     from firepro3d.gridline import GridlineItem

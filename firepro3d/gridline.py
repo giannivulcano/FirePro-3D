@@ -24,6 +24,7 @@ from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathS
 from .constants import (
     Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX,
     GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
+    SELECTION_OUTLINE_COLOR,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
@@ -263,8 +264,8 @@ class _PullTabGrip(QGraphicsRectItem):
     def __init__(self, parent: QGraphicsItem):
         super().__init__(-_GRIP_HALF, -_GRIP_HALF, 2 * _GRIP_HALF, 2 * _GRIP_HALF, parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setPen(QPen(Qt.PenStyle.NoPen))
-        self.setBrush(QBrush(QColor(68, 136, 204, 60)))
+        self.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR), 1.0))
+        self.setBrush(QBrush(QColor(Qt.GlobalColor.white)))
         self.setZValue(Z_CONSTRUCTION)
         self.setVisible(False)
 

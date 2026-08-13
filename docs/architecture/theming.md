@@ -95,6 +95,11 @@ deliberately theme-independent (CAD selection blue reads on both themes):
 - **Distinct states keep distinct looks** — e.g. sheet text inline-*editing*
   uses its own lighter `#88aaff` dashed frame; only the *selected* state uses
   the base style.
+- **Model-space grab handles** share the same color convention (white fill +
+  `SELECTION_OUTLINE_COLOR` outline) but are screen-pixel sized rather than
+  paper-mm (they use `ItemIgnoresTransformations`; `SELECTION_GRIP_SIZE_MM` is
+  paper-only). The gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) is
+  the first model-space conformer.
 
 - **Pill buttons** — compact rounded action buttons (`border-radius` ≈ half the
   height, tight padding, content-sized). Used for dense control clusters such as
