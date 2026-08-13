@@ -323,37 +323,49 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         gridlines, plus one dimension from each outer edge to the
         nearest unselected neighbour.
         """
+        EPS_ANGLE = math.radians(0.5)
+
         selected_set = set(
             item for item in self.selectedItems()
             if isinstance(item, GridlineItem))
         if not selected_set:
             return []
 
-        # Group all gridlines by orientation
-        groups: dict[bool, list[tuple]] = {}  # is_vertical → [(gl, perp_pos)]
+        def _ang_mod_pi(gl):
+            ln = gl.line()
+            a = math.atan2(ln.p2().y() - ln.p1().y(),
+                           ln.p2().x() - ln.p1().x())
+            return a % math.pi
+
+        # Cluster gridlines by direction angle (mod π): two lines share a
+        # cluster only if they are TRULY parallel within EPS_ANGLE.  This
+        # replaces the old binary dy>=dx bucket, which mis-paired lines of
+        # different angles and flipped discontinuously near 45°.
+        clusters: list[list[dict]] = []   # each: [{gl, a}]
         for gl in self._gridlines:
-            dx = abs(gl.line().p2().x() - gl.line().p1().x())
-            dy = abs(gl.line().p2().y() - gl.line().p1().y())
-            is_v = dy >= dx
-            px, py = gl._perpendicular_vector()
-            perp = gl.line().p1().x() * px + gl.line().p1().y() * py
-            groups.setdefault(is_v, []).append((gl, perp, px, py))
+            a = _ang_mod_pi(gl)
+            for cl in clusters:
+                d = abs(a - cl[0]["a"])
+                d = min(d, math.pi - d)
+                if d <= EPS_ANGLE:
+                    cl.append({"gl": gl, "a": a})
+                    break
+            else:
+                clusters.append([{"gl": gl, "a": a}])
 
         results = []
 
-        for is_v, members in groups.items():
-            # Any selected in this orientation?
-            sel_in_group = [m for m in members if m[0] in selected_set]
-            if not sel_in_group:
+        for cl in clusters:
+            if not any(m["gl"] in selected_set for m in cl):
                 continue
 
-            # Sort all members by perpendicular position
-            members.sort(key=lambda m: m[1])
-            px, py = members[0][2], members[0][3]
+            # Cluster shared normal from the first member.  All members are
+            # parallel within EPS_ANGLE, so their normals agree.
+            px, py = cl[0]["gl"]._perpendicular_vector()
 
-            # Compute along-direction unit vector and bubble-end position
-            # from the first selected gridline (for dimension line placement)
-            ref_gl = sel_in_group[0][0]
+            # Along-direction unit vector + position from the first selected
+            # member (for dimension-line placement).
+            ref_gl = next(m["gl"] for m in cl if m["gl"] in selected_set)
             dir_x = ref_gl.line().p2().x() - ref_gl.line().p1().x()
             dir_y = ref_gl.line().p2().y() - ref_gl.line().p1().y()
             dir_len = math.hypot(dir_x, dir_y)
@@ -361,7 +373,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             uy = dir_y / dir_len if dir_len > 1e-12 else 1.0
             along_pos = ref_gl.line().p1().x() * ux + ref_gl.line().p1().y() * uy
 
-            def _make_dim(gl_a, perp_a, gl_b, perp_b):
+            def _make_dim(gl_a, perp_a, gl_b, perp_b, px=px, py=py,
+                          along_pos=along_pos, ux=ux, uy=uy):
                 from_pt = QPointF(perp_a * px + along_pos * ux,
                                   perp_a * py + along_pos * uy)
                 to_pt = QPointF(perp_b * px + along_pos * ux,
@@ -375,14 +388,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "midpoint": mid, "perp_vector": (px, py),
                 }
 
-            # Walk the sorted list: show dim between every adjacent pair
-            # where at least one side is selected.
+            # Project members onto the shared normal and sort.
+            members = sorted(
+                ((m["gl"],
+                  m["gl"].line().p1().x() * px + m["gl"].line().p1().y() * py)
+                 for m in cl),
+                key=lambda t: t[1])
+
+            # Walk the sorted list: emit a dim between every adjacent pair
+            # where at least one side is selected (covers single + multi).
             for i in range(len(members) - 1):
-                gl_a, perp_a = members[i][0], members[i][1]
-                gl_b, perp_b = members[i + 1][0], members[i + 1][1]
-                a_sel = gl_a in selected_set
-                b_sel = gl_b in selected_set
-                if a_sel or b_sel:
+                gl_a, perp_a = members[i]
+                gl_b, perp_b = members[i + 1]
+                if gl_a in selected_set or gl_b in selected_set:
                     results.append(_make_dim(gl_a, perp_a, gl_b, perp_b))
 
         return results

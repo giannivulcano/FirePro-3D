@@ -699,11 +699,11 @@ class GridlineItem(QGraphicsLineItem):
     # ── Perpendicular move ───────────────────────────────────────────────
 
     def _perpendicular_vector(self) -> tuple[float, float]:
-        """Return the unit perpendicular vector to the gridline direction.
+        """Unit normal to the line direction: n = (-d.y, d.x). Fixed sign.
 
-        For a vertical line (dx=0, dy!=0), returns (1, 0).
-        For a horizontal line (dy=0, dx!=0), returns (0, 1).
-        For angled lines, returns the left-hand normal.
+        The sign is fixed (no "dominant component positive" flip) so that
+        every gridline in a parallel cluster shares a consistent normal —
+        required for true-parallelism spacing dimensions.
         """
         line = self.line()
         dx = line.p2().x() - line.p1().x()
@@ -711,15 +711,7 @@ class GridlineItem(QGraphicsLineItem):
         length = math.sqrt(dx * dx + dy * dy)
         if length < 1e-12:
             return (1.0, 0.0)
-        # Perpendicular normal: (-dy, dx) normalized, then flipped so
-        # the dominant component is positive.  This ensures positive
-        # distance always moves in the +X or +Y direction.
-        nx, ny = -dy / length, dx / length
-        # Flip so that the larger component is positive
-        dominant = nx if abs(nx) >= abs(ny) else ny
-        if dominant < 0:
-            nx, ny = -nx, -ny
-        return (nx, ny)
+        return (-dy / length, dx / length)
 
     def move_perpendicular(self, distance: float):
         """Translate the gridline by *distance* in the perpendicular direction.

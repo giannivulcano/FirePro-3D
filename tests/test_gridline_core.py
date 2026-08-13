@@ -62,10 +62,11 @@ class TestLock:
 
 class TestPerpendicularMove:
     def test_move_perpendicular_vertical_gl(self, vertical_gl):
-        """Vertical gridline (dx=0): perpendicular is X direction."""
+        """Vertical gridline (dir=+Y): fixed normal n=(-dy,dx)=(-1,0), so a
+        positive perpendicular move goes in the -X direction (T10 sign fix)."""
         vertical_gl.move_perpendicular(200.0)
-        assert vertical_gl.line().p1().x() == pytest.approx(1200.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(1200.0)
+        assert vertical_gl.line().p1().x() == pytest.approx(800.0)
+        assert vertical_gl.line().p2().x() == pytest.approx(800.0)
         assert vertical_gl.line().p1().y() == pytest.approx(0.0)
         assert vertical_gl.line().p2().y() == pytest.approx(5000.0)
 
@@ -78,9 +79,16 @@ class TestPerpendicularMove:
         assert horizontal_gl.line().p2().x() == pytest.approx(5000.0)
 
     def test_set_perpendicular_position_vertical(self, vertical_gl):
+        # Fixed normal n=(-1,0) for a +Y vertical line: the perpendicular
+        # coordinate frame is negated in X, so a perp position of 2500 maps
+        # to x=-2500 (its projection onto n is +2500). (T10 sign fix)
         vertical_gl.set_perpendicular_position(2500.0)
-        assert vertical_gl.line().p1().x() == pytest.approx(2500.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(2500.0)
+        assert vertical_gl.line().p1().x() == pytest.approx(-2500.0)
+        assert vertical_gl.line().p2().x() == pytest.approx(-2500.0)
+        # Projection onto the fixed normal equals the requested position.
+        nx, ny = vertical_gl._perpendicular_vector()
+        proj = vertical_gl.line().p1().x() * nx + vertical_gl.line().p1().y() * ny
+        assert proj == pytest.approx(2500.0)
 
     def test_set_perpendicular_position_horizontal(self, horizontal_gl):
         horizontal_gl.set_perpendicular_position(500.0)
