@@ -6743,6 +6743,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         collection, and select it.
         """
         if self.mode == "draw_gridline":
+            # Sync the auto-number counters to the EXISTING gridlines BEFORE
+            # constructing (GridlineItem.__init__ auto-labels at construction),
+            # so a freshly placed gridline continues the sequence (e.g. "4"
+            # after a 1/2/3 seed) instead of restarting at "1"/"A".
+            sync_grid_counters(self._gridlines)
             gl = GridlineItem(anchor, tip)
             self.addItem(gl)
             apply_category_defaults(gl)      # adopt current DM Grid Line color/scale

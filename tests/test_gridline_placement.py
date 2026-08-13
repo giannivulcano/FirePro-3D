@@ -27,3 +27,15 @@ def test_draw_gridline_ctrl_constrains_angle(qapp):
     _place(scene, QPointF(0, 0), QPointF(1000, 30), ctrl=True)
     gl = scene._gridlines[0]
     assert abs(gl.line().p2().y()) < 1.0
+
+
+def test_placement_continues_numbering_after_existing(qapp):
+    # Existing vertical gridlines 1/2/3 (numbers); a freshly placed vertical
+    # gridline must continue at "4", not restart at "1".
+    scene = Model_Space()
+    for i, lbl in enumerate(["1", "2", "3"]):
+        gl = GridlineItem(QPointF(i * 500, 0), QPointF(i * 500, 1000), label=lbl)
+        scene.addItem(gl)
+        scene._gridlines.append(gl)
+    _place(scene, QPointF(2000, 0), QPointF(2000, 1000))  # vertical → number
+    assert scene._gridlines[-1].grid_label == "4"
