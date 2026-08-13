@@ -356,9 +356,9 @@ _DASH_MODEL_MM = 600.0
 _GAP_MODEL_MM = 300.0
 _DOT_MODEL_MM = 60.0
 # Paper path: fixed mm so a PDF reads as dash-dot regardless of DPI.
-_DASH_MM = 9.0
-_GAP_MM = 4.5
-_DOT_MM = 1.2
+_DASH_MM = 6.0
+_GAP_MM = 3.0
+_DOT_MM = 1.0
 
 
 def _dash_pattern_model(sx: float) -> list[float]:
