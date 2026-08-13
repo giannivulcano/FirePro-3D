@@ -671,6 +671,16 @@ class MainWindow(QMainWindow):
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         self._apply_persistent_unit_prefs()
+
+        # Reset undo stack so the seeded template gridlines are the baseline
+        # (index 0) and cannot be undone away. Without this, place_grid_lines
+        # pushed an EMPTY-scene snapshot before adding the gridlines, so the
+        # first Ctrl+Z after any edit reverted to the empty pre-seed scene and
+        # wiped the whole default grid. Mirrors new_file() (see that method).
+        self.scene._undo_stack = []
+        self.scene._undo_pos = -1
+        self.scene.push_undo_state()
+
         self._current_file = None
         self._modified = False
         self._update_title()
