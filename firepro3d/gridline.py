@@ -346,14 +346,14 @@ class _LockIndicator(QGraphicsPathItem):
 GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
-# Dash-dot geometry in screen pixels (screen path) — Task 12 may retune.
-_DASH_PX = 14.0
-_GAP_PX = 6.0
+# Dash-dot geometry in screen pixels (screen path) — Set 3 (T12).
+_DASH_PX = 10.0
+_GAP_PX = 8.0
 _DOT_PX = 2.0
 # Paper path: fixed mm so a PDF reads as dash-dot regardless of DPI.
-_DASH_MM = 6.35   # 1/4"
-_GAP_MM = 3.18
-_DOT_MM = 1.0
+_DASH_MM = 9.0
+_GAP_MM = 4.5
+_DOT_MM = 1.2
 
 
 def _dash_pattern_px(sx: float) -> list[float]:
@@ -363,10 +363,12 @@ def _dash_pattern_px(sx: float) -> list[float]:
     return [_DASH_PX * s, _GAP_PX * s, _DOT_PX * s, _GAP_PX * s]
 
 
-def _dash_pattern_mm(line_w: float) -> list[float]:
-    """Dash pattern in scene-mm for the paper render path, normalised to the
-    pen width (Qt expresses dash entries in pen-width multiples)."""
-    w = max(line_w, 1e-6)
+def _dash_pattern_mm(line_w_mm: float) -> list[float]:
+    """Dash pattern for the paper render path, normalised to the ON-PAPER
+    line width in mm (Qt dash entries are pen-width multiples). Because the
+    pen width and the pattern share the viewport scale, the on-paper dash
+    length resolves to _DASH_MM regardless of viewport scale."""
+    w = max(line_w_mm, 1e-6)
     return [_DASH_MM / w, _GAP_MM / w, _DOT_MM / w, _GAP_MM / w]
 
 
@@ -441,11 +443,12 @@ class GridlineItem(QGraphicsLineItem):
 
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
-        # Write-together unit: the three _paper_* attributes are set only by
+        # Write-together unit: the four _paper_* attributes are set only by
         # paper_display's override pass (_apply_gridline / restore) — never
         # mutate one without the others.
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
+        self._paper_line_w_mm = 0.0       # line/border width, ON-PAPER mm (paper pass)
         self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)
 
         self._rebuild_geometry()
@@ -633,7 +636,7 @@ class GridlineItem(QGraphicsLineItem):
             pen_w = self._paper_line_w
             scene_r = self._paper_bubble_r
             pen = QPen(self._grid_color, pen_w)
-            pen.setDashPattern(_dash_pattern_mm(pen_w))
+            pen.setDashPattern(_dash_pattern_mm(self._paper_line_w_mm))
             sx = None
         else:
             # Calculate pen width to maintain ~GRID_WIDTH screen pixels

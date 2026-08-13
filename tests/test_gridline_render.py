@@ -42,3 +42,22 @@ def test_duplicate_warning_keeps_border_width(qapp):
     gl.update_duplicate_warning(True)
     assert gl.bubble1.pen().widthF() == w_before   # only color changes
     assert gl.bubble1.pen().color().name() == "#ff8800"
+
+
+def test_paper_dash_pattern_normalizes_to_onpaper_mm():
+    from firepro3d.gridline import _dash_pattern_mm, _DASH_MM, _GAP_MM, _DOT_MM
+    import math
+    lw_mm = 0.35
+    pat = _dash_pattern_mm(lw_mm)
+    # entries are mm/lw_mm; on-paper dash = entry * (lw_mm/S) * S = _DASH_MM for any S
+    for S in (0.01, 0.02, 0.5, 1.0):
+        pen_w_scene = lw_mm / S
+        onpaper_dash = pat[0] * pen_w_scene * S
+        assert math.isclose(onpaper_dash, _DASH_MM, rel_tol=1e-9)
+        onpaper_gap = pat[1] * pen_w_scene * S
+        assert math.isclose(onpaper_gap, _GAP_MM, rel_tol=1e-9)
+
+
+def test_screen_dash_values_are_set3():
+    from firepro3d.gridline import _DASH_PX, _GAP_PX, _DOT_PX
+    assert (_DASH_PX, _GAP_PX, _DOT_PX) == (10.0, 8.0, 2.0)
