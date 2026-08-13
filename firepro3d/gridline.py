@@ -21,7 +21,11 @@ from PyQt6.QtWidgets import (
     QGraphicsRectItem, QGraphicsItem, QGraphicsPathItem, QStyle,
 )
 from PyQt6.QtGui import QPen, QColor, QFont, QBrush, QPainterPath, QPainterPathStroker, QFontMetricsF
-from .constants import Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX, GRIDLINE_BUBBLE_LABEL_EM_FRAC
+from .constants import (
+    Z_GRIDLINE_BUBBLE, Z_CONSTRUCTION, TEXT_METRIC_REF_PX,
+    GRIDLINE_BUBBLE_LABEL_EM_FRAC, GRIDLINE_BUBBLE_OFFSET_MM,
+    SELECTION_OUTLINE_COLOR,
+)
 from PyQt6.QtCore import Qt, QPointF, QRectF
 
 
@@ -59,15 +63,17 @@ def _next_v_label() -> str:
 
 
 def auto_label(p1: QPointF, p2: QPointF) -> str:
-    """Choose H or V numbering based on the line's angle."""
+    """Auto-label by orientation. Vertical gridlines get NUMBERS (1, 2, 3),
+    horizontal get LETTERS (A, B, C) — matches the default-seed convention
+    (user preference, 2026-08-13)."""
     dx = abs(p2.x() - p1.x())
     dy = abs(p2.y() - p1.y())
     if dy >= dx:
-        # More vertical → letter label (A, B, C)
-        return _next_v_label()
-    else:
-        # More horizontal → number label (1, 2, 3)
+        # More vertical → number label (1, 2, 3)
         return _next_h_label()
+    else:
+        # More horizontal → letter label (A, B, C)
+        return _next_v_label()
 
 
 def _label_to_letter_idx(label: str) -> int | None:
@@ -260,8 +266,8 @@ class _PullTabGrip(QGraphicsRectItem):
     def __init__(self, parent: QGraphicsItem):
         super().__init__(-_GRIP_HALF, -_GRIP_HALF, 2 * _GRIP_HALF, 2 * _GRIP_HALF, parent)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
-        self.setPen(QPen(Qt.PenStyle.NoPen))
-        self.setBrush(QBrush(QColor(68, 136, 204, 60)))
+        self.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR), 1.0))
+        self.setBrush(QBrush(QColor(Qt.GlobalColor.white)))
         self.setZValue(Z_CONSTRUCTION)
         self.setVisible(False)
 
@@ -342,6 +348,34 @@ class _LockIndicator(QGraphicsPathItem):
 GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
+# Dash-dot geometry in MODEL space (scene mm) for the screen path. The on-
+# screen dash scales WITH the drawing/zoom like a CAD/Revit model linetype:
+# bold at working zoom, thinning toward solid only at extreme zoom-out.
+# (Placeholder values — final sizes chosen from the mockup step.)
+_DASH_MODEL_MM = 600.0
+_GAP_MODEL_MM = 300.0
+_DOT_MODEL_MM = 60.0
+# Paper path: fixed mm so a PDF reads as dash-dot regardless of DPI.
+_DASH_MM = 6.0
+_GAP_MM = 3.0
+_DOT_MM = 1.0
+
+
+def _dash_pattern_model(sx: float) -> list[float]:
+    """Screen dash pattern (Qt pen-width multiples) yielding a fixed MODEL-mm
+    dash-dot that scales with zoom like a CAD linetype. pen_w = GRID_WIDTH/sx."""
+    k = max(sx, 1e-9) / GRID_WIDTH
+    return [_DASH_MODEL_MM * k, _GAP_MODEL_MM * k, _DOT_MODEL_MM * k, _GAP_MODEL_MM * k]
+
+
+def _dash_pattern_mm(line_w_mm: float) -> list[float]:
+    """Dash pattern for the paper render path, normalised to the ON-PAPER
+    line width in mm (Qt dash entries are pen-width multiples). Because the
+    pen width and the pattern share the viewport scale, the on-paper dash
+    length resolves to _DASH_MM regardless of viewport scale."""
+    w = max(line_w_mm, 1e-6)
+    return [_DASH_MM / w, _GAP_MM / w, _DOT_MM / w, _GAP_MM / w]
+
 
 # Requires a live QApplication (QFontMetricsF); never call at module import time.
 @lru_cache(maxsize=8)
@@ -378,8 +412,7 @@ class GridlineItem(QGraphicsLineItem):
         # transform.  This avoids Qt's cosmetic-pen rasteriser which
         # fails silently after a few zoom steps on some platforms.
         self._grid_color = QColor(GRID_COLOR)
-        pen = QPen(Qt.PenStyle.NoPen)       # suppress default drawing
-        self.setPen(pen)
+        self.setPen(QPen(Qt.PenStyle.NoPen))       # suppress default drawing
 
         # Flags
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
@@ -391,34 +424,39 @@ class GridlineItem(QGraphicsLineItem):
             label = auto_label(p1, p2)
         self._label_text = label
 
-        # Bubbles
-        self.bubble1 = GridBubble(label, self)
-        self.bubble2 = GridBubble(label, self)
-        self._update_bubble_positions()
+        # ── Parametric state (source of truth) ──────────────────────────
+        self._origin = QPointF(p1)
+        dx = p2.x() - p1.x()
+        dy = p2.y() - p1.y()
+        self._length = math.hypot(dx, dy)
+        self._angle_deg = math.degrees(math.atan2(-dy, dx)) % 360.0
+        self._bubble1_offset = float(GRIDLINE_BUBBLE_OFFSET_MM)
+        self._bubble2_offset = float(GRIDLINE_BUBBLE_OFFSET_MM)
 
         # Lock state (must be set before _LockIndicator creation)
-        self._locked: bool = False
+        self._locked = False
 
-        # Pull-tab grips
+        # Bubbles, grips, lock indicator
+        self.bubble1 = GridBubble(label, self)
+        self.bubble2 = GridBubble(label, self)
         self._grip1 = _PullTabGrip(self)
         self._grip2 = _PullTabGrip(self)
-        self._update_grip_positions()
-
-        # Lock indicator (padlock at midpoint)
         self._lock_indicator = _LockIndicator(self)
-        self._update_lock_indicator_pos()
 
         # Hover events for grip visibility
         self.setAcceptHoverEvents(True)
 
         self._display_overrides: dict = {}  # per-instance display overrides
         self._display_scale: float = 1.0    # display scale for bubbles
-        # Write-together unit: the three _paper_* attributes are set only by
+        # Write-together unit: the four _paper_* attributes are set only by
         # paper_display's override pass (_apply_gridline / restore) — never
         # mutate one without the others.
         self._paper_render = False        # True during a paper override pass
         self._paper_line_w = 0.0          # line/border width, scene units (paper pass)
+        self._paper_line_w_mm = 0.0       # line/border width, ON-PAPER mm (paper pass)
         self._paper_bubble_r = 0.0        # bubble radius, scene units (paper pass)
+
+        self._rebuild_geometry()
 
     # ── Geometry overrides ────────────────────────────────────────────────
 
@@ -429,7 +467,8 @@ class GridlineItem(QGraphicsLineItem):
         their own bounds independently.
         """
         br = super().boundingRect()
-        m = 20.0  # small scene-unit margin for the gridline pen
+        # Account for bubbles positioned outboard of each endpoint plus pen.
+        m = max(20.0, self._bubble1_offset, self._bubble2_offset) + 20.0
         return br.adjusted(-m, -m, m, m)
 
     def shape(self) -> QPainterPath:
@@ -466,16 +505,82 @@ class GridlineItem(QGraphicsLineItem):
             self.bubble2.update()
         return super().itemChange(change, value)
 
-    # ── Bubble positioning ────────────────────────────────────────────────
+    # ── Parametric accessors ──────────────────────────────────────────────
 
-    def _update_bubble_positions(self):
-        line = self.line()
-        self.bubble1.setPos(line.p1())
-        self.bubble2.setPos(line.p2())
-        if hasattr(self, '_grip1'):
-            self._update_grip_positions()
-        if hasattr(self, '_lock_indicator'):
-            self._update_lock_indicator_pos()
+    def origin(self) -> QPointF:
+        return QPointF(self._origin)
+
+    def length(self) -> float:
+        return self._length
+
+    def angle_deg(self) -> float:
+        return self._angle_deg
+
+    def bubble1_offset(self) -> float:
+        return self._bubble1_offset
+
+    def bubble2_offset(self) -> float:
+        return self._bubble2_offset
+
+    def _direction(self) -> tuple[float, float]:
+        th = math.radians(self._angle_deg)
+        return (math.cos(th), -math.sin(th))
+
+    def _far_point(self) -> QPointF:
+        dx, dy = self._direction()
+        return QPointF(self._origin.x() + self._length * dx,
+                       self._origin.y() + self._length * dy)
+
+    def _rebuild_geometry(self):
+        """Single writer: sync the underlying line() + bubbles/grips/lock
+        from the parametric state (_origin/_length/_angle_deg/offsets)."""
+        p1 = self._origin
+        p2 = self._far_point()
+        self.prepareGeometryChange()
+        self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+        dx, dy = self._direction()
+        self.bubble1.setPos(p1.x() - self._bubble1_offset * dx,
+                            p1.y() - self._bubble1_offset * dy)
+        self.bubble2.setPos(p2.x() + self._bubble2_offset * dx,
+                            p2.y() + self._bubble2_offset * dy)
+        self._update_grip_positions()
+        if hasattr(self, "_lock_indicator"):
+            self._lock_indicator.setPos(self.bubble1.pos())
+        self.update()
+
+    # ── Parametric mutators ───────────────────────────────────────────────
+
+    def set_origin_x(self, x: float):
+        if self._locked:
+            return
+        self._origin.setX(float(x))
+        self._rebuild_geometry()
+
+    def set_origin_y(self, y: float):
+        if self._locked:
+            return
+        self._origin.setY(float(y))
+        self._rebuild_geometry()
+
+    def set_length(self, length: float):
+        if self._locked:
+            return
+        self._length = max(1.0, float(length))
+        self._rebuild_geometry()
+
+    def set_angle_deg(self, angle: float):
+        if self._locked:
+            return
+        self._angle_deg = float(angle) % 360.0
+        self._rebuild_geometry()
+
+    def set_bubble_offset(self, end: int, offset: float):
+        val = max(0.0, float(offset))
+        if end == 1:
+            self._bubble1_offset = val
+        else:
+            self._bubble2_offset = val
+        self._rebuild_geometry()
 
     def _update_grip_positions(self):
         """Place grips slightly beyond each endpoint along the line direction."""
@@ -491,10 +596,6 @@ class GridlineItem(QGraphicsLineItem):
         ux, uy = dx / length, dy / length
         self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
         self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
-
-    def _update_lock_indicator_pos(self):
-        """Place lock indicator adjacent to bubble1 (primary bubble)."""
-        self._lock_indicator.setPos(self.bubble1.pos())
 
     # ── Hover events ─────────────────────────────────────────────────────
 
@@ -512,45 +613,66 @@ class GridlineItem(QGraphicsLineItem):
 
     # ── Selection highlight (suppress dashed box) ─────────────────────────
 
+    def _build_line_pen(self, sx: float) -> QPen:
+        """Build the screen-path dash-dot pen for view scale ``sx``.
+
+        The pen is non-cosmetic (width in scene units). The width stays a
+        screen constant (~GRID_WIDTH px), while the dash pattern is MODEL-
+        absolute so the dash-dot scales with the drawing/zoom like a CAD
+        linetype (bold at working zoom, thinning toward solid at extreme
+        zoom-out).
+        """
+        pen_w = GRID_WIDTH / max(sx, 1e-9)
+        pen = QPen(self._grid_color, pen_w)
+        pen.setDashPattern(_dash_pattern_model(sx))
+        return pen
+
     def paint(self, painter, option, widget=None):
-        """Draw the gridline with a non-cosmetic pen whose width is
-        calculated from the current view transform so it appears as a
-        constant-width screen line.  The line is shortened at each end
-        so it meets the bubble at the closest edge rather than its centre."""
+        """Draw the gridline as a bubble-spanning dash-dot line.
+
+        The pen width is derived from the current view transform (screen
+        path) or the paper geometry (paper path); the dash pattern is set
+        explicitly so it renders as a legible dash-dot at any zoom and in
+        exported PDF.  The line is shortened at each end so it meets the
+        visible bubble at its edge rather than its centre.
+        """
         option.state &= ~QStyle.StateFlag.State_Selected
 
         if self._paper_render:
             pen_w = self._paper_line_w
             scene_r = self._paper_bubble_r
+            pen = QPen(self._grid_color, pen_w)
+            pen.setDashPattern(_dash_pattern_mm(self._paper_line_w_mm))
+            sx = None
         else:
             # Calculate pen width to maintain ~GRID_WIDTH screen pixels
             vt = painter.deviceTransform()
             sx = max(abs(vt.m11()), abs(vt.m22()), 1e-9)
             pen_w = GRID_WIDTH / sx
             scene_r = GridBubble.RADIUS_PX / sx  # pixel radius → scene units
+            pen = self._build_line_pen(sx)
 
         # Shorten line to meet visible bubbles at their edge.
         # Bubbles use ItemIgnoresTransformations (screen mode) or scene-unit
         # geometry (paper mode); scene_r is set appropriately above.
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-        dx = p2.x() - p1.x()
-        dy = p2.y() - p1.y()
-        length = math.sqrt(dx * dx + dy * dy)
+        b1 = self.bubble1.pos()
+        b2 = self.bubble2.pos()
+        dx = b2.x() - b1.x()
+        dy = b2.y() - b1.y()
+        length = math.hypot(dx, dy)
         if length > 1e-9:
             ux, uy = dx / length, dy / length
-            draw_p1 = QPointF(p1.x() + ux * scene_r, p1.y() + uy * scene_r) if self.bubble1.isVisible() else p1
-            draw_p2 = QPointF(p2.x() - ux * scene_r, p2.y() - uy * scene_r) if self.bubble2.isVisible() else p2
+            draw_p1 = QPointF(b1.x() + ux * scene_r, b1.y() + uy * scene_r) if self.bubble1.isVisible() else b1
+            draw_p2 = QPointF(b2.x() - ux * scene_r, b2.y() - uy * scene_r) if self.bubble2.isVisible() else b2
         else:
-            draw_p1, draw_p2 = p1, p2
+            draw_p1, draw_p2 = b1, b2
 
-        pen = QPen(self._grid_color, pen_w, Qt.PenStyle.DashDotLine)
         painter.setPen(pen)
         painter.drawLine(draw_p1, draw_p2)
 
         if self.isSelected() and not self._paper_render:
-            sel_pen = QPen(self._grid_color.lighter(150),
-                           pen_w * 2, Qt.PenStyle.DashDotLine)
+            sel_pen = QPen(self._grid_color.lighter(150), pen_w * 2)
+            sel_pen.setDashPattern(_dash_pattern_model(sx))
             painter.setPen(sel_pen)
             painter.drawLine(draw_p1, draw_p2)
 
@@ -587,11 +709,11 @@ class GridlineItem(QGraphicsLineItem):
     # ── Perpendicular move ───────────────────────────────────────────────
 
     def _perpendicular_vector(self) -> tuple[float, float]:
-        """Return the unit perpendicular vector to the gridline direction.
+        """Unit normal to the line direction: n = (-d.y, d.x). Fixed sign.
 
-        For a vertical line (dx=0, dy!=0), returns (1, 0).
-        For a horizontal line (dy=0, dx!=0), returns (0, 1).
-        For angled lines, returns the left-hand normal.
+        The sign is fixed (no "dominant component positive" flip) so that
+        every gridline in a parallel cluster shares a consistent normal —
+        required for true-parallelism spacing dimensions.
         """
         line = self.line()
         dx = line.p2().x() - line.p1().x()
@@ -599,15 +721,7 @@ class GridlineItem(QGraphicsLineItem):
         length = math.sqrt(dx * dx + dy * dy)
         if length < 1e-12:
             return (1.0, 0.0)
-        # Perpendicular normal: (-dy, dx) normalized, then flipped so
-        # the dominant component is positive.  This ensures positive
-        # distance always moves in the +X or +Y direction.
-        nx, ny = -dy / length, dx / length
-        # Flip so that the larger component is positive
-        dominant = nx if abs(nx) >= abs(ny) else ny
-        if dominant < 0:
-            nx, ny = -nx, -ny
-        return (nx, ny)
+        return (-dy / length, dx / length)
 
     def move_perpendicular(self, distance: float):
         """Translate the gridline by *distance* in the perpendicular direction.
@@ -618,17 +732,11 @@ class GridlineItem(QGraphicsLineItem):
         if self._locked:
             return
         nx, ny = self._perpendicular_vector()
-        line = self.line()
-        p1 = line.p1()
-        p2 = line.p2()
         offset_x = nx * distance
         offset_y = ny * distance
-        self.setLine(
-            p1.x() + offset_x, p1.y() + offset_y,
-            p2.x() + offset_x, p2.y() + offset_y,
-        )
-        self._update_bubble_positions()
-        self.update()
+        self._origin.setX(self._origin.x() + offset_x)
+        self._origin.setY(self._origin.y() + offset_y)
+        self._rebuild_geometry()
 
     def set_perpendicular_position(self, position: float):
         """Move the gridline so its perpendicular coordinate equals *position*.
@@ -648,46 +756,42 @@ class GridlineItem(QGraphicsLineItem):
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
-        """Return the two endpoint positions as scene-space grip handles."""
-        line = self.line()
-        return [line.p1(), line.p2()]
+        return [QPointF(self._origin), self._far_point()]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Translate the entire gridline by dragging a grip handle.
-
-        Both grip indices move the whole gridline freely in 2D.
-        Locked gridlines are not affected.
-        """
+        """Extend/shorten along the line; opposite endpoint stays fixed.
+        Cursor is projected onto the line direction (perpendicular discarded)."""
         if self._locked:
             return
-        line = self.line()
-        p1, p2 = line.p1(), line.p2()
-
-        # Current grip position
-        current = p1 if index == 0 else p2
-
-        # Delta from current to new
-        dx = new_pos.x() - current.x()
-        dy = new_pos.y() - current.y()
-
-        # Translate both endpoints
-        self.setLine(
-            p1.x() + dx, p1.y() + dy,
-            p2.x() + dx, p2.y() + dy,
-        )
-        self._update_bubble_positions()
-        self.update()
+        dx, dy = self._direction()
+        if index == 1:
+            vx = new_pos.x() - self._origin.x()
+            vy = new_pos.y() - self._origin.y()
+            self._length = max(1.0, vx * dx + vy * dy)
+        else:
+            far = self._far_point()
+            vx = new_pos.x() - far.x()
+            vy = new_pos.y() - far.y()
+            proj = vx * dx + vy * dy
+            new_origin = QPointF(far.x() + proj * dx, far.y() + proj * dy)
+            new_len = max(1.0, math.hypot(far.x() - new_origin.x(),
+                                          far.y() - new_origin.y()))
+            self._origin = new_origin
+            self._length = new_len
+        self._rebuild_geometry()
 
     # ── Serialisation ─────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        line = self.line()
         d = {
-            "p1": [line.p1().x(), line.p1().y()],
-            "p2": [line.p2().x(), line.p2().y()],
-            "label": self._label_text,
+            "origin": [self._origin.x(), self._origin.y()],
+            "length": self._length,
+            "angle": self._angle_deg,
+            "bubble1_offset": self._bubble1_offset,
+            "bubble2_offset": self._bubble2_offset,
             "bubble1_vis": self.bubble1.isVisible(),
             "bubble2_vis": self.bubble2.isVisible(),
+            "label": self._label_text,
             "locked": self._locked,
         }
         if self._display_overrides:
@@ -696,33 +800,65 @@ class GridlineItem(QGraphicsLineItem):
 
     @classmethod
     def from_dict(cls, d: dict) -> "GridlineItem":
-        # Migration: old GridLine format used "start"/"end" instead of "p1"/"p2"
-        if "p1" in d:
-            p1 = QPointF(d["p1"][0], d["p1"][1])
-            p2 = QPointF(d["p2"][0], d["p2"][1])
+        if "origin" in d:
+            ox, oy = d["origin"]
+            length = float(d.get("length", 0.0))
+            angle = float(d.get("angle", 0.0))
+            th = math.radians(angle)
+            p1 = QPointF(ox, oy)
+            p2 = QPointF(ox + length * math.cos(th), oy - length * math.sin(th))
+            item = cls(p1, p2, label=d.get("label", "?"))
+            # Override length/angle exactly to avoid float drift from p2 derivation.
+            item._length = length
+            item._angle_deg = angle % 360.0
+            item._bubble1_offset = float(d.get("bubble1_offset", GRIDLINE_BUBBLE_OFFSET_MM))
+            item._bubble2_offset = float(d.get("bubble2_offset", GRIDLINE_BUBBLE_OFFSET_MM))
         else:
-            p1 = QPointF(d["start"][0], d["start"][1])
-            p2 = QPointF(d["end"][0], d["end"][1])
-        item = cls(p1, p2, label=d.get("label", "?"))
+            # LEGACY: two-point geometry ("p1"/"p2" or old "start"/"end").
+            if "p1" in d:
+                p1 = QPointF(d["p1"][0], d["p1"][1])
+                p2 = QPointF(d["p2"][0], d["p2"][1])
+            else:
+                p1 = QPointF(d["start"][0], d["start"][1])
+                p2 = QPointF(d["end"][0], d["end"][1])
+            # __init__ derives origin/length/angle/offsets from the two points.
+            item = cls(p1, p2, label=d.get("label", "?"))
         # Handle old-format key renames for bubble visibility
-        b1_vis = d.get("bubble1_vis", d.get("bubble_start", True))
-        b2_vis = d.get("bubble2_vis", d.get("bubble_end", True))
-        item.bubble1.setVisible(b1_vis)
-        item.bubble2.setVisible(b2_vis)
+        b1 = d.get("bubble1_vis", d.get("bubble_start", True))
+        b2 = d.get("bubble2_vis", d.get("bubble_end", True))
+        item.bubble1.setVisible(b1)
+        item.bubble2.setVisible(b2)
         item._locked = d.get("locked", False)
         item._display_overrides = d.get("display_overrides", {})
-        # Silently ignore "level" and "axis" keys from old files
+        # Silently ignore "level"/"axis" keys from old files.
+        item._rebuild_geometry()
         return item
 
     # ── Properties for property panel ─────────────────────────────────────
 
     def get_properties(self) -> dict:
+        far = self._far_point()
+
+        def _nz(v):
+            # Normalise -0.0 → 0.0 so the panel never shows "-0".
+            return 0.0 if v == 0 else v
+
+        # Display Y in the project's up-positive convention (scene Y is Qt
+        # down-positive), so a value typed as "up" reads/writes correctly.
         return {
             "Label": {"type": "string", "value": self._label_text},
+            "Origin X": {"type": "dimension", "value_mm": _nz(self._origin.x())},
+            "Origin Y": {"type": "dimension", "value_mm": _nz(-self._origin.y())},
+            "Length": {"type": "dimension", "value_mm": self._length, "minimum": 1.0},
+            "Angle": {"type": "string", "value": f"{self._angle_deg:.1f}°"},
+            "End X": {"type": "label", "value": f"{_nz(far.x()):.1f}"},
+            "End Y": {"type": "label", "value": f"{_nz(-far.y()):.1f}"},
             "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
+            "Bubble 1 Offset": {"type": "dimension", "value_mm": self._bubble1_offset, "minimum": 0.0},
             "Bubble 2": {"type": "enum", "options": ["Visible", "Hidden"],
                          "value": "Visible" if self.bubble2.isVisible() else "Hidden"},
+            "Bubble 2 Offset": {"type": "dimension", "value_mm": self._bubble2_offset, "minimum": 0.0},
             "Locked": {"type": "enum", "options": ["True", "False"], "value": str(self._locked)},
         }
 
@@ -732,12 +868,35 @@ class GridlineItem(QGraphicsLineItem):
             sc = self.scene()
             if sc and hasattr(sc, '_gridlines'):
                 apply_duplicate_warnings(sc._gridlines)
+        elif key == "Origin X":
+            self.set_origin_x(float(value))
+        elif key == "Origin Y":
+            self.set_origin_y(-float(value))   # up-positive input → scene Y-down
+        elif key == "Length":
+            self.set_length(float(value))
+        elif key == "Angle":
+            try:
+                self.set_angle_deg(float(str(value).replace("°", "").strip()))
+            except (ValueError, TypeError):
+                return
         elif key == "Bubble 1":
             self.bubble1.setVisible(value == "Visible")
+            self._rebuild_geometry()
         elif key == "Bubble 2":
             self.bubble2.setVisible(value == "Visible")
+            self._rebuild_geometry()
+        elif key == "Bubble 1 Offset":
+            self.set_bubble_offset(1, float(value))
+        elif key == "Bubble 2 Offset":
+            self.set_bubble_offset(2, float(value))
         elif key == "Locked":
             self._locked = value in ("True", True)
+
+        sc = self.scene()
+        if key in ("Origin X", "Origin Y", "Length", "Angle",
+                   "Bubble 1 Offset", "Bubble 2 Offset") and sc is not None \
+                and hasattr(sc, "push_undo_state"):
+            sc.push_undo_state()
 
     # ── Duplicate warning ─────────────────────────────────────────────────
 
@@ -749,6 +908,7 @@ class GridlineItem(QGraphicsLineItem):
                 another gridline in the scene.
         """
         color = QColor("#ff8800") if is_duplicate else self._grid_color
-        pen = QPen(color, 2)
-        self.bubble1.setPen(pen)
-        self.bubble2.setPen(pen)
+        for bubble in (self.bubble1, self.bubble2):
+            pen = bubble.pen()
+            pen.setColor(color)          # width unchanged
+            bubble.setPen(pen)

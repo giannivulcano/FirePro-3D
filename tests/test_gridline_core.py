@@ -62,10 +62,11 @@ class TestLock:
 
 class TestPerpendicularMove:
     def test_move_perpendicular_vertical_gl(self, vertical_gl):
-        """Vertical gridline (dx=0): perpendicular is X direction."""
+        """Vertical gridline (dir=+Y): fixed normal n=(-dy,dx)=(-1,0), so a
+        positive perpendicular move goes in the -X direction (T10 sign fix)."""
         vertical_gl.move_perpendicular(200.0)
-        assert vertical_gl.line().p1().x() == pytest.approx(1200.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(1200.0)
+        assert vertical_gl.line().p1().x() == pytest.approx(800.0)
+        assert vertical_gl.line().p2().x() == pytest.approx(800.0)
         assert vertical_gl.line().p1().y() == pytest.approx(0.0)
         assert vertical_gl.line().p2().y() == pytest.approx(5000.0)
 
@@ -78,9 +79,16 @@ class TestPerpendicularMove:
         assert horizontal_gl.line().p2().x() == pytest.approx(5000.0)
 
     def test_set_perpendicular_position_vertical(self, vertical_gl):
+        # Fixed normal n=(-1,0) for a +Y vertical line: the perpendicular
+        # coordinate frame is negated in X, so a perp position of 2500 maps
+        # to x=-2500 (its projection onto n is +2500). (T10 sign fix)
         vertical_gl.set_perpendicular_position(2500.0)
-        assert vertical_gl.line().p1().x() == pytest.approx(2500.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(2500.0)
+        assert vertical_gl.line().p1().x() == pytest.approx(-2500.0)
+        assert vertical_gl.line().p2().x() == pytest.approx(-2500.0)
+        # Projection onto the fixed normal equals the requested position.
+        nx, ny = vertical_gl._perpendicular_vector()
+        proj = vertical_gl.line().p1().x() * nx + vertical_gl.line().p1().y() * ny
+        assert proj == pytest.approx(2500.0)
 
     def test_set_perpendicular_position_horizontal(self, horizontal_gl):
         horizontal_gl.set_perpendicular_position(500.0)
@@ -89,16 +97,20 @@ class TestPerpendicularMove:
 
 
 class TestGripConstraint:
-    def test_grip_translates_entire_gridline(self, vertical_gl):
-        """Grip drag now translates the entire gridline freely in 2D."""
-        p1_before = vertical_gl.line().p1()
+    def test_grip_extends_origin_end_far_fixed(self, vertical_gl):
+        """Grip drag on origin end (index 0) shortens/extends; far end stays fixed."""
+        # vertical_gl: p1=(1000, 0), p2=(1000, 5000)
+        # direction = (0, 1) (angle_deg=270, cos270=0, -sin270=1)
+        # Cursor (1500, -300): proj onto (0,1) from far=(1000,5000) = -300-5000 = -5300
+        # new_origin = (1000, 5000 + (-5300)*1) = (1000, -300), length = 5300
         p2_before = vertical_gl.line().p2()
         vertical_gl.apply_grip(0, QPointF(1500, -300))
-        # Delta from p1 (1000, 0) to new_pos (1500, -300) is (500, -300)
-        assert vertical_gl.line().p1().x() == pytest.approx(1500.0)
+        # Far end is unchanged
+        assert vertical_gl.line().p2().x() == pytest.approx(p2_before.x())
+        assert vertical_gl.line().p2().y() == pytest.approx(p2_before.y())
+        # Origin moved along the line direction (x stays at 1000, y moved to -300)
+        assert vertical_gl.line().p1().x() == pytest.approx(1000.0)
         assert vertical_gl.line().p1().y() == pytest.approx(-300.0)
-        assert vertical_gl.line().p2().x() == pytest.approx(p2_before.x() + 500.0)
-        assert vertical_gl.line().p2().y() == pytest.approx(p2_before.y() - 300.0)
 
 
 class TestLevelIndependence:
@@ -126,7 +138,7 @@ class TestCounterSync:
             scene.addItem(gl)
             scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))  # vertical → number
         assert lbl == "6"
 
     def test_sync_letters(self, scene):
@@ -136,7 +148,7 @@ class TestCounterSync:
             scene.addItem(gl)
             scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))  # horizontal → letter
         assert lbl == "D"
 
     def test_sync_multi_letter(self, scene):
@@ -145,7 +157,7 @@ class TestCounterSync:
         scene.addItem(gl)
         scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))
+        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))  # horizontal → letter
         assert lbl == "AB"
 
     def test_sync_ignores_custom_labels(self, scene):
@@ -154,7 +166,7 @@ class TestCounterSync:
         scene.addItem(gl)
         scene._gridlines.append(gl)
         sync_grid_counters(scene._gridlines)
-        lbl = auto_label(QPointF(0, 0), QPointF(100, 0))
+        lbl = auto_label(QPointF(0, 0), QPointF(0, 100))  # vertical → number
         assert lbl == "1"
 
 

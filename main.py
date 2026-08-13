@@ -36,8 +36,7 @@ from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
-from firepro3d.grid_lines_dialog import GridLinesDialog
-from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_IN, DEFAULT_GRIDLINE_LENGTH_IN
+from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d import theme as th
 
 
@@ -672,6 +671,16 @@ class MainWindow(QMainWindow):
         from firepro3d.display_manager import apply_default_display_settings
         apply_default_display_settings(self.scene)
         self._apply_persistent_unit_prefs()
+
+        # Reset undo stack so the seeded template gridlines are the baseline
+        # (index 0) and cannot be undone away. Without this, place_grid_lines
+        # pushed an EMPTY-scene snapshot before adding the gridlines, so the
+        # first Ctrl+Z after any edit reverted to the empty pre-seed scene and
+        # wiped the whole default grid. Mirrors new_file() (see that method).
+        self.scene._undo_stack = []
+        self.scene._undo_pos = -1
+        self.scene.push_undo_state()
+
         self._current_file = None
         self._modified = False
         self._update_title()
@@ -1355,10 +1364,6 @@ class MainWindow(QMainWindow):
         # --- Project Tools ---
         g_proj = manage_page.add_group("Project Tools")
         _btn = g_proj.add_large_button(
-            "Gridlines", _I("gridline_icon.svg"),
-            self._place_grid_lines)
-        _btn.setToolTip("Open gridline placement dialog")
-        _btn = g_proj.add_large_button(
             "Levels", _I("placeholder_icon.svg"),
             self._open_level_dialog)
         _btn.setToolTip("Open Level Manager dialog")
@@ -1439,6 +1444,7 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
+        _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click)")
         self._single_place_btn = g_geom.add_small_button(
             "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
         self._single_place_btn.setToolTip("Return to Select mode after placing one item")
@@ -2655,7 +2661,7 @@ class MainWindow(QMainWindow):
     # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
 
     _DRAW_MODES = {"draw_line", "construction_line", "draw_rectangle",
-                    "draw_circle", "draw_arc",
+                    "draw_circle", "draw_arc", "draw_gridline",
                     "polyline", "dimension", "text", "pipe", "sprinkler",
                     "water_supply", "design_area", "set_scale", "offset",
                     "offset_side", "wall", "wall_rect", "floor", "floor_rect",
@@ -2746,32 +2752,16 @@ class MainWindow(QMainWindow):
 
     # ── Grid Lines ───────────────────────────────────────────────────────────
 
-    def _place_grid_lines(self):
-        """Open the Grid Lines dialog, populated with current gridlines."""
-        dlg = GridLinesDialog(
-            self,
-            scale_manager=self.scene.scale_manager,
-            existing_gridlines=list(self.scene._gridlines),
-        )
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Remove existing gridlines before placing the updated set
-            self.scene.push_undo_state()
-            for gl in list(self.scene._gridlines):
-                if gl.scene() is self.scene:
-                    self.scene.removeItem(gl)
-            self.scene._gridlines.clear()
-            self.scene.place_grid_lines(dlg.get_params())
-
     def _place_default_gridlines(self):
         """Place a default 3 V × 3 H grid for a new project."""
         sm = self.scene.scale_manager
         # Convert a sensible display-unit spacing to scene units
         if sm:
-            spacing = sm.display_to_scene(DEFAULT_GRIDLINE_SPACING_IN)  # 288 in / 24 ft
-            length  = sm.display_to_scene(DEFAULT_GRIDLINE_LENGTH_IN)   # 864 in / 72 ft
+            spacing = sm.display_to_scene(DEFAULT_GRIDLINE_SPACING_MM)  # 288 in / 24 ft
+            length  = sm.display_to_scene(DEFAULT_GRIDLINE_LENGTH_MM)   # 864 in / 72 ft
         else:
-            spacing = DEFAULT_GRIDLINE_SPACING_IN
-            length  = DEFAULT_GRIDLINE_LENGTH_IN
+            spacing = DEFAULT_GRIDLINE_SPACING_MM
+            length  = DEFAULT_GRIDLINE_LENGTH_MM
 
         specs: list[dict] = []
         # 3 vertical gridlines: labels 1, 2, 3

@@ -53,7 +53,7 @@ class Model_View(QGraphicsView):
             "draw_circle":            _C.CrossCursor,
             "draw_arc":               _C.CrossCursor,
             "polyline":               _C.CrossCursor,
-            "gridline":               _C.CrossCursor,
+            "draw_gridline":          _C.CrossCursor,
             "pipe":                   _C.CrossCursor,
             "sprinkler":              _C.CrossCursor,
             "water_supply":           _C.CrossCursor,
@@ -802,6 +802,20 @@ class Model_View(QGraphicsView):
                     if math.hypot(event.pos().x() - vp_mid.x(),
                                   event.pos().y() - vp_mid.y()) < 20:
                         self._start_spacing_edit(dim, event.pos())
+                        return
+                # Double-click on a gridline body/bubble → select it reliably.
+                # The second press of the double-click can otherwise land on
+                # empty space and clear the selection (see comment above).
+                from .gridline import GridlineItem
+                for it in sc.items(scene_pos):
+                    parent = it.parentItem() if hasattr(it, "parentItem") else None
+                    gl = (it if isinstance(it, GridlineItem)
+                          else parent if isinstance(parent, GridlineItem) else None)
+                    if gl is not None:
+                        sc.clearSelection()
+                        gl.setSelected(True)
+                        if hasattr(sc, "requestPropertyUpdate"):
+                            sc.requestPropertyUpdate.emit(gl)
                         return
         super().mouseDoubleClickEvent(event)
 

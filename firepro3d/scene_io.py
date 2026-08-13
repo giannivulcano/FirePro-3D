@@ -710,7 +710,6 @@ class SceneIOMixin:
         self._text_anchor = None
         self._text_preview = None
         self._gridlines = []
-        self._gridline_anchor = None
         self._walls = []
         self._floor_slabs = []
         self._roofs = []

@@ -354,8 +354,9 @@ def _apply_gridline(gl, cat, color_mode, lw_mm, paper_scale):
     cap_mm = cat.get("bubble_label_height_mm", 3.0)
     r_mm, em_mm = bubble_paper_geometry(cap_mm)
 
-    gl._paper_render = True          # write-together unit with the two floats below
+    gl._paper_render = True          # write-together unit with the floats below
     gl._paper_line_w = lw_mm / S
+    gl._paper_line_w_mm = lw_mm      # ON-PAPER mm (NOT divided by S) — dash normaliser
     gl._paper_bubble_r = r_mm / S
 
     if color_mode != PaperColorMode.FULL_COLOR:
@@ -678,6 +679,7 @@ def restore_model_display(saved: list[dict]):
             item._lock_indicator.setVisible(gs["lock_vis"])
             item._paper_render = False
             item._paper_line_w = 0.0
+            item._paper_line_w_mm = 0.0
             item._paper_bubble_r = 0.0
             item.update()
 

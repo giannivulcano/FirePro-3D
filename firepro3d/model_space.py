@@ -40,7 +40,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY, GRIDLINE_BUBBLE_OVERSHOOT_FRAC)
+                       Z_OVERLAY)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -163,7 +163,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._text_preview: "QGraphicsRectItem | None" = None
         # Gridlines (Sprint U)
         self._gridlines: list[GridlineItem] = []
-        self._gridline_anchor: "QPointF | None" = None  # first click for gridline placement
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -324,37 +323,49 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         gridlines, plus one dimension from each outer edge to the
         nearest unselected neighbour.
         """
+        EPS_ANGLE = math.radians(0.5)
+
         selected_set = set(
             item for item in self.selectedItems()
             if isinstance(item, GridlineItem))
         if not selected_set:
             return []
 
-        # Group all gridlines by orientation
-        groups: dict[bool, list[tuple]] = {}  # is_vertical → [(gl, perp_pos)]
+        def _ang_mod_pi(gl):
+            ln = gl.line()
+            a = math.atan2(ln.p2().y() - ln.p1().y(),
+                           ln.p2().x() - ln.p1().x())
+            return a % math.pi
+
+        # Cluster gridlines by direction angle (mod π): two lines share a
+        # cluster only if they are TRULY parallel within EPS_ANGLE.  This
+        # replaces the old binary dy>=dx bucket, which mis-paired lines of
+        # different angles and flipped discontinuously near 45°.
+        clusters: list[list[dict]] = []   # each: [{gl, a}]
         for gl in self._gridlines:
-            dx = abs(gl.line().p2().x() - gl.line().p1().x())
-            dy = abs(gl.line().p2().y() - gl.line().p1().y())
-            is_v = dy >= dx
-            px, py = gl._perpendicular_vector()
-            perp = gl.line().p1().x() * px + gl.line().p1().y() * py
-            groups.setdefault(is_v, []).append((gl, perp, px, py))
+            a = _ang_mod_pi(gl)
+            for cl in clusters:
+                d = abs(a - cl[0]["a"])
+                d = min(d, math.pi - d)
+                if d <= EPS_ANGLE:
+                    cl.append({"gl": gl, "a": a})
+                    break
+            else:
+                clusters.append([{"gl": gl, "a": a}])
 
         results = []
 
-        for is_v, members in groups.items():
-            # Any selected in this orientation?
-            sel_in_group = [m for m in members if m[0] in selected_set]
-            if not sel_in_group:
+        for cl in clusters:
+            if not any(m["gl"] in selected_set for m in cl):
                 continue
 
-            # Sort all members by perpendicular position
-            members.sort(key=lambda m: m[1])
-            px, py = members[0][2], members[0][3]
+            # Cluster shared normal from the first member.  All members are
+            # parallel within EPS_ANGLE, so their normals agree.
+            px, py = cl[0]["gl"]._perpendicular_vector()
 
-            # Compute along-direction unit vector and bubble-end position
-            # from the first selected gridline (for dimension line placement)
-            ref_gl = sel_in_group[0][0]
+            # Along-direction unit vector + position from the first selected
+            # member (for dimension-line placement).
+            ref_gl = next(m["gl"] for m in cl if m["gl"] in selected_set)
             dir_x = ref_gl.line().p2().x() - ref_gl.line().p1().x()
             dir_y = ref_gl.line().p2().y() - ref_gl.line().p1().y()
             dir_len = math.hypot(dir_x, dir_y)
@@ -362,7 +373,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             uy = dir_y / dir_len if dir_len > 1e-12 else 1.0
             along_pos = ref_gl.line().p1().x() * ux + ref_gl.line().p1().y() * uy
 
-            def _make_dim(gl_a, perp_a, gl_b, perp_b):
+            def _make_dim(gl_a, perp_a, gl_b, perp_b, px=px, py=py,
+                          along_pos=along_pos, ux=ux, uy=uy):
                 from_pt = QPointF(perp_a * px + along_pos * ux,
                                   perp_a * py + along_pos * uy)
                 to_pt = QPointF(perp_b * px + along_pos * ux,
@@ -376,14 +388,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "midpoint": mid, "perp_vector": (px, py),
                 }
 
-            # Walk the sorted list: show dim between every adjacent pair
-            # where at least one side is selected.
+            # Project members onto the shared normal and sort.
+            members = sorted(
+                ((m["gl"],
+                  m["gl"].line().p1().x() * px + m["gl"].line().p1().y() * py)
+                 for m in cl),
+                key=lambda t: t[1])
+
+            # Walk the sorted list: emit a dim between every adjacent pair
+            # where at least one side is selected (covers single + multi).
             for i in range(len(members) - 1):
-                gl_a, perp_a = members[i][0], members[i][1]
-                gl_b, perp_b = members[i + 1][0], members[i + 1][1]
-                a_sel = gl_a in selected_set
-                b_sel = gl_b in selected_set
-                if a_sel or b_sel:
+                gl_a, perp_a = members[i]
+                gl_b, perp_b = members[i + 1]
+                if gl_a in selected_set or gl_b in selected_set:
                     results.append(_make_dim(gl_a, perp_a, gl_b, perp_b))
 
         return results
@@ -750,7 +767,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._polylines.remove(self._polyline_active)
             self._polyline_active = None
         # Cancel in-progress draw geometry
-        if mode != "draw_line":
+        if mode not in ("draw_line", "draw_gridline"):
             self._draw_line_anchor = None
         if mode != "draw_rectangle":
             self._draw_rect_anchor = None
@@ -783,8 +800,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._text_preview.scene() is self:
                     self.removeItem(self._text_preview)
                 self._text_preview = None
-        if mode != "gridline":
-            self._gridline_anchor = None
         if mode != "dimension":
             self.dimension_start = None
             self._dim_line1 = None
@@ -1007,7 +1022,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
             "construction_line": "Pick first point",
-            "gridline":       "Pick start point",
+            "draw_gridline":  "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
             "extend":         "Select boundary edge",
@@ -4111,7 +4126,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
 
         # ── Line ──────────────────────────────────────────────────────────
-        if self.mode == "draw_line" and self._draw_line_anchor is not None:
+        if self.mode in ("draw_line", "draw_gridline") and self._draw_line_anchor is not None:
             anchor = self._draw_line_anchor
             def_len, def_ang = _defaults_from(anchor)
 
@@ -4128,13 +4143,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
             )
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = LineItem(anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_lines.append(item)
-            item.setSelected(True)
+            self._make_line_like(anchor, tip)
             self._draw_line_anchor = None
             self.preview_pipe.hide()
             self.push_undo_state()
@@ -4271,16 +4280,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # ─────────────────────────────────────────────────────────────────────────
 
     def place_grid_lines(self, params: dict):
-        """Place gridlines from the GridLinesDialog.
+        """Place gridlines from a batch spec (default-seed builder).
 
         *params* contains key ``"gridlines"`` — a list of dicts with
         keys: label, offset (scene px), length (scene px), angle_deg.
 
-        Gridlines originate at p1 (the bubble end) and extend to p2.
-        The bubble overshoot is a fixed fraction of the gridline length
-        (GRIDLINE_BUBBLE_OVERSHOOT_FRAC) so it is consistent regardless
-        of zoom level.  Positive offset follows architectural convention
-        (right for V, up for H).
+        Gridlines originate at p1 (the origin) and extend to p2.  Bubbles
+        stand off from each endpoint via their own offset property
+        (GRIDLINE_BUBBLE_OFFSET_MM), not a geometric overshoot.  Positive
+        offset follows architectural convention (right for V, up for H).
         """
         specs = params.get("gridlines", [])
         if not specs:
@@ -4306,12 +4314,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ox = offset * px
             oy = -offset * py
 
-            # Zoom-independent bubble overshoot, proportional to length
-            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
-
-            # p1 = bubble end (slightly past origin), p2 = far end
-            p1 = QPointF(ox - bubble_overshoot * dx,
-                         oy - bubble_overshoot * dy)
+            # No geometric overshoot: bubbles stand off via their own offset
+            # property (GRIDLINE_BUBBLE_OFFSET_MM).  p1 = origin, p2 = far end.
+            p1 = QPointF(ox, oy)
             p2 = QPointF(ox + length * dx,
                          oy + length * dy)
 
@@ -4321,71 +4326,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             apply_category_defaults(gl)
             self._gridlines.append(gl)
 
-        self.sceneModified.emit()
-
-    def apply_grid_dialog(self, specs: list[dict]):
-        """Diff-based reconciliation of gridlines from the dialog.
-
-        Each *spec* dict has keys: label, offset (scene), length (scene),
-        angle_deg, and ``_backing`` (an existing ``GridlineItem`` or ``None``).
-        Gridlines present in ``self._gridlines`` but absent from *specs*
-        are deleted; existing ones are updated in place; new ones are created.
-        """
-        if not specs:
-            return
-
-        self.push_undo_state()
-
-        # Determine which existing gridlines are still referenced
-        referenced = set()
-        for spec in specs:
-            backing = spec.get("_backing")
-            if backing is not None:
-                referenced.add(id(backing))
-
-        # Delete unreferenced gridlines
-        to_delete = [gl for gl in self._gridlines if id(gl) not in referenced]
-        for gl in to_delete:
-            self.removeItem(gl)
-            self._gridlines.remove(gl)
-
-        # Create / update
-        for spec in specs:
-            backing = spec.get("_backing")
-            label = spec.get("label", "?")
-            offset = spec.get("offset", 0.0)
-            length = spec.get("length", 1000.0)
-            angle = spec.get("angle_deg", 90.0)
-
-            rad = math.radians(angle)
-            dx = math.cos(rad)
-            dy = -math.sin(rad)
-            px = -dy
-            py = dx
-            ox = offset * px
-            oy = -offset * py
-            bubble_overshoot = length * GRIDLINE_BUBBLE_OVERSHOOT_FRAC
-            p1 = QPointF(ox - bubble_overshoot * dx,
-                         oy - bubble_overshoot * dy)
-            p2 = QPointF(ox + length * dx,
-                         oy + length * dy)
-
-            locked = spec.get("locked", False)
-
-            if backing is not None:
-                backing.setLine(p1.x(), p1.y(), p2.x(), p2.y())
-                backing.grid_label = label
-                backing._locked = locked
-                backing._update_bubble_positions()
-            else:
-                gl = GridlineItem(p1, p2, label=label)
-                gl._locked = locked
-                self.addItem(gl)
-                apply_category_defaults(gl)
-                self._gridlines.append(gl)
-
-        sync_grid_counters(self._gridlines)
-        apply_duplicate_warnings(self._gridlines)
         self.sceneModified.emit()
 
 
@@ -4500,13 +4440,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "design_area":              "_move_design_area",
         "polyline":                 "_move_polyline",
         "draw_line":                "_move_draw_line",
+        "draw_gridline":            "_move_draw_line",
         "construction_line":        "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
         "text":                     "_move_text",
-        "gridline":                 "_move_gridline",
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
@@ -4649,7 +4589,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_draw_line(self, event, snapped):
         sm = self.scale_manager
-        _anchor = self._draw_line_anchor if self.mode == "draw_line" else self._cline_anchor
+        _anchor = self._draw_line_anchor if self.mode in ("draw_line", "draw_gridline") else self._cline_anchor
         if _anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         if _anchor is not None:
@@ -4822,17 +4762,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     if sm.is_calibrated else
                     f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
                 )
-
-    def _move_gridline(self, event, snapped):
-        if self._gridline_anchor is None:
-            self.update_preview_node(snapped)
-        else:
-            self.preview_node.hide()
-            self.preview_pipe.setLine(
-                self._gridline_anchor.x(), self._gridline_anchor.y(),
-                snapped.x(), snapped.y()
-            )
-            self.preview_pipe.show()
 
     def _move_place_import(self, event, snapped):
         self.preview_node.hide()
@@ -5134,7 +5063,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "dimension":                "_press_dimension",
         "text":                     "_press_text",
         "draw_arc":                 "_press_draw_arc",
-        "gridline":                 "_press_gridline",
+        "draw_gridline":            "_press_draw_line",
         "water_supply":             "_press_water_supply",
         "design_area":              "_press_design_area",
         "room":                     "_press_room",
@@ -5435,7 +5364,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "wall_rect", "floor", "floor_rect", "pipe", "sprinkler",
                             "draw_line", "construction_line", "draw_rectangle",
-                            "draw_circle", "draw_arc", "polyline", "gridline",
+                            "draw_circle", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
@@ -5938,27 +5867,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.set_mode("select")
             else:
                 self.instructionChanged.emit("Pick center point")
-
-    def _press_gridline(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._gridline_anchor is None:
-            self._gridline_anchor = snapped
-            self.instructionChanged.emit("Pick end point")
-        else:
-            # Create gridline from anchor to snapped
-            gl = GridlineItem(self._gridline_anchor, snapped)
-            self.addItem(gl)
-            apply_category_defaults(gl)
-            self._gridlines.append(gl)
-            self.requestPropertyUpdate.emit(gl)
-            gl.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            self._gridline_anchor = None
-            self.preview_pipe.hide()
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick start point")
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Require direct click on a node or pipe (no proximity fallback)
@@ -6825,28 +6733,58 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._polyline_active.append_point(tip)
         # don't let super() deselect items mid-draw
 
+    def _make_line_like(self, anchor, tip):
+        """Factory: build the item for the active line-like draw mode.
+
+        Mode ``"draw_gridline"`` builds a :class:`GridlineItem` (adopting the
+        current Grid Line display defaults); every other line-like mode builds
+        a :class:`LineItem` with the active geometry template's level and
+        colour/line-weight.  Both paths add the item, register it in the right
+        collection, and select it.
+        """
+        if self.mode == "draw_gridline":
+            # Sync the auto-number counters to the EXISTING gridlines BEFORE
+            # constructing (GridlineItem.__init__ auto-labels at construction),
+            # so a freshly placed gridline continues the sequence (e.g. "4"
+            # after a 1/2/3 seed) instead of restarting at "1"/"A".
+            sync_grid_counters(self._gridlines)
+            gl = GridlineItem(anchor, tip)
+            self.addItem(gl)
+            apply_category_defaults(gl)      # adopt current DM Grid Line color/scale
+            self._gridlines.append(gl)
+            gl.setSelected(True)
+            self.requestPropertyUpdate.emit(gl)
+            sync_grid_counters(self._gridlines)
+            apply_duplicate_warnings(self._gridlines)
+            return gl
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = LineItem(anchor, tip, _c, _lw)
+        item.level = tmpl.level
+        self.addItem(item)
+        self._draw_lines.append(item)
+        item.setSelected(True)
+        return item
+
     def _press_draw_line(self, event, pos, snapped, item_under, node_under, pipe_under):
+        _is_grid = self.mode == "draw_gridline"
         if self._draw_line_anchor is None:
             self._draw_line_anchor = snapped
             self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick second point")
+            self.instructionChanged.emit("Pick end point" if _is_grid else "Pick second point")
         else:
-            # Place the line (apply Ctrl constraint if held)
+            # Place the item (apply Ctrl constraint if held)
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._constrain_angle(self._draw_line_anchor, snapped)
             # Reject zero-length lines
             if math.hypot(tip.x() - self._draw_line_anchor.x(),
                           tip.y() - self._draw_line_anchor.y()) < 0.5:
-                self._show_status("Line too short — skipped", timeout=2000)
+                self._show_status(
+                    "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
+                    timeout=2000)
                 return
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = LineItem(self._draw_line_anchor, tip, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_lines.append(item)
-            item.setSelected(True)
+            self._make_line_like(self._draw_line_anchor, tip)
             for v in self.views(): v.viewport().update()
             self._draw_line_anchor = None
             self.preview_pipe.hide()
@@ -6854,7 +6792,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.single_place_mode:
                 self.set_mode("select")
             else:
-                self.instructionChanged.emit("Pick first point")
+                self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
 
     def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cline_anchor is None:
