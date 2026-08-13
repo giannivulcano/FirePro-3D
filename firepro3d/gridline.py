@@ -348,21 +348,24 @@ class _LockIndicator(QGraphicsPathItem):
 GRID_COLOR = "#4488cc"
 GRID_WIDTH = 1.5
 
-# Dash-dot geometry in screen pixels (screen path) — Set 3 (T12).
-_DASH_PX = 10.0
-_GAP_PX = 8.0
-_DOT_PX = 2.0
+# Dash-dot geometry in MODEL space (scene mm) for the screen path. The on-
+# screen dash scales WITH the drawing/zoom like a CAD/Revit model linetype:
+# bold at working zoom, thinning toward solid only at extreme zoom-out.
+# (Placeholder values — final sizes chosen from the mockup step.)
+_DASH_MODEL_MM = 600.0
+_GAP_MODEL_MM = 300.0
+_DOT_MODEL_MM = 60.0
 # Paper path: fixed mm so a PDF reads as dash-dot regardless of DPI.
 _DASH_MM = 9.0
 _GAP_MM = 4.5
 _DOT_MM = 1.2
 
 
-def _dash_pattern_px(sx: float) -> list[float]:
-    """Dash pattern in scene units rendering a fixed on-screen pixel dash-dot
-    at view scale ``sx``. Entries: dash, gap, dot, gap."""
-    s = 1.0 / max(sx, 1e-9)
-    return [_DASH_PX * s, _GAP_PX * s, _DOT_PX * s, _GAP_PX * s]
+def _dash_pattern_model(sx: float) -> list[float]:
+    """Screen dash pattern (Qt pen-width multiples) yielding a fixed MODEL-mm
+    dash-dot that scales with zoom like a CAD linetype. pen_w = GRID_WIDTH/sx."""
+    k = max(sx, 1e-9) / GRID_WIDTH
+    return [_DASH_MODEL_MM * k, _GAP_MODEL_MM * k, _DOT_MODEL_MM * k, _GAP_MODEL_MM * k]
 
 
 def _dash_pattern_mm(line_w_mm: float) -> list[float]:
@@ -613,14 +616,15 @@ class GridlineItem(QGraphicsLineItem):
     def _build_line_pen(self, sx: float) -> QPen:
         """Build the screen-path dash-dot pen for view scale ``sx``.
 
-        The pen is non-cosmetic (width in scene units), with an explicit
-        dash pattern computed for a fixed on-screen pixel dash-dot so it
-        stays legible at any zoom (Qt's ``DashDotLine`` pattern is in
-        pen-width multiples and collapses when zoomed out).
+        The pen is non-cosmetic (width in scene units). The width stays a
+        screen constant (~GRID_WIDTH px), while the dash pattern is MODEL-
+        absolute so the dash-dot scales with the drawing/zoom like a CAD
+        linetype (bold at working zoom, thinning toward solid at extreme
+        zoom-out).
         """
         pen_w = GRID_WIDTH / max(sx, 1e-9)
         pen = QPen(self._grid_color, pen_w)
-        pen.setDashPattern(_dash_pattern_px(sx))
+        pen.setDashPattern(_dash_pattern_model(sx))
         return pen
 
     def paint(self, painter, option, widget=None):
@@ -668,7 +672,7 @@ class GridlineItem(QGraphicsLineItem):
 
         if self.isSelected() and not self._paper_render:
             sel_pen = QPen(self._grid_color.lighter(150), pen_w * 2)
-            sel_pen.setDashPattern(_dash_pattern_px(sx))
+            sel_pen.setDashPattern(_dash_pattern_model(sx))
             painter.setPen(sel_pen)
             painter.drawLine(draw_p1, draw_p2)
 

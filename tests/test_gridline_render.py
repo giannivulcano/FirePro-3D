@@ -1,14 +1,18 @@
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QGraphicsScene
-from firepro3d.gridline import GridlineItem, _dash_pattern_px
+from firepro3d.gridline import GridlineItem
 
 
-def test_dash_pattern_helper_scales_inversely_with_scale():
-    fine = _dash_pattern_px(sx=1.0)
-    coarse = _dash_pattern_px(sx=0.1)
-    assert coarse[0] > fine[0]           # dash grows in scene units as you zoom out
-    assert all(v > 0 for v in fine)
+def test_screen_dash_is_model_absolute():
+    from firepro3d.gridline import _dash_pattern_model, _DASH_MODEL_MM, GRID_WIDTH
+    import math
+    # On-screen dash px = entry * pen_width_px; pen_width_px = GRID_WIDTH (constant).
+    # scene dash mm = entry * pen_w_scene = entry * (GRID_WIDTH/sx) must equal _DASH_MODEL_MM for any sx.
+    for sx in (0.01, 0.1, 0.5, 2.0):
+        entry = _dash_pattern_model(sx)[0]
+        scene_dash_mm = entry * (GRID_WIDTH / sx)
+        assert math.isclose(scene_dash_mm, _DASH_MODEL_MM, rel_tol=1e-9)
 
 
 def test_paint_uses_dash_pattern_not_solid(qapp):
@@ -58,6 +62,10 @@ def test_paper_dash_pattern_normalizes_to_onpaper_mm():
         assert math.isclose(onpaper_gap, _GAP_MM, rel_tol=1e-9)
 
 
-def test_screen_dash_values_are_set3():
-    from firepro3d.gridline import _DASH_PX, _GAP_PX, _DOT_PX
-    assert (_DASH_PX, _GAP_PX, _DOT_PX) == (10.0, 8.0, 2.0)
+def test_screen_dash_model_constants_positive():
+    from firepro3d.gridline import _DASH_MODEL_MM, _GAP_MODEL_MM, _DOT_MODEL_MM
+    assert _DASH_MODEL_MM > 0
+    assert _GAP_MODEL_MM > 0
+    assert _DOT_MODEL_MM > 0
+    # Dot is the short mark of a dash-dot; keep it shorter than the dash.
+    assert _DOT_MODEL_MM < _DASH_MODEL_MM
