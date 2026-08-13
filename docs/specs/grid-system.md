@@ -1,26 +1,32 @@
 ---
-status: current          # implemented; §10.2 paper-space bridge as-built 2026-08-08 (per-item paper_height_mm retired)
-last-verified: 2026-08-08
-verified-commit: 90fc7ce
+status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed)
+last-verified: 2026-08-13
+verified-commit: 36a2111
 applies-to:
   - firepro3d/gridline.py
-  - firepro3d/grid_lines_dialog.py
+  - firepro3d/model_space.py
+  - firepro3d/property_manager.py
+  - firepro3d/model_view.py
+  - firepro3d/paper_display.py
+  - firepro3d/scene_io.py
+  - firepro3d/constants.py
+  - main.py
 ---
 
 # Grid System Architecture — Design Spec
 
-**Date:** 2026-04-10
+**Date:** 2026-04-10 (re-architected 2026-08-13)
 **Complexity:** Large
 **Status:** Implemented
-**Source tasks:** TODO.md — "Spec session: grid system architecture"
+**Source tasks:** TODO.md — "Spec session: grid system architecture"; "polish gridlines" (Revit-aligned UX re-architecture, 2026-08-12/13). See design doc `docs/superpowers/specs/2026-08-12-gridline-revit-ux-design.md`.
 
 ## 1. Goal
 
-Define the canonical grid system for FirePro3D: a single `GridlineItem` class with auto-numbered bubble labels, pull-tab grips, lock support, perpendicular repositioning, on-selection spacing dimensions, and a source-of-truth editing dialog. Gridlines are level-independent building datums that project into elevation views. The legacy `GridLine` class is removed.
+Define the canonical grid system for FirePro3D: a single **parametric** `GridlineItem` class (origin + length + angle + per-bubble offsets) with auto-numbered bubble labels, pull-tab grips, lock support, perpendicular repositioning, and on-selection spacing dimensions. Gridlines are placed **on-canvas** (Revit-style, mirroring the Line tool) and edited through the right-side **Properties panel** — there is no modal dialog. Gridlines are level-independent building datums that project into elevation views. The legacy `GridLine` class is removed.
 
 ## 2. Motivation
 
-The grid system has two parallel implementations (`GridlineItem` in `gridline.py`, `GridLine` in `grid_line.py`) with overlapping but incomplete feature sets. Neither supports lock/unlock, visible grip handles, perpendicular repositioning, or interactive spacing adjustment. The dialog creates gridlines but cannot edit existing ones. This spec consolidates everything into one canonical class, absorbs missing features, and defines the full lifecycle from creation through elevation projection.
+The grid system diverged from both its spec and the app's Revit-aligned mental model. Editing lived in a modal table (`grid_lines_dialog.py`) rather than on-canvas + Properties panel like every other entity; grip drag *translated the whole line* instead of extending/shortening it; the bubble standoff was a length-proportional "overshoot" baked into geometry rather than an editable property; angled gridlines were second-class (a binary `dy>=dx` bucket mis-paired non-parallel lines for spacing); and the dash-dot linetype read as solid when zoomed out or exported to PDF. The 2026-08-13 re-architecture replaces the dialog with **on-canvas placement + Properties-panel editing**, adopts a **native parametric data model**, and fixes those correctness bugs. The legacy `GridLine` class was already removed in the original consolidation.
 
 ## 3. Architecture & Constraints
 
@@ -32,66 +38,97 @@ The grid system has two parallel implementations (`GridlineItem` in `gridline.py
 
 Gridlines are building-wide vertical datums. They have no `level` field and appear in all plan views regardless of active level. The existing `level` field is removed from `GridlineItem`.
 
-### 3.3 Coordinate System
+### 3.3 Coordinate System (Parametric)
 
-All geometry stored in millimeters (project convention). Gridlines are defined by two endpoints (p1, p2) in scene coordinates. Orientation is derived from the p1→p2 delta, not stored as a separate field.
+All geometry stored in millimeters (project convention). The **authoritative state is parametric**: `_origin` (the "main point" / start), `_length` (mm), and `_angle_deg` (0–360°, **Y-up**: 0°=East, CCW-positive — same convention as the Line tool's Tab input). The underlying `QGraphicsLineItem` `line()` (p1=origin, p2=origin+length·(cosθ, −sinθ)) is **derived** and kept eagerly in sync by a single writer (`_rebuild_geometry()`), so snap / spacing / elevation readers that call `line()` need no per-consumer shim. See §4.
 
 ### 3.4 Angled Gridlines
 
-Gridlines support arbitrary angles (not just cardinal). The angle is implicit in the p1/p2 geometry. Classification as "vertical" (dy >= dx) or "horizontal" (dy < dx) determines auto-labeling scheme and parallel-neighbor matching for spacing dimensions.
+Gridlines support arbitrary angles (not just cardinal); the angle is a first-class stored field (§4.1). Classification as "vertical" (dy >= dx) or "horizontal" (dy < dx) determines the auto-labeling scheme (§6). Spacing-dimension pairing is **not** keyed off that binary classification — it uses true-parallelism angle clustering (§5.4).
 
 ### 3.5 Cross-References
 
-- **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules.
+- **Snap engine:** Gridline snap participation is defined in `docs/specs/snapping-engine.md` §5. This spec does not redefine snap rules. Snap reads `line()`, which the parametric model keeps in sync.
 - **Paper space:** True-scale bubble rendering through sheet viewports is defined in `docs/specs/paper-space.md` §9.9.1 (label height is a Grid Line paper-category setting; there is no per-item property). See §10.2.
+- **Theming:** Selection-grip style (white fill + `SELECTION_OUTLINE_COLOR`) is owned by `docs/architecture/theming.md`. See §5 / §14.
+- **Constants:** Grid constant *values* live in `firepro3d/constants.py` (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors). This spec names them, not their values (Rule A).
 
-## 4. Data Model
+## 4. Data Model (Parametric)
 
 ### 4.1 `GridlineItem` State
 
+`GridlineItem` is a `QGraphicsLineItem` whose **source-of-truth is parametric**. A single `_rebuild_geometry()` is the **sole writer** of all derived state — the `line()`, bubble positions, grip positions, and lock-indicator position. Every mutator (placement, grip drag, panel edit, load) routes through it, so `line()` always reflects the parametric truth.
+
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
-| `_p1`, `_p2` | `QPointF` | (from constructor) | Scene-coordinate endpoints (mm) |
+| `_origin` | `QPointF` | (from constructor) | The "main point" / start endpoint (scene mm) |
+| `_length` | `float` | (derived at ctor) | Gridline length in mm (mutators floor at 1.0) |
+| `_angle_deg` | `float` | (derived at ctor) | 0–360°, Y-up (0°=East, CCW+) |
+| `_bubble1_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the origin end (mm) |
+| `_bubble2_offset` | `float` | `GRIDLINE_BUBBLE_OFFSET_MM` | Absolute along-axis outward standoff at the far end (mm) |
 | `_label_text` | `str` | auto-assigned | Shared by both bubbles |
-| `_locked` | `bool` | `False` | Prevents grip drag, body drag, spacing edit |
-| `_bubble1_visible` | `bool` | `True` | Per-end bubble toggle |
-| `_bubble2_visible` | `bool` | `True` | Per-end bubble toggle |
-| `_user_layer` | `str` | `"Default"` | Layer assignment |
+| `_locked` | `bool` | `False` | Prevents grip drag, body drag, spacing edit, panel geometry edit |
 | `_display_overrides` | `dict` | `{}` | Per-instance display overrides |
 | `_display_scale` | `float` | `1.0` | Bubble scale factor (from Display Manager) |
-| `_grid_color` | `QColor` | `#4488cc` | Line + bubble border color |
+| `_grid_color` | `QColor` | `GRID_COLOR` (#4488cc) | Line + bubble border color |
+| `_paper_*` (4) | — | — | Write-together paper-pass state (owned by `paper_display`, §10.2) |
 
-**Removed fields:** `level` (gridlines are level-independent); `paper_height_mm` (retired 2026-08-08 — bubble label height is category-owned, paper-space §9.9.1).
+Per-end bubble **visibility** is stored on the `GridBubble` child items (`isVisible()`), not as separate `GridlineItem` flags.
+
+**Derived (never stored):** `line()` p1/p2, bubble/grip/lock positions — all written only by `_rebuild_geometry()`:
+
+```
+p1 = _origin
+p2 = _origin + _length · (cos θ, −sin θ)   # θ = radians(_angle_deg); Y-up → scene Y-down
+setLine(p1, p2)
+bubble1 at  p1 − _bubble1_offset · û        # û = unit direction; outward = away from the span
+bubble2 at  p2 + _bubble2_offset · û
+reposition grips + lock indicator
+```
+
+**Removed fields:** `_p1`/`_p2` explicit endpoints (now derived); `level` (gridlines are level-independent); `_user_layer` (layer system removed); `paper_height_mm` (retired 2026-08-08 — bubble label height is category-owned, paper-space §9.9.1).
+
+**Retired concept:** the length-proportional bubble overshoot (`GRIDLINE_BUBBLE_OVERSHOOT_FRAC`) is gone. `line()` is the *clicked span* (origin→far); bubbles stand off by explicit absolute per-end offsets (default `GRIDLINE_BUBBLE_OFFSET_MM`, `constants.py`). `paint()` draws from the offset bubble edge, shortened so the line meets each visible bubble.
 
 ### 4.2 `GridBubble` (Child)
 
-`QGraphicsEllipseItem` with `ItemIgnoresTransformations` — constant screen size during model-space editing. Two instances per gridline, positioned at p1 and p2.
+`QGraphicsEllipseItem` with `ItemIgnoresTransformations` — constant screen size during model-space editing. Two instances per gridline, positioned by `_rebuild_geometry()` at each endpoint standoff.
 
 - Centered label text (Consolas, bold, pixel-size scaled to bubble radius)
 - Click on bubble selects parent gridline; Ctrl+Click toggles selection
-- Duplicate-label warning: bubble border changes to orange (`#ff8800`) when label matches another gridline in the scene. Clears automatically when resolved.
+- Duplicate-label warning: bubble border color changes to orange (`#ff8800`) when the label matches another gridline in the scene. **Border width is unchanged** by the warning. Clears automatically when resolved.
+- `enter_paper_mode()` / `exit_paper_mode()` swap to scene-unit geometry for the paper render pass (§10.2, paper-space §9.9.1).
 
 ### 4.3 Pull-Tab Grips (Child)
 
-`QGraphicsRectItem` with `ItemIgnoresTransformations`. Two instances per gridline, positioned at endpoints, offset slightly outward along the line direction.
+`_PullTabGrip` — `QGraphicsRectItem` with `ItemIgnoresTransformations` (constant screen size). Two instances per gridline, positioned slightly outward beyond each endpoint along the line direction.
 
-- Visible only when gridline is selected or hovered
-- Semi-transparent fill (subtle affordance)
-- Dragging a grip extends/shortens the gridline (§5.2)
+- Visible only when the gridline is selected (and unlocked) or hovered
+- Rendered in the **house selection-grip style**: white fill + `SELECTION_OUTLINE_COLOR` (#0055ff) outline (per `docs/architecture/theming.md`); model grips are screen-px sized
+- Dragging a grip extends/shortens the gridline along its axis (§5.2)
+
+A `_LockIndicator` padlock child renders beside the origin bubble when the gridline is selected; clicking it toggles `_locked`.
 
 ### 4.4 Serialization Format
 
+`to_dict` emits the parametric format (`display_overrides` written only when non-empty):
+
 ```json
 {
-    "p1": [x, y],
-    "p2": [x, y],
-    "label": "A",
-    "locked": false,
+    "origin": [x, y],
+    "length": 12000.0,
+    "angle": 90.0,
+    "bubble1_offset": 1000.0,
+    "bubble2_offset": 1000.0,
     "bubble1_vis": true,
     "bubble2_vis": true,
+    "label": "1",
+    "locked": false,
     "display_overrides": {}
 }
 ```
+
+`from_dict` reads this parametric format and **migrates legacy formats** — see §9.2. Both serialization paths (`scene_io.py` file I/O and `model_space._capture_network` / `_restore_network` undo) delegate to these class methods; there is one serializer, not two hand-written copies.
 
 ## 5. Movement & Interaction
 
@@ -105,63 +142,70 @@ Triggered by clicking the gridline body (not bubble, not grip) and dragging.
 
 ### 5.2 Grip Drag (Extend/Shorten)
 
-Triggered by clicking a pull-tab grip and dragging.
+Triggered by clicking a pull-tab grip and dragging. `apply_grip(index, new_pos)` **extends/shortens the gridline along its own axis with the opposite endpoint fixed** — it does *not* translate the whole line (the pre-re-architecture bug).
 
-- Movement constrained along the line direction only. Mouse delta is projected onto the line direction vector; the perpendicular component is discarded.
+- Index 0 (origin end) and index 1 (far end): the cursor is projected onto the line direction; the perpendicular component is discarded. The grabbed endpoint moves along the axis, the other stays put, and `_length` (and `_origin`, for the origin grip) update accordingly.
+- Length floors at 1.0 mm.
+- Re-angling is **not** a grip gesture — angle lives in the Properties panel / placement.
 - Lock-aware: no-op if `_locked`.
-- Undo: single state push on mouse release.
+- Undo: single state push on mouse release. Multi-select applies the same grip delta to all selected gridlines.
 
 ### 5.3 Movement API
 
 | Method | Constraint | Lock-aware |
 |--------|-----------|------------|
-| `apply_grip(index, new_pos)` | Along line direction only | Yes |
+| `apply_grip(index, new_pos)` | Along line direction only (opposite end fixed) | Yes |
 | `move_perpendicular(offset)` | Perpendicular to line direction only | Yes |
 | `set_perpendicular_position(value)` | Absolute perpendicular coordinate | Yes |
 
+`_perpendicular_vector()` is a **fixed** normal `(−d.y, d.x)` with **no** sign-flip. The fixed sign guarantees every gridline in a parallel cluster shares a consistent normal, which the parallelism-based spacing (§5.4) requires.
+
 ### 5.4 On-Selection Spacing Dimensions
 
-When one or more gridlines are selected, spacing dimensions appear between parallel gridlines using the existing dimensional constraint visual style.
+When one or more gridlines are selected, spacing dimensions appear between **truly parallel** gridlines using the existing dimensional constraint visual style. Pairing is by **angle clustering**: each gridline's direction angle mod π; two gridlines are parallel (eligible for a spacing dimension) iff their angles agree within a small fixed tolerance (`EPS_ANGLE`). Within a parallel cluster, members are projected onto the cluster's shared normal, sorted, and a dimension is emitted between every adjacent pair where ≥1 member is selected. **Non-parallel neighbors get no dimension.** This replaces the old binary `dy>=dx` bucket, which mis-paired lines of different angles and flipped discontinuously near 45°.
 
-**Single selection:** Up to 2 dimensions — one to the nearest parallel unselected neighbor on each side.
-
-**Multi-selection:** Dimensions between all selected parallel gridlines (chain dimension), plus dimensions to the nearest unselected neighbor on each outer edge.
-
-"Parallel" means same orientation classification (both vertical or both horizontal via the `dy >= dx` rule).
+- **Single selection:** dimensions to the nearest parallel unselected neighbor on each side (adjacent pairs in the sorted cluster).
+- **Multi-selection:** dimensions between adjacent selected parallel gridlines plus dimensions to the nearest unselected parallel neighbor on each outer edge.
 
 ### 5.5 Double-Click Spacing Edit
 
-Double-clicking a spacing dimension opens an inline text field on the dimension. The user enters a new spacing value in display units (via the existing numerical input handler with unit conversion).
+Double-clicking a spacing dimension opens an inline text field on the dimension (routed through `model_view.mouseDoubleClickEvent`; the dims are read from a cached copy so the second click of the double-click cannot clear them). The user enters a new spacing value in display units (via the existing numerical input handler with unit conversion).
 
-- **Single selection:** The selected gridline moves perpendicular to satisfy the new spacing. The neighbor stays fixed.
-- **Multi-selection:** All selected gridlines move as a rigid group, maintaining their relative spacing. The unselected anchor neighbor stays fixed.
-- Lock-aware: edit rejected if the gridline that would move is locked.
+- **Single selection:** the selected gridline moves perpendicular to satisfy the new spacing. The neighbor stays fixed.
+- **Multi-selection:** all selected gridlines move as a rigid group, maintaining their relative spacing. The unselected anchor neighbor stays fixed.
+- Lock-aware: locked gridlines in the moving set are skipped.
 - Undo: single state push.
 
-### 5.6 Bubble Offset
+### 5.6 Bubble Offset (Implemented)
 
-Bubbles are always positioned at the endpoints. Independent bubble offset (dragging a bubble away from the endpoint with a leader line) is out of scope. Users can extend the gridline via grip drag to give bubbles more room.
+Each bubble stands off from its endpoint by an **absolute, editable per-end offset** (`_bubble1_offset` / `_bubble2_offset`, mm; default `GRIDLINE_BUBBLE_OFFSET_MM`). Offsets are edited via the Properties panel (§7). The offset is along the gridline axis, outward from the span; the line is shortened in `paint()` to meet the visible bubble edge. Independent bubble **leader/jog** offset (moving a bubble off-axis with a leader line) remains a future follow-up.
+
+### 5.7 Double-Click to Select
+
+Double-clicking a gridline body or bubble reliably selects the gridline (`model_view.mouseDoubleClickEvent`) and emits `requestPropertyUpdate`, guarding against the second press of the double-click landing on empty space and clearing the selection.
 
 ## 6. Auto-Numbering
 
 ### 6.1 Labeling Scheme
 
-- **Horizontal gridlines** (dy < dx): Numbers — 1, 2, 3, …
-- **Vertical gridlines** (dy >= dx): Letters — A, B, C, …, Z, AA, AB, …, AZ, BA, …
+**Flipped 2026-08-13** to match the default-seed convention (user preference):
 
-Classification uses the `dy >= dx` test on the p1→p2 delta.
+- **Vertical gridlines** (dy >= dx): Numbers — 1, 2, 3, …
+- **Horizontal gridlines** (dy < dx): Letters — A, B, C, …, Z, AA, AB, …, AZ, BA, …
+
+Classification uses the `dy >= dx` test on the p1→p2 delta. (This binary test still drives *labeling*; spacing pairing uses true-parallelism clustering — §5.4.)
 
 ### 6.2 Global Counters
 
-Module-level `_next_number: int` and `_next_letter_idx: int`. The `auto_label(p1, p2)` function classifies orientation and returns the next label from the appropriate counter.
+Module-level `_next_number: int` and `_next_letter_idx: int`. The `auto_label(p1, p2)` function classifies orientation and returns the next label from the appropriate counter. Auto-labeling happens in `GridlineItem.__init__`.
 
 ### 6.3 Counter Sync
 
-On any event that could create a mismatch between counter state and scene state, scan all existing `GridlineItem` instances and reset each counter to max+1:
+On any event that could create a mismatch between counter state and scene state, `sync_grid_counters(gridlines)` scans all existing `GridlineItem` instances and resets each counter to max+1:
 
-- **File load** — after `from_dict()` restores all gridlines
-- **Undo/redo** — after scene state is restored
-- **Dialog accept** — after batch create/edit/delete completes
+- **File load** — after `from_dict()` restores all gridlines (`scene_io`)
+- **Undo/redo** — after scene state is restored (`_restore_network`)
+- **Before each on-canvas placement** — `_make_line_like` syncs the counters to the existing gridlines *before* constructing the new `GridlineItem` (which auto-labels at construction), so a placed gridline continues the sequence (e.g. "4" after a 1/2/3 seed) instead of restarting, then re-syncs after append
 
 Sync logic:
 1. Collect all existing labels, classify each as number or letter.
@@ -171,82 +215,48 @@ Sync logic:
 
 ### 6.4 Duplicate Detection
 
-After any label change (manual edit, auto-assign, dialog apply), scan for duplicates. Gridlines with duplicate labels display a visual warning:
+After any label change (Properties-panel relabel, auto-assign at placement, load, undo/redo) `apply_duplicate_warnings` scans for duplicates. Gridlines with duplicate labels display a visual warning:
 
-- Bubble border color changes to orange (`#ff8800`)
+- Bubble border color changes to orange (`#ff8800`); the border **width is unchanged**
 - Warning is informational only — does not block any operation
 - Clears automatically when the duplicate is resolved (rename or delete)
 
-## 7. Grid Lines Dialog
+## 7. On-Canvas Placement & Properties-Panel Editing
 
-### 7.1 Overview
+> The former modal Grid Lines dialog (`grid_lines_dialog.py`, `apply_grid_dialog`, and its MainWindow opener) was **removed** in the 2026-08-13 re-architecture in favor of on-canvas placement + Properties-panel editing (Revit-aligned). Its table / in-dialog undo / round-trip / reconciliation machinery no longer exists. Batch replication is via **copy/paste**; an on-canvas array/offset tool is a filed follow-up (§16).
 
-Modal dialog with two tabs (Vertical / Horizontal). Acts as a source-of-truth editor for the grid array — supports creating new gridlines, editing existing gridlines in-place, and deleting gridlines.
+### 7.1 On-Canvas Placement
 
-### 7.2 Table Columns
+Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line-tool handlers** — `_press_draw_line`, the `_handle_tab_input` dynamic-input branch, the move-time dimension hint, and `_constrain_angle` — with the only divergence being a `_make_line_like` item factory (`draw_line` → `LineItem`; `draw_gridline` → `GridlineItem`). This structurally guarantees placement mirrors the Line tool one-for-one:
 
-| Column | Type | Notes |
-|--------|------|-------|
-| Label | String | Editable, auto-incremented on new rows |
-| Offset | Numeric | Perpendicular position, display units |
-| Spacing | Numeric | Derived from offset delta to previous row |
-| Length | Numeric | Gridline extent, display units |
-| Angle° | Numeric | 0–90° off cardinal |
-| *(hidden)* | `GridlineItem` ref | `None` for new rows |
+- **1st click** = origin; **2nd click** = length + angle
+- **Ctrl** = angle-constrain; **Tab** = exact length + angle dynamic input
+- `single_place_mode` returns to select mode after one placement; otherwise it loops
+- On placement the factory syncs auto-number counters *before* construction (§6.3), calls `apply_category_defaults` (adopts the live Display Manager "Grid Line" color/scale), appends to `_gridlines`, selects the item, emits `requestPropertyUpdate`, then re-syncs counters and re-runs duplicate warnings
 
-### 7.3 Numerical Input
+The **Draw-tab ribbon "Gridline" button** (a checkable mode button in the Geometry group, `main.py`) sets `draw_gridline`. The default 3+3 seed is unchanged (`place_grid_lines`, called by `_place_default_gridlines`).
 
-All dimension input goes through the canonical `DimensionEdit` contract (property-panel.md §3.8, units-and-formatting.md §3) — as-built 2026-07-16:
+### 7.2 Properties-Panel Editing
 
-- **Table cells** (Offset, Spacing, Length — columns 1–3) edit via a shared `DimensionDelegate` (`dimension_edit.py`), whose cell editor is a `DimensionEdit`. On commit (Enter, Tab, or focus-out) the cell text is re-formatted via `ScaleManager.format_length()` and the exact mm value is stored in the `UserRole+1` slot (which doubles as the numeric sort key). Invalid input reverts to the last value. Readers (`read_rows`, offset↔spacing sync) prefer the role value over re-parsing display text, so imperial display quantization never degrades stored values.
-- **Standalone fields** (Default Length, Quick Fill Spacing) are `DimensionEdit` widgets; call sites read `.value_mm()`.
-- **Angle cells** (column 4) are plain numeric: commit normalizes to 0–90 and reformats `%.1f`; invalid input reverts (no exception path in the `cellChanged` slot).
+`GridlineItem.get_properties()` / `set_property()` expose the gridline's editable geometry to the right-side Properties panel (`property_manager.py` dispatches to these, like every other entity). Rows:
 
-Input is parsed via `ScaleManager.parse_dimension()` (any unit format: ft-in, mm, m; bare numbers use `bare_number_unit()`).
+| Row | Type | `set_property` effect |
+|-----|------|-----------------------|
+| Label | string | relabel + duplicate re-scan |
+| Origin X | dimension (mm) | set `_origin.x()` → **whole line translates** |
+| Origin Y | dimension (mm) | set `_origin.y()` → **whole line translates** |
+| Length | dimension (mm, min 1.0) | set `_length`, origin fixed |
+| Angle | string (numeric, `°` suffix) | parse + set `_angle_deg` mod 360 → rotate about origin; invalid input reverts |
+| End X / End Y | label (read-only) | derived far endpoint, informational |
+| Bubble 1 / Bubble 2 | enum (Visible/Hidden) | toggle that bubble's visibility |
+| Bubble 1 Offset / Bubble 2 Offset | dimension (mm, min 0.0) | set `_bubbleN_offset` |
+| Locked | enum (True/False) | set `_locked` |
 
-### 7.3.2 In-Dialog Undo/Redo
+**Y is displayed up-positive.** The scene stays Qt down-positive; Origin Y and End Y are **negated** for display and re-negated on parse, so a value typed as "up" reads/writes correctly. Negative-zero is normalized to 0 for both Origin and End coordinates.
 
-Each direction tab keeps a session-only snapshot undo/redo of its table state (added 2026-07-16). One user action = one undo step — a cell edit *and* its spacing-sync effects coalesce (0 ms singleshot recorder). Covered actions: cell edits, add/remove row, Generate, header sorts. `populate()` resets history (the scene state is the baseline, not undoable). Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z) route through `GridLinesDialog.keyPressEvent` to the active tab; while a cell editor is open, the editor's native text undo consumes the keys instead. Backing `GridlineItem` references survive restores, so reconciliation identity (§7.7) is undo-safe. This stack is independent of the scene undo step pushed by `apply_grid_dialog` on accept.
+Angle is a plain numeric string (not a `dimension`) because degrees are not an mm quantity — mirroring the old plain-numeric angle cell; the `°` suffix is stripped on parse.
 
-### 7.3.1 Column Sorting
-
-Clicking a column header sorts the table by that column, toggling between ascending and descending. Dimension columns sort numerically (by parsed mm value), not lexicographically, so `48'-0"` sorts after `24'-0"` correctly. The Spacing column is recalculated after sorting since it is relative to the previous row.
-
-### 7.4 Offset ↔ Spacing Sync
-
-Editing offset recalculates spacing from the previous row. Editing spacing recalculates offset from the previous row's offset + new spacing. Bidirectional.
-
-### 7.5 Quick Fill
-
-Count + Spacing + Generate button fills the table with evenly-spaced rows. Auto-labels from the Start Label field using the selected scheme (Numbers or Letters). Replaces existing rows (clears table first).
-
-### 7.5.1 Add Row Defaults
-
-Clicking "+" adds a row that continues the spacing pattern:
-- **2+ existing rows:** New row offset = last offset + (last offset − second-to-last offset).
-- **1 existing row:** New row offset = last offset + Quick Fill spacing value.
-- **Empty table:** Offset = 0.
-
-### 7.6 Population from Scene
-
-On dialog open:
-1. Scan `Model_Space._gridlines` for all existing gridlines.
-2. Classify each as H or V using the `dy >= dx` rule.
-3. Populate the appropriate tab, sorted by perpendicular offset.
-4. Each row stores a hidden reference to its source `GridlineItem`.
-5. Angled gridlines (not exactly 0° or 90°) go to the closest tab with their angle preserved.
-
-**Round-trip invariant (fixed 2026-07-16):** the scene line is constructed from the dialog values as `origin − overshoot·d → origin + length·d`, where the bubble overshoot is `GRIDLINE_BUBBLE_OVERSHOOT_FRAC` (`constants.py`) × length — the bubble end deliberately extends past the origin. Population applies the **exact inverse** (length = |p1p2| / (1 + frac); origin recovered by walking the overshoot back; offset = perpendicular projection of the origin), so open → OK without edits is a no-op. Reading the raw endpoint distance as Length previously grew every gridline 6% per OK cycle (and drifted the offset of angled gridlines). Both construction sites (`place_gridlines`, `apply_grid_dialog`) and the inverse must use the shared constant.
-
-### 7.7 Reconciliation on Accept
-
-Diff-based reconciliation using identity matching (hidden `GridlineItem` reference, not label). Single undo step wraps the entire operation.
-
-1. **Modified rows** (hidden ref is not `None`, values changed) — update `GridlineItem` in-place: reposition endpoints, relabel, adjust length/angle.
-2. **New rows** (hidden ref is `None`) — create new `GridlineItem`, add to scene.
-3. **Deleted rows** (source `GridlineItem` exists in scene but no matching row in table) — remove from scene.
-4. **Confirmation prompt** if any deletions are pending: "N gridline(s) will be deleted. Continue?"
-5. After apply: sync auto-numbering counters (§6.3).
+Geometry/offset commits (Origin X/Y, Length, Angle, Bubble 1/2 Offset) push **one** model-space undo state after mutating (`push_undo_state()`), because model-space property edits don't self-capture undo otherwise. Each panel commit is one undo step.
 
 ## 8. Elevation View Integration
 
@@ -305,15 +315,17 @@ Stored in the elevation view's `to_dict()`:
 
 ### 9.2 Serialization Migration
 
-The `from_dict()` loader handles both old (`GridLine`) and current (`GridlineItem`) formats:
+The `from_dict()` loader reads the current **parametric** format (`"origin"` key present) and migrates legacy formats:
 
-| Old format (`GridLine`) | New format (`GridlineItem`) | Migration |
-|------------------------|---------------------------|-----------|
-| `"type": "grid_line"` present | No `"type"` key | Detect by presence of `"type"` key |
-| `"axis": "x"/"y"` | (removed) | Ignored — orientation derived from p1/p2 |
-| `"locked": true` | `"locked": true` | Passes through |
-| `"bubble_start"/"bubble_end"` | `"bubble1_vis"/"bubble2_vis"` | Key rename |
-| Legacy keys (`user_layer`, `paper_height_mm`) | — | Ignored on load (layer system removed; per-item paper height retired) |
+| Legacy input | Migration |
+|--------------|-----------|
+| No `"origin"` key, but `"p1"`/`"p2"` present | Two-point geometry → derive `_origin`/`_length`/`_angle_deg`/offsets via the ctor |
+| No `"origin"` key, but `"start"`/`"end"` present | Older two-point key names → same derivation |
+| `"bubble_start"`/`"bubble_end"` | Old bubble-visibility keys → read as `bubble1_vis`/`bubble2_vis` |
+| `bubble1_offset`/`bubble2_offset` absent | Default to `GRIDLINE_BUBBLE_OFFSET_MM` |
+| Legacy keys (`level`, `axis`, `user_layer`, `paper_height_mm`) | Silently ignored (layer system removed; per-item paper height retired; orientation is stored) |
+
+When the parametric format is present, `_length`/`_angle_deg` are set exactly from the stored values (not re-derived from a computed `p2`) to avoid float drift.
 
 ### 9.3 `level` Field Removal
 
@@ -335,6 +347,15 @@ Single category: **"Grid Line"**
 
 Per-instance overrides via `_display_overrides` take precedence over category defaults.
 
+### 10.1.1 Dash-Dot Linetype
+
+The gridline renders as a **dash-dot** line. The line pen is non-cosmetic (width in scene units) with an explicit `setDashPattern`; the dash geometry is resolved differently on screen vs paper so it never collapses to apparent-solid:
+
+- **On screen (model-absolute):** the dash pattern is a **fixed model-mm** pattern that scales with zoom like a CAD/Revit model linetype — bold at working zoom, thinning toward solid only at extreme zoom-out. Constants `_DASH_MODEL_MM`/`_GAP_MODEL_MM`/`_DOT_MODEL_MM` (`gridline.py`). The line **weight** stays a screen constant (~`GRID_WIDTH` px).
+- **On paper (paper-mm):** the dash pattern is a **fixed on-paper mm** pattern (`_DASH_MM`/`_GAP_MM`/`_DOT_MM`), normalized by the on-paper line width (`_paper_line_w_mm`) so — because pen width and pattern both ride the viewport scale — the on-paper dash resolves to the fixed mm regardless of viewport scale, and a PDF reads as dash-dot at any DPI.
+
+The **selection highlight** and the **duplicate-warning** recolor never change line/border width (dup warning recolors the bubble border only; §6.4).
+
 ### 10.2 Paper Space Bridge [as-built 2026-08-08]
 
 Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for the render-pass contract). Grid-system-side summary:
@@ -351,14 +372,40 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 **Chosen:** Consolidate into `GridlineItem`, remove `GridLine`.
 **Rationale:** Two parallel implementations with overlapping features adds maintenance burden without value. `GridlineItem` is the active implementation; missing features (lock, grips, perpendicular move) are absorbed from `GridLine`.
 
-### 11.2 Edit-existing dialog via diff-based reconciliation
+### 11.2 On-canvas placement + Properties panel (dialog removed)
 
-**Considered:**
-- **(A) Diff-based reconciliation** — dialog tracks identity, computes changeset on accept. ✓ Chosen.
-- **(B) Replace-all** — delete and recreate all gridlines. Breaks references (elevation overrides, snap caches, undo).
-- **(C) Create-only dialog** — smaller scope but doesn't meet requirements.
+**Chosen:** Delete the modal Grid Lines dialog. Place gridlines on-canvas (mirroring the Line tool) and edit them through the right-side Properties panel — like every other entity. Batch creation = copy/paste; an on-canvas array/offset tool is a filed follow-up.
+**Rationale:** The modal table diverged from the app's Revit-aligned mental model (on-canvas + property panel) and from the property-panel-over-dialog preference. On-canvas placement by *code-sharing* the Line-tool handlers (item-factory divergence only) structurally guarantees behavioral parity and prevents drift, at zero extra placement code.
 
-**Rationale:** Identity tracking is straightforward (hidden column stores Python object reference) and preserves all external references to `GridlineItem` instances.
+### 11.11 Native parametric storage
+
+**Chosen:** Store `_origin` + `_length` + `_angle_deg` + per-bubble offsets as source-of-truth; derive `line()` via a single `_rebuild_geometry()` writer.
+**Rationale:** The panel-edit math (translate-whole-line / length / rotate-about-origin) falls straight out of parametric fields, and the model matches the on-canvas UX. `line()` is kept eagerly in sync so read-only consumers (snap / spacing / elevation) need no changes. Cost: both serialization paths and legacy migration are rewritten — accepted.
+
+### 11.12 Grip = extend/shorten along the line (opposite end fixed)
+
+**Chosen:** A pull-tab grip drag extends/shortens the gridline along its axis with the far end fixed; re-angling is a panel edit, not a grip gesture.
+**Rationale:** Supersedes the pre-re-architecture whole-line-translate bug. Predictable, matches the parametric length field. Body drag remains perpendicular reposition.
+
+### 11.13 Absolute mm bubble offset (retire fractional overshoot)
+
+**Chosen:** Bubble standoff is an absolute, editable per-end mm offset (default `GRIDLINE_BUBBLE_OFFSET_MM`); the length-proportional `GRIDLINE_BUBBLE_OVERSHOOT_FRAC` is retired.
+**Rationale:** Standoff no longer scales with gridline length (long lines got huge overshoots); it becomes a first-class editable property; and geometry no longer bakes the bubble end into `line()` (which had forced a lossy round-trip inverse in the old dialog).
+
+### 11.14 Parallelism-based spacing pairing
+
+**Chosen:** Pair gridlines for spacing dimensions by true parallelism (angle mod π within `EPS_ANGLE`), not the binary `dy>=dx` bucket.
+**Rationale:** The binary bucket mis-paired non-parallel lines and flipped discontinuously near 45°. Naming keeps `dy>=dx` (standard structural convention); only spacing pairing changed.
+
+### 11.15 Model-absolute dash on screen, paper-mm on paper
+
+**Chosen:** Explicit `setDashPattern` — fixed model-mm on screen (scales with zoom like a CAD linetype), fixed on-paper-mm normalized by paper line width on paper.
+**Rationale:** `Qt.PenStyle.DashDotLine`'s pattern is expressed in pen-width multiples, so a non-cosmetic pen collapsed the dashes to apparent-solid when zoomed out or rendered at print DPI. Explicit patterns keep the linetype legible everywhere.
+
+### 11.16 Y displayed up-positive
+
+**Chosen:** Origin Y / End Y are shown and parsed up-positive in the Properties panel (scene stays Qt down-positive); negative-zero normalized to 0.
+**Rationale:** Matches user/architectural convention that "up" is positive; avoids a confusing sign inversion in the panel.
 
 ### 11.3 Level independence
 
@@ -385,10 +432,10 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 **Chosen:** Show on selection, double-click to edit, isolate movement (no cascade).
 **Rationale:** Provides immediate feedback on grid spacing without a separate tool. Isolation (only selected gridlines move) is predictable. Multi-selection enables rigid-group movement for cascade-like behavior when desired.
 
-### 11.8 Bubbles always at endpoints (no offset)
+### 11.8 Bubble standoff as an editable absolute offset
 
-**Chosen:** No bubble offset / leader lines.
-**Rationale:** Pull-tab grips already let users extend gridlines to space bubbles. Bubble offset adds per-bubble grip points, leader rendering, and serialization complexity for a polish feature. Deferred as follow-up.
+**Chosen:** Each bubble stands off its endpoint by an editable absolute mm offset (§5.6, §11.13). Off-axis bubble **leader/jog** offset remains a follow-up.
+**Rationale:** An absolute per-end offset is the natural parametric replacement for the retired length-proportional overshoot and gives users direct control without leader-rendering complexity.
 
 ### 11.9 Counter sync (no gap-filling)
 
@@ -402,28 +449,33 @@ Mechanism owned by `docs/specs/paper-space.md` §9.9.1 (Rule A — see there for
 
 ## 12. Acceptance Criteria
 
-- [ ] `GridlineItem` is the single canonical gridline class
-- [ ] `grid_line.py` removed; all imports cleaned up
-- [ ] Lock/unlock prevents grip drag, body drag, and spacing edit
-- [ ] Visible pull-tab grips at endpoints (on selection/hover)
-- [ ] Perpendicular body drag with directional constraint
+- [x] `GridlineItem` is the single canonical gridline class
+- [x] `grid_line.py` removed; all imports cleaned up
+- [x] Parametric data model: `_origin` + `_length` + `_angle_deg` + per-bubble offsets; single `_rebuild_geometry()` writer keeps `line()` in sync
+- [x] Lock/unlock prevents grip drag, body drag, spacing edit, and panel geometry edit
+- [x] Visible pull-tab grips at endpoints (on selection/hover), house selection-grip style (white + `SELECTION_OUTLINE_COLOR`)
+- [x] Perpendicular body drag with directional constraint (fixed-sign normal)
+- [x] On-canvas placement via `draw_gridline` mode, mirroring the Line tool (1st click origin, 2nd click length+angle, Ctrl-constrain, Tab exact input, single-place)
+- [x] Draw-tab ribbon "Gridline" button sets `draw_gridline`; modal Grid Lines dialog removed
+- [x] Properties-panel editing: Origin X/Y translate whole line, Length (origin fixed), Angle (rotate about origin), Bubble visible/offset, Label, Locked; End X/Y read-only; each geometry/offset commit = one undo step
+- [x] Origin Y / End Y displayed and parsed up-positive; negative-zero normalized to 0
 - [x] Paper-space bridge: bubbles true-scale through sheet viewports per §10.2 / paper-space §9.9.1 (category-owned label height; per-item `paper_height_mm` retired) — built 2026-08-08
-- [ ] Angled gridlines supported as first-class (arbitrary p1/p2)
+- [x] Angled gridlines supported as first-class (stored angle)
 - [ ] Elevation views show only exactly-cardinal gridlines (perpendicular to viewing plane)
-- [ ] Auto-numbering counters sync to max existing label on load/undo/dialog accept
-- [ ] Duplicate labels produce visual warning (orange bubble border), not enforcement
-- [ ] Grip drag constrained along line direction; body drag constrained perpendicular
-- [ ] Bubbles always at endpoints (no independent offset)
-- [ ] Dialog supports create, edit-existing (identity-matched), and delete with confirmation
-- [ ] Dialog uses existing numerical input handler with display-unit conversion (no hardcoded inches)
-- [ ] Gridlines are level-independent (visible on all plan levels, `level` field removed)
+- [x] Auto-numbering counters sync to max existing label on load/undo/before each on-canvas placement
+- [x] Auto-labeling: vertical (dy>=dx) → numbers, horizontal → letters (matches default seed)
+- [x] Duplicate labels produce visual warning (orange bubble border, width unchanged), not enforcement
+- [x] Grip drag extends/shortens along line (opposite end fixed); body drag constrained perpendicular
+- [x] Bubble standoff is an editable absolute per-end offset (default `GRIDLINE_BUBBLE_OFFSET_MM`); fractional overshoot retired
+- [x] Gridlines render as legible dash-dot (model-absolute on screen, paper-mm on paper — no apparent-solid)
+- [x] Gridlines are level-independent (visible on all plan levels, `level` field removed)
 - [ ] Elevation Z-extent defaults to full building height; per-view grip-editable overrides stored on elevation scene
-- [ ] Single "Grid Line" display manager category
-- [ ] Undo: dialog accept = one step; drag operations = one step on mouse release
-- [ ] On-selection spacing dimensions to parallel neighbors (single) or between selected (multi)
-- [ ] Double-click spacing edit: selected gridline(s) move, neighbor stays fixed; multi-select moves as rigid group preserving relative spacing
-- [ ] Serialization migration handles old `GridLine` format
-- [ ] Snap interaction deferred to snap spec (cross-reference only)
+- [x] Single "Grid Line" display manager category
+- [x] Undo: panel geometry commit = one step; drag operations = one step on mouse release
+- [x] On-selection spacing dimensions between truly parallel gridlines (angle clustering); non-parallel neighbors show none
+- [x] Double-click spacing edit: selected gridline(s) move, neighbor stays fixed; multi-select moves as rigid group preserving relative spacing
+- [x] Serialization: new parametric format on both paths (`scene_io` + `_capture_network`); legacy `p1/p2` (and `start/end`) files load
+- [x] Snap interaction deferred to snap spec (cross-reference only)
 
 ## Alignment Constraint Participation
 
@@ -438,12 +490,13 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 
 ## 13. Verification Checklist
 
-- [ ] All acceptance criteria met
-- [ ] Unit tests pass: auto-numbering, serialization round-trip, migration, movement constraints, elevation filtering, duplicate detection
-- [ ] Integration tests pass: dialog CRUD lifecycle, elevation projection, spacing dimensions, lock enforcement
-- [ ] No regressions: existing gridline creation (2-click), existing elevation view rendering, existing snap behavior with gridlines
-- [ ] `grid_line.py` fully removed, no dead imports
-- [ ] Existing project files with old-format gridlines load correctly
+- [x] Core acceptance criteria met (except elevation Z-override items, still open)
+- [x] Unit tests pass: auto-numbering (flipped), serialization round-trip (both paths), legacy migration, parametric edits, grip extend/shorten, parallelism spacing, duplicate detection
+- [x] Functional/widget tests: on-canvas placement mirrors the Line tool (incl. Tab + Ctrl); property-panel edits reach geometry; copy/paste of a lone gridline
+- [x] No regressions: default 3+3 seed, snap on gridlines, duplicate warnings, lock enforcement
+- [x] `grid_line.py` and `grid_lines_dialog.py` fully removed, no dead imports
+- [x] Existing project files with legacy `p1/p2` gridlines load correctly
+- [x] Startup seed cannot be undone away (undo stack reset after seed, `main.py`)
 - [ ] Align tool can use gridline as reference (other items align to it)
 - [ ] Align tool can use gridline as target (gridline moves to match reference)
 - [ ] Locked gridlines rejected by Align tool with status bar warning
@@ -451,29 +504,37 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 
 ## 14. Existing Code Context
 
-| File | LOC | Role | Action |
-|------|-----|------|--------|
-| `firepro3d/gridline.py` | ~354 | Active `GridlineItem` + `GridBubble` | Modify (canonical) |
-| `firepro3d/grid_line.py` | ~302 | Legacy `GridLine` | Remove |
-| `firepro3d/grid_lines_dialog.py` | ~473 | Batch creation dialog | Modify (add edit-existing) |
-| `firepro3d/elevation_scene.py` | ~1233 | Elevation projection + `ElevGridlineItem` | Modify (filtering, Z-overrides) |
-| `firepro3d/model_space.py` | (large) | Scene management, gridline storage, placement | Modify (body drag, spacing dimensions) |
-| `firepro3d/constants.py` | — | Centralized constants | Modify (add grid constants if needed) |
+| File | Role |
+|------|------|
+| `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property` |
+| `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths |
+| `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
+| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit |
+| `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
+| `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
+| `firepro3d/elevation_scene.py` | Elevation projection + `ElevGridlineItem` (filtering, Z-overrides) |
+| `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors) |
+| `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset |
+
+**Removed:** `firepro3d/grid_line.py` (legacy `GridLine`); `firepro3d/grid_lines_dialog.py` (modal dialog).
 
 ## 15. Edge Cases & Error Handling
 
-- **45° gridline classification:** `dy >= dx` classifies as vertical → letters. Consistent, documented.
+- **45° gridline classification:** `dy >= dx` classifies as vertical → number label. Consistent, documented.
 - **Counter sync with mixed custom labels:** Labels like "X-1" that don't parse as numbers or letters are ignored by sync. Counter resumes from the highest parseable label.
-- **Empty scene dialog:** Dialog opens with empty tables. Quick Fill works normally. No reconciliation deletions (nothing to delete).
-- **All gridlines deleted via dialog:** Confirmation prompt, then all removed. Counters reset to 1 / A.
+- **Zero-length placement:** the placement press rejects a sub-0.5-mm span ("Gridline too short — skipped"); mutators floor `_length` at 1.0 mm.
 - **Floating-point epsilon for cardinal test:** `1e-6` absolute tolerance on dx or dy for elevation filtering. A gridline at 89.9999° would fail the cardinal test and not appear in elevations.
-- **Perpendicular neighbor search for spacing:** If no parallel neighbor exists on one side, no dimension shown for that side. Two isolated gridlines at different angles show no spacing.
+- **Spacing pairing tolerance:** angle clustering uses a small fixed `EPS_ANGLE`. Non-parallel gridlines share no cluster → no spacing dimension between them.
 
 ## 16. Out of Scope
 
 - Snap interaction rules (see `docs/specs/snapping-engine.md` §5)
 - Paper space thin-lines rendering mode switching (see `docs/specs/paper-space.md` §9.2)
-- Bubble offset with leader lines (potential follow-up)
+- Off-axis bubble **elbow/jog leader** + per-view leader independence (bubble *along-axis* offset is implemented — §5.6)
+- On-canvas **array/offset** tool for fast bay layout (copy/paste covers replication for now)
+- Angled gridlines projecting into **elevation** views (section-view territory)
+- On-canvas interactive **rotate** handle (angle lives in the Properties panel)
+- Display-Manager **linetype** property (solid/dashed/center/…)
 - Section view gridline projection (deferred to section view spec)
 - Grid snap (regular spacing constraint independent of gridline objects)
 - Display Manager category CRUD
