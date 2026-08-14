@@ -53,7 +53,6 @@ def test_undo_after_seed_baseline_keeps_gridlines(qapp):
 
 def test_array_digit_seeds_spacing_field(qapp):
     """A digit that opens the array _DynInput lands in the Spacing field."""
-    import firepro3d.model_space as ms_mod
     from firepro3d.model_space import Model_Space
     from PyQt6.QtWidgets import QGraphicsView, QDialog
     from PyQt6.QtCore import QPointF

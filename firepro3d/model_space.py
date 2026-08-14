@@ -4191,7 +4191,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.move(gpos.x() + 16, gpos.y() + 16)
                 if first:
                     if seed:
-                        first.setText(str(seed))
+                        first.setText(seed)
                         first.setCursorPosition(len(first.text()))
                     else:
                         first.selectAll()
