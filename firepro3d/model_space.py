@@ -8586,6 +8586,79 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         self._show_status(f"Pasted {len(data)} item(s)")
 
+    def _shape_paths_for_move(self, items):
+        """Scene-coord QPainterPath silhouettes for live scene *items*.
+        Nodes have no useful shape() — emit a small cross marker."""
+        from .node import Node
+        from .sprinkler import Sprinkler
+        paths = []
+        for item in items:
+            if isinstance(item, Sprinkler) and item.node is not None:
+                item = item.node
+            if isinstance(item, Node):
+                c = item.scenePos()
+                r = 120.0
+                p = QPainterPath()
+                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
+                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
+                paths.append(p)
+                continue
+            if hasattr(item, "shape"):
+                try:
+                    paths.append(item.mapToScene(item.shape()))
+                    continue
+                except Exception:
+                    pass
+            if hasattr(item, "sceneBoundingRect"):
+                p = QPainterPath(); p.addRect(item.sceneBoundingRect())
+                paths.append(p)
+        return paths
+
+    def _clipboard_ghost_paths(self, data):
+        """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
+        without adding anything to the scene. Covers the copyable types."""
+        from .construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+        )
+        paths = []
+        if not data:
+            return paths
+        geom_ctors = {
+            "draw_line": LineItem, "draw_rectangle": RectangleItem,
+            "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
+        }
+        for obj in data:
+            t = obj.get("type", "")
+            if t == "gridline":
+                ox, oy = obj.get("origin", [0.0, 0.0])
+                length = float(obj.get("length", 0.0))
+                th = math.radians(float(obj.get("angle", 0.0)))
+                p = QPainterPath(); p.moveTo(ox, oy)
+                p.lineTo(ox + length * math.cos(th), oy - length * math.sin(th))
+                paths.append(p)
+            elif t == "node":
+                c = QPointF(obj.get("x", 0.0), obj.get("y", 0.0))
+                r = 120.0
+                p = QPainterPath()
+                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
+                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
+                for seg in obj.get("pipes", []):
+                    p.moveTo(c.x(), c.y()); p.lineTo(seg.get("x", 0.0), seg.get("y", 0.0))
+                paths.append(p)
+            elif t in geom_ctors:
+                try:
+                    item = geom_ctors[t].from_dict(obj)
+                    paths.append(item.mapToScene(item.shape()))
+                except Exception:
+                    pass
+        return paths
+
+    def _build_move_ghost_base(self, is_paste: bool):
+        """Base silhouettes (offset 0). Paste → clipboard; move → live selection."""
+        if is_paste:
+            return self._clipboard_ghost_paths(self.clipboard_data())
+        return self._shape_paths_for_move(self._selected_items or self.selectedItems())
+
     def move_items(self, offset):
         if not self._selected_items:
             return
