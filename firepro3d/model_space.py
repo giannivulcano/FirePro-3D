@@ -4517,6 +4517,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             gi.apply_grip(self._grip_index, pos)
             new_pt = gi.grip_points()[self._grip_index]
             delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
+            # Same scene-space delta re-projected onto each sibling's own axis:
+            # exact for parallel (same-orientation) selections; non-parallel
+            # members under-apply — consistent with endpoint-grip multi-select.
             for sel in self.selectedItems():
                 if sel is gi or not isinstance(sel, GridlineItem):
                     continue
@@ -4547,14 +4550,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Grip drag (mode-independent, takes priority) ────────────────
         if self._grip_dragging and self._grip_item is not None:
             pos = snapped
-            # Ctrl constrains to angle increments — endpoint grips only.
+            # Ctrl constrains a grip-0 drag against the far endpoint (grip 1).
             if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._grip_index in (0, 1)
+                    and self._grip_index == 0
                     and hasattr(self._grip_item, "grip_points")):
                 grips = self._grip_item.grip_points()
-                if len(grips) >= 2 and self._grip_index != 1:
-                    opp = 1
-                    pos = self._constrain_angle(grips[opp], snapped)
+                if len(grips) >= 2:
+                    pos = self._constrain_angle(grips[1], snapped)
             self._drag_grip_to(pos)
             return
 
