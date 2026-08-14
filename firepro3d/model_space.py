@@ -127,6 +127,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
+        self._pending_seed = ""
         self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
@@ -3998,6 +3999,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         the anchor point.  Values are always in mm (1 scene unit = 1 mm
         when uncalibrated).  Angles follow Y-up convention (0°=right, 90°=up).
         """
+        seed = getattr(self, "_pending_seed", "")
+        self._pending_seed = ""
         # ── Select mode: cycle through similar elements ──
         if self.mode in ("select", None, ""):
             selected = self.selectedItems()
@@ -4120,7 +4123,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             a plain numeric display with the ``°`` suffix label.
             """
 
-            def __init__(self, fields, sm=None, parent=None):
+            def __init__(self, fields, sm=None, parent=None, seed=""):
                 """*fields*: list of (name, default_mm, suffix, decimals)
                 *sm*: ScaleManager for unit formatting/parsing (optional)."""
                 super().__init__(parent)
@@ -4187,7 +4190,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.adjustSize()
                 self.move(gpos.x() + 16, gpos.y() + 16)
                 if first:
-                    first.selectAll()
+                    if seed:
+                        first.setText(str(seed))
+                        first.setCursorPosition(len(first.text()))
+                    else:
+                        first.selectAll()
                     first.setFocus()
 
             def keyPressEvent(self, event):
@@ -4366,7 +4373,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             default_dist = self._replicate_spacing if self._replicate_spacing != 0.0 else 1000.0
             dlg = _DynInput([
                 ("Distance", default_dist, "", 2),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._replicate_spacing = dlg.value("Distance")
                 self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
@@ -4379,7 +4386,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dlg = _DynInput([
                 ("Spacing", default_sp, "", 2),
                 ("Count",   default_ct, "#", 0),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._replicate_spacing = dlg.value("Spacing")
                 self._replicate_count = max(1, int(round(dlg.value("Count"))))
@@ -8394,6 +8401,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         elif (self.mode in ("gridline_array", "gridline_offset")
               and event.key() >= Qt.Key.Key_0
               and event.key() <= Qt.Key.Key_9):
+            self._pending_seed = event.text()
             self._handle_tab_input()
             return
         else:

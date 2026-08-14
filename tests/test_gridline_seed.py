@@ -49,3 +49,35 @@ def test_undo_after_seed_baseline_keeps_gridlines(qapp):
 
     # Undo reverts the edit but MUST NOT delete the seeded gridlines.
     assert len(scene._gridlines) == 2
+
+
+def test_array_digit_seeds_spacing_field(qapp):
+    """A digit that opens the array _DynInput lands in the Spacing field."""
+    import firepro3d.model_space as ms_mod
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QGraphicsView, QDialog
+    from PyQt6.QtCore import QPointF
+    from firepro3d.gridline import GridlineItem
+
+    ms = Model_Space()
+    view = QGraphicsView(ms); view.resize(400, 400); view.resetTransform()
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(gl); ms._gridlines.append(gl)
+    ms._replicate_source = gl
+    ms._replicate_kind = "array"
+    ms.set_mode("gridline_array")
+    ms._pending_seed = "7"
+
+    captured = {}
+    orig_exec = QDialog.exec
+    def fake_exec(self):
+        first = self._order[0]
+        captured["text"] = first.text()
+        return QDialog.DialogCode.Rejected
+    QDialog.exec = fake_exec
+    try:
+        ms._handle_tab_input()
+    finally:
+        QDialog.exec = orig_exec
+    view.hide()
+    assert captured["text"] == "7"
