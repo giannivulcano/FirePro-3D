@@ -365,3 +365,31 @@ def test_gridline_copy_paste_roundtrip(qapp, make_model_space):
         f"Expected pasted origin x=3000, got {new.grip_points()[0].x()}"
     assert new.grid_label != "1", \
         "Pasted gridline must get a fresh sequential label, not a duplicate"
+
+
+def test_array_move_sets_live_spacing_count_hud(qapp, make_model_space):
+    """Moving in array mode populates the Dim HUD with spacing + count."""
+    ms = make_model_space()
+    src = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(src)
+    ms._gridlines.append(src)
+    ms._start_gridline_replicate(src, "array")
+    ms._replicate_count = 4
+    ms._move_gridline_replicate(None, QPointF(1000.0, 2500.0))
+    assert ms._draw_dim_hint is not None
+    assert "Spacing" in ms._draw_dim_hint
+    assert "×4" in ms._draw_dim_hint
+    # Exiting the mode clears the HUD.
+    ms._end_gridline_replicate()
+    assert ms._draw_dim_hint is None
+
+
+def test_offset_move_sets_live_distance_hud(qapp, make_model_space):
+    ms = make_model_space()
+    src = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(src)
+    ms._gridlines.append(src)
+    ms._start_gridline_replicate(src, "offset")
+    ms._move_gridline_replicate(None, QPointF(800.0, 2500.0))
+    assert ms._draw_dim_hint is not None
+    assert "Distance" in ms._draw_dim_hint

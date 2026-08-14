@@ -5257,6 +5257,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             (snapped.x() - o.x()) * nx + (snapped.y() - o.y()) * ny
         )
         self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
+        # Live readout near the cursor (reuses the draw-mode Dim HUD).
+        sm = self.scale_manager
+        _sp = (sm.scene_to_display(abs(self._replicate_spacing)) if sm
+               else f"{abs(self._replicate_spacing):.1f}")
+        if self._replicate_kind == "array":
+            self._draw_dim_hint = f"Spacing: {_sp}  ×{self._replicate_count}"
+        else:
+            self._draw_dim_hint = f"Distance: {_sp}"
         for v in self.views():
             v.viewport().update()
 
@@ -5297,6 +5305,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Cancel or finish replication: clear state and return to select."""
         self._replicate_source = None
         self._replicate_ghost = []
+        self._draw_dim_hint = None
         self.set_mode("select")
         for v in self.views():
             v.viewport().update()
