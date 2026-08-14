@@ -747,12 +747,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
-        # Inference active-item: set sentinel for draw_gridline, clear otherwise.
-        if mode == "draw_gridline":
+        # Inference active-item: sentinel for draw_gridline + paste/move.
+        if mode in ("draw_gridline", "paste", "move"):
             self._inference_active_item = self._PLACEMENT_SENTINEL
         else:
             self._inference_active_item = None
             self._inference_result = None
+        # Move self-excludes the moving gridlines from the reference set.
+        if mode == "move":
+            self._inference_exclude_ids = {
+                id(i) for i in (self.selectedItems() or [])
+                if isinstance(i, GridlineItem)
+            } | {
+                id(i) for i in (self._selected_items or [])
+                if isinstance(i, GridlineItem)
+            }
+        else:
+            self._inference_exclude_ids = set()
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -3601,9 +3612,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         refs = []
         exclude_id = (id(self._inference_active_item)
                       if self._inference_active_item is not None else None)
+        exclude_ids = self._inference_exclude_ids
         for gl in self._gridlines:
             for f in gl.alignment_reference_points():
-                if f.source_id != exclude_id:
+                if f.source_id != exclude_id and f.source_id not in exclude_ids:
                     refs.append(f)
         return refs
 
