@@ -80,3 +80,31 @@ def test_array_digit_seeds_spacing_field(qapp):
         QDialog.exec = orig_exec
     view.hide()
     assert captured["text"] == "7"
+
+
+def test_placement_digit_opens_and_seeds_length(qapp):
+    """During gridline placement (anchor set), a digit opens the input
+    seeded into the Length field."""
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QGraphicsView, QDialog
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtCore import QPointF, Qt, QEvent
+
+    ms = Model_Space()
+    view = QGraphicsView(ms); view.resize(400, 400); view.resetTransform()
+    ms.set_mode("draw_gridline")
+    ms._draw_line_anchor = QPointF(0, 0)
+
+    captured = {}
+    orig_exec = QDialog.exec
+    def fake_exec(self):
+        captured["text"] = self._order[0].text()
+        return QDialog.DialogCode.Rejected
+    QDialog.exec = fake_exec
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_5, Qt.KeyboardModifier.NoModifier, "5")
+    try:
+        ms.keyPressEvent(ev)
+    finally:
+        QDialog.exec = orig_exec
+    view.hide()
+    assert captured.get("text") == "5"

@@ -4256,7 +4256,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dlg = _DynInput([
                 ("Length", def_len, "", 2),
                 ("Angle",  def_ang, "°",  2),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -8398,9 +8398,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.set_mode(None)
                 return
         # ── Digit key opens Tab input for replicate modes (type-to-capture) ──
-        elif (self.mode in ("gridline_array", "gridline_offset")
-              and event.key() >= Qt.Key.Key_0
-              and event.key() <= Qt.Key.Key_9):
+        elif (event.key() >= Qt.Key.Key_0
+              and event.key() <= Qt.Key.Key_9
+              and (self.mode in ("gridline_array", "gridline_offset")
+                   or (self.mode in ("draw_line", "draw_gridline")
+                       and self._draw_line_anchor is not None))):
             self._pending_seed = event.text()
             self._handle_tab_input()
             return
