@@ -72,7 +72,7 @@ DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (scre
 INFERENCE_TOL_PX = 8.0         # screen-px band within which a cursor aligns to a ref feature
 
 # ── Inferred-placement alignment guide overlay ────────────────────────────────
-INFERENCE_GUIDE_COLOR = "#00e0a0"      # PROVISIONAL — replaced by user mockup pick
+INFERENCE_GUIDE_COLOR = "#00c8ff"      # cyan — alignment-guide line + glyph (theming.md)
 INFERENCE_GUIDE_DASH = [4.0, 4.0]      # cosmetic dash pattern (px)
 INFERENCE_GLYPH_PX = 7.0               # reference-point glyph size (screen px)
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
