@@ -753,6 +753,63 @@ class GridlineItem(QGraphicsLineItem):
         current = p1.x() * nx + p1.y() * ny
         self.move_perpendicular(position - current)
 
+    # ── Parallel copy factory ────────────────────────────────────────────
+
+    def _clone_parallel(self, offset_dist: float) -> "GridlineItem":
+        """New gridline, rigid parallel translation by offset_dist along the
+        fixed-sign perpendicular normal.  Inherits appearance; unlocked; label
+        left as the ctor default (caller reassigns via counter sync).
+
+        Args:
+            offset_dist: Signed distance in mm along the perpendicular normal.
+
+        Returns:
+            A new :class:`GridlineItem` positioned parallel to *self*.
+        """
+        nx, ny = self._perpendicular_vector()
+        o = self._origin
+        new_origin = QPointF(o.x() + nx * offset_dist, o.y() + ny * offset_dist)
+        th = math.radians(self._angle_deg)
+        far = QPointF(new_origin.x() + self._length * math.cos(th),
+                      new_origin.y() - self._length * math.sin(th))
+        cp = GridlineItem(new_origin, far, label=self._label_text)
+        # Override length/angle exactly to avoid float drift from far derivation.
+        cp._length = self._length
+        cp._angle_deg = self._angle_deg
+        cp._bubble1_offset = self._bubble1_offset
+        cp._bubble2_offset = self._bubble2_offset
+        cp.bubble1.setVisible(self.bubble1.isVisible())
+        cp.bubble2.setVisible(self.bubble2.isVisible())
+        cp._display_overrides = dict(self._display_overrides)
+        cp._locked = False
+        cp._rebuild_geometry()
+        return cp
+
+    def offset_copy(self, distance: float) -> "GridlineItem":
+        """One parallel copy at signed perpendicular *distance* (mm).
+
+        Args:
+            distance: Signed offset distance in mm along the perpendicular
+                normal of this gridline.
+
+        Returns:
+            A new unlocked :class:`GridlineItem` parallel to *self*.
+        """
+        return self._clone_parallel(distance)
+
+    def array_copies(self, spacing: float, count: int) -> list["GridlineItem"]:
+        """*count* parallel copies at successive multiples of signed *spacing* (mm).
+
+        Args:
+            spacing: Signed step distance in mm along the perpendicular normal.
+            count: Number of copies to produce.  Zero or negative returns ``[]``.
+
+        Returns:
+            List of new unlocked :class:`GridlineItem` instances, index 0
+            nearest to *self*, in order of increasing distance.
+        """
+        return [self._clone_parallel(spacing * (i + 1)) for i in range(max(0, int(count)))]
+
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
