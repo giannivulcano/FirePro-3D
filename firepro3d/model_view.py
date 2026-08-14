@@ -544,6 +544,21 @@ class Model_View(QGraphicsView):
                 painter.drawLine(QPointF(vp.x(), vp.y() - r), QPointF(vp.x(), vp.y() + r))
             painter.restore()
 
+        # ── 7. Gridline array/offset ghost preview (scene-coord dashed lines) ──
+        ghost = getattr(scene, "_replicate_ghost", None)
+        if ghost:
+            from .constants import INFERENCE_GUIDE_COLOR
+            gp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            gp.setCosmetic(True)
+            gp.setDashPattern([3.0, 3.0])
+            painter.save()
+            painter.setPen(gp)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            for (o, f) in ghost:
+                painter.drawLine(o, f)
+            painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────

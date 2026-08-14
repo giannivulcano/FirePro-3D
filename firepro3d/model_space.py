@@ -33,7 +33,7 @@ from .construction_geometry import (
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
 from .gridline import (GridlineItem, reset_grid_counters,
-                       sync_grid_counters, apply_duplicate_warnings)
+                       sync_grid_counters, apply_duplicate_warnings, auto_label)
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
@@ -172,6 +172,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._text_preview: "QGraphicsRectItem | None" = None
         # Gridlines (Sprint U)
         self._gridlines: list[GridlineItem] = []
+        # Gridline Array/Offset replication modes (Task 7)
+        self._replicate_source = None           # GridlineItem being replicated
+        self._replicate_kind: str = "array"     # "array" | "offset"
+        self._replicate_count: int = 1
+        self._replicate_spacing: float = 0.0
+        self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -861,6 +867,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._offset_highlight.scene() is self:
                     self.removeItem(self._offset_highlight)
                 self._offset_highlight = None
+
+        # Clean up gridline replicate modes
+        if mode not in ("gridline_array", "gridline_offset"):
+            self._replicate_source = None
+            self._replicate_ghost = []
 
         # Clean up trim state
         if mode not in ("trim", "trim_pick"):
@@ -4313,6 +4324,32 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._polyline_active.append_point(tip)
             self.push_undo_state()
 
+        # ── Gridline offset / array ───────────────────────────────────────
+        elif self.mode == "gridline_offset":
+            default_dist = self._replicate_spacing if self._replicate_spacing != 0.0 else 1000.0
+            dlg = _DynInput([
+                ("Distance", default_dist, "", 2),
+            ], sm=_sm)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self._replicate_spacing = dlg.value("Distance")
+                self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
+                for v in self.views():
+                    v.viewport().update()
+
+        elif self.mode == "gridline_array":
+            default_sp = self._replicate_spacing if self._replicate_spacing != 0.0 else 1000.0
+            default_ct = self._replicate_count if self._replicate_count > 0 else 1
+            dlg = _DynInput([
+                ("Spacing", default_sp, "", 2),
+                ("Count",   float(default_ct), "", 0),
+            ], sm=_sm)
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                self._replicate_spacing = dlg.value("Spacing")
+                self._replicate_count = max(1, int(round(dlg.value("Count"))))
+                self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
+                for v in self.views():
+                    v.viewport().update()
+
         # ── Circle ───────────────────────────────────────────────────────
         elif self.mode == "draw_circle" and self._draw_circle_center is not None:
             center = self._draw_circle_center
@@ -4536,6 +4573,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "window":                   "_move_door_window",
         "detail":                   "_move_detail",
         "align":                    "_move_align",
+        "gridline_array":           "_move_gridline_replicate",
+        "gridline_offset":          "_move_gridline_replicate",
     }
 
     # ── Per-mode move handlers ──────────────────────────────────────────
@@ -5121,6 +5160,113 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _move_door_window(self, event, snapped):
         self.update_preview_node(snapped)
 
+    # ── Gridline Array / Offset replication (Task 7) ────────────────────
+
+    def _start_gridline_replicate(self, source, kind):
+        """Enter array or offset replication mode for *source* gridline.
+
+        Args:
+            source: The :class:`GridlineItem` to replicate.
+            kind: ``"array"`` for multiple evenly-spaced copies,
+                  ``"offset"`` for a single copy at cursor distance.
+        """
+        self._replicate_source = source
+        self._replicate_kind = kind
+        self._replicate_count = 1
+        self._replicate_spacing = 0.0
+        self._replicate_ghost = []
+        self.set_mode("gridline_offset" if kind == "offset" else "gridline_array")
+        self.instructionChanged.emit(
+            "Move to set spacing/side · type or Tab for exact · Enter=place · Esc=cancel"
+        )
+
+    def _build_replicate_ghost(self, spacing):
+        """Compute ghost preview line segments for the current replicate state.
+
+        Args:
+            spacing: Signed perpendicular distance (mm) per step.
+
+        Returns:
+            List of ``(QPointF origin, QPointF far)`` tuples.
+        """
+        src = self._replicate_source
+        if src is None:
+            return []
+        nx, ny = src._perpendicular_vector()
+        th = math.radians(src._angle_deg)
+        dxl = src._length * math.cos(th)
+        dyl = -src._length * math.sin(th)   # Y-up → scene Y-down
+        n = 1 if self._replicate_kind == "offset" else max(0, int(self._replicate_count))
+        ghost = []
+        for i in range(1, n + 1):
+            ox = src._origin.x() + nx * spacing * i
+            oy = src._origin.y() + ny * spacing * i
+            ghost.append((QPointF(ox, oy), QPointF(ox + dxl, oy + dyl)))
+        return ghost
+
+    def _move_gridline_replicate(self, event, snapped):
+        """Move handler for gridline_array / gridline_offset modes.
+
+        Computes signed perpendicular distance from source to cursor and
+        rebuilds the ghost preview overlay.
+        """
+        src = self._replicate_source
+        if src is None:
+            return
+        nx, ny = src._perpendicular_vector()
+        o = src._origin
+        # Signed perpendicular distance from source origin to cursor
+        self._replicate_spacing = (
+            (snapped.x() - o.x()) * nx + (snapped.y() - o.y()) * ny
+        )
+        self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
+        for v in self.views():
+            v.viewport().update()
+
+    def _press_gridline_replicate(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Press handler for gridline_array / gridline_offset modes: commit."""
+        self._commit_gridline_replicate()
+
+    def _commit_gridline_replicate(self):
+        """Place the replicated gridline copies as a single undo step."""
+        src = self._replicate_source
+        if src is None:
+            self._end_gridline_replicate()
+            return
+        dist = self._replicate_spacing
+        if abs(dist) < 0.5:
+            # Too close to source — nothing to place
+            self._end_gridline_replicate()
+            return
+        if self._replicate_kind == "offset":
+            cp = src.offset_copy(dist)
+            copies = [cp]
+        else:
+            copies = src.array_copies(dist, self._replicate_count)
+        if not copies:
+            self._end_gridline_replicate()
+            return
+        # Fresh sequential labels: sync counters past existing, then auto-label
+        sync_grid_counters(self._gridlines)
+        for cp in copies:
+            gp = cp.grip_points()
+            cp.grid_label = auto_label(gp[0], gp[1])
+            self.addItem(cp)
+            apply_category_defaults(cp)
+            self._gridlines.append(cp)
+        apply_duplicate_warnings(self._gridlines)
+        self.push_undo_state()
+        self.sceneModified.emit()
+        self._end_gridline_replicate()
+
+    def _end_gridline_replicate(self):
+        """Cancel or finish replication: clear state and return to select."""
+        self._replicate_source = None
+        self._replicate_ghost = []
+        self.set_mode("select")
+        for v in self.views():
+            v.viewport().update()
+
     # ── Dispatch table: mode string → press-handler method name ──────
     _PRESS_DISPATCH = {
         None:                       "_press_select_item",
@@ -5172,6 +5318,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "door":                     "_press_door",
         "window":                   "_press_window",
         "detail":                   "_press_detail",
+        "gridline_array":           "_press_gridline_replicate",
+        "gridline_offset":          "_press_gridline_replicate",
     }
 
     # ------------------------------------------------------------------
@@ -7669,6 +7817,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 (lambda: self._auto_populate_room_dialog(target))
                 if isinstance(target, Room) else None
             ),
+            on_array_gridline=(
+                (lambda: self._start_gridline_replicate(target, "array"))
+                if isinstance(target, GridlineItem) else None
+            ),
+            on_offset_gridline=(
+                (lambda: self._start_gridline_replicate(target, "offset"))
+                if isinstance(target, GridlineItem) else None
+            ),
         )
         menu.exec(screen_pos)
 
@@ -7954,6 +8110,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.radiationCancel.emit()
                 return
         if event.key() == Qt.Key.Key_Escape:
+            # Gridline replicate: Esc cancels without committing
+            if self.mode in ("gridline_array", "gridline_offset"):
+                self._end_gridline_replicate()
+                return
             # Pipe polyline: first Escape ends the chain, second exits mode
             if self.mode == "pipe" and self.node_start_pos is not None:
                 self.node_start_pos = None
@@ -8015,6 +8175,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.clipboard_data():
                 self.set_mode("paste")
         elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Commit gridline replicate on Enter
+            if self.mode in ("gridline_array", "gridline_offset"):
+                self._commit_gridline_replicate()
+                return
             # Commit offset on Enter (same logic as click)
             if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
                 cursor_pos = self._last_scene_pos
@@ -8160,6 +8324,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._show_status("Cannot compute chamfer for these objects", timeout=3000)
                 self.set_mode(None)
                 return
+        # ── Digit key opens Tab input for replicate modes (type-to-capture) ──
+        elif (self.mode in ("gridline_array", "gridline_offset")
+              and event.key() >= Qt.Key.Key_0
+              and event.key() <= Qt.Key.Key_9):
+            self._handle_tab_input()
+            return
         else:
             super().keyPressEvent(event)
 
