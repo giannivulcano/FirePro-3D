@@ -414,6 +414,12 @@ class GridlineItem(QGraphicsLineItem):
         self._grid_color = QColor(GRID_COLOR)
         self.setPen(QPen(Qt.PenStyle.NoPen))       # suppress default drawing
 
+        # Template flag — True only for the off-scene placement template managed
+        # by Model_Space._get_gridline_template().  When True, get_properties()
+        # returns only non-geometric rows and set_property() naturally avoids
+        # pushing undo (self.scene() is None for an unscened item).
+        self._is_template: bool = False
+
         # Flags
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemSendsGeometryChanges, True)
@@ -753,10 +759,93 @@ class GridlineItem(QGraphicsLineItem):
         current = p1.x() * nx + p1.y() * ny
         self.move_perpendicular(position - current)
 
+    # ── Parallel copy factory ────────────────────────────────────────────
+
+    def _clone_parallel(self, offset_dist: float) -> "GridlineItem":
+        """New gridline, rigid parallel translation by offset_dist along the
+        fixed-sign perpendicular normal.  Inherits appearance; unlocked; label
+        left as the ctor default (caller reassigns via counter sync).
+
+        Args:
+            offset_dist: Signed distance in mm along the perpendicular normal.
+
+        Returns:
+            A new :class:`GridlineItem` positioned parallel to *self*.
+        """
+        nx, ny = self._perpendicular_vector()
+        o = self._origin
+        new_origin = QPointF(o.x() + nx * offset_dist, o.y() + ny * offset_dist)
+        th = math.radians(self._angle_deg)
+        far = QPointF(new_origin.x() + self._length * math.cos(th),
+                      new_origin.y() - self._length * math.sin(th))
+        cp = GridlineItem(new_origin, far, label=self._label_text)
+        # Override length/angle exactly to avoid float drift from far derivation.
+        cp._length = self._length
+        cp._angle_deg = self._angle_deg
+        cp._bubble1_offset = self._bubble1_offset
+        cp._bubble2_offset = self._bubble2_offset
+        cp.bubble1.setVisible(self.bubble1.isVisible())
+        cp.bubble2.setVisible(self.bubble2.isVisible())
+        cp._display_overrides = dict(self._display_overrides)
+        cp._locked = False
+        cp._rebuild_geometry()
+        return cp
+
+    def offset_copy(self, distance: float) -> "GridlineItem":
+        """One parallel copy at signed perpendicular *distance* (mm).
+
+        Args:
+            distance: Signed offset distance in mm along the perpendicular
+                normal of this gridline.
+
+        Returns:
+            A new unlocked :class:`GridlineItem` parallel to *self*.
+        """
+        return self._clone_parallel(distance)
+
+    def array_copies(self, spacing: float, count: int) -> list["GridlineItem"]:
+        """*count* parallel copies at successive multiples of signed *spacing* (mm).
+
+        Args:
+            spacing: Signed step distance in mm along the perpendicular normal.
+            count: Number of copies to produce.  Zero or negative returns ``[]``.
+
+        Returns:
+            List of new unlocked :class:`GridlineItem` instances, index 0
+            nearest to *self*, in order of increasing distance.
+        """
+        return [self._clone_parallel(spacing * (i + 1)) for i in range(max(0, int(count)))]
+
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
         return [QPointF(self._origin), self._far_point()]
+
+    def alignment_reference_points(self):
+        """Reference features for the inference engine: both endpoints and
+        both bubble centres, in scene coordinates.
+
+        GridlineItem is always positioned at the scene origin (pos()==(0,0))
+        with no transform, so _origin/_far_point() and bubble.pos() are
+        already in scene coordinates — consistent with grip_points().
+
+        See docs/specs/inferred-dimension-driven-placement.md §5.
+        """
+        from .inference_engine import ReferenceFeature
+        # Endpoints (scene coords) — identical coordinate space as grip_points().
+        p1 = QPointF(self._origin)
+        p2 = self._far_point()
+        # Bubble centres: bubble.setPos() is called with absolute coords so
+        # bubble.pos() returns scene-absolute values (item pos == origin).
+        b1 = self.bubble1.pos()
+        b2 = self.bubble2.pos()
+        sid = id(self)
+        return [
+            ReferenceFeature("point", p1.x(), p1.y(), sid, "endpoint"),
+            ReferenceFeature("point", p2.x(), p2.y(), sid, "endpoint"),
+            ReferenceFeature("point", b1.x(), b1.y(), sid, "bubble"),
+            ReferenceFeature("point", b2.x(), b2.y(), sid, "bubble"),
+        ]
 
     def apply_grip(self, index: int, new_pos: QPointF):
         """Extend/shorten along the line; opposite endpoint stays fixed.
@@ -845,6 +934,21 @@ class GridlineItem(QGraphicsLineItem):
 
         # Display Y in the project's up-positive convention (scene Y is Qt
         # down-positive), so a value typed as "up" reads/writes correctly.
+
+        # Template mode: return only non-geometric rows so the placement
+        # template panel doesn't expose geometry fields that have no meaning
+        # before the gridline is drawn (Origin, End, Length, Angle, Label).
+        if self._is_template:
+            return {
+                "Bubble 1": {"type": "enum", "options": ["Visible", "Hidden"],
+                             "value": "Visible" if self.bubble1.isVisible() else "Hidden"},
+                "Bubble 1 Offset": {"type": "dimension", "value_mm": self._bubble1_offset, "minimum": 0.0},
+                "Bubble 2": {"type": "enum", "options": ["Visible", "Hidden"],
+                             "value": "Visible" if self.bubble2.isVisible() else "Hidden"},
+                "Bubble 2 Offset": {"type": "dimension", "value_mm": self._bubble2_offset, "minimum": 0.0},
+                "Locked": {"type": "enum", "options": ["True", "False"], "value": str(self._locked)},
+            }
+
         return {
             "Label": {"type": "string", "value": self._label_text},
             "Origin X": {"type": "dimension", "value_mm": _nz(self._origin.x())},

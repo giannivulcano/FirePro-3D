@@ -513,6 +513,52 @@ class Model_View(QGraphicsView):
             )
             painter.restore()
 
+        # ── 6. Inferred alignment guides (scene-coord dashed cosmetic lines) ──
+        infer = getattr(scene, "_inference_result", None)
+        if infer is not None and infer.guides:
+            from .constants import (INFERENCE_GUIDE_COLOR, INFERENCE_GUIDE_DASH,
+                                    INFERENCE_GLYPH_PX)
+            gpen = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            gpen.setCosmetic(True)
+            gpen.setDashPattern(INFERENCE_GUIDE_DASH)
+            painter.save()
+            painter.setPen(gpen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            for g in infer.guides:
+                if g.orientation == "v":
+                    painter.drawLine(QPointF(g.coord, rect.top()),
+                                     QPointF(g.coord, rect.bottom()))
+                else:
+                    painter.drawLine(QPointF(rect.left(), g.coord),
+                                     QPointF(rect.right(), g.coord))
+            painter.restore()
+            # Reference glyphs (viewport coords, like the OSNAP indicator)
+            painter.save()
+            painter.resetTransform()
+            painter.setPen(QPen(QColor(INFERENCE_GUIDE_COLOR), 1))
+            r = INFERENCE_GLYPH_PX
+            for g in infer.guides:
+                vp = self.mapFromScene(QPointF(g.ref.x, g.ref.y))
+                painter.drawLine(QPointF(vp.x() - r, vp.y()), QPointF(vp.x() + r, vp.y()))
+                painter.drawLine(QPointF(vp.x(), vp.y() - r), QPointF(vp.x(), vp.y() + r))
+            painter.restore()
+
+        # ── 7. Gridline array/offset ghost preview (scene-coord dashed lines) ──
+        ghost = getattr(scene, "_replicate_ghost", None)
+        if ghost:
+            from .constants import INFERENCE_GUIDE_COLOR
+            gp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            gp.setCosmetic(True)
+            gp.setDashPattern([3.0, 3.0])
+            painter.save()
+            painter.setPen(gp)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            for (o, f) in ghost:
+                painter.drawLine(o, f)
+            painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────
@@ -878,9 +924,17 @@ class Model_View(QGraphicsView):
             super().contextMenuEvent(event)
             return
 
-        menu = QMenu(self)
         selected = scene.selectedItems()
         mode = getattr(scene, "mode", None)
+        menu = self._build_plan_context_menu(scene, selected, mode)
+        menu.exec(event.globalPos())
+
+    def _build_plan_context_menu(self, scene, selected, mode) -> QMenu:
+        """Build the generic plan-view right-click menu and return it (no exec).
+
+        Extracted so tests can call this directly without blocking on exec().
+        """
+        menu = QMenu(self)
 
         # If in a drawing mode, offer Cancel
         if mode and mode != "select":
@@ -911,6 +965,21 @@ class Model_View(QGraphicsView):
             menu.addSeparator()
             desel_act = menu.addAction("Deselect All")
             desel_act.triggered.connect(scene.clearSelection)
+
+            # Gridline-specific actions: shown when exactly one gridline selected
+            from .gridline import GridlineItem
+            grid_sel = [i for i in selected if isinstance(i, GridlineItem)]
+            if len(grid_sel) == 1:
+                menu.addSeparator()
+                _g = grid_sel[0]
+                arr = menu.addAction("Array Gridlines…")
+                arr.triggered.connect(
+                    lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "array")
+                )
+                off = menu.addAction("Offset Gridline…")
+                off.triggered.connect(
+                    lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "offset")
+                )
         else:
             show_all_act = menu.addAction("Show All Hidden")
             show_all_act.triggered.connect(scene._show_all_hidden)
@@ -923,7 +992,7 @@ class Model_View(QGraphicsView):
             paste_act = menu.addAction("Paste")
             paste_act.triggered.connect(lambda: scene.set_mode("paste"))
 
-        menu.exec(event.globalPos())
+        return menu
 
     def _select_all_items(self):
         from .gridline import GridlineItem

@@ -1,9 +1,39 @@
+---
+status: partial
+last-verified: 2026-08-14
+verified-commit: de2b12a
+applies-to:
+  - firepro3d/inference_engine.py
+  - firepro3d/model_space.py
+  - firepro3d/model_view.py
+  - firepro3d/gridline.py
+  - firepro3d/constants.py
+source-tasks:
+  - "TODO.md — gridline follow-up: placement alignment snapping"
+---
+
 # Inferred / Dimension-Driven Placement Specification
 
-**Status:** Draft  
-**Date:** 2026-04-28  
-**Scope:** Greenfield design — no existing implementation  
+**Date:** 2026-04-28 (first slice built 2026-08-14)
 **Depends on:** [Snapping Engine Spec](snapping-engine.md) (§2.3 flagged this as next-priority subsystem)
+
+---
+
+## 0. First Implemented Slice (2026-08-14)
+
+Gridlines are the **first client** of the inference engine. The built slice delivers:
+
+**BUILT (as of 2026-08-14, commit de2b12a):**
+- `InferenceEngine` core in `firepro3d/inference_engine.py` — entity-agnostic (no Qt, no firepro3d imports). Dataclasses `ReferenceFeature(kind, x, y, source_id, label)`, `Guide(orientation, coord, ref)`, `InferenceResult(snapped, guides, priority)`. `InferenceEngine.resolve(cursor, refs, tol) -> InferenceResult`.
+- `Model_Space.get_effective_position` integration hook — consults the engine only after OSNAP/underlay miss, only when `_inference_enabled` and `_inference_active_item` is set. Active item is a `_PlacementSentinel` during `draw_gridline` placement (both points), or the dragged `GridlineItem` during endpoint grip-drag.
+- `_collect_alignment_refs` — iterates `self._gridlines` only (not the full scene), calling duck-typed `alignment_reference_points()`, self-excluding by `source_id`.
+- `GridlineItem.alignment_reference_points()` — returns 4 `ReferenceFeature`s: both endpoints and both bubble centres.
+- H/V alignment guides only; priority hierarchy: `OSNAP > guide-intersection > single-guide > free`.
+- `model_view.drawForeground` guide rendering — cyan dashed cosmetic line (`INFERENCE_GUIDE_COLOR`, `INFERENCE_GUIDE_DASH`) + crosshair glyph (`INFERENCE_GLYPH_PX`) at the reference point; no scene-items; reads `scene._inference_result`; auto-clears on empty result.
+- Single **alignment-guides toggle**: "Inference" tab in the snap settings dialog + "GUIDES" status-bar pill + F12 shortcut; `QSettings` key `inference/alignment_guides` (default `True`), restored on startup.
+- Tolerance `INFERENCE_TOL_PX` = 65 px — wider than OSNAP (40 px), as specified (weak snap, visual hint).
+
+**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and body-drag as clients; per-guide distance labels; Selection Dimensions (§8); Dynamic Input (§4) as a general capability (`_DynInput` partially exists for gridline offset/array and line-tool placement); the full three-toggle + master-key system (§10).
 
 ---
 
@@ -88,7 +118,9 @@ All placement modes (pipe, sprinkler, wall, construction geometry) and drag repo
 
 ---
 
-## 4. Dynamic Input
+## 4. Dynamic Input **[PROPOSAL]**
+
+> `_DynInput` partially exists — it is built for gridline offset/array and the line-tool placement, but as a general per-placement-mode capability (pipe, wall, sprinkler, arc, …) this section is unbuilt proposal.
 
 ### 4.1 Activation
 
@@ -137,57 +169,41 @@ For pipes: the angle is locked to the nearest 45° increment at all times. Typin
 
 ### 5.1 Guide Types
 
-| Type | Trigger | Visual | Color |
-|---|---|---|---|
-| H/V Alignment | Cursor X or Y matches another node/sprinkler within tolerance | Dashed vertical or horizontal line through cursor and aligned item | Blue |
-| Wall Parallel | Cursor position projects onto a wall face line within tolerance | Dashed line parallel to wall face, through cursor | Orange |
-| Wall Perpendicular | Cursor-to-wall perpendicular distance is within a threshold | Dashed line perpendicular from wall face to cursor, with distance label | Orange |
-| Extension Line | Cursor aligns with the direction of an existing pipe endpoint or wall face edge | Dashed line extending from the endpoint through cursor | Blue |
-| Equal Spacing | Distance from cursor to nearest item matches an existing spacing pattern (2+ items) | Dashed line at the inferred position, with spacing dimension label | Green |
+**H/V alignment from gridline references — [BUILT]**. All other guide types — [PROPOSAL]:
 
-### 5.2 Active During
+| Type | Trigger | Visual | Color | Status |
+|---|---|---|---|---|
+| H/V Alignment | Cursor X or Y matches a gridline endpoint or bubble centre within tolerance | Dashed vertical or horizontal line through cursor and aligned item | Cyan (`INFERENCE_GUIDE_COLOR`) | **BUILT** (gridline refs only) |
+| Wall Parallel | Cursor position projects onto a wall face line within tolerance | Dashed line parallel to wall face, through cursor | Orange | PROPOSAL |
+| Wall Perpendicular | Cursor-to-wall perpendicular distance is within a threshold | Dashed line perpendicular from wall face to cursor, with distance label | Orange | PROPOSAL |
+| Extension Line | Cursor aligns with the direction of an existing pipe endpoint or wall face edge | Dashed line extending from the endpoint through cursor | Blue | PROPOSAL |
+| Equal Spacing | Distance from cursor to nearest item matches an existing spacing pattern (2+ items) | Dashed line at the inferred position, with spacing dimension label | Green | PROPOSAL |
 
-All placement modes (pipe, sprinkler, wall, construction geometry) and drag repositioning of existing items. Toggle-able independently from dynamic input.
+### 5.2 Active During **[PARTIAL — gridlines only; others PROPOSAL]**
 
-### 5.3 Detection Algorithm
+**BUILT:** `draw_gridline` placement (both points) and gridline endpoint grip-drag. **PROPOSAL:** all other placement modes (pipe, sprinkler, wall, construction geometry) and drag repositioning of other entity types.
 
-For each mouse move during an active mode:
+### 5.3 Detection Algorithm **[PARTIAL]**
 
-1. **Spatial filter:** collect candidate items within viewport bounds (plus margin)
-2. **Type filter:** match relevant item types per guide type:
-   - H/V alignment: nodes, sprinklers
-   - Wall parallel/perpendicular: wall segments
-   - Extension: pipe endpoints (via node.pipes), wall face edges
-   - Equal spacing: nodes on connected pipe runs
-3. **Generate candidates:** compute all guide lines from filtered candidates
-4. **Rank and cap:** sort by proximity to cursor, display max 6 guides simultaneously
+**As built (gridline slice):** `_collect_alignment_refs` iterates `self._gridlines` directly (the provider list is small, so no spatial-index or cursor-move cache is needed for this slice). Providers are duck-typed (`alignment_reference_points()`); future wall/pipe/node providers slot in by iterating their own collections, keeping the per-frame cost bounded without a global scene scan. The as-specced `scene.items(rect)` path and 2px cursor-move cache are not needed for this slice and are not built.
 
-### 5.4 Tolerance
+**PROPOSAL (for future multi-entity providers, if the provider list grows large):** spatial filter via `scene.items(rect)` + per-provider type filter + cursor-move cache threshold (§9.5).
 
-Guide detection uses a screen-pixel tolerance (like OSNAP's `SNAP_TOLERANCE_PX`). A guide fires when the cursor is within this tolerance of the alignment condition.
+### 5.4 Tolerance **[BUILT]**
 
-Separate tolerance constant from OSNAP — guides should fire at a slightly wider range than snap (guides are visual hints, snap is precise).
+`INFERENCE_TOL_PX` = 65 px — separate from and wider than OSNAP (`SNAP_TOLERANCE_PX` = 40 px); implemented in `constants.py`.
 
-### 5.5 Dimension Labels
+### 5.5 Dimension Labels **[PROPOSAL]**
 
-Each guide shows a dimension label along the guide line:
+Per-guide distance labels are unbuilt. The first slice emits no distance label on guides.
 
-| Guide type | Label content |
-|---|---|
-| H/V alignment | Distance from cursor to aligned item (perpendicular offset) |
-| Wall proximity | Perpendicular distance from wall face to cursor |
-| Extension | Distance from endpoint along the extension direction |
-| Equal spacing | The repeated spacing value (e.g. "10'-0"") |
-
-Labels formatted via `ScaleManager.format_length()`.
-
-### 5.6 Wall Clearance Scope
+### 5.6 Wall Clearance Scope **[PROPOSAL]**
 
 Wall distance guides show for all walls within `2 × max_coverage_spacing` of cursor. In corners, multiple wall distance guides appear simultaneously (one per nearby wall). This supports NFPA 13 wall clearance verification during sprinkler placement.
 
 ---
 
-## 6. Guide Snap Integration
+## 6. Guide Snap Integration **[BUILT]**
 
 ### 6.1 Priority Hierarchy
 
@@ -210,13 +226,13 @@ Detection: for each pair of active guides, compute line-line intersection. If th
 
 Each active guide contributes a snap point: the cursor projected onto the guide line (nearest point on the guide to the raw cursor position). Priority 3 — only used when no OSNAP or guide intersection is available.
 
-### 6.4 Snap Marker
+### 6.4 Snap Marker **[PARTIAL]**
 
-Guide snap points use a distinct marker shape (e.g. small diamond) to differentiate from OSNAP markers (squares, triangles, circles). Color matches the guide type.
+The crosshair glyph (`INFERENCE_GLYPH_PX`) renders at the reference point being aligned to. A distinct snap-point shape (e.g. diamond) separate from the OSNAP markers is **PROPOSAL**.
 
 ---
 
-## 7. Equal Spacing Inference
+## 7. Equal Spacing Inference **[PROPOSAL]**
 
 ### 7.1 Pattern Detection
 
@@ -243,7 +259,7 @@ If multiple spacing patterns are detectable (e.g. S-spacing along a branch AND L
 
 ---
 
-## 8. Selection Dimensions
+## 8. Selection Dimensions **[PROPOSAL]**
 
 ### 8.1 Scope
 
@@ -289,13 +305,13 @@ When multiple nodes are selected:
 
 The inference engine runs on every mouse move during active placement/drag. Target: complete scan + render in < 5ms to maintain 60fps responsiveness.
 
-### 9.2 Spatial Filter
+### 9.2 Collector strategy (as-built for gridline slice) **[BUILT]**
 
-Only consider items within the current viewport bounds (plus a margin for edge guides). Use Qt's `scene.items(rect)` spatial index — no manual iteration of all scene items.
+For the gridline slice, `_collect_alignment_refs` iterates `self._gridlines` directly — the provider list is small enough that no spatial index or cursor-move cache is needed. The engine itself is generic; future providers (walls, pipes, nodes) slot in by iterating their own collections, keeping per-frame cost bounded without a global scene traversal.
 
-### 9.3 Type Filter
+### 9.3 Spatial-index path (for future large-provider scenarios) **[PROPOSAL]**
 
-Per guide type, only scan relevant item types:
+If the aggregate provider list grows large (e.g. node/sprinkler providers over dense scenes), filter via `scene.items(rect)` spatial index before dispatching to `alignment_reference_points()`. Type-filter per guide type as below; no O(n²) iteration of the full scene.
 
 | Guide type | Scan items |
 |---|---|
@@ -304,37 +320,41 @@ Per guide type, only scan relevant item types:
 | Extension | Pipe endpoints (node.pipes), wall face edges |
 | Equal spacing | Nodes on connected pipe runs |
 
-### 9.4 Display Cap
+### 9.4 Display Cap **[PROPOSAL]**
 
 Maximum 6 guides visible simultaneously. When more candidates exist, rank by proximity to cursor and show the nearest. Guide intersections count as 1 toward the cap (not 2).
 
-### 9.5 Caching
+### 9.5 Cursor-move cache **[PROPOSAL]**
 
-Cache the spatial query results per frame. If the cursor hasn't moved beyond a threshold (e.g. 2px), reuse the previous guide set without recomputing.
+Cache the spatial query results per frame. If the cursor hasn't moved beyond a threshold (e.g. 2px), reuse the previous guide set without recomputing. Not needed for the gridline slice.
 
 ---
 
 ## 10. Toggle System
 
-### 10.1 Three Independent Toggles
+### 10.1 Alignment Guides toggle **[BUILT]**
+
+Single "Alignment Guides" toggle — "Inference" tab in the snap settings dialog, "GUIDES" status-bar pill, F12 shortcut. `QSettings` key `inference/alignment_guides` (default `True`), restored on startup. Toggling off immediately silences guides and guide-snap; OSNAP/free cursor unaffected.
+
+### 10.2 Three Independent Toggles + Master Key **[PROPOSAL]**
+
+The full three-toggle + master system below is unbuilt. F12 currently maps to the single alignment-guides toggle (§10.1).
 
 | Toggle | Key | Scope | Default |
 |---|---|---|---|
-| Dynamic Input | Assigned at implementation (e.g. F12) | Floating length/angle fields | On |
-| Alignment Guides | Assigned at implementation | Inference lines during placement/drag | On |
-| Spacing Inference | Assigned at implementation | Equal spacing detection | On |
+| Dynamic Input | TBD | Floating length/angle fields | On |
+| Alignment Guides | F12 (built, §10.1) | Inference lines during placement/drag | On |
+| Spacing Inference | TBD | Equal spacing detection | On |
 
-### 10.2 Master Toggle
+Master key toggles all three simultaneously. If any are on, master-off turns all off. If all are off, master-on restores previous individual states.
 
-A single key (e.g. F12) toggles all three simultaneously. If any are on, master-off turns all off. If all are off, master-on restores previous individual states.
+### 10.3 Status Bar **[PARTIAL]**
 
-### 10.3 Status Bar
+"GUIDES" pill is built (§10.1). Multiple-state pill showing Dynamic Input + Spacing Inference state is PROPOSAL.
 
-Current toggle states shown in the status bar alongside existing OSNAP indicator (F3 pill). Format: compact pills or icons matching the OSNAP indicator style.
+### 10.4 Persistence **[BUILT for alignment-guides; PROPOSAL for the other two]**
 
-### 10.4 Persistence
-
-Toggle states saved to `QSettings` and restored on app restart. Same pattern as the OSNAP per-type toggles — reference implementation in `_OsnapToolbar` (`snap/{attr}` keys, written on toggle, restored in `MainWindow.restore_settings`); see `docs/specs/osnap-toolbar.md`.
+`inference/alignment_guides` persisted to `QSettings` on toggle and restored in `MainWindow.restore_settings`. Same pattern as the OSNAP per-type toggles; see `docs/specs/osnap-toolbar.md`.
 
 ---
 

@@ -18,6 +18,8 @@ def build_entity_context_menu(
     on_fit=None,
     on_refresh=None,
     on_auto_populate_room=None,
+    on_array_gridline=None,
+    on_offset_gridline=None,
 ) -> QMenu:
     """Build and return a QMenu with standard entity actions.
 
@@ -31,6 +33,10 @@ def build_entity_context_menu(
         The model scene (for hide/show operations).
     on_* : callable or None
         Callbacks for each action.  Pass ``None`` to omit the action.
+    on_array_gridline : callable or None
+        "Array Gridlines…" action (shown only when target is a GridlineItem).
+    on_offset_gridline : callable or None
+        "Offset Gridline…" action (shown only when target is a GridlineItem).
     """
     menu = QMenu()
     has_sel = bool(selected) or target is not None
@@ -60,8 +66,18 @@ def build_entity_context_menu(
         from .room import Room
         if isinstance(target, Room):
             menu.addSeparator()
-            act = menu.addAction("Auto-Populate Sprinklers\u2026")
+            act = menu.addAction("Auto-Populate Sprinklers…")
             act.triggered.connect(on_auto_populate_room)
+
+    # ── Gridline-specific ──
+    if (on_array_gridline is not None or on_offset_gridline is not None) and target is not None:
+        from .gridline import GridlineItem
+        if isinstance(target, GridlineItem):
+            menu.addSeparator()
+            if on_array_gridline is not None:
+                menu.addAction("Array Gridlines…").triggered.connect(on_array_gridline)
+            if on_offset_gridline is not None:
+                menu.addAction("Offset Gridline…").triggered.connect(on_offset_gridline)
 
     menu.addSeparator()
 
