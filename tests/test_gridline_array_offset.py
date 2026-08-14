@@ -289,3 +289,79 @@ class TestGhostMath:
         assert len(ghost) == 3
         xs = [round(o.x(), 1) for o, f in ghost]
         assert xs == [-1000.0, -2000.0, -3000.0]
+
+
+# ===========================================================================
+# Fix 1 — _build_plan_context_menu exposes gridline actions
+# ===========================================================================
+
+def test_plan_context_menu_offers_gridline_actions_when_selected(qapp, make_model_space):
+    """Selection-based fallback: Array/Offset appear even when the thin-line
+    hit misses and the entity-menu delegation short-circuits."""
+    from firepro3d.model_view import Model_View
+    from firepro3d.gridline import GridlineItem
+    from PyQt6.QtCore import QPointF
+
+    ms = make_model_space()
+    view = Model_View(ms)
+    view.resize(800, 800)
+
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(gl)
+    ms._gridlines.append(gl)
+    gl.setSelected(True)
+
+    selected = ms.selectedItems()
+    mode = getattr(ms, "mode", None)
+    menu = view._build_plan_context_menu(ms, selected, mode)
+    labels = [a.text() for a in menu.actions()]
+
+    assert any("Array Gridlines" in l for l in labels), \
+        f"'Array Gridlines…' missing from menu; actions: {labels}"
+    assert any("Offset Gridline" in l for l in labels), \
+        f"'Offset Gridline…' missing from menu; actions: {labels}"
+
+
+def test_plan_context_menu_no_gridline_actions_without_selection(qapp, make_model_space):
+    """With nothing selected, no gridline-specific actions appear."""
+    from firepro3d.model_view import Model_View
+    from PyQt6.QtCore import QPointF
+
+    ms = make_model_space()
+    view = Model_View(ms)
+
+    menu = view._build_plan_context_menu(ms, [], None)
+    labels = [a.text() for a in menu.actions()]
+
+    assert not any("Array Gridlines" in l for l in labels)
+    assert not any("Offset Gridline" in l for l in labels)
+
+
+# ===========================================================================
+# Fix 2 — copy/paste round-trip for gridlines
+# ===========================================================================
+
+def test_gridline_copy_paste_roundtrip(qapp, make_model_space):
+    """Gridlines survive copy_selected_items → paste_items with offset."""
+    from firepro3d.gridline import GridlineItem
+    from PyQt6.QtCore import QPointF
+
+    ms = make_model_space()
+    gl = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="1")
+    ms.addItem(gl)
+    ms._gridlines.append(gl)
+    gl.setSelected(True)
+
+    ms.copy_selected_items()
+    before = len(ms._gridlines)
+
+    ms.paste_items(QPointF(2000, 0))  # paste offset +2000 in x
+
+    assert len(ms._gridlines) == before + 1, \
+        "paste_items should have added one gridline"
+
+    new = ms._gridlines[-1]
+    assert round(new.grip_points()[0].x(), 1) == 3000.0, \
+        f"Expected pasted origin x=3000, got {new.grip_points()[0].x()}"
+    assert new.grid_label != "1", \
+        "Pasted gridline must get a fresh sequential label, not a duplicate"

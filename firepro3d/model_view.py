@@ -924,9 +924,17 @@ class Model_View(QGraphicsView):
             super().contextMenuEvent(event)
             return
 
-        menu = QMenu(self)
         selected = scene.selectedItems()
         mode = getattr(scene, "mode", None)
+        menu = self._build_plan_context_menu(scene, selected, mode)
+        menu.exec(event.globalPos())
+
+    def _build_plan_context_menu(self, scene, selected, mode) -> QMenu:
+        """Build the generic plan-view right-click menu and return it (no exec).
+
+        Extracted so tests can call this directly without blocking on exec().
+        """
+        menu = QMenu(self)
 
         # If in a drawing mode, offer Cancel
         if mode and mode != "select":
@@ -957,6 +965,21 @@ class Model_View(QGraphicsView):
             menu.addSeparator()
             desel_act = menu.addAction("Deselect All")
             desel_act.triggered.connect(scene.clearSelection)
+
+            # Gridline-specific actions: shown when exactly one gridline selected
+            from .gridline import GridlineItem
+            grid_sel = [i for i in selected if isinstance(i, GridlineItem)]
+            if len(grid_sel) == 1:
+                menu.addSeparator()
+                _g = grid_sel[0]
+                arr = menu.addAction("Array Gridlines…")
+                arr.triggered.connect(
+                    lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "array")
+                )
+                off = menu.addAction("Offset Gridline…")
+                off.triggered.connect(
+                    lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "offset")
+                )
         else:
             show_all_act = menu.addAction("Show All Hidden")
             show_all_act.triggered.connect(scene._show_all_hidden)
@@ -969,7 +992,7 @@ class Model_View(QGraphicsView):
             paste_act = menu.addAction("Paste")
             paste_act.triggered.connect(lambda: scene.set_mode("paste"))
 
-        menu.exec(event.globalPos())
+        return menu
 
     def _select_all_items(self):
         from .gridline import GridlineItem

@@ -8498,6 +8498,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 item.translate(offset.x(), offset.y())
                 self.addItem(item)
                 # BlockItems live in the scene but aren't tracked in a dedicated list
+
+            elif "origin" in obj and "angle" in obj and not obj_type:
+                # Gridline — to_dict() emits no "type" key; detect by parametric keys.
+                gl = GridlineItem.from_dict(obj)
+                gl._origin = QPointF(
+                    gl._origin.x() + offset.x(),
+                    gl._origin.y() + offset.y(),
+                )
+                gl._rebuild_geometry()
+                sync_grid_counters(self._gridlines)
+                gl.grid_label = auto_label(gl.grip_points()[0], gl.grip_points()[1])
+                self._register_gridline(gl)
+                apply_duplicate_warnings(self._gridlines)
+
         self._show_status(f"Pasted {len(data)} item(s)")
 
     def move_items(self, offset):
