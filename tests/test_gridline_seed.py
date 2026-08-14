@@ -51,11 +51,33 @@ def test_undo_after_seed_baseline_keeps_gridlines(qapp):
     assert len(scene._gridlines) == 2
 
 
+def _grab_dyninput_field(captured):
+    """Read the primary field of the live modal _DynInput and close it.
+
+    Scheduled via QTimer.singleShot so it runs inside the dialog's modal
+    exec() loop. We deliberately do NOT monkeypatch QDialog.exec — reassigning
+    a sip method to the class corrupts its C++ slot binding for the rest of the
+    process (identity restores but the call raises), which leaks into unrelated
+    modal-dialog tests. Interacting with the live dialog avoids that entirely.
+    """
+    from PyQt6.QtWidgets import QApplication
+    w = QApplication.activeModalWidget() or QApplication.activePopupWidget()
+    if w is None:
+        for tw in QApplication.topLevelWidgets():
+            if hasattr(tw, "_order") and tw.isVisible():
+                w = tw
+                break
+    if w is not None and hasattr(w, "_order"):
+        captured["text"] = w._order[0].text()
+    if w is not None:
+        (w.reject if hasattr(w, "reject") else w.close)()
+
+
 def test_array_digit_seeds_spacing_field(qapp):
     """A digit that opens the array _DynInput lands in the Spacing field."""
     from firepro3d.model_space import Model_Space
-    from PyQt6.QtWidgets import QGraphicsView, QDialog
-    from PyQt6.QtCore import QPointF
+    from PyQt6.QtWidgets import QGraphicsView
+    from PyQt6.QtCore import QPointF, QTimer
     from firepro3d.gridline import GridlineItem
 
     ms = Model_Space()
@@ -68,27 +90,19 @@ def test_array_digit_seeds_spacing_field(qapp):
     ms._pending_seed = "7"
 
     captured = {}
-    orig_exec = QDialog.exec
-    def fake_exec(self):
-        first = self._order[0]
-        captured["text"] = first.text()
-        return QDialog.DialogCode.Rejected
-    QDialog.exec = fake_exec
-    try:
-        ms._handle_tab_input()
-    finally:
-        QDialog.exec = orig_exec
+    QTimer.singleShot(0, lambda: _grab_dyninput_field(captured))
+    ms._handle_tab_input()   # opens the modal _DynInput; the timer reads + closes it
     view.hide()
-    assert captured["text"] == "7"
+    assert captured.get("text") == "7"
 
 
 def test_placement_digit_opens_and_seeds_length(qapp):
     """During gridline placement (anchor set), a digit opens the input
     seeded into the Length field."""
     from firepro3d.model_space import Model_Space
-    from PyQt6.QtWidgets import QGraphicsView, QDialog
+    from PyQt6.QtWidgets import QGraphicsView
     from PyQt6.QtGui import QKeyEvent
-    from PyQt6.QtCore import QPointF, Qt, QEvent
+    from PyQt6.QtCore import QPointF, Qt, QEvent, QTimer
 
     ms = Model_Space()
     view = QGraphicsView(ms); view.resize(400, 400); view.resetTransform()
@@ -96,15 +110,8 @@ def test_placement_digit_opens_and_seeds_length(qapp):
     ms._draw_line_anchor = QPointF(0, 0)
 
     captured = {}
-    orig_exec = QDialog.exec
-    def fake_exec(self):
-        captured["text"] = self._order[0].text()
-        return QDialog.DialogCode.Rejected
-    QDialog.exec = fake_exec
+    QTimer.singleShot(0, lambda: _grab_dyninput_field(captured))
     ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_5, Qt.KeyboardModifier.NoModifier, "5")
-    try:
-        ms.keyPressEvent(ev)
-    finally:
-        QDialog.exec = orig_exec
+    ms.keyPressEvent(ev)   # opens the modal _DynInput; the timer reads + closes it
     view.hide()
     assert captured.get("text") == "5"
