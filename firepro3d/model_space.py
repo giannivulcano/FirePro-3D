@@ -4962,30 +4962,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     f"Offset: {self._offset_dist:.1f} mm  "
                     f"(Tab = type distance, click to commit)", timeout=0)
 
-    def _move_move(self, event, snapped):
-        self.update_preview_node(snapped)
-        self.preview_pipe.hide()
-        if self.node_start_pos is not None:
-            # Show rubber-band line from base point to cursor
-            if self._move_preview_line is None:
-                self._move_preview_line = QGraphicsLineItem()
-                pen = QPen(QColor("#00aaff"), 0)
-                pen.setCosmetic(True)
-                pen.setStyle(Qt.PenStyle.DashLine)
-                self._move_preview_line.setPen(pen)
-                self._move_preview_line.setZValue(200)
-                self.addItem(self._move_preview_line)
-            self._move_preview_line.setLine(
-                self.node_start_pos.x(), self.node_start_pos.y(),
-                snapped.x(), snapped.y())
-            self._move_preview_line.show()
-            # Show displacement in status bar
-            dx = snapped.x() - self.node_start_pos.x()
-            dy = snapped.y() - self.node_start_pos.y()
-            self._show_status(
-                f"Move: dx={dx:.1f}  dy={dy:.1f}  "
-                f"dist={math.hypot(dx, dy):.1f}", timeout=0)
-
     def _move_preview_node(self, event, snapped):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
