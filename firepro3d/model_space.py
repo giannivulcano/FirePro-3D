@@ -280,6 +280,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._wall_alignment: str = "Center"                  # alignment mode for new walls
         self._wall_template: "WallSegment | None" = None      # pre-placement property template
         self._floor_template: "FloorSlab | None" = None       # pre-placement property template
+        self._gridline_template: "GridlineItem | None" = None  # pre-placement property template
         self._roofs: list[RoofItem] = []
         self._rooms: list[Room] = []
         self._room_manual_active: "Room | None" = None     # in-progress manual room boundary
@@ -1089,6 +1090,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f"Pick wall start point [{self._wall_alignment}]")
         elif instr:
             self.instructionChanged.emit(instr)
+
+        # Populate the Properties dock with the gridline placement template so
+        # the user can preset Bubble Offsets / Locked / visibility before
+        # placing.  Mirrors how pipe/sprinkler modes emit their template at
+        # set_mode time (line ~850 above).
+        if mode == "draw_gridline":
+            self.requestPropertyUpdate.emit(self._get_gridline_template())
 
     @staticmethod
     def _repair_display_settings():
@@ -3786,6 +3794,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._roof_template._scale_manager_ref = self.scale_manager
         self._roof_template.level = self.active_level
         return self._roof_template
+
+    def _get_gridline_template(self) -> "GridlineItem":
+        """Return (lazily-created) gridline template for pre-placement editing.
+
+        The template is NOT added to the scene and NOT appended to
+        ``_gridlines``, so editing it via the property panel never triggers
+        ``push_undo_state()`` (``GridlineItem.set_property`` guards the undo
+        push with ``self.scene() is not None``).
+        """
+        if self._gridline_template is None:
+            from .gridline import GridlineItem as _GLItem
+            tmpl = _GLItem(QPointF(0, 0), QPointF(0, 1000))
+            tmpl._label_text = "(Template)"
+            tmpl._is_template = True
+            self._gridline_template = tmpl
+        return self._gridline_template
 
     def _get_geometry_template(self):
         """Return (lazily-created) geometry template for line/rect/circle/polyline."""
@@ -6982,7 +7006,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # after a 1/2/3 seed) instead of restarting at "1"/"A".
             sync_grid_counters(self._gridlines)
             gl = GridlineItem(anchor, tip)
+            # Apply category display defaults first, then overlay the placement
+            # template so user-preset values win over category defaults.
             self._register_gridline(gl)      # addItem + apply_category_defaults + append
+            # Copy non-geometric template values onto the placed gridline.
+            _tmpl = self._get_gridline_template()
+            gl._bubble1_offset = _tmpl._bubble1_offset
+            gl._bubble2_offset = _tmpl._bubble2_offset
+            gl.bubble1.setVisible(_tmpl.bubble1.isVisible())
+            gl.bubble2.setVisible(_tmpl.bubble2.isVisible())
+            gl._locked = _tmpl._locked
+            if _tmpl._display_overrides:
+                gl._display_overrides = dict(_tmpl._display_overrides)
+            gl._rebuild_geometry()
             gl.setSelected(True)
             self.requestPropertyUpdate.emit(gl)
             sync_grid_counters(self._gridlines)
