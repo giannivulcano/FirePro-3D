@@ -616,3 +616,110 @@ class TestTask5PlacementAndGripWiring:
         assert ms._inference_active_item is None, (
             f"Expected None after grip release, got {ms._inference_active_item!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Fix I1 regression — stale _inference_result cleared when OSNAP or
+# underlay snap wins
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch
+
+
+def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
+    """When OSNAP returns a hit, a previously-computed guide must not linger.
+
+    Strategy: use unittest.mock.patch to inject a fake OsnapResult from
+    _snap_engine.find so we get a deterministic OSNAP win in headless tests
+    without needing a full snap-engine scene setup.
+    """
+    from PyQt6.QtCore import QPointF
+    from firepro3d.gridline import GridlineItem
+    from firepro3d.snap_engine import OsnapResult
+
+    ms = make_model_space()
+    ref = GridlineItem(QPointF(1000.0, 0.0), QPointF(1000.0, 5000.0), label="1")
+    ms.addItem(ref)
+    ms._gridlines.append(ref)
+
+    active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
+    ms._inference_active_item = active
+    ms._inference_enabled = True
+    ms._snap_to_underlay = False
+
+    view = ms.views()[0]
+    view.resize(4000, 4000)
+    view.centerOn(1000.0, 2500.0)
+    from PyQt6.QtWidgets import QApplication
+    QApplication.processEvents()
+
+    # The OSNAP gate requires mode != "select" and mode is not None.
+    # Set draw_gridline so OSNAP fires; inference is active in this mode too.
+    ms.set_mode("draw_gridline")
+
+    # Step 1: disable OSNAP, perform an inference snap to set a guide result.
+    ms._osnap_enabled = False
+    ms.get_effective_position(QPointF(1002.0, 2500.0))
+    assert ms._inference_result is not None and ms._inference_result.guides, (
+        "Pre-condition: inference result should be set with guides before OSNAP test"
+    )
+
+    # Step 2: enable OSNAP and mock _snap_engine.find to return a hit.
+    ms._osnap_enabled = True
+    snap_pt = QPointF(1000.0, 2500.0)
+    fake_result = OsnapResult(point=snap_pt, snap_type="endpoint")
+
+    with patch.object(ms._snap_engine, "find", return_value=fake_result):
+        returned = ms.get_effective_position(QPointF(1002.0, 2500.0))
+
+    # The OSNAP hit must have been returned and the guide cleared.
+    assert returned == snap_pt, f"Expected OSNAP point {snap_pt}, got {returned}"
+    assert ms._inference_result is None, (
+        "Stale _inference_result must be cleared when OSNAP wins"
+    )
+
+
+def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space):
+    """When underlay snap returns a hit, a previously-computed guide must not linger.
+
+    Strategy: use unittest.mock.patch to inject a fake underlay snap point
+    from find_snap_point so we get a deterministic underlay-snap win.
+    """
+    from PyQt6.QtCore import QPointF
+    from firepro3d.gridline import GridlineItem
+
+    ms = make_model_space()
+    ref = GridlineItem(QPointF(1000.0, 0.0), QPointF(1000.0, 5000.0), label="1")
+    ms.addItem(ref)
+    ms._gridlines.append(ref)
+
+    active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
+    ms._inference_active_item = active
+    ms._inference_enabled = True
+    ms._osnap_enabled = False
+    ms._snap_to_underlay = False
+
+    view = ms.views()[0]
+    view.resize(4000, 4000)
+    view.centerOn(1000.0, 2500.0)
+    from PyQt6.QtWidgets import QApplication
+    QApplication.processEvents()
+
+    # Step 1: perform an inference snap to set a guide result.
+    ms.get_effective_position(QPointF(1002.0, 2500.0))
+    assert ms._inference_result is not None and ms._inference_result.guides, (
+        "Pre-condition: inference result should be set with guides before underlay test"
+    )
+
+    # Step 2: enable underlay snap and mock find_snap_point to return a hit.
+    ms._snap_to_underlay = True
+    snap_pt = QPointF(500.0, 500.0)
+
+    with patch.object(ms, "find_snap_point", return_value=snap_pt):
+        returned = ms.get_effective_position(QPointF(502.0, 502.0))
+
+    # The underlay snap hit must have been returned and the guide cleared.
+    assert returned == snap_pt, f"Expected underlay snap point {snap_pt}, got {returned}"
+    assert ms._inference_result is None, (
+        "Stale _inference_result must be cleared when underlay snap wins"
+    )

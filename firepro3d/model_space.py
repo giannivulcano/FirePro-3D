@@ -3570,17 +3570,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
-    def _collect_alignment_refs(self, viewport_rect):
-        """Duck-typed collection: every visible item within the viewport that
-        implements alignment_reference_points(), minus the active item."""
+    def _collect_alignment_refs(self):
+        """Collect alignment reference features from the scene's alignment
+        providers (currently gridlines). The InferenceEngine stays generic;
+        Model_Space supplies candidates from its own entity collections.
+
+        Future providers are added by iterating their own collections here,
+        NOT by changing the inference engine.  Self-exclusion is applied via
+        source_id so the active item does not snap to itself.
+        """
         refs = []
         exclude_id = (id(self._inference_active_item)
                       if self._inference_active_item is not None else None)
-        for it in self.items(viewport_rect):
-            fn = getattr(it, "alignment_reference_points", None)
-            if fn is None:
-                continue
-            for f in fn():
+        for gl in self._gridlines:
+            for f in gl.alignment_reference_points():
                 if f.source_id != exclude_id:
                     refs.append(f)
         return refs
@@ -3628,6 +3631,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     scene_pos, self, views[0].transform(), exclude=exclude)
                 self._snap_result = result
                 if result is not None:
+                    self._inference_result = None
                     return result.point
             else:
                 self._snap_result = None
@@ -3638,6 +3642,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._snap_to_underlay:
             snap_pt = self.find_snap_point(scene_pos)
             if snap_pt is not None:
+                self._inference_result = None
                 return snap_pt
 
         # ── Inferred alignment guides (weak snap, below OSNAP) ────────────
@@ -3647,8 +3652,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 view = views[0]
                 scale = max(abs(view.transform().m11()), 1e-9)
                 tol = INFERENCE_TOL_PX / scale
-                vp_rect = view.mapToScene(view.viewport().rect()).boundingRect()
-                refs = self._collect_alignment_refs(vp_rect)
+                refs = self._collect_alignment_refs()
                 res = self._inference_engine.resolve(
                     (scene_pos.x(), scene_pos.y()), refs, tol)
                 self._inference_result = res  # stored even when "free" (Task 3 reads it)
@@ -5251,12 +5255,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for cp in copies:
             gp = cp.grip_points()
             cp.grid_label = auto_label(gp[0], gp[1])
-            self.addItem(cp)
-            apply_category_defaults(cp)
-            self._gridlines.append(cp)
+            self._register_gridline(cp)      # addItem + apply_category_defaults + append
         apply_duplicate_warnings(self._gridlines)
         self.push_undo_state()
-        self.sceneModified.emit()
         self._end_gridline_replicate()
 
     def _end_gridline_replicate(self):
@@ -6952,6 +6953,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._polyline_active.append_point(tip)
         # don't let super() deselect items mid-draw
 
+    def _register_gridline(self, gl):
+        """Add a gridline to the scene and the ``_gridlines`` collection with
+        canonical defaults applied.
+
+        This is the per-item nucleus shared by ``_make_line_like`` (single
+        placement) and ``_commit_gridline_replicate`` (batch placement).
+        Counter-sync, auto-labelling, selection, and duplicate-warning are
+        intentionally left at each call site because their ordering differs.
+        """
+        self.addItem(gl)
+        apply_category_defaults(gl)
+        self._gridlines.append(gl)
+
     def _make_line_like(self, anchor, tip):
         """Factory: build the item for the active line-like draw mode.
 
@@ -6968,9 +6982,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # after a 1/2/3 seed) instead of restarting at "1"/"A".
             sync_grid_counters(self._gridlines)
             gl = GridlineItem(anchor, tip)
-            self.addItem(gl)
-            apply_category_defaults(gl)      # adopt current DM Grid Line color/scale
-            self._gridlines.append(gl)
+            self._register_gridline(gl)      # addItem + apply_category_defaults + append
             gl.setSelected(True)
             self.requestPropertyUpdate.emit(gl)
             sync_grid_counters(self._gridlines)
