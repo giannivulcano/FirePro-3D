@@ -82,6 +82,9 @@ class _PlacementSentinel:
     """
 
 
+_GHOST_NODE_MARKER_MM = 120.0  # half-size of the move/paste ghost cross for nodes
+
+
 class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
@@ -8597,7 +8600,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 item = item.node
             if isinstance(item, Node):
                 c = item.scenePos()
-                r = 120.0
+                r = _GHOST_NODE_MARKER_MM
                 p = QPainterPath()
                 p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
                 p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
@@ -8638,7 +8641,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 paths.append(p)
             elif t == "node":
                 c = QPointF(obj.get("x", 0.0), obj.get("y", 0.0))
-                r = 120.0
+                r = _GHOST_NODE_MARKER_MM
                 p = QPainterPath()
                 p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
                 p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)

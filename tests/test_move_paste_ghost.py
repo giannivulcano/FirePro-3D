@@ -41,7 +41,12 @@ def test_clipboard_ghost_paths_gridline(ms_view):
              "label": "1"}]
     paths = ms._clipboard_ghost_paths(data)
     assert len(paths) >= 1
-    assert paths[0].elementCount() >= 2  # a line has points
+    br = paths[0].boundingRect()
+    # line from (0,0) to (0,-5000): x spans ~0, y spans 0..-5000
+    assert math.isclose(br.left(), 0.0, abs_tol=1.0)
+    assert math.isclose(br.right(), 0.0, abs_tol=1.0)
+    assert math.isclose(br.top(), -5000.0, abs_tol=1.0)
+    assert math.isclose(br.bottom(), 0.0, abs_tol=1.0)
 
 
 def test_move_ghost_base_from_selected_items(ms_view):
@@ -59,6 +64,10 @@ def test_clipboard_ghost_paths_node_with_pipes(ms_view):
              "pipes": [{"x": 500.0, "y": 200.0}]}]
     paths = ms._clipboard_ghost_paths(data)
     assert len(paths) >= 1
+    br = paths[0].boundingRect()
+    # cross centered at (100,200) + a pipe seg to (500,200): x spans ~ (100-120) .. 500
+    assert br.right() >= 499.0        # pipe reaches x=500
+    assert math.isclose(br.top(), 200.0 - 120.0, abs_tol=1.0)   # cross half-size above centre
 
 
 def test_clipboard_ghost_paths_empty(ms_view):
