@@ -27,3 +27,49 @@ def test_grip_locked_noop(qapp):
     gl._locked = True
     gl.apply_grip(1, QPointF(1500, 0))
     assert math.isclose(gl.length(), 1000.0, abs_tol=1e-6)
+
+
+def test_grip_points_includes_bubble_centres(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    gp = gl.grip_points()
+    assert len(gp) == 4  # origin, far, bubble1, bubble2
+
+
+def test_bubble1_grip_sets_offset_along_axis(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")  # vertical, dir (0,1)
+    # bubble1 stands off from origin outward (−û = (0,-1)). Drag to y=-1500.
+    gl.apply_grip(2, QPointF(40, -1500))  # x=40 perpendicular is discarded
+    assert math.isclose(gl.bubble1_offset(), 1500.0, abs_tol=1e-6)
+
+
+def test_bubble2_grip_sets_offset_along_axis(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    # bubble2 stands off from far (0,5000) outward (+û = (0,1)). Drag to y=6200.
+    gl.apply_grip(3, QPointF(-30, 6200))
+    assert math.isclose(gl.bubble2_offset(), 1200.0, abs_tol=1e-6)
+
+
+def test_bubble_grip_floors_at_zero(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    gl.apply_grip(2, QPointF(0, 800))  # inward past origin → negative → floored
+    assert math.isclose(gl.bubble1_offset(), 0.0, abs_tol=1e-6)
+
+
+def test_bubble_grip_locked_noop(qapp):
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    before = gl.bubble1_offset()
+    gl._locked = True
+    gl.apply_grip(2, QPointF(0, -1500))
+    assert math.isclose(gl.bubble1_offset(), before, abs_tol=1e-6)
+
+
+def test_bubble_grip_offset_on_angled_gridline(qapp):
+    # 45° gridline built from two points so the angle is derived, not cardinal.
+    gl = GridlineItem(QPointF(0, 0), QPointF(1000, -1000), label="1")  # up-right 45° (scene Y-down)
+    ux, uy = gl._direction()  # unit direction
+    # Cursor = origin − 1500·û (outward for bubble1) + a perpendicular offset (−uy, ux)·200
+    # that must be discarded by the projection.
+    px = 0 - 1500 * ux + 200 * (-uy)
+    py = 0 - 1500 * uy + 200 * (ux)
+    gl.apply_grip(2, QPointF(px, py))
+    assert math.isclose(gl.bubble1_offset(), 1500.0, abs_tol=1e-6)

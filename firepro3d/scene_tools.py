@@ -1108,6 +1108,8 @@ class SceneToolsMixin:
             if not hasattr(item, "grip_points"):
                 continue
             for idx, gpt in enumerate(item.grip_points()):
+                if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):
+                    continue
                 d = math.hypot(pos.x() - gpt.x(), pos.y() - gpt.y())
                 if d <= best_dist:
                     best_dist = d

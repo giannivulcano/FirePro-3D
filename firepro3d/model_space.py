@@ -82,6 +82,9 @@ class _PlacementSentinel:
     """
 
 
+_GHOST_NODE_MARKER_MM = 120.0  # half-size of the move/paste ghost cross for nodes
+
+
 class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
@@ -127,6 +130,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
+        self._pending_seed = ""
         self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
@@ -178,6 +182,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_count: int = 1
         self._replicate_spacing: float = 0.0
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
+        self._move_ghost: list = []          # list[QPainterPath] in scene coords
+        self._move_ghost_base: list = []      # base paths captured at first click
+        self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
@@ -214,8 +221,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._offset_preview = None             # preview item shown during side-pick
         self._offset_manual: bool = False       # True when user typed distance via Tab
         self._offset_highlight = None           # highlight overlay for selected offset entity
-        # Move preview (Sprint Z)
-        self._move_preview_line = None          # rubber-band line from base point to cursor
         # Single place mode (Sprint Y) — return to select after placing one item
         self.single_place_mode: bool = False
         # Trim / Extend / Merge state (Sprint Y)
@@ -740,12 +745,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
-        # Inference active-item: set sentinel for draw_gridline, clear otherwise.
-        if mode == "draw_gridline":
+        # Inference active-item: sentinel for draw_gridline + paste/move.
+        if mode in ("draw_gridline", "paste", "move"):
             self._inference_active_item = self._PLACEMENT_SENTINEL
         else:
             self._inference_active_item = None
             self._inference_result = None
+        # Move self-excludes the moving gridlines from the reference set.
+        if mode == "move":
+            self._inference_exclude_ids = {
+                id(i) for i in (self.selectedItems() or [])
+                if isinstance(i, GridlineItem)
+            } | {
+                id(i) for i in (self._selected_items or [])
+                if isinstance(i, GridlineItem)
+            }
+        else:
+            self._inference_exclude_ids = set()
+        # Clear the move/paste ghost when leaving those modes.
+        if mode not in ("paste", "move"):
+            self._move_ghost = []
+            self._move_ghost_base = []
         # Reset gridline body drag state
         self._dragging_gridline = None
         self._gridline_drag_start = None
@@ -851,13 +871,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.requestPropertyUpdate.emit(template)
         else:
             self.current_template = None
-
-        # Clean up move preview line
-        if mode != "move":
-            if self._move_preview_line is not None:
-                if self._move_preview_line.scene() is self:
-                    self.removeItem(self._move_preview_line)
-                self._move_preview_line = None
 
         # Clean up offset preview whenever leaving offset modes
         if mode not in ("offset", "offset_side"):
@@ -3590,9 +3603,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         refs = []
         exclude_id = (id(self._inference_active_item)
                       if self._inference_active_item is not None else None)
+        exclude_ids = self._inference_exclude_ids
         for gl in self._gridlines:
             for f in gl.alignment_reference_points():
-                if f.source_id != exclude_id:
+                if f.source_id != exclude_id and f.source_id not in exclude_ids:
                     refs.append(f)
         return refs
 
@@ -3998,6 +4012,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         the anchor point.  Values are always in mm (1 scene unit = 1 mm
         when uncalibrated).  Angles follow Y-up convention (0°=right, 90°=up).
         """
+        seed = getattr(self, "_pending_seed", "")
+        self._pending_seed = ""
         # ── Select mode: cycle through similar elements ──
         if self.mode in ("select", None, ""):
             selected = self.selectedItems()
@@ -4120,7 +4136,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             a plain numeric display with the ``°`` suffix label.
             """
 
-            def __init__(self, fields, sm=None, parent=None):
+            def __init__(self, fields, sm=None, parent=None, seed=""):
                 """*fields*: list of (name, default_mm, suffix, decimals)
                 *sm*: ScaleManager for unit formatting/parsing (optional)."""
                 super().__init__(parent)
@@ -4187,7 +4203,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.adjustSize()
                 self.move(gpos.x() + 16, gpos.y() + 16)
                 if first:
-                    first.selectAll()
+                    if seed:
+                        first.setText(seed)
+                        first.setCursorPosition(len(first.text()))
+                    else:
+                        first.selectAll()
                     first.setFocus()
 
             def keyPressEvent(self, event):
@@ -4249,7 +4269,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dlg = _DynInput([
                 ("Length", def_len, "", 2),
                 ("Angle",  def_ang, "°",  2),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
 
@@ -4366,7 +4386,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             default_dist = self._replicate_spacing if self._replicate_spacing != 0.0 else 1000.0
             dlg = _DynInput([
                 ("Distance", default_dist, "", 2),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._replicate_spacing = dlg.value("Distance")
                 self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
@@ -4379,7 +4399,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dlg = _DynInput([
                 ("Spacing", default_sp, "", 2),
                 ("Count",   default_ct, "#", 0),
-            ], sm=_sm)
+            ], sm=_sm, seed=seed)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._replicate_spacing = dlg.value("Spacing")
                 self._replicate_count = max(1, int(round(dlg.value("Count"))))
@@ -4498,6 +4518,37 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
 
+    def _drag_grip_to(self, pos):
+        """Apply the active grip drag to *pos* (scene coords), propagating to
+        other selected gridlines. Endpoint grips (0/1) keep the opposite end
+        fixed; bubble grips (2/3) slide the standoff. Lock-aware via apply_grip."""
+        gi = self._grip_item
+        if gi is None:
+            return
+        if isinstance(gi, GridlineItem):
+            old_pt = gi.grip_points()[self._grip_index]
+            gi.apply_grip(self._grip_index, pos)
+            new_pt = gi.grip_points()[self._grip_index]
+            delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
+            # Same scene-space delta re-projected onto each sibling's own axis:
+            # exact for parallel (same-orientation) selections; non-parallel
+            # members under-apply — consistent with endpoint-grip multi-select.
+            for sel in self.selectedItems():
+                if sel is gi or not isinstance(sel, GridlineItem):
+                    continue
+                sg = sel.grip_points()
+                target = QPointF(sg[self._grip_index].x() + delta.x(),
+                                 sg[self._grip_index].y() + delta.y())
+                sel.apply_grip(self._grip_index, target)
+        else:
+            gi.apply_grip(self._grip_index, pos)
+        self._solve_constraints(gi)
+        for h in self._hatch_items:
+            if getattr(h, '_source_item', None) is gi:
+                h.rebuild_from_source()
+        for v in self.views():
+            v.viewport().update()
+
     def mouseMoveEvent(self, event):
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
@@ -4512,40 +4563,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Grip drag (mode-independent, takes priority) ────────────────
         if self._grip_dragging and self._grip_item is not None:
             pos = snapped
-            # Ctrl constrains to angle increments from the opposite grip
+            # Ctrl constrains a grip-0 drag against the far endpoint (grip 1).
             if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._grip_index == 0
                     and hasattr(self._grip_item, "grip_points")):
                 grips = self._grip_item.grip_points()
-                if len(grips) >= 2 and self._grip_index != 1:
-                    opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
-                    pos = self._constrain_angle(grips[opp], snapped)
-            # For gridlines: move the same grip on all selected gridlines
-            # while keeping the opposite end fixed (length adjusts).
-            if isinstance(self._grip_item, GridlineItem):
-                old_grips = self._grip_item.grip_points()
-                old_pt = old_grips[self._grip_index]
-                self._grip_item.apply_grip(self._grip_index, pos)
-                new_grips = self._grip_item.grip_points()
-                new_pt = new_grips[self._grip_index]
-                delta = QPointF(new_pt.x() - old_pt.x(),
-                                new_pt.y() - old_pt.y())
-                # Apply same grip-index movement to other selected gridlines
-                for sel in self.selectedItems():
-                    if sel is self._grip_item or not isinstance(sel, GridlineItem):
-                        continue
-                    sg = sel.grip_points()
-                    target = QPointF(sg[self._grip_index].x() + delta.x(),
-                                     sg[self._grip_index].y() + delta.y())
-                    sel.apply_grip(self._grip_index, target)
-            else:
-                self._grip_item.apply_grip(self._grip_index, pos)
-            self._solve_constraints(self._grip_item)
-            # Real-time hatch rebuild during grip drag
-            for h in self._hatch_items:
-                if getattr(h, '_source_item', None) is self._grip_item:
-                    h.rebuild_from_source()
-            for v in self.views():
-                v.viewport().update()
+                if len(grips) >= 2:
+                    pos = self._constrain_angle(grips[1], snapped)
+            self._drag_grip_to(pos)
             return
 
         # ── Gridline body drag (perpendicular constraint) ───────────────
@@ -4592,9 +4617,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
-        "move":                     "_move_move",
+        "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
-        "paste":                    "_move_preview_node",
+        "paste":                    "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "mirror":                   "_move_mirror",
@@ -4940,33 +4965,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     f"Offset: {self._offset_dist:.1f} mm  "
                     f"(Tab = type distance, click to commit)", timeout=0)
 
-    def _move_move(self, event, snapped):
-        self.update_preview_node(snapped)
-        self.preview_pipe.hide()
-        if self.node_start_pos is not None:
-            # Show rubber-band line from base point to cursor
-            if self._move_preview_line is None:
-                self._move_preview_line = QGraphicsLineItem()
-                pen = QPen(QColor("#00aaff"), 0)
-                pen.setCosmetic(True)
-                pen.setStyle(Qt.PenStyle.DashLine)
-                self._move_preview_line.setPen(pen)
-                self._move_preview_line.setZValue(200)
-                self.addItem(self._move_preview_line)
-            self._move_preview_line.setLine(
-                self.node_start_pos.x(), self.node_start_pos.y(),
-                snapped.x(), snapped.y())
-            self._move_preview_line.show()
-            # Show displacement in status bar
-            dx = snapped.x() - self.node_start_pos.x()
-            dy = snapped.y() - self.node_start_pos.y()
-            self._show_status(
-                f"Move: dx={dx:.1f}  dy={dy:.1f}  "
-                f"dist={math.hypot(dx, dy):.1f}", timeout=0)
-
     def _move_preview_node(self, event, snapped):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
+
+    def _move_paste_move(self, event, snapped):
+        """Ghost preview for paste/move: silhouette rides the cursor after the
+        base point is set. Before that, show the plain cursor marker."""
+        if self.node_start_pos is None:
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+            return
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        offset = QPointF(snapped.x() - self.node_start_pos.x(),
+                         snapped.y() - self.node_start_pos.y())
+        self._move_ghost = [p.translated(offset.x(), offset.y())
+                            for p in self._move_ghost_base]
+        self._show_status(
+            f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
+            f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
+        for v in self.views():
+            v.viewport().update()
 
     def _move_rotate(self, event, snapped):
         if self._rotate_pivot is None:
@@ -6754,6 +6774,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.node_start_pos is None:
             self.node_start_pos = snapped
+            self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
         else:
             offset = CAD_Math.get_vector(self.node_start_pos, snapped)
             if self.mode == "paste":
@@ -6762,6 +6783,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.move_items(offset)
             self.push_undo_state()
             self.node_start_pos = None
+            self._move_ghost = []
+            self._move_ghost_base = []
             self.set_mode(None)
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8391,9 +8414,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.set_mode(None)
                 return
         # ── Digit key opens Tab input for replicate modes (type-to-capture) ──
-        elif (self.mode in ("gridline_array", "gridline_offset")
-              and event.key() >= Qt.Key.Key_0
-              and event.key() <= Qt.Key.Key_9):
+        elif (event.key() >= Qt.Key.Key_0
+              and event.key() <= Qt.Key.Key_9
+              and (self.mode in ("gridline_array", "gridline_offset")
+                   or (self.mode in ("draw_line", "draw_gridline")
+                       and self._draw_line_anchor is not None))):
+            self._pending_seed = event.text()
             self._handle_tab_input()
             return
         else:
@@ -8567,6 +8593,87 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 apply_duplicate_warnings(self._gridlines)
 
         self._show_status(f"Pasted {len(data)} item(s)")
+
+    def _shape_paths_for_move(self, items):
+        """Scene-coord QPainterPath silhouettes for live scene *items*.
+        Nodes have no useful shape() — emit a small cross marker."""
+        from .node import Node
+        from .sprinkler import Sprinkler
+        paths = []
+        for item in items:
+            if isinstance(item, Sprinkler) and item.node is not None:
+                item = item.node
+            if isinstance(item, Node):
+                c = item.scenePos()
+                r = _GHOST_NODE_MARKER_MM
+                p = QPainterPath()
+                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
+                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
+                paths.append(p)
+                continue
+            if isinstance(item, GridlineItem):
+                # Ghost the centerline (grip endpoints), not the fat hit-strip
+                # + bubbles that shape() returns.
+                pts = item.grip_points()
+                p = QPainterPath()
+                p.moveTo(pts[0]); p.lineTo(pts[1])
+                paths.append(p)
+                continue
+            if hasattr(item, "shape"):
+                try:
+                    paths.append(item.mapToScene(item.shape()))
+                    continue
+                except Exception:
+                    pass
+            if hasattr(item, "sceneBoundingRect"):
+                p = QPainterPath(); p.addRect(item.sceneBoundingRect())
+                paths.append(p)
+        return paths
+
+    def _clipboard_ghost_paths(self, data):
+        """Scene-coord silhouettes reconstructed from clipboard *data* dicts,
+        without adding anything to the scene. Covers the copyable types."""
+        from .construction_geometry import (
+            LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+        )
+        paths = []
+        if not data:
+            return paths
+        geom_ctors = {
+            "draw_line": LineItem, "draw_rectangle": RectangleItem,
+            "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
+        }
+        for obj in data:
+            t = obj.get("type", "")
+            if t == "gridline":
+                ox, oy = obj.get("origin", [0.0, 0.0])
+                length = float(obj.get("length", 0.0))
+                th = math.radians(float(obj.get("angle", 0.0)))
+                p = QPainterPath(); p.moveTo(ox, oy)
+                p.lineTo(ox + length * math.cos(th), oy - length * math.sin(th))
+                paths.append(p)
+            elif t == "node":
+                c = QPointF(obj.get("x", 0.0), obj.get("y", 0.0))
+                r = _GHOST_NODE_MARKER_MM
+                p = QPainterPath()
+                p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
+                p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
+                for seg in obj.get("pipes", []):
+                    p.moveTo(c.x(), c.y()); p.lineTo(seg.get("x", 0.0), seg.get("y", 0.0))
+                paths.append(p)
+            elif t in geom_ctors:
+                try:
+                    item = geom_ctors[t].from_dict(obj)
+                    paths.append(item.mapToScene(item.shape()))
+                except Exception:
+                    pass
+        return paths
+
+    def _build_move_ghost_base(self, is_paste: bool):
+        """Base silhouettes (offset 0). Paste → clipboard; move → live selection."""
+        if is_paste:
+            return self._clipboard_ghost_paths(self.clipboard_data())
+        return self._shape_paths_for_move(self._selected_items or self.selectedItems())
 
     def move_items(self, offset):
         if not self._selected_items:

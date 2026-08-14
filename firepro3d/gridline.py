@@ -338,6 +338,7 @@ class _LockIndicator(QGraphicsPathItem):
         # Update grip visibility — hide grips when locked
         gl._grip1.setVisible(not gl._locked and gl.isSelected())
         gl._grip2.setVisible(not gl._locked and gl.isSelected())
+        gl._refresh_bubble_grip_visibility()
         event.accept()
 
 
@@ -447,6 +448,8 @@ class GridlineItem(QGraphicsLineItem):
         self.bubble2 = GridBubble(label, self)
         self._grip1 = _PullTabGrip(self)
         self._grip2 = _PullTabGrip(self)
+        self._bgrip1 = _PullTabGrip(self)
+        self._bgrip2 = _PullTabGrip(self)
         self._lock_indicator = _LockIndicator(self)
 
         # Hover events for grip visibility
@@ -502,6 +505,8 @@ class GridlineItem(QGraphicsLineItem):
             # Show grips only when selected AND unlocked
             self._grip1.setVisible(selected and not self._locked)
             self._grip2.setVisible(selected and not self._locked)
+            self._bgrip1.setVisible(selected and not self._locked and self.bubble1.isVisible())
+            self._bgrip2.setVisible(selected and not self._locked and self.bubble2.isVisible())
             # Show lock indicator when selected
             self._lock_indicator.setVisible(selected)
             if selected:
@@ -602,6 +607,23 @@ class GridlineItem(QGraphicsLineItem):
         ux, uy = dx / length, dy / length
         self._grip1.setPos(p1.x() - ux * 10, p1.y() - uy * 10)
         self._grip2.setPos(p2.x() + ux * 10, p2.y() + uy * 10)
+        self._bgrip1.setPos(self.bubble1.pos())
+        self._bgrip2.setPos(self.bubble2.pos())
+
+    def _refresh_bubble_grip_visibility(self):
+        show = self.isSelected() and not self._locked
+        self._bgrip1.setVisible(show and self.bubble1.isVisible())
+        self._bgrip2.setVisible(show and self.bubble2.isVisible())
+
+    def grip_hittable(self, index: int) -> bool:
+        """Whether grip *index* can be picked right now (used by _find_grip_hit)."""
+        if self._locked:
+            return False
+        if index == 2:
+            return self.bubble1.isVisible()
+        if index == 3:
+            return self.bubble2.isVisible()
+        return True
 
     # ── Hover events ─────────────────────────────────────────────────────
 
@@ -609,12 +631,16 @@ class GridlineItem(QGraphicsLineItem):
         if not self.isSelected() and not self._locked:
             self._grip1.setVisible(True)
             self._grip2.setVisible(True)
+            self._bgrip1.setVisible(self.bubble1.isVisible())
+            self._bgrip2.setVisible(self.bubble2.isVisible())
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
         if not self.isSelected():
             self._grip1.setVisible(False)
             self._grip2.setVisible(False)
+            self._bgrip1.setVisible(False)
+            self._bgrip2.setVisible(False)
         super().hoverLeaveEvent(event)
 
     # ── Selection highlight (suppress dashed box) ─────────────────────────
@@ -819,7 +845,9 @@ class GridlineItem(QGraphicsLineItem):
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
-        return [QPointF(self._origin), self._far_point()]
+        # 0=origin, 1=far endpoint, 2=bubble1 centre, 3=bubble2 centre.
+        return [QPointF(self._origin), self._far_point(),
+                QPointF(self.bubble1.pos()), QPointF(self.bubble2.pos())]
 
     def alignment_reference_points(self):
         """Reference features for the inference engine: both endpoints and
@@ -848,11 +876,23 @@ class GridlineItem(QGraphicsLineItem):
         ]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Extend/shorten along the line; opposite endpoint stays fixed.
-        Cursor is projected onto the line direction (perpendicular discarded)."""
+        """Grips 0/1 extend/shorten along the line (opposite end fixed).
+        Grips 2/3 slide the bubble standoff along the axis (floored at 0).
+        Cursor is projected onto the line direction; perpendicular discarded."""
         if self._locked:
             return
         dx, dy = self._direction()
+        if index == 2:  # bubble1: outward standoff from origin (−û)
+            proj = (new_pos.x() - self._origin.x()) * dx + (new_pos.y() - self._origin.y()) * dy
+            self._bubble1_offset = max(0.0, -proj)
+            self._rebuild_geometry()
+            return
+        if index == 3:  # bubble2: outward standoff from far end (+û)
+            far = self._far_point()
+            proj = (new_pos.x() - far.x()) * dx + (new_pos.y() - far.y()) * dy
+            self._bubble2_offset = max(0.0, proj)
+            self._rebuild_geometry()
+            return
         if index == 1:
             vx = new_pos.x() - self._origin.x()
             vy = new_pos.y() - self._origin.y()

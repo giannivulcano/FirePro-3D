@@ -281,6 +281,10 @@ class Model_View(QGraphicsView):
             painter.resetTransform()
             for item in selected:
                 for idx, gpt in enumerate(item.grip_points()):
+                    # Don't render a handle for a grip that can't be picked
+                    # (e.g. a hidden gridline bubble) — mirrors _find_grip_hit.
+                    if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):
+                        continue
                     vp = self.mapFromScene(gpt)
                     is_active = (item is active_item and idx == active_idx)
                     fill  = QColor("#ff4400") if is_active else QColor("#00aaff")
@@ -557,6 +561,20 @@ class Model_View(QGraphicsView):
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
             for (o, f) in ghost:
                 painter.drawLine(o, f)
+            painter.restore()
+
+        # ── 8. Move/paste ghost silhouette (scene-coord cosmetic outline) ──
+        mghost = getattr(scene, "_move_ghost", None)
+        if mghost:
+            from .constants import INFERENCE_GUIDE_COLOR
+            mp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            mp.setCosmetic(True)
+            painter.save()
+            painter.setPen(mp)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            for path in mghost:
+                painter.drawPath(path)
             painter.restore()
 
     # ─────────────────────────────
