@@ -61,3 +61,15 @@ def test_bubble_grip_locked_noop(qapp):
     gl._locked = True
     gl.apply_grip(2, QPointF(0, -1500))
     assert math.isclose(gl.bubble1_offset(), before, abs_tol=1e-6)
+
+
+def test_bubble_grip_offset_on_angled_gridline(qapp):
+    # 45° gridline built from two points so the angle is derived, not cardinal.
+    gl = GridlineItem(QPointF(0, 0), QPointF(1000, -1000), label="1")  # up-right 45° (scene Y-down)
+    ux, uy = gl._direction()  # unit direction
+    # Cursor = origin − 1500·û (outward for bubble1) + a perpendicular offset (−uy, ux)·200
+    # that must be discarded by the projection.
+    px = 0 - 1500 * ux + 200 * (-uy)
+    py = 0 - 1500 * uy + 200 * (ux)
+    gl.apply_grip(2, QPointF(px, py))
+    assert math.isclose(gl.bubble1_offset(), 1500.0, abs_tol=1e-6)

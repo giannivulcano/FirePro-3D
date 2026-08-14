@@ -857,14 +857,14 @@ class GridlineItem(QGraphicsLineItem):
             return
         dx, dy = self._direction()
         if index == 2:  # bubble1: outward standoff from origin (−û)
-            t = (new_pos.x() - self._origin.x()) * dx + (new_pos.y() - self._origin.y()) * dy
-            self._bubble1_offset = max(0.0, -t)
+            proj = (new_pos.x() - self._origin.x()) * dx + (new_pos.y() - self._origin.y()) * dy
+            self._bubble1_offset = max(0.0, -proj)
             self._rebuild_geometry()
             return
         if index == 3:  # bubble2: outward standoff from far end (+û)
             far = self._far_point()
-            s = (new_pos.x() - far.x()) * dx + (new_pos.y() - far.y()) * dy
-            self._bubble2_offset = max(0.0, s)
+            proj = (new_pos.x() - far.x()) * dx + (new_pos.y() - far.y()) * dy
+            self._bubble2_offset = max(0.0, proj)
             self._rebuild_geometry()
             return
         if index == 1:
