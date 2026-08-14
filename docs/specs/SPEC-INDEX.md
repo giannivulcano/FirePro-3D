@@ -13,7 +13,7 @@
 | Ribbon bar (tabs/groups/buttons, mode-button sync) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `main.py` (`init_ribbon` + `_init_*_tab`) | current |
 | Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `dwg_converter.py` | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
-| Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `grid_lines_dialog.py` | current |
+| Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `inference_engine.py` | current |
 | Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py` | current |
 | Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `model_space.py` (placement) | current |
 | Sprinkler system components | `specs/sprinkler-system-components.md` | `sprinkler.py`, `sprinkler_db.py`, `sprinkler_system.py`, `fitting.py`, `water_supply.py`, `design_area.py`, `nfpa_curves.py`, `design_point_dialog.py` | current |
@@ -25,7 +25,7 @@
 | Units & formatting conventions | `specs/units-and-formatting.md` | `scale_manager.py` (conventions consumed app-wide) | current |
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |
 | **Section view subsystem** | `specs/section-view-subsystem.md` | `section_*.py` (do not exist yet) | **proposal** (unbuilt) |
-| **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | (greenfield) | **proposal** (unbuilt) |
+| **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | `inference_engine.py`, `model_space.py`, `model_view.py`, `gridline.py` | **partial** (gridlines = first client; H/V alignment guides + endpoint grip-drag built; wall/pipe/node providers + other guide types = proposal) |
 | **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py`, `paper_export.py`, `paper_export_dialog.py`, `paper_display.py`, `paper_commands.py` | **partial** (Phase-1 + plot + text annotations + multi-sheet management built; remaining annotation types / layer overrides pending) |
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |

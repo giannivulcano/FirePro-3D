@@ -1,7 +1,7 @@
 ---
-status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed)
-last-verified: 2026-08-13
-verified-commit: 36a2111
+status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14
+last-verified: 2026-08-14
+verified-commit: de2b12a
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -10,6 +10,7 @@ applies-to:
   - firepro3d/paper_display.py
   - firepro3d/scene_io.py
   - firepro3d/constants.py
+  - firepro3d/inference_engine.py
   - main.py
 ---
 
@@ -506,17 +507,27 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 
 | File | Role |
 |------|------|
-| `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property` |
-| `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths |
+| `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
+| `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
-| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit |
+| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost-preview overlay |
+| `firepro3d/inference_engine.py` | `InferenceEngine`, `ReferenceFeature`, `Guide`, `InferenceResult` — entity-agnostic; owned by `Model_Space` |
 | `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
 | `firepro3d/elevation_scene.py` | Elevation projection + `ElevGridlineItem` (filtering, Z-overrides) |
-| `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors) |
-| `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset |
+| `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors, `INFERENCE_TOL_PX`, `INFERENCE_GUIDE_COLOR`, `INFERENCE_GUIDE_DASH`, `INFERENCE_GLYPH_PX`) |
+| `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset; "GUIDES" status-bar pill; F12 shortcut; `inference/alignment_guides` QSettings restore |
 
 **Removed:** `firepro3d/grid_line.py` (legacy `GridLine`); `firepro3d/grid_lines_dialog.py` (modal dialog).
+
+### Key API additions (§17)
+
+| API | Location | Purpose |
+|-----|----------|---------|
+| `alignment_reference_points() -> list[ReferenceFeature]` | `GridlineItem` | Returns 4 inference features (2 endpoints + 2 bubble centres) for the alignment engine |
+| `offset_copy(distance: float) -> GridlineItem` | `GridlineItem` | One parallel copy at signed perpendicular distance (mm) |
+| `array_copies(spacing: float, count: int) -> list[GridlineItem]` | `GridlineItem` | N parallel copies at successive spacing multiples |
+| `_is_template: bool` | `GridlineItem` | Flag for placement-template instance; restricts `get_properties()` to non-geometric rows |
 
 ## 15. Edge Cases & Error Handling
 
@@ -531,10 +542,43 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 - Snap interaction rules (see `docs/specs/snapping-engine.md` §5)
 - Paper space thin-lines rendering mode switching (see `docs/specs/paper-space.md` §9.2)
 - Off-axis bubble **elbow/jog leader** + per-view leader independence (bubble *along-axis* offset is implemented — §5.6)
-- On-canvas **array/offset** tool for fast bay layout (copy/paste covers replication for now)
 - Angled gridlines projecting into **elevation** views (section-view territory)
 - On-canvas interactive **rotate** handle (angle lives in the Properties panel)
 - Display-Manager **linetype** property (solid/dashed/center/…)
 - Section view gridline projection (deferred to section view spec)
 - Grid snap (regular spacing constraint independent of gridline objects)
 - Display Manager category CRUD
+
+## 17. On-Canvas Array & Offset
+
+### 17.1 Overview
+
+Two transient modes — `gridline_offset` and `gridline_array` — replicate a source gridline into parallel copies directly on canvas. Invoked from the gridline right-click entity menu ("Offset Gridline…" / "Array Gridlines…") via `_show_entity_context_menu`; falls back to `_build_plan_context_menu` when no item is under the cursor but a gridline is selected. The right-clicked (or selected) gridline is the source. Locked sources are allowed; copies are always unlocked.
+
+### 17.2 Offset Mode (`gridline_offset`)
+
+Creates **one** parallel copy at a cursor-driven or typed perpendicular distance + side. The cursor drives spacing and side live (perpendicular projection onto the source axis). Tab or any digit opens `_DynInput` with a single "Distance" field. Click/Enter commits; Esc cancels with no copy created.
+
+### 17.3 Array Mode (`gridline_array`)
+
+Creates **N** parallel copies at successive multiples of a signed spacing. Default count = 1. Live ghost preview in `drawForeground` (cosmetic outline — line + bubble circles; no preview scene-items). "Spacing ×Count" Dim HUD displayed live. Tab or any digit opens `_DynInput` with "Spacing" and "Count" fields. Click/Enter commits; Esc cancels.
+
+### 17.4 Copy Geometry
+
+Copies are **rigid parallel translations**: same `_angle_deg` and `_length`, `_origin` shifted perpendicular by `n × spacing` using the gridline's fixed-sign `_perpendicular_vector()` (§5.3). Inherited: bubble offsets, bubble visibility, display overrides. **Not inherited:** lock (copies always unlocked).
+
+### 17.5 Labeling & Commit
+
+Before building copies, `sync_grid_counters` runs on the existing gridlines so auto-labels continue the current sequence. Each copy receives a fresh sequential auto-label via `auto_label()`. After all copies are appended to `_gridlines`, `apply_duplicate_warnings` re-scans. The entire array/offset commit is **one** `push_undo_state()` — whole set = one undo step.
+
+### 17.6 Serialization
+
+Copies are ordinary `GridlineItem` instances. They serialize/round-trip via `GridlineItem.to_dict`/`from_dict` on both paths (`scene_io` + `_capture_network`). No `.fpd` schema change.
+
+### 17.7 Placement Template
+
+Entering `draw_gridline` mode emits `requestPropertyUpdate(_get_gridline_template())`. The template is an off-scene `GridlineItem` with `_is_template = True`; its `get_properties()` exposes only non-geometric rows (Bubble 1/2 Offset, Bubble 1/2 Visible, Locked). Placed gridlines adopt the template's bubble/lock settings. The template persists for the session; paste-mode ghost + inference participation is a filed follow-up.
+
+### 17.8 Alignment Snapping (Inference)
+
+During gridline placement (`draw_gridline`, both points) and endpoint grip-drag, the active point participates in the inference engine's H/V alignment guides. Reference features are supplied by `GridlineItem.alignment_reference_points()` (4 features: both endpoints + both bubble centres). Guide rendering, snap priority, and toggle details are governed by `docs/specs/inferred-dimension-driven-placement.md` (Rule A — see there for the full contract; this section only notes gridline participation).
