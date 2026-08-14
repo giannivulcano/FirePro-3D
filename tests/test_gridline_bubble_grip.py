@@ -44,3 +44,19 @@ def test_grip_hittable_false_when_locked(scene_with_gridline):
     gl._locked = True
     assert gl.grip_hittable(0) is False
     assert gl.grip_hittable(2) is False
+
+
+def test_find_grip_hit_returns_bubble_grip(scene_with_gridline):
+    ms, view, gl = scene_with_gridline
+    gl.setSelected(True)
+    hit = ms._find_grip_hit(QPointF(gl.bubble1.pos()))
+    assert hit == (gl, 2)
+
+
+def test_find_grip_hit_skips_hidden_bubble_grip(scene_with_gridline):
+    ms, view, gl = scene_with_gridline
+    gl.setSelected(True)
+    bubble_pt = QPointF(gl.bubble1.pos())
+    gl.bubble1.setVisible(False)
+    hit = ms._find_grip_hit(bubble_pt)
+    assert hit is None or hit[1] != 2
