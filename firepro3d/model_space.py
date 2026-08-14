@@ -5003,6 +5003,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          snapped.y() - self.node_start_pos.y())
         self._move_ghost = [p.translated(offset.x(), offset.y())
                             for p in self._move_ghost_base]
+        self._show_status(
+            f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
+            f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
         for v in self.views():
             v.viewport().update()
 

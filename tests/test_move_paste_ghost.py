@@ -93,6 +93,25 @@ def test_move_ghost_follows_cursor(ms_view):
     assert math.isclose(el.x, 2000.0, abs_tol=1.0)
 
 
+def test_move_ghost_status_readout(ms_view):
+    ms, view = ms_view
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(gl); ms._gridlines.append(gl); gl.setSelected(True)
+    ms._selected_items = [gl]
+    ms.set_mode("move")
+    ms._press_paste_move(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    # Capture the status messages emitted during the ghost drag.
+    captured = []
+    ms._show_status = lambda msg, timeout=5000: captured.append(msg)
+    # Move: dx=+2000 (scene x), dy=-1500 (scene y down -> display Y-up flips sign)
+    ms._move_paste_move(None, QPointF(2000, 1500))
+    assert captured, "expected a status readout during paste/move ghost drag"
+    last = captured[-1]
+    assert "dx=2000.0" in last
+    assert "dy=-1500.0" in last          # display Y-up: -offset.y()
+    assert f"dist={math.hypot(2000.0, 1500.0):.1f}" in last
+
+
 def test_move_ghost_cleared_on_mode_exit(ms_view):
     ms, view = ms_view
     ms._move_ghost = [QPainterPath()]
