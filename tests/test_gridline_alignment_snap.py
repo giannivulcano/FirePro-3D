@@ -288,3 +288,75 @@ class TestGetEffectivePositionInferenceHook:
         assert ms._inference_enabled is True
         assert ms._inference_result is None
         assert ms._inference_active_item is None
+
+
+# ---------------------------------------------------------------------------
+# Step 4 — Guide overlay render tests (behavior-driven pixel checks)
+# ---------------------------------------------------------------------------
+
+from PyQt6.QtGui import QPixmap, QColor
+from firepro3d.constants import INFERENCE_GUIDE_COLOR
+
+
+def _render_view(view):
+    """Grab the view's full rendered output (including drawForeground overlays)."""
+    return view.grab().toImage()
+
+
+def _has_guide_color(img, tolerance=6):
+    """Return True if any pixel within a 1px stride matches INFERENCE_GUIDE_COLOR.
+
+    Uses stride=1 because dashed cosmetic lines may be sparse (only a few
+    pixels wide) and larger strides can miss them.
+    """
+    target = QColor(INFERENCE_GUIDE_COLOR).getRgb()[:3]
+    for x in range(0, img.width(), 1):
+        for y in range(0, img.height(), 1):
+            rgb = QColor(img.pixel(x, y)).getRgb()[:3]
+            if all(abs(rgb[i] - target[i]) <= tolerance for i in range(3)):
+                return True
+    return False
+
+
+def test_guide_paints_when_result_present(qapp, make_model_space):
+    """drawForeground must paint guide-color pixels when _inference_result has guides."""
+    from firepro3d.model_view import Model_View
+    ms = make_model_space()
+    # Attach a real Model_View — the plain QGraphicsView from the fixture
+    # does not override drawForeground, so we need Model_View for this test.
+    mv = Model_View(ms)
+    mv.resize(400, 400)
+    mv.resetTransform()
+    from firepro3d.inference_engine import InferenceResult, Guide, ReferenceFeature
+    ref = ReferenceFeature("point", 0.0, 0.0, 1, "endpoint")
+    ms._inference_result = InferenceResult(snapped=(0.0, 0.0),
+                                           guides=[Guide("v", 0.0, ref)],
+                                           priority="single-guide")
+    mv.centerOn(0.0, 0.0)
+    from PyQt6.QtWidgets import QApplication
+    QApplication.processEvents()
+    mv.viewport().repaint()
+    img = _render_view(mv)
+    assert _has_guide_color(img), (
+        "Expected guide-color pixels when _inference_result has guides"
+    )
+    mv.hide()
+
+
+def test_no_guide_paint_when_result_none(qapp, make_model_space):
+    """drawForeground must NOT paint guide-color pixels when _inference_result is None."""
+    from firepro3d.model_view import Model_View
+    ms = make_model_space()
+    mv = Model_View(ms)
+    mv.resize(400, 400)
+    mv.resetTransform()
+    ms._inference_result = None
+    mv.centerOn(0.0, 0.0)
+    from PyQt6.QtWidgets import QApplication
+    QApplication.processEvents()
+    mv.viewport().repaint()
+    img = _render_view(mv)
+    assert not _has_guide_color(img), (
+        "Expected no guide-color pixels when _inference_result is None"
+    )
+    mv.hide()

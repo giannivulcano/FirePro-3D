@@ -513,6 +513,37 @@ class Model_View(QGraphicsView):
             )
             painter.restore()
 
+        # ── 6. Inferred alignment guides (scene-coord dashed cosmetic lines) ──
+        infer = getattr(scene, "_inference_result", None)
+        if infer is not None and infer.guides:
+            from .constants import (INFERENCE_GUIDE_COLOR, INFERENCE_GUIDE_DASH,
+                                    INFERENCE_GLYPH_PX)
+            gpen = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            gpen.setCosmetic(True)
+            gpen.setDashPattern(INFERENCE_GUIDE_DASH)
+            painter.save()
+            painter.setPen(gpen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+            for g in infer.guides:
+                if g.orientation == "v":
+                    painter.drawLine(QPointF(g.coord, rect.top()),
+                                     QPointF(g.coord, rect.bottom()))
+                else:
+                    painter.drawLine(QPointF(rect.left(), g.coord),
+                                     QPointF(rect.right(), g.coord))
+            painter.restore()
+            # Reference glyphs (viewport coords, like the OSNAP indicator)
+            painter.save()
+            painter.resetTransform()
+            painter.setPen(QPen(QColor(INFERENCE_GUIDE_COLOR), 1))
+            r = INFERENCE_GLYPH_PX
+            for g in infer.guides:
+                vp = self.mapFromScene(QPointF(g.ref.x, g.ref.y))
+                painter.drawLine(QPointF(vp.x() - r, vp.y()), QPointF(vp.x() + r, vp.y()))
+                painter.drawLine(QPointF(vp.x(), vp.y() - r), QPointF(vp.x(), vp.y() + r))
+            painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────
