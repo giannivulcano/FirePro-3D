@@ -74,3 +74,27 @@ def test_clipboard_ghost_paths_empty(ms_view):
     ms, view = ms_view
     assert ms._clipboard_ghost_paths(None) == []
     assert ms._clipboard_ghost_paths([]) == []
+
+
+def test_move_ghost_follows_cursor(ms_view):
+    ms, view = ms_view
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(gl); ms._gridlines.append(gl); gl.setSelected(True)
+    ms._selected_items = [gl]
+    ms.set_mode("move")
+    # First click sets the base point + captures base paths
+    ms._press_paste_move(None, QPointF(0, 0), QPointF(0, 0), None, None, None)
+    assert ms.node_start_pos == QPointF(0, 0)
+    assert len(ms._move_ghost_base) >= 1
+    # Cursor move builds the translated ghost
+    ms._move_paste_move(None, QPointF(2000, 0))
+    assert len(ms._move_ghost) >= 1
+    el = ms._move_ghost[0].elementAt(0)
+    assert math.isclose(el.x, 2000.0, abs_tol=1.0)
+
+
+def test_move_ghost_cleared_on_mode_exit(ms_view):
+    ms, view = ms_view
+    ms._move_ghost = [QPainterPath()]
+    ms.set_mode("select")
+    assert ms._move_ghost == []

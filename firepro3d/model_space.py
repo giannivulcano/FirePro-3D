@@ -753,6 +753,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._inference_active_item = None
             self._inference_result = None
+        # Clear the move/paste ghost when leaving those modes.
+        if mode not in ("paste", "move"):
+            self._move_ghost = []
+            self._move_ghost_base = []
         # Reset gridline body drag state
         self._dragging_gridline = None
         self._gridline_drag_start = None
@@ -4610,9 +4614,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "place_import":             "_move_place_import",
         "offset":                   "_move_offset",
         "offset_side":              "_move_offset_side",
-        "move":                     "_move_move",
+        "move":                     "_move_paste_move",
         "sprinkler":                "_move_preview_node",
-        "paste":                    "_move_preview_node",
+        "paste":                    "_move_paste_move",
         "water_supply":             "_move_preview_node",
         "rotate":                   "_move_rotate",
         "mirror":                   "_move_mirror",
@@ -4985,6 +4989,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _move_preview_node(self, event, snapped):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
+
+    def _move_paste_move(self, event, snapped):
+        """Ghost preview for paste/move: silhouette rides the cursor after the
+        base point is set. Before that, show the plain cursor marker."""
+        if self.node_start_pos is None:
+            self.update_preview_node(snapped)
+            self.preview_pipe.hide()
+            return
+        self.preview_node.hide()
+        self.preview_pipe.hide()
+        offset = QPointF(snapped.x() - self.node_start_pos.x(),
+                         snapped.y() - self.node_start_pos.y())
+        self._move_ghost = [p.translated(offset.x(), offset.y())
+                            for p in self._move_ghost_base]
+        for v in self.views():
+            v.viewport().update()
 
     def _move_rotate(self, event, snapped):
         if self._rotate_pivot is None:
@@ -6772,6 +6792,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _press_paste_move(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.node_start_pos is None:
             self.node_start_pos = snapped
+            self._move_ghost_base = self._build_move_ghost_base(is_paste=(self.mode == "paste"))
         else:
             offset = CAD_Math.get_vector(self.node_start_pos, snapped)
             if self.mode == "paste":
@@ -6780,6 +6801,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.move_items(offset)
             self.push_undo_state()
             self.node_start_pos = None
+            self._move_ghost = []
+            self._move_ghost_base = []
             self.set_mode(None)
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8604,6 +8627,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 p = QPainterPath()
                 p.moveTo(c.x() - r, c.y()); p.lineTo(c.x() + r, c.y())
                 p.moveTo(c.x(), c.y() - r); p.lineTo(c.x(), c.y() + r)
+                paths.append(p)
+                continue
+            if isinstance(item, GridlineItem):
+                # Ghost the centerline (grip endpoints), not the fat hit-strip
+                # + bubbles that shape() returns.
+                pts = item.grip_points()
+                p = QPainterPath()
+                p.moveTo(pts[0]); p.lineTo(pts[1])
                 paths.append(p)
                 continue
             if hasattr(item, "shape"):
