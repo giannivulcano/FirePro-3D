@@ -40,7 +40,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY)
+                       Z_OVERLAY, INFERENCE_TOL_PX)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -168,6 +168,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._snap_result: "OsnapResult | None" = None
         self._osnap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
+        # Inferred alignment guides (inference_engine.py)
+        from .inference_engine import InferenceEngine
+        self._inference_engine: InferenceEngine = InferenceEngine()
+        self._inference_enabled: bool = True          # toggled via settings (Task 4)
+        self._inference_result = None                 # surfaced to drawForeground (Task 3)
+        self._inference_active_item = None            # item being placed/dragged (self-exclude)
         # Pipe-mode Tab cycling through Z-stacked node candidates
         self._pipe_tab_candidates: list = []
         self._pipe_tab_index: int = 0
@@ -3537,6 +3543,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
+    def _collect_alignment_refs(self, viewport_rect):
+        """Duck-typed collection: every visible item within the viewport that
+        implements alignment_reference_points(), minus the active item."""
+        refs = []
+        exclude_id = (id(self._inference_active_item)
+                      if self._inference_active_item is not None else None)
+        for it in self.items(viewport_rect):
+            fn = getattr(it, "alignment_reference_points", None)
+            if fn is None:
+                continue
+            for f in fn():
+                if f.source_id != exclude_id:
+                    refs.append(f)
+        return refs
+
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
         # Design-area picking snaps to sprinkler centres ONLY: general
@@ -3562,8 +3583,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if best_node is not None:
                 pt = QPointF(best_node.scenePos())
                 self._snap_result = OsnapResult(point=pt, snap_type="center")
+                self._inference_result = None
                 return pt
             self._snap_result = None
+            self._inference_result = None
             return QPointF(scene_pos)
 
         # OSNAP takes highest priority (disabled when no mode or select mode,
@@ -3589,6 +3612,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             snap_pt = self.find_snap_point(scene_pos)
             if snap_pt is not None:
                 return snap_pt
+
+        # ── Inferred alignment guides (weak snap, below OSNAP) ────────────
+        if self._inference_enabled and self._inference_active_item is not None:
+            views = self.views()
+            if views:
+                view = views[0]
+                scale = max(abs(view.transform().m11()), 1e-9)
+                tol = INFERENCE_TOL_PX / scale
+                vp_rect = view.mapToScene(view.viewport().rect()).boundingRect()
+                refs = self._collect_alignment_refs(vp_rect)
+                res = self._inference_engine.resolve(
+                    (scene_pos.x(), scene_pos.y()), refs, tol)
+                self._inference_result = res  # stored even when "free" (Task 3 reads it)
+                if res.priority != "free":
+                    return QPointF(res.snapped[0], res.snapped[1])
+                # "free" — fall through to grid snap (no position change)
+        else:
+            self._inference_result = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
     def toggle_osnap(self, enabled: bool | None = None):

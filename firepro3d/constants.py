@@ -67,6 +67,9 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 
 # ── Design-area creation ─────────────────────────────────────────────────────
 DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (screen px, zoom-aware)
+
+# ── Inferred alignment guides (inference_engine.py) ──────────────────────────
+INFERENCE_TOL_PX = 8.0         # screen-px band within which a cursor aligns to a ref feature
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
 
 # ── Design-criteria badge (model-space mm; tuned at 2026-07-14 mockup gate) ──
