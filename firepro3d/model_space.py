@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
                               QHBoxLayout, QVBoxLayout, QLabel, QLineEdit)
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
-                          QCursor, QDoubleValidator, QImage, QPolygonF,
+                          QCursor, QDoubleValidator, QImage, QIntValidator, QPolygonF,
                           QFontMetricsF)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from .node import Node
@@ -4148,7 +4148,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 first = None
                 for name, default_val, suffix, decimals in fields:
                     is_angle = (suffix == "°")
-                    self._is_dim[name] = not is_angle
+                    is_count = (suffix == "#")
+                    self._is_dim[name] = not (is_angle or is_count)
                     lay.addWidget(QLabel(f"{name}:"))
                     if is_angle:
                         # Angle: plain number + ° suffix label
@@ -4159,6 +4160,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         edit.setValidator(v)
                         lay.addWidget(edit)
                         lay.addWidget(QLabel("°"))
+                    elif is_count:
+                        # Count: plain positive integer, no units label
+                        edit = QLineEdit(f"{int(default_val)}")
+                        edit.setAlignment(Qt.AlignmentFlag.AlignRight)
+                        iv = QIntValidator()
+                        iv.setBottom(1)
+                        edit.setValidator(iv)
+                        lay.addWidget(edit)
                     else:
                         # Dimension: formatted value with units inside text box
                         if sm:
@@ -4369,7 +4378,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             default_ct = self._replicate_count if self._replicate_count > 0 else 1
             dlg = _DynInput([
                 ("Spacing", default_sp, "", 2),
-                ("Count",   float(default_ct), "", 0),
+                ("Count",   default_ct, "#", 0),
             ], sm=_sm)
             if dlg.exec() == QDialog.DialogCode.Accepted:
                 self._replicate_spacing = dlg.value("Spacing")

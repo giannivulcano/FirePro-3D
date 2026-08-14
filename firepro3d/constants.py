@@ -69,7 +69,7 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (screen px, zoom-aware)
 
 # ── Inferred alignment guides (inference_engine.py) ──────────────────────────
-INFERENCE_TOL_PX = 55.0        # screen-px band to align to a ref feature; wider than OSNAP
+INFERENCE_TOL_PX = 65.0        # screen-px band to align to a ref feature; wider than OSNAP
                                # (SNAP_TOLERANCE_PX=40) per inferred-placement spec §5.4 (weak snap)
 
 # ── Inferred-placement alignment guide overlay ────────────────────────────────
