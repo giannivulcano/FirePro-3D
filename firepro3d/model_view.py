@@ -559,6 +559,20 @@ class Model_View(QGraphicsView):
                 painter.drawLine(o, f)
             painter.restore()
 
+        # ── 8. Move/paste ghost silhouette (scene-coord cosmetic outline) ──
+        mghost = getattr(scene, "_move_ghost", None)
+        if mghost:
+            from .constants import INFERENCE_GUIDE_COLOR
+            mp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            mp.setCosmetic(True)
+            painter.save()
+            painter.setPen(mp)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            for path in mghost:
+                painter.drawPath(path)
+            painter.restore()
+
     # ─────────────────────────────
     # Drag & Drop (PDF / DXF import)
     # ─────────────────────────────

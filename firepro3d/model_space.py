@@ -179,6 +179,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_count: int = 1
         self._replicate_spacing: float = 0.0
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
+        self._move_ghost: list = []          # list[QPainterPath] in scene coords
+        self._move_ghost_base: list = []      # base paths captured at first click
+        self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
         # OSNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
