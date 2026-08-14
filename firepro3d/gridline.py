@@ -819,7 +819,9 @@ class GridlineItem(QGraphicsLineItem):
     # ── Grip drag (constrained to gridline direction) ────────────────────
 
     def grip_points(self) -> list[QPointF]:
-        return [QPointF(self._origin), self._far_point()]
+        # 0=origin, 1=far endpoint, 2=bubble1 centre, 3=bubble2 centre.
+        return [QPointF(self._origin), self._far_point(),
+                QPointF(self.bubble1.pos()), QPointF(self.bubble2.pos())]
 
     def alignment_reference_points(self):
         """Reference features for the inference engine: both endpoints and
@@ -848,11 +850,23 @@ class GridlineItem(QGraphicsLineItem):
         ]
 
     def apply_grip(self, index: int, new_pos: QPointF):
-        """Extend/shorten along the line; opposite endpoint stays fixed.
-        Cursor is projected onto the line direction (perpendicular discarded)."""
+        """Grips 0/1 extend/shorten along the line (opposite end fixed).
+        Grips 2/3 slide the bubble standoff along the axis (floored at 0).
+        Cursor is projected onto the line direction; perpendicular discarded."""
         if self._locked:
             return
         dx, dy = self._direction()
+        if index == 2:  # bubble1: outward standoff from origin (−û)
+            t = (new_pos.x() - self._origin.x()) * dx + (new_pos.y() - self._origin.y()) * dy
+            self._bubble1_offset = max(0.0, -t)
+            self._rebuild_geometry()
+            return
+        if index == 3:  # bubble2: outward standoff from far end (+û)
+            far = self._far_point()
+            s = (new_pos.x() - far.x()) * dx + (new_pos.y() - far.y()) * dy
+            self._bubble2_offset = max(0.0, s)
+            self._rebuild_geometry()
+            return
         if index == 1:
             vx = new_pos.x() - self._origin.x()
             vy = new_pos.y() - self._origin.y()
