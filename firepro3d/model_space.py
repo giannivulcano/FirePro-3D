@@ -221,8 +221,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._offset_preview = None             # preview item shown during side-pick
         self._offset_manual: bool = False       # True when user typed distance via Tab
         self._offset_highlight = None           # highlight overlay for selected offset entity
-        # Move preview (Sprint Z)
-        self._move_preview_line = None          # rubber-band line from base point to cursor
         # Single place mode (Sprint Y) — return to select after placing one item
         self.single_place_mode: bool = False
         # Trim / Extend / Merge state (Sprint Y)
@@ -873,13 +871,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.requestPropertyUpdate.emit(template)
         else:
             self.current_template = None
-
-        # Clean up move preview line
-        if mode != "move":
-            if self._move_preview_line is not None:
-                if self._move_preview_line.scene() is self:
-                    self.removeItem(self._move_preview_line)
-                self._move_preview_line = None
 
         # Clean up offset preview whenever leaving offset modes
         if mode not in ("offset", "offset_side"):
