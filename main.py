@@ -232,6 +232,50 @@ class _OsnapIndicatorLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class _GuidesIndicatorLabel(QLabel):
+    """Clickable status-bar label for the alignment-guides state indicator.
+
+    Mirrors _OsnapIndicatorLabel — enabled = bold green pill, disabled = grey.
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__("GUIDES", parent)
+        self.setToolTip("Toggle Alignment Guides (F12)")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumWidth(80)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setProperty("guidesOn", True)
+        self._apply_style()
+
+    def setGuidesOn(self, on: bool) -> None:
+        self.setProperty("guidesOn", bool(on))
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        on = bool(self.property("guidesOn"))
+        if on:
+            self.setStyleSheet(
+                "font-weight: bold; color: #44ff88; "
+                "background: #1a3a24; padding: 2px 10px; "
+                "border: 1px solid #44ff88; border-radius: 3px;"
+            )
+        else:
+            self.setStyleSheet(
+                "font-weight: bold; color: #888; "
+                "background: transparent; padding: 2px 10px; "
+                "border: 1px solid #555; border-radius: 3px;"
+            )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class _OsnapToolbar(QToolBar):
     """Dockable toolbar of one-click toggles for the 8 OSNAP snap types.
 
@@ -574,6 +618,12 @@ class MainWindow(QMainWindow):
         status_bar.addPermanentWidget(self.osnap_indicator)
         self.scene.osnapToggled.connect(self._update_osnap_indicator)
         self._update_osnap_indicator(self.scene._osnap_enabled)
+        # GUIDES status-bar indicator — mirrors OSNAP pill for inference state.
+        self.guides_indicator = _GuidesIndicatorLabel(self)
+        self.guides_indicator.clicked.connect(self.scene.set_inference_enabled)
+        status_bar.addPermanentWidget(self.guides_indicator)
+        self.scene.inferenceToggled.connect(self._update_guides_indicator)
+        self._update_guides_indicator(self.scene._inference_enabled)
         # Pipe-mode node snap readout (between OSNAP and coordinates)
         self.node_snap_label = QLabel("")
         self.node_snap_label.setStyleSheet(
@@ -642,6 +692,9 @@ class MainWindow(QMainWindow):
         # the ribbon button, status-bar pill, and OSNAP toolbar.
         self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
         self._f3_shortcut.activated.connect(self.scene.toggle_osnap)
+        # F12 global alignment-guides toggle — mirrors F3 / OSNAP pattern.
+        self._f12_shortcut = QShortcut(QKeySequence("F12"), self)
+        self._f12_shortcut.activated.connect(self.scene.set_inference_enabled)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         QShortcut(QKeySequence("Delete"), self).activated.connect(
@@ -736,6 +789,10 @@ class MainWindow(QMainWindow):
                 setattr(self.scene._snap_engine, attr, bool(val))
         # Reflect the just-restored per-type snap state on the toolbar.
         self.osnap_toolbar.refresh_from_engine()
+        # Restore alignment-guides inference toggle
+        inference_on = self.settings.value(
+            "inference/alignment_guides", True, type=bool)
+        self.scene.set_inference_enabled(inference_on)
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
@@ -2282,20 +2339,38 @@ class MainWindow(QMainWindow):
             self.settings.setValue("snap/grid_size", new_grid)
             self.settings.setValue("snap/angle_deg", new_angle)
 
-    def _open_snap_tolerance_dialog(self):
-        """Live-adjustable snap settings dialog with per-type toggles."""
+    def _open_snap_tolerance_dialog(self, modal: bool = True):
+        """Live-adjustable snap settings dialog with per-type toggles.
+
+        Args:
+            modal: When True (default), shows the dialog via exec() and blocks.
+                When False, builds and returns the dialog without calling exec()
+                (test seam — mirrors how other dialogs expose a non-modal path).
+
+        Returns:
+            The QDialog instance (always).  In modal mode the dialog has
+            already been exec()'d and closed before the return.
+        """
         from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout,
-                                      QDialogButtonBox, QGroupBox, QCheckBox)
+                                      QDialogButtonBox, QGroupBox, QCheckBox,
+                                      QTabWidget, QWidget, QLabel)
         from firepro3d import snap_engine
 
         eng = self.scene._snap_engine
 
         dlg = QDialog(self)
         dlg.setWindowTitle("Snap Settings")
-        dlg.setMinimumWidth(300)
+        dlg.setMinimumWidth(340)
         outer = QVBoxLayout(dlg)
 
-        # ── Tolerance ────────────────────────────────────────────────
+        tabs = QTabWidget()
+        outer.addWidget(tabs)
+
+        # ── Tab 1: OSNAP ─────────────────────────────────────────────
+        osnap_tab = QWidget()
+        osnap_layout = QVBoxLayout(osnap_tab)
+
+        # Tolerance
         tol_group = QGroupBox("Tolerance")
         tol_layout = QFormLayout(tol_group)
         tol_spin = QSpinBox()
@@ -2315,10 +2390,9 @@ class MainWindow(QMainWindow):
         grip_spin.valueChanged.connect(
             lambda v: setattr(self.scene, "_grip_tolerance_px", v))
         tol_layout.addRow("Grip handle radius:", grip_spin)
+        osnap_layout.addWidget(tol_group)
 
-        outer.addWidget(tol_group)
-
-        # ── Snap types ───────────────────────────────────────────────
+        # Snap types
         types_group = QGroupBox("Snap Types")
         types_layout = QVBoxLayout(types_group)
 
@@ -2342,7 +2416,34 @@ class MainWindow(QMainWindow):
             types_layout.addWidget(cb)
             checkboxes.append((cb, attr))
 
-        outer.addWidget(types_group)
+        osnap_layout.addWidget(types_group)
+        tabs.addTab(osnap_tab, "OSNAP")
+
+        # ── Tab 2: Inference ─────────────────────────────────────────
+        inf_tab = QWidget()
+        inf_layout = QVBoxLayout(inf_tab)
+
+        align_cb = QCheckBox("Alignment Guides")
+        align_cb.setObjectName("inference_alignment_guides")
+        align_cb.setChecked(self.scene._inference_enabled)
+        align_cb.toggled.connect(
+            lambda checked: (
+                self.scene.set_inference_enabled(checked),
+                QSettings().setValue("inference/alignment_guides", checked),
+            )
+        )
+        inf_layout.addWidget(align_cb)
+
+        coming_soon_group = QGroupBox("Dynamic Input · Equal Spacing")
+        coming_soon_group.setEnabled(False)
+        cs_layout = QVBoxLayout(coming_soon_group)
+        cs_label = QLabel("Coming soon")
+        cs_label.setStyleSheet("color: #888;")
+        cs_layout.addWidget(cs_label)
+        inf_layout.addWidget(coming_soon_group)
+        inf_layout.addStretch()
+
+        tabs.addTab(inf_tab, "Inference")
 
         # ── Buttons ──────────────────────────────────────────────────
         buttons = QDialogButtonBox(
@@ -2352,27 +2453,36 @@ class MainWindow(QMainWindow):
         buttons.rejected.connect(dlg.reject)
         outer.addWidget(buttons)
 
+        if not modal:
+            return dlg
+
         # Snapshot for cancel
         old_tol = snap_engine.SNAP_TOLERANCE_PX
         old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
         old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
+        old_inference = self.scene._inference_enabled
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
-            # Persist
+            # Persist OSNAP settings
             self.settings.setValue("snap/tolerance_px", snap_engine.SNAP_TOLERANCE_PX)
             self.settings.setValue("snap/grip_tolerance_px",
                                   getattr(self.scene, "_grip_tolerance_px", 200))
             for _, attr in checkboxes:
                 self.settings.setValue(f"snap/{attr}", getattr(eng, attr))
+            # Inference setting already saved live via the checkbox toggled signal
         else:
-            # Revert
+            # Revert OSNAP
             snap_engine.SNAP_TOLERANCE_PX = old_tol
             self.scene._grip_tolerance_px = old_grip
             for attr, val in old_flags.items():
                 setattr(eng, attr, val)
+            # Revert inference
+            self.scene.set_inference_enabled(old_inference)
+            QSettings().setValue("inference/alignment_guides", old_inference)
 
         # Keep the OSNAP toolbar in sync with whatever the dialog left set.
         self.osnap_toolbar.refresh_from_engine()
+        return dlg
 
     # ── Ribbon helper menu builders ───────────────────────────────────────────
 
@@ -2629,6 +2739,10 @@ class MainWindow(QMainWindow):
             btn.blockSignals(True)
             btn.setChecked(enabled)
             btn.blockSignals(False)
+
+    def _update_guides_indicator(self, enabled: bool) -> None:
+        """Restyle the GUIDES status-bar pill. Mirrors _update_osnap_indicator."""
+        self.guides_indicator.setGuidesOn(enabled)
 
     def _update_node_snap_readout(self, text: str):
         """Update the pipe-mode node snap readout in the status bar."""

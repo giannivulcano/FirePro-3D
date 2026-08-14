@@ -343,6 +343,39 @@ def test_guide_paints_when_result_present(qapp, make_model_space):
     mv.hide()
 
 
+# ---------------------------------------------------------------------------
+# Step 5 (Task 4) — set_inference_enabled() functional toggle test
+# ---------------------------------------------------------------------------
+
+def test_inference_toggle_off_disables_snap(qapp, make_model_space):
+    """set_inference_enabled(False) must suppress inference snapping.
+
+    Uses the same view-sizing pattern as the Task-2 class tests so the
+    reference gridline is within the viewport.
+    """
+    from PyQt6.QtCore import QPointF
+    from firepro3d.gridline import GridlineItem
+    ms = make_model_space()
+    ref = GridlineItem(QPointF(1000.0, -500.0), QPointF(1000.0, 5000.0), label="1")
+    ms.addItem(ref); ms._gridlines.append(ref)
+    active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
+    ms._inference_active_item = active
+    ms._osnap_enabled = False
+    ms._snap_to_underlay = False
+    ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
+
+    view = ms.views()[0]
+    view.resize(4000, 4000)
+    view.centerOn(1000.0, 2500.0)
+    from PyQt6.QtWidgets import QApplication
+    QApplication.processEvents()
+
+    ms.set_inference_enabled(False)
+    pos = ms.get_effective_position(QPointF(1002.0, 2500.0))
+    assert round(pos.x(), 1) == 1002.0, (    # NOT snapped to x=1000
+        f"set_inference_enabled(False) should prevent snap but got x={pos.x()}"
+    )
+    assert ms._inference_result is None
 def test_no_guide_paint_when_result_none(qapp, make_model_space):
     """drawForeground must NOT paint guide-color pixels when _inference_result is None."""
     from firepro3d.model_view import Model_View

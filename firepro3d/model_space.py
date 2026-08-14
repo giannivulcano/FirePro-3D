@@ -92,6 +92,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
+    inferenceToggled = pyqtSignal(bool)  # emitted whenever set_inference_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
     def __init__(self):
@@ -3645,6 +3646,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
         self.osnapToggled.emit(self._osnap_enabled)
+
+    def set_inference_enabled(self, enabled: bool | None = None):
+        """Toggle or set alignment inference. Mirrors toggle_osnap()."""
+        if enabled is None:
+            self._inference_enabled = not self._inference_enabled
+        else:
+            self._inference_enabled = bool(enabled)
+        self._inference_result = None
+        for v in self.views():
+            v.viewport().update()
+        self.inferenceToggled.emit(self._inference_enabled)
 
     def find_snap_point(self, pos: QPointF) -> QPointF | None:
         """Find the nearest DXF underlay snap point within tolerance."""

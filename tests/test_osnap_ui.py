@@ -40,9 +40,10 @@ def _main_window_singleton(qapp):
 
 @pytest.fixture
 def main_window(_main_window_singleton):
-    """Per-test view of the shared MainWindow with OSNAP reset to on."""
+    """Per-test view of the shared MainWindow with OSNAP + inference reset to on."""
     win = _main_window_singleton
     win.scene.toggle_osnap(True)
+    win.scene.set_inference_enabled(True)
     yield win
 
 
@@ -147,3 +148,56 @@ def test_osnap_bar_button_toggles_toolbar(main_window):
     win._osnap_bar_btn.setChecked(False)
     assert win.osnap_toolbar.isVisible() is False
     assert win._osnap_bar_btn.isChecked() is False
+
+
+# ── Inference / Alignment Guides toggle tests ─────────────────────────────
+
+
+def test_inference_checkbox_drives_flag(main_window):
+    """The Inference tab checkbox in Snap Settings drives _inference_enabled.
+
+    Uses modal=False test seam to build the dialog without exec().
+    Drives the checkbox with .click() (not by calling slots directly).
+    """
+    from PyQt6.QtWidgets import QCheckBox
+    mw = main_window
+    mw.scene.set_inference_enabled(True)
+    dlg = mw._open_snap_tolerance_dialog(modal=False)
+    cb = dlg.findChild(QCheckBox, "inference_alignment_guides")
+    assert cb is not None and cb.isChecked() is True
+    cb.click()
+    assert mw.scene._inference_enabled is False
+
+
+def test_guides_indicator_exists_and_initial_state(main_window):
+    """GUIDES status-bar pill is present and reflects initial state."""
+    label = main_window.guides_indicator
+    assert label is not None
+    assert label.text() == "GUIDES"
+    # Ensure state is known for the assertion.
+    main_window.scene.set_inference_enabled(True)
+    assert label.property("guidesOn") is True
+
+
+def test_guides_indicator_restyles_on_toggle(main_window):
+    """inferenceToggled signal restyles the GUIDES pill."""
+    label = main_window.guides_indicator
+    main_window.scene.set_inference_enabled(True)
+    assert label.property("guidesOn") is True
+    main_window.scene.set_inference_enabled(False)
+    assert label.property("guidesOn") is False
+    main_window.scene.set_inference_enabled(True)
+    assert label.property("guidesOn") is True
+
+
+def test_f12_shortcut_toggles_guides(main_window):
+    """F12 is a window-level shortcut that toggles inference and syncs the pill."""
+    win = main_window
+    assert win._f12_shortcut.key() == QKeySequence("F12")
+    win.scene.set_inference_enabled(True)
+    win._f12_shortcut.activated.emit()
+    assert win.scene._inference_enabled is False
+    assert win.guides_indicator.property("guidesOn") is False
+    win._f12_shortcut.activated.emit()
+    assert win.scene._inference_enabled is True
+    assert win.guides_indicator.property("guidesOn") is True
