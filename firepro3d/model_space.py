@@ -74,6 +74,14 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     return pen
 
 
+class _PlacementSentinel:
+    """Marker object: inference is active during placement, nothing to self-exclude.
+
+    Must NOT implement alignment_reference_points() so that the engine
+    excludes nothing — all existing gridlines remain valid candidates.
+    """
+
+
 class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
@@ -175,6 +183,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._inference_enabled: bool = True          # toggled via settings (Task 4)
         self._inference_result = None                 # surfaced to drawForeground (Task 3)
         self._inference_active_item = None            # item being placed/dragged (self-exclude)
+        self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
         self._pipe_tab_candidates: list = []
         self._pipe_tab_index: int = 0
@@ -724,6 +733,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
+        # Inference active-item: set sentinel for draw_gridline, clear otherwise.
+        if mode == "draw_gridline":
+            self._inference_active_item = self._PLACEMENT_SENTINEL
+        else:
+            self._inference_active_item = None
+            self._inference_result = None
         # Reset gridline body drag state
         self._dragging_gridline = None
         self._gridline_drag_start = None
@@ -5432,6 +5447,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
                 self._grip_item, self._grip_index = grip_hit
                 self._grip_dragging = True
+                # Enable inference self-exclusion for gridline endpoint drags.
+                if isinstance(self._grip_item, GridlineItem):
+                    self._inference_active_item = self._grip_item
                 return  # consumed by grip system
 
         # ── Gridline body click → select (no body drag, use grips) ──
@@ -7485,6 +7503,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
+            # Clear inference active item now that the drag gesture is complete.
+            self._inference_active_item = None
+            self._inference_result = None
             self.push_undo_state()
             for v in self.views():
                 v.viewport().update()
