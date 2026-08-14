@@ -1,7 +1,7 @@
 ---
 status: partial
 last-verified: 2026-08-14
-verified-commit: de2b12a
+verified-commit: 41ed103
 applies-to:
   - firepro3d/inference_engine.py
   - firepro3d/model_space.py
@@ -33,7 +33,11 @@ Gridlines are the **first client** of the inference engine. The built slice deli
 - Single **alignment-guides toggle**: "Inference" tab in the snap settings dialog + "GUIDES" status-bar pill + F12 shortcut; `QSettings` key `inference/alignment_guides` (default `True`), restored on startup.
 - Tolerance `INFERENCE_TOL_PX` = 65 px — wider than OSNAP (40 px), as specified (weak snap, visual hint).
 
-**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and body-drag as clients; per-guide distance labels; Selection Dimensions (§8); Dynamic Input (§4) as a general capability (`_DynInput` partially exists for gridline offset/array and line-tool placement); the full three-toggle + master-key system (§10).
+**BUILT (extended 2026-08-14, commit 41ed103):**
+- **Move/paste as inference clients.** Both pick points of the AutoCAD-style move/copy flow (`_press_paste_move`) run OSNAP + alignment inference (`_inference_active_item` set for `paste`/`move` in `set_mode`). **Move self-excludes the moving gridlines** from the reference set via `_inference_exclude_ids` (honored in `_collect_alignment_refs`), so a mover never aligns to its own current position; paste excludes nothing. A cosmetic scene-coord **silhouette ghost** of the affected geometry rides the cursor (owned by `grid-system.md §5.7`-adjacent move/paste sections; rendered in `Model_View.drawForeground` block 8).
+- **Type-to-seed (§4.3, partial).** The digit that opens the floating `_DynInput` is inserted into the **primary field** (Spacing/Distance/Length) with the cursor at end, for gridline array/offset **and** `draw_line`/`draw_gridline` placement (digit now also *opens* the popup during placement, previously Tab-only).
+
+**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and general body-drag as clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); Dynamic Input (§4) as a fully general capability (`_DynInput` + type-to-seed exist for gridline offset/array and line/gridline placement, not yet for pipe/wall/arc/rectangle); the full three-toggle + master-key system (§10).
 
 ---
 
@@ -181,7 +185,7 @@ For pipes: the angle is locked to the nearest 45° increment at all times. Typin
 
 ### 5.2 Active During **[PARTIAL — gridlines only; others PROPOSAL]**
 
-**BUILT:** `draw_gridline` placement (both points) and gridline endpoint grip-drag. **PROPOSAL:** all other placement modes (pipe, sprinkler, wall, construction geometry) and drag repositioning of other entity types.
+**BUILT:** `draw_gridline` placement (both points), gridline endpoint grip-drag, and the **move/paste pick points** (both clicks; move self-excludes the movers). **PROPOSAL:** all other placement modes (pipe, sprinkler, wall, construction geometry), moved-geometry key-point snapping, and drag repositioning of other entity types.
 
 ### 5.3 Detection Algorithm **[PARTIAL]**
 

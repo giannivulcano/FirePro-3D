@@ -1,7 +1,7 @@
 ---
-status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14
+status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14
 last-verified: 2026-08-14
-verified-commit: de2b12a
+verified-commit: 41ed103
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -179,7 +179,15 @@ Double-clicking a spacing dimension opens an inline text field on the dimension 
 
 ### 5.6 Bubble Offset (Implemented)
 
-Each bubble stands off from its endpoint by an **absolute, editable per-end offset** (`_bubble1_offset` / `_bubble2_offset`, mm; default `GRIDLINE_BUBBLE_OFFSET_MM`). Offsets are edited via the Properties panel (§7). The offset is along the gridline axis, outward from the span; the line is shortened in `paint()` to meet the visible bubble edge. Independent bubble **leader/jog** offset (moving a bubble off-axis with a leader line) remains a future follow-up.
+Each bubble stands off from its endpoint by an **absolute, editable per-end offset** (`_bubble1_offset` / `_bubble2_offset`, mm; default `GRIDLINE_BUBBLE_OFFSET_MM`). Offsets are edited via the Properties panel (§7) **or on-canvas via a bubble grip** (§5.7). The offset is along the gridline axis, outward from the span; the line is shortened in `paint()` to meet the visible bubble edge. Independent bubble **leader/jog** offset (moving a bubble off-axis with a leader line) remains a future follow-up.
+
+### 5.7 Bubble-Offset Grips (Implemented 2026-08-14)
+
+Two additional pull-tab grips sit at the bubble centres (`_bgrip1` / `_bgrip2`, same house style as the endpoint grips). `grip_points()` returns **four** entries — `[origin, far, bubble1_centre, bubble2_centre]` (indices 0/1 endpoints, 2/3 bubbles). Dragging a bubble grip slides that end's offset **along the gridline axis** (perpendicular component discarded), floored at 0, no maximum, via `apply_grip(2|3, pos)`.
+
+- **Visibility / hittability:** bubble grips show on selection/hover when unlocked; a **hidden bubble shows no grip**. `grip_hittable(index)` returns `False` for a locked gridline (any index) and for a hidden bubble's index; it gates **both** the hit-test (`_find_grip_hit`, §5.3 / `scene_tools`) and the `drawForeground` grip-render loop (no phantom handle).
+- **Multi-select:** dragging one bubble grip applies the **same offset delta** to the matching end of every selected gridline; locked members are skipped (lock-aware via `apply_grip`). Endpoint grips (0/1) keep their extend/shorten behavior (§5.2) unchanged; the shared drag body is `_drag_grip_to()`. Ctrl-angle-constrain applies to endpoint grips only.
+- **Undo:** one state push on mouse release (shared grip-release path).
 
 ### 5.7 Double-Click to Select
 
@@ -510,7 +518,8 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `firepro3d/gridline.py` | Canonical parametric `GridlineItem` + `GridBubble` + grips/lock; serialization; paint/dash; `get_properties`/`set_property`; `alignment_reference_points()`; `offset_copy()`/`array_copies()` copy factories; `_is_template` placement-template flag |
 | `firepro3d/model_space.py` | Scene management, gridline storage, `draw_gridline` placement (`_make_line_like`), grip path, parallelism spacing, body drag, `place_grid_lines` seed, both undo serialization paths; `gridline_offset`/`gridline_array` transient modes; `_collect_alignment_refs`; `get_effective_position` inference hook; `_get_gridline_template()` |
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
-| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost-preview overlay |
+| `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost; grip render honors `grip_hittable` |
+| `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items |
 | `firepro3d/inference_engine.py` | `InferenceEngine`, `ReferenceFeature`, `Guide`, `InferenceResult` — entity-agnostic; owned by `Model_Space` |
 | `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
@@ -528,6 +537,10 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `offset_copy(distance: float) -> GridlineItem` | `GridlineItem` | One parallel copy at signed perpendicular distance (mm) |
 | `array_copies(spacing: float, count: int) -> list[GridlineItem]` | `GridlineItem` | N parallel copies at successive spacing multiples |
 | `_is_template: bool` | `GridlineItem` | Flag for placement-template instance; restricts `get_properties()` to non-geometric rows |
+| `grip_points() -> list[QPointF]` (4 entries) | `GridlineItem` | `[origin, far, bubble1, bubble2]` — indices 2/3 are the bubble-offset grips (§5.7) |
+| `apply_grip(2|3, pos)` | `GridlineItem` | Slides that end's bubble offset along the axis (floored 0); indices 0/1 = endpoint extend/shorten |
+| `grip_hittable(index) -> bool` | `GridlineItem` | Gates a locked/hidden-bubble grip in `_find_grip_hit` and the `drawForeground` grip render (§5.7) |
+| `_drag_grip_to(pos)` | `Model_Space` | Shared grip-drag body: applies to active grip + same-delta multi-select propagation |
 
 ## 15. Edge Cases & Error Handling
 
