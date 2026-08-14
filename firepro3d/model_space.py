@@ -4505,6 +4505,34 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # -------------------------------------------------------------------------
     # MOUSE EVENTS
 
+    def _drag_grip_to(self, pos):
+        """Apply the active grip drag to *pos* (scene coords), propagating to
+        other selected gridlines. Endpoint grips (0/1) keep the opposite end
+        fixed; bubble grips (2/3) slide the standoff. Lock-aware via apply_grip."""
+        gi = self._grip_item
+        if gi is None:
+            return
+        if isinstance(gi, GridlineItem):
+            old_pt = gi.grip_points()[self._grip_index]
+            gi.apply_grip(self._grip_index, pos)
+            new_pt = gi.grip_points()[self._grip_index]
+            delta = QPointF(new_pt.x() - old_pt.x(), new_pt.y() - old_pt.y())
+            for sel in self.selectedItems():
+                if sel is gi or not isinstance(sel, GridlineItem):
+                    continue
+                sg = sel.grip_points()
+                target = QPointF(sg[self._grip_index].x() + delta.x(),
+                                 sg[self._grip_index].y() + delta.y())
+                sel.apply_grip(self._grip_index, target)
+        else:
+            gi.apply_grip(self._grip_index, pos)
+        self._solve_constraints(gi)
+        for h in self._hatch_items:
+            if getattr(h, '_source_item', None) is gi:
+                h.rebuild_from_source()
+        for v in self.views():
+            v.viewport().update()
+
     def mouseMoveEvent(self, event):
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
@@ -4519,40 +4547,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Grip drag (mode-independent, takes priority) ────────────────
         if self._grip_dragging and self._grip_item is not None:
             pos = snapped
-            # Ctrl constrains to angle increments from the opposite grip
+            # Ctrl constrains to angle increments — endpoint grips only.
             if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._grip_index in (0, 1)
                     and hasattr(self._grip_item, "grip_points")):
                 grips = self._grip_item.grip_points()
                 if len(grips) >= 2 and self._grip_index != 1:
-                    opp = 0 if self._grip_index == len(grips) - 1 else len(grips) - 1
+                    opp = 1
                     pos = self._constrain_angle(grips[opp], snapped)
-            # For gridlines: move the same grip on all selected gridlines
-            # while keeping the opposite end fixed (length adjusts).
-            if isinstance(self._grip_item, GridlineItem):
-                old_grips = self._grip_item.grip_points()
-                old_pt = old_grips[self._grip_index]
-                self._grip_item.apply_grip(self._grip_index, pos)
-                new_grips = self._grip_item.grip_points()
-                new_pt = new_grips[self._grip_index]
-                delta = QPointF(new_pt.x() - old_pt.x(),
-                                new_pt.y() - old_pt.y())
-                # Apply same grip-index movement to other selected gridlines
-                for sel in self.selectedItems():
-                    if sel is self._grip_item or not isinstance(sel, GridlineItem):
-                        continue
-                    sg = sel.grip_points()
-                    target = QPointF(sg[self._grip_index].x() + delta.x(),
-                                     sg[self._grip_index].y() + delta.y())
-                    sel.apply_grip(self._grip_index, target)
-            else:
-                self._grip_item.apply_grip(self._grip_index, pos)
-            self._solve_constraints(self._grip_item)
-            # Real-time hatch rebuild during grip drag
-            for h in self._hatch_items:
-                if getattr(h, '_source_item', None) is self._grip_item:
-                    h.rebuild_from_source()
-            for v in self.views():
-                v.viewport().update()
+            self._drag_grip_to(pos)
             return
 
         # ── Gridline body drag (perpendicular constraint) ───────────────
