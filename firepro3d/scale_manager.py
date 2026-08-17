@@ -15,6 +15,8 @@ Calibration workflow:
 
 from __future__ import annotations
 import math
+import re
+from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from math import floor
 from PyQt6.QtCore import QPointF
@@ -259,6 +261,76 @@ class ScaleManager:
         elif self._display_unit == DisplayUnit.METRIC_M:
             return "m"
         return "mm"
+
+    # -----------------------------------------------------------------
+    # Angles (unit-invariant: degrees in both imperial and metric)
+    # -----------------------------------------------------------------
+
+    _ANGLE_RE = re.compile(
+        r"^\s*([+-]?(?:\d+\.?\d*|\.\d+))\s*(?:°|deg|degrees)?\s*$",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def normalize_angle(deg: float) -> float:
+        """Fold *deg* into the half-open range (-180, 180].
+
+        Args:
+            deg: Angle in degrees.
+
+        Returns:
+            The equivalent angle in (-180, 180].
+        """
+        a = (float(deg) + 180.0) % 360.0 - 180.0
+        return 180.0 if a == -180.0 else a
+
+    @staticmethod
+    def format_angle(deg: float) -> str:
+        """Format *deg* as decimal degrees with the ° glyph in the string.
+
+        Trailing zeros are trimmed and precision is capped at 2 decimals.
+        Deliberately independent of ``self.precision``, which controls
+        fractional-inch denominators and is meaningless for angles.
+
+        Args:
+            deg: Angle in degrees.
+
+        Returns:
+            The formatted angle, e.g. ``"-16.4°"``.
+        """
+        a = ScaleManager.normalize_angle(deg)
+        # Round half away from zero on the decimal literal the user sees:
+        # f"{45.125:.2f}" gives "45.12" (binary repr is just under the tie,
+        # then banker's rounding), but a CAD readout should show 45.13.
+        q = Decimal(repr(a)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        s = f"{q:f}".rstrip("0").rstrip(".")
+        if s in ("-0", "", "-"):
+            s = "0"
+        return f"{s}°"
+
+    @staticmethod
+    def parse_angle(text: str) -> float | None:
+        """Parse decimal degrees from *text*.
+
+        Bare numbers are degrees; a trailing ``°``, ``deg`` or ``degrees``
+        is accepted.
+
+        Args:
+            text: The text to parse.
+
+        Returns:
+            The angle normalized to (-180, 180], or None when unparseable so
+            callers can fall back (``DimensionEdit`` reverts to last valid).
+        """
+        if not text:
+            return None
+        m = ScaleManager._ANGLE_RE.match(str(text))
+        if not m:
+            return None
+        try:
+            return ScaleManager.normalize_angle(float(m.group(1)))
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def parse_dimension(text: str, fallback_unit: str = "mm") -> float | None:
