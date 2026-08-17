@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 
 from firepro3d.construction_geometry import PolylineItem
 from firepro3d.model_space import Model_Space
@@ -14,6 +14,23 @@ from firepro3d.node import Node
 def scene(qapp):
     sc = Model_Space()
     yield sc
+
+
+class _MoveEventStub:
+    """Minimal stand-in for the mouse-move event ``_move_draw_line`` reads.
+
+    ``QGraphicsSceneMouseEvent`` cannot be instantiated or sub-classed under
+    PyQt6, so a real event cannot be built headlessly.  ``_move_draw_line``
+    touches only ``modifiers()`` on the event (the position arrives as the
+    separate ``snapped`` argument), so this covers the whole surface the
+    handler uses.
+    """
+
+    def __init__(self, modifiers=Qt.KeyboardModifier.NoModifier):
+        self._modifiers = modifiers
+
+    def modifiers(self):
+        return self._modifiers
 
 
 class TestPlacementAnchor:
@@ -126,14 +143,69 @@ class TestPublishPlacementState:
         scene.publish_placement_state(QPointF(0, 0), constrained)
         assert scene.get_resolved_point() == constrained
 
+    def test_move_draw_line_publishes_the_constrained_point(self, scene):
+        """Drive the real handler: the published point must be Ctrl-snapped.
+
+        The previous guard passed the constrained point into
+        ``publish_placement_state`` by hand, so it could not tell a publish of
+        ``tip`` from a publish of the raw ``snapped`` cursor.  Here the raw
+        cursor sits a few degrees off horizontal — well inside the 45° snap —
+        so the two points are numerically distinct and only the constrained
+        one can satisfy the assertion.
+
+        Driven via ``_move_draw_line`` with a ``_MoveEventStub`` rather than a
+        real ``QGraphicsSceneMouseEvent``, which PyQt6 refuses to instantiate.
+        """
+        anchor = QPointF(0, 0)
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = anchor
+        raw = QPointF(1000, -30)          # ~1.7° off horizontal
+        scene._last_scene_pos = raw
+
+        scene._move_draw_line(
+            _MoveEventStub(Qt.KeyboardModifier.ControlModifier), raw)
+
+        expected = scene._constrain_angle(anchor, raw)
+        got = scene.get_resolved_point()
+        assert got is not None
+        assert got == expected
+        # The constraint actually moved the point, so this is a real distinction.
+        assert expected != raw
+        assert got != raw
+
+    def test_move_draw_line_readout_matches_the_constrained_point(self, scene):
+        """The readout is derived from the same constrained point, not the raw one."""
+        anchor = QPointF(0, 0)
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = anchor
+        raw = QPointF(1000, -30)
+
+        scene._move_draw_line(
+            _MoveEventStub(Qt.KeyboardModifier.ControlModifier), raw)
+
+        # Snapped to horizontal → 0°, not the raw cursor's ~1.7°.
+        assert scene._draw_dim_hint == "L 1000.450 mm  A 0°"
+
     def test_sets_dim_hint_from_schema(self, scene):
         scene.mode = "draw_line"
         scene._draw_line_anchor = QPointF(0, 0)
-        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, -1000))
+        assert scene._draw_dim_hint == "L 1414.214 mm  A 45°"
+
+    def test_dim_hint_honours_scale_calibration(self, scene):
+        """Scene units are converted through the scene's own ScaleManager.
+
+        This is the assertion that catches treating scene units as mm: at
+        2 px/mm a 6000-scene-unit line is 3000 mm, and the readout must say so.
+        """
+        scene.scale_manager.set_pixels_per_mm(2.0)
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(6000, 0))
         hint = scene._draw_dim_hint
-        assert hint is not None
-        assert "L" in hint and "A" in hint
-        assert "0°" in hint
+        assert "3000" in hint
+        assert "6000" not in hint
+        assert hint == "L 3000.000 mm  A 0°"
 
     def test_clear_resets_both(self, scene):
         scene.mode = "draw_line"
@@ -158,3 +230,20 @@ class TestPublishPlacementState:
         got = scene.get_resolved_point()
         got.setX(999)
         assert scene.get_resolved_point() == QPointF(100, 0)
+
+    def test_gridline_replicate_teardown_drops_the_point(self, scene):
+        """Cancelling replication must not leave the last point readable.
+
+        ``_end_gridline_replicate`` returns to select mode, so without a full
+        clear a caller reading ``get_resolved_point()`` before the next
+        mouse-move would get the cancelled placement's point.
+        """
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+        assert scene.get_resolved_point() is not None
+
+        scene._end_gridline_replicate()
+
+        assert scene.get_resolved_point() is None
+        assert scene._draw_dim_hint is None

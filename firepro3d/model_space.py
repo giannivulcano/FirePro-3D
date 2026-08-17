@@ -48,6 +48,7 @@ from .roof import RoofItem
 from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .constraints import Constraint as ConstraintBase
+from .dynamic_input import SCHEMAS, FieldKind
 from . import geometry_intersect as gi
 import os
 
@@ -3835,11 +3836,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def active_schema(self):
         """Return the Schema for the current mode, or None.
 
+        Warning:
+            A non-None schema does **not** imply a published point.
+            ``_SCHEMA_FOR_MODE`` is a forward declaration — it describes the
+            migration's end state, while the ``publish_placement_state`` call
+            sites land one task at a time.  Today only ``draw_line`` and
+            ``draw_gridline`` publish; the other eight mapped modes return a
+            schema while ``get_resolved_point()`` stays None.  A caller that
+            needs a seeded position must gate on
+            ``get_resolved_point() is not None``, never on this returning a
+            schema, or it will open an empty HUD in those eight modes.
+
         Returns:
             The registered ``Schema`` for ``self.mode``, or None when the mode
             has no dynamic-input schema.
         """
-        from .dynamic_input import SCHEMAS
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
 
@@ -3850,6 +3861,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         what the HUD seeds from.  Distinct from ``_last_scene_pos``, which
         holds the raw cursor and so can disagree with the preview whenever a
         constraint (Ctrl, 45° snap, inference) is active.
+
+        This — not ``active_schema()`` — is the gate for "is there a live
+        placement to seed from".  Most modes that ``active_schema()`` answers
+        for do not publish yet (see its warning), so None here is the normal
+        state in eight of the ten mapped modes.
 
         The returned point is always a fresh copy; callers may mutate it.
 
@@ -3896,7 +3912,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             A single line such as ``"L 3000.0 mm  A 45°"``.
         """
-        from .dynamic_input import FieldKind
         sm = self.scale_manager
         parts = []
         for spec in schema.fields:
@@ -5486,7 +5501,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Cancel or finish replication: clear state and return to select."""
         self._replicate_source = None
         self._replicate_ghost = []
-        self._draw_dim_hint = None
+        # Full clear, not just the readout: this returns to select mode, so a
+        # bare hint reset would leave the cancelled placement's resolved point
+        # readable until the next mouse-move republished or cleared it.
+        self.clear_placement_state()
         self.set_mode("select")
         for v in self.views():
             v.viewport().update()
