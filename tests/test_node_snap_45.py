@@ -126,6 +126,14 @@ class TestContextualReference:
         out = n.snap_point_45(start, end)
         assert _angle_of(start, out) == pytest.approx(20.0, abs=1e-6)
 
+    def test_reference_selection_ignores_pipe_storage_direction(self, qapp):
+        """Axis, not ray: a pipe stored node1=far must select identically."""
+        n, _pipes, p_west, p_diag = _two_pipe_node()
+        for p in (p_west, p_diag):            # flip stored orientation
+            p.node1, p.node2 = p.node2, p.node1
+        out = n.snap_point_45(QPointF(0, 0), _DRAG_END)
+        assert _angle_of(QPointF(0, 0), out) == pytest.approx(-30.0, abs=1e-6)
+
     def test_length_is_preserved(self, qapp):
         n = Node(0, 0)
         start = QPointF(0, 0)
