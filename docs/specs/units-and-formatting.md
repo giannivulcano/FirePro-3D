@@ -40,19 +40,20 @@ Values are converted **at display time only**. Never store a display string as t
 | Pressure | `68.3 psi` | psi (no metric variant yet) | inline `:.1f` + "psi" — add `format_pressure` to ScaleManager if bar/kPa is ever needed |
 | Flow | `750 gpm` | gpm (no metric variant yet) | inline `:.0f` + "gpm" |
 | Text size (annotations) | Word-style **pt** display | pt | storage stays mm cap-height (paper-space.md §9; user_word_like_text_ux) |
+| Angle | decimal degrees (unit-invariant) | decimal degrees (unit-invariant) | `ScaleManager.format_angle` / `parse_angle` — conventions in §4 |
 
 **Spelling conventions (imperial):** `sq ft`, `cu ft`, `gpm/ft²`, `psi`, `gpm`, `gal`. **Not** `ft²`/`sqft`/`SF` in UI text. (`gpm/ft²` keeps the `ft²` glyph inside the compound unit only.)
 
 ## 4. Angles
 
-Angles are **unit-invariant** — decimal degrees in both imperial and metric projects, unaffected by `display_unit`. That is why the three formatters are `@staticmethod` on `ScaleManager`: they need no scene, no project, and no ScaleManager instance.
+Angles are **unit-invariant** — decimal degrees in both imperial and metric projects, unaffected by `display_unit`. That is why the three angle helpers (`normalize_angle`, `format_angle`, `parse_angle`) are `@staticmethod` on `ScaleManager`: they need no scene, no project, and no ScaleManager instance.
 
 | Concern | Convention | Owner |
 |---|---|---|
 | Orientation | Y-up: `0°` = right (+X), `90°` = up | — |
 | Display range | `(-180, 180]` — `270` displays as `-90°` | `ScaleManager.normalize_angle` |
 | Display | decimal degrees, `°` glyph **inside** the string (`45°`, `-16.4°`); trailing zeros trimmed, capped at 2 decimals, rounded half-away-from-zero | `ScaleManager.format_angle` |
-| Input | bare number = degrees; optional trailing `°` / `deg` / `degrees` (case-insensitive); negatives accepted; scientific notation deliberately rejected | `ScaleManager.parse_angle` |
+| Input | bare number = degrees; optional trailing `°` / `deg` / `degrees` (case-insensitive); negatives accepted; scientific notation deliberately rejected — `1e3` in an angle field is far more likely a typo than an intended 1000°, and rejecting it routes to revert-to-last-valid rather than a wild value | `ScaleManager.parse_angle` |
 
 **Scene Y is down.** Converting a length + angle to a scene point therefore *subtracts* the sine:
 
@@ -61,7 +62,15 @@ QPointF(anchor.x() + length * math.cos(theta),
         anchor.y() - length * math.sin(theta))   # Y-up → scene Y-down
 ```
 
-The inverse is `math.degrees(math.atan2(-dy, dx))`. This sign flip is the single most common angle bug in this codebase — never call `atan2(dy, dx)` on raw scene deltas and treat the result as a user-facing angle.
+The inverse negates the delta's Y before `atan2`. `dy` must be the **raw scene delta** — deriving it from an already-Y-flipped intermediate double-negates and yields a mirrored angle that is correct at `0°` and `180°` and wrong everywhere else, which is exactly the kind of bug that survives a smoke test:
+
+```python
+dx = p2.x() - p1.x()
+dy = p2.y() - p1.y()                        # raw SCENE delta, Y-down
+theta = math.degrees(math.atan2(-dy, dx))   # negate dy → Y-up angle
+```
+
+This sign flip is the single most common angle bug in this codebase — never call `atan2(dy, dx)` on raw scene deltas.
 
 **Why the `°` lives inside the string.** Folding the glyph into the return value lets an angle field be an ordinary `DimensionEdit` with a custom `formatter`/parser pair — no sibling unit label widget, no layout special-casing. Contrast `format_length`, which returns a **space before the unit** (`3048.000 mm`) while `format_angle` returns **no space** (`45°`). The asymmetry is intentional: `°` is typographically bound to the number, `mm` is a separate word. New formatters should follow whichever of the two matches their glyph, not invent a third.
 
@@ -71,16 +80,24 @@ The inverse is `math.degrees(math.atan2(-dy, dx))`. This sign flip is the single
 
 **Precision** is independent of `ScaleManager.precision`, which drives fractional-inch denominators and is meaningless for angles.
 
-### 4.1 The two normalisation conventions (drift guard)
+**Storage and the normalization boundary.** Angles are stored as plain `float` degrees — there is no separate internal basis, so §2 does not apply to them. Unlike lengths, normalization happens on the way **in** as well as out: `parse_angle` normalizes before returning, so a user who types `270` gets `-90.0` stored. Clients doing angle arithmetic (relative angles, sums) can produce values outside `(-180, 180]` and should re-normalize before display — but `format_angle` normalizes defensively as well, so a client that forgets still renders correctly rather than silently wrong.
 
-There are **two** angle-normalisation ranges in the codebase, and they are deliberately distinct. Do not "unify" them.
+**Absolute vs relative.** `format_angle`/`parse_angle` carry no notion of a reference — they always render and parse a plain degree value. A client whose angle is *relative* to something (e.g. a connected pipe's angle relative to its reference pipe) owns the subtraction and **must** make the convention visible in the field label (`Rel A` vs `A`), because the formatted string is identical either way. See `inferred-dimension-driven-placement.md §4`.
 
-| Range | Symbol | Use it for |
+### 4.1 The two normalization conventions (drift guard)
+
+There are **two** angle-normalization ranges in the codebase, and they are deliberately distinct. Do not "unify" them.
+
+**Which one do I call?** Ask what the number is *for*:
+
+- It will be **shown to or typed by a user** (widget, label, scene annotation, HUD field) → `ScaleManager.normalize_angle`, `(-180, 180]`.
+- It decides **whether a point lies on an arc** → `geometry_intersect._normalize_angle`, `[0, 360)`.
+- It is **neither** — intermediate math such as snap-octant selection, 45°-multiple validation, or relative-angle subtraction against a reference pipe → normalize only if the math needs it, and normalize at the **display boundary**, not inside the computation. **Do not add a third range.**
+
+| Range | Owner | Use it for |
 |---|---|---|
-| `(-180, 180]` | `ScaleManager.normalize_angle` | **Display and input.** Any angle a user reads or types. Signed readouts (`-90°`) match CAD convention. |
-| `[0, 360)` | `geometry_intersect._normalize_angle` | **Arc-containment math only** — the sweep comparisons in `_angle_in_arc`, where a monotonic non-negative range makes wrap-around tests tractable. Never surfaced to the user. |
-
-Rule of thumb: if the number is going into a widget, a label, or a scene annotation, it goes through `ScaleManager`. If it is deciding whether a point lies on an arc, it goes through `geometry_intersect`. Anything else is a bug.
+| `(-180, 180]` | `ScaleManager.normalize_angle` | Display and input. Signed readouts (`-90°`) match CAD convention. |
+| `[0, 360)` | `geometry_intersect._normalize_angle` | Arc-containment sweep comparisons in `_angle_in_arc`, where a monotonic non-negative range makes wrap-around tests tractable. Never surfaced to the user. |
 
 ## 5. Input round-trips
 
@@ -94,7 +111,7 @@ Rule of thumb: if the number is going into a widget, a label, or a scene annotat
 
 ## 7. Rules for new code
 
-1. New quantity → new `ScaleManager.format_<quantity>()` method + None-safe module wrapper if callers can be scene-less. Never a local helper in an entity/dialog module.
+1. New quantity → new `ScaleManager.format_<quantity>()` method + None-safe module wrapper if callers can be scene-less. Never a local helper in an entity/dialog module. **Exception:** a *unit-invariant* quantity needs no wrapper — make its helpers `@staticmethod`s, which are inherently scene-less, and there is nothing for a wrapper to guard against (see angles, §4).
 2. New editable dimension → `DimensionEdit`. New editable NFPA field → convert at the `set_property` boundary, store native.
 3. Copy the spelling table verbatim; when in doubt, match the Room properties panel.
 4. Tests asserting display strings should construct a real `ScaleManager` (not a MagicMock) and set `display_unit` explicitly.
