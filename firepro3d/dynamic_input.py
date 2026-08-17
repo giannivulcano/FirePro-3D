@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable
 
-from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPointF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from . import theme
@@ -384,6 +384,10 @@ class DynamicInputHud(QWidget):
             # Set the property up front so the selector has something to match
             # from the first polish rather than only after a rejection.
             self._set_invalid_style(editor, False)
+            # Keys are intercepted on the editor rather than overridden on it:
+            # QLineEdit consumes Tab/Return itself, so the filter has to see
+            # them first.  See ``eventFilter``.
+            editor.installEventFilter(self)
 
     # ── Construction helpers ──────────────────────────────────────────────
 
@@ -535,6 +539,118 @@ class DynamicInputHud(QWidget):
             editor.setCursorPosition(len(seed))
         else:
             editor.selectAll()
+
+    # ── Key handling ──────────────────────────────────────────────────────
+    #
+    # The HUD replaced a modal ``QDialog``.  A modal absorbed the whole
+    # keyboard for free; a focused child widget does not, so routing is now
+    # explicit — that is the deliberate cost of putting the input on canvas.
+    #
+    # Filtering on each editor rather than overriding ``keyPressEvent`` keeps
+    # ``DimensionEdit`` free of HUD concerns and, more importantly, gets ahead
+    # of ``QLineEdit``: Tab is consumed by focus handling and Return by
+    # ``editingFinished`` before a subclass hook of ours would run.
+
+    def eventFilter(self, obj, event):  # noqa: N802 (Qt naming)
+        """Route HUD keys away from the editors before ``QLineEdit`` eats them.
+
+        Two event types matter:
+
+        ``ShortcutOverride``
+            Claimed for **Escape only**.  ``main.py`` binds Escape window-wide
+            with a ``QShortcut``, and a window shortcut outranks a focused
+            widget unless that widget accepts this event — without it Escape
+            would skip the HUD and cancel the entire placement mode.  Nothing
+            else is claimed: ``QLineEdit`` already accepts the overrides it
+            needs (Ctrl+Z for text undo, Delete, the clipboard keys), and in
+            input mode those belong to the text field, exactly as they do in
+            every other application.  Scene undo is a cursor-mode concern.
+
+        ``KeyPress``
+            Tab/Backtab move between fields, Return/Enter accept, Escape
+            cancels.  Everything else — crucially **Space**, without which
+            ``12' 6"`` cannot be typed — falls through untouched.
+
+        Returns:
+            True when the event was consumed here, otherwise the base result.
+        """
+        if obj in self._editors.values():
+            if event.type() == QEvent.Type.ShortcutOverride:
+                if (event.key() == Qt.Key.Key_Escape
+                        and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+                    # Accepting only marks "deliver this as a key press to me";
+                    # the actual cancel happens in the KeyPress branch below.
+                    event.accept()
+                    return True
+            elif event.type() == QEvent.Type.KeyPress:
+                if self._handle_key(obj, event):
+                    return True
+        return super().eventFilter(obj, event)
+
+    def _handle_key(self, editor: DimensionEdit, event) -> bool:
+        """Act on a key press in *editor*.
+
+        Returns:
+            True when the key was consumed and must not reach the editor.
+        """
+        key = event.key()
+        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+
+        if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and shift):
+            self._step_focus(editor, -1)
+            return True
+        if key == Qt.Key.Key_Tab:
+            self._step_focus(editor, +1)
+            return True
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self._accept()
+            return True
+        if key == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            return True
+        return False
+
+    def _step_focus(self, editor: DimensionEdit, step: int) -> None:
+        """Move focus *step* fields from *editor*, wrapping at both ends.
+
+        The field being left is committed first, so text typed without focus
+        ever leaving is not discarded as a stale seed.  Its accept/reject
+        verdict is recorded the same way ``values()`` records it — Tabbing past
+        a rejected entry must not launder it, or the flag that blocks the
+        commit would never be set.
+        """
+        names = self.field_names()
+        if not names:
+            return
+        if not editor.try_commit():
+            for name, ed in self._editors.items():
+                if ed is editor:
+                    self._mark_invalid(name)
+                    break
+
+        current = next((i for i, n in enumerate(names)
+                        if self._editors[n] is editor), 0)
+        nxt = self._editors[names[(current + step) % len(names)]]
+        nxt.setFocus(Qt.FocusReason.TabFocusReason)
+        # focusInEvent already selects all, but the single-field schema wraps
+        # onto itself and so never re-enters focus.
+        nxt.selectAll()
+
+    def _accept(self) -> None:
+        """Commit every field and emit ``committed`` unless something is invalid.
+
+        ``values()`` does the force-commit, so Return read with focus still in
+        a field returns what was typed rather than the seed.  It is called
+        *before* the validity test because the test's answer depends on it:
+        the flags are set by that very read.
+        """
+        values = self.values()
+        if self.has_invalid_field():
+            # Nothing is emitted and the HUD stays open; the red border from
+            # ``_mark_invalid`` is the feedback.  Sticky by design, so a second
+            # Return cannot slip the reverted value through.
+            return
+        self.committed.emit(values)
 
     # ── Validity ──────────────────────────────────────────────────────────
 

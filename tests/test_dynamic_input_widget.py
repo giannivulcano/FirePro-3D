@@ -751,3 +751,360 @@ class TestHudUnitsBoundary:
         hud = DynamicInputHud(SCHEMAS["line"], None)
         hud.set_values({"Length": 250.0, "Angle": 0.0})
         assert hud.values()["Length"] == pytest.approx(250.0)
+
+
+class TestHudKeys:
+    """Task 7: Tab / Shift+Tab / Enter / Escape routing.
+
+    Every test drives a **real** key event through ``QTest``.  Calling the
+    slots directly would pass while the wiring was dead — and for Escape it
+    would bypass the very thing under test, the window-level ``QShortcut`` in
+    ``main.py`` that Escape must be stolen back from.
+    """
+
+    # ── Tab / Shift+Tab ───────────────────────────────────────────────────
+
+    def test_tab_advances_to_the_next_field(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Tab)
+        assert hud.editor("Angle").hasFocus()
+
+    def test_tab_wraps_from_the_last_field_to_the_first(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Angle").setFocus(Qt.FocusReason.OtherFocusReason)
+        QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Tab)
+        assert hud.editor("Length").hasFocus()
+
+    def test_shift_tab_reverses(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Angle").setFocus(Qt.FocusReason.OtherFocusReason)
+        QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Backtab,
+                       Qt.KeyboardModifier.ShiftModifier)
+        assert hud.editor("Length").hasFocus()
+
+    def test_shift_tab_wraps_backwards_from_the_first_field(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Backtab,
+                       Qt.KeyboardModifier.ShiftModifier)
+        assert hud.editor("Angle").hasFocus()
+
+    def test_tab_commits_the_field_being_left(self, shown_hud):
+        """Typed text must take effect on Tab, not revert as a stale seed."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "250")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        assert ed.value_mm() == pytest.approx(250.0)
+
+    def test_tab_selects_all_in_the_field_it_lands_on(self, shown_hud):
+        """The new field is ready for overwrite, matching ``focus_first``."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Tab)
+        ed = hud.editor("Angle")
+        assert ed.selectedText() == ed.text()
+
+    def test_tab_in_a_single_field_schema_stays_put(self, shown_hud):
+        """Wrapping a one-field schema returns to the same editor."""
+        hud = shown_hud(SCHEMAS["circle"])
+        hud.set_values({"Radius": 500.0})
+        hud.focus_first()
+        QTest.keyClick(hud.editor("Radius"), Qt.Key.Key_Tab)
+        assert hud.editor("Radius").hasFocus()
+
+    # ── Space must reach the editor ───────────────────────────────────────
+
+    def test_space_types_a_literal_space(self, shown_hud):
+        """``12' 6"`` is unreachable if the filter swallows Space."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        ed.selectAll()
+        QTest.keyClicks(ed, "12'")
+        QTest.keyClick(ed, Qt.Key.Key_Space)
+        QTest.keyClicks(ed, "6\"")
+        assert ed.text() == "12' 6\""
+
+    def test_space_separated_feet_inches_commits(self, shown_hud):
+        """End to end: the typed imperial string parses on Enter."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        ed.selectAll()
+        QTest.keyClicks(ed, "12'")
+        QTest.keyClick(ed, Qt.Key.Key_Space)
+        QTest.keyClicks(ed, "6\"")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+
+        assert len(got) == 1
+        assert got[0]["Length"] == pytest.approx(12 * 304.8 + 6 * 25.4)
+
+    # ── Enter ─────────────────────────────────────────────────────────────
+
+    def test_enter_emits_committed_once_with_the_typed_value(self, shown_hud):
+        """The Enter-ordering guard.
+
+        ``editingFinished`` does not fire while focus stays in the field, so a
+        handler reading ``value_mm()`` directly would emit the seeded 1000
+        rather than the typed 250.
+        """
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "250")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+
+        assert len(got) == 1
+        assert got[0]["Length"] == pytest.approx(250.0)
+        assert got[0]["Angle"] == pytest.approx(45.0)
+
+    def test_enter_key_enter_also_commits(self, shown_hud):
+        """The numeric-keypad Enter is the same accept."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Enter)
+        assert len(got) == 1
+
+    def test_enter_does_not_emit_cancelled(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        cancels = []
+        hud.cancelled.connect(lambda: cancels.append(1))
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Return)
+        assert cancels == []
+
+    def test_enter_from_the_second_field_commits_both(self, shown_hud):
+        """Committing reads every field, not just the focused one."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        _type(hud.editor("Length"), "250")
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Tab)
+        _type(hud.editor("Angle"), "30")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Return)
+
+        assert len(got) == 1
+        assert got[0]["Length"] == pytest.approx(250.0)
+        assert got[0]["Angle"] == pytest.approx(30.0)
+
+    def test_enter_with_an_invalid_field_emits_nothing(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "banana")
+
+        got = []
+        cancels = []
+        hud.committed.connect(got.append)
+        hud.cancelled.connect(lambda: cancels.append(1))
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+
+        assert got == []
+        assert cancels == []
+        assert hud.has_invalid_field() is True
+
+    def test_enter_twice_with_an_invalid_field_still_emits_nothing(
+            self, shown_hud):
+        """The sticky-``_invalid`` regression guard.
+
+        Enter #1 reverts the field to clean text, so a validity check derived
+        from the current text would pass on Enter #2 and commit geometry the
+        user never typed.
+        """
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "banana")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+
+        assert got == []
+        assert hud.has_invalid_field() is True
+
+    def test_enter_commits_once_the_user_fixes_the_invalid_field(
+            self, shown_hud):
+        """Retyping retires the flag, so the next Enter goes through."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "banana")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+        assert got == []
+
+        _type(ed, "250")
+        QTest.keyClick(ed, Qt.Key.Key_Return)
+        assert len(got) == 1
+        assert got[0]["Length"] == pytest.approx(250.0)
+
+    # ── Escape ────────────────────────────────────────────────────────────
+
+    def test_escape_emits_cancelled_and_not_committed(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        got = []
+        cancels = []
+        hud.committed.connect(got.append)
+        hud.cancelled.connect(lambda: cancels.append(1))
+
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Escape)
+
+        assert cancels == [1]           # exactly once
+        assert got == []
+
+    def test_escape_after_typing_discards_rather_than_commits(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "250")
+
+        got = []
+        cancels = []
+        hud.committed.connect(got.append)
+        hud.cancelled.connect(lambda: cancels.append(1))
+        QTest.keyClick(ed, Qt.Key.Key_Escape)
+
+        assert cancels == [1]
+        assert got == []
+
+    # ── ShortcutOverride: stealing Escape from the window QShortcut ───────
+
+    def test_shortcut_override_is_accepted_for_escape(self, shown_hud):
+        """``main.py`` binds Escape window-wide via ``QShortcut``.
+
+        A window shortcut beats a focused widget unless that widget accepts
+        the ``ShortcutOverride`` event, so without this Escape would never
+        reach the HUD and would cancel the whole placement mode instead.
+        """
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QKeyEvent
+        from PyQt6.QtWidgets import QApplication
+
+        hud = shown_hud(SCHEMAS["line"])
+        hud.focus_first()
+        ev = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_Escape,
+                       Qt.KeyboardModifier.NoModifier)
+        ev.setAccepted(False)
+        QApplication.sendEvent(hud.editor("Length"), ev)
+        assert ev.isAccepted()
+
+    def test_ctrl_z_override_verdict_is_left_to_the_line_edit(self, shown_hud):
+        """The filter must not *change* the verdict on Ctrl+Z.
+
+        ``QLineEdit`` already accepts ``ShortcutOverride`` for Ctrl+Z on its
+        own — that is how text undo keeps working inside a focused field, and
+        it is the behaviour we want in input mode (scene undo is a cursor-mode
+        concern).  So the assertion is not "unaccepted" but "identical to a
+        bare ``QLineEdit``": the filter adds nothing and takes nothing away.
+        A hand-written "not accepted" expectation here would be asserting the
+        *breakage* of in-field text undo.
+        """
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QKeyEvent
+        from PyQt6.QtWidgets import QApplication, QLineEdit
+
+        hud = shown_hud(SCHEMAS["line"])
+        hud.focus_first()
+
+        def _verdict(widget):
+            ev = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_Z,
+                           Qt.KeyboardModifier.ControlModifier)
+            ev.setAccepted(False)
+            QApplication.sendEvent(widget, ev)
+            return ev.isAccepted()
+
+        baseline = QLineEdit(hud)
+        assert _verdict(hud.editor("Length")) == _verdict(baseline)
+
+    def test_escape_override_is_the_only_verdict_the_filter_changes(
+            self, shown_hud):
+        """Escape is the one key whose verdict the HUD flips.
+
+        Compared against a bare ``QLineEdit`` so the test pins the *delta* the
+        filter introduces rather than restating Qt's built-in behaviour: only
+        Escape may differ, and it must differ in the accepting direction.
+        """
+        from PyQt6.QtCore import QEvent
+        from PyQt6.QtGui import QKeyEvent
+        from PyQt6.QtWidgets import QApplication, QLineEdit
+
+        hud = shown_hud(SCHEMAS["line"])
+        hud.focus_first()
+        baseline = QLineEdit(hud)
+
+        def _verdict(widget, key, mod):
+            ev = QKeyEvent(QEvent.Type.ShortcutOverride, key, mod)
+            ev.setAccepted(False)
+            QApplication.sendEvent(widget, ev)
+            return ev.isAccepted()
+
+        no_mod = Qt.KeyboardModifier.NoModifier
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        others = [("Delete", Qt.Key.Key_Delete, no_mod),
+                  ("Ctrl+C", Qt.Key.Key_C, ctrl),
+                  ("Ctrl+V", Qt.Key.Key_V, ctrl),
+                  ("Ctrl+A", Qt.Key.Key_A, ctrl),
+                  ("F3", Qt.Key.Key_F3, no_mod)]
+        for name, key, mod in others:
+            assert _verdict(hud.editor("Length"), key, mod) == \
+                _verdict(baseline, key, mod), f"filter changed verdict for {name}"
+
+        # Escape is the exception, and the bare editor really did decline it.
+        assert _verdict(baseline, Qt.Key.Key_Escape, no_mod) is False
+        assert _verdict(hud.editor("Length"), Qt.Key.Key_Escape, no_mod) is True
+
+    # ── Ordinary keys still reach the editor ──────────────────────────────
+
+    def test_letters_and_digits_fall_through(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        ed.selectAll()
+        QTest.keyClicks(ed, "3ft")
+        assert ed.text() == "3ft"
+
+    def test_backspace_still_edits(self, shown_hud):
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        ed.selectAll()
+        QTest.keyClicks(ed, "250")
+        QTest.keyClick(ed, Qt.Key.Key_Backspace)
+        assert ed.text() == "25"
