@@ -3768,29 +3768,39 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def get_placement_anchor(self) -> "QPointF | None":
         """Return the active placement's anchor point in scene coordinates.
 
-        One accessor for what were six per-mode anchor variables. ``None``
-        means no placement is in progress, and is the single gate that stops
-        the Dynamic Input HUD engaging before the user's first click.
+        One accessor for what were six per-mode anchor variables.
+
+        ``None`` means no placement anchor exists. Placement schemas must not
+        engage without one, and callers must not paper over ``None`` by
+        substituting a fallback point — doing so defeats the gate. Transform
+        schemas have no anchor by nature and are gated separately.
+
+        The returned point is always a fresh copy, so callers are free to
+        mutate it; it never aliases the scene's or an item's internal state.
 
         ``construction_line`` is intentionally absent — it is out of scope
         (a typed Length would be a visual no-op, since the drawn line extends
         past both defining points).
 
         Returns:
-            The anchor point, or None when no placement is in progress.
+            A copy of the anchor point, or None when no anchor exists.
         """
         if self.mode in ("draw_line", "draw_gridline"):
-            return self._draw_line_anchor
+            a = self._draw_line_anchor
+            return QPointF(a) if a is not None else None
         if self.mode == "draw_rectangle":
-            return self._draw_rect_anchor
+            a = self._draw_rect_anchor
+            return QPointF(a) if a is not None else None
         if self.mode == "draw_circle":
-            return self._draw_circle_center
+            a = self._draw_circle_center
+            return QPointF(a) if a is not None else None
         if self.mode == "wall":
-            return self._wall_anchor
+            a = self._wall_anchor
+            return QPointF(a) if a is not None else None
         if self.mode == "polyline":
             pl = self._polyline_active
             if pl is not None and pl._points:
-                return pl._points[-1]
+                return QPointF(pl._points[-1])
             return None
         if self.mode in ("pipe", "move"):
             # node_start_pos holds a Node in pipe mode but a raw QPointF in
@@ -3798,7 +3808,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             nsp = self.node_start_pos
             if nsp is None:
                 return None
-            return nsp.scenePos() if isinstance(nsp, Node) else nsp
+            # scenePos() is already a fresh point; the raw QPointF is stored.
+            return nsp.scenePos() if isinstance(nsp, Node) else QPointF(nsp)
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
