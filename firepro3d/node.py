@@ -5,7 +5,8 @@ from PyQt6.QtCore import Qt, QPointF, QLineF, QRectF
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath
 from .fitting import Fitting
 from .sprinkler import Sprinkler
-from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE
+from .constants import (DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM, Z_NODE,
+                        Z_COPLANAR_TOL)
 from .displayable_item import DisplayableItemMixin
 
 class Node(DisplayableItemMixin, QGraphicsEllipseItem):
@@ -164,35 +165,70 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
     def distance_to(self, x, y):
         return QLineF(self.scenePos(), QPointF(x, y)).length()
         
-    def snap_point_45(self, start: QPointF, end: QPointF) -> QPointF:
+    def _other_end(self, pipe):
+        """Return the node at the far end of *pipe*, or None if malformed."""
+        if pipe.node1 is self:
+            return pipe.node2
+        if pipe.node2 is self:
+            return pipe.node1
+        return None
+
+    def _nearest_coplanar_pipe(self, start: QPointF, end: QPointF):
+        """Return the connected coplanar pipe whose *axis* is angularly
+        closest to the ``start → end`` direction, or None if this node has
+        no coplanar connections.
+
+        Axis rather than ray: a pipe pointing away from the drag direction
+        is an equally valid 45° reference, so 0° and 180° are equivalent.
+        Fixes bug B5 — ``self.pipes[0]`` is insertion order, which anchors
+        the grid to an arbitrary pipe when branching.
         """
-        Snap 'end' to 45° increments relative to the first connected pipe
-        if one exists. If not, allow free movement but snap only when the
-        angle is *near* 0°, 45°, 90°, etc.
+        coplanar = []
+        for p in self.pipes:
+            far = self._other_end(p)
+            if far is None:
+                continue
+            if abs(getattr(far, "z_pos", 0.0)
+                   - getattr(self, "z_pos", 0.0)) <= Z_COPLANAR_TOL:
+                coplanar.append(p)
+        if not coplanar:
+            return None
+
+        cursor_angle = CAD_Math.get_vector_angle(start, end)
+
+        def _axis_delta(p):
+            a = CAD_Math.get_vector_angle(p.node1.scenePos(),
+                                          p.node2.scenePos())
+            d = abs((cursor_angle - a + 180.0) % 360.0 - 180.0)
+            return min(d, 180.0 - d)
+
+        return min(coplanar, key=_axis_delta)
+
+    def snap_point_45(self, start: QPointF, end: QPointF,
+                      reference_pipe=None) -> QPointF:
         """
-        angle = CAD_Math.get_vector_angle(start, end)-90
+        Snap *end* to 45° increments relative to a connected pipe when one
+        exists.  The reference is *reference_pipe* if supplied, otherwise the
+        coplanar pipe whose axis is angularly nearest the drag direction.
+        With no coplanar connection, movement is free with a soft snap
+        within 7.5° of a 45° multiple.
+        """
+        angle = CAD_Math.get_vector_angle(start, end) - 90
         length = CAD_Math.get_vector_length(start, end)
 
-        if self.pipes:
-            # Snap relative to connected pipe
-            reference_pipe = self.pipes[0]
+        ref = (reference_pipe if reference_pipe is not None
+               else self._nearest_coplanar_pipe(start, end))
+
+        if ref is not None:
             base_angle = CAD_Math.get_vector_angle(
-                reference_pipe.node1.scenePos(), reference_pipe.node2.scenePos()
+                ref.node1.scenePos(), ref.node2.scenePos()
             )
             rel_angle = angle - base_angle
-            snap_rel = round(rel_angle / 45) * 45
-            snapped = base_angle + snap_rel
+            snapped = base_angle + round(rel_angle / 45) * 45
         else:
-            # Free movement, with "soft" snapping near 45° multiples
-            base_angle = 0
             nearest_snap = round(angle / 45) * 45
-            diff = abs(angle - nearest_snap)
-
-            # Snap only if within 7.5° of a multiple of 45°
-            if diff < 7.5:
-                snapped = nearest_snap
-            else:
-                snapped = angle
+            snapped = (nearest_snap if abs(angle - nearest_snap) < 7.5
+                       else angle)
 
         rad = math.radians(snapped)
         return QPointF(
