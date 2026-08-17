@@ -132,6 +132,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._pipe_node_was_new = False
         self._selected_items = None
         self._pending_seed = ""
+        # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
+        # presence *is* input mode — see is_input_mode.
+        self.dynamic_input = None
         self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
@@ -736,6 +739,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        # A HUD outlives neither its schema nor its anchor: leaving one open
+        # across a mode switch would strand an editable widget whose applier
+        # belongs to the mode just left.  Closed before self.mode changes so
+        # the tear-down still sees the mode the HUD was built for.
+        if self.is_input_mode():
+            self.end_dynamic_input()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         self._pipe_tab_candidates = []
@@ -3893,6 +3902,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 established one yet.
             point: The fully constrained point under the cursor.
         """
+        # No-op in input mode. The HUD seeded from the point published at
+        # engage time, and the user is now editing those numbers; a late
+        # publish would move the seed under them.
+        if self.is_input_mode():
+            return
         self._resolved_point = QPointF(point) if point is not None else None
         schema = self.active_schema()
         if (schema is None or not schema.is_placement
@@ -3929,6 +3943,198 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 text = sm.scene_to_display(v) if sm else f"{v:.2f} mm"
             parts.append(f"{spec.label} {text}")
         return "  ".join(parts)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Dynamic input (on-canvas HUD)
+    # ─────────────────────────────────────────────────────────────────────────
+    #
+    # Cursor mode and input mode are exclusive.  In cursor mode the HUD is a
+    # read-only readout and the mouse (plus OSNAP, inference and Ctrl) drives
+    # the geometry.  In input mode the cursor is fully inert and the HUD is
+    # editable.  ``self.dynamic_input`` is the single flag distinguishing them,
+    # so there is no second piece of state that could disagree.
+
+    # Characters that open the HUD by being typed.  Only these engage: a
+    # letter belongs to whatever shortcut owns it.
+    ENGAGE_CHARS = "0123456789.-"
+
+    def is_input_mode(self) -> bool:
+        """Whether the editable HUD is open and the cursor is therefore inert.
+
+        Returns:
+            True while a ``DynamicInputHud`` is live.
+        """
+        return self.dynamic_input is not None
+
+    def begin_dynamic_input(self, seed: str = "") -> bool:
+        """Open the on-canvas HUD for the current mode, seeded from live state.
+
+        Refuses (changing nothing) when there is nothing coherent to edit: a
+        HUD is already open, the mode has no schema, or a *placement* schema
+        has no anchor.  Transform schemas — displacement, distance,
+        spacing_count — have no anchor by nature and must still open, so the
+        anchor gate is conditioned on ``is_placement`` rather than applied to
+        every schema.
+
+        Args:
+            seed: The keystroke that engaged the HUD, placed into the first
+                field so typing continues naturally.  Empty for Tab, which
+                engages without contributing a character.
+
+        Returns:
+            True when a HUD was opened, False when the engage was refused.
+            Callers use this to decide whether to accept the key event.
+        """
+        if self.is_input_mode():
+            return False
+        schema = self.active_schema()
+        if schema is None:
+            return False
+        anchor = self.get_placement_anchor()
+        if schema.is_placement and anchor is None:
+            return False
+        views = self.views()
+        if not views:
+            return False
+        view = views[0]
+
+        from .dynamic_input import DynamicInputHud
+        hud = DynamicInputHud(schema, self.scale_manager, view.viewport())
+        hud.set_values(self._seed_values_for(schema, anchor))
+        hud.committed.connect(self._on_dynamic_input_committed)
+        hud.cancelled.connect(self._on_dynamic_input_cancelled)
+        # Published before the widget is shown: is_input_mode must already be
+        # True by the time anything can react to the HUD appearing.
+        self.dynamic_input = hud
+        if hasattr(view, "place_dynamic_input"):
+            view.place_dynamic_input(hud)
+        hud.show()
+        hud.raise_()
+        hud.focus_first(seed)
+        return True
+
+    def _seed_values_for(self, schema, anchor) -> dict:
+        """Return the values *schema*'s HUD should open with.
+
+        WYSIWYG: a placement seeds from the **resolved** point — the
+        constrained position actually drawn on screen — never from the raw
+        cursor, so the numbers in the HUD are the ones the user is looking at.
+        The anchor stands in when nothing has been published yet, which seeds a
+        zero-length placement rather than an empty HUD.
+
+        Args:
+            schema: The active ``Schema``.
+            anchor: The placement anchor, or None for a transform schema.
+
+        Returns:
+            Values keyed by field name, in schema (scene) units.
+        """
+        if schema.is_placement:
+            return schema.seed(anchor, self.get_resolved_point() or anchor)
+        return self._transform_seed_values(schema)
+
+    def _transform_seed_values(self, schema) -> dict:
+        """Return seed values for a transform schema, read from scene state.
+
+        Transforms have no anchor and no cursor-derived inverse, so each reads
+        the state its own commit path already uses — the replicate spacing and
+        count for the gridline modes, the live displacement for a move.
+
+        Args:
+            schema: A transform ``Schema`` (``returns_point`` False).
+
+        Returns:
+            Values keyed by field name; empty for an unrecognised schema, which
+            leaves the HUD's editors at their own defaults.
+        """
+        if schema.name == "displacement":
+            anchor = self.get_placement_anchor()
+            point = self.get_resolved_point()
+            if anchor is None or point is None:
+                return {"dX": 0.0, "dY": 0.0}
+            # Y-up, matching resolve_displacement's negation.
+            return {"dX": point.x() - anchor.x(),
+                    "dY": -(point.y() - anchor.y())}
+        # A spacing of exactly 0.0 is the uninitialised state, not a value the
+        # user chose, so it falls back rather than seeding an unusable zero.
+        spacing = self._replicate_spacing or 1000.0
+        if schema.name == "distance":
+            return {"Distance": spacing}
+        if schema.name == "spacing_count":
+            return {"Spacing": spacing,
+                    "Count": max(1, int(self._replicate_count))}
+        return {}
+
+    def end_dynamic_input(self) -> None:
+        """Close the HUD and return to cursor mode.
+
+        Safe to call when no HUD is open, so every exit path (commit, cancel,
+        mode switch) can call it unconditionally.  Focus goes back to the view
+        or the canvas would keep receiving keys for a widget that is gone.
+        """
+        hud = self.dynamic_input
+        # Cleared first: the tear-down below can re-enter through focus and
+        # paint events, which must already see cursor mode.
+        self.dynamic_input = None
+        if hud is None:
+            return
+        hud.hide()
+        hud.deleteLater()
+        for v in self.views():
+            v.setFocus(Qt.FocusReason.OtherFocusReason)
+            v.viewport().update()
+
+    def _on_dynamic_input_cancelled(self) -> None:
+        """Escape rung 0: close the HUD but stay armed in the placement mode.
+
+        Only input mode is abandoned. The mode and its anchor survive, so
+        Escape steps back to the cursor rather than throwing away a placement
+        the user is midway through — a second Escape, handled elsewhere, is
+        what cancels that.
+        """
+        self.end_dynamic_input()
+
+    def _on_dynamic_input_committed(self, values: dict) -> None:
+        """Resolve *values* into geometry and hand it to the click-commit path.
+
+        Ordering is load-bearing: the schema resolves **before** the HUD is
+        torn down and long before the applier runs, because appliers such as
+        ``_commit_draw_line_at`` re-read the scene's anchor state and then call
+        ``clear_placement_state()``.  Resolving afterwards would read an anchor
+        the commit had already cleared.
+
+        Args:
+            values: Field values from the HUD, in schema units.
+        """
+        schema = self.active_schema()
+        anchor = self.get_placement_anchor()
+        if schema is None or (schema.is_placement and anchor is None):
+            self.end_dynamic_input()
+            return
+        geometry = schema.resolve(anchor, values)
+        self.end_dynamic_input()
+        self.apply_dynamic_input(geometry)
+
+    def apply_dynamic_input(self, geometry):
+        """Apply resolved *geometry* through the current mode's commit path.
+
+        The dispatch is deliberately explicit rather than defaulting to a
+        no-op: a mode whose schema resolves but whose applier has not landed
+        yet must fail loudly, or typing a value would silently do nothing and
+        look like a dropped keystroke.
+
+        Args:
+            geometry: A ``QPointF`` for placement schemas, or the transform
+                dict for the others.
+
+        Raises:
+            NotImplementedError: When the current mode has no applier.
+        """
+        if self.mode in ("draw_line", "draw_gridline"):
+            self._commit_draw_line_at(geometry)
+            return
+        raise NotImplementedError(
+            f"no dynamic-input applier for {self.mode!r}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
@@ -4713,6 +4919,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             v.viewport().update()
 
     def mouseMoveEvent(self, event):
+        # Input mode makes the cursor fully inert: nothing the mouse does may
+        # move the seed out from under an open HUD.  First statement in the
+        # handler so no part of the body can run.
+        if self.is_input_mode():
+            return
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
         sm = self.scale_manager
@@ -5763,6 +5974,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "Pick next node (Esc/double-click to finish)")
 
     def mousePressEvent(self, event):
+        # Inert in input mode (see mouseMoveEvent): a click must not commit
+        # geometry behind an open HUD.
+        if self.is_input_mode():
+            return
         if event.button() == Qt.MouseButton.RightButton:
             # Don't pass right-click to base — it deselects items.
             # contextMenuEvent handles right-click menus separately.
@@ -8616,14 +8831,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._show_status("Cannot compute chamfer for these objects", timeout=3000)
                 self.set_mode(None)
                 return
-        # ── Digit key opens Tab input for replicate modes (type-to-capture) ──
-        elif (event.key() >= Qt.Key.Key_0
-              and event.key() <= Qt.Key.Key_9
-              and (self.mode in ("gridline_array", "gridline_offset")
-                   or (self.mode in ("draw_line", "draw_gridline")
-                       and self._draw_line_anchor is not None))):
-            self._pending_seed = event.text()
-            self._handle_tab_input()
+        # ── Type-to-engage: a digit/./- opens the on-canvas HUD ─────────────
+        # ``event.text()`` is "" for every non-text key (F5, a bare modifier),
+        # and `"" in ENGAGE_CHARS` is True in Python, so the empty case must be
+        # excluded explicitly or every such key would try to engage.
+        # begin_dynamic_input applies the real gates (schema, anchor) and its
+        # return value decides whether the key is consumed here.
+        elif (event.text()
+              and event.text() in self.ENGAGE_CHARS
+              and event.modifiers() in (Qt.KeyboardModifier.NoModifier,
+                                        Qt.KeyboardModifier.KeypadModifier)
+              and not self.is_input_mode()
+              and self.begin_dynamic_input(seed=event.text())):
             return
         else:
             super().keyPressEvent(event)

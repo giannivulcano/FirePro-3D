@@ -15,6 +15,10 @@ class Model_View(QGraphicsView):
     # Emitted when a PDF/DXF/DWG file is dropped onto the canvas
     drop_import_requested = pyqtSignal(str)
 
+    # Gap between the cursor and the dynamic-input HUD, matching the offset
+    # drawForeground uses for the painted Dim HUD the widget replaces.
+    _DYN_INPUT_OFFSET = 14
+
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHints(self.renderHints() | QPainter.RenderHint.Antialiasing)
@@ -777,8 +781,12 @@ class Model_View(QGraphicsView):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Tab:
             sc = self.scene()
-            if sc is not None and hasattr(sc, "_handle_tab_input"):
-                sc._handle_tab_input()
+            # Tab engages the on-canvas HUD.  The event is accepted only when
+            # the scene actually opened one: a refused engage (no schema, or a
+            # placement schema with no anchor) must leave Tab free to reach
+            # whatever else the key is bound to.
+            if (sc is not None and hasattr(sc, "begin_dynamic_input")
+                    and sc.begin_dynamic_input()):
                 event.accept()
                 return
         if event.key() == Qt.Key.Key_F:
@@ -793,6 +801,45 @@ class Model_View(QGraphicsView):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def place_dynamic_input(self, hud) -> None:
+        """Position the dynamic-input *hud* near the cursor in the viewport.
+
+        Mirrors the painted Dim HUD rule in :meth:`drawForeground`: offset down
+        and to the right of the cursor, flipping to the other side of it when
+        the widget would otherwise overflow the viewport.  The HUD replaces
+        that readout while it is open, so the two must sit in the same place —
+        a different offset would make the widget appear to jump on engage.
+
+        Args:
+            hud: The ``DynamicInputHud`` to move.  It must already be a child
+                of this view's viewport.  Falls back to the viewport centre
+                when no cursor position has been recorded yet (Tab pressed
+                before the mouse has entered the view).
+        """
+        # sizeHint, not width(): the HUD has never been laid out at this point,
+        # so its current geometry is the default 100x30 and the edge-flip would
+        # be computed against the wrong extent.
+        hud.adjustSize()
+        w = hud.width()
+        h = hud.height()
+        vp_w = self.viewport().width()
+        vp_h = self.viewport().height()
+
+        vp_cursor = getattr(self, "_last_vp_pos", None)
+        if vp_cursor is None:
+            hud.move(max(0, (vp_w - w) // 2), max(0, (vp_h - h) // 2))
+            return
+
+        x = vp_cursor.x() + self._DYN_INPUT_OFFSET
+        y = vp_cursor.y() + self._DYN_INPUT_OFFSET
+        if x + w > vp_w:
+            x = vp_cursor.x() - w - self._DYN_INPUT_OFFSET
+        if y + h > vp_h:
+            y = vp_cursor.y() - h - self._DYN_INPUT_OFFSET
+        # Flipping can push a HUD wider/taller than the cursor's margin off the
+        # near edge, so clamp after the flip rather than trusting it.
+        hud.move(max(0, min(x, vp_w - w)), max(0, min(y, vp_h - h)))
 
     # ── Fit to screen ─────────────────────────────────────────────────────
 

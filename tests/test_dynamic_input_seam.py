@@ -8,10 +8,14 @@ dynamic input.  The HUD widget itself is covered by
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
+
+from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtTest import QTest
 
 from firepro3d.construction_geometry import PolylineItem
 from firepro3d.model_space import Model_Space
+from firepro3d.model_view import Model_View
 from firepro3d.node import Node
 
 
@@ -19,6 +23,20 @@ from firepro3d.node import Node
 def scene(qapp):
     sc = Model_Space()
     yield sc
+
+
+@pytest.fixture
+def view(scene):
+    """A real ``Model_View`` on *scene*, needed for HUD parenting/positioning.
+
+    ``begin_dynamic_input`` parents the HUD to ``views()[0].viewport()``, so
+    every engage-path test needs an attached view rather than a bare scene.
+    """
+    v = Model_View(scene)
+    v.resize(800, 600)
+    v.resetTransform()
+    yield v
+    v.close()
 
 
 class _MoveEventStub:
@@ -252,3 +270,301 @@ class TestPublishPlacementState:
 
         assert scene.get_resolved_point() is None
         assert scene._draw_dim_hint is None
+
+
+def _press(key, text, mods=Qt.KeyboardModifier.NoModifier):
+    """Return a real ``KeyPress`` event.
+
+    ``QTest.keyClick`` cannot send an arbitrary ``text()``, and the engage
+    branch keys off ``event.text()``, so these events are built explicitly.
+    """
+    return QKeyEvent(QEvent.Type.KeyPress, key, mods, text)
+
+
+def _armed_line(scene, anchor=QPointF(0, 0), resolved=QPointF(1000, 0)):
+    """Arm ``draw_line`` with *anchor* and publish *resolved*.
+
+    Mirrors the state a first click plus one mouse-move leaves behind, which
+    is the only state a placement schema may engage from.
+    """
+    scene.mode = "draw_line"
+    scene._draw_line_anchor = QPointF(anchor)
+    scene.publish_placement_state(anchor, resolved)
+
+
+class TestEngage:
+    """Digit/Tab engage, and the gates that must refuse to engage."""
+
+    def test_digit_engages_and_lands_in_field_one(self, scene, view):
+        _armed_line(scene)
+        scene.keyPressEvent(_press(Qt.Key.Key_5, "5"))
+
+        assert scene.is_input_mode()
+        hud = scene.dynamic_input
+        assert hud is not None
+        first = hud.field_names()[0]
+        assert hud.editor(first).text() == "5"
+
+    def test_seeds_from_resolved_point_not_raw_cursor(self, scene, view):
+        """WYSIWYG: the seed is the constrained point, never ``_last_scene_pos``.
+
+        The decoy cursor sits at 45°/1414 while the published point is a
+        horizontal 1000, so a seed taken from the raw cursor cannot pass.
+        """
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene._last_scene_pos = QPointF(1000, -1000)          # decoy
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, 0))
+
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        assert hud.editor("Length").value_mm() == pytest.approx(1000.0)
+        assert hud.editor("Angle").value_mm() == pytest.approx(0.0)
+
+    def test_placement_schema_needs_an_anchor(self, scene, view):
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = None
+        assert scene.begin_dynamic_input() is False
+        assert scene.dynamic_input is None
+        assert not scene.is_input_mode()
+
+    def test_digit_does_not_engage_without_anchor(self, scene, view):
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = None
+        scene.keyPressEvent(_press(Qt.Key.Key_5, "5"))
+        assert not scene.is_input_mode()
+
+    def test_transform_schema_engages_without_an_anchor(self, scene, view):
+        """gridline_offset resolves a distance, so it has no anchor by nature."""
+        scene.mode = "gridline_offset"
+        assert scene.get_placement_anchor() is None
+        assert scene.begin_dynamic_input(seed="3") is True
+        hud = scene.dynamic_input
+        assert hud.schema.name == "distance"
+        assert hud.editor("Distance").text() == "3"
+
+    def test_transform_seed_uses_replicate_state(self, scene, view):
+        scene.mode = "gridline_array"
+        scene._replicate_spacing = 250.0
+        scene._replicate_count = 4
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        assert hud.editor("Spacing").value_mm() == pytest.approx(250.0)
+        assert hud.editor("Count").value_mm() == pytest.approx(4.0)
+
+    def test_transform_seed_falls_back_to_defaults(self, scene, view):
+        scene.mode = "gridline_offset"
+        scene._replicate_spacing = 0.0
+        scene.begin_dynamic_input()
+        assert (scene.dynamic_input.editor("Distance").value_mm()
+                == pytest.approx(1000.0))
+
+    def test_no_schema_mode_does_not_engage(self, scene, view):
+        scene.mode = "select"
+        assert scene.begin_dynamic_input() is False
+        assert scene.dynamic_input is None
+
+    def test_second_engage_is_a_no_op(self, scene, view):
+        _armed_line(scene)
+        assert scene.begin_dynamic_input(seed="7") is True
+        hud = scene.dynamic_input
+        assert scene.begin_dynamic_input(seed="9") is False
+        assert scene.dynamic_input is hud            # not rebuilt
+        assert hud.editor("Length").text() == "7"    # not reseeded
+
+    def test_textless_key_does_not_engage(self, scene, view):
+        """``"" in ENGAGE_CHARS`` is True in Python — the empty-text trap.
+
+        F5 and a bare Shift both carry ``text() == ""``; either engaging
+        would mean every non-text key opens the HUD.
+        """
+        _armed_line(scene)
+        for key in (Qt.Key.Key_F5, Qt.Key.Key_Shift):
+            scene.keyPressEvent(_press(key, ""))
+            assert not scene.is_input_mode()
+            assert scene.dynamic_input is None
+
+    def test_non_engage_character_does_not_engage(self, scene, view):
+        _armed_line(scene)
+        scene.keyPressEvent(_press(Qt.Key.Key_A, "a"))
+        assert not scene.is_input_mode()
+
+    def test_modified_digit_does_not_engage(self, scene, view):
+        """Ctrl+1 belongs to the window, not to a typed value."""
+        _armed_line(scene)
+        scene.keyPressEvent(
+            _press(Qt.Key.Key_1, "1", Qt.KeyboardModifier.ControlModifier))
+        assert not scene.is_input_mode()
+
+    def test_minus_engages(self, scene, view):
+        _armed_line(scene)
+        scene.keyPressEvent(_press(Qt.Key.Key_Minus, "-"))
+        assert scene.is_input_mode()
+        assert scene.dynamic_input.editor("Length").text() == "-"
+
+    def test_tab_engages_through_the_view(self, scene, view):
+        """Drive the real key event through ``Model_View.keyPressEvent``."""
+        _armed_line(scene)
+        QTest.keyClick(view, Qt.Key.Key_Tab)
+        assert scene.is_input_mode()
+        # No seed on Tab: the field keeps its seeded value.
+        assert (scene.dynamic_input.editor("Length").value_mm()
+                == pytest.approx(1000.0))
+
+    def test_tab_does_not_engage_when_refused(self, scene, view):
+        """Tab in select mode must not open a HUD."""
+        scene.mode = "select"
+        QTest.keyClick(view, Qt.Key.Key_Tab)
+        assert not scene.is_input_mode()
+        assert scene.dynamic_input is None
+
+
+class TestInputModeInertness:
+    """While the HUD is open the cursor drives nothing."""
+
+    def test_mouse_move_is_inert(self, scene, view):
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        before = scene.get_resolved_point()
+        scene._last_scene_pos = None
+
+        # A real QGraphicsSceneMouseEvent cannot be constructed under PyQt6,
+        # but the guard is the first statement in the handler, so None never
+        # reaches the body — an AttributeError here *is* the failure signal.
+        scene.mouseMoveEvent(None)
+
+        assert scene._last_scene_pos is None            # handler bailed
+        assert scene.get_resolved_point() == before     # seed untouched
+
+    def test_mouse_press_is_inert(self, scene, view):
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.mousePressEvent(None)
+        assert scene._draw_line_anchor == QPointF(0, 0)  # nothing committed
+        assert len(scene._draw_lines) == 0
+
+    def test_publish_is_a_no_op_in_input_mode(self, scene, view):
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.publish_placement_state(QPointF(0, 0), QPointF(-9999, -9999))
+        assert scene.get_resolved_point() == QPointF(1000, 0)
+
+
+class TestCommitAndCancel:
+
+    def test_commit_places_geometry_and_exits_input_mode(self, scene, view):
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        hud.set_values({"Length": 2000.0, "Angle": 90.0})
+        hud._accept()
+
+        assert not scene.is_input_mode()
+        assert scene.dynamic_input is None
+        assert len(scene._draw_lines) == 1
+        line = scene._draw_lines[0].line()
+        # 90° Y-up from the origin → straight up in a Y-down scene.
+        assert line.p2().x() == pytest.approx(0.0, abs=1e-6)
+        assert line.p2().y() == pytest.approx(-2000.0, abs=1e-6)
+        # The commit path cleared the anchor, so the mode is re-armed.
+        assert scene._draw_line_anchor is None
+
+    def test_commit_resolves_before_closing(self, scene, view):
+        """Ordering guard: ``_commit_draw_line_at`` re-reads scene anchor state.
+
+        Resolving after the HUD tear-down would still work, but resolving
+        after the *commit* would not — asserting the geometry (not merely that
+        a line exists) pins the order.
+        """
+        _armed_line(scene, anchor=QPointF(100, 100),
+                    resolved=QPointF(1100, 100))
+        scene.begin_dynamic_input()
+        scene.dynamic_input.set_values({"Length": 500.0, "Angle": 0.0})
+        scene.dynamic_input._accept()
+
+        line = scene._draw_lines[0].line()
+        assert line.p1() == QPointF(100, 100)
+        assert line.p2().x() == pytest.approx(600.0)
+
+    def test_cancel_closes_hud_but_keeps_the_mode(self, scene, view):
+        """Esc rung 0: leave input mode, stay armed in the placement mode."""
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.cancelled.emit()
+
+        assert not scene.is_input_mode()
+        assert scene.dynamic_input is None
+        assert scene.mode == "draw_line"
+        assert scene._draw_line_anchor == QPointF(0, 0)
+        assert len(scene._draw_lines) == 0
+
+    def test_mode_switch_closes_the_hud(self, scene, view):
+        """A HUD outlives neither its schema nor its anchor.
+
+        Switching modes from the ribbon while typing would otherwise strand an
+        editable widget whose applier belongs to the mode just left.
+        """
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.set_mode("select")
+        assert not scene.is_input_mode()
+        assert scene.dynamic_input is None
+
+    def test_single_place_commit_still_closes_cleanly(self, scene, view):
+        """The commit path calls ``set_mode`` itself — no double tear-down."""
+        _armed_line(scene)
+        scene.single_place_mode = True
+        scene.begin_dynamic_input()
+        scene.dynamic_input.set_values({"Length": 1000.0, "Angle": 0.0})
+        scene.dynamic_input._accept()
+        assert len(scene._draw_lines) == 1
+        assert scene.mode == "select"
+        assert scene.dynamic_input is None
+
+    def test_unmapped_mode_applier_raises(self, scene, view):
+        """Modes without an applier fail loudly rather than silently no-op."""
+        scene.mode = "draw_rectangle"
+        with pytest.raises(NotImplementedError):
+            scene.apply_dynamic_input(QPointF(1, 1))
+
+    def test_gridline_commit_uses_the_same_path(self, scene, view):
+        scene.mode = "draw_gridline"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, 0))
+        scene.begin_dynamic_input()
+        scene.dynamic_input.set_values({"Length": 3000.0, "Angle": 0.0})
+        scene.dynamic_input._accept()
+        assert len(scene._gridlines) == 1
+        assert not scene.is_input_mode()
+
+
+class TestPlaceDynamicInput:
+    """HUD positioning mirrors the painted Dim HUD's edge-flip rule."""
+
+    def test_positions_near_the_cursor(self, scene, view):
+        view._last_vp_pos = QPoint(100, 200)
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        assert hud.parent() is view.viewport()
+        # ``isVisible()`` would be False here for a reason unrelated to the
+        # seam — the test never shows the view, and a child of a hidden parent
+        # is never visible.  ``isHidden()`` records the explicit show/hide.
+        assert not hud.isHidden()
+        assert hud.x() == 100 + 14
+
+    def test_flips_at_the_right_edge(self, scene, view):
+        view._last_vp_pos = QPoint(view.viewport().width() - 5, 100)
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        assert hud.x() + hud.width() <= view.viewport().width()
+        assert hud.x() >= 0
+
+    def test_falls_back_to_viewport_centre(self, scene, view):
+        view._last_vp_pos = None
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        assert 0 <= hud.x() <= view.viewport().width()
+        assert 0 <= hud.y() <= view.viewport().height()

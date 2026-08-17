@@ -98,20 +98,28 @@ def test_array_digit_seeds_spacing_field(qapp):
 
 def test_placement_digit_opens_and_seeds_length(qapp):
     """During gridline placement (anchor set), a digit opens the input
-    seeded into the Length field."""
+    seeded into the Length field.
+
+    The behaviour is unchanged, but the widget it lands in is not: the digit
+    now engages the on-canvas ``DynamicInputHud`` instead of the old modal
+    ``_DynInput``, so this reads the HUD's first field rather than driving a
+    modal exec() loop.
+    """
     from firepro3d.model_space import Model_Space
-    from PyQt6.QtWidgets import QGraphicsView
+    from firepro3d.model_view import Model_View
     from PyQt6.QtGui import QKeyEvent
-    from PyQt6.QtCore import QPointF, Qt, QEvent, QTimer
+    from PyQt6.QtCore import QPointF, Qt, QEvent
 
     ms = Model_Space()
-    view = QGraphicsView(ms); view.resize(400, 400); view.resetTransform()
+    view = Model_View(ms); view.resize(400, 400); view.resetTransform()
     ms.set_mode("draw_gridline")
     ms._draw_line_anchor = QPointF(0, 0)
 
-    captured = {}
-    QTimer.singleShot(0, lambda: _grab_dyninput_field(captured))
     ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_5, Qt.KeyboardModifier.NoModifier, "5")
-    ms.keyPressEvent(ev)   # opens the modal _DynInput; the timer reads + closes it
-    view.hide()
-    assert captured.get("text") == "5"
+    ms.keyPressEvent(ev)
+
+    hud = ms.dynamic_input
+    assert hud is not None
+    assert hud.editor(hud.field_names()[0]).text() == "5"
+    ms.end_dynamic_input()
+    view.close()
