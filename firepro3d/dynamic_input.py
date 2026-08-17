@@ -590,22 +590,33 @@ class DynamicInputHud(QWidget):
     def _handle_key(self, editor: DimensionEdit, event) -> bool:
         """Act on a key press in *editor*.
 
+        Modifiers are matched exactly, mirroring the ``ShortcutOverride``
+        branch's ``NoModifier`` test: the two must agree, or a combination the
+        HUD acts on (``Ctrl+Escape``) would be one the HUD never claimed the
+        override for.  Exact matching also leaves ``Ctrl+Tab`` and friends to
+        Qt, where a future window-level binding can reach them.  Shift+Tab is
+        the one legitimate modifier — Qt delivers it as ``Key_Backtab``, and
+        some platforms keep ``Key_Tab`` with Shift set, so both are accepted.
+
         Returns:
             True when the key was consumed and must not reach the editor.
         """
         key = event.key()
-        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        mods = event.modifiers()
+        bare = mods == Qt.KeyboardModifier.NoModifier
+        shift_only = mods == Qt.KeyboardModifier.ShiftModifier
 
-        if key == Qt.Key.Key_Backtab or (key == Qt.Key.Key_Tab and shift):
+        if (key == Qt.Key.Key_Backtab and (bare or shift_only)) or (
+                key == Qt.Key.Key_Tab and shift_only):
             self._step_focus(editor, -1)
             return True
-        if key == Qt.Key.Key_Tab:
+        if key == Qt.Key.Key_Tab and bare:
             self._step_focus(editor, +1)
             return True
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and bare:
             self._accept()
             return True
-        if key == Qt.Key.Key_Escape:
+        if key == Qt.Key.Key_Escape and bare:
             self.cancelled.emit()
             return True
         return False
