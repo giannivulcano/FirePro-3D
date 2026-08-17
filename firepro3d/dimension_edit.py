@@ -99,6 +99,23 @@ class DimensionEdit(QLineEdit):
         """
         self._on_editing_finished()
 
+    def try_commit(self) -> bool:
+        """Commit like :meth:`commit` and report whether the entry was accepted.
+
+        Identical code path to :meth:`commit` — the only difference is that the
+        accept/reject verdict is handed back instead of discarded.  Callers that
+        need to know whether the widget silently reverted (the HUD's validity
+        tracking, for one) must use this rather than re-deriving the verdict by
+        re-running the parse, which drifts the moment a rule is added here.
+
+        Returns:
+            True when a new valid value was accepted *or* the field was
+            untouched/blank (an untouched seed is valid, not a rejection);
+            False when the text failed to parse or did not clear ``minimum``,
+            in which case the field has reverted to its last valid value.
+        """
+        return self._on_editing_finished()
+
     # ── Internal ──────────────────────────────────────────────────────
 
     def _reformat(self) -> None:
@@ -114,14 +131,23 @@ class DimensionEdit(QLineEdit):
         # quantizes (e.g. imperial 1/8" resolution shows 3/16" as 1/4").
         self._seed_text = self.text()
 
-    def _on_editing_finished(self) -> None:
-        """Parse the user's text, update value or revert."""
+    def _on_editing_finished(self) -> bool:
+        """Parse the user's text, update value or revert.
+
+        Wired to ``editingFinished``, which ignores the return value; it exists
+        for :meth:`try_commit`.
+
+        Returns:
+            True when the entry was accepted or the field was untouched/blank,
+            False when the text was rejected and the field reverted.
+        """
         text = self.text().strip()
         if not text or text == self._seed_text.strip():
-            # Blank or untouched -> keep exact stored value (no emit)
+            # Blank or untouched -> keep exact stored value (no emit).
+            # Not a rejection: the stored value stands unchanged and valid.
             self._value_mm = self._last_valid_mm
             self._reformat()
-            return
+            return True
 
         if self._parser is not None:
             parsed = self._parser(text)
@@ -135,10 +161,12 @@ class DimensionEdit(QLineEdit):
             self._last_valid_mm = parsed
             self._reformat()
             self.valueChanged.emit(self._value_mm)
+            return True
         else:
             # Invalid or below minimum -> revert
             self._value_mm = self._last_valid_mm
             self._reformat()
+            return False
 
     def focusInEvent(self, event: QFocusEvent) -> None:
         """Select all text on focus for easy replacement."""

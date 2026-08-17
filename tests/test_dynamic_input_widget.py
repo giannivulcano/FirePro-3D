@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QPointF, Qt
+from PyQt6.QtTest import QTest
 
 from firepro3d.construction_geometry import PolylineItem
 from firepro3d.dynamic_input import SCHEMAS, DynamicInputHud
@@ -16,6 +17,17 @@ from firepro3d.scale_manager import ScaleManager
 def scene(qapp):
     sc = Model_Space()
     yield sc
+
+
+def _type(editor, text: str) -> None:
+    """Replace *editor*'s text the way a user would, emitting ``textEdited``.
+
+    ``setText`` is a programmatic set and deliberately does *not* emit
+    ``textEdited``, so it cannot stand in for typing where the distinction
+    matters (the HUD clears a field's sticky invalid flag on user edits only).
+    """
+    editor.selectAll()
+    QTest.keyClicks(editor, text)
 
 
 class _MoveEventStub:
@@ -496,14 +508,56 @@ class TestHudValues:
         assert ed.text() == "45°"
         assert hud.has_invalid_field() is False
 
-    def test_invalid_flag_clears_on_the_next_read(self, sm_uncal):
-        """The flag describes the latest read, not a sticky lifetime state."""
+    def test_invalid_flag_clears_once_the_user_edits_again(self, sm_uncal):
+        """The flag clears when the user retypes — not merely on a re-read."""
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        ed = hud.editor("Length")
+        ed.setText("banana")
+        hud.values()
+        assert hud.has_invalid_field() is True
+        _type(ed, "500")
+        hud.values()
+        assert hud.has_invalid_field() is False
+
+    def test_invalid_flag_is_sticky_across_repeated_reads(self, sm_uncal):
+        """C1: a second ``values()`` must not launder rejected input.
+
+        The first read reverts the field to its last valid text, so a
+        validity check re-derived from the *current* text sees clean input
+        and reports valid.  Task 7's Enter handler calls ``values()``
+        per keypress: Enter #1 refuses, Enter #2 would commit geometry the
+        user never typed.  The flag must survive until the user edits.
+        """
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Length").setText("banana")
+
+        first = hud.values()
+        assert hud.has_invalid_field() is True
+
+        second = hud.values()
+        assert hud.has_invalid_field() is True
+        assert second["Length"] == pytest.approx(first["Length"])
+
+    def test_invalid_flag_is_sticky_for_a_below_minimum_entry(self, sm_uncal):
+        """Same stickiness for the minimum-rejection path, not just parse."""
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Length").setText("0")
+        hud.values()
+        hud.values()
+        assert hud.has_invalid_field() is True
+
+    def test_set_values_reseed_clears_the_sticky_flag(self, sm_uncal):
+        """A fresh seed replaces the rejected text, so the flag must drop."""
         hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
         hud.set_values({"Length": 1000.0, "Angle": 45.0})
         hud.editor("Length").setText("banana")
         hud.values()
         assert hud.has_invalid_field() is True
-        hud.editor("Length").setText("500")
+        hud.set_values({"Length": 2000.0, "Angle": 45.0})
+        assert hud.has_invalid_field() is False
         hud.values()
         assert hud.has_invalid_field() is False
 
@@ -516,6 +570,120 @@ class TestHudValues:
         assert got["X"] == pytest.approx(1234.567)
         assert got["Y"] == pytest.approx(-890.1)
         assert hud.has_invalid_field() is False
+
+
+class TestHudInvalidStyling:
+    """I1: the rejection must be *visible*, not just recorded.
+
+    Without a border change Enter #1 produces no observable feedback at all,
+    which makes pressing Enter again the natural response — exactly the input
+    that used to slip a never-typed value through.
+    """
+
+    def test_property_starts_false(self, sm_uncal):
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        assert hud.editor("Length").property("invalid") == "false"
+
+    def test_property_is_set_on_rejection(self, sm_uncal):
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Length").setText("banana")
+        hud.values()
+        assert hud.editor("Length").property("invalid") == "true"
+        # The accepted sibling must not be tarred with it.
+        assert hud.editor("Angle").property("invalid") == "false"
+
+    def test_property_survives_a_second_read(self, sm_uncal):
+        """Paired with the sticky flag: the border must not silently clear."""
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Length").setText("banana")
+        hud.values()
+        hud.values()
+        assert hud.editor("Length").property("invalid") == "true"
+
+    def test_property_clears_when_the_user_retypes(self, sm_uncal):
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        ed = hud.editor("Length")
+        ed.setText("banana")
+        hud.values()
+        assert ed.property("invalid") == "true"
+        _type(ed, "500")
+        assert ed.property("invalid") == "false"
+
+    def test_property_clears_on_reseed(self, sm_uncal):
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Length").setText("banana")
+        hud.values()
+        hud.set_values({"Length": 2000.0, "Angle": 45.0})
+        assert hud.editor("Length").property("invalid") == "false"
+
+    def test_the_stylesheet_actually_carries_an_invalid_rule(self, sm_uncal):
+        """The QSS hazard: a property selector with no rule fails invisibly.
+
+        Setting ``invalid`` is inert unless a matching rule exists, and Qt
+        gives no warning for the missing half — it just renders as the base
+        state.  Assert the rule is present and coloured from the theme.
+        """
+        from firepro3d import theme
+
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        qss = hud.styleSheet()
+        assert 'QLineEdit[invalid="true"]' in qss
+        assert theme.detect().status_error in qss
+
+    def test_stylesheet_is_built_from_theme_tokens(self, sm_uncal):
+        """I3: no hard-coded hexes — every colour traces to a theme token."""
+        import re
+
+        from firepro3d import theme
+
+        t = theme.detect()
+        hud = DynamicInputHud(SCHEMAS["line"], sm_uncal)
+        qss = hud.styleSheet()
+        known = {t.bg_raised, t.bg_sunken, t.border_strong, t.accent_primary,
+                 t.text_primary, t.text_secondary, t.status_error}
+        found = set(re.findall(r"#[0-9a-fA-F]{6}", qss))
+        assert found                      # it really is colouring something
+        assert found <= known, f"untokenised literals: {found - known}"
+
+    def test_light_variant_produces_readable_light_colours(self, sm_uncal):
+        """I3: the HUD is not hard-wired dark — it follows the variant.
+
+        Built from ``_build_hud_style`` directly rather than by swapping the
+        application palette, which would leak the light theme into every later
+        test in the session.
+        """
+        from firepro3d import theme
+        from firepro3d.dynamic_input import _build_hud_style
+
+        light = _build_hud_style(theme.LIGHT)
+        assert theme.LIGHT.bg_sunken in light           # "#ffffff"
+        assert theme.LIGHT.status_error in light
+        assert theme.DARK.bg_sunken not in light        # no dark leftovers
+
+
+class TestCountRounding:
+    """I2: a fractional count is rounded, deliberately, and not flagged."""
+
+    def test_fractional_count_rounds_without_flagging(self, sm_uncal):
+        hud = DynamicInputHud(SCHEMAS["spacing_count"], sm_uncal)
+        hud.set_values({"Spacing": 500.0, "Count": 2})
+        hud.editor("Count").setText("2.6")
+        assert hud.values()["Count"] == pytest.approx(3)
+        assert hud.has_invalid_field() is False
+        # The substitution is shown back to the user, not hidden.
+        assert hud.editor("Count").text() == "3"
+
+    def test_unparseable_count_still_reverts_and_flags(self, sm_uncal):
+        """Rounding tolerance stops at numbers — junk is still rejected."""
+        hud = DynamicInputHud(SCHEMAS["spacing_count"], sm_uncal)
+        hud.set_values({"Spacing": 500.0, "Count": 2})
+        hud.editor("Count").setText("three")
+        assert hud.values()["Count"] == pytest.approx(2)
+        assert hud.has_invalid_field() is True
 
 
 class TestHudUnitsBoundary:

@@ -24,6 +24,7 @@ from typing import Callable
 from PyQt6.QtCore import QPointF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
+from . import theme
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 
@@ -247,6 +248,15 @@ def _format_count(value: float) -> str:
 def _parse_count(text: str) -> float | None:
     """Parse a bare integer count, tolerating a decimal the user typed.
 
+    A fractional entry is **rounded rather than rejected** — typing ``2.6``
+    yields ``3``, and the field is *not* flagged invalid.  This is deliberate
+    and matches ``resolve_spacing_count``, which rounds the float the editor
+    hands it anyway; rejecting here would only move the same rounding one
+    layer down while making a near-miss keystroke feel like a hard error.  It
+    is nonetheless a silent value substitution, so the reformat writes the
+    rounded integer straight back into the field: the user sees ``3`` and can
+    correct it before committing.
+
     Returns:
         The rounded count, or None when unparseable so ``DimensionEdit``
         reverts to the last valid value.
@@ -257,31 +267,53 @@ def _parse_count(text: str) -> float | None:
         return None
 
 
-_HUD_STYLE = """
-QWidget#DynamicInputHud {
-    background-color: #2d2d2d;
-    border: 1px solid #555555;
+# ── Invalid-state colour ──────────────────────────────────────────────────
+# ``theme.py`` carries a ``status_error`` token per variant, so the rejected
+# border needs no literal of its own.
+
+def _build_hud_style(t: theme.Theme) -> str:
+    """Return the HUD stylesheet built from *t*'s tokens.
+
+    Built per-instance rather than as a module constant so the HUD follows
+    ``theme.detect()``: a constant would freeze whichever variant was current
+    at import time and render the HUD unreadable under the other one.
+
+    The ``[invalid="true"]`` rule is the visual half of ``_invalid``.  QSS
+    replaces native painting, so a property selector with no matching rule
+    fails *invisibly* — it renders as the base state — which is why this rule
+    and ``_set_invalid_style`` must ship together.
+    """
+    return f"""
+QWidget#DynamicInputHud {{
+    background-color: {t.bg_raised};
+    border: 1px solid {t.border_strong};
     border-radius: 4px;
-}
-QLabel {
-    color: #aaaaaa;
+}}
+QLabel {{
+    color: {t.text_secondary};
     font-family: 'Segoe UI';
     font-size: 8pt;
     background: transparent;
     border: none;
-}
-QLineEdit {
-    background-color: #1a1a1a;
-    color: #ffffff;
-    border: 1px solid #555555;
+}}
+QLineEdit {{
+    background-color: {t.bg_sunken};
+    color: {t.text_primary};
+    border: 1px solid {t.border_strong};
     border-radius: 3px;
     font-family: 'Consolas';
     font-size: 8pt;
     padding: 1px 3px;
-}
-QLineEdit:focus {
-    border: 1px solid #4fa3e0;
-}
+}}
+QLineEdit:focus {{
+    border: 1px solid {t.accent_primary};
+}}
+QLineEdit[invalid="true"] {{
+    border: 1px solid {t.status_error};
+}}
+QLineEdit[invalid="true"]:focus {{
+    border: 1px solid {t.status_error};
+}}
 """
 
 
@@ -331,7 +363,8 @@ class DynamicInputHud(QWidget):
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(_HUD_STYLE)
+        # Built here, not at import: honours whichever variant is current.
+        self.setStyleSheet(_build_hud_style(theme.detect()))
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 4, 6, 4)
@@ -343,6 +376,14 @@ class DynamicInputHud(QWidget):
             editor = self._build_editor(spec)
             layout.addWidget(editor)
             self._editors[spec.name] = editor
+            # Only *user* edits retire the invalid flag; a programmatic
+            # setText (including the editor's own revert-reformat) must not,
+            # or the flag would clear itself on the read that set it.
+            editor.textEdited.connect(
+                lambda _text, name=spec.name: self._clear_invalid(name))
+            # Set the property up front so the selector has something to match
+            # from the first polish rather than only after a rejection.
+            self._set_invalid_style(editor, False)
 
     # ── Construction helpers ──────────────────────────────────────────────
 
@@ -432,7 +473,9 @@ class DynamicInputHud(QWidget):
             if spec.kind is FieldKind.DIMENSION:
                 raw = self._scene_to_mm(raw)
             editor.set_value_mm(raw)
-        self._invalid.clear()
+        # A reseed replaces whatever text was rejected, so nothing stays flagged.
+        for name in list(self._invalid):
+            self._clear_invalid(name)
 
     def values(self) -> dict:
         """Return the current values in schema units.
@@ -443,12 +486,21 @@ class DynamicInputHud(QWidget):
         typed — the same fix ``DimensionDelegate.setModelData`` applies.
         Rejected entries revert to their last valid value and are recorded
         for ``has_invalid_field``.
+
+        The invalid record is *accumulated*, never reset here: the first read
+        already reverted the offending field to clean text, so a read that
+        cleared the set would find nothing wrong the second time and hand back
+        geometry the user never typed.  Flags retire on user edits and on
+        ``set_values``; see ``_clear_invalid``.
         """
-        self._invalid.clear()
         out: dict = {}
         for name, editor in self._editors.items():
-            if not self._commit_field(editor):
-                self._invalid.add(name)
+            # The verdict comes from the editor's own commit path, never from
+            # a re-parse here: acceptance cannot be read off the widget after
+            # the fact (it reverts silently) nor inferred from the text, since
+            # a *valid* entry usually reformats ("3ft" → "914.400 mm").
+            if not editor.try_commit():
+                self._mark_invalid(name)
             mm = editor.value_mm()
             spec = self._specs[name]
             out[name] = (self._mm_to_scene(mm)
@@ -456,7 +508,11 @@ class DynamicInputHud(QWidget):
         return out
 
     def has_invalid_field(self) -> bool:
-        """Whether the most recent ``values()`` read rejected any entry."""
+        """Whether any field holds input that was rejected and not yet retyped.
+
+        Sticky by design: it stays True across repeated ``values()`` reads
+        until the user edits the offending field or ``set_values`` reseeds it.
+        """
         return bool(self._invalid)
 
     def focus_first(self, seed: str = "") -> None:
@@ -482,35 +538,26 @@ class DynamicInputHud(QWidget):
 
     # ── Validity ──────────────────────────────────────────────────────────
 
-    def _commit_field(self, editor: DimensionEdit) -> bool:
-        """Force-commit *editor* and report whether its entry was accepted.
+    def _mark_invalid(self, name: str) -> None:
+        """Record field *name* as holding rejected input and restyle it."""
+        self._invalid.add(name)
+        self._set_invalid_style(self._editors[name], True)
 
-        ``DimensionEdit`` reverts silently on a failed parse or a value that
-        does not clear its minimum, so acceptance cannot be read off the
-        widget afterwards.  Neither can it be inferred by comparing the text
-        across the commit: a *valid* entry usually reformats (``"3ft"`` →
-        ``"914.400 mm"``), which such a comparison would flag.  Instead the
-        pre-commit text is run through the same parse-and-minimum test the
-        editor itself applies, and only genuinely *touched* text is judged —
-        an untouched seed takes the editor's no-op path and is always valid.
-
-        Returns:
-            True if the entry was accepted (or untouched), False if rejected.
-        """
-        text = editor.text().strip()
-        untouched = (not text) or text == editor._seed_text.strip()
-        accepted = untouched or self._parses(editor, text)
-        editor.commit()
-        return accepted
+    def _clear_invalid(self, name: str) -> None:
+        """Retire field *name*'s invalid flag and its red border."""
+        self._invalid.discard(name)
+        self._set_invalid_style(self._editors[name], False)
 
     @staticmethod
-    def _parses(editor: DimensionEdit, text: str) -> bool:
-        """Whether *text* clears *editor*'s parser and minimum."""
-        if editor._parser is not None:
-            parsed = editor._parser(text)
-        else:
-            fallback = editor._sm.bare_number_unit() if editor._sm else "mm"
-            parsed = ScaleManager.parse_dimension(text, fallback)
-        if parsed is None:
-            return False
-        return editor._minimum is None or parsed > editor._minimum
+    def _set_invalid_style(editor: DimensionEdit, invalid: bool) -> None:
+        """Drive the ``invalid`` QSS property on *editor*.
+
+        Qt resolves style-sheet property selectors once at polish time, so a
+        property changed afterwards only takes effect once the widget is
+        unpolished and re-polished.
+        """
+        editor.setProperty("invalid", "true" if invalid else "false")
+        style = editor.style()
+        style.unpolish(editor)
+        style.polish(editor)
+        editor.update()
