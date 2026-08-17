@@ -66,16 +66,24 @@ class Schema:
         seed: The inverse of *resolve* for placement schemas, and ``None``
             for transforms — their seeds come from scene state rather than a
             cursor position.
+        returns_point: Whether *resolve* yields a ``QPointF`` (placement) or a
+            dict (transform).  Declared rather than inferred from ``seed``:
+            "has an inverse" and "resolves to a point" are independent
+            properties that merely coincide across today's six schemas.
+            Callers branch on this to pick an applier, so a future schema that
+            seeds from scene state yet resolves to a point must not be able to
+            route itself to the wrong one.
     """
     name: str
     fields: tuple[FieldSpec, ...]
     resolve: Callable
     seed: Callable | None = None
+    returns_point: bool = True
 
     @property
     def is_placement(self) -> bool:
         """True when this schema resolves to a point rather than a transform."""
-        return self.seed is not None
+        return self.returns_point
 
 
 # ── Line ──────────────────────────────────────────────────────────────────
@@ -102,21 +110,27 @@ def seed_line(anchor: QPointF, point: QPointF) -> dict:
 def resolve_rectangle(anchor: QPointF, values: dict) -> QPointF:
     """Return the opposite-corner point *X*/*Y* away from *anchor*.
 
-    Resolving to a corner rather than a size keeps this a point source: the
-    click path derives half-extents with ``abs()``, so the same point serves
-    both corner-to-corner and from-centre rectangle modes.
+    Resolving to a corner rather than a size keeps this a point source, and
+    signed extents let one point serve both rectangle modes: corner-to-corner
+    builds ``QRectF(anchor, point).normalized()`` — where the sign chooses
+    which quadrant the rectangle occupies — while from-centre re-applies
+    ``abs()`` to derive half-extents and so ignores the sign.  Feeding this an
+    unsigned *X*/*Y* would silently rebuild every corner-mode rectangle in the
+    up-right quadrant.
     """
     return QPointF(anchor.x() + values["X"], anchor.y() - values["Y"])
 
 
 def seed_rectangle(anchor: QPointF, point: QPointF) -> dict:
-    """Return the X/Y extents of the rectangle spanning *anchor* to *point*.
+    """Return the signed X/Y extents from *anchor* to *point*, Y-up.
 
-    Extents are absolute because the HUD reports a size, not a signed
-    delta; the drag direction is already visible on screen.
+    The sign is kept so ``resolve_rectangle`` round-trips *point* exactly:
+    in corner mode the drag direction is the geometry, not just a visual cue.
+    Folding to a magnitude is left to the from-centre commit path, which
+    ``abs()``es anyway.
     """
-    return {"X": abs(point.x() - anchor.x()),
-            "Y": abs(point.y() - anchor.y())}
+    return {"X": point.x() - anchor.x(),
+            "Y": -(point.y() - anchor.y())}
 
 
 # ── Circle ────────────────────────────────────────────────────────────────
@@ -173,8 +187,11 @@ SCHEMAS: dict[str, Schema] = {
     "rectangle": Schema(
         name="rectangle",
         fields=(
-            FieldSpec("X", "X", FieldKind.DIMENSION, minimum=0.0),
-            FieldSpec("Y", "Y", FieldKind.DIMENSION, minimum=0.0),
+            # Signed, like displacement dX/dY: a left/down drag seeds a
+            # negative extent, and in corner mode that sign is the geometry.
+            # A 0.0 minimum would reject the seed the schema just produced.
+            FieldSpec("X", "X", FieldKind.DIMENSION),
+            FieldSpec("Y", "Y", FieldKind.DIMENSION),
         ),
         resolve=resolve_rectangle,
         seed=seed_rectangle,
@@ -194,6 +211,7 @@ SCHEMAS: dict[str, Schema] = {
             FieldSpec("dY", "dY", FieldKind.DIMENSION),
         ),
         resolve=resolve_displacement,
+        returns_point=False,
     ),
     "distance": Schema(
         name="distance",
@@ -201,6 +219,7 @@ SCHEMAS: dict[str, Schema] = {
             FieldSpec("Distance", "Dist", FieldKind.DIMENSION, minimum=0.0),
         ),
         resolve=resolve_distance,
+        returns_point=False,
     ),
     "spacing_count": Schema(
         name="spacing_count",
@@ -209,5 +228,6 @@ SCHEMAS: dict[str, Schema] = {
             FieldSpec("Count", "N", FieldKind.COUNT, minimum=0.0),
         ),
         resolve=resolve_spacing_count,
+        returns_point=False,
     ),
 }

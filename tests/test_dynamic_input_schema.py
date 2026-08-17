@@ -15,6 +15,18 @@ from firepro3d.dynamic_input import (
     resolve_displacement, resolve_distance, resolve_spacing_count,
 )
 
+# A non-origin anchor, so a seed that silently drops the anchor still fails.
+ANCHOR = QPointF(1234.0, -567.0)
+
+# Several non-axis-aligned offsets per quadrant, in scene coords (Y down).
+# The (+X, -Y) quadrant alone hides sign bugs, so all four are covered.
+QUADRANT_OFFSETS = [
+    (317.0, -412.0), (1500.0, -25.0),      # up-right
+    (-317.0, -412.0), (-25.0, -1500.0),    # up-left
+    (-317.0, 412.0), (-3000.0, 2000.0),    # down-left  (the C1 repro)
+    (317.0, 412.0), (2000.0, 3000.0),      # down-right
+]
+
 
 class TestRegistry:
 
@@ -37,6 +49,41 @@ class TestRegistry:
                  if s.name == "Count"][0]
         assert count.kind is FieldKind.COUNT
         assert count.minimum == 0.0     # DimensionEdit uses strict >, so >= 1
+
+    def test_rectangle_extents_allow_negatives(self):
+        """Signed extents need an unbounded field, as displacement dX/dY do.
+
+        ``DimensionEdit`` reverts anything not strictly greater than *minimum*,
+        so a 0.0 floor would reject the negative seed a left/down drag produces.
+        """
+        for spec in SCHEMAS["rectangle"].fields:
+            assert spec.minimum is None, spec.name
+
+    def test_placement_flag_matches_resolve_return_type(self):
+        """``is_placement`` must agree with what ``resolve`` actually returns.
+
+        Pins the invariant the flag exists to express, rather than the
+        ``returns_point`` field that currently implements it.
+        """
+        anchor = QPointF(10.0, 20.0)
+        sample = {
+            "Length": 100.0, "Angle": 30.0,
+            "X": -40.0, "Y": -50.0,
+            "Radius": 60.0,
+            "dX": 70.0, "dY": 80.0,
+            "Distance": 90.0,
+            "Spacing": 500.0, "Count": 3.0,
+        }
+        for name, schema in SCHEMAS.items():
+            out = schema.resolve(anchor, sample)
+            assert isinstance(out, QPointF) == schema.returns_point, name
+            assert schema.is_placement == schema.returns_point, name
+
+    def test_only_placement_schemas_seed(self):
+        """Today's schemas happen to align; the flag is what callers trust."""
+        for name, schema in SCHEMAS.items():
+            if schema.seed is not None:
+                assert schema.returns_point, name
 
 
 class TestLine:
@@ -63,6 +110,14 @@ class TestLine:
         assert vals["Length"] == pytest.approx(50.0)
         assert vals["Angle"] == pytest.approx(90.0)
 
+    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
+    def test_seed_round_trips_in_every_quadrant(self, dx, dy):
+        """Line seeds are an exact inverse: the point comes back unchanged."""
+        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
+        back = resolve_line(ANCHOR, seed_line(ANCHOR, point))
+        assert back.x() == pytest.approx(point.x())
+        assert back.y() == pytest.approx(point.y())
+
 
 class TestRectangle:
 
@@ -71,10 +126,39 @@ class TestRectangle:
         assert out.x() == pytest.approx(30.0)
         assert out.y() == pytest.approx(-40.0)
 
-    def test_seed_uses_absolute_extents(self):
+    def test_seed_keeps_sign(self):
+        """A down-left drag seeds negative extents.
+
+        Corner mode builds ``QRectF(anchor, snapped)``, so the sign IS the
+        geometry — dropping it moves the rectangle to the opposite quadrant.
+        """
         vals = seed_rectangle(QPointF(0, 0), QPointF(-30, 40))
-        assert vals["X"] == pytest.approx(30.0)
-        assert vals["Y"] == pytest.approx(40.0)
+        assert vals["X"] == pytest.approx(-30.0)
+        assert vals["Y"] == pytest.approx(-40.0)      # Y-up: +40 scene = -40 up
+
+    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
+    def test_seed_round_trips_in_every_quadrant(self, dx, dy):
+        """Rectangle seeds are an exact inverse, corner included.
+
+        Only signed extents survive the round trip; ``abs()`` extents rebuild
+        every corner in the up-right quadrant.
+        """
+        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
+        back = resolve_rectangle(ANCHOR, seed_rectangle(ANCHOR, point))
+        assert back.x() == pytest.approx(point.x())
+        assert back.y() == pytest.approx(point.y())
+
+    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
+    def test_from_centre_extents_are_direction_independent(self, dx, dy):
+        """From-centre mode re-applies ``abs()``, so signed seeds are safe.
+
+        This is the half-extent derivation from the click-commit path; it must
+        stay identical whichever quadrant the drag went into.
+        """
+        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
+        back = resolve_rectangle(ANCHOR, seed_rectangle(ANCHOR, point))
+        assert abs(back.x() - ANCHOR.x()) == pytest.approx(abs(dx))
+        assert abs(back.y() - ANCHOR.y()) == pytest.approx(abs(dy))
 
 
 class TestCircle:
@@ -86,6 +170,20 @@ class TestCircle:
     def test_seed_is_distance_from_centre(self):
         vals = seed_circle(QPointF(0, 0), QPointF(3, 4))
         assert vals["Radius"] == pytest.approx(5.0)
+
+    @pytest.mark.parametrize("dx,dy", QUADRANT_OFFSETS)
+    def test_seed_round_trips_radius_in_every_quadrant(self, dx, dy):
+        """Circle round-trips the *radius*, not the point.
+
+        ``resolve_circle`` legitimately returns a different point on the same
+        circle — direction is discarded because the commit path only takes the
+        hypot.  Asserting point identity here would be asserting a coincidence.
+        """
+        point = QPointF(ANCHOR.x() + dx, ANCHOR.y() + dy)
+        back = resolve_circle(ANCHOR, seed_circle(ANCHOR, point))
+        r_in = math.hypot(dx, dy)
+        r_out = math.hypot(back.x() - ANCHOR.x(), back.y() - ANCHOR.y())
+        assert r_out == pytest.approx(r_in)
 
 
 class TestTransforms:
