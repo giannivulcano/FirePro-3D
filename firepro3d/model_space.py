@@ -7264,22 +7264,44 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._constrain_angle(self._draw_line_anchor, snapped)
-            # Reject zero-length lines
-            if math.hypot(tip.x() - self._draw_line_anchor.x(),
-                          tip.y() - self._draw_line_anchor.y()) < 0.5:
-                self._show_status(
-                    "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
-                    timeout=2000)
-                return
-            self._make_line_like(self._draw_line_anchor, tip)
-            for v in self.views(): v.viewport().update()
-            self._draw_line_anchor = None
-            self.preview_pipe.hide()
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
+            self._commit_draw_line_at(tip)
+
+    def _commit_draw_line_at(self, tip):
+        """Commit the armed line-like placement, ending at ``tip``.
+
+        This is the commit half of :meth:`_press_draw_line`, split out so that
+        Dynamic Input is an alternative *point source* rather than an
+        alternative *commit path*: a typed exact point and a mouse click land
+        in this one method, so they cannot drift apart.
+
+        ``tip`` is expected to be fully constrained already (OSNAP, inference,
+        Ctrl) — this method applies no further constraint. A too-short line is
+        rejected and leaves the anchor armed so the user can re-pick.
+
+        Args:
+            tip: The scene-space end point of the line. No-op when no anchor
+                is armed.
+        """
+        if self._draw_line_anchor is None:
+            return
+        _is_grid = self.mode == "draw_gridline"
+        # Reject zero-length lines
+        if math.hypot(tip.x() - self._draw_line_anchor.x(),
+                      tip.y() - self._draw_line_anchor.y()) < 0.5:
+            self._show_status(
+                "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
+                timeout=2000)
+            return
+        self._make_line_like(self._draw_line_anchor, tip)
+        for v in self.views(): v.viewport().update()
+        self._draw_line_anchor = None
+        self.clear_placement_state()
+        self.preview_pipe.hide()
+        self.push_undo_state()
+        if self.single_place_mode:
+            self.set_mode("select")
+        else:
+            self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
 
     def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cline_anchor is None:
