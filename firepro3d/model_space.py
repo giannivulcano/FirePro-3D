@@ -4444,12 +4444,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 anchor.x() + length * math.cos(angle_rad),
                 anchor.y() - length * math.sin(angle_rad),  # Y-up → scene Y-down
             )
-            self._make_line_like(anchor, tip)
-            self._draw_line_anchor = None
-            self.preview_pipe.hide()
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
+            # Delegate: typed input is a point *source*, not a second commit
+            # path, so too-short rejection / state clearing / re-arm wording
+            # cannot drift from the mouse-click path.
+            self._commit_draw_line_at(tip)
 
         # ── Construction Line ─────────────────────────────────────────────
         elif self.mode == "construction_line" and self._cline_anchor is not None:
@@ -7282,17 +7280,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tip: The scene-space end point of the line. No-op when no anchor
                 is armed.
         """
-        if self._draw_line_anchor is None:
+        anchor = self._draw_line_anchor
+        if anchor is None:
             return
+        # Read the mode flag up front: the single_place_mode branch below calls
+        # set_mode("select"), which mutates self.mode, so a later read would
+        # pick the wrong wording for the re-arm instruction.
         _is_grid = self.mode == "draw_gridline"
         # Reject zero-length lines
-        if math.hypot(tip.x() - self._draw_line_anchor.x(),
-                      tip.y() - self._draw_line_anchor.y()) < 0.5:
+        if math.hypot(tip.x() - anchor.x(),
+                      tip.y() - anchor.y()) < 0.5:
             self._show_status(
                 "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
                 timeout=2000)
             return
-        self._make_line_like(self._draw_line_anchor, tip)
+        self._make_line_like(anchor, tip)
         for v in self.views(): v.viewport().update()
         self._draw_line_anchor = None
         self.clear_placement_state()
