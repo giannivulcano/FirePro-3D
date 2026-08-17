@@ -3765,6 +3765,42 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return QPointF(anchor.x() + dist * math.cos(snapped),
                        anchor.y() + dist * math.sin(snapped))
 
+    def get_placement_anchor(self) -> "QPointF | None":
+        """Return the active placement's anchor point in scene coordinates.
+
+        One accessor for what were six per-mode anchor variables. ``None``
+        means no placement is in progress, and is the single gate that stops
+        the Dynamic Input HUD engaging before the user's first click.
+
+        ``construction_line`` is intentionally absent — it is out of scope
+        (a typed Length would be a visual no-op, since the drawn line extends
+        past both defining points).
+
+        Returns:
+            The anchor point, or None when no placement is in progress.
+        """
+        if self.mode in ("draw_line", "draw_gridline"):
+            return self._draw_line_anchor
+        if self.mode == "draw_rectangle":
+            return self._draw_rect_anchor
+        if self.mode == "draw_circle":
+            return self._draw_circle_center
+        if self.mode == "wall":
+            return self._wall_anchor
+        if self.mode == "polyline":
+            pl = self._polyline_active
+            if pl is not None and pl._points:
+                return pl._points[-1]
+            return None
+        if self.mode in ("pipe", "move"):
+            # node_start_pos holds a Node in pipe mode but a raw QPointF in
+            # move mode (set_mode's cleanup relies on the same distinction).
+            nsp = self.node_start_pos
+            if nsp is None:
+                return None
+            return nsp.scenePos() if isinstance(nsp, Node) else nsp
+        return None
+
     # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
     # ─────────────────────────────────────────────────────────────────────────
