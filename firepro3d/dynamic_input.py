@@ -21,7 +21,11 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Callable
 
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QWidget
+
+from .dimension_edit import DimensionEdit
+from .scale_manager import ScaleManager
 
 
 class FieldKind(Enum):
@@ -231,3 +235,282 @@ SCHEMAS: dict[str, Schema] = {
         returns_point=False,
     ),
 }
+
+
+# ── HUD widget ────────────────────────────────────────────────────────────
+
+def _format_count(value: float) -> str:
+    """Format a COUNT value as a bare integer (``"3"``, never ``"3.0"``)."""
+    return str(int(round(value)))
+
+
+def _parse_count(text: str) -> float | None:
+    """Parse a bare integer count, tolerating a decimal the user typed.
+
+    Returns:
+        The rounded count, or None when unparseable so ``DimensionEdit``
+        reverts to the last valid value.
+    """
+    try:
+        return float(round(float(str(text).strip())))
+    except (TypeError, ValueError):
+        return None
+
+
+_HUD_STYLE = """
+QWidget#DynamicInputHud {
+    background-color: #2d2d2d;
+    border: 1px solid #555555;
+    border-radius: 4px;
+}
+QLabel {
+    color: #aaaaaa;
+    font-family: 'Segoe UI';
+    font-size: 8pt;
+    background: transparent;
+    border: none;
+}
+QLineEdit {
+    background-color: #1a1a1a;
+    color: #ffffff;
+    border: 1px solid #555555;
+    border-radius: 3px;
+    font-family: 'Consolas';
+    font-size: 8pt;
+    padding: 1px 3px;
+}
+QLineEdit:focus {
+    border: 1px solid #4fa3e0;
+}
+"""
+
+
+class DynamicInputHud(QWidget):
+    """Editable on-canvas readout driving an in-progress placement.
+
+    One ``DimensionEdit`` is built per ``FieldSpec``; the three ``FieldKind``
+    values select three *configurations* of that one widget rather than three
+    different widgets, so the house parser, formatter, minimum handling and
+    revert-to-last-valid behaviour come along unchanged.
+
+    **Units boundary.** Schemas seed and resolve in *scene* units, while
+    ``DimensionEdit`` stores and parses *millimetres*.  ``DIMENSION`` fields
+    are therefore converted on the way in and back out; ``ANGLE`` and
+    ``COUNT`` are dimensionless and pass straight through.  The conversion is
+    deliberately guarded on calibration so the editor's text always agrees
+    with ``Model_Space._format_schema_readout`` — see ``_scene_to_mm``.
+
+    This widget is a plain child of whatever it is parented to (a viewport);
+    it sets no window flags and is not a dialog.
+
+    Attributes:
+        committed: Emitted with the values dict when the user accepts.
+        cancelled: Emitted when the user abandons the input.
+    """
+
+    committed = pyqtSignal(dict)
+    cancelled = pyqtSignal()
+
+    def __init__(self, schema: Schema, scale_manager: ScaleManager | None = None,
+                 parent=None):
+        """Build one editor per field of *schema*.
+
+        Args:
+            schema: The active schema; its field order is the layout order.
+            scale_manager: Supplies formatting and the scene↔mm calibration.
+                ``None`` degrades to treating 1 scene unit as 1 mm.
+            parent: Owning widget, normally a ``QGraphicsView`` viewport.
+        """
+        super().__init__(parent)
+        self._schema = schema
+        self._sm = scale_manager
+        self._editors: dict[str, DimensionEdit] = {}
+        self._specs: dict[str, FieldSpec] = {f.name: f for f in schema.fields}
+        self._invalid: set[str] = set()
+
+        self.setObjectName("DynamicInputHud")
+        # QSS on a plain QWidget only paints with this attribute set.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(_HUD_STYLE)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
+
+        for spec in schema.fields:
+            label = QLabel(spec.label, self)
+            layout.addWidget(label)
+            editor = self._build_editor(spec)
+            layout.addWidget(editor)
+            self._editors[spec.name] = editor
+
+    # ── Construction helpers ──────────────────────────────────────────────
+
+    def _build_editor(self, spec: FieldSpec) -> DimensionEdit:
+        """Return a ``DimensionEdit`` configured for *spec*'s kind."""
+        if spec.kind is FieldKind.ANGLE:
+            editor = DimensionEdit(
+                None, initial_mm=0.0, parent=self,
+                parser=ScaleManager.parse_angle,
+                formatter=ScaleManager.format_angle,
+                minimum=spec.minimum,
+            )
+        elif spec.kind is FieldKind.COUNT:
+            editor = DimensionEdit(
+                None, initial_mm=0.0, parent=self,
+                parser=_parse_count, formatter=_format_count,
+                minimum=spec.minimum,
+            )
+        else:
+            # DIMENSION: the scale manager supplies parsing and formatting.
+            # The minimum is expressed in scene units by the schema, so it is
+            # converted into the mm domain the editor validates in.
+            editor = DimensionEdit(
+                self._sm, initial_mm=0.0, parent=self,
+                minimum=(None if spec.minimum is None
+                         else self._scene_to_mm(spec.minimum)),
+            )
+        editor.setMinimumWidth(70)
+        return editor
+
+    # ── Units boundary ────────────────────────────────────────────────────
+    #
+    # ``ScaleManager.scene_to_mm`` divides by pixels_per_mm *unconditionally*,
+    # but ``scene_to_display`` — which renders the canvas readout — first
+    # checks ``_calibrated`` and treats 1 scene unit as 1 mm when it is not.
+    # Uncalibrated is the default state, so an unguarded conversion would
+    # disagree with the readout on most drawings.  These two mirror
+    # ``scene_to_display``'s guard so the editor text matches it exactly.
+    #
+    # ``scene_to_display_value``/``display_to_scene`` are deliberately *not*
+    # used: they return a number in the current *display unit* (inches under
+    # imperial), whereas ``DimensionEdit`` stores millimetres.
+
+    def _scene_to_mm(self, scene_value: float) -> float:
+        """Convert scene units to the mm ``DimensionEdit`` stores."""
+        if self._sm is not None and self._sm.is_calibrated:
+            return self._sm.scene_to_mm(scene_value)
+        return scene_value
+
+    def _mm_to_scene(self, mm: float) -> float:
+        """Convert ``DimensionEdit``'s mm back to schema scene units."""
+        if self._sm is not None and self._sm.is_calibrated:
+            return self._sm.mm_to_scene(mm)
+        return mm
+
+    # ── Public API ────────────────────────────────────────────────────────
+
+    @property
+    def schema(self) -> Schema:
+        """The schema this HUD was built for."""
+        return self._schema
+
+    def field_names(self) -> tuple[str, ...]:
+        """Field names in schema (tab) order."""
+        return tuple(f.name for f in self._schema.fields)
+
+    def editor(self, name: str) -> DimensionEdit:
+        """Return the editor for field *name*.
+
+        Raises:
+            KeyError: If *name* is not a field of this schema.
+        """
+        return self._editors[name]
+
+    def set_values(self, values: dict) -> None:
+        """Seed the editors from *values*, expressed in schema units.
+
+        ``DIMENSION`` entries are scene units and are converted to mm;
+        ``ANGLE`` and ``COUNT`` are stored as given.  Names absent from
+        *values* are left untouched.
+        """
+        for name, editor in self._editors.items():
+            if name not in values:
+                continue
+            raw = float(values[name])
+            spec = self._specs[name]
+            if spec.kind is FieldKind.DIMENSION:
+                raw = self._scene_to_mm(raw)
+            editor.set_value_mm(raw)
+        self._invalid.clear()
+
+    def values(self) -> dict:
+        """Return the current values in schema units.
+
+        Every editor is force-committed first.  ``editingFinished`` does not
+        fire when Return is pressed with focus still in the field, so without
+        this the stale seeded value would be read instead of what the user
+        typed — the same fix ``DimensionDelegate.setModelData`` applies.
+        Rejected entries revert to their last valid value and are recorded
+        for ``has_invalid_field``.
+        """
+        self._invalid.clear()
+        out: dict = {}
+        for name, editor in self._editors.items():
+            if not self._commit_field(editor):
+                self._invalid.add(name)
+            mm = editor.value_mm()
+            spec = self._specs[name]
+            out[name] = (self._mm_to_scene(mm)
+                         if spec.kind is FieldKind.DIMENSION else mm)
+        return out
+
+    def has_invalid_field(self) -> bool:
+        """Whether the most recent ``values()`` read rejected any entry."""
+        return bool(self._invalid)
+
+    def focus_first(self, seed: str = "") -> None:
+        """Focus the first field, optionally replacing its text with *seed*.
+
+        Args:
+            seed: The keystroke that engaged the HUD.  When given it replaces
+                the field's text and leaves the cursor at the end, so typing
+                continues naturally; otherwise the existing text is selected
+                for immediate overwrite.
+        """
+        if not self._schema.fields:
+            return
+        editor = self._editors[self._schema.fields[0].name]
+        editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        if seed:
+            # setText after focus: focusInEvent selects all, which would make
+            # the seed look pre-selected and be wiped by the next keystroke.
+            editor.setText(seed)
+            editor.setCursorPosition(len(seed))
+        else:
+            editor.selectAll()
+
+    # ── Validity ──────────────────────────────────────────────────────────
+
+    def _commit_field(self, editor: DimensionEdit) -> bool:
+        """Force-commit *editor* and report whether its entry was accepted.
+
+        ``DimensionEdit`` reverts silently on a failed parse or a value that
+        does not clear its minimum, so acceptance cannot be read off the
+        widget afterwards.  Neither can it be inferred by comparing the text
+        across the commit: a *valid* entry usually reformats (``"3ft"`` →
+        ``"914.400 mm"``), which such a comparison would flag.  Instead the
+        pre-commit text is run through the same parse-and-minimum test the
+        editor itself applies, and only genuinely *touched* text is judged —
+        an untouched seed takes the editor's no-op path and is always valid.
+
+        Returns:
+            True if the entry was accepted (or untouched), False if rejected.
+        """
+        text = editor.text().strip()
+        untouched = (not text) or text == editor._seed_text.strip()
+        accepted = untouched or self._parses(editor, text)
+        editor.commit()
+        return accepted
+
+    @staticmethod
+    def _parses(editor: DimensionEdit, text: str) -> bool:
+        """Whether *text* clears *editor*'s parser and minimum."""
+        if editor._parser is not None:
+            parsed = editor._parser(text)
+        else:
+            fallback = editor._sm.bare_number_unit() if editor._sm else "mm"
+            parsed = ScaleManager.parse_dimension(text, fallback)
+        if parsed is None:
+            return False
+        return editor._minimum is None or parsed > editor._minimum
