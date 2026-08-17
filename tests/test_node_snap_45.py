@@ -28,6 +28,38 @@ def _angle_of(start: QPointF, end: QPointF) -> float:
                                    end.x() - start.x()))
 
 
+def _two_pipe_node():
+    """Node with two reference pipes whose 45° grids are distinguishable.
+
+    IMPORTANT — the reference pair must NOT be mutually perpendicular.  The
+    45° grid anchored at 0° and the one anchored at 90° are the *same* grid
+    (90 is itself a multiple of 45), so a horizontal + vertical pair snaps
+    every drag identically no matter which pipe is chosen and therefore cannot
+    detect a wrong reference.  The two axes must sit at a non-multiple-of-45
+    angle to each other; here 180° and 30° (150° apart) give the disjoint
+    grids {0, 45, 90, …} and {30, 75, 120, …}.
+
+    Returns ``(node, pipes, p_west, p_diag)`` with:
+      * pipe W → (-1000, 0): scene axis 180°, grid {…, 0, 45, 90, …}.
+        Added FIRST, so this is what the old ``self.pipes[0]`` would pick.
+      * pipe D → 30° scene: grid {30, 75, 120, …}.  Added SECOND.
+    """
+    n = Node(0, 0)
+    west = Node(-1000, 0)
+    diag = Node(math.cos(math.radians(30)) * 1000,
+                math.sin(math.radians(30)) * 1000)      # scene coords, Y down
+    west.z_pos = diag.z_pos = n.z_pos                   # keep all three coplanar
+    pipes = []
+    p_west = _connect(n, west, pipes)
+    p_diag = _connect(n, diag, pipes)
+    return n, pipes, p_west, p_diag
+
+
+# Drag to scene 20°: axis delta to W is 20°, to D is 10° → D is contextual.
+_DRAG_END = QPointF(math.cos(math.radians(20)) * 1000,
+                    math.sin(math.radians(20)) * 1000)
+
+
 class TestContextualReference:
 
     def test_free_node_soft_snaps_within_tolerance(self, qapp):
@@ -58,36 +90,28 @@ class TestContextualReference:
         assert _angle_of(start, out) == pytest.approx(0.0, abs=1e-6)
 
     def test_branching_picks_angularly_nearest_pipe_not_first(self, qapp):
-        """B5: two pipes; the *first* added is not the contextual one."""
-        n = Node(0, 0)
-        west = Node(-1000, 0)              # axis 0°/180° — added FIRST
-        south = Node(0, 1000)              # axis -90°/90° — added SECOND
-        west.z_pos = south.z_pos = n.z_pos
-        pipes = []
-        _connect(n, west, pipes)
-        _connect(n, south, pipes)
+        """B5: two pipes; the *first* added is not the contextual one.
+
+        The drag sits 10° off pipe D's axis and 20° off pipe W's, so D is the
+        reference and the grid is {30, 75, …} → scene 30° (Y-up -30°).
+        Anchoring to ``pipes[0]`` (W) would instead give scene 0°.
+        """
+        n, _pipes, _p_west, _p_diag = _two_pipe_node()
         start = QPointF(0, 0)
-        # Drag ~80° (up and slightly right). Nearest axis is the N-S pipe (90°),
-        # so the 45° grid is anchored there and 80° snaps to 90°.
-        end = QPointF(math.cos(math.radians(80)) * 1000,
-                      -math.sin(math.radians(80)) * 1000)
-        out = n.snap_point_45(start, end)
-        assert _angle_of(start, out) == pytest.approx(90.0, abs=1e-6)
+        out = n.snap_point_45(start, _DRAG_END)
+        assert _angle_of(start, out) == pytest.approx(-30.0, abs=1e-6)
 
     def test_explicit_reference_pipe_overrides_selection(self, qapp):
-        n = Node(0, 0)
-        west = Node(-1000, 0)
-        south = Node(0, 1000)
-        west.z_pos = south.z_pos = n.z_pos
-        pipes = []
-        p_west = _connect(n, west, pipes)
-        _connect(n, south, pipes)
+        """Forcing W flips the result away from the contextual choice.
+
+        Same geometry and drag as above, where the default selection yields
+        Y-up -30° off pipe D; naming W as the reference must land on W's grid
+        instead → scene 0°.
+        """
+        n, _pipes, p_west, _p_diag = _two_pipe_node()
         start = QPointF(0, 0)
-        end = QPointF(math.cos(math.radians(80)) * 1000,
-                      -math.sin(math.radians(80)) * 1000)
-        # Forcing the E-W pipe as reference puts the grid on 0/45/90 → 80° → 90°
-        out = n.snap_point_45(start, end, reference_pipe=p_west)
-        assert _angle_of(start, out) == pytest.approx(90.0, abs=1e-6)
+        out = n.snap_point_45(start, _DRAG_END, reference_pipe=p_west)
+        assert _angle_of(start, out) == pytest.approx(0.0, abs=1e-6)
 
     def test_riser_only_node_falls_through_to_free_snap(self, qapp):
         """No coplanar pipes → free soft-snap, not a riser's plan angle."""
