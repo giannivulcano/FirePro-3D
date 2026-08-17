@@ -280,6 +280,11 @@ class ScaleManager:
 
         Returns:
             The equivalent angle in (-180, 180].
+
+        Note:
+            ``geometry_intersect._normalize_angle`` is a separate variant that
+            uses the ``[0, 360)`` range for arc-containment math and is
+            deliberately distinct from this method.
         """
         a = (float(deg) + 180.0) % 360.0 - 180.0
         return 180.0 if a == -180.0 else a
@@ -292,6 +297,10 @@ class ScaleManager:
         Deliberately independent of ``self.precision``, which controls
         fractional-inch denominators and is meaningless for angles.
 
+        Non-finite input (NaN, ±inf) formats as ``"0°"`` rather than raising,
+        because this method is called from Qt paint paths where an unhandled
+        exception becomes a silent process crash.
+
         Args:
             deg: Angle in degrees.
 
@@ -299,6 +308,8 @@ class ScaleManager:
             The formatted angle, e.g. ``"-16.4°"``.
         """
         a = ScaleManager.normalize_angle(deg)
+        if not math.isfinite(a):
+            return "0°"
         # Round half away from zero on the decimal literal the user sees:
         # f"{45.125:.2f}" gives "45.12" (binary repr is just under the tie,
         # then banker's rounding), but a CAD readout should show 45.13.
@@ -349,7 +360,6 @@ class ScaleManager:
 
         Returns None if the text cannot be parsed.
         """
-        import re
         text = text.strip()
         if not text:
             return None

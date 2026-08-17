@@ -50,3 +50,44 @@ class TestParse:
         for deg in (0.0, 45.0, -16.4, 90.0, 179.99):
             text = ScaleManager.format_angle(deg)
             assert ScaleManager.parse_angle(text) == pytest.approx(deg, abs=0.01)
+
+    # Boundary and edge cases
+    def test_wraps_past_180(self):
+        # 180.5 normalizes to -179.5
+        assert ScaleManager.parse_angle("180.5") == pytest.approx(-179.5)
+
+    def test_negative_180_becomes_180(self):
+        assert ScaleManager.parse_angle("-180") == pytest.approx(180.0)
+
+    def test_accepts_trailing_dot(self):
+        assert ScaleManager.parse_angle("45.") == pytest.approx(45.0)
+
+    def test_accepts_leading_dot_with_sign(self):
+        assert ScaleManager.parse_angle("+.5") == pytest.approx(0.5)
+
+    def test_rejects_scientific_notation(self):
+        # 1e3 is deliberately not accepted (regex requires no 'e')
+        assert ScaleManager.parse_angle("1e3") is None
+
+    def test_case_insensitive_deg_suffix(self):
+        assert ScaleManager.parse_angle("45 DEG") == pytest.approx(45.0)
+
+    # Non-finite input to parse_angle must return None
+    def test_parse_nan_string_returns_none(self):
+        assert ScaleManager.parse_angle("NaN°") is None
+
+    def test_parse_inf_string_returns_none(self):
+        assert ScaleManager.parse_angle("inf") is None
+
+
+class TestFormatNonFinite:
+    """format_angle must never raise or return a NaN/inf string."""
+
+    def test_nan_formats_as_zero(self):
+        assert ScaleManager.format_angle(float("nan")) == "0°"
+
+    def test_inf_formats_as_zero(self):
+        assert ScaleManager.format_angle(float("inf")) == "0°"
+
+    def test_neg_inf_formats_as_zero(self):
+        assert ScaleManager.format_angle(float("-inf")) == "0°"
