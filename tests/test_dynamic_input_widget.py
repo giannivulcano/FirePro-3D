@@ -114,3 +114,47 @@ class TestPlacementAnchor:
         b = scene.get_placement_anchor()
         b.setY(-777)
         assert pl._points[-1] == QPointF(3, 4)
+
+
+class TestPublishPlacementState:
+
+    def test_publishes_resolved_point_not_raw_cursor(self, scene):
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene._last_scene_pos = QPointF(500, -3)      # raw cursor
+        constrained = QPointF(500, 0)                 # what Ctrl produced
+        scene.publish_placement_state(QPointF(0, 0), constrained)
+        assert scene.get_resolved_point() == constrained
+
+    def test_sets_dim_hint_from_schema(self, scene):
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+        hint = scene._draw_dim_hint
+        assert hint is not None
+        assert "L" in hint and "A" in hint
+        assert "0°" in hint
+
+    def test_clear_resets_both(self, scene):
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+        scene.clear_placement_state()
+        assert scene.get_resolved_point() is None
+        assert scene._draw_dim_hint is None
+
+    def test_no_schema_mode_publishes_point_without_hint(self, scene):
+        scene.mode = "select"
+        scene.publish_placement_state(QPointF(0, 0), QPointF(9, 9))
+        assert scene.get_resolved_point() == QPointF(9, 9)
+        assert scene._draw_dim_hint is None
+
+    def test_resolved_point_is_a_copy(self, scene):
+        """Same aliasing guard as get_placement_anchor."""
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        p = QPointF(100, 0)
+        scene.publish_placement_state(QPointF(0, 0), p)
+        got = scene.get_resolved_point()
+        got.setX(999)
+        assert scene.get_resolved_point() == QPointF(100, 0)

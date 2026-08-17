@@ -163,6 +163,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
+        self._resolved_point: "QPointF | None" = None  # constrained point published each frame
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
         self._draw_arc_center: "QPointF | None" = None
@@ -3813,6 +3814,108 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return None
 
     # ─────────────────────────────────────────────────────────────────────────
+    # Published placement state (dynamic input)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Mode → schema key.  Transform modes map here too; their appliers
+    # differ but the HUD contract is identical.
+    _SCHEMA_FOR_MODE = {
+        "draw_line": "line",
+        "draw_gridline": "line",
+        "polyline": "line",
+        "wall": "line",
+        "pipe": "line",
+        "draw_rectangle": "rectangle",
+        "draw_circle": "circle",
+        "move": "displacement",
+        "gridline_offset": "distance",
+        "gridline_array": "spacing_count",
+    }
+
+    def active_schema(self):
+        """Return the Schema for the current mode, or None.
+
+        Returns:
+            The registered ``Schema`` for ``self.mode``, or None when the mode
+            has no dynamic-input schema.
+        """
+        from .dynamic_input import SCHEMAS
+        key = self._SCHEMA_FOR_MODE.get(self.mode)
+        return SCHEMAS.get(key) if key else None
+
+    def get_resolved_point(self) -> "QPointF | None":
+        """Return the last point published by ``publish_placement_state``.
+
+        This is the *constrained* position actually shown on screen, which is
+        what the HUD seeds from.  Distinct from ``_last_scene_pos``, which
+        holds the raw cursor and so can disagree with the preview whenever a
+        constraint (Ctrl, 45° snap, inference) is active.
+
+        The returned point is always a fresh copy; callers may mutate it.
+
+        Returns:
+            A copy of the resolved point, or None when nothing is published.
+        """
+        p = self._resolved_point
+        return QPointF(p) if p is not None else None
+
+    def clear_placement_state(self) -> None:
+        """Drop the published point and readout (placement finished/cancelled)."""
+        self._resolved_point = None
+        self._draw_dim_hint = None
+
+    def publish_placement_state(self, anchor, point) -> None:
+        """Record the resolved placement point and derive the HUD readout.
+
+        Call once per frame per mode, at the point where the mode has finished
+        constraining its position (OSNAP → inference → Ctrl → 45° snap).  This
+        is the single source for both the live read-only readout and the
+        values the HUD seeds with, so the two cannot disagree.
+
+        Args:
+            anchor: The placement anchor, or None when the mode has not
+                established one yet.
+            point: The fully constrained point under the cursor.
+        """
+        self._resolved_point = QPointF(point) if point is not None else None
+        schema = self.active_schema()
+        if (schema is None or not schema.is_placement
+                or anchor is None or point is None):
+            self._draw_dim_hint = None
+            return
+        values = schema.seed(anchor, point)
+        self._draw_dim_hint = self._format_schema_readout(schema, values)
+
+    def _format_schema_readout(self, schema, values: dict) -> str:
+        """Render schema values as the one-line cursor readout.
+
+        Args:
+            schema: The active ``Schema``; its field order drives the layout.
+            values: Seeded values keyed by ``FieldSpec.name``.
+
+        Returns:
+            A single line such as ``"L 3000.0 mm  A 45°"``.
+        """
+        from .dynamic_input import FieldKind
+        sm = self.scale_manager
+        parts = []
+        for spec in schema.fields:
+            v = values.get(spec.name)
+            if v is None:
+                continue
+            if spec.kind is FieldKind.ANGLE:
+                text = ScaleManager.format_angle(v)
+            elif spec.kind is FieldKind.COUNT:
+                text = str(int(round(v)))
+            else:
+                # Schemas seed in *scene* units, so this is scene_to_display
+                # rather than format_length (which expects mm).  It falls back
+                # to format_length itself when the drawing is uncalibrated.
+                text = sm.scene_to_display(v) if sm else f"{v:.2f} mm"
+            parts.append(f"{spec.label} {text}")
+        return "  ".join(parts)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
     # ─────────────────────────────────────────────────────────────────────────
     # Template getters (pre-placement property editing)
@@ -4605,7 +4708,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.cursorMoved.emit(coord_str)
 
         snapped = self.get_effective_position(scene_pos)
-        self._draw_dim_hint = None   # cleared each frame; draw modes set it below
+        # Cleared each frame; draw modes republish below.  The resolved point
+        # goes with the hint — leaving it set would let a mode that never
+        # publishes hand the HUD the *previous* mode's stale point.
+        self.clear_placement_state()
 
         # ── Grip drag (mode-independent, takes priority) ────────────────
         if self._grip_dragging and self._grip_item is not None:
@@ -4805,7 +4911,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _move_draw_line(self, event, snapped):
         sm = self.scale_manager
-        _anchor = self._draw_line_anchor if self.mode in ("draw_line", "draw_gridline") else self._cline_anchor
+        _is_line = self.mode in ("draw_line", "draw_gridline")
+        _anchor = self._draw_line_anchor if _is_line else self._cline_anchor
         if _anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         if _anchor is not None:
@@ -4817,15 +4924,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 tip.x(), tip.y()
             )
             self.preview_pipe.show()
-            _dx = tip.x() - _anchor.x()
-            _dy = tip.y() - _anchor.y()
-            _len = math.hypot(_dx, _dy)
-            _ang = math.degrees(math.atan2(-_dy, _dx))
-            self._draw_dim_hint = (
-                f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-                if sm.is_calibrated else
-                f"L: {_len:.0f}mm  A: {_ang:.1f}°"
-            )
+            if _is_line:
+                # Publishing here — after the Ctrl constraint — is what keeps
+                # the readout and the HUD's seed from disagreeing.
+                self.publish_placement_state(_anchor, tip)
+            else:
+                # construction_line is out of scope for dynamic input; it keeps
+                # its hand-built readout until/unless it gains a schema.
+                _dx = tip.x() - _anchor.x()
+                _dy = tip.y() - _anchor.y()
+                _len = math.hypot(_dx, _dy)
+                _ang = math.degrees(math.atan2(-_dy, _dx))
+                self._draw_dim_hint = (
+                    f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+                    if sm.is_calibrated else
+                    f"L: {_len:.0f}mm  A: {_ang:.1f}°"
+                )
         else:
             self.preview_pipe.hide()
 
