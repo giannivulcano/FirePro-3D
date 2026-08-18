@@ -380,6 +380,14 @@ class DynamicInputHud(QWidget):
         self._specs: dict[str, FieldSpec] = {f.name: f for f in schema.fields}
         self._invalid: set[str] = set()
         self._focused_name: str | None = None
+        # Session undo (decision S3).  DimensionEdit._reformat calls setText on
+        # every commit and QLineEdit.setText clears the widget's own undo
+        # history, so the built-in per-field undo is destroyed by every focus
+        # change and every Tab.  The HUD keeps the stack instead: entries are
+        # (field name, value before the edit), pushed in the order made.
+        self._undo_stack: list[tuple[str, float]] = []
+        self._committed: dict[str, float] = {}
+        self._undoing = False
 
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
@@ -402,6 +410,11 @@ class DynamicInputHud(QWidget):
             # or the flag would clear itself on the read that set it.
             editor.textEdited.connect(
                 lambda _text, name=spec.name: self._clear_invalid(name))
+            # valueChanged fires only for *accepted* new values, which is
+            # exactly the granularity the session undo stack wants: rejected
+            # entries revert on their own and are not edits to step back over.
+            editor.valueChanged.connect(
+                lambda mm, name=spec.name: self._record_edit(name, mm))
             # Set the property up front so the selector has something to match
             # from the first polish rather than only after a rejection.
             self._set_invalid_style(editor, False)
@@ -501,6 +514,10 @@ class DynamicInputHud(QWidget):
         # A reseed replaces whatever text was rejected, so nothing stays flagged.
         for name in list(self._invalid):
             self._clear_invalid(name)
+        # Seeding *is* the baseline the session undo stack unwinds towards, so
+        # it starts a fresh stack rather than becoming an entry in the old one.
+        self._undo_stack.clear()
+        self._committed = {n: ed._value_mm for n, ed in self._editors.items()}
 
     def values(self) -> dict:
         """Return the current values in schema units.
@@ -560,6 +577,51 @@ class DynamicInputHud(QWidget):
             editor.setCursorPosition(len(seed))
         else:
             editor.selectAll()
+
+    def _record_edit(self, name: str, new_mm: float) -> None:
+        """Push the value *name* held before this edit onto the undo stack.
+
+        Suppressed while :meth:`undo` is applying a restore, or undoing would
+        push its own inverse and the stack would never drain.
+        """
+        if self._undoing:
+            return
+        previous = self._committed.get(name)
+        if previous is None or previous == new_mm:
+            self._committed[name] = new_mm
+            return
+        self._undo_stack.append((name, previous))
+        self._committed[name] = new_mm
+
+    def undo(self) -> bool:
+        """Step back one edit, returning focus to the field it belonged to.
+
+        Walks back through the edits in the order they were made until the HUD
+        is at its seeded state, then stops.  Returns True when something was
+        undone; the caller consumes the key either way, because while the HUD
+        is open Ctrl+Z belongs to it and must never reach the scene's undo
+        stack — that is what deleted committed geometry in smoke testing.
+        """
+        if not self._undo_stack:
+            return False
+        name, previous = self._undo_stack.pop()
+        editor = self._editors.get(name)
+        if editor is None:
+            return False
+        self._undoing = True
+        try:
+            # valueChanged and set_value_mm both speak the editor's own slot
+            # (mm for DIMENSION, degrees for ANGLE, a plain count for COUNT),
+            # so the stored value round-trips without a unit conversion. The
+            # scene<->mm conversion lives at the values()/set_values boundary.
+            editor.set_value_mm(previous)
+            self._committed[name] = previous
+        finally:
+            self._undoing = False
+        self._clear_invalid(name)
+        editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        self._focused_name = name
+        return True
 
     def restore_focus(self) -> None:
         """Return focus to the field the user was last editing.
@@ -629,11 +691,19 @@ class DynamicInputHud(QWidget):
                         self._focused_name = name
                         break
             elif event.type() == QEvent.Type.ShortcutOverride:
+                mods = effective_modifiers(event)
                 if (event.key() == Qt.Key.Key_Escape
-                        and effective_modifiers(event)
-                        == Qt.KeyboardModifier.NoModifier):
+                        and mods == Qt.KeyboardModifier.NoModifier):
                     # Accepting only marks "deliver this as a key press to me";
                     # the actual cancel happens in the KeyPress branch below.
+                    event.accept()
+                    return True
+                if (event.key() == Qt.Key.Key_Z
+                        and mods == Qt.KeyboardModifier.ControlModifier):
+                    # The ribbon Undo button binds Ctrl+Z window-wide.  QLineEdit
+                    # happens to claim this override today, which is the only
+                    # reason scene undo did not fire from a focused field — an
+                    # implementation detail of Qt, not a guarantee.  Claim it.
                     event.accept()
                     return True
             elif event.type() == QEvent.Type.KeyPress:
@@ -677,6 +747,13 @@ class DynamicInputHud(QWidget):
             return True
         if key == Qt.Key.Key_Escape and bare:
             self.cancelled.emit()
+            return True
+        if (key == Qt.Key.Key_Z
+                and mods == Qt.KeyboardModifier.ControlModifier):
+            # Consumed whether or not anything was undone: while the HUD is
+            # open Ctrl+Z is the HUD's, and letting an empty stack fall through
+            # is precisely how scene undo deleted committed geometry.
+            self.undo()
             return True
         return False
 

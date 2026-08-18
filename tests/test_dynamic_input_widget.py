@@ -8,7 +8,8 @@ Construction, seeding, value reads, invalid styling and key routing.  The
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QEvent, Qt
+from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtTest import QTest
 
 from firepro3d.dynamic_input import SCHEMAS, DynamicInputHud
@@ -1052,3 +1053,96 @@ class TestHudKeys:
         QTest.keyClicks(ed, "250")
         QTest.keyClick(ed, Qt.Key.Key_Backspace)
         assert ed.text() == "25"
+
+
+class TestHudSessionUndo:
+    """Ctrl+Z belongs to the HUD for the whole placement (decision S3).
+
+    ``DimensionEdit._reformat`` calls ``setText`` on every commit, and
+    ``QLineEdit.setText`` clears the widget's own undo history — so the
+    built-in per-field undo is wiped by every focus change and every Tab.
+    The HUD therefore keeps the stack itself: one stack for the session,
+    stepping back through the edits in the order they were made, and moving
+    focus to the field each edit belonged to.
+    """
+
+    def _hud(self):
+        hud = DynamicInputHud(SCHEMAS["line"], ScaleManager())
+        hud.set_values({"Length": 100.0, "Angle": 0.0})
+        hud.show()
+        # hasFocus() is False unless the window is active, so the focus
+        # assertion below would fail for a harness reason rather than a real
+        # one.  Exposing and activating makes it answer about the widget.
+        QTest.qWaitForWindowExposed(hud)
+        hud.activateWindow()
+        hud.focus_first()
+        return hud
+
+    def _ctrl_z(self, hud, editor):
+        QTest.keyClick(editor, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+
+    def test_undo_restores_the_previous_value(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        ed.setText("250")
+        ed.try_commit()
+        assert hud.values()["Length"] == pytest.approx(250.0)
+
+        self._ctrl_z(hud, ed)
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_undo_survives_a_focus_round_trip(self, qapp):
+        """The reported bug: typing, losing focus, then Ctrl+Z did nothing."""
+        hud = self._hud()
+        ed = hud.editor("Length")
+        ed.setText("250")
+        ed.try_commit()                      # what focus-out does
+        hud.editor("Angle").setFocus()       # focus leaves the field
+        hud.restore_focus()                  # and comes back
+
+        self._ctrl_z(hud, hud.editor("Length"))
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_undo_moves_focus_to_the_field_it_undid(self, qapp):
+        hud = self._hud()
+        angle = hud.editor("Angle")
+        angle.setText("45")
+        angle.try_commit()
+        length = hud.editor("Length")
+        length.setFocus()
+
+        self._ctrl_z(hud, length)
+        assert hud.values()["Angle"] == pytest.approx(0.0)
+        assert angle.hasFocus()
+
+    def test_undo_steps_back_through_edits_in_order(self, qapp):
+        hud = self._hud()
+        length, angle = hud.editor("Length"), hud.editor("Angle")
+        length.setText("250")
+        length.try_commit()
+        angle.setText("45")
+        angle.try_commit()
+
+        self._ctrl_z(hud, angle)
+        assert hud.values()["Angle"] == pytest.approx(0.0)
+        assert hud.values()["Length"] == pytest.approx(250.0)
+
+        self._ctrl_z(hud, hud.editor("Length"))
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_undo_stops_at_the_seeded_state(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        ed.setText("250")
+        ed.try_commit()
+        for _ in range(5):
+            self._ctrl_z(hud, ed)
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_undo_is_swallowed_so_it_never_reaches_scene_undo(self, qapp):
+        """Even with nothing to undo, Ctrl+Z must not fall through."""
+        hud = self._hud()
+        ed = hud.editor("Length")
+        event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
+                          Qt.KeyboardModifier.ControlModifier)
+        assert hud.eventFilter(ed, event) is True
