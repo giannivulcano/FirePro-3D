@@ -602,6 +602,22 @@ class DynamicInputHud(QWidget):
         is open Ctrl+Z belongs to it and must never reach the scene's undo
         stack — that is what deleted committed geometry in smoke testing.
         """
+        # Half-typed text first.  The HUD consumes Ctrl+Z before QLineEdit sees
+        # it, so the widget's own within-field undo is no longer reachable —
+        # without this, typing "250" and hitting Ctrl+Z before Tab would do
+        # nothing at all, which is how this landed in smoke testing.
+        focused = self._editors.get(self._focused_name or "")
+        if focused is not None and focused.text() != focused._seed_text:
+            committed = self._committed.get(self._focused_name or "")
+            self._undoing = True
+            try:
+                focused.set_value_mm(committed if committed is not None
+                                     else focused._value_mm)
+            finally:
+                self._undoing = False
+            self._clear_invalid(self._focused_name or "")
+            return True
+
         if not self._undo_stack:
             return False
         name, previous = self._undo_stack.pop()

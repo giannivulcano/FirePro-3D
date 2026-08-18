@@ -1146,3 +1146,63 @@ class TestHudSessionUndo:
         event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Z,
                           Qt.KeyboardModifier.ControlModifier)
         assert hud.eventFilter(ed, event) is True
+
+
+class TestHudUndoDiscardsTypingFirst:
+    """Undo starts with the half-typed text, then walks committed edits.
+
+    The HUD consumes Ctrl+Z before QLineEdit sees it, so the widget's own
+    within-field text undo is no longer reachable.  Undo therefore has to
+    cover the uncommitted case itself, or typing "250" and pressing Ctrl+Z
+    before Tab would silently do nothing.
+    """
+
+    def _hud(self):
+        hud = DynamicInputHud(SCHEMAS["line"], ScaleManager())
+        hud.set_values({"Length": 100.0, "Angle": 0.0})
+        hud.show()
+        QTest.qWaitForWindowExposed(hud)
+        hud.activateWindow()
+        hud.focus_first()
+        return hud
+
+    def test_uncommitted_typing_is_discarded_first(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        seeded = ed.text()
+        ed.setText("250")                     # typed, never committed
+        QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        assert ed.text() == seeded
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_then_steps_back_the_committed_edit(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        ed.setText("250")
+        ed.try_commit()                       # committed edit
+        committed_text = ed.text()
+        ed.setText("999")                     # uncommitted on top of it
+
+        QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        assert ed.text() == committed_text
+        assert hud.values()["Length"] == pytest.approx(250.0)
+
+        QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        assert hud.values()["Length"] == pytest.approx(100.0)
+
+    def test_undo_does_not_launder_a_rejection(self, qapp):
+        """A rejected entry stays flagged through undo (finding F9).
+
+        ``values()`` already reverted the text, so there is no half-typed
+        input left for undo to discard.  The sticky flag is what stops a
+        second Enter committing the reverted geometry, so undo must not
+        clear it — undo steps back *edits*, it does not launder rejections.
+        """
+        hud = self._hud()
+        ed = hud.editor("Length")
+        ed.setText("garbage")
+        hud.values()                          # forces the reject + revert
+        assert hud.has_invalid_field() is True
+        QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        assert hud.has_invalid_field() is True
+        assert hud.values()["Length"] == pytest.approx(100.0)
