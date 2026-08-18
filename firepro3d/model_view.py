@@ -664,6 +664,22 @@ class Model_View(QGraphicsView):
     # Pan with middle mouse button
     # -----------------------------
     def mousePressEvent(self, event):
+        sc = self.scene()
+        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        if hud is not None and sc.is_input_mode():
+            # The scene's handlers already make this press inert for geometry,
+            # but Qt assigns click-focus in QApplication::notify before any of
+            # them run, so the HUD loses the keyboard regardless.  Take it
+            # back here — while the HUD is open, Ctrl+Z belongs to the text
+            # field, not to the scene's undo stack.  Middle-button panning is
+            # still armed: navigating the canvas while typing is expected.
+            if event.button() == Qt.MouseButton.MiddleButton:
+                self._panning = True
+                self._pan_start = event.pos()
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            hud.restore_focus()
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
             self._pan_start = event.pos()

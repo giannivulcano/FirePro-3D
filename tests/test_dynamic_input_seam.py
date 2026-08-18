@@ -12,6 +12,7 @@ from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt
 
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtTest import QTest
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.construction_geometry import PolylineItem
 from firepro3d.model_space import Model_Space
@@ -773,3 +774,71 @@ class TestPlaceDynamicInput:
         hud = scene.dynamic_input
         assert 0 <= hud.x() <= view.viewport().width()
         assert 0 <= hud.y() <= view.viewport().height()
+
+
+class TestClickKeepsHudFocus:
+    """A click that is inert for geometry must be inert for focus too.
+
+    ``8a18897`` made the mouse handlers no-ops while the HUD is open, but Qt
+    hands click-focus to the viewport in ``QApplication::notify`` *before* any
+    handler runs, so the guards never saw it.  The field silently lost focus
+    while ``is_input_mode()`` stayed True and the HUD stayed visible — and
+    Ctrl+Z, which the user still reads as "undo my typing", fell through to
+    ``Model_Space.keyPressEvent`` and undid previously committed geometry.
+    """
+
+    def _engaged(self, scene, view):
+        _armed_line(scene)
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        editor = hud.editor("Length")
+        editor.setFocus(Qt.FocusReason.OtherFocusReason)
+        QTest.qWait(10)
+        assert QApplication.focusWidget() is editor
+        return hud, editor
+
+    def test_inert_click_does_not_steal_focus(self, scene, view):
+        _hud, editor = self._engaged(scene, view)
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, QPoint(400, 300))
+        QTest.qWait(10)
+        assert QApplication.focusWidget() is editor
+
+    def test_ctrl_z_after_a_click_never_reaches_scene_undo(self, scene, view,
+                                                           monkeypatch):
+        """The reported bug, end to end: type, click, Ctrl+Z."""
+        _hud, editor = self._engaged(scene, view)
+        calls = []
+        monkeypatch.setattr(type(scene), "undo",
+                            lambda self: calls.append("undo"))
+
+        QTest.keyClicks(editor, "250")
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, QPoint(400, 300))
+        QTest.qWait(10)
+        target = QApplication.focusWidget() or view
+        QTest.keyClick(target, Qt.Key.Key_Z,
+                       Qt.KeyboardModifier.ControlModifier)
+        QTest.qWait(10)
+
+        assert calls == []
+
+    def test_click_still_commits_nothing(self, scene, view):
+        """Focus retention must not resurrect the geometry side of the click."""
+        _hud, _editor = self._engaged(scene, view)
+        before = len(scene._draw_lines)
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, QPoint(400, 300))
+        QTest.qWait(10)
+        assert len(scene._draw_lines) == before
+
+    def test_middle_button_pan_still_arms(self, scene, view):
+        """Navigation stays available while typing — B6 of the smoke test."""
+        _hud, editor = self._engaged(scene, view)
+        QTest.mousePress(view.viewport(), Qt.MouseButton.MiddleButton,
+                         Qt.KeyboardModifier.NoModifier, QPoint(400, 300))
+        QTest.qWait(10)
+        assert view._panning is True
+        assert QApplication.focusWidget() is editor
+        QTest.mouseRelease(view.viewport(), Qt.MouseButton.MiddleButton,
+                           Qt.KeyboardModifier.NoModifier, QPoint(400, 300))

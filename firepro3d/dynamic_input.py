@@ -379,6 +379,7 @@ class DynamicInputHud(QWidget):
         self._editors: dict[str, DimensionEdit] = {}
         self._specs: dict[str, FieldSpec] = {f.name: f for f in schema.fields}
         self._invalid: set[str] = set()
+        self._focused_name: str | None = None
 
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
@@ -560,6 +561,27 @@ class DynamicInputHud(QWidget):
         else:
             editor.selectAll()
 
+    def restore_focus(self) -> None:
+        """Return focus to the field the user was last editing.
+
+        Qt gives click-focus to the widget under the cursor from
+        ``QApplication::notify``, *before* any handler of ours runs, so a
+        click on the canvas cannot be stopped from taking focus — it can only
+        be given back.  Without this the HUD stays visible and
+        ``is_input_mode()`` stays True while the keyboard is actually pointed
+        at the view, so Ctrl+Z reaches scene undo and destroys committed
+        geometry the user never meant to touch.
+
+        Selection is deliberately *not* reset: the user is mid-edit, and
+        re-selecting the text would make the next keystroke wipe what they
+        already typed.
+        """
+        editor = self._editors.get(self._focused_name or "")
+        if editor is None:
+            self.focus_first()
+            return
+        editor.setFocus(Qt.FocusReason.OtherFocusReason)
+
     # ── Key handling ──────────────────────────────────────────────────────
     #
     # The HUD replaced a modal ``QDialog``.  A modal absorbed the whole
@@ -599,7 +621,14 @@ class DynamicInputHud(QWidget):
             True when the event was consumed here, otherwise the base result.
         """
         if obj in self._editors.values():
-            if event.type() == QEvent.Type.ShortcutOverride:
+            if event.type() == QEvent.Type.FocusIn:
+                # Remembered so restore_focus can put the user back in the
+                # field they were actually editing, not always the first one.
+                for name, ed in self._editors.items():
+                    if ed is obj:
+                        self._focused_name = name
+                        break
+            elif event.type() == QEvent.Type.ShortcutOverride:
                 if (event.key() == Qt.Key.Key_Escape
                         and effective_modifiers(event)
                         == Qt.KeyboardModifier.NoModifier):
