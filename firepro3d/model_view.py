@@ -11,6 +11,10 @@ from .snap_engine import SNAP_COLORS, SNAP_MARKERS
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
+# Sentinel for place_dynamic_input: "reposition, do not re-latch the anchor".
+# Distinct from None, which explicitly clears the anchor back to cursor-relative.
+_KEEP_ANCHOR = object()
+
 class Model_View(QGraphicsView):
     # Emitted when a PDF/DXF/DWG file is dropped onto the canvas
     drop_import_requested = pyqtSignal(str)
@@ -659,6 +663,9 @@ class Model_View(QGraphicsView):
         new_pos = self.mapToScene(event.position().toPoint())
         delta = new_pos - old_pos
         self.translate(delta.x(), delta.y())
+        # scale()/translate() change the transform without scrolling, so
+        # scrollContentsBy does not always fire — re-place explicitly.
+        self._reposition_dynamic_input()
 
     # -----------------------------
     # Pan with middle mouse button
@@ -829,7 +836,26 @@ class Model_View(QGraphicsView):
                 return
         super().keyPressEvent(event)
 
-    def place_dynamic_input(self, hud) -> None:
+    def scrollContentsBy(self, dx, dy):  # noqa: N802 (Qt naming)
+        """Keep the HUD beside its anchor when the view scrolls.
+
+        ``QAbstractScrollArea`` scrolls *child widgets* along with the
+        content, so a viewport-parented HUD is dragged by every pan and walks
+        off the screen after a few of them.  Repositioning from the latched
+        scene anchor overrides that with an absolute move.
+        """
+        super().scrollContentsBy(dx, dy)
+        self._reposition_dynamic_input()
+
+    def _reposition_dynamic_input(self) -> None:
+        """Re-place the open HUD, if there is one parented here."""
+        sc = self.scene()
+        hud = getattr(sc, "dynamic_input", None) if sc is not None else None
+        if hud is None or hud.parentWidget() is not self.viewport():
+            return
+        self.place_dynamic_input(hud)
+
+    def place_dynamic_input(self, hud, scene_anchor=_KEEP_ANCHOR) -> None:
         """Position the dynamic-input *hud* near the cursor in the viewport.
 
         Mirrors the painted Dim HUD rule in :meth:`drawForeground`: offset down
@@ -853,7 +879,20 @@ class Model_View(QGraphicsView):
         vp_w = self.viewport().width()
         vp_h = self.viewport().height()
 
-        vp_cursor = getattr(self, "_last_vp_pos", None)
+        if scene_anchor is not _KEEP_ANCHOR:
+            # Latched per engage, never accumulated: an engage that resolves no
+            # point must fall back to the cursor rather than silently inherit
+            # the previous placement's anchor.
+            self._dyn_anchor_scene = (QPointF(scene_anchor)
+                                      if scene_anchor is not None else None)
+
+        anchor_scene = getattr(self, "_dyn_anchor_scene", None)
+        if anchor_scene is not None:
+            # The anchor is a *scene* point, so pan and zoom move the HUD with
+            # the drawing instead of leaving it stranded on the glass.
+            vp_cursor = self.mapFromScene(anchor_scene)
+        else:
+            vp_cursor = getattr(self, "_last_vp_pos", None)
         if vp_cursor is None:
             hud.move(max(0, (vp_w - w) // 2), max(0, (vp_h - h) // 2))
             return

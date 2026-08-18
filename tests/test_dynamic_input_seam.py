@@ -748,20 +748,37 @@ class TestCommitAndCancel:
 
 
 class TestPlaceDynamicInput:
-    """HUD positioning mirrors the painted Dim HUD's edge-flip rule."""
+    """HUD positioning mirrors the painted Dim HUD's edge-flip rule.
 
-    def test_positions_near_the_cursor(self, scene, view):
-        view._last_vp_pos = QPoint(100, 200)
-        _armed_line(scene)
+    The HUD is placed relative to the **resolved placement point** rather than
+    the raw cursor pixel, so that pan and zoom can carry it with the geometry
+    (see ``TestHudTracksItsSceneAnchor``).  These tests therefore drive the
+    resolved point and derive the expected pixel from it.
+    """
+
+    def test_positions_near_the_resolved_point(self, scene, view):
+        resolved = view.mapToScene(QPoint(100, 200))
+        view._last_vp_pos = QPoint(700, 500)      # deliberately elsewhere
+        _armed_line(scene, resolved=resolved)
         scene.begin_dynamic_input()
         hud = scene.dynamic_input
         assert hud.parent() is view.viewport()
         assert hud.isVisible()
         assert hud.x() == 100 + 14
 
-    def test_flips_at_the_right_edge(self, scene, view):
-        view._last_vp_pos = QPoint(view.viewport().width() - 5, 100)
+    def test_falls_back_to_the_cursor_with_no_resolved_point(self, scene, view):
+        """Transform schemas resolve no point; the cursor still positions it."""
+        view._last_vp_pos = QPoint(100, 200)
         _armed_line(scene)
+        scene.clear_placement_state()             # drops the resolved point
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        assert hud.x() == 100 + 14
+
+    def test_flips_at_the_right_edge(self, scene, view):
+        edge = view.mapToScene(QPoint(view.viewport().width() - 5, 100))
+        _armed_line(scene, resolved=edge)
         scene.begin_dynamic_input()
         hud = scene.dynamic_input
         assert hud.x() + hud.width() <= view.viewport().width()
@@ -842,3 +859,61 @@ class TestClickKeepsHudFocus:
         assert QApplication.focusWidget() is editor
         QTest.mouseRelease(view.viewport(), Qt.MouseButton.MiddleButton,
                            Qt.KeyboardModifier.NoModifier, QPoint(400, 300))
+
+
+class TestHudTracksItsSceneAnchor:
+    """The HUD is latched to a scene point, not to a viewport pixel.
+
+    ``place_dynamic_input`` ran once, at engage, and positioned the widget in
+    viewport coordinates off ``_last_vp_pos``.  Nothing re-ran it, so panning
+    and zooming slid the drawing out from under a widget nailed to the glass:
+    the HUD ended up arbitrarily far from the geometry it was editing.
+    """
+
+    def _engaged(self, scene, view):
+        _armed_line(scene, anchor=QPointF(0, 0), resolved=QPointF(200, -100))
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_hud_moves_with_the_drawing_when_panned(self, scene, view):
+        hud = self._engaged(scene, view)
+        before = hud.pos()
+        bar = view.horizontalScrollBar()
+        bar.setValue(bar.value() + 150)
+        QTest.qWait(10)
+        assert hud.pos() != before
+
+    def test_hud_stays_beside_its_anchor_after_a_pan(self, scene, view):
+        hud = self._engaged(scene, view)
+        bar = view.horizontalScrollBar()
+        bar.setValue(bar.value() + 150)
+        QTest.qWait(10)
+        vp_anchor = view.mapFromScene(QPointF(200, -100))
+        # Same offset rule as engage: down and to the right, unless flipped.
+        assert abs(hud.x() - vp_anchor.x()) <= hud.width() + 40
+        assert abs(hud.y() - vp_anchor.y()) <= hud.height() + 40
+
+    def test_hud_repositions_on_zoom(self, scene, view):
+        hud = self._engaged(scene, view)
+        before = hud.pos()
+        view.scale(3.0, 3.0)
+        view._reposition_dynamic_input()
+        QTest.qWait(10)
+        assert hud.pos() != before
+
+    def test_hud_stays_inside_the_viewport_when_anchor_scrolls_away(
+            self, scene, view):
+        """You are typing into it — it must never leave the screen."""
+        hud = self._engaged(scene, view)
+        bar = view.horizontalScrollBar()
+        bar.setValue(bar.maximum())
+        QTest.qWait(10)
+        assert 0 <= hud.x() <= view.viewport().width() - hud.width()
+        assert 0 <= hud.y() <= view.viewport().height() - hud.height()
+
+    def test_reposition_is_a_no_op_with_no_hud(self, scene, view):
+        """Scrolling in cursor mode must not touch a HUD that isn't there."""
+        view._reposition_dynamic_input()
+        bar = view.horizontalScrollBar()
+        bar.setValue(bar.value() + 50)
+        assert scene.dynamic_input is None

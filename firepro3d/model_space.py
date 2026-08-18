@@ -4040,7 +4040,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # HUD's own focus and paint events re-enter the scene during show().
         self.dynamic_input = hud
         if hasattr(view, "place_dynamic_input"):
-            view.place_dynamic_input(hud)
+            # Latch the HUD to the resolved placement point — the constrained
+            # position actually on screen — so pan and zoom carry it with the
+            # geometry it is editing instead of stranding it on the glass.
+            view.place_dynamic_input(hud, self.get_resolved_point())
         hud.show()
         hud.raise_()
         hud.focus_first(seed)
