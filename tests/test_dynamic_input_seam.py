@@ -27,14 +27,20 @@ def scene(qapp):
 
 @pytest.fixture
 def view(scene):
-    """A real ``Model_View`` on *scene*, needed for HUD parenting/positioning.
+    """A real, **shown** ``Model_View`` on *scene*, needed for HUD parenting.
 
-    ``begin_dynamic_input`` parents the HUD to ``views()[0].viewport()``, so
-    every engage-path test needs an attached view rather than a bare scene.
+    ``begin_dynamic_input`` parents the HUD to the first *visible* view and
+    refuses when none is visible, so the view has to be shown rather than
+    merely constructed.  A hidden view here would make every engage-path test
+    below refuse for a harness reason instead of exercising its own gate.
+    Multi-view selection is covered by
+    ``tests/test_dynamic_input_multiview.py``.
     """
     v = Model_View(scene)
     v.resize(800, 600)
     v.resetTransform()
+    v.show()
+    QTest.qWaitForWindowExposed(v)
     yield v
     v.close()
 
@@ -749,10 +755,7 @@ class TestPlaceDynamicInput:
         scene.begin_dynamic_input()
         hud = scene.dynamic_input
         assert hud.parent() is view.viewport()
-        # ``isVisible()`` would be False here for a reason unrelated to the
-        # seam — the test never shows the view, and a child of a hidden parent
-        # is never visible.  ``isHidden()`` records the explicit show/hide.
-        assert not hud.isHidden()
+        assert hud.isVisible()
         assert hud.x() == 100 + 14
 
     def test_flips_at_the_right_edge(self, scene, view):

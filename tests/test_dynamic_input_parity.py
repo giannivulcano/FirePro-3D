@@ -13,6 +13,7 @@ import math
 import pytest
 from PyQt6.QtCore import QEvent, QObject, QPointF, Qt, QTimer
 from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QGraphicsView
 
 from firepro3d.dynamic_input import SCHEMAS
@@ -27,15 +28,17 @@ def scene(qapp):
 
 @pytest.fixture
 def view(scene):
-    """A real ``Model_View``, required by every HUD-driven path.
+    """A real, **shown** ``Model_View``, required by every HUD-driven path.
 
-    ``begin_dynamic_input`` parents the HUD to ``views()[0].viewport()`` and
-    refuses outright when the scene has no view, so the mouse-vs-HUD parity
-    cases cannot run on a bare scene.
+    ``begin_dynamic_input`` parents the HUD to the first *visible* view and
+    refuses outright when no attached view is visible, so the mouse-vs-HUD
+    parity cases cannot run on a bare scene or on a merely-constructed view.
     """
     v = Model_View(scene)
     v.resize(800, 600)
     v.resetTransform()
+    v.show()
+    QTest.qWaitForWindowExposed(v)
     yield v
     v.close()
 

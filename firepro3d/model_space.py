@@ -3997,6 +3997,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         stealing Enter from the mode's own working commit path.  Eight of the
         ten mapped modes simply do not open a HUD yet.
 
+        The HUD is parented to the first **visible** view, not ``views()[0]``.
+        More than one view is attached to the plan scene — the main window
+        keeps a vestigial view that is never parented into the tab widget and
+        never shown — and index 0 is that orphan, so parenting there built a
+        correct HUD inside an invisible widget tree: shown, but with no visible
+        ancestor to carry it onto the screen.  Visibility is the right
+        discriminator rather than focus because Tab arrives at the focused view
+        but focus may be sitting on a ribbon widget, whereas exactly one plan
+        view is visible at a time in the central tab stack.
+
         Args:
             seed: The keystroke that engaged the HUD, placed into the first
                 field so typing continues naturally.  Empty for Tab, which
@@ -4016,10 +4026,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         anchor = self.get_placement_anchor()
         if schema.is_placement and anchor is None:
             return False
-        views = self.views()
-        if not views:
+        view = self._visible_view()
+        if view is None:
             return False
-        view = views[0]
 
         from .dynamic_input import DynamicInputHud
         hud = DynamicInputHud(schema, self.scale_manager, view.viewport())
@@ -4027,14 +4036,38 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud.committed.connect(self._on_dynamic_input_committed)
         hud.cancelled.connect(self._on_dynamic_input_cancelled)
         # Published before the widget is shown: is_input_mode must already be
-        # True by the time anything can react to the HUD appearing.
+        # True by the time anything can react to the HUD appearing, because the
+        # HUD's own focus and paint events re-enter the scene during show().
         self.dynamic_input = hud
         if hasattr(view, "place_dynamic_input"):
             view.place_dynamic_input(hud)
         hud.show()
         hud.raise_()
         hud.focus_first(seed)
+        # Self-correcting engage: input mode makes the cursor inert, so a HUD
+        # the user cannot see would soft-lock the placement — no HUD, no
+        # preview updates, clicks no longer committing, Escape the only way
+        # out.  Rather than trusting the parent choice above to be the only way
+        # that can happen, confirm the HUD really reached the screen and unwind
+        # the whole engage if it did not, leaving the scene exactly as it was.
+        if not hud.isVisible():
+            self.end_dynamic_input()
+            return False
         return True
+
+    def _visible_view(self):
+        """Return the attached view the user is actually looking at.
+
+        The plan scene has more than one view attached and only one of them is
+        on screen (see :meth:`begin_dynamic_input`), so anything that puts a
+        widget in front of the user, or hands focus back to the canvas, has to
+        pick by visibility instead of by index.
+
+        Returns:
+            The first visible ``QGraphicsView`` on this scene, or None when no
+            attached view is visible.
+        """
+        return next((v for v in self.views() if v.isVisible()), None)
 
     def _seed_values_for(self, schema, anchor) -> dict:
         """Return the values *schema*'s HUD should open with.
@@ -4098,8 +4131,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Close the HUD and return to cursor mode.
 
         Safe to call when no HUD is open, so every exit path (commit, cancel,
-        mode switch) can call it unconditionally.  Focus goes back to the view
-        or the canvas would keep receiving keys for a widget that is gone.
+        mode switch) can call it unconditionally.  Focus goes back to the
+        visible view — not to every attached view — or the canvas would keep
+        receiving keys for a widget that is gone, and the last ``setFocus`` in
+        the loop would have handed focus to the invisible orphan view the
+        scene also carries (see :meth:`begin_dynamic_input`).
         """
         hud = self.dynamic_input
         # Cleared first: the tear-down below can re-enter through focus and
@@ -4117,8 +4153,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Also out of the viewport's paint and focus chains for that window.
         hud.setParent(None)
         hud.deleteLater()
+        view = self._visible_view()
+        if view is not None:
+            view.setFocus(Qt.FocusReason.OtherFocusReason)
+        # Every view still repaints: the HUD's departure has to clear from any
+        # viewport that was painting it, visible or not.
         for v in self.views():
-            v.setFocus(Qt.FocusReason.OtherFocusReason)
             v.viewport().update()
 
     def _on_dynamic_input_cancelled(self) -> None:

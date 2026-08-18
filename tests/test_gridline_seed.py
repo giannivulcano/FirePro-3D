@@ -108,10 +108,14 @@ def test_placement_digit_opens_and_seeds_length(qapp):
     from firepro3d.model_space import Model_Space
     from firepro3d.model_view import Model_View
     from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtTest import QTest
     from PyQt6.QtCore import QPointF, Qt, QEvent
 
     ms = Model_Space()
+    # Shown, not merely constructed: the HUD parents to the first *visible*
+    # view and the engage is refused when no attached view is visible.
     view = Model_View(ms); view.resize(400, 400); view.resetTransform()
+    view.show(); QTest.qWaitForWindowExposed(view)
     ms.set_mode("draw_gridline")
     ms._draw_line_anchor = QPointF(0, 0)
 
