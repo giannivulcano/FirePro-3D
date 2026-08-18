@@ -747,6 +747,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # the tear-down still sees the mode the HUD was built for.
         if self.is_input_mode():
             self.end_dynamic_input()
+        # The resolved point and the readout derived from it belong to the
+        # placement being torn down, not to the mode being entered; leaving
+        # them set outlives every anchor cleared below and strands the live
+        # readout on screen.
+        self.clear_placement_state()
         self.mode = mode
         self._snap_result = None      # clear stale snap marker
         self._pipe_tab_candidates = []

@@ -996,6 +996,15 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int):
         """Auto-switch active level when switching to a Plan or Detail tab."""
+        # A placement belongs to the view it was started in.  Every plan tab
+        # shares one Model_Space, so the preview items render in all of them
+        # while the committed geometry is level-filtered into one — and the
+        # HUD would be left parented to a view that is no longer visible.
+        # set_mode is the same teardown Escape uses; re-implementing its
+        # per-mode guards here would be a mirror waiting to drift.
+        if self.scene.get_placement_anchor() is not None \
+                or self.scene.is_input_mode():
+            self.scene.set_mode("select")
         tab_text = self.central_tabs.tabText(index)
         if tab_text.startswith("Plan: "):
             level_name = tab_text[len("Plan: "):]

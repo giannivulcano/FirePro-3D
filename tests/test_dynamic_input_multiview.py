@@ -233,3 +233,51 @@ class TestRealMainWindow:
         QTest.keyClick(plan_view, Qt.Key.Key_Tab)
         assert win.scene.is_input_mode() is True
         assert win.scene.dynamic_input.isVisible() is True
+
+
+class TestTabSwitchCancelsPlacement:
+    """A placement belongs to the view it was started in.
+
+    Every plan tab is a ``Model_View`` over the *same* ``Model_Space``, so the
+    preview ``QGraphicsItem``s render in all of them by definition, while the
+    committed geometry is level-filtered and appears in only one.  Switching
+    tabs mid-placement therefore showed a ghost in a plan that could never
+    receive the line.  It also stranded the HUD on a now-hidden view — the
+    same invisible-HUD soft-lock 62996eb fixed, reached by a different door.
+    """
+
+    def test_switching_tabs_closes_the_hud(self, main_window):
+        win = main_window
+        plan_idx = win.central_tabs.currentIndex()
+        for i in range(win.central_tabs.count()):
+            if win.central_tabs.tabText(i).startswith("Plan: "):
+                plan_idx = i
+                break
+        win.central_tabs.setCurrentIndex(plan_idx)
+        _armed_line(win.scene)
+        assert win.scene.begin_dynamic_input() is True
+
+        other = next(i for i in range(win.central_tabs.count())
+                     if i != plan_idx)
+        win.central_tabs.setCurrentIndex(other)   # real signal wiring
+        QTest.qWait(20)
+
+        assert win.scene.is_input_mode() is False
+        assert win.scene.dynamic_input is None
+
+    def test_switching_tabs_clears_the_placement_anchor(self, main_window):
+        """No anchor means no ghost — the preview cannot outlive the switch."""
+        win = main_window
+        plan_idx = next(i for i in range(win.central_tabs.count())
+                        if win.central_tabs.tabText(i).startswith("Plan: "))
+        win.central_tabs.setCurrentIndex(plan_idx)
+        _armed_line(win.scene)
+        assert win.scene.get_placement_anchor() is not None
+
+        other = next(i for i in range(win.central_tabs.count())
+                     if i != plan_idx)
+        win.central_tabs.setCurrentIndex(other)
+        QTest.qWait(20)
+
+        assert win.scene.get_placement_anchor() is None
+        assert win.scene.get_resolved_point() is None
