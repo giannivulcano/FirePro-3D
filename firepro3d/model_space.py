@@ -48,7 +48,7 @@ from .roof import RoofItem
 from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .constraints import Constraint as ConstraintBase
-from .dynamic_input import SCHEMAS, FieldKind
+from .dynamic_input import SCHEMAS, FieldKind, effective_modifiers
 from . import geometry_intersect as gi
 import os
 
@@ -8946,10 +8946,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # excluded explicitly or every such key would try to engage.
         # begin_dynamic_input applies the real gates (schema, anchor) and its
         # return value decides whether the key is consumed here.
+        #
+        # ``effective_modifiers`` masks off KeypadModifier, which every numpad
+        # keystroke carries.  Sharing the helper with ``DynamicInputHud`` makes
+        # engage and commit agree by construction: whatever the numpad can open
+        # here, the HUD's keys can also close.
         elif (event.text()
               and event.text() in self.ENGAGE_CHARS
-              and event.modifiers() in (Qt.KeyboardModifier.NoModifier,
-                                        Qt.KeyboardModifier.KeypadModifier)
+              and effective_modifiers(event) == Qt.KeyboardModifier.NoModifier
               and not self.is_input_mode()
               and self.begin_dynamic_input(seed=event.text())):
             return

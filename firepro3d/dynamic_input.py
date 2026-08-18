@@ -271,6 +271,26 @@ def _parse_count(text: str) -> float | None:
 # ``theme.py`` carries a ``status_error`` token per variant, so the rejected
 # border needs no literal of its own.
 
+def effective_modifiers(event) -> Qt.KeyboardModifier:
+    """Return *event*'s modifiers with ``KeypadModifier`` masked out.
+
+    ``KeypadModifier`` is not a modifier in the Ctrl/Shift/Alt sense — it is
+    Qt reporting *which physical key* produced the event, and it rides along
+    on every numpad keystroke including Enter.  Code that compares
+    ``event.modifiers()`` to ``NoModifier`` therefore silently refuses the
+    whole numpad, which is how numpad digits could engage the HUD (that call
+    site accepts the flag) while numpad Enter could not commit it.
+
+    Masking rather than adding a second equality test keeps every branch
+    consistent by construction: real modifiers survive, so ``Shift+Tab`` and
+    ``Ctrl+Enter`` still gate exactly as before.
+
+    Returns:
+        The modifier set to compare against, keypad bit cleared.
+    """
+    return event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+
+
 def _build_hud_style(t: theme.Theme) -> str:
     """Return the HUD stylesheet built from *t*'s tokens.
 
@@ -560,7 +580,11 @@ class DynamicInputHud(QWidget):
             Claimed for **Escape only**.  ``main.py`` binds Escape window-wide
             with a ``QShortcut``, and a window shortcut outranks a focused
             widget unless that widget accepts this event — without it Escape
-            would skip the HUD and cancel the entire placement mode.  Nothing
+            would skip the HUD and cancel the entire placement mode.  The
+            modifier test runs through ``_effective_modifiers`` so this branch
+            and ``_handle_key`` cannot disagree about what "unmodified" means.
+            No keypad has an Escape today, but the two tests are the same test
+            and stating it once is what keeps them that way.  Nothing
             else is claimed: ``QLineEdit`` already accepts the overrides it
             needs (Ctrl+Z for text undo, Delete, the clipboard keys), and in
             input mode those belong to the text field, exactly as they do in
@@ -577,7 +601,8 @@ class DynamicInputHud(QWidget):
         if obj in self._editors.values():
             if event.type() == QEvent.Type.ShortcutOverride:
                 if (event.key() == Qt.Key.Key_Escape
-                        and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+                        and effective_modifiers(event)
+                        == Qt.KeyboardModifier.NoModifier):
                     # Accepting only marks "deliver this as a key press to me";
                     # the actual cancel happens in the KeyPress branch below.
                     event.accept()
@@ -598,11 +623,16 @@ class DynamicInputHud(QWidget):
         the one legitimate modifier — Qt delivers it as ``Key_Backtab``, and
         some platforms keep ``Key_Tab`` with Shift set, so both are accepted.
 
+        The comparison runs on ``effective_modifiers``, so the numpad — whose
+        keys all carry ``KeypadModifier`` — reaches every branch here.  A user
+        who engaged the HUD with numpad digits must be able to commit with
+        numpad Enter.
+
         Returns:
             True when the key was consumed and must not reach the editor.
         """
         key = event.key()
-        mods = event.modifiers()
+        mods = effective_modifiers(event)
         bare = mods == Qt.KeyboardModifier.NoModifier
         shift_only = mods == Qt.KeyboardModifier.ShiftModifier
 

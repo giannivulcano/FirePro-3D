@@ -863,6 +863,89 @@ class TestHudKeys:
                        Qt.KeyboardModifier.ShiftModifier)
         assert hud.editor("Length").hasFocus()
 
+    # ── Numpad: KeypadModifier is not a real modifier ─────────────────────
+    #
+    # ``Model_Space.keyPressEvent`` accepts ``KeypadModifier`` on the engage
+    # branch, so numpad *digits* open the HUD.  Every key the HUD acts on has
+    # to accept it too, or a user who typed the value on the numpad cannot
+    # commit it from there — the keypad Enter would fall through to the
+    # editor and do nothing.
+
+    def test_numpad_enter_commits(self, shown_hud):
+        """Numpad Enter arrives with ``KeypadModifier`` set and must accept."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "250")
+
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(ed, Qt.Key.Key_Enter,
+                       Qt.KeyboardModifier.KeypadModifier)
+
+        assert len(got) == 1
+        assert got[0]["Length"] == pytest.approx(250.0)
+
+    def test_numpad_return_commits(self, shown_hud):
+        """Some layouts report the keypad accept key as ``Key_Return``."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Return,
+                       Qt.KeyboardModifier.KeypadModifier)
+        assert len(got) == 1
+
+    def test_numpad_tab_steps_fields(self, shown_hud):
+        """Guards the masking, not a specific keyboard.
+
+        Qt sets ``KeypadModifier`` from the native scan code, and which keys
+        a given platform/layout flags is not something this codebase can
+        control — so ``Key_Tab`` with the flag set is treated as reachable
+        and must behave exactly like a bare Tab.
+        """
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Tab,
+                       Qt.KeyboardModifier.KeypadModifier)
+        assert hud.editor("Angle").hasFocus()
+
+    def test_numpad_escape_cancels(self, shown_hud):
+        """Masking is uniform: no branch is left gating on the raw modifier."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        cancels = []
+        hud.cancelled.connect(lambda: cancels.append(1))
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Escape,
+                       Qt.KeyboardModifier.KeypadModifier)
+        assert cancels == [1]
+
+    def test_ctrl_numpad_enter_still_does_not_commit(self, shown_hud):
+        """Masking removes only the keypad bit; real modifiers still gate."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        got = []
+        hud.committed.connect(got.append)
+        QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Enter,
+                       Qt.KeyboardModifier.ControlModifier
+                       | Qt.KeyboardModifier.KeypadModifier)
+        assert got == []
+
+    def test_shift_numpad_tab_steps_backwards(self, shown_hud):
+        """Shift survives the mask, so Shift+Tab still reverses."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.editor("Angle").setFocus(Qt.FocusReason.OtherFocusReason)
+        QTest.keyClick(hud.editor("Angle"), Qt.Key.Key_Tab,
+                       Qt.KeyboardModifier.ShiftModifier
+                       | Qt.KeyboardModifier.KeypadModifier)
+        assert hud.editor("Length").hasFocus()
+
     # ── ShortcutOverride: stealing Escape from the window QShortcut ───────
 
     def test_shortcut_override_is_accepted_for_escape(self, shown_hud):
