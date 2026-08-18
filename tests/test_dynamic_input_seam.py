@@ -56,6 +56,51 @@ class _MoveEventStub:
         return self._modifiers
 
 
+class _ReleaseEventStub(_MoveEventStub):
+    """Stand-in for the release / double-click / move event.
+
+    Covers the whole surface those handlers touch before their guards would
+    fire: ``button()``, ``scenePos()`` and ``modifiers()``.  Deliberately a
+    real object rather than ``None`` — a release dereferences its event
+    immediately, so ``None`` would raise for a reason unrelated to the guard
+    and the test would pass with the guard removed.
+    """
+
+    def __init__(self, scene_pos=QPointF(0, 0),
+                 button=Qt.MouseButton.LeftButton,
+                 modifiers=Qt.KeyboardModifier.NoModifier):
+        super().__init__(modifiers)
+        self._scene_pos = QPointF(scene_pos)
+        self._button = button
+
+    def button(self):
+        return self._button
+
+    def buttons(self):
+        return self._button
+
+    def scenePos(self):
+        return QPointF(self._scene_pos)
+
+    def accept(self):
+        pass
+
+    def ignore(self):
+        pass
+
+
+def _armed_gridline_drag(scene):
+    """Put *scene* mid-gridline-body-drag and return the dragged gridline."""
+    from firepro3d.gridline import GridlineItem
+
+    gl = GridlineItem(QPointF(0, 0), QPointF(1000, 0), label="A")
+    scene.addItem(gl)
+    scene._dragging_gridline = gl
+    scene._gridline_drag_start = QPointF(0, 0)
+    scene._gridline_drag_original_pos = 0.0
+    return gl
+
+
 class TestPlacementAnchor:
 
     def test_none_when_nothing_started(self, scene):
@@ -334,31 +379,6 @@ class TestEngage:
         scene.keyPressEvent(_press(Qt.Key.Key_5, "5"))
         assert not scene.is_input_mode()
 
-    def test_transform_schema_engages_without_an_anchor(self, scene, view):
-        """gridline_offset resolves a distance, so it has no anchor by nature."""
-        scene.mode = "gridline_offset"
-        assert scene.get_placement_anchor() is None
-        assert scene.begin_dynamic_input(seed="3") is True
-        hud = scene.dynamic_input
-        assert hud.schema.name == "distance"
-        assert hud.editor("Distance").text() == "3"
-
-    def test_transform_seed_uses_replicate_state(self, scene, view):
-        scene.mode = "gridline_array"
-        scene._replicate_spacing = 250.0
-        scene._replicate_count = 4
-        assert scene.begin_dynamic_input() is True
-        hud = scene.dynamic_input
-        assert hud.editor("Spacing").value_mm() == pytest.approx(250.0)
-        assert hud.editor("Count").value_mm() == pytest.approx(4.0)
-
-    def test_transform_seed_falls_back_to_defaults(self, scene, view):
-        scene.mode = "gridline_offset"
-        scene._replicate_spacing = 0.0
-        scene.begin_dynamic_input()
-        assert (scene.dynamic_input.editor("Distance").value_mm()
-                == pytest.approx(1000.0))
-
     def test_no_schema_mode_does_not_engage(self, scene, view):
         scene.mode = "select"
         assert scene.begin_dynamic_input() is False
@@ -419,22 +439,77 @@ class TestEngage:
         assert scene.dynamic_input is None
 
 
+class TestApplierGate:
+    """A mode may only engage when it has an applier to commit through.
+
+    ``_SCHEMA_FOR_MODE`` is a forward declaration covering ten modes, but only
+    two have appliers.  The transform modes (``gridline_offset``,
+    ``gridline_array``) skip the anchor gate by design, so without an applier
+    gate they would open a HUD whose Enter reaches ``NotImplementedError``
+    inside a Qt signal handler — a silent process death — while also stealing
+    Enter from the working ``_commit_gridline_replicate`` path.
+    """
+
+    @pytest.mark.parametrize("mode", ["gridline_offset", "gridline_array"])
+    def test_transform_mode_without_applier_refuses(self, scene, view, mode):
+        scene.mode = mode
+        # The gate is *not* the anchor gate: these schemas legitimately have
+        # no anchor, so the refusal must come from the missing applier.
+        assert scene.active_schema() is not None
+        assert scene.get_placement_anchor() is None
+
+        assert scene.begin_dynamic_input(seed="3") is False
+        assert scene.dynamic_input is None
+        assert not scene.is_input_mode()
+
+    @pytest.mark.parametrize(
+        "mode", ["polyline", "wall", "pipe", "draw_rectangle",
+                 "draw_circle", "move"])
+    def test_mapped_mode_without_applier_refuses(self, scene, view, mode):
+        """Every schema-mapped mode lacking an applier refuses to engage."""
+        scene.mode = mode
+        assert scene.active_schema() is not None      # mapped, but no applier
+        assert scene.begin_dynamic_input(seed="5") is False
+        assert scene.dynamic_input is None
+
+    def test_typing_in_gridline_offset_opens_nothing(self, scene, view):
+        """The live crash path: a digit must not open a HUD here."""
+        scene.mode = "gridline_offset"
+        scene.keyPressEvent(_press(Qt.Key.Key_3, "3"))
+        assert not scene.is_input_mode()
+        assert scene.dynamic_input is None
+
+    @pytest.mark.parametrize("mode", ["draw_line", "draw_gridline"])
+    def test_modes_with_an_applier_still_engage(self, scene, view, mode):
+        scene.mode = mode
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, 0))
+        assert scene.begin_dynamic_input() is True
+        assert scene.is_input_mode()
+
+
 class TestInputModeInertness:
     """While the HUD is open the cursor drives nothing."""
 
     def test_mouse_move_is_inert(self, scene, view):
+        """Everything past the readout is starved: no snap, publish or preview.
+
+        Asserted as state rather than via an ``AttributeError`` from a ``None``
+        event — the guard now emits the passive coordinate readout before
+        returning (see ``test_coordinate_readout_still_updates``), so it
+        legitimately dereferences the event and ``None`` would raise for the
+        wrong reason.
+        """
         _armed_line(scene)
         scene.begin_dynamic_input()
         before = scene.get_resolved_point()
         scene._last_scene_pos = None
 
-        # A real QGraphicsSceneMouseEvent cannot be constructed under PyQt6,
-        # but the guard is the first statement in the handler, so None never
-        # reaches the body — an AttributeError here *is* the failure signal.
-        scene.mouseMoveEvent(None)
+        scene.mouseMoveEvent(_ReleaseEventStub(QPointF(-9999, -9999)))
 
         assert scene._last_scene_pos is None            # handler bailed
         assert scene.get_resolved_point() == before     # seed untouched
+        assert scene._draw_dim_hint is not None         # not cleared
 
     def test_mouse_press_is_inert(self, scene, view):
         _armed_line(scene)
@@ -448,6 +523,133 @@ class TestInputModeInertness:
         scene.begin_dynamic_input()
         scene.publish_placement_state(QPointF(0, 0), QPointF(-9999, -9999))
         assert scene.get_resolved_point() == QPointF(1000, 0)
+
+    # ── Release / double-click inertness ─────────────────────────────────
+    #
+    # These assert *state* rather than relying on an AttributeError from a
+    # ``None`` event the way ``test_mouse_move_is_inert`` does.  A release
+    # handler dereferences its event on the very first line of several
+    # branches, so ``None`` would raise for the wrong reason and the test
+    # would pass with the guard absent.
+
+    def test_release_does_not_finish_an_abandoned_gridline_drag(
+            self, scene, view, monkeypatch):
+        """Typing mid-drag must not push an undo entry for the abandoned drag."""
+        gl = _armed_gridline_drag(scene)
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state", lambda *a: calls.append(1))
+
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.mouseReleaseEvent(_ReleaseEventStub(QPointF(500, 500)))
+
+        assert calls == []                              # no undo entry
+        assert scene._dragging_gridline is gl           # drag state untouched
+        assert scene._gridline_drag_start == QPointF(0, 0)
+        assert scene._gridline_drag_original_pos == 0.0
+
+    def test_release_does_not_finish_an_abandoned_grip_drag(
+            self, scene, view, monkeypatch):
+        scene._grip_dragging = True
+        scene._grip_item = None
+        scene._grip_index = 2
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state", lambda *a: calls.append(1))
+
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        scene.mouseReleaseEvent(_ReleaseEventStub(QPointF(10, 10)))
+
+        assert calls == []
+        assert scene._grip_dragging is True             # still armed
+        assert scene._grip_index == 2
+
+    def test_double_click_is_inert(self, scene, view, monkeypatch):
+        """pipe-mode dblclick must not end the chain or push undo."""
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state", lambda *a: calls.append(1))
+        node = Node(5.0, 7.0)
+        scene.mode = "pipe"
+        scene.node_start_pos = node
+        scene._pipe_node_was_new = True
+        # Engage from a mode that has an applier, then restore pipe mode: the
+        # HUD is open and the double-click arrives at a live pipe chain.
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene.mode = "draw_line"
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, 0))
+        scene.begin_dynamic_input()
+        scene.mode = "pipe"
+
+        scene.mouseDoubleClickEvent(_ReleaseEventStub(QPointF(1, 1)))
+
+        assert calls == []
+        assert scene.node_start_pos is node             # chain not ended
+        assert scene._pipe_node_was_new is True
+
+    def test_coordinate_readout_still_updates(self, scene, view):
+        """I3: the passive X/Y readout must not freeze while the user types.
+
+        Everything else the guard starves moves geometry; the status-bar
+        readout does not, and a frozen one makes the app look hung.
+        """
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        seen = []
+        scene.cursorMoved.connect(seen.append)
+        scene._last_scene_pos = None
+
+        scene.mouseMoveEvent(_ReleaseEventStub(QPointF(2000, -3000)))
+
+        assert len(seen) == 1
+        assert "2000" in seen[0] and "3000" in seen[0]
+        # Raw cursor stays frozen: a stale value is the safer state, and the
+        # seed under the HUD must not move.
+        assert scene._last_scene_pos is None
+        assert scene.get_resolved_point() == QPointF(1000, 0)
+
+
+class TestHudTeardown:
+    """``end_dynamic_input`` must fully detach the HUD before deleting it."""
+
+    def test_signals_are_disconnected_before_delete(self, scene, view):
+        """A signal in the deleteLater window must not reach the scene.
+
+        ``deleteLater`` only *schedules* deletion, so between that call and the
+        deferred-delete pass the HUD is alive and, without an explicit
+        disconnect, still wired.  A stray ``committed`` there would resolve one
+        schema's values against whatever anchor the scene has moved on to.
+        """
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+
+        scene.end_dynamic_input()
+        assert scene.dynamic_input is None
+        assert len(scene._draw_lines) == 0
+
+        # The HUD object still exists here — emit into it.
+        hud.committed.emit({"Length": 5000.0, "Angle": 0.0})
+        hud.cancelled.emit()
+
+        assert len(scene._draw_lines) == 0      # commit did not reach the scene
+        assert scene.dynamic_input is None
+
+    def test_hud_is_unparented_from_the_viewport(self, scene, view):
+        """Unparenting takes it out of the viewport's paint/focus chain."""
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        hud = scene.dynamic_input
+        assert hud.parent() is view.viewport()
+
+        scene.end_dynamic_input()
+
+        assert hud.parent() is None
+        assert hud not in view.viewport().children()
+
+    def test_end_is_safe_with_no_hud(self, scene, view):
+        """Every exit path calls it unconditionally."""
+        scene.end_dynamic_input()
+        assert scene.dynamic_input is None
 
 
 class TestCommitAndCancel:

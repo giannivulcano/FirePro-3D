@@ -774,8 +774,19 @@ class Model_View(QGraphicsView):
     # -----------------------------
 
     def focusNextPrevChild(self, next_child: bool) -> bool:
-        """Always block Qt's built-in Tab focus-traversal so Tab reaches
-        keyPressEvent → _handle_tab_input() for all modes (select, draw, wall…)."""
+        """Block Qt's built-in Tab focus-traversal so Tab stays on the canvas.
+
+        Without this, Tab walks the focus chain out of the view and into the
+        ribbon.  That matters in two places: ``keyPressEvent`` needs Tab to
+        engage the dynamic-input HUD, and once the HUD is open its own Tab
+        field-cycling must not lose focus to a ribbon widget mid-edit.
+
+        Args:
+            next_child: Qt's traversal direction; ignored, both are blocked.
+
+        Returns:
+            False always, meaning "focus was not moved".
+        """
         return False
 
     def keyPressEvent(self, event):

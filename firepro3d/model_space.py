@@ -131,6 +131,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.node_end_pos = None
         self._pipe_node_was_new = False
         self._selected_items = None
+        # Dead: written by nothing and read only by the likewise-dead
+        # _handle_tab_input; both retire with the _DynInput modal path.
         self._pending_seed = ""
         # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
         # presence *is* input mode — see is_input_mode.
@@ -3842,19 +3844,32 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "gridline_array": "spacing_count",
     }
 
+    # Mode → name of the method that applies resolved geometry.  A mode is
+    # only allowed to engage the HUD if it appears here: ``_SCHEMA_FOR_MODE``
+    # describes the migration's end state, but a mode whose applier has not
+    # landed would open a HUD whose Enter has nowhere to go.  Entries land
+    # alongside their appliers, and the two tables converge.
+    _APPLIER_FOR_MODE = {
+        "draw_line": "_commit_draw_line_at",
+        "draw_gridline": "_commit_draw_line_at",
+    }
+
     def active_schema(self):
         """Return the Schema for the current mode, or None.
 
         Warning:
-            A non-None schema does **not** imply a published point.
-            ``_SCHEMA_FOR_MODE`` is a forward declaration — it describes the
-            migration's end state, while the ``publish_placement_state`` call
-            sites land one task at a time.  Today only ``draw_line`` and
-            ``draw_gridline`` publish; the other eight mapped modes return a
-            schema while ``get_resolved_point()`` stays None.  A caller that
-            needs a seeded position must gate on
-            ``get_resolved_point() is not None``, never on this returning a
-            schema, or it will open an empty HUD in those eight modes.
+            A non-None schema implies neither a published point nor an
+            applier.  ``_SCHEMA_FOR_MODE`` is a forward declaration — it
+            describes the migration's end state, while the
+            ``publish_placement_state`` call sites and the appliers land one
+            task at a time.  Today only ``draw_line`` and ``draw_gridline``
+            publish and appear in ``_APPLIER_FOR_MODE``; the other eight
+            mapped modes return a schema while ``get_resolved_point()`` stays
+            None and no applier exists.  A caller that needs a seeded position
+            must gate on ``get_resolved_point() is not None``, and a caller
+            that intends to commit must gate on ``_APPLIER_FOR_MODE`` — never
+            on this returning a schema, or it will open a HUD that can only
+            dead-end in those eight modes.
 
         Returns:
             The registered ``Schema`` for ``self.mode``, or None when the mode
@@ -3970,11 +3985,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Open the on-canvas HUD for the current mode, seeded from live state.
 
         Refuses (changing nothing) when there is nothing coherent to edit: a
-        HUD is already open, the mode has no schema, or a *placement* schema
-        has no anchor.  Transform schemas — displacement, distance,
-        spacing_count — have no anchor by nature and must still open, so the
-        anchor gate is conditioned on ``is_placement`` rather than applied to
-        every schema.
+        HUD is already open, the mode has no schema, the mode has no applier,
+        or a *placement* schema has no anchor.  Transform schemas —
+        displacement, distance, spacing_count — have no anchor by nature and
+        must still open, so the anchor gate is conditioned on ``is_placement``
+        rather than applied to every schema.
+
+        The applier gate is what keeps the refusal honest for those transform
+        modes: skipping the anchor gate would otherwise let them open a HUD
+        whose Enter reaches nothing, raising inside a Qt signal handler and
+        stealing Enter from the mode's own working commit path.  Eight of the
+        ten mapped modes simply do not open a HUD yet.
 
         Args:
             seed: The keystroke that engaged the HUD, placed into the first
@@ -3989,6 +4010,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return False
         schema = self.active_schema()
         if schema is None:
+            return False
+        if self.mode not in self._APPLIER_FOR_MODE:
             return False
         anchor = self.get_placement_anchor()
         if schema.is_placement and anchor is None:
@@ -4055,9 +4078,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Y-up, matching resolve_displacement's negation.
             return {"dX": point.x() - anchor.x(),
                     "dY": -(point.y() - anchor.y())}
-        # A spacing of exactly 0.0 is the uninitialised state, not a value the
-        # user chose, so it falls back rather than seeding an unusable zero.
-        spacing = self._replicate_spacing or 1000.0
+        # ``_replicate_spacing`` is a *signed* perpendicular projection, so it
+        # passes through 0.0 as the cursor crosses the source gridline — 0.0 is
+        # not reliably "never set".  Treating it as unset is still correct
+        # because the commit path rejects ``abs(dist) < 0.5`` anyway, so a
+        # seeded zero could never be placed.  Explicit ``!= 0.0`` (matching the
+        # comparison the modal path already uses) rather than truthiness, since
+        # every other value here is a legitimate signed distance.
+        spacing = (self._replicate_spacing
+                   if self._replicate_spacing != 0.0 else 1000.0)
         if schema.name == "distance":
             return {"Distance": spacing}
         if schema.name == "spacing_count":
@@ -4079,6 +4108,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if hud is None:
             return
         hud.hide()
+        # deleteLater only *schedules* deletion: until the deferred-delete pass
+        # runs, the HUD is alive and would still be wired.  A stray signal in
+        # that window would resolve one schema's values against an anchor the
+        # scene has already moved past, so the connections go first.
+        hud.committed.disconnect(self._on_dynamic_input_committed)
+        hud.cancelled.disconnect(self._on_dynamic_input_cancelled)
+        # Also out of the viewport's paint and focus chains for that window.
+        hud.setParent(None)
         hud.deleteLater()
         for v in self.views():
             v.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -4118,23 +4155,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def apply_dynamic_input(self, geometry):
         """Apply resolved *geometry* through the current mode's commit path.
 
-        The dispatch is deliberately explicit rather than defaulting to a
-        no-op: a mode whose schema resolves but whose applier has not landed
-        yet must fail loudly, or typing a value would silently do nothing and
-        look like a dropped keystroke.
+        Dispatches through ``_APPLIER_FOR_MODE``, the same table
+        ``begin_dynamic_input`` gates on, so a HUD can never open for a mode
+        this cannot commit.  The raise is therefore unreachable from the UI and
+        survives only as a programmer-error backstop for a direct call.
 
         Args:
             geometry: A ``QPointF`` for placement schemas, or the transform
                 dict for the others.
 
         Raises:
-            NotImplementedError: When the current mode has no applier.
+            NotImplementedError: When the current mode has no applier.  Not
+                reachable through the HUD — the engage gate refuses first.
         """
-        if self.mode in ("draw_line", "draw_gridline"):
-            self._commit_draw_line_at(geometry)
-            return
-        raise NotImplementedError(
-            f"no dynamic-input applier for {self.mode!r}")
+        applier = self._APPLIER_FOR_MODE.get(self.mode)
+        if applier is None:
+            raise NotImplementedError(
+                f"no dynamic-input applier for {self.mode!r}")
+        getattr(self, applier)(geometry)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
@@ -4918,18 +4956,36 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
 
+    def _format_cursor_readout(self, scene_pos) -> str:
+        """Render *scene_pos* as the status-bar coordinate string.
+
+        Args:
+            scene_pos: The raw cursor position in scene coordinates.
+
+        Returns:
+            A string such as ``"X: 1000.000 mm  Y: 500.000 mm"``, Y negated
+            into the Y-up convention the user reads.
+        """
+        sm = self.scale_manager
+        return (f"X: {sm.scene_to_display(scene_pos.x())}  "
+                f"Y: {sm.scene_to_display(-scene_pos.y())}")
+
     def mouseMoveEvent(self, event):
         # Input mode makes the cursor fully inert: nothing the mouse does may
-        # move the seed out from under an open HUD.  First statement in the
-        # handler so no part of the body can run.
+        # move the seed out from under an open HUD.  Everything below the
+        # guard — snap, previews, drags, publish — moves the geometry being
+        # edited, so starving it is the point.
+        #
+        # The status-bar X/Y readout is the one exception: it is passive, and
+        # freezing it makes the app look hung at exactly the moment the user is
+        # typing.  ``_last_scene_pos`` deliberately stays frozen even so — it
+        # feeds the geometry paths, and a stale raw cursor is the safer state.
         if self.is_input_mode():
+            self.cursorMoved.emit(self._format_cursor_readout(event.scenePos()))
             return
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
-        sm = self.scale_manager
-        coord_str = (f"X: {sm.scene_to_display(scene_pos.x())}  "
-                     f"Y: {sm.scene_to_display(-scene_pos.y())}")
-        self.cursorMoved.emit(coord_str)
+        self.cursorMoved.emit(self._format_cursor_readout(scene_pos))
 
         snapped = self.get_effective_position(scene_pos)
         # Cleared each frame; draw modes republish below.  The resolved point
@@ -8142,6 +8198,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return False
 
     def mouseReleaseEvent(self, event):
+        # Inert in input mode (see mouseMoveEvent).  Without this, a drag that
+        # was in progress when the HUD engaged would still *finish* here —
+        # pushing an undo entry for a gesture the user abandoned by typing —
+        # and the drag-vs-click test below would compare a stale
+        # ``_last_press_pos`` (its press was swallowed) against a fresh release.
+        if self.is_input_mode():
+            return
         # ── Gridline body drag release ──────────────────────────────────
         if event.button() == Qt.MouseButton.LeftButton and self._dragging_gridline is not None:
             self.push_undo_state()
@@ -8178,6 +8241,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     item.setSelected(False)
 
     def mouseDoubleClickEvent(self, event):
+        # Inert in input mode (see mouseMoveEvent).  Presses are swallowed
+        # while the HUD is open, so the press/release/double-click chain
+        # arrives incomplete; acting on the tail of it would end a pipe or
+        # polyline chain the user never finished.
+        if self.is_input_mode():
+            return
         # ── Pipe: double-click finishes the polyline chain ─────────────
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "pipe"
