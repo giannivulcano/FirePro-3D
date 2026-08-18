@@ -696,7 +696,10 @@ class TestCancelLeavesNoGeometry:
 
         assert len(scene._draw_lines) == 0
         assert not scene.is_input_mode()
-        assert scene.dynamic_input is None
+        # The HUD survives as the passive readout for the still-live placement
+        # (decision S1); what must not survive is the typed value.
+        assert scene.dynamic_input is not None
+        assert not scene.dynamic_input.is_engaged()
 
     def test_cancel_leaves_the_anchor_armed(self, scene, view):
         """Escape steps back to the cursor; it does not abandon the placement.

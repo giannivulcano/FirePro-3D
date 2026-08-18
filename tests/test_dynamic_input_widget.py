@@ -1206,3 +1206,105 @@ class TestHudUndoDiscardsTypingFirst:
         QTest.keyClick(ed, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
         assert hud.has_invalid_field() is True
         assert hud.values()["Length"] == pytest.approx(100.0)
+
+
+class TestFieldWidth:
+    """Decision S2: size to content, grow-only, with two characters of slack.
+
+    The HUD now reads out live values for the whole placement, so its text
+    changes on every mouse move.  A width that tracked the text exactly would
+    twitch continuously; these pin the three properties that stop it.
+    """
+
+    def _hud(self):
+        return DynamicInputHud(SCHEMAS["line"], ScaleManager())
+
+    def test_field_grows_to_fit_longer_text(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        hud.set_values({"Length": 1.0, "Angle": 0.0})
+        narrow = ed.width()
+        hud.set_values({"Length": 123456789.0, "Angle": 0.0})
+        assert ed.width() > narrow
+
+    def test_field_never_shrinks_within_one_placement(self, qapp):
+        """Grow-only is what makes the readout settle instead of jiggling."""
+        hud = self._hud()
+        ed = hud.editor("Length")
+        hud.set_values({"Length": 123456789.0, "Angle": 0.0})
+        wide = ed.width()
+        hud.set_values({"Length": 1.0, "Angle": 0.0})
+        assert ed.width() == wide
+
+    def test_field_carries_two_characters_of_headroom(self, qapp):
+        """Adding a digit must not resize the field mid-keystroke."""
+        hud = self._hud()
+        ed = hud.editor("Length")
+        hud.set_values({"Length": 1234.0, "Angle": 0.0})
+        settled = ed.width()
+        fm = ed.fontMetrics()
+        assert settled >= fm.horizontalAdvance(ed.text()) + \
+            fm.horizontalAdvance("00")
+
+    def test_typing_a_digit_does_not_resize(self, qapp):
+        hud = self._hud()
+        ed = hud.editor("Length")
+        hud.set_values({"Length": 1234.0, "Angle": 0.0})
+        settled = ed.width()
+        ed.setText(ed.text() + "0")
+        assert ed.width() == settled
+
+    def test_a_fresh_hud_does_not_inherit_the_previous_width(self, qapp):
+        """The grow-only floor is per HUD, so each placement starts compact."""
+        first = self._hud()
+        first.set_values({"Length": 123456789.0, "Angle": 0.0})
+        wide = first.editor("Length").width()
+
+        second = self._hud()
+        second.set_values({"Length": 1.0, "Angle": 0.0})
+        assert second.editor("Length").width() < wide
+
+
+class TestEngagement:
+    """Decision S1: the HUD is a readout until a field is deliberately given
+    the keyboard, and is transparent to the mouse until then."""
+
+    _TRANSPARENT = Qt.WidgetAttribute.WA_TransparentForMouseEvents
+
+    def _hud(self):
+        hud = DynamicInputHud(SCHEMAS["line"], ScaleManager())
+        hud.set_values({"Length": 100.0, "Angle": 0.0})
+        return hud
+
+    def test_starts_disengaged(self, qapp):
+        assert self._hud().is_engaged() is False
+
+    def test_starts_transparent_to_the_mouse(self, qapp):
+        hud = self._hud()
+        assert hud.testAttribute(self._TRANSPARENT)
+        assert all(ed.testAttribute(self._TRANSPARENT)
+                   for ed in (hud.editor("Length"), hud.editor("Angle")))
+
+    def test_engage_focuses_and_accepts_the_mouse(self, qapp):
+        hud = self._hud()
+        hud.show()
+        hud.engage()
+        assert hud.is_engaged() is True
+        assert not hud.testAttribute(self._TRANSPARENT)
+        assert hud.editor("Length").hasSelectedText()
+
+    def test_engage_forwards_the_seed_keystroke(self, qapp):
+        hud = self._hud()
+        hud.show()
+        hud.engage("7")
+        assert hud.editor("Length").text() == "7"
+
+    def test_disengage_returns_to_a_transparent_readout(self, qapp):
+        hud = self._hud()
+        hud.show()
+        hud.engage()
+        hud.disengage()
+        assert hud.is_engaged() is False
+        assert hud.testAttribute(self._TRANSPARENT)
+        assert all(ed.testAttribute(self._TRANSPARENT)
+                   for ed in (hud.editor("Length"), hud.editor("Angle")))

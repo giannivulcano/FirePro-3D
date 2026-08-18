@@ -482,6 +482,12 @@ class Model_View(QGraphicsView):
             painter.restore()
 
         # ── 4. Dim HUD (viewport coordinates, near cursor) ───────────────────
+        # Only for modes the ``DynamicInputHud`` widget does not serve yet.
+        # One HUD, not two (decision S1): a mode with an applier gets the
+        # widget and leaves ``_draw_dim_hint`` unset, so the exclusion is
+        # enforced at the one place that assigns the string
+        # (``Model_Space.publish_placement_state``) rather than by a second
+        # test here that could drift away from it.
         dim_hint = getattr(scene, "_draw_dim_hint", None)
         vp_cursor = getattr(self, "_last_vp_pos", None)
         if dim_hint and vp_cursor:
@@ -674,12 +680,18 @@ class Model_View(QGraphicsView):
         sc = self.scene()
         hud = getattr(sc, "dynamic_input", None) if sc is not None else None
         if hud is not None and sc.is_input_mode():
-            # The scene's handlers already make this press inert for geometry,
-            # but Qt assigns click-focus in QApplication::notify before any of
-            # them run, so the HUD loses the keyboard regardless.  Take it
-            # back here — while the HUD is open, Ctrl+Z belongs to the text
-            # field, not to the scene's undo stack.  Middle-button panning is
-            # still armed: navigating the canvas while typing is expected.
+            # Gated on input mode, not on the HUD existing: under decision S1 a
+            # HUD is on screen for the whole placement, and while it is only a
+            # readout this press is an ordinary canvas click that must reach the
+            # scene and commit.
+            #
+            # Once a field is engaged, the scene's handlers already make the
+            # press inert for geometry, but Qt assigns click-focus in
+            # QApplication::notify before any of them run, so the HUD loses the
+            # keyboard regardless.  Take it back here — while a field is
+            # engaged, Ctrl+Z belongs to the text field, not to the scene's undo
+            # stack.  Middle-button panning is still armed: navigating the
+            # canvas while typing is expected.
             if event.button() == Qt.MouseButton.MiddleButton:
                 self._panning = True
                 self._pan_start = event.pos()
@@ -860,15 +872,31 @@ class Model_View(QGraphicsView):
 
         Mirrors the painted Dim HUD rule in :meth:`drawForeground`: offset down
         and to the right of the cursor, flipping to the other side of it when
-        the widget would otherwise overflow the viewport.  The HUD replaces
-        that readout while it is open, so the two must sit in the same place —
-        a different offset would make the widget appear to jump on engage.
+        the widget would otherwise overflow the viewport.  The widget HUD is
+        what replaced that readout for the modes it serves, so the two must sit
+        in the same place — a different offset would make the readout appear to
+        jump between modes.
+
+        Two placement regimes, selected by *scene_anchor* (decision S1):
+
+        *Cursor-relative* (``scene_anchor=None``) — the HUD is a passive
+        readout, so it tracks the pointer exactly as the painted string did.
+        ``Model_Space._sync_dynamic_input`` calls this every frame.
+
+        *Scene-latched* (``scene_anchor`` = the resolved point) — the HUD is
+        engaged, the cursor is inert, and the numbers on screen belong to a
+        specific piece of geometry.  Latching to a scene point is what carries
+        it with the drawing through pan and zoom instead of stranding it on the
+        glass, and stops it chasing a pointer whose movement means nothing.
 
         Args:
             hud: The ``DynamicInputHud`` to move.  It must already be a child
                 of this view's viewport.  Falls back to the viewport centre
                 when no cursor position has been recorded yet (Tab pressed
                 before the mouse has entered the view).
+            scene_anchor: A scene point to latch to, ``None`` to go back to
+                following the cursor, or the ``_KEEP_ANCHOR`` sentinel (the
+                default) to reposition without changing regime.
         """
         # sizeHint, not width(): the HUD has never been laid out at this point,
         # so its current geometry is the default 100x30 and the edge-flip would
@@ -880,8 +908,8 @@ class Model_View(QGraphicsView):
         vp_h = self.viewport().height()
 
         if scene_anchor is not _KEEP_ANCHOR:
-            # Latched per engage, never accumulated: an engage that resolves no
-            # point must fall back to the cursor rather than silently inherit
+            # Set per regime change, never accumulated: an engage that resolves
+            # no point must fall back to the cursor rather than silently inherit
             # the previous placement's anchor.
             self._dyn_anchor_scene = (QPointF(scene_anchor)
                                       if scene_anchor is not None else None)

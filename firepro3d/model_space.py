@@ -48,7 +48,7 @@ from .roof import RoofItem
 from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
 from .constraints import Constraint as ConstraintBase
-from .dynamic_input import SCHEMAS, FieldKind, effective_modifiers
+from .dynamic_input import SCHEMAS, effective_modifiers
 from . import geometry_intersect as gi
 import os
 
@@ -742,11 +742,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def set_mode(self, mode, template=None):
         # A HUD outlives neither its schema nor its anchor: leaving one open
-        # across a mode switch would strand an editable widget whose applier
-        # belongs to the mode just left.  Closed before self.mode changes so
-        # the tear-down still sees the mode the HUD was built for.
-        if self.is_input_mode():
-            self.end_dynamic_input()
+        # across a mode switch would strand a widget whose applier belongs to
+        # the mode just left.  Closed before self.mode changes so the tear-down
+        # still sees the mode the HUD was built for.
+        #
+        # Unconditional, *not* gated on ``is_input_mode()``: since decision S1
+        # that answers "is a field focused", and the HUD spends most of a
+        # placement unfocused.  Gating here would strand exactly the common case
+        # — a passive readout for a mode the user has just left.
+        # ``end_dynamic_input`` is a no-op when nothing is open.
+        self.end_dynamic_input()
         # The resolved point and the readout derived from it belong to the
         # placement being torn down, not to the mode being entered; leaving
         # them set outlives every anchor cleared below and strands the live
@@ -3917,6 +3922,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         is the single source for both the live read-only readout and the
         values the HUD seeds with, so the two cannot disagree.
 
+        A schema-driven mode's readout is the ``DynamicInputHud`` widget itself
+        (decision S1), which ``_sync_dynamic_input`` reseeds from the point
+        recorded here.  There is no painted string to build — ``_draw_dim_hint``
+        is only cleared, so a stale hint from a mode that hand-builds its own
+        cannot survive into one that does not.  One HUD, not two, enforced at
+        the single site that assigns the string rather than by a second test in
+        ``Model_View.drawForeground``.
+
         Args:
             anchor: The placement anchor, or None when the mode has not
                 established one yet.
@@ -3928,79 +3941,67 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.is_input_mode():
             return
         self._resolved_point = QPointF(point) if point is not None else None
-        schema = self.active_schema()
-        if (schema is None or not schema.is_placement
-                or anchor is None or point is None):
-            self._draw_dim_hint = None
-            return
-        values = schema.seed(anchor, point)
-        self._draw_dim_hint = self._format_schema_readout(schema, values)
-
-    def _format_schema_readout(self, schema, values: dict) -> str:
-        """Render schema values as the one-line cursor readout.
-
-        Args:
-            schema: The active ``Schema``; its field order drives the layout.
-            values: Seeded values keyed by ``FieldSpec.name``.
-
-        Returns:
-            A single line such as ``"L 3000.0 mm  A 45°"``.
-        """
-        sm = self.scale_manager
-        parts = []
-        for spec in schema.fields:
-            v = values.get(spec.name)
-            if v is None:
-                continue
-            if spec.kind is FieldKind.ANGLE:
-                text = ScaleManager.format_angle(v)
-            elif spec.kind is FieldKind.COUNT:
-                text = str(int(round(v)))
-            else:
-                # Schemas seed in *scene* units, so this is scene_to_display
-                # rather than format_length (which expects mm).  It falls back
-                # to format_length itself when the drawing is uncalibrated.
-                text = sm.scene_to_display(v) if sm else f"{v:.2f} mm"
-            parts.append(f"{spec.label} {text}")
-        return "  ".join(parts)
+        self._draw_dim_hint = None
 
     # ─────────────────────────────────────────────────────────────────────────
     # Dynamic input (on-canvas HUD)
     # ─────────────────────────────────────────────────────────────────────────
     #
-    # Cursor mode and input mode are exclusive.  In cursor mode the HUD is a
-    # read-only readout and the mouse (plus OSNAP, inference and Ctrl) drives
-    # the geometry.  In input mode the cursor is fully inert and the HUD is
-    # editable.  ``self.dynamic_input`` is the single flag distinguishing them,
-    # so there is no second piece of state that could disagree.
+    # Cursor mode and input mode are exclusive, but the HUD spans both
+    # (decision S1).  One ``DynamicInputHud`` is built as soon as a placement
+    # anchor is armed and lives until the placement ends; in cursor mode it is
+    # a passive readout that follows the cursor, and in input mode it is the
+    # editor.  ``dynamic_input is not None`` therefore means "there is a
+    # placement being read out", while ``dynamic_input.is_engaged()`` — i.e.
+    # ``is_input_mode()`` — means "the keyboard is in a field".  Everything
+    # that makes the mouse inert keys off the latter, never the former.
 
     # Characters that open the HUD by being typed.  Only these engage: a
     # letter belongs to whatever shortcut owns it.
     ENGAGE_CHARS = "0123456789.-"
 
     def is_input_mode(self) -> bool:
-        """Whether the editable HUD is open and the cursor is therefore inert.
+        """Whether a HUD field has the keyboard and the cursor is therefore inert.
+
+        Deliberately *not* "a HUD exists" (decision S1): the HUD is on screen
+        for the whole placement, and for most of that time it is a read-only
+        readout that must leave the mouse, Ctrl+Z and the click-commit path
+        completely alone.
 
         Returns:
-            True while a ``DynamicInputHud`` is live.
+            True while a ``DynamicInputHud`` field holds focus.
         """
-        return self.dynamic_input is not None
+        hud = self.dynamic_input
+        return hud is not None and hud.is_engaged()
 
-    def begin_dynamic_input(self, seed: str = "") -> bool:
-        """Open the on-canvas HUD for the current mode, seeded from live state.
+    def _hud_available(self) -> bool:
+        """Whether the current placement can carry a HUD at all.
 
-        Refuses (changing nothing) when there is nothing coherent to edit: a
-        HUD is already open, the mode has no schema, the mode has no applier,
-        or a *placement* schema has no anchor.  Transform schemas —
-        displacement, distance, spacing_count — have no anchor by nature and
-        must still open, so the anchor gate is conditioned on ``is_placement``
-        rather than applied to every schema.
+        The same gate for the passive readout and for engaging it, so the HUD
+        the user is looking at is always one they can type into.
+
+        Refuses when there is nothing coherent to read out or edit: the mode has
+        no schema, the mode has no applier, or a *placement* schema has no
+        anchor.  Transform schemas — displacement, distance, spacing_count —
+        have no anchor by nature, so the anchor gate is conditioned on
+        ``is_placement`` rather than applied to every schema.
 
         The applier gate is what keeps the refusal honest for those transform
         modes: skipping the anchor gate would otherwise let them open a HUD
         whose Enter reaches nothing, raising inside a Qt signal handler and
         stealing Enter from the mode's own working commit path.  Eight of the
         ten mapped modes simply do not open a HUD yet.
+        """
+        if self.mode not in self._APPLIER_FOR_MODE:
+            return False
+        schema = self.active_schema()
+        if schema is None:
+            return False
+        return not (schema.is_placement
+                    and self.get_placement_anchor() is None)
+
+    def _create_dynamic_input(self):
+        """Build and show the HUD for the current mode as a passive readout.
 
         The HUD is parented to the first **visible** view, not ``views()[0]``.
         More than one view is attached to the plan scene — the main window
@@ -4012,55 +4013,121 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         but focus may be sitting on a ribbon widget, whereas exactly one plan
         view is visible at a time in the central tab stack.
 
+        Returns:
+            The live ``DynamicInputHud``, or None when it could not be shown —
+            in which case nothing was left behind and the scene is unchanged.
+        """
+        view = self._visible_view()
+        if view is None:
+            return None
+        schema = self.active_schema()
+
+        from .dynamic_input import DynamicInputHud
+        hud = DynamicInputHud(schema, self.scale_manager, view.viewport())
+        hud.committed.connect(self._on_dynamic_input_committed)
+        hud.cancelled.connect(self._on_dynamic_input_cancelled)
+        self.dynamic_input = hud
+        if hasattr(view, "place_dynamic_input"):
+            # No scene latch while it is only a readout: passing None puts it
+            # back on the cursor, which it now tracks frame by frame.  The latch
+            # happens on engage, when the cursor goes inert and chasing it would
+            # be meaningless.
+            view.place_dynamic_input(hud, None)
+        hud.show()
+        hud.raise_()
+        # Self-correcting: a HUD the user cannot see is worse than none at all —
+        # engaging it would make the cursor inert with no visible way back.
+        # Rather than trusting the parent choice above to be the only way that
+        # can happen, confirm it really reached the screen and unwind if not.
+        if not hud.isVisible():
+            self.end_dynamic_input()
+            return None
+        return hud
+
+    def _sync_dynamic_input(self) -> None:
+        """Reconcile the HUD with the live placement state — create, reseed, close.
+
+        The single owner of the HUD's existence during cursor mode.  Called once
+        per mouse move and once per press, after the mode's own handler has run,
+        so it sees the anchor and resolved point that handler just produced: a
+        first click arms the anchor and the HUD appears, a second commits and it
+        goes away, all without either press handler knowing the HUD exists.
+
+        A no-op while engaged.  The user is typing; the mouse is inert by
+        definition, so there is nothing new to reflect and reseeding would
+        overwrite their entry.
+        """
+        if self.is_input_mode():
+            return
+        if not self._hud_available():
+            if self.dynamic_input is not None:
+                self.end_dynamic_input()
+            return
+        schema = self.active_schema()
+        hud = self.dynamic_input
+        if hud is not None and hud.schema is not schema:
+            # Mode changed under a live HUD without passing through set_mode.
+            # Its editors belong to the old schema, so it cannot be reused.
+            self.end_dynamic_input()
+            hud = None
+        if hud is None:
+            hud = self._create_dynamic_input()
+            if hud is None:
+                return
+        hud.set_values(
+            self._seed_values_for(schema, self.get_placement_anchor()))
+        view = self._visible_view()
+        if view is not None and hasattr(view, "place_dynamic_input"):
+            # Re-placed every frame: an unengaged HUD follows the cursor.
+            view.place_dynamic_input(hud)
+
+    def begin_dynamic_input(self, seed: str = "") -> bool:
+        """Engage input mode, opening the HUD first if one is not already up.
+
+        Under decision S1 this no longer *creates* the HUD in the normal case —
+        the placement already has one, showing the very numbers being engaged —
+        it moves the keyboard into it.  The create path survives for the engage
+        that arrives before any mouse move has synced one (Tab straight after
+        the first click, with the pointer still stationary).
+
+        Refuses, changing nothing, when input mode is already active or the
+        placement cannot carry a HUD (see :meth:`_hud_available`).
+
         Args:
             seed: The keystroke that engaged the HUD, placed into the first
                 field so typing continues naturally.  Empty for Tab, which
                 engages without contributing a character.
 
         Returns:
-            True when a HUD was opened, False when the engage was refused.
-            Callers use this to decide whether to accept the key event.
+            True when input mode was entered, False when the engage was
+            refused.  Callers use this to decide whether to accept the key.
         """
         if self.is_input_mode():
             return False
+        if not self._hud_available():
+            return False
         schema = self.active_schema()
-        if schema is None:
-            return False
-        if self.mode not in self._APPLIER_FOR_MODE:
-            return False
-        anchor = self.get_placement_anchor()
-        if schema.is_placement and anchor is None:
-            return False
+        hud = self.dynamic_input
+        if hud is None or hud.schema is not schema:
+            if hud is not None:
+                self.end_dynamic_input()
+            hud = self._create_dynamic_input()
+            if hud is None:
+                return False
+        # Reseeded even when the HUD was already up: the sync runs on mouse
+        # moves, and the anchor can have been armed by a click the pointer never
+        # moved after, leaving the readout a frame behind what Enter would
+        # commit.
+        hud.set_values(
+            self._seed_values_for(schema, self.get_placement_anchor()))
         view = self._visible_view()
-        if view is None:
-            return False
-
-        from .dynamic_input import DynamicInputHud
-        hud = DynamicInputHud(schema, self.scale_manager, view.viewport())
-        hud.set_values(self._seed_values_for(schema, anchor))
-        hud.committed.connect(self._on_dynamic_input_committed)
-        hud.cancelled.connect(self._on_dynamic_input_cancelled)
-        # Published before the widget is shown: is_input_mode must already be
-        # True by the time anything can react to the HUD appearing, because the
-        # HUD's own focus and paint events re-enter the scene during show().
-        self.dynamic_input = hud
-        if hasattr(view, "place_dynamic_input"):
-            # Latch the HUD to the resolved placement point — the constrained
-            # position actually on screen — so pan and zoom carry it with the
-            # geometry it is editing instead of stranding it on the glass.
+        if view is not None and hasattr(view, "place_dynamic_input"):
+            # Latch to the resolved placement point — the constrained position
+            # actually on screen.  From here the cursor is inert, so the HUD
+            # rides pan and zoom with the geometry it is editing instead of
+            # chasing a pointer whose movement means nothing.
             view.place_dynamic_input(hud, self.get_resolved_point())
-        hud.show()
-        hud.raise_()
-        hud.focus_first(seed)
-        # Self-correcting engage: input mode makes the cursor inert, so a HUD
-        # the user cannot see would soft-lock the placement — no HUD, no
-        # preview updates, clicks no longer committing, Escape the only way
-        # out.  Rather than trusting the parent choice above to be the only way
-        # that can happen, confirm the HUD really reached the screen and unwind
-        # the whole engage if it did not, leaving the scene exactly as it was.
-        if not hud.isVisible():
-            self.end_dynamic_input()
-            return False
+        hud.engage(seed)
         return True
 
     def _visible_view(self):
@@ -4094,7 +4161,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             Values keyed by field name, in schema (scene) units.
         """
         if schema.is_placement:
-            return schema.seed(anchor, self.get_resolved_point() or anchor)
+            # Explicit None test, never truthiness: PyQt gives QPointF a
+            # __bool__ that is False at the origin, so ``point or anchor`` would
+            # silently discard a resolved point of exactly (0, 0) and read out a
+            # zero-length placement.  Snapping to the origin is ordinary in CAD,
+            # and the readout is now rebuilt every frame, so that would be
+            # visible whenever the cursor crossed it.
+            point = self.get_resolved_point()
+            return schema.seed(anchor, anchor if point is None else point)
         return self._transform_seed_values(schema)
 
     def _transform_seed_values(self, schema) -> dict:
@@ -4136,14 +4210,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return {}
 
     def end_dynamic_input(self) -> None:
-        """Close the HUD and return to cursor mode.
+        """Close the HUD entirely — the placement it was reading out is over.
 
-        Safe to call when no HUD is open, so every exit path (commit, cancel,
-        mode switch) can call it unconditionally.  Focus goes back to the
-        visible view — not to every attached view — or the canvas would keep
-        receiving keys for a widget that is gone, and the last ``setFocus`` in
-        the loop would have handed focus to the invisible orphan view the
-        scene also carries (see :meth:`begin_dynamic_input`).
+        Safe to call when no HUD is open, so every exit path (commit, mode
+        switch, the anchor going away) can call it unconditionally.  Escape does
+        *not* come here: it steps back to cursor mode and leaves the readout up
+        (see :meth:`_on_dynamic_input_cancelled`).
+
+        Focus goes back to the visible view — not to every attached view — or
+        the canvas would keep receiving keys for a widget that is gone, and the
+        last ``setFocus`` in the loop would have handed focus to the invisible
+        orphan view the scene also carries (see :meth:`_create_dynamic_input`).
+        It is claimed only when the HUD actually held it: a passive readout
+        being retired must not yank focus away from whatever the user is really
+        working in, such as the property panel.
         """
         hud = self.dynamic_input
         # Cleared first: the tear-down below can re-enter through focus and
@@ -4151,6 +4231,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.dynamic_input = None
         if hud is None:
             return
+        was_engaged = hud.is_engaged()
         hud.hide()
         # deleteLater only *schedules* deletion: until the deferred-delete pass
         # runs, the HUD is alive and would still be wired.  A stray signal in
@@ -4161,23 +4242,41 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Also out of the viewport's paint and focus chains for that window.
         hud.setParent(None)
         hud.deleteLater()
-        view = self._visible_view()
-        if view is not None:
-            view.setFocus(Qt.FocusReason.OtherFocusReason)
+        if was_engaged:
+            view = self._visible_view()
+            if view is not None:
+                view.setFocus(Qt.FocusReason.OtherFocusReason)
         # Every view still repaints: the HUD's departure has to clear from any
         # viewport that was painting it, visible or not.
         for v in self.views():
             v.viewport().update()
 
     def _on_dynamic_input_cancelled(self) -> None:
-        """Escape rung 0: close the HUD but stay armed in the placement mode.
+        """Escape rung 0: hand the placement back to the cursor.
 
         Only input mode is abandoned. The mode and its anchor survive, so
         Escape steps back to the cursor rather than throwing away a placement
         the user is midway through — a second Escape, handled elsewhere, is
         what cancels that.
+
+        Under decision S1 the HUD itself survives too, reverting to the passive
+        readout it is for the rest of the placement; closing it would leave the
+        user with no numbers at all for a placement that is still live, and the
+        next mouse move would only build it again.  Focus is pushed back to the
+        view explicitly — the HUD is now transparent to the mouse but still
+        holds the keyboard until someone takes it.
         """
-        self.end_dynamic_input()
+        hud = self.dynamic_input
+        if hud is None:
+            return
+        hud.disengage()
+        view = self._visible_view()
+        if view is not None:
+            view.setFocus(Qt.FocusReason.OtherFocusReason)
+        # The cursor is live again, so put the readout back under it rather than
+        # leaving it latched where the placement was engaged.
+        if view is not None and hasattr(view, "place_dynamic_input"):
+            view.place_dynamic_input(hud, None)
 
     def _on_dynamic_input_committed(self, values: dict) -> None:
         """Resolve *values* into geometry and hand it to the click-commit path.
@@ -5074,6 +5173,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # No mode matched — hide previews
             self.preview_node.hide()
             self.preview_pipe.hide()
+
+        # After the handler, so it reads the point that handler just published.
+        self._sync_dynamic_input()
 
         # Repaint foreground for snap indicator / grip overlay
         for v in self.views():
@@ -6184,6 +6286,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if handler_name is not None:
             getattr(self, handler_name)(event, scene_pos, snapped,
                                         selection, node_under, pipe_under)
+            # A press is what arms an anchor and what commits it, so the HUD's
+            # existence is reconciled here as well as on move.  Without this a
+            # committed placement would leave its readout hanging on screen
+            # until the user happened to move the mouse.
+            self._sync_dynamic_input()
             return
 
         # ── Shift-click floor vertex editing (select mode) ────────────────

@@ -248,8 +248,16 @@ class TestPublishPlacementState:
         assert expected != raw
         assert got != raw
 
-    def test_move_draw_line_readout_matches_the_constrained_point(self, scene):
-        """The readout is derived from the same constrained point, not the raw one."""
+    def test_move_draw_line_readout_matches_the_constrained_point(
+            self, scene, view):
+        """The readout is derived from the same constrained point, not the raw one.
+
+        Two steps because ``mouseMoveEvent`` takes them in that order and a
+        ``QGraphicsSceneMouseEvent`` cannot be built headlessly: the mode
+        handler publishes, then the sync reflects what was published into the
+        widget the user actually reads (decision S1 — this mode has no painted
+        string any more).
+        """
         anchor = QPointF(0, 0)
         scene.mode = "draw_line"
         scene._draw_line_anchor = anchor
@@ -257,17 +265,33 @@ class TestPublishPlacementState:
 
         scene._move_draw_line(
             _MoveEventStub(Qt.KeyboardModifier.ControlModifier), raw)
+        scene._sync_dynamic_input()
 
+        hud = scene.dynamic_input
+        assert hud is not None
         # Snapped to horizontal → 0°, not the raw cursor's ~1.7°.
-        assert scene._draw_dim_hint == "L 1000.450 mm  A 0°"
+        assert hud.editor("Length").text() == "1000.450 mm"
+        assert hud.editor("Angle").text() == "0°"
 
-    def test_sets_dim_hint_from_schema(self, scene):
+    def test_publish_pushes_values_into_the_hud(self, scene, view):
         scene.mode = "draw_line"
         scene._draw_line_anchor = QPointF(0, 0)
         scene.publish_placement_state(QPointF(0, 0), QPointF(1000, -1000))
-        assert scene._draw_dim_hint == "L 1414.214 mm  A 45°"
+        scene._sync_dynamic_input()
+        hud = scene.dynamic_input
+        assert hud is not None
+        assert hud.editor("Length").text() == "1414.214 mm"
+        assert hud.editor("Angle").text() == "45°"
 
-    def test_dim_hint_honours_scale_calibration(self, scene):
+    def test_publish_leaves_no_painted_hint_for_a_hud_mode(self, scene, view):
+        """One HUD, not two: a mode the widget serves paints no string."""
+        scene.mode = "draw_line"
+        scene._draw_line_anchor = QPointF(0, 0)
+        scene._draw_dim_hint = "stale"
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1000, -1000))
+        assert scene._draw_dim_hint is None
+
+    def test_readout_honours_scale_calibration(self, scene, view):
         """Scene units are converted through the scene's own ScaleManager.
 
         This is the assertion that catches treating scene units as mm: at
@@ -277,10 +301,11 @@ class TestPublishPlacementState:
         scene.mode = "draw_line"
         scene._draw_line_anchor = QPointF(0, 0)
         scene.publish_placement_state(QPointF(0, 0), QPointF(6000, 0))
-        hint = scene._draw_dim_hint
-        assert "3000" in hint
-        assert "6000" not in hint
-        assert hint == "L 3000.000 mm  A 0°"
+        scene._sync_dynamic_input()
+        text = scene.dynamic_input.editor("Length").text()
+        assert "3000" in text
+        assert "6000" not in text
+        assert text == "3000.000 mm"
 
     def test_clear_resets_both(self, scene):
         scene.mode = "draw_line"
@@ -510,13 +535,17 @@ class TestInputModeInertness:
         _armed_line(scene)
         scene.begin_dynamic_input()
         before = scene.get_resolved_point()
+        before_text = scene.dynamic_input.editor("Length").text()
         scene._last_scene_pos = None
 
         scene.mouseMoveEvent(_ReleaseEventStub(QPointF(-9999, -9999)))
 
         assert scene._last_scene_pos is None            # handler bailed
         assert scene.get_resolved_point() == before     # seed untouched
-        assert scene._draw_dim_hint is not None         # not cleared
+        # The HUD is not reseeded either: the sync at the tail of the handler
+        # is never reached, and would overwrite what the user is typing if it
+        # were.
+        assert scene.dynamic_input.editor("Length").text() == before_text
 
     def test_mouse_press_is_inert(self, scene, view):
         _armed_line(scene)
@@ -695,17 +724,35 @@ class TestCommitAndCancel:
         assert line.p1() == QPointF(100, 100)
         assert line.p2().x() == pytest.approx(600.0)
 
-    def test_cancel_closes_hud_but_keeps_the_mode(self, scene, view):
-        """Esc rung 0: leave input mode, stay armed in the placement mode."""
+    def test_cancel_leaves_input_mode_but_keeps_the_readout(self, scene, view):
+        """Esc rung 0: leave input mode, stay armed, keep reading out.
+
+        Under decision S1 the HUD spans the whole placement, so Esc demotes it
+        to the passive readout rather than closing it — the placement is still
+        live and closing would leave the user with no numbers at all.
+        """
         _armed_line(scene)
         scene.begin_dynamic_input()
         scene.dynamic_input.cancelled.emit()
 
         assert not scene.is_input_mode()
-        assert scene.dynamic_input is None
+        assert scene.dynamic_input is not None
+        assert not scene.dynamic_input.is_engaged()
         assert scene.mode == "draw_line"
         assert scene._draw_line_anchor == QPointF(0, 0)
         assert len(scene._draw_lines) == 0
+
+    def test_cancel_makes_the_readout_click_through_again(self, scene, view):
+        """A demoted HUD must not swallow the click that finishes the line."""
+        _armed_line(scene)
+        scene.begin_dynamic_input()
+        assert not scene.dynamic_input.testAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+
+        scene.dynamic_input.cancelled.emit()
+
+        assert scene.dynamic_input.testAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
     def test_mode_switch_closes_the_hud(self, scene, view):
         """A HUD outlives neither its schema nor its anchor.

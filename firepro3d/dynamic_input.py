@@ -267,6 +267,25 @@ def _parse_count(text: str) -> float | None:
         return None
 
 
+# ── Field sizing (decision S2) ────────────────────────────────────────────
+# Fields size to their content plus a couple of characters of headroom, and
+# only ever grow for the life of one HUD.  The HUD now reads out live values
+# for the whole placement, so a width that tracked the text exactly would
+# twitch on every mouse move; growing-only lets it settle within a second of
+# dragging and then hold still.
+
+# Characters of slack past the current text, so typing one more digit does not
+# resize the field mid-keystroke.
+_FIELD_BUFFER_CHARS = 2
+
+# Horizontal chrome ``fontMetrics`` cannot see: the 1 px border and 3 px
+# padding either side from ``_build_hud_style``, plus room for the caret.
+_FIELD_CHROME_PX = 14
+
+# Floor width, so a HUD seeded with "0" is not a sliver.
+_FIELD_MIN_WIDTH_PX = 52
+
+
 # ── Invalid-state colour ──────────────────────────────────────────────────
 # ``theme.py`` carries a ``status_error`` token per variant, so the rejected
 # border needs no literal of its own.
@@ -345,6 +364,26 @@ class DynamicInputHud(QWidget):
     different widgets, so the house parser, formatter, minimum handling and
     revert-to-last-valid behaviour come along unchanged.
 
+    **One HUD, two states (decision S1).**  This widget is the *only* readout
+    for the modes it serves — there is no second painted one.  It lives for the
+    whole placement and is either:
+
+    *disengaged*
+        A passive readout.  It follows the cursor, is reseeded from the live
+        geometry every frame, and is **transparent to the mouse** — self and
+        every child — so a click meant for the canvas is not swallowed by a
+        widget that happens to be sitting under the cursor.  Being untouchable
+        by the mouse is also what makes ``is_engaged`` trustworthy: engagement
+        can then only be reached deliberately, via Tab or a typed digit.
+
+    *engaged*
+        An editor.  A field has the keyboard, the cursor is inert, and the
+        readout stops following anything.
+
+    ``Model_Space.is_input_mode`` is exactly ``is_engaged()`` — *not* "a HUD
+    exists" — and everything gated on it (mouse inertness, the engage refusal,
+    the reseed no-op) depends on that distinction.
+
     **Units boundary.** Schemas seed and resolve in *scene* units, while
     ``DimensionEdit`` stores and parses *millimetres*.  ``DIMENSION`` fields
     are therefore converted on the way in and back out; ``ANGLE`` and
@@ -388,6 +427,15 @@ class DynamicInputHud(QWidget):
         self._undo_stack: list[tuple[str, float]] = []
         self._committed: dict[str, float] = {}
         self._undoing = False
+        # Engagement (decision S1).  Explicit state rather than a live
+        # ``hasFocus()`` poll: ``hasFocus`` is false whenever the application
+        # window is inactive, which would silently drop the scene out of input
+        # mode — un-freezing the cursor under a half-typed value — the moment
+        # the user alt-tabbed away.  Every transition is a deliberate call
+        # (:meth:`engage` / :meth:`disengage`), so the flag cannot drift.
+        self._engaged = False
+        # Grow-only field widths (decision S2), keyed by field name.
+        self._field_widths: dict[str, int] = {}
 
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
@@ -418,10 +466,18 @@ class DynamicInputHud(QWidget):
             # Set the property up front so the selector has something to match
             # from the first polish rather than only after a rejection.
             self._set_invalid_style(editor, False)
+            # Covers both typing and the programmatic reseed, which is the
+            # only way a live readout's width keeps up with its own text.
+            editor.textChanged.connect(
+                lambda _text, name=spec.name: self._fit_field_width(name))
             # Keys are intercepted on the editor rather than overridden on it:
             # QLineEdit consumes Tab/Return itself, so the filter has to see
             # them first.  See ``eventFilter``.
             editor.installEventFilter(self)
+            self._fit_field_width(spec.name)
+
+        # Born as a passive readout: the mouse must reach the canvas through it.
+        self._set_mouse_transparent(True)
 
     # ── Construction helpers ──────────────────────────────────────────────
 
@@ -449,8 +505,40 @@ class DynamicInputHud(QWidget):
                 minimum=(None if spec.minimum is None
                          else self._scene_to_mm(spec.minimum)),
             )
-        editor.setMinimumWidth(70)
+        # Width is content-driven; see :meth:`_fit_field_width`.
         return editor
+
+    def _fit_field_width(self, name: str) -> None:
+        """Widen field *name* if its text no longer fits (decision S2).
+
+        Three properties, in the order they matter:
+
+        **Grow-only.**  The readout is reseeded every frame while the cursor
+        moves, so a width that tracked the text both ways would flicker on every
+        digit that came and went — ``3000.000 mm`` to ``300.000 mm`` and back.
+        Only growing means the field widens over the first second of a drag and
+        then holds still.
+
+        **Headroom, not padding.**  The buffer is spent only when the field is
+        *already* being resized, so it is genuinely slack the next few keystrokes
+        can grow into.  Adding it to every measurement instead would make the
+        width track the text exactly, one character behind — which is a resize on
+        every keystroke, the thing the buffer exists to prevent.
+
+        **A floor**, so a field seeded with ``0`` is not a sliver.
+        """
+        editor = self._editors[name]
+        fm = editor.fontMetrics()
+        current = self._field_widths.get(name, 0)
+        needed = fm.horizontalAdvance(editor.text()) + _FIELD_CHROME_PX
+        if current and needed <= current:
+            return
+        want = max(needed + fm.horizontalAdvance("0" * _FIELD_BUFFER_CHARS),
+                   _FIELD_MIN_WIDTH_PX, current)
+        if want == current:
+            return
+        self._field_widths[name] = want
+        editor.setFixedWidth(want)
 
     # ── Units boundary ────────────────────────────────────────────────────
     #
@@ -502,6 +590,12 @@ class DynamicInputHud(QWidget):
         ``DIMENSION`` entries are scene units and are converted to mm;
         ``ANGLE`` and ``COUNT`` are stored as given.  Names absent from
         *values* are left untouched.
+
+        Called once per frame while the HUD is a passive readout, and once more
+        at the moment of engagement.  It must **not** be called while engaged:
+        it overwrites every field and resets the undo baseline, so a live reseed
+        landing mid-edit would erase what the user was typing.  ``Model_Space``
+        gates on ``is_engaged`` for exactly this reason.
         """
         for name, editor in self._editors.items():
             if name not in values:
@@ -556,6 +650,54 @@ class DynamicInputHud(QWidget):
         until the user edits the offending field or ``set_values`` reseeds it.
         """
         return bool(self._invalid)
+
+    # ── Engagement (decision S1) ──────────────────────────────────────────
+
+    def is_engaged(self) -> bool:
+        """Whether the keyboard is pointed at one of this HUD's fields.
+
+        This is the definition of input mode.  A HUD that merely *exists* is a
+        readout and leaves the mouse, and every shortcut, exactly as they were.
+        """
+        return self._engaged
+
+    def engage(self, seed: str = "") -> None:
+        """Turn the readout into an editor and put the caret in the first field.
+
+        Args:
+            seed: The keystroke that engaged the HUD, forwarded to
+                :meth:`focus_first`.  Empty for Tab, which contributes no
+                character.
+        """
+        self._engaged = True
+        # Ordered before the focus call: a widget that is still transparent to
+        # the mouse can hold focus perfectly well, but re-enabling it afterwards
+        # would leave a window in which a click could land on the canvas
+        # underneath a HUD the user is already typing into.
+        self._set_mouse_transparent(False)
+        self.focus_first(seed)
+
+    def disengage(self) -> None:
+        """Fall back to a passive readout without closing the HUD.
+
+        This is Escape rung 0: input mode is abandoned, the placement is not.
+        The caller is responsible for giving focus back to the view — a widget
+        cannot hand focus to a sibling it does not know about.
+        """
+        self._engaged = False
+        self._set_mouse_transparent(True)
+
+    def _set_mouse_transparent(self, transparent: bool) -> None:
+        """Make the HUD (and its children) ignore or accept mouse events.
+
+        The attribute is per-widget and does **not** inherit, so the labels and
+        editors have to be set alongside the container or clicks would still be
+        swallowed by whichever child happened to be under the cursor.
+        """
+        attr = Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        self.setAttribute(attr, transparent)
+        for child in self.findChildren(QWidget):
+            child.setAttribute(attr, transparent)
 
     def focus_first(self, seed: str = "") -> None:
         """Focus the first field, optionally replacing its text with *seed*.
