@@ -123,9 +123,21 @@ class TestReadoutLifecycle:
         assert scene.dynamic_input is None
 
     def test_a_mode_without_an_applier_gets_no_hud(self, scene, view):
-        """``draw_rectangle`` has a schema but no applier yet — no HUD."""
-        scene.mode = "draw_rectangle"
-        scene._draw_rect_anchor = QPointF(0, 0)
+        """A mapped schema alone must not open a HUD — the applier gates it.
+
+        The mode is discovered from the two tables rather than named, because
+        ``_SCHEMA_FOR_MODE`` is a forward declaration that ``_APPLIER_FOR_MODE``
+        catches up with one task at a time.  Naming a mode here pinned the
+        *migration state* instead of the rule, and went stale the moment that
+        mode gained its applier.
+        """
+        pending = [m for m in Model_Space._SCHEMA_FOR_MODE
+                   if m not in Model_Space._APPLIER_FOR_MODE]
+        if not pending:
+            pytest.skip("every mapped mode now has an applier")
+        scene.mode = pending[0]
+        # _hud_available tests the applier table first, so no anchor is needed
+        # for the refusal — and a published point proves it is not the reason.
         scene.publish_placement_state(QPointF(0, 0), QPointF(100, 100))
         scene._sync_dynamic_input()
         assert scene.dynamic_input is None

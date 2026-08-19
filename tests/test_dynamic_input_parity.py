@@ -928,6 +928,267 @@ class TestPolylineUndoParity:
         assert calls == []
 
 
+# ── Task 12: rectangle ────────────────────────────────────────────────────
+
+
+def _engage_rect(scene, anchor=QPointF(0, 0), from_centre=False):
+    """Arm a rectangle placement and engage the HUD on it."""
+    scene.set_mode("draw_rectangle")
+    scene.single_place_mode = False
+    scene._draw_rect_from_center = from_centre
+    scene._draw_rect_anchor = QPointF(anchor)
+    # Decoy seed 1 unit away, so a path reusing the published point fails.
+    scene.publish_placement_state(anchor, QPointF(anchor.x() + 1.0,
+                                                 anchor.y() - 1.0))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+def _rect_tuple(item):
+    r = item.rect()
+    return (r.x(), r.y(), r.width(), r.height())
+
+
+class TestRectangleParity:
+    """Corner mode: the typed rectangle and the dragged one must coincide.
+
+    The schema's X/Y are **signed** (``seed_rectangle`` keeps the sign so
+    ``resolve_rectangle`` round-trips the drag point exactly), because in
+    corner mode the drag direction chooses the quadrant.  From-centre re-applies
+    ``abs()`` and so ignores it.
+    """
+
+    def test_mouse_and_hud_agree(self, scene, view):
+        scene.set_mode("draw_rectangle")
+        scene.single_place_mode = False
+        scene._draw_rect_from_center = False
+        scene._draw_rect_anchor = QPointF(0, 0)
+        assert scene._commit_draw_rectangle_at(QPointF(300.0, -200.0)) is True
+        by_mouse = _rect_tuple(scene._draw_rects[-1])
+
+        hud = _engage_rect(scene)
+        hud.editor("X").setText("300")
+        hud.editor("Y").setText("200")          # Y-up
+        scene._on_dynamic_input_committed(hud.values())
+        by_hud = _rect_tuple(scene._draw_rects[-1])
+
+        assert by_hud == pytest.approx(by_mouse)
+
+    def test_negative_extents_keep_the_dragged_quadrant(self, scene, view):
+        """A left/down drag stays left/down — the sign is the geometry."""
+        scene.set_mode("draw_rectangle")
+        scene.single_place_mode = False
+        scene._draw_rect_from_center = False
+        scene._draw_rect_anchor = QPointF(0, 0)
+        assert scene._commit_draw_rectangle_at(QPointF(-300.0, 200.0)) is True
+        by_mouse = _rect_tuple(scene._draw_rects[-1])
+
+        hud = _engage_rect(scene)
+        hud.editor("X").setText("-300")
+        hud.editor("Y").setText("-200")
+        scene._on_dynamic_input_committed(hud.values())
+        by_hud = _rect_tuple(scene._draw_rects[-1])
+
+        assert by_hud == pytest.approx(by_mouse)
+        # Non-vacuous: this really is the other quadrant from the positive case.
+        assert by_mouse[0] < 0
+
+    def test_from_centre_uses_half_extents(self, scene, view):
+        hud = _engage_rect(scene, from_centre=True)
+        hud.editor("X").setText("100")
+        hud.editor("Y").setText("50")
+        scene._on_dynamic_input_committed(hud.values())
+        x, y, w, h = _rect_tuple(scene._draw_rects[-1])
+        assert w == pytest.approx(200.0)        # half-extent 100 either side
+        assert h == pytest.approx(100.0)
+        assert x == pytest.approx(-100.0)
+        assert y == pytest.approx(-50.0)
+
+    def test_too_small_is_refused_and_keeps_the_hud_open(self, scene, view):
+        """F1/D2: the schema minimum is 0.0, so 0.1 parses and the commit
+        refuses it — the case that used to no-op after the HUD had closed."""
+        hud = _engage_rect(scene)
+        hud.editor("X").setText("0.1")
+        hud.editor("Y").setText("0.1")
+        scene._on_dynamic_input_committed(hud.values())
+
+        assert len(scene._draw_rects) == 0
+        assert scene.is_input_mode()
+        assert hud.has_invalid_field()
+        assert scene._draw_rect_anchor == QPointF(0, 0)
+
+    def test_applier_reports_its_verdict(self, scene):
+        scene.set_mode("draw_rectangle")
+        scene._draw_rect_from_center = False
+        scene._draw_rect_anchor = QPointF(0, 0)
+        assert scene._commit_draw_rectangle_at(QPointF(0.1, 0.1)) is False
+        scene._draw_rect_anchor = QPointF(0, 0)
+        assert scene._commit_draw_rectangle_at(QPointF(300, -200)) is True
+        scene._draw_rect_anchor = None
+        assert scene._commit_draw_rectangle_at(QPointF(300, -200)) is False
+
+    def test_commit_clears_anchor_preview_and_placement_state(self, scene, view):
+        scene.set_mode("draw_rectangle")
+        scene.single_place_mode = False
+        scene._draw_rect_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(300, -200))
+        scene._commit_draw_rectangle_at(QPointF(300.0, -200.0))
+        assert scene._draw_rect_anchor is None
+        assert scene._draw_rect_preview is None
+        assert scene.get_resolved_point() is None
+
+    def test_move_publishes_instead_of_painting_a_hint(self, scene, view):
+        scene.set_mode("draw_rectangle")
+        # The first press arms the anchor *and* builds the preview rect, which
+        # the move branch requires; pre-setting the anchor would instead send
+        # this press down the commit branch.
+        scene._press_draw_rectangle(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                                    None, None, None)
+        assert scene._draw_rect_preview is not None
+        scene._move_draw_rectangle(_FakeEvent(), QPointF(300, -200))
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        assert pt.x() == pytest.approx(300.0, abs=1e-6)
+        assert pt.y() == pytest.approx(-200.0, abs=1e-6)
+        assert scene._draw_dim_hint is None
+
+    def test_hud_commit_pushes_exactly_one_undo_state(self, scene, view,
+                                                      monkeypatch):
+        hud = _engage_rect(scene)
+        hud.editor("X").setText("300")
+        hud.editor("Y").setText("200")
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene._draw_rects) == 1
+        assert calls == [1]
+
+
+# ── Task 13: circle ───────────────────────────────────────────────────────
+
+
+def _engage_circle(scene, centre=QPointF(0, 0)):
+    """Arm a circle placement and engage the HUD on it."""
+    scene.set_mode("draw_circle")
+    scene.single_place_mode = False
+    scene._draw_circle_center = QPointF(centre)
+    scene.publish_placement_state(centre, QPointF(centre.x() + 1.0, centre.y()))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+class TestCircleParity:
+    """F6: ``resolve_circle`` picks an arbitrary direction because the commit
+    takes ``hypot``.  That cross-module dependency is pinned here, at the seam.
+    """
+
+    def test_mouse_and_hud_agree(self, scene, view):
+        scene.set_mode("draw_circle")
+        scene.single_place_mode = False
+        scene._draw_circle_center = QPointF(0, 0)
+        assert scene._commit_draw_circle_at(QPointF(120.0, 0.0)) is True
+        by_mouse = scene._draw_circles[-1].rect()
+
+        hud = _engage_circle(scene)
+        hud.editor("Radius").setText("120")
+        scene._on_dynamic_input_committed(hud.values())
+        by_hud = scene._draw_circles[-1].rect()
+
+        assert by_hud.width() == pytest.approx(by_mouse.width())
+        assert by_hud.center().x() == pytest.approx(by_mouse.center().x())
+        assert by_hud.center().y() == pytest.approx(by_mouse.center().y())
+
+    def test_radius_direction_is_irrelevant(self, scene, view):
+        """Any rim point of the same magnitude yields the same circle, which is
+        what lets ``resolve_circle`` emit a bare +X point."""
+        scene.set_mode("draw_circle")
+        scene.single_place_mode = False
+        scene._draw_circle_center = QPointF(0, 0)
+        scene._commit_draw_circle_at(QPointF(0.0, -50.0))
+        a = scene._draw_circles[-1].rect()
+
+        scene._draw_circle_center = QPointF(0, 0)
+        scene._commit_draw_circle_at(QPointF(50.0, 0.0))
+        b = scene._draw_circles[-1].rect()
+
+        assert a.width() == pytest.approx(b.width())
+        assert a.center().x() == pytest.approx(b.center().x())
+        assert a.center().y() == pytest.approx(b.center().y())
+
+    def test_hud_radius_is_measured_from_the_centre(self, scene, view):
+        hud = _engage_circle(scene, QPointF(250.0, -400.0))
+        hud.editor("Radius").setText("120")
+        scene._on_dynamic_input_committed(hud.values())
+        r = scene._draw_circles[-1].rect()
+        assert r.center().x() == pytest.approx(250.0, abs=1e-6)
+        assert r.center().y() == pytest.approx(-400.0, abs=1e-6)
+        assert r.width() == pytest.approx(240.0, abs=1e-6)
+
+    def test_too_small_is_refused_and_keeps_the_hud_open(self, scene, view):
+        hud = _engage_circle(scene)
+        hud.editor("Radius").setText("0.1")
+        scene._on_dynamic_input_committed(hud.values())
+
+        assert len(scene._draw_circles) == 0
+        assert scene.is_input_mode()
+        assert hud.has_invalid_field()
+        # The placement survives, so retyping is possible — the circle path used
+        # to clear the centre even when it rejected.
+        assert scene._draw_circle_center == QPointF(0, 0)
+
+    def test_refused_circle_pushes_no_undo_state(self, scene, view, monkeypatch):
+        """It used to push one for a circle it never created."""
+        scene.set_mode("draw_circle")
+        scene._draw_circle_center = QPointF(0, 0)
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        assert scene._commit_draw_circle_at(QPointF(0.1, 0.0)) is False
+        assert calls == []
+
+    def test_applier_reports_its_verdict(self, scene):
+        scene.set_mode("draw_circle")
+        scene._draw_circle_center = QPointF(0, 0)
+        assert scene._commit_draw_circle_at(QPointF(0.1, 0.0)) is False
+        scene._draw_circle_center = QPointF(0, 0)
+        assert scene._commit_draw_circle_at(QPointF(120, 0)) is True
+        scene._draw_circle_center = None
+        assert scene._commit_draw_circle_at(QPointF(120, 0)) is False
+
+    def test_commit_clears_centre_preview_and_placement_state(self, scene, view):
+        scene.set_mode("draw_circle")
+        scene.single_place_mode = False
+        scene._draw_circle_center = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(120, 0))
+        scene._commit_draw_circle_at(QPointF(120.0, 0.0))
+        assert scene._draw_circle_center is None
+        assert scene._draw_circle_preview is None
+        assert scene.get_resolved_point() is None
+
+    def test_move_publishes_instead_of_painting_a_hint(self, scene, view):
+        scene.set_mode("draw_circle")
+        scene._press_draw_circle(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                                 None, None, None)
+        assert scene._draw_circle_preview is not None
+        scene._move_draw_circle(_FakeEvent(), QPointF(120, 0))
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        assert pt.x() == pytest.approx(120.0, abs=1e-6)
+        assert scene._draw_dim_hint is None
+
+    def test_hud_commit_pushes_exactly_one_undo_state(self, scene, view,
+                                                      monkeypatch):
+        hud = _engage_circle(scene)
+        hud.editor("Radius").setText("120")
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene._draw_circles) == 1
+        assert calls == [1]
+
+
 class TestApplierRejectionKeepsTheHudOpen:
     """D2: the applier reports its verdict; the schema does not mirror it.
 

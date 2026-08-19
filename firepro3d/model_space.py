@@ -3863,6 +3863,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
+        "draw_rectangle": "_commit_draw_rectangle_at",
+        "draw_circle": "_commit_draw_circle_at",
     }
 
     def active_schema(self):
@@ -5386,7 +5388,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.preview_pipe.hide()
 
     def _move_draw_rectangle(self, event, snapped):
-        sm = self.scale_manager
         if self._draw_rect_anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         else:
@@ -5405,14 +5406,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             else:
                 rect = QRectF(self._draw_rect_anchor, snapped).normalized()
             self._draw_rect_preview.setRect(rect)
-            self._draw_dim_hint = (
-                f"W: {sm.scene_to_display(rect.width())}  H: {sm.scene_to_display(rect.height())}"
-                if sm.is_calibrated else
-                f"W: {rect.width():.0f}mm  H: {rect.height():.0f}mm"
-            )
+            # The HUD widget is the readout (S1).  Published unnormalised so the
+            # signed extents reach the schema — normalising here would seed
+            # from-centre-looking magnitudes and lose the dragged quadrant.
+            self.publish_placement_state(self._draw_rect_anchor, snapped)
 
     def _move_draw_circle(self, event, snapped):
-        sm = self.scale_manager
         if self._draw_circle_center is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         else:
@@ -5423,11 +5422,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                            snapped.y() - self._draw_circle_center.y())
             cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
             self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
-            self._draw_dim_hint = (
-                f"R: {sm.scene_to_display(r)}"
-                if sm.is_calibrated else
-                f"R: {r:.0f}mm"
-            )
+            # The HUD widget is the readout (S1); the rim point carries the
+            # radius, since the commit takes the hypot.
+            self.publish_placement_state(self._draw_circle_center, snapped)
 
     def _move_draw_arc(self, event, snapped):
         sm = self.scale_manager
@@ -7832,39 +7829,71 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._draw_rect_preview = preview
         else:
-            # Commit rectangle
-            if self._draw_rect_from_center:
-                hw = abs(snapped.x() - self._draw_rect_anchor.x())
-                hh = abs(snapped.y() - self._draw_rect_anchor.y())
-                pt1 = QPointF(self._draw_rect_anchor.x() - hw, self._draw_rect_anchor.y() - hh)
-                pt2 = QPointF(self._draw_rect_anchor.x() + hw, self._draw_rect_anchor.y() + hh)
-            else:
-                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
-                pt1 = QPointF(rect.x(), rect.y())
-                pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
-            # Reject zero-size rectangles
-            if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
-                self._show_status("Rectangle too small — skipped", timeout=2000)
-                return
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = RectangleItem(pt1, pt2, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_rects.append(item)
-            item.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            # Remove preview
-            if self._draw_rect_preview is not None:
-                self.removeItem(self._draw_rect_preview)
-                self._draw_rect_preview = None
-            self._draw_rect_anchor = None
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                _instr = "Pick center point" if self._draw_rect_from_center else "Pick first corner"
-                self.instructionChanged.emit(_instr)
+            self._commit_draw_rectangle_at(snapped)
+
+    def _commit_draw_rectangle_at(self, corner):
+        """Commit the armed rectangle with ``corner`` as its second point.
+
+        The commit half of :meth:`_press_draw_rectangle`, split out so Dynamic
+        Input is an alternative *point source* rather than an alternative
+        *commit path*: a typed exact corner and a mouse click land here.
+
+        A single point serves both rectangle modes.  Corner mode normalises
+        ``QRectF(anchor, corner)``, so the sign of the offset chooses the
+        quadrant; from-centre takes ``abs()`` to derive half-extents and so
+        ignores it.  That is why ``seed_rectangle`` keeps the sign — folding to
+        a magnitude would rebuild every corner-mode rectangle up-and-right of
+        the anchor.
+
+        Args:
+            corner: The scene-space second point, fully constrained already.
+
+        Returns:
+            True when a rectangle was committed, False when it was refused (no
+            anchor, or an extent under the too-small floor).  Decision D2 — the
+            floor lives here and nowhere else; the HUD renders a False as a
+            flagged field.
+        """
+        anc = self._draw_rect_anchor
+        if anc is None:
+            return False
+        if self._draw_rect_from_center:
+            hw = abs(corner.x() - anc.x())
+            hh = abs(corner.y() - anc.y())
+            pt1 = QPointF(anc.x() - hw, anc.y() - hh)
+            pt2 = QPointF(anc.x() + hw, anc.y() + hh)
+        else:
+            rect = QRectF(anc, corner).normalized()
+            pt1 = QPointF(rect.x(), rect.y())
+            pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
+        # Reject zero-size rectangles
+        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
+            self._show_status("Rectangle too small — skipped", timeout=2000)
+            return False
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = RectangleItem(pt1, pt2, _c, _lw)
+        item.level = tmpl.level
+        self.addItem(item)
+        self._draw_rects.append(item)
+        item.setSelected(True)
+        for v in self.views(): v.viewport().update()
+        # Remove preview
+        if self._draw_rect_preview is not None:
+            self.removeItem(self._draw_rect_preview)
+            self._draw_rect_preview = None
+        # Read the mode flag before single_place_mode's set_mode("select")
+        # mutates it, so the re-arm wording matches the mode just used.
+        _from_centre = self._draw_rect_from_center
+        self._draw_rect_anchor = None
+        self.clear_placement_state()
+        self.push_undo_state()
+        if self.single_place_mode:
+            self.set_mode("select")
+        else:
+            self.instructionChanged.emit(
+                "Pick center point" if _from_centre else "Pick first corner")
+        return True
 
     def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._draw_circle_center is None:
@@ -7881,30 +7910,57 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._draw_circle_preview = preview
         else:
-            # Commit circle
-            r = math.hypot(snapped.x() - self._draw_circle_center.x(),
-                           snapped.y() - self._draw_circle_center.y())
-            if r < 0.5:
-                self._show_status("Circle radius too small — skipped", timeout=2000)
-            if r >= 0.5:
-                tmpl = self._get_geometry_template()
-                _c, _lw = self._geom_color_lw()
-                item = CircleItem(self._draw_circle_center, r, _c, _lw)
-                item.level = tmpl.level
-                self.addItem(item)
-                self._draw_circles.append(item)
-                item.setSelected(True)
-                for v in self.views(): v.viewport().update()
-            # Remove preview
-            if self._draw_circle_preview is not None:
-                self.removeItem(self._draw_circle_preview)
-                self._draw_circle_preview = None
-            self._draw_circle_center = None
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick center point")
+            self._commit_draw_circle_at(snapped)
+
+    def _commit_draw_circle_at(self, rim):
+        """Commit the armed circle with ``rim`` on its circumference.
+
+        The commit half of :meth:`_press_draw_circle`, split out so Dynamic
+        Input is an alternative *point source* rather than an alternative
+        *commit path*.
+
+        Only the distance from the centre matters — the radius is a ``hypot``
+        — which is what lets ``resolve_circle`` return a bare ``+X`` point for
+        a typed radius without encoding a meaningless direction.
+
+        Args:
+            rim: A scene-space point on the circumference, fully constrained.
+
+        Returns:
+            True when a circle was committed, False when it was refused (no
+            centre, or a radius under the too-small floor).
+
+        A refusal now leaves the centre armed and the preview up, matching the
+        line and rectangle commits; this path used to tear the placement down
+        and push an undo state even for a circle it never created.
+        """
+        centre = self._draw_circle_center
+        if centre is None:
+            return False
+        r = math.hypot(rim.x() - centre.x(), rim.y() - centre.y())
+        if r < 0.5:
+            self._show_status("Circle radius too small — skipped", timeout=2000)
+            return False
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = CircleItem(centre, r, _c, _lw)
+        item.level = tmpl.level
+        self.addItem(item)
+        self._draw_circles.append(item)
+        item.setSelected(True)
+        for v in self.views(): v.viewport().update()
+        # Remove preview
+        if self._draw_circle_preview is not None:
+            self.removeItem(self._draw_circle_preview)
+            self._draw_circle_preview = None
+        self._draw_circle_center = None
+        self.clear_placement_state()
+        self.push_undo_state()
+        if self.single_place_mode:
+            self.set_mode("select")
+        else:
+            self.instructionChanged.emit("Pick center point")
+        return True
 
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
