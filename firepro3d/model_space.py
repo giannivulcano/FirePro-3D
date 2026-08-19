@@ -3862,6 +3862,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     _APPLIER_FOR_MODE = {
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
+        "polyline": "_commit_polyline_at",
     }
 
     def active_schema(self):
@@ -3872,10 +3873,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             applier.  ``_SCHEMA_FOR_MODE`` is a forward declaration — it
             describes the migration's end state, while the
             ``publish_placement_state`` call sites and the appliers land one
-            task at a time.  Today only ``draw_line`` and ``draw_gridline``
-            publish and appear in ``_APPLIER_FOR_MODE``; the other eight
-            mapped modes return a schema while ``get_resolved_point()`` stays
-            None and no applier exists.  A caller that needs a seeded position
+            task at a time.  Today only ``draw_line``, ``draw_gridline`` and
+            ``polyline`` publish and appear in ``_APPLIER_FOR_MODE``; the other
+            seven mapped modes return a schema while ``get_resolved_point()``
+            stays None and no applier exists.  A caller that needs a seeded position
             must gate on ``get_resolved_point() is not None``, and a caller
             that intends to commit must gate on ``_APPLIER_FOR_MODE`` — never
             on this returning a schema, or it will open a HUD that can only
@@ -3989,7 +3990,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         The applier gate is what keeps the refusal honest for those transform
         modes: skipping the anchor gate would otherwise let them open a HUD
         whose Enter reaches nothing, raising inside a Qt signal handler and
-        stealing Enter from the mode's own working commit path.  Eight of the
+        stealing Enter from the mode's own working commit path.  Seven of the
         ten mapped modes simply do not open a HUD yet.
         """
         if self.mode not in self._APPLIER_FOR_MODE:
@@ -5314,7 +5315,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._design_area_rect_item.setRect(rect)
 
     def _move_polyline(self, event, snapped):
-        sm = self.scale_manager
         if self._polyline_active is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         else:
@@ -5328,16 +5328,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._polyline_active._points[-1], snapped
                 )
             self._polyline_active.update_preview(tip)
-            _last = self._polyline_active._points[-1]
-            _dx = tip.x() - _last.x()
-            _dy = tip.y() - _last.y()
-            _len = math.hypot(_dx, _dy)
-            _ang = math.degrees(math.atan2(-_dy, _dx))
-            self._draw_dim_hint = (
-                f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-                if sm.is_calibrated else
-                f"L: {_len:.0f}mm  A: {_ang:.1f}°"
-            )
+            # Publishing here — after the Ctrl constraint — is what keeps the
+            # readout and the HUD's seed from disagreeing with the preview.
+            self.publish_placement_state(
+                self._polyline_active._points[-1], tip)
 
     def _move_draw_line(self, event, snapped):
         sm = self.scale_manager
@@ -7618,8 +7612,41 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 tip = self._constrain_angle(
                     self._polyline_active._points[-1], snapped
                 )
-            self._polyline_active.append_point(tip)
+            self._commit_polyline_at(tip)
         # don't let super() deselect items mid-draw
+
+    def _commit_polyline_at(self, tip):
+        """Append one vertex to the active polyline at ``tip``.
+
+        The commit half of :meth:`_press_polyline`, split out so that Dynamic
+        Input is an alternative *point source* rather than an alternative
+        *commit path*: a typed exact point and a mouse click land here, so they
+        cannot drift apart.
+
+        ``tip`` is expected to arrive fully constrained (OSNAP, inference,
+        Ctrl) — this method applies no further constraint.
+
+        Deliberately does **not** push an undo state.  Polyline undo is pushed
+        once when the chain is finalized, not per vertex, so pushing here would
+        put half-drawn polylines on the stack and make a typed vertex behave
+        differently from a clicked one.  The retired modal ``_DynInput``
+        polyline branch did push per vertex; that is the drift being removed.
+
+        Unlike the line commit the placement stays live afterwards: the new
+        vertex becomes the next anchor, so ``get_placement_anchor()`` keeps
+        answering and the HUD is reseeded for the following segment.
+
+        Args:
+            tip: The scene-space position of the new vertex.  No-op when no
+                polyline is being drawn.
+        """
+        pl = self._polyline_active
+        if pl is None:
+            return
+        pl.append_point(tip)
+        # The published point described the segment just committed; the next
+        # frame republishes from the new anchor.
+        self.clear_placement_state()
 
     def _register_gridline(self, gl):
         """Add a gridline to the scene and the ``_gridlines`` collection with

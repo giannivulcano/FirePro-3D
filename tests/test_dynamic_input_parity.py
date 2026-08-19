@@ -752,3 +752,209 @@ class TestCancelLeavesNoGeometry:
                             lambda *a, **k: calls.append(1))
         QTest.keyClick(hud.editor("Length"), Qt.Key.Key_Escape)
         assert calls == []
+
+
+# ── Task 14: polyline reuses the Line schema ──────────────────────────────
+#
+# Polyline is the only mode whose anchor *re-arms*: every committed vertex
+# becomes the anchor for the next segment.  It therefore exercises the whole
+# S1 lifecycle — arm → read out → commit → re-arm → read out — which
+# ``draw_line`` cannot reach, arming and committing exactly once.
+
+
+class _FakeEvent:
+    """Minimal press/move-event stand-in carrying only modifier state."""
+
+    def __init__(self, ctrl: bool = False):
+        self._mods = (Qt.KeyboardModifier.ControlModifier if ctrl
+                      else Qt.KeyboardModifier.NoModifier)
+
+    def modifiers(self):
+        return self._mods
+
+
+def _start_polyline(scene, at=QPointF(0, 0)):
+    """First click: create the active polyline at *at* and return it.
+
+    Routed through ``"select"`` deliberately.  ``set_mode``'s polyline teardown
+    is keyed on the **target** mode, so re-setting ``"polyline"`` clears nothing
+    and a second call would keep extending the first polyline instead of
+    starting a fresh one.
+    """
+    scene.set_mode("select")
+    scene.set_mode("polyline")
+    scene._press_polyline(_FakeEvent(), at, at, None, None, None)
+    return scene._polyline_active
+
+
+def _click_vertex(scene, tip):
+    """Append a vertex by a subsequent click at *tip*."""
+    scene._press_polyline(_FakeEvent(), tip, tip, None, None, None)
+
+
+def _append_by_hud(scene, length, angle):
+    """Engage the HUD on the live polyline and commit one typed vertex.
+
+    Publishes a 1-unit decoy first, so a path that silently committed the
+    published point rather than the resolved one cannot pass.
+    """
+    anchor = scene.get_placement_anchor()
+    scene.publish_placement_state(anchor, QPointF(anchor.x() + 1.0, anchor.y()))
+    assert scene.begin_dynamic_input() is True
+    hud = scene.dynamic_input
+    hud.editor("Length").setText(str(length))
+    hud.editor("Angle").setText(str(angle))
+    scene._on_dynamic_input_committed(hud.values())
+
+
+class TestPolylineParity:
+
+    def test_hud_appends_one_vertex(self, scene, view):
+        pl = _start_polyline(scene)
+        before = len(pl._points)
+        _append_by_hud(scene, 200, 0)
+        assert len(pl._points) == before + 1
+
+    def test_vertex_position_is_y_up(self, scene, view):
+        """90° is up, i.e. *negative* scene Y — the feature's easiest sign error."""
+        pl = _start_polyline(scene)
+        _append_by_hud(scene, 100, 90)
+        assert pl._points[-1].x() == pytest.approx(0.0, abs=1e-6)
+        assert pl._points[-1].y() == pytest.approx(-100.0, abs=1e-6)
+
+    def test_hud_closes_and_anchor_advances(self, scene, view):
+        pl = _start_polyline(scene)
+        _append_by_hud(scene, 100, 0)
+        assert not scene.is_input_mode()
+        assert scene.get_placement_anchor() == pl._points[-1]
+
+    def test_chain_continues_from_the_new_anchor(self, scene, view):
+        """The re-arm is real: a second typed segment starts where the first ended.
+
+        This is the case ``draw_line`` cannot cover — if the applier failed to
+        advance the anchor, the second segment would restart from the origin and
+        land at (0, -100) instead of (100, -100).
+        """
+        pl = _start_polyline(scene)
+        _append_by_hud(scene, 100, 0)
+        _append_by_hud(scene, 100, 90)
+        assert len(pl._points) == 3
+        assert pl._points[-1].x() == pytest.approx(100.0, abs=1e-6)
+        assert pl._points[-1].y() == pytest.approx(-100.0, abs=1e-6)
+
+    def test_vertex_is_not_merely_the_published_seed(self, scene, view):
+        """The typed value wins over the 1-unit decoy ``_append_by_hud`` publishes."""
+        pl = _start_polyline(scene)
+        _append_by_hud(scene, 1000, 0)
+        assert pl._points[-1].x() == pytest.approx(1000.0, abs=1e-6)
+
+    def test_commit_without_an_active_polyline_is_a_noop(self, scene):
+        scene.set_mode("select")
+        scene.set_mode("polyline")
+        scene._commit_polyline_at(QPointF(100, 0))
+        assert scene._polyline_active is None
+
+    def test_commit_clears_the_published_placement_state(self, scene, view):
+        """The published point belonged to the segment just finished."""
+        _start_polyline(scene)
+        _append_by_hud(scene, 1000, 0)
+        assert scene.get_resolved_point() is None
+
+
+_POLYLINE_CASES = [
+    ("axis_aligned_east", QPointF(0, 0), 1000.0, 0.0),
+    ("axis_aligned_north", QPointF(0, 0), 1000.0, 90.0),
+    ("oblique_30", QPointF(0, 0), 1750.0, 30.0),
+    ("oblique_negative_30", QPointF(0, 0), 1750.0, -30.0),
+    ("off_origin_anchor", QPointF(-750.0, 1200.0), 1750.0, 30.0),
+]
+
+
+class TestPolylineMouseVsHudParity:
+    """The same vertex, clicked and typed, must land on the same point.
+
+    Both routes end in ``_commit_polyline_at``, so the only thing that can
+    differ is the point handed to it.  The mouse target is computed with
+    ``SCHEMAS["line"].resolve`` rather than by hand, so a disagreement is
+    always the production code's and never the test's own arithmetic.
+    """
+
+    @pytest.mark.parametrize("label,anchor,length,angle", _POLYLINE_CASES,
+                             ids=[c[0] for c in _POLYLINE_CASES])
+    def test_same_vertex_either_way(self, scene, view, label, anchor, length,
+                                    angle):
+        tip = SCHEMAS["line"].resolve(anchor, {"Length": length,
+                                               "Angle": angle})
+        pl_mouse = _start_polyline(scene, anchor)
+        _click_vertex(scene, tip)
+        mouse_pt = QPointF(pl_mouse._points[-1])
+
+        pl_hud = _start_polyline(scene, anchor)
+        _append_by_hud(scene, length, angle)
+        hud_pt = QPointF(pl_hud._points[-1])
+
+        assert mouse_pt.x() == pytest.approx(hud_pt.x(), abs=1e-6)
+        assert mouse_pt.y() == pytest.approx(hud_pt.y(), abs=1e-6)
+
+
+class TestPolylineUndoParity:
+    """A typed vertex must push exactly as many undo states as a clicked one.
+
+    For polyline that number is **zero**: undo is pushed once at *finalize*
+    (``model_space.py``'s double-click branch), not per vertex.  The mouse is
+    the reference, so both directions are pinned — the retired modal
+    ``_DynInput`` polyline branch pushed per vertex, which put half-drawn
+    polylines on the undo stack and is precisely the drift this task removes.
+    """
+
+    def _count_pushes(self, scene, monkeypatch):
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        return calls
+
+    def test_clicked_vertex_pushes_nothing(self, scene, view, monkeypatch):
+        pl = _start_polyline(scene)
+        calls = self._count_pushes(scene, monkeypatch)
+        _click_vertex(scene, QPointF(1000, 0))
+        assert len(pl._points) == 2          # it really did append
+        assert calls == []
+
+    def test_typed_vertex_pushes_nothing_either(self, scene, view, monkeypatch):
+        pl = _start_polyline(scene)
+        calls = self._count_pushes(scene, monkeypatch)
+        _append_by_hud(scene, 1000, 0)
+        assert len(pl._points) == 2          # it really did append
+        assert calls == []
+
+
+class TestPolylineReadout:
+    """``_move_polyline`` publishes placement state instead of a painted hint."""
+
+    def test_move_publishes_the_constrained_point(self, scene, view):
+        _start_polyline(scene)
+        scene._move_polyline(_FakeEvent(), QPointF(1000, -500))
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        assert pt.x() == pytest.approx(1000.0, abs=1e-6)
+        assert pt.y() == pytest.approx(-500.0, abs=1e-6)
+
+    def test_move_leaves_no_painted_hint(self, scene, view):
+        """One HUD, not two (S1): the widget is the readout."""
+        _start_polyline(scene)
+        scene._move_polyline(_FakeEvent(), QPointF(1000, -500))
+        assert scene._draw_dim_hint is None
+
+    def test_ctrl_constrained_point_is_what_gets_published(self, scene, view):
+        """Publishing after the Ctrl constraint is what keeps readout and seed
+        from disagreeing with the preview."""
+        pl = _start_polyline(scene)
+        raw = QPointF(1000, 300)             # ~16.7° — off any snap increment
+        scene._move_polyline(_FakeEvent(ctrl=True), raw)
+        expected = scene._constrain_angle(pl._points[-1], raw)
+        pt = scene.get_resolved_point()
+        assert pt.x() == pytest.approx(expected.x(), abs=1e-6)
+        assert pt.y() == pytest.approx(expected.y(), abs=1e-6)
+        # Non-vacuous: the constraint genuinely would have moved the raw point.
+        assert math.hypot(expected.x() - raw.x(),
+                          expected.y() - raw.y()) > 1.0
