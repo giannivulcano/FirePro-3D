@@ -778,8 +778,16 @@ class TestCommitAndCancel:
         assert scene.dynamic_input is None
 
     def test_unmapped_mode_applier_raises(self, scene, view):
-        """Modes without an applier fail loudly rather than silently no-op."""
-        scene.mode = "draw_rectangle"
+        """Modes without an applier fail loudly rather than silently no-op.
+
+        The mode is a synthetic name rather than a real one that happens to be
+        unmapped today: this named ``draw_rectangle``, which pinned the state
+        of the migration instead of the rule and broke the moment rectangle
+        gained its applier.  What is under test is the backstop itself, and
+        that is best exercised by a mode which can never acquire an applier.
+        """
+        scene.mode = "__no_such_mode__"
+        assert scene.mode not in Model_Space._APPLIER_FOR_MODE
         with pytest.raises(NotImplementedError):
             scene.apply_dynamic_input(QPointF(1, 1))
 
