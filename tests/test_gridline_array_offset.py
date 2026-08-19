@@ -187,16 +187,24 @@ class TestOffsetCommit:
         ms._commit_gridline_replicate()
         assert len(ms._gridlines) == 2
 
-    def test_offset_commit_too_close_cancels(self, qapp, make_model_space):
-        """Spacing below 0.5 mm threshold → no copy placed."""
+    def test_offset_commit_too_close_is_refused(self, qapp, make_model_space):
+        """Spacing below the 0.5 mm floor → no copy, and the mode stays armed.
+
+        The refusal used to cancel replication outright.  Dynamic Input turns
+        the same verdict into a red field over a live placement (decision D2),
+        which needs something left to retype into — so the floor now reports
+        rather than tears down, on both the click and the typed route.
+        """
         ms = make_model_space()
         src = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 5000.0), label="1")
         ms.addItem(src)
         ms._gridlines.append(src)
         ms._start_gridline_replicate(src, "offset")
         ms._replicate_spacing = 0.1
-        ms._commit_gridline_replicate()
+        assert ms._commit_gridline_replicate() is False
         assert len(ms._gridlines) == 1  # nothing added
+        assert ms._replicate_source is src
+        assert ms.mode == "gridline_offset"
 
 
 class TestReplicateRoundtrip:
@@ -367,8 +375,15 @@ def test_gridline_copy_paste_roundtrip(qapp, make_model_space):
         "Pasted gridline must get a fresh sequential label, not a duplicate"
 
 
-def test_array_move_sets_live_spacing_count_hud(qapp, make_model_space):
-    """Moving in array mode populates the Dim HUD with spacing + count."""
+def test_array_move_publishes_spacing_and_count_for_the_hud(qapp, make_model_space):
+    """Moving in array mode feeds the widget HUD, not a painted string.
+
+    Under decision S1 the ``DynamicInputHud`` is the only readout these modes
+    have; the move handler used to build a ``_draw_dim_hint`` string that
+    ``Model_View.drawForeground`` painted beside it.  What it publishes now is
+    the state the HUD seeds from — spacing as a **magnitude**, because the
+    ``Spacing`` field rejects the signed projection's negative side.
+    """
     ms = make_model_space()
     src = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
     ms.addItem(src)
@@ -376,20 +391,21 @@ def test_array_move_sets_live_spacing_count_hud(qapp, make_model_space):
     ms._start_gridline_replicate(src, "array")
     ms._replicate_count = 4
     ms._move_gridline_replicate(None, QPointF(1000.0, 2500.0))
-    assert ms._draw_dim_hint is not None
-    assert "Spacing" in ms._draw_dim_hint
-    assert "×4" in ms._draw_dim_hint
-    # Exiting the mode clears the HUD.
-    ms._end_gridline_replicate()
-    assert ms._draw_dim_hint is None
+
+    assert ms._draw_dim_hint is None            # one HUD, not two
+    seed = ms._seed_values_for(ms.active_schema(), None)
+    assert seed["Spacing"] == pytest.approx(1000.0)
+    assert seed["Count"] == 4
 
 
-def test_offset_move_sets_live_distance_hud(qapp, make_model_space):
+def test_offset_move_publishes_distance_for_the_hud(qapp, make_model_space):
     ms = make_model_space()
     src = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
     ms.addItem(src)
     ms._gridlines.append(src)
     ms._start_gridline_replicate(src, "offset")
     ms._move_gridline_replicate(None, QPointF(800.0, 2500.0))
-    assert ms._draw_dim_hint is not None
-    assert "Distance" in ms._draw_dim_hint
+
+    assert ms._draw_dim_hint is None
+    seed = ms._seed_values_for(ms.active_schema(), None)
+    assert seed["Distance"] == pytest.approx(800.0)

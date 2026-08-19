@@ -3865,6 +3865,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "polyline": "_commit_polyline_at",
         "draw_rectangle": "_commit_draw_rectangle_at",
         "draw_circle": "_commit_draw_circle_at",
+        "gridline_offset": "_apply_gridline_offset",
+        "gridline_array": "_apply_gridline_array",
     }
 
     def active_schema(self):
@@ -3875,14 +3877,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             applier.  ``_SCHEMA_FOR_MODE`` is a forward declaration — it
             describes the migration's end state, while the
             ``publish_placement_state`` call sites and the appliers land one
-            task at a time.  Today only ``draw_line``, ``draw_gridline`` and
-            ``polyline`` publish and appear in ``_APPLIER_FOR_MODE``; the other
-            seven mapped modes return a schema while ``get_resolved_point()``
-            stays None and no applier exists.  A caller that needs a seeded position
-            must gate on ``get_resolved_point() is not None``, and a caller
-            that intends to commit must gate on ``_APPLIER_FOR_MODE`` — never
-            on this returning a schema, or it will open a HUD that can only
-            dead-end in those eight modes.
+            task at a time, so a mapped mode may still return a schema while
+            ``get_resolved_point()`` stays None and no applier exists.  A
+            caller that needs a seeded position must gate on
+            ``get_resolved_point() is not None``, and a caller that intends to
+            commit must gate on ``_APPLIER_FOR_MODE`` — never on this returning
+            a schema, or it will open a HUD that can only dead-end.  Read the
+            tables for the current state rather than trusting a count written
+            here, which goes stale every time a mode is migrated.
 
         Returns:
             The registered ``Schema`` for ``self.mode``, or None when the mode
@@ -3992,8 +3994,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         The applier gate is what keeps the refusal honest for those transform
         modes: skipping the anchor gate would otherwise let them open a HUD
         whose Enter reaches nothing, raising inside a Qt signal handler and
-        stealing Enter from the mode's own working commit path.  Seven of the
-        ten mapped modes simply do not open a HUD yet.
+        stealing Enter from the mode's own working commit path.  Modes mapped
+        in ``_SCHEMA_FOR_MODE`` but not yet in ``_APPLIER_FOR_MODE`` simply do
+        not open a HUD.
         """
         if self.mode not in self._APPLIER_FOR_MODE:
             return False
@@ -4203,8 +4206,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # seeded zero could never be placed.  Explicit ``!= 0.0`` (matching the
         # comparison the modal path already uses) rather than truthiness, since
         # every other value here is a legitimate signed distance.
-        spacing = (self._replicate_spacing
-                   if self._replicate_spacing != 0.0 else 1000.0)
+        #
+        # Seeded as a **magnitude**: ``Distance`` and ``Spacing`` carry
+        # ``minimum=0.0``, so the raw signed projection would seed text the
+        # field itself rejects on the very next read.  The side stays with the
+        # cursor and is reapplied by the appliers
+        # (:meth:`_replicate_side_sign`) — offsetting by a typed magnitude onto
+        # the side you are pointing at, rather than by a signed quantity whose
+        # sign is invisible in the geometry.
+        spacing = abs(self._replicate_spacing
+                      if self._replicate_spacing != 0.0 else 1000.0)
         if schema.name == "distance":
             return {"Distance": spacing}
         if schema.name == "spacing_count":
@@ -5877,14 +5888,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             (snapped.x() - o.x()) * nx + (snapped.y() - o.y()) * ny
         )
         self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
-        # Live readout near the cursor (reuses the draw-mode Dim HUD).
-        sm = self.scale_manager
-        _sp = (sm.scene_to_display(abs(self._replicate_spacing)) if sm
-               else f"{abs(self._replicate_spacing):.1f}")
-        if self._replicate_kind == "array":
-            self._draw_dim_hint = f"Spacing: {_sp}  ×{self._replicate_count}"
-        else:
-            self._draw_dim_hint = f"Distance: {_sp}"
+        # The readout is the ``DynamicInputHud`` widget, which seeds from
+        # ``_replicate_spacing``/``_replicate_count`` directly (transform
+        # schemas have no cursor-derived inverse).  Publishing here only clears
+        # the painted hint, so this mode cannot leave a second readout on the
+        # glass beside the widget (decision S1).  There is no anchor and no
+        # resolved point to publish — the geometry is a signed scalar, not a
+        # point.
+        self.publish_placement_state(None, None)
         for v in self.views():
             v.viewport().update()
 
@@ -5892,25 +5903,103 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Press handler for gridline_array / gridline_offset modes: commit."""
         self._commit_gridline_replicate()
 
-    def _commit_gridline_replicate(self):
-        """Place the replicated gridline copies as a single undo step."""
+    def _replicate_side_sign(self) -> float:
+        """Return which side of the source the cursor put the ghost on.
+
+        ``+1`` or ``-1``, matching the sign of the perpendicular projection.
+        Zero — the cursor sitting on the source, or never having moved — reads
+        as the positive side; nothing is placed at that spacing anyway, since
+        the commit floor rejects it.
+        """
+        return -1.0 if self._replicate_spacing < 0.0 else 1.0
+
+    def _apply_gridline_offset(self, params: dict) -> bool:
+        """Place one copy at a typed distance (transform schema — dict, not point).
+
+        The typed value is a **magnitude**; the side comes from where the
+        cursor had the ghost when the HUD was engaged.  Enter places rather
+        than merely redrawing the preview: the HUD is torn down on a successful
+        commit and the next mouse move recomputes ``_replicate_spacing`` from
+        the cursor, so a preview-only applier would silently discard the number
+        the user typed.
+
+        Args:
+            params: ``resolve_distance``'s output — ``{"distance": float}``.
+
+        Returns:
+            The commit verdict (decision D2): False when the distance is under
+            the too-close floor, which keeps the HUD open over a live
+            placement.
+        """
+        return self._commit_gridline_replicate_at(
+            params["distance"] * self._replicate_side_sign())
+
+    def _apply_gridline_array(self, params: dict) -> bool:
+        """Place *count* copies at a typed spacing.
+
+        As :meth:`_apply_gridline_offset`, plus the count.  The count is
+        accepted independently of the spacing: on a refusal the ghost is
+        rebuilt with it, so what the user is left retyping against shows the
+        number of copies they asked for rather than the previous one.
+
+        Args:
+            params: ``resolve_spacing_count``'s output — ``{"spacing": float,
+                "count": int}``.
+
+        Returns:
+            The commit verdict (decision D2).
+        """
+        self._replicate_count = params["count"]
+        placed = self._commit_gridline_replicate_at(
+            params["spacing"] * self._replicate_side_sign())
+        if not placed:
+            self._replicate_ghost = self._build_replicate_ghost(
+                self._replicate_spacing)
+            for v in self.views():
+                v.viewport().update()
+        return placed
+
+    def _commit_gridline_replicate(self) -> bool:
+        """Place the copies at the cursor-derived spacing (click/Enter path)."""
+        return self._commit_gridline_replicate_at(self._replicate_spacing)
+
+    def _commit_gridline_replicate_at(self, dist: float) -> bool:
+        """Place the replicated gridline copies as a single undo step.
+
+        The commit half of :meth:`_press_gridline_replicate`, split out so
+        Dynamic Input supplies a *distance* rather than duplicating the
+        placement.  The too-close floor lives here and nowhere else — the
+        schema deliberately does not mirror it (decision D2).
+
+        Args:
+            dist: Signed perpendicular distance per step, in scene units.
+
+        Returns:
+            True when copies were placed, False when the commit was refused.
+            A refusal leaves the source armed and the ghost up so the distance
+            can simply be retyped or re-picked; this path used to cancel
+            replicate mode outright, which left a typed refusal with nothing to
+            correct.
+        """
         src = self._replicate_source
         if src is None:
             self._end_gridline_replicate()
-            return
-        dist = self._replicate_spacing
+            return False
+        is_array = self._replicate_kind != "offset"
         if abs(dist) < 0.5:
-            # Too close to source — nothing to place
-            self._end_gridline_replicate()
-            return
-        if self._replicate_kind == "offset":
-            cp = src.offset_copy(dist)
-            copies = [cp]
-        else:
-            copies = src.array_copies(dist, self._replicate_count)
+            self._show_status(
+                "Array spacing too small — skipped" if is_array
+                else "Offset distance too small — skipped", timeout=2000)
+            return False
+        copies = (src.array_copies(dist, self._replicate_count) if is_array
+                  else [src.offset_copy(dist)])
         if not copies:
-            self._end_gridline_replicate()
-            return
+            # A non-positive count — the factory's own refusal, not a distance
+            # problem.  Reported the same way rather than silently, and it
+            # leaves the placement live so the count can be retyped.
+            self._show_status("Array count must be at least 1 — skipped",
+                              timeout=2000)
+            return False
         # Fresh sequential labels: sync counters past existing, then auto-label
         sync_grid_counters(self._gridlines)
         for cp in copies:
@@ -5920,6 +6009,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         apply_duplicate_warnings(self._gridlines)
         self.push_undo_state()
         self._end_gridline_replicate()
+        return True
 
     def _end_gridline_replicate(self):
         """Cancel or finish replication: clear state and return to select."""

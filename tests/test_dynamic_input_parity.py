@@ -17,6 +17,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QGraphicsView
 
 from firepro3d.dynamic_input import SCHEMAS
+from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
 
@@ -1394,3 +1395,191 @@ class TestPolylineReadout:
         # Non-vacuous: the constraint genuinely would have moved the raw point.
         assert math.hypot(expected.x() - raw.x(),
                           expected.y() - raw.y()) > 1.0
+
+
+# ── Gridline replicate (T16) ──────────────────────────────────────────────
+#
+# The two transform schemas.  A vertical source gridline is used throughout
+# because its perpendicular vector is exactly ``(-1, 0)``: a cursor at +X
+# therefore yields a *negative* ``_replicate_spacing``, which is what makes the
+# sign handling below testable rather than incidental.
+
+
+def _armed_replicate(scene, kind, cursor_x=800.0, count=1):
+    """Arm a gridline replicate placement with the cursor at *cursor_x*.
+
+    The signed spacing comes from driving the real move handler rather than
+    from assigning ``_replicate_spacing``, so the sign under test is the one
+    the cursor actually produces.
+
+    Returns:
+        The source ``GridlineItem``.
+    """
+    src = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 5000.0), label="1")
+    scene.addItem(src)
+    scene._gridlines.append(src)
+    scene._start_gridline_replicate(src, kind)
+    scene._replicate_count = count          # after: _start resets it to 1
+    scene._move_gridline_replicate(None, QPointF(cursor_x, 2500.0))
+    return src
+
+
+class TestGridlineReplicateReadout:
+    """The transform modes carry a passive HUD like every placement mode."""
+
+    def test_engages_without_a_placement_anchor(self, scene, view):
+        """The engage gate's anchor test is conditioned on ``is_placement``."""
+        _armed_replicate(scene, "offset")
+        assert scene.get_placement_anchor() is None
+        assert scene.begin_dynamic_input() is True
+
+    def test_readout_appears_without_engaging(self, scene, view):
+        _armed_replicate(scene, "offset")
+        scene._sync_dynamic_input()
+        assert scene.dynamic_input is not None
+        assert not scene.is_input_mode()
+
+    def test_move_leaves_no_painted_hint(self, scene, view):
+        """One HUD, not two (S1): the widget is the readout."""
+        _armed_replicate(scene, "array", count=4)
+        assert scene._draw_dim_hint is None
+
+    def test_seed_is_the_magnitude_of_the_signed_projection(self, scene, view):
+        """``Distance`` has ``minimum=0.0``, so a signed seed is unreadable.
+
+        The side is the cursor's, carried in ``_replicate_spacing``; the field
+        holds the magnitude the user types against.
+        """
+        _armed_replicate(scene, "offset", cursor_x=2400.0)
+        assert scene._replicate_spacing == pytest.approx(-2400.0)
+        scene.begin_dynamic_input()
+        assert scene.dynamic_input.values()["Distance"] == pytest.approx(2400.0)
+
+    def test_array_seeds_spacing_magnitude_and_count(self, scene, view):
+        _armed_replicate(scene, "array", cursor_x=-1200.0, count=3)
+        scene.begin_dynamic_input()
+        vals = scene.dynamic_input.values()
+        assert vals["Spacing"] == pytest.approx(1200.0)
+        assert vals["Count"] == pytest.approx(3.0)
+
+
+class TestGridlineReplicateAppliers:
+    """Enter places the copies — it does not merely redraw the ghost.
+
+    Updating the preview and closing would strand the typed value: the HUD
+    tears down on a successful commit and the next mouse move recomputes
+    ``_replicate_spacing`` from the cursor, silently discarding what was typed.
+    """
+
+    def test_typed_distance_places_one_copy_on_the_cursor_side(self, scene, view):
+        _armed_replicate(scene, "offset", cursor_x=800.0)
+        before = len(scene._gridlines)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Distance").setText("1500")
+        scene.dynamic_input._accept()
+        assert len(scene._gridlines) == before + 1
+        # +X, the side the cursor established — never mirrored to -1500 by the
+        # negative sign the projection carries.
+        assert scene._gridlines[-1].grip_points()[0].x() == pytest.approx(1500.0)
+
+    def test_typed_distance_follows_the_cursor_to_the_other_side(self, scene, view):
+        _armed_replicate(scene, "offset", cursor_x=-800.0)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Distance").setText("1500")
+        scene.dynamic_input._accept()
+        assert scene._gridlines[-1].grip_points()[0].x() == pytest.approx(-1500.0)
+
+    def test_array_places_count_copies_at_typed_spacing(self, scene, view):
+        _armed_replicate(scene, "array", cursor_x=500.0, count=1)
+        before = len(scene._gridlines)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Spacing").setText("1000")
+        scene.dynamic_input.editor("Count").setText("4")
+        scene.dynamic_input._accept()
+        assert len(scene._gridlines) == before + 4
+        xs = sorted(round(g.grip_points()[0].x(), 1)
+                    for g in scene._gridlines[-4:])
+        assert xs == [1000.0, 2000.0, 3000.0, 4000.0]
+
+    def test_commit_closes_the_hud_and_ends_the_mode(self, scene, view):
+        _armed_replicate(scene, "offset")
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Distance").setText("1500")
+        scene.dynamic_input._accept()
+        assert scene.dynamic_input is None
+        assert scene.mode == "select"
+        assert scene._replicate_source is None
+
+    def test_undo_removes_the_typed_copies_in_one_step(self, scene, view):
+        _armed_replicate(scene, "array", cursor_x=500.0, count=1)
+        scene.push_undo_state()
+        before = len(scene._gridlines)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Spacing").setText("1000")
+        scene.dynamic_input.editor("Count").setText("3")
+        scene.dynamic_input._accept()
+        assert len(scene._gridlines) == before + 3
+        scene.undo()
+        assert len(scene._gridlines) == before
+
+
+class TestGridlineReplicateRejection:
+    """D2: the applier reports its verdict; a refusal keeps the HUD open."""
+
+    def test_distance_under_the_floor_is_refused(self, scene, view):
+        _armed_replicate(scene, "offset")
+        before = len(scene._gridlines)
+        scene.begin_dynamic_input()
+        # Parses and resolves fine (the field minimum is 0.0); the commit path
+        # is what rejects it, at the same abs(dist) < 0.5 floor the click uses.
+        scene.dynamic_input.editor("Distance").setText("0.2")
+        scene.dynamic_input._accept()
+        assert len(scene._gridlines) == before
+
+    def test_a_refusal_keeps_the_placement_live(self, scene, view):
+        _armed_replicate(scene, "offset")
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Distance").setText("0.2")
+        scene.dynamic_input._accept()
+        assert scene.dynamic_input is not None
+        assert scene.dynamic_input.has_invalid_field() is True
+        assert scene.mode == "gridline_offset"
+        assert scene._replicate_source is not None
+
+    def test_a_refused_spacing_still_shows_the_typed_count(self, scene, view):
+        """The count is accepted independently of the spacing that was refused."""
+        _armed_replicate(scene, "array", cursor_x=800.0, count=1)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Spacing").setText("0.2")
+        scene.dynamic_input.editor("Count").setText("3")
+        scene.dynamic_input._accept()
+        assert scene._replicate_count == 3
+        assert len(scene._replicate_ghost) == 3
+
+    def test_count_below_one_is_refused_by_the_field(self, scene, view):
+        _armed_replicate(scene, "array", cursor_x=500.0, count=3)
+        before = len(scene._gridlines)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Count").setText("0")
+        scene.dynamic_input._accept()
+        assert scene.dynamic_input.has_invalid_field() is True
+        assert len(scene._gridlines) == before
+
+
+class TestGridlineReplicateParity:
+    """A typed distance and the same distance walked to with the mouse agree."""
+
+    def test_mouse_and_hud_agree(self, scene, view):
+        _armed_replicate(scene, "offset", cursor_x=1500.0)
+        scene._commit_gridline_replicate()
+        mouse_x = scene._gridlines[-1].grip_points()[0].x()
+
+        # Same magnitude typed from a cursor nowhere near it.
+        _armed_replicate(scene, "offset", cursor_x=800.0)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("Distance").setText("1500")
+        scene.dynamic_input._accept()
+        hud_x = scene._gridlines[-1].grip_points()[0].x()
+
+        assert hud_x == pytest.approx(mouse_x)
+        assert mouse_x == pytest.approx(1500.0)   # non-vacuous

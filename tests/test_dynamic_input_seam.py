@@ -474,42 +474,78 @@ class TestEngage:
 class TestApplierGate:
     """A mode may only engage when it has an applier to commit through.
 
-    ``_SCHEMA_FOR_MODE`` is a forward declaration covering ten modes, but only
-    two have appliers.  The transform modes (``gridline_offset``,
-    ``gridline_array``) skip the anchor gate by design, so without an applier
-    gate they would open a HUD whose Enter reaches ``NotImplementedError``
+    ``_SCHEMA_FOR_MODE`` is a forward declaration; ``_APPLIER_FOR_MODE``
+    catches up one task at a time.  Without the applier gate a mapped-but-
+    unmapped mode would open a HUD whose Enter reaches ``NotImplementedError``
     inside a Qt signal handler — a silent process death — while also stealing
-    Enter from the working ``_commit_gridline_replicate`` path.
+    Enter from whatever commit path the mode already had.  It is worst for the
+    *transform* schemas, which skip the anchor gate by design and so have
+    nothing else to refuse them.
+
+    The subject is a **synthetic** mode rather than a real one that happens to
+    be unmapped today: this class named ``gridline_offset`` and
+    ``gridline_array``, which pinned the state of the migration instead of the
+    rule and broke the moment T16 gave them appliers.
     """
 
-    @pytest.mark.parametrize("mode", ["gridline_offset", "gridline_array"])
-    def test_transform_mode_without_applier_refuses(self, scene, view, mode):
-        scene.mode = mode
-        # The gate is *not* the anchor gate: these schemas legitimately have
-        # no anchor, so the refusal must come from the missing applier.
+    # A transform schema, so the anchor gate cannot be the thing that refuses.
+    TRANSFORM_MODE = "__transform_no_applier__"
+
+    @pytest.fixture
+    def unmapped_transform(self, monkeypatch, scene):
+        """Point a mode that can never acquire an applier at a transform schema."""
+        monkeypatch.setitem(Model_Space._SCHEMA_FOR_MODE,
+                            self.TRANSFORM_MODE, "distance")
+        scene.mode = self.TRANSFORM_MODE
+        return scene
+
+    def test_transform_mode_without_applier_refuses(self, unmapped_transform,
+                                                    view):
+        scene = unmapped_transform
+        # The gate is *not* the anchor gate: transform schemas legitimately
+        # have no anchor, so the refusal must come from the missing applier.
         assert scene.active_schema() is not None
+        assert scene.active_schema().is_placement is False
         assert scene.get_placement_anchor() is None
 
         assert scene.begin_dynamic_input(seed="3") is False
         assert scene.dynamic_input is None
         assert not scene.is_input_mode()
 
-    @pytest.mark.parametrize(
-        "mode", ["polyline", "wall", "pipe", "draw_rectangle",
-                 "draw_circle", "move"])
-    def test_mapped_mode_without_applier_refuses(self, scene, view, mode):
-        """Every schema-mapped mode lacking an applier refuses to engage."""
-        scene.mode = mode
-        assert scene.active_schema() is not None      # mapped, but no applier
-        assert scene.begin_dynamic_input(seed="5") is False
-        assert scene.dynamic_input is None
-
-    def test_typing_in_gridline_offset_opens_nothing(self, scene, view):
+    def test_typing_in_an_unmapped_transform_mode_opens_nothing(
+            self, unmapped_transform, view):
         """The live crash path: a digit must not open a HUD here."""
-        scene.mode = "gridline_offset"
+        scene = unmapped_transform
         scene.keyPressEvent(_press(Qt.Key.Key_3, "3"))
         assert not scene.is_input_mode()
         assert scene.dynamic_input is None
+
+    def test_every_still_unmapped_mode_refuses(self, scene, view):
+        """The same rule over whatever the migration has not reached yet.
+
+        Derived from the two tables rather than listed, so finishing a mode
+        removes it from the subject set instead of failing this test.
+        """
+        pending = [m for m in Model_Space._SCHEMA_FOR_MODE
+                   if m not in Model_Space._APPLIER_FOR_MODE]
+        if not pending:
+            pytest.skip("every mapped mode has an applier")
+        for mode in pending:
+            scene.mode = mode
+            assert scene.active_schema() is not None   # mapped, but no applier
+            assert scene.begin_dynamic_input(seed="5") is False, mode
+            assert scene.dynamic_input is None, mode
+
+    def test_typing_in_gridline_offset_now_engages(self, scene, view):
+        """T16's counterpart: with an applier, the digit route works.
+
+        Driven through ``keyPressEvent`` rather than ``begin_dynamic_input``
+        so the engage route the user actually takes is what is under test.
+        """
+        scene.mode = "gridline_offset"
+        scene.keyPressEvent(_press(Qt.Key.Key_3, "3"))
+        assert scene.is_input_mode()
+        assert scene.dynamic_input is not None
 
     @pytest.mark.parametrize("mode", ["draw_line", "draw_gridline"])
     def test_modes_with_an_applier_still_engage(self, scene, view, mode):
