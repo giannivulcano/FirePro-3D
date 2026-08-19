@@ -1413,8 +1413,24 @@ class TestMainWindowWiring:
         )
 
     def test_print_passes_template_and_project_info(self, _mw, tmp_path, monkeypatch):
-        """_print_paper must forward template= and project_info= to print_sheets."""
+        """_print_paper must forward template= and project_info= to print_sheets.
+
+        ``_print_paper`` shows **two** dialogs: the ``PaperExportDialog`` sheet
+        picker ("Print Sheets"), then the system ``QPrintDialog``.  Both are
+        replaced here with stand-in *classes*, patched onto the modules
+        ``_print_paper`` imports them from — its imports are function-local, so
+        they resolve at call time and the substitution takes effect.
+
+        Deliberately **not** ``monkeypatch.setattr(QPrintDialog, "exec", ...)``:
+        reassigning a sip method at class level corrupts its C++ slot binding
+        for the rest of the process.  That earlier patch also covered only the
+        print dialog, so once the sheet picker was introduced ahead of it the
+        picker opened for real and blocked forever — a hang, not a failure, and
+        with no pytest-timeout installed it stalled the whole suite silently.
+        """
         import firepro3d.paper_export as pe
+        from PyQt6.QtWidgets import QDialog
+        from firepro3d.paper_export_dialog import ExportSelection
 
         _fresh(_mw)
         _mw.scene._titleblock_template = make_default_template().to_dict()
@@ -1423,17 +1439,42 @@ class TestMainWindowWiring:
         captured = {}
 
         def _fake_print_sheets(sheets, resolver, printer, template=None, project_info=None):
+            captured["sheets"] = sheets
             captured["template"] = template
             captured["project_info"] = project_info
 
         monkeypatch.setattr(pe, "print_sheets", _fake_print_sheets)
 
-        # Monkeypatch the print dialog to auto-accept without a real printer.
-        from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
+        class _StubExportDialog:
+            """Accepts immediately, selecting every sheet it was handed."""
+
+            def __init__(self, sheets, parent=None, print_mode=False):
+                self._sheets = list(sheets)
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
+            def selection(self):
+                # The real dataclass, so this cannot drift from the shape
+                # _print_paper reads.
+                return ExportSelection(sheets=self._sheets,
+                                       separate_files=False, path="", dpi=300)
+
+        class _StubPrintDialog:
+            """Accepts without touching a real printer."""
+
+            DialogCode = QDialog.DialogCode
+
+            def __init__(self, printer, parent=None):
+                self._printer = printer
+
+            def exec(self):
+                return QDialog.DialogCode.Accepted
+
         monkeypatch.setattr(
-            QPrintDialog, "exec",
-            lambda self: QPrintDialog.DialogCode.Accepted,
-        )
+            "firepro3d.paper_export_dialog.PaperExportDialog", _StubExportDialog)
+        monkeypatch.setattr(
+            "PyQt6.QtPrintSupport.QPrintDialog", _StubPrintDialog)
 
         _mw._print_paper()
 
