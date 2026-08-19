@@ -26,6 +26,20 @@ from PyQt6.QtCore import QPointF
 _SQFT_TO_M2: float = 0.09290304      # ft² → m²
 _GPM_FT2_TO_MM_MIN: float = 40.746  # gpm/ft² → mm/min
 
+# The unsigned-number grammar every ``parse_dimension`` branch shares.
+#
+# Accepts a leading dot (".5") and a trailing one ("12."), because both are
+# ordinary ways to type a decimal and ``parse_angle`` has always taken them.
+# The narrower ``\d+(?:\.\d+)?`` used to reject both, which mattered most for
+# the leading dot: "." is one of ``Model_Space.ENGAGE_CHARS``, so pressing it
+# opens the dynamic-input HUD and seeds the field with ".", and the keystroke
+# that starts a decimal produced text this parser then refused.
+#
+# Deliberately still excludes scientific notation and the decimal comma: "1e3"
+# is far more likely a typo than 1000, and "1,5" is ambiguous against a
+# thousands separator.  Both route to revert-to-last-valid instead.
+_NUM: str = r"(?:\d+\.?\d*|\.\d+)"
+
 
 class DisplayUnit(Enum):
     IMPERIAL = "imperial"   # feet & inches
@@ -358,6 +372,14 @@ class ScaleManager:
             3.048 m       → metres
             10            → bare number, interpreted as *fallback_unit*
 
+        A decimal may be written with a leading or a trailing dot — ``.5`` and
+        ``12.`` are both accepted, in every one of the forms above — matching
+        ``parse_angle``.  Scientific notation (``1e3``) and the decimal comma
+        (``1,5``) are deliberately rejected: the first is far more likely a typo
+        than an intended 1000, and the second is ambiguous against a thousands
+        separator.  Both then route to ``DimensionEdit``'s revert-to-last-valid
+        rather than to a wild value.
+
         Returns None if the text cannot be parsed.
         """
         text = text.strip()
@@ -366,7 +388,7 @@ class ScaleManager:
 
         # 1. Feet-inches-fraction:  10' 6 1/2"  or  10' 6"  or  10'-6 1/2"
         m = re.match(
-            r"^(-?\d+(?:\.\d+)?)\s*['']\s*"          # feet
+            rf"^(-?{_NUM})\s*['']\s*"                  # feet
             r"(?:[-\s]*(\d+)?"                         # optional whole inches
             r"(?:\s+(\d+)\s*/\s*(\d+))?"               # optional fraction
             r'\s*["""]?\s*)?$',                         # optional closing "
@@ -388,7 +410,7 @@ class ScaleManager:
 
         # 2. Pure inches with fraction:  6 1/2"  or  6"
         m = re.match(
-            r'^(-?\d+(?:\.\d+)?)'                      # whole inches
+            rf'^(-?{_NUM})'                            # whole inches
             r'(?:\s+(\d+)\s*/\s*(\d+))?'               # optional fraction
             r'\s*["""]$',                               # closing "
             text
@@ -403,7 +425,7 @@ class ScaleManager:
 
         # 3. Number + unit suffix
         m = re.match(
-            r'^(-?\d+(?:\.\d+)?)\s*(ft|in|mm|m)\b',
+            rf'^(-?{_NUM})\s*(ft|in|mm|m)\b',
             text, re.IGNORECASE
         )
         if m:
@@ -415,7 +437,7 @@ class ScaleManager:
                 return None
 
         # 4. Bare number → use fallback_unit
-        m = re.match(r'^(-?\d+(?:\.\d+)?)\s*$', text)
+        m = re.match(rf'^(-?{_NUM})\s*$', text)
         if m:
             value = float(m.group(1))
             try:

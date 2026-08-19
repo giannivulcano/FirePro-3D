@@ -32,7 +32,7 @@ Values are converted **at display time only**. Never store a display string as t
 | Quantity | Imperial | Metric | Formatter (the one home) |
 |---|---|---|---|
 | Length | `10' 6 1/2"` | mm / m per unit + precision | `ScaleManager.format_length(mm)` |
-| Length input | any format | any format | `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())` via **`DimensionEdit`** (never `QDoubleSpinBox` — property-panel.md §3.8) |
+| Length input | any format | any format | `ScaleManager.parse_dimension(text, fallback=sm.bare_number_unit())` via **`DimensionEdit`** (never `QDoubleSpinBox` — property-panel.md §3.8); grammar per §3.1 |
 | Area (geometry-derived) | `2304.0 sq ft` | `214.0 m²` (mm² for METRIC_MM) | `Room._fmt_area(mm2)` — **divergence D1**, consolidate onto ScaleManager on next touch |
 | Volume | `23040 cu ft` | `652.4 m³` | `Room._fmt_volume(mm3)` — same D1 |
 | Area (NFPA design basis, stored ft²) | `1500 sq ft` | `139.4 m²` | `ScaleManager.format_area_sqft(sqft)`; None-safe module wrapper `scale_manager.format_area_sqft(sqft, sm)` |
@@ -44,6 +44,21 @@ Values are converted **at display time only**. Never store a display string as t
 
 **Spelling conventions (imperial):** `sq ft`, `cu ft`, `gpm/ft²`, `psi`, `gpm`, `gal`. **Not** `ft²`/`sqft`/`SF` in UI text. (`gpm/ft²` keeps the `ft²` glyph inside the compound unit only.)
 
+### 3.1 Numeric grammar — shared by both parsers
+
+The way a *number* may be written is one fact, and both `parse_dimension` and `parse_angle` obey it. They are separate functions because their **units** differ, not their arithmetic; when the grammar lived twice they drifted, and `.5` was accepted as an angle while being refused as a length.
+
+| Form | Accepted | Note |
+|---|---|---|
+| `12`, `12.5`, `-12.5` | ✅ | |
+| `.5`, `-.5` | ✅ | leading dot — and `.` is one of `Model_Space.ENGAGE_CHARS`, so it is the keystroke that *opens* the dynamic-input HUD; refusing it there made the key that starts a decimal produce unparseable text |
+| `12.` | ✅ | trailing dot |
+| `.`, `-`, `-.` | ❌ | a sign or dot alone is not a number |
+| `1e3` | ❌ | far more likely a typo than an intended 1000 |
+| `1,5` | ❌ | decimal comma is ambiguous against a thousands separator |
+
+Rejections route to `DimensionEdit`'s revert-to-last-valid, never to a wild value. Implementation: the shared `_NUM` sub-pattern in `scale_manager.py`; the unit suffixes wrapped around it are each parser's own business.
+
 ## 4. Angles
 
 Angles are **unit-invariant** — decimal degrees in both imperial and metric projects, unaffected by `display_unit`. That is why the three angle helpers (`normalize_angle`, `format_angle`, `parse_angle`) are `@staticmethod` on `ScaleManager`: they need no scene, no project, and no ScaleManager instance.
@@ -53,7 +68,7 @@ Angles are **unit-invariant** — decimal degrees in both imperial and metric pr
 | Orientation | Y-up: `0°` = right (+X), `90°` = up | — |
 | Display range | `(-180, 180]` — `270` displays as `-90°` | `ScaleManager.normalize_angle` |
 | Display | decimal degrees, `°` glyph **inside** the string (`45°`, `-16.4°`); trailing zeros trimmed, capped at 2 decimals, rounded half-away-from-zero | `ScaleManager.format_angle` |
-| Input | bare number = degrees; optional trailing `°` / `deg` / `degrees` (case-insensitive); negatives accepted; scientific notation deliberately rejected — `1e3` in an angle field is far more likely a typo than an intended 1000°, and rejecting it routes to revert-to-last-valid rather than a wild value | `ScaleManager.parse_angle` |
+| Input | bare number = degrees; optional trailing `°` / `deg` / `degrees` (case-insensitive); negatives accepted; number grammar per **§3.1** (shared with `parse_dimension`) | `ScaleManager.parse_angle` |
 
 **Scene Y is down.** Converting a length + angle to a scene point therefore *subtracts* the sine:
 
