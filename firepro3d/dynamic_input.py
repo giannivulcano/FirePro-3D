@@ -959,6 +959,30 @@ class DynamicInputHud(QWidget):
 
     # ── Validity ──────────────────────────────────────────────────────────
 
+    def reject_commit(self) -> None:
+        """Flag the HUD after the *applier* refused the resolved geometry.
+
+        Distinct from the per-field rejection ``values()`` records: there the
+        text failed to parse, here it parsed and resolved perfectly well and
+        the commit path refused what it resolved to — a line under the
+        too-short floor, a rectangle under the too-small one (decision D2).
+
+        The threshold itself deliberately stays in the commit path.  Mirroring
+        it into ``FieldSpec.minimum`` cannot express rectangle's *signed*
+        extents and would drift from the real rule the first time it changed,
+        so the applier reports a verdict instead and this turns it into the
+        same red border a parse failure gets.
+
+        Every ``DIMENSION`` field is flagged rather than a nominated one: the
+        appliers reject on a magnitude, and for a two-field schema like
+        rectangle either extent may be the culprit.  Angles and counts are
+        never the reason a commit is refused, so they are left clean.
+        """
+        names = [f.name for f in self._schema.fields
+                 if f.kind is FieldKind.DIMENSION]
+        for name in (names or list(self._editors)):
+            self._mark_invalid(name)
+
     def _mark_invalid(self, name: str) -> None:
         """Record field *name* as holding rejected input and restyle it."""
         self._invalid.add(name)

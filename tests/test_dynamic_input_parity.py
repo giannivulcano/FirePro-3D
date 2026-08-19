@@ -928,6 +928,107 @@ class TestPolylineUndoParity:
         assert calls == []
 
 
+class TestApplierRejectionKeepsTheHudOpen:
+    """D2: the applier reports its verdict; the schema does not mirror it.
+
+    The too-short/too-small threshold lives in the commit path.  Copying it
+    into the schema's ``minimum`` was rejected as unexpressible (rectangle's
+    X/Y are signed) and as a mirrored guard that would drift.  So an applier
+    returns False and the HUD stays open with the offending field flagged,
+    instead of the placement silently evaporating into a status-bar message
+    the user never sees because the HUD has already closed.
+    """
+
+    def _engage(self, scene, anchor=QPointF(0, 0)):
+        scene.set_mode("draw_line")
+        scene.single_place_mode = False
+        scene._draw_line_anchor = QPointF(anchor)
+        scene.publish_placement_state(anchor, QPointF(anchor.x() + 1000.0,
+                                                     anchor.y()))
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_too_short_typed_line_keeps_the_hud_engaged(self, scene, view):
+        """0.3 parses (minimum is 0.0) and resolves, then the commit refuses."""
+        hud = self._engage(scene)
+        hud.editor("Length").setText("0.3")
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+
+        assert len(scene._draw_lines) == 0
+        assert scene.is_input_mode(), "HUD closed on a refused commit"
+        assert scene.dynamic_input is hud
+
+    def test_refusal_flags_the_offending_field(self, scene, view):
+        hud = self._engage(scene)
+        hud.editor("Length").setText("0.3")
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+        assert hud.has_invalid_field()
+
+    def test_the_anchor_survives_a_refusal(self, scene, view):
+        """The placement is still live, so the user can simply retype."""
+        hud = self._engage(scene, QPointF(120.0, 340.0))
+        hud.editor("Length").setText("0.3")
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+        assert scene._draw_line_anchor == QPointF(120.0, 340.0)
+
+    def test_retyping_a_valid_length_then_commits(self, scene, view):
+        """The recovery path: refusal must not wedge the HUD."""
+        hud = self._engage(scene)
+        hud.editor("Length").setText("0.3")
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene._draw_lines) == 0
+
+        ed = hud.editor("Length")
+        ed.selectAll()
+        QTest.keyClicks(ed, "1000")
+        scene._on_dynamic_input_committed(hud.values())
+
+        assert len(scene._draw_lines) == 1
+        assert scene._draw_lines[-1].line().p2().x() == pytest.approx(1000.0,
+                                                                     abs=1e-6)
+        assert not scene.is_input_mode(), "HUD stayed open after a real commit"
+
+    def test_a_successful_commit_still_closes_the_hud(self, scene, view):
+        """The other direction, so the refusal branch cannot swallow everything."""
+        hud = self._engage(scene)
+        hud.editor("Length").setText("1000")
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene._draw_lines) == 1
+        assert not scene.is_input_mode()
+
+    def test_appliers_report_their_verdict(self, scene):
+        """The protocol itself: True on commit, False on refusal or no anchor."""
+        scene.set_mode("draw_line")
+        scene._draw_line_anchor = QPointF(0, 0)
+        assert scene._commit_draw_line_at(QPointF(1000, 0)) is True
+
+        scene._draw_line_anchor = QPointF(0, 0)
+        assert scene._commit_draw_line_at(QPointF(0.1, 0)) is False
+
+        scene._draw_line_anchor = None
+        assert scene._commit_draw_line_at(QPointF(1000, 0)) is False
+
+    def test_polyline_applier_reports_its_verdict(self, scene, view):
+        pl = _start_polyline(scene)
+        assert scene._commit_polyline_at(QPointF(1000, 0)) is True
+        assert len(pl._points) == 2
+        scene.set_mode("select")
+        scene.set_mode("polyline")
+        assert scene._commit_polyline_at(QPointF(1000, 0)) is False
+
+    def test_apply_dynamic_input_forwards_the_verdict(self, scene):
+        scene.set_mode("draw_line")
+        scene._draw_line_anchor = QPointF(0, 0)
+        assert scene.apply_dynamic_input(QPointF(0.1, 0)) is False
+        scene._draw_line_anchor = QPointF(0, 0)
+        assert scene.apply_dynamic_input(QPointF(1000, 0)) is True
+
+
 class _FakeDblEvent:
     """Minimal double-click event: left button, accept() is a no-op."""
 

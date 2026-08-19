@@ -4288,6 +4288,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ``clear_placement_state()``.  Resolving afterwards would read an anchor
         the commit had already cleared.
 
+        The HUD is torn down only once the applier reports success (decision
+        D2).  A refusal — a length under the too-short floor, say — keeps it
+        open with the offending field flagged, so the placement survives and
+        the user can simply retype.  Closing first and applying afterwards is
+        what made a typed ``0.3`` vanish into a status-bar message that
+        appeared after the HUD had already gone.
+
         Args:
             values: Field values from the HUD, in schema units.
         """
@@ -4296,9 +4303,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if schema is None or (schema.is_placement and anchor is None):
             self.end_dynamic_input()
             return
+        hud = self.dynamic_input
         geometry = schema.resolve(anchor, values)
-        self.end_dynamic_input()
-        self.apply_dynamic_input(geometry)
+        if self.apply_dynamic_input(geometry):
+            # An applier may have torn the HUD down itself by exiting the mode
+            # (single_place_mode → set_mode("select")); end_dynamic_input is a
+            # no-op in that case.
+            self.end_dynamic_input()
+        elif hud is not None and hud is self.dynamic_input:
+            hud.reject_commit()
 
     def apply_dynamic_input(self, geometry):
         """Apply resolved *geometry* through the current mode's commit path.
@@ -4312,6 +4325,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             geometry: A ``QPointF`` for placement schemas, or the transform
                 dict for the others.
 
+        Returns:
+            The applier's verdict: True when it committed, False when it
+            refused (decision D2).  Forwarded verbatim so the one rule lives in
+            the commit path and nothing mirrors its threshold.
+
         Raises:
             NotImplementedError: When the current mode has no applier.  Not
                 reachable through the HUD — the engage gate refuses first.
@@ -4320,7 +4338,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if applier is None:
             raise NotImplementedError(
                 f"no dynamic-input applier for {self.mode!r}")
-        getattr(self, applier)(geometry)
+        return bool(getattr(self, applier)(geometry))
 
     # ─────────────────────────────────────────────────────────────────────────
     # Tab exact-input handler
@@ -7639,14 +7657,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Args:
             tip: The scene-space position of the new vertex.  No-op when no
                 polyline is being drawn.
+
+        Returns:
+            True when a vertex was appended, False when no polyline is active.
+            Polyline has no magnitude floor of its own, so False here only ever
+            means "nothing to append to" (decision D2).
         """
         pl = self._polyline_active
         if pl is None:
-            return
+            return False
         pl.append_point(tip)
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self.clear_placement_state()
+        return True
 
     def _register_gridline(self, gl):
         """Add a gridline to the scene and the ``_gridlines`` collection with
@@ -7732,10 +7756,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Args:
             tip: The scene-space end point of the line. No-op when no anchor
                 is armed.
+
+        Returns:
+            True when a line was committed, False when it was refused (no
+            anchor, or under the too-short floor).  Decision D2: the caller
+            turns a False into a flagged HUD field rather than the placement
+            silently evaporating into a status-bar message the user never sees.
         """
         anchor = self._draw_line_anchor
         if anchor is None:
-            return
+            return False
         # Read the mode flag up front: the single_place_mode branch below calls
         # set_mode("select"), which mutates self.mode, so a later read would
         # pick the wrong wording for the re-arm instruction.
@@ -7746,7 +7776,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._show_status(
                 "Gridline too short — skipped" if _is_grid else "Line too short — skipped",
                 timeout=2000)
-            return
+            return False
         self._make_line_like(anchor, tip)
         for v in self.views(): v.viewport().update()
         self._draw_line_anchor = None
@@ -7757,6 +7787,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.set_mode("select")
         else:
             self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
+        return True
 
     def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._cline_anchor is None:
