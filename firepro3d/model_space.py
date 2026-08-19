@@ -8447,12 +8447,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.mode == "polyline"
                 and self._polyline_active is not None):
-            # Double-click fires two mousePressEvents first, adding an extra
-            # vertex.  Remove that extra point before finalizing.
+            # Qt delivers Press → Release → DblClick → Release, so a double
+            # click contributes exactly *one* extra press — the same thing the
+            # pipe branch above says.  That press already appended a vertex at
+            # the ghost's tip, which the user does not want; drop it so the
+            # polyline finishes at the last single-clicked vertex.
+            #
+            # This popped twice, which also discarded a genuinely placed
+            # vertex: the segment under the ghost *and* the last committed
+            # segment both disappeared on finish.
             pts = self._polyline_active._points
-            # Double-click fires two mousePressEvents, each adding a point
-            if len(pts) > 2:
-                pts.pop()
             if len(pts) > 2:
                 pts.pop()
             if len(pts) >= 2:

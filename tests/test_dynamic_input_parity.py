@@ -928,6 +928,80 @@ class TestPolylineUndoParity:
         assert calls == []
 
 
+class _FakeDblEvent:
+    """Minimal double-click event: left button, accept() is a no-op."""
+
+    def button(self):
+        return Qt.MouseButton.LeftButton
+
+    def accept(self):
+        pass
+
+
+class TestPolylineDoubleClickFinish:
+    """Double-click finishes at the last *single-clicked* vertex.
+
+    Qt delivers Press → Release → DblClick → Release for a double click, so it
+    contributes exactly **one** extra press — the same thing the neighbouring
+    pipe branch's comment says ("fires a press first").  The polyline branch
+    popped two vertices, which discarded a genuinely placed one: the segment
+    under the ghost *and* the last committed segment both vanished on finish.
+    """
+
+    def _finish(self, scene, pts):
+        """Single-click every point in *pts*, then double-click one past the end."""
+        pl = _start_polyline(scene, pts[0])
+        for p in pts[1:]:
+            _click_vertex(scene, p)
+        return pl
+
+    def test_double_click_keeps_every_single_clicked_segment(self, scene, view):
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0),
+                                  QPointF(2000, 0)])
+        # Qt's own press for the double click lands first, at the ghost's tip.
+        _click_vertex(scene, QPointF(3000, 0))
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+
+        assert [(p.x(), p.y()) for p in pl._points] == [
+            (0.0, 0.0), (1000.0, 0.0), (2000.0, 0.0)]
+
+    def test_the_ghost_tip_vertex_is_the_one_dropped(self, scene, view):
+        """Only the double-click's own vertex goes — nothing the user clicked."""
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0),
+                                  QPointF(2000, 0)])
+        _click_vertex(scene, QPointF(3000, 0))
+        assert len(pl._points) == 4          # the extra vertex really was added
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+        assert len(pl._points) == 3          # exactly one removed, not two
+
+    def test_finish_finalizes_and_clears_the_active_polyline(self, scene, view):
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0),
+                                  QPointF(2000, 0)])
+        _click_vertex(scene, QPointF(3000, 0))
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+        assert scene._polyline_active is None
+        assert pl.isSelected()
+
+    def test_two_point_polyline_survives_the_finish(self, scene, view):
+        """The minimum viable polyline is not popped out of existence."""
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0)])
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+        assert len(pl._points) == 2
+        assert scene._polyline_active is None
+
+    def test_finish_pushes_one_undo_state(self, scene, view, monkeypatch):
+        """Undo is pushed at finalize — the counterpart to the per-vertex
+        push that ``_commit_polyline_at`` deliberately omits."""
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0),
+                                  QPointF(2000, 0)])
+        _click_vertex(scene, QPointF(3000, 0))
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+        assert calls == [1]
+
+
 class TestPolylineReadout:
     """``_move_polyline`` publishes placement state instead of a painted hint."""
 
