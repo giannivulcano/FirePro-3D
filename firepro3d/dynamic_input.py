@@ -424,6 +424,11 @@ class DynamicInputHud(QWidget):
 
     committed = pyqtSignal(dict)
     cancelled = pyqtSignal()
+    # Emitted after Tab commits the field being left (not on final Enter).
+    # The seam listens to redraw the placement preview from current values
+    # so a typed length/angle updates the ghost before the whole placement
+    # commits.  Carries no payload; the listener pulls current_values().
+    fieldCommitted = pyqtSignal()
 
     def __init__(self, schema: Schema, scale_manager: ScaleManager | None = None,
                  parent=None):
@@ -660,11 +665,39 @@ class DynamicInputHud(QWidget):
             # a *valid* entry usually reformats ("3ft" → "914.400 mm").
             if not editor.try_commit():
                 self._mark_invalid(name)
-            mm = editor.value_mm()
-            spec = self._specs[name]
-            out[name] = (self._mm_to_scene(mm)
-                         if spec.kind is FieldKind.DIMENSION else mm)
+            out[name] = self._value_of(name)
         return out
+
+    def _value_of(self, name: str) -> float:
+        """Return field *name*'s stored value in schema units.
+
+        The one place that maps a ``DimensionEdit``'s stored value into the
+        schema's number: ``DIMENSION`` is millimetres and is converted back to
+        scene units (guarded on calibration), while ``ANGLE`` and ``COUNT`` are
+        dimensionless and pass straight through.  Shared by ``values()`` (after
+        it force-commits and flags) and ``current_values()`` (which does
+        neither), so the two can never disagree on the conversion.
+
+        Reads only; it never commits or flags.
+        """
+        mm = self._editors[name].value_mm()
+        return (self._mm_to_scene(mm)
+                if self._specs[name].kind is FieldKind.DIMENSION else mm)
+
+    def current_values(self) -> dict:
+        """Return each field's current value without committing or flagging.
+
+        Distinct from ``values()``, which force-commits every editor and sets
+        the sticky-invalid flags as a side effect.  The preview path calls this
+        on each ``fieldCommitted`` to redraw the ghost from what the user has
+        typed so far; it must not launder a half-typed neighbouring field into
+        an invalid mark, and must leave the commit-gate machinery untouched for
+        the real Tab/Enter path.
+
+        Returns:
+            ``{field_name: value}`` in schema units, same shape as ``values()``.
+        """
+        return {name: self._value_of(name) for name in self._editors}
 
     def has_invalid_field(self) -> bool:
         """Whether any field holds input that was rejected and not yet retyped.
@@ -963,6 +996,7 @@ class DynamicInputHud(QWidget):
         # focusInEvent already selects all, but the single-field schema wraps
         # onto itself and so never re-enters focus.
         nxt.selectAll()
+        self.fieldCommitted.emit()
 
     def _accept(self) -> None:
         """Commit every field and emit ``committed`` unless something is invalid.

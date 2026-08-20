@@ -568,6 +568,44 @@ class TestHudKeys:
         QTest.keyClick(ed, Qt.Key.Key_Tab)
         assert ed.value_mm() == pytest.approx(250.0)
 
+    def test_tab_emits_field_committed(self, shown_hud):
+        """Tab out of a field fires ``fieldCommitted`` for the preview seam."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 1000.0, "Angle": 45.0})
+        hud.focus_first()
+        seen = []
+        hud.fieldCommitted.connect(lambda: seen.append(True))
+        ed = hud.editor("Length")
+        _type(ed, "1200")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        assert seen, "Tab out of a field must emit fieldCommitted"
+
+    def test_current_values_reads_without_committing_or_flagging(self,
+                                                                 shown_hud):
+        """``current_values`` reflects the edited field, leaves neighbours
+        at their seed, and never sets an invalid flag."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 800.0, "Angle": 30.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "1200")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        vals = hud.current_values()
+        assert vals["Length"] == pytest.approx(1200.0)
+        assert vals["Angle"] == pytest.approx(30.0)   # still the seed
+        assert not hud.has_invalid_field()
+
+    def test_current_values_does_not_flag_a_half_typed_neighbour(self,
+                                                                 shown_hud):
+        """Reading current_values must not launder an unparseable neighbour
+        into an invalid mark (the whole point of the non-destructive read)."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_values({"Length": 800.0, "Angle": 30.0})
+        # Leave a garbage neighbour un-committed; DimensionEdit reverts it to
+        # last-valid on focus-out, so current_values reads clean without flags.
+        hud.current_values()
+        assert not hud.has_invalid_field()
+
     def test_tab_selects_all_in_the_field_it_lands_on(self, shown_hud):
         """The new field is ready for overwrite, matching ``focus_first``."""
         hud = shown_hud(SCHEMAS["line"])
