@@ -1,15 +1,17 @@
 ---
 status: partial
-last-verified: 2026-08-14
-verified-commit: 41ed103
+last-verified: 2026-08-20
+verified-commit: 0ef6db9
 applies-to:
   - firepro3d/inference_engine.py
+  - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
   - firepro3d/model_view.py
   - firepro3d/gridline.py
   - firepro3d/constants.py
 source-tasks:
   - "TODO.md — gridline follow-up: placement alignment snapping"
+  - "docs/superpowers/plans/2026-08-16-dynamic-input-hud.md — §4 rewrite (T22)"
 ---
 
 # Inferred / Dimension-Driven Placement Specification
@@ -35,9 +37,14 @@ Gridlines are the **first client** of the inference engine. The built slice deli
 
 **BUILT (extended 2026-08-14, commit 41ed103):**
 - **Move/paste as inference clients.** Both pick points of the AutoCAD-style move/copy flow (`_press_paste_move`) run OSNAP + alignment inference (`_inference_active_item` set for `paste`/`move` in `set_mode`). **Move self-excludes the moving gridlines** from the reference set via `_inference_exclude_ids` (honored in `_collect_alignment_refs`), so a mover never aligns to its own current position; paste excludes nothing. A cosmetic scene-coord **silhouette ghost** of the affected geometry rides the cursor (owned by `grid-system.md §5.7`-adjacent move/paste sections; rendered in `Model_View.drawForeground` block 8).
-- **Type-to-seed (§4.3, partial).** The digit that opens the floating `_DynInput` is inserted into the **primary field** (Spacing/Distance/Length) with the cursor at end, for gridline array/offset **and** `draw_line`/`draw_gridline` placement (digit now also *opens* the popup during placement, previously Tab-only).
+- **Dynamic Input HUD (§4) — shipped 2026-08-19.** The modal `_DynInput` was
+  replaced by the on-canvas `DynamicInputHud` (`dynamic_input.py`), organised by
+  geometric primitive, live for the whole placement (readout ⇄ editor). Built
+  clients: `draw_line`, `draw_gridline`, `polyline`, `draw_rectangle`,
+  `draw_circle`, `move`, `gridline_offset`, `gridline_array`. Type-to-seed and
+  Tab both engage it.
 
-**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and general body-drag as clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); Dynamic Input (§4) as a fully general capability (`_DynInput` + type-to-seed exist for gridline offset/array and line/gridline placement, not yet for pipe/wall/arc/rectangle); the full three-toggle + master-key system (§10).
+**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and general body-drag as inference clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); **pipe/wall/arc as Dynamic Input clients** (§4.7 — schema-mapped for pipe/wall but no applier yet; arc unmapped); the full three-toggle + master-key system (§10).
 
 ---
 
@@ -89,7 +96,8 @@ These share visual language (temporary dimensions), input mechanism (type a valu
 ```
 ┌──────────────────────────────────────────────────────┐
 │  InferenceEngine (central coordinator)               │
-│  ├─ DynamicInput (floating length field at cursor)   │
+│  ├─ DynamicInputHud  [BUILT — dynamic_input.py]      │
+│  │   on-canvas editable HUD; schemas by primitive    │
 │  ├─ AlignmentGuides (dashed inference lines)         │
 │  │   ├─ H/V alignment (blue)                        │
 │  │   ├─ Wall proximity (orange)                      │
@@ -100,11 +108,16 @@ These share visual language (temporary dimensions), input mechanism (type a valu
 ├──────────────────────────────────────────────────────┤
 │  Integrations:                                       │
 │  ├─ SnapEngine (priority below OSNAP)                │
-│  ├─ ScaleManager (unit display/parsing)              │
-│  ├─ 45° constraint (angle locked, non-overridable)   │
+│  ├─ ScaleManager (unit display/parsing; angle fns)   │
+│  ├─ 45° constraint (pipe: relative, editable — §4.7) │
 │  └─ Model_Space (placement modes, drag handling)     │
 └──────────────────────────────────────────────────────┘
 ```
+
+The Dynamic Input HUD lives in its own module, `firepro3d/dynamic_input.py`
+(`FieldKind`, `FieldSpec`, `Schema`, the pure `resolve_*`/`seed_*` functions,
+and the `DynamicInputHud` widget — no `QGraphicsScene` knowledge). `Model_Space`
+owns the seam (§4).
 
 ### 3.2 Toggle System Overview
 
@@ -122,50 +135,142 @@ All placement modes (pipe, sprinkler, wall, construction geometry) and drag repo
 
 ---
 
-## 4. Dynamic Input **[PROPOSAL]**
+## 4. Dynamic Input
 
-> `_DynInput` partially exists — it is built for gridline offset/array and the line-tool placement, but as a general per-placement-mode capability (pipe, wall, sprinkler, arc, …) this section is unbuilt proposal.
+Shipped 2026-08-19 as `DynamicInputHud` in `firepro3d/dynamic_input.py` — an
+on-canvas, **non-modal** HUD that both reads out the live geometry of an
+in-progress placement and accepts typed values to drive it precisely. It
+replaced the modal `_DynInput` `QDialog` (deleted). Schemas are organised by
+**geometric primitive, not entity type**, so one schema serves many clients.
 
-### 4.1 Activation
+> **Design source:** `docs/superpowers/specs/2026-08-16-dynamic-input-hud-design.md`
+> and the plan `docs/superpowers/plans/2026-08-16-dynamic-input-hud.md` (decisions
+> S1–S3, D1–D3, findings ledger). This section is the governing summary of **what
+> the code does**; the design doc holds the rejected-alternatives history.
 
-Appears after the first click in any placement mode (pipe, wall, line, circle, arc, rectangle). Not shown before first click — no reference point exists. Toggle-able independently.
+### 4.1 One HUD, two exclusive states (decision S1)
 
-### 4.2 Visual
+The HUD is created when a placement **anchor is armed** (first click / mode arm)
+and lives for the whole placement — there is no second painted readout for the
+modes it serves. `Model_Space._sync_dynamic_input` is the single owner of its
+existence (called after the mode handler on move and after the press dispatch).
+It is always in one of:
 
-Floating input widget near the cursor (offset to avoid occluding the snap marker):
+- **Disengaged** — a passive readout. Follows the cursor, is reseeded from the
+  live geometry every frame, and is **transparent to the mouse** (self + every
+  child), so a click meant for the canvas is never swallowed.
+- **Engaged** — an editor. A field holds the keyboard, the cursor is inert.
 
-| Field | Content | Editable | Shown for |
+`Model_Space.is_input_mode()` is exactly `hud.is_engaged()` — *not* "a HUD
+exists". Everything that makes the mouse inert keys off engagement. Engagement is
+an explicit flag, not a live `hasFocus()` poll (which is False whenever the app
+window is inactive).
+
+**Engage set** — `ENGAGE_CHARS = "0123456789.-"` (typing one opens the HUD seeded
+with that character), or **Tab** (opens without contributing a character).
+`Escape` rung 0 **disengages** to the passive readout without closing; a second
+Escape cancels the placement. Tab inside the HUD cycles its fields.
+
+### 4.2 Schemas (organised by primitive)
+
+`Schema` = a field set + pure `resolve(anchor, values)` / `seed(anchor, point)`
+functions that know nothing about `QGraphicsScene`. A **placement** schema
+resolves to the single `QPointF` a mouse click would have produced, which the
+existing click-commit path (`_commit_*_at`) then consumes — so commit parity is
+structural, not asserted. A **transform** schema resolves to a plain dict handled
+by its own small applier.
+
+| Schema | Fields | `resolve` → | Built clients (`_APPLIER_FOR_MODE`) |
 |---|---|---|---|
-| Length | Distance from start point in display units | Yes — type to override | Pipe, wall, line |
-| Angle | Current angle from reference | Read-only (display only) | Pipe, wall, line |
-| Radius | Distance from center | Yes — type to override | Circle, arc |
-| Width × Height | Dimensions from corner | Yes — type to override | Rectangle |
+| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline` |
+| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` |
+| `circle` | Radius | `QPointF` | `draw_circle` |
+| `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
+| `distance` | Distance | `{"distance": float}` | `gridline_offset` |
+| `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |
 
-For pipes: angle field shows current 45°-constrained value. **Non-overridable** — fitting assignment depends on 45° increment angles. The dynamic input for pipes is effectively a single-field length input with angle shown as read-only context.
+Angles are **Y-up** (0° = right, 90° = up; scene Y is down, so
+`y = anchor.y() − length·sin θ`). Rectangle X/Y are **signed** (a left/down drag
+is a negative extent, and in corner mode that sign *is* the geometry).
 
-### 4.3 Input Behavior
+**Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`)
+decides whether the HUD may open without a placement anchor. Every placement
+requires one; `move` is a transform that *also* requires one (its base point),
+so it carries `needs_anchor=True` and stays shut until the base point is picked.
+The gridline transforms (`distance`, `spacing_count`) are genuinely anchorless
+and open as soon as their source is armed.
 
-| Action | Result |
-|---|---|
-| Move cursor | Length/angle update live from cursor position |
-| Type digits | Length field captures keystrokes immediately (no click needed to focus) |
-| Enter or click | Confirm placement at the typed length (or cursor length if nothing typed) |
-| Escape | Cancel current placement |
-| Tab | Cycle between editable fields (radius → sweep for arc, width → height for rectangle). No-op for pipe (single editable field). |
+> A mode appears in `_SCHEMA_FOR_MODE` (forward declaration) before it appears in
+> `_APPLIER_FOR_MODE` (the gate that actually opens a HUD). `wall` and `pipe` are
+> schema-mapped to `line` but have **no applier yet** — they are **[PROPOSAL]**
+> (§4.7), parked as new clients. `arc`, `sprinkler` and `construction_line` are
+> not schema-mapped at all.
 
-### 4.4 Unit Handling
+### 4.3 Seeding invariant (WYSIWYG)
 
-- Display: `ScaleManager.format_length()` for current display unit
-- Input: `ScaleManager.parse_dimension()` — accepts bare numbers (interpreted as current unit) or explicit units ("10'", "3048mm")
-- Same pipeline as all existing dimension input (`format_length`/`parse_dimension` pattern)
+The HUD seeds from the **resolved** point — the fully constrained position drawn
+on screen after OSNAP → inference → Ctrl → 45° snap — never from the raw cursor,
+so the numbers shown are the ones the user is looking at.
+`Model_Space.publish_placement_state` is the single source for both the passive
+readout and the engage-time seed, so the two cannot disagree. (Never
+truthiness-test the `QPointF`: `QPointF(0,0)` is a legitimate OSNAP result.)
 
-### 4.5 Interaction with OSNAP
+### 4.4 Unit handling
 
-If OSNAP finds a snap point, the dynamic input fields update to show the snapped distance/angle (not the raw cursor distance). If the user then types a value, it overrides the snap — typed input always wins over snap position.
+Each field is a `DimensionEdit` (three `FieldKind` configurations of the one
+widget, so the house parser/formatter and revert-to-last-valid come along). The
+schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
 
-### 4.6 Interaction with 45° Constraint
+- **DIMENSION** fields convert at the HUD boundary (`set_values`/`values`),
+  **guarded on calibration** — uncalibrated (the default) treats 1 scene unit as
+  1 mm, matching the on-canvas readout; a calibrated drawing routes through
+  `ScaleManager.scene_to_mm`/`mm_to_scene`. The conversion lives in the HUD, not
+  in the schemas (which stay pure geometry) nor in `DimensionEdit` (mm-native).
+- **ANGLE** fields are dimensionless — see the angle convention in
+  [units-and-formatting.md](units-and-formatting.md) (owned by
+  `ScaleManager.normalize_angle`/`format_angle`/`parse_angle`), not restated here.
+- **COUNT** fields are bare integers (rounded, floored at 1).
 
-For pipes: the angle is locked to the nearest 45° increment at all times. Typing a length extends the pipe at the currently displayed constrained angle. The user cannot type an angle. This ensures every placed pipe has a valid fitting type.
+### 4.5 Interaction with OSNAP / inference
+
+The seed is the resolved point (§4.3), so an active OSNAP or alignment guide is
+already baked into the readout. A typed value **overrides** it — while a field
+holds focus the cursor is inert and `publish_placement_state` is a no-op, so a
+late snap cannot move the seed out from under a half-typed value.
+
+### 4.6 Error handling — two layers
+
+- **Field level:** an unparseable entry reverts to the last valid value with no
+  signal (kills the old `_DynInput.value() → 0.0` bug); a rejected value gets a
+  red border. `has_invalid_field()` is sticky so a second Enter cannot slip
+  reverted geometry through.
+- **Applier verdict (decision D2):** the too-short / too-small / count floors
+  live in the commit path, not mirrored into the schema. An applier returns
+  `bool`; on `False` `_on_dynamic_input_committed` **keeps the HUD open** with
+  every DIMENSION field flagged and the placement fully live, so the user simply
+  retypes — instead of the value vanishing into a status message after the HUD
+  has closed.
+
+### 4.7 Still **[PROPOSAL]** — pipe, wall, arc as HUD clients
+
+Parked, not built (plan decision D3 stopped the slice at the modal deletion):
+
+- **Pipe** and **wall** are schema-mapped to `line` but have no applier, so no
+  HUD opens for them; they still place through their own handlers. When pipe
+  lands (bug B5 groundwork is in — see
+  [pipe-placement-methodology.md §4.1](pipe-placement-methodology.md)), its angle
+  field is intended to be **editable and validated**, *not* read-only: the 45°
+  constraint is **relative to the reference pipe and only when connected** (a
+  free pipe soft-snaps within 7.5°), so a typed angle is accepted when it yields
+  a valid fitting rather than forbidden outright. *(This corrects the earlier
+  proposal, which called the pipe angle "read-only / non-overridable" and
+  "locked to 45° at all times".)*
+- **Arc** keeps its own hand-built `_draw_dim_hint` readout (painted in
+  `Model_View.drawForeground` block 4, which survives for the modes without a
+  HUD); an arc schema is a filed P1 follow-up alongside the arc-workflow revamp.
+- **`construction_line` is out of scope** — its Length field was a visual no-op
+  (the drawn line extends past both defining points), so it is deliberately
+  absent from `get_placement_anchor` and the schema tables.
 
 ---
 
@@ -364,16 +469,34 @@ Master key toggles all three simultaneously. If any are on, master-off turns all
 
 ## 11. Testing Strategy
 
-### 11.1 Dynamic Input
+### 11.1 Dynamic Input **[BUILT]**
 
-| Test | Assertion |
+Three layers, mirroring the module boundary:
+
+- **(a) Schema layer — no Qt** (`tests/test_dynamic_input_schema.py`): `resolve_*`
+  / `seed_*` round-trips, Y-up sign, signed rectangle extents, `requires_anchor`
+  (placements + `move`, not the anchorless transforms), `spacing_count` integer
+  flooring. Angle format/parse/normalize in `tests/test_scale_manager_angle.py`.
+- **(b) Widget layer — HUD-driven** (`tests/test_dynamic_input_widget.py`):
+  seeding, value reads, grow-only field width, sticky invalid styling + red
+  border, session undo, engage/disengage, mouse-transparency, numpad Enter.
+- **(c) Commit parity — mouse vs HUD** (`tests/test_dynamic_input_parity.py`):
+  a typed value and the same value dragged produce identical geometry, for line,
+  rectangle, circle, polyline, gridline offset/array and move; applier-rejection
+  keeps the HUD open (D2); the `GridlineItem.translate` regression.
+
+Seam-level (`Model_Space`) behaviour — anchor gating, engage refusal, input-mode
+inertness, the Left-Shift-tap placement cycle — lives in
+`tests/test_dynamic_input_seam.py`, `tests/test_dynamic_input_lifecycle.py`,
+`tests/test_dynamic_input_multiview.py` and `tests/test_placement_cycle_shift.py`.
+
+| Example assertion | Where |
 |---|---|
-| Length parsing | "10'" → 3048mm, "3048mm" → 3048mm, "10" (bare, imperial mode) → correct conversion |
-| Typed length overrides cursor | Type "5'" during pipe placement → pipe length exactly 5' regardless of cursor position |
-| Angle display | Pipe at 45° snap shows "45°" in read-only angle field |
-| Enter confirms | Typed length + Enter → placement at exact length |
-| Escape cancels | Escape during typed input → no placement, field clears |
-| Tab cycles fields | Arc: Tab moves focus from radius to sweep angle |
+| `resolve_line` is Y-up; `seed_line` round-trips | (a) |
+| Typed length overrides cursor; commit matches the mouse click | (c) |
+| Unparseable entry reverts to last valid, nothing placed at zero | (b) |
+| A refused too-short commit keeps the HUD open, field flagged | (c) |
+| Tab cycles HUD fields; digit/`.`/`-` opens+seeds; numpad Enter commits | (b) |
 
 ### 11.2 Alignment Guides
 
