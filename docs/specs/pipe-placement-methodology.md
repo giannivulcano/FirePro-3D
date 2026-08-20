@@ -4,6 +4,7 @@
 > **Source files:** `model_space.py`, `pipe.py`, `node.py`, `fitting.py`, `sprinkler_system.py`, `constants.py`
 > **Date:** 2026-04-04
 > **Revision:** 2 (post grill session)
+> **§4.1 verified 2026-08-20** (`25c7edb`): B5 fixed — contextual coplanar-pipe 45° reference. Other sections still describe required fixes, not shipped code.
 
 ---
 
@@ -258,18 +259,29 @@ User clicks second point
 
 ### 4.1 45° Snap Grid
 
-All pipe endpoints snap to the nearest 45° increment from the start node:
+Pipe endpoints snap to 45° increments **relative to a reference pipe**:
 
 ```
-Allowed angles: 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°
-Snap tolerance: SNAP_TOLERANCE_DEG = 7.5°
+Increments: 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315° (off the reference axis)
+Soft-snap tolerance (no reference): SNAP_TOLERANCE_DEG = 7.5°
 ```
 
-**Method:** `Node.snap_point_45(start, end)` — projects the cursor position onto the nearest 45° ray from the start point. **Snap operates in 2D only** (canvas input constraint).
+**Method:** `Node.snap_point_45(start, end, reference_pipe=None)` — snaps the drag
+direction to the nearest 45° multiple **of the reference pipe's axis**, then
+re-projects `end` at the original length. **Snap operates in 2D only** (canvas
+input constraint).
 
-> **BUG (current):** `snap_point_45` uses `self.pipes[0]` as the angular reference — insertion-order dependent, ignores the contextually relevant pipe.
->
-> **FIX:** During chain continuation, the snap reference must be the pipe the user is continuing from (the last segment). For a fresh start from an existing node, prefer the through-run direction (collinear pair) if one exists; fall back to `pipes[0]` only if no through-run.
+The reference is the coplanar pipe whose *axis* is angularly closest to the
+`start → end` drag direction (`Node._nearest_coplanar_pipe`) — **axis, not ray**,
+so a pipe pointing away is an equally valid reference (0° and 180° are
+equivalent). Coplanarity is `|Δz_pos| ≤ Z_COPLANAR_TOL`. Callers may override
+the choice with an explicit `reference_pipe`.
+
+A node whose only connections are risers has **no coplanar reference**, so
+placement falls through to free movement with a soft snap within 7.5° of a 45°
+multiple — rather than anchoring the grid to a riser's meaningless plan angle.
+With exactly one coplanar pipe this is identical to the old behaviour; the
+change only affects branching nodes and riser-only nodes.
 
 ### 4.2 Collinear Extension
 
@@ -713,7 +725,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 | B2 | `_create_vertical_connection()` bypasses `add_pipe()` partially | High | `model_space.py:1348–1358` |
 | B3 | `_split_vertical_pipe()` bypasses `add_pipe()` | High | `model_space.py:1429–1442` |
 | B4 | `find_nearby_node()` Z-blind — wrong node at risers causes 5+ downstream bugs | High | `model_space.py:856` |
-| B5 | `snap_point_45` uses `pipes[0]` not contextual pipe — grid misaligned when branching | Medium | `node.py:178` |
+| B5 | ~~`snap_point_45` uses `pipes[0]` not contextual pipe — grid misaligned when branching~~ — **fixed 2026-08-17** (`25c7edb`): reference is now the coplanar pipe whose axis is angularly nearest the drag direction, with an explicit `reference_pipe` override; riser-only nodes fall through to free soft-snap (§4.1) | Medium | `Node.snap_point_45` |
 | B6 | Riser node move doesn't move Z-stacked siblings | Medium | `model_space.py:7134` |
 | B7 | All geometry checks use 2D vectors — false positives on multi-level overlap | High | Multiple locations |
 | B8 | Preview label formats diameter as raw key, not display format | Low | `model_space.py:3557–3561` |
@@ -735,7 +747,7 @@ This allows placing **vertical pipes** (risers/drops) and **diagonal pipes** (ro
 1. **B7** — 3D vectors everywhere (unblocks B4, B10, E2, and makes B5 fix cleaner)
 2. **B1 + B2 + B3** — Route all pipe creation through `add_pipe()` (single pattern fix)
 3. **B4** — `z_hint` on `find_nearby_node()` (unblocks B6)
-4. **B5** — Contextual snap reference
+4. ~~**B5** — Contextual snap reference~~ — **done 2026-08-17** (`25c7edb`)
 5. **B6** — Riser column move
 6. **B10 + E1** — Fitting matrix + new SVGs
 7. **B11 + B12** — 3D labels + elevation refresh
