@@ -4064,9 +4064,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         schema, and drives the same preview helper the mouse uses.
 
         Only placement schemas (``returns_point``) redraw here: they resolve to
-        the ``QPointF`` the preview helpers consume.  Transform schemas resolve
-        to a dict; their preview-on-commit is wired with their applier in a
-        later task.  A no-op if the HUD closed between signal and slot.
+        the ``QPointF`` the preview helpers consume.  Transform schemas are
+        skipped; their preview-on-commit lands with their applier.  A no-op if
+        the HUD closed between signal and slot.
         """
         hud = self.dynamic_input
         schema = self.active_schema()
