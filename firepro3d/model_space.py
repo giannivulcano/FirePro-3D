@@ -6663,9 +6663,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_arc_preview = preview
         elif self._draw_arc_step == 2:
             # Click 3 — set end point → commit arc
-            self._commit_arc_at(snapped)
+            self._commit_draw_arc_at(snapped)
 
-    def _commit_arc_at(self, end_point) -> bool:
+    def _commit_draw_arc_at(self, end_point) -> bool:
         """Commit the in-progress arc, sweeping to ``end_point``.
 
         Shared commit path for both the third mouse click and (later) the
@@ -6673,10 +6673,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         derives the span by projecting ``end_point`` onto the radius circle, and
         rejects a degenerate sweep (near 0 or near 360).
 
+        Args:
+            end_point: The sweep endpoint; only its bearing from the centre is
+                used (the span is projected onto the stored radius circle).
+
         Returns:
-            True when an ``ArcItem`` was committed, False when the span was under
-            the too-small floor.
+            True when an ``ArcItem`` was committed, False when the arc is
+            unarmed (no centre) or the span is under the too-small floor.
         """
+        if self._draw_arc_center is None:
+            return False
         cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
         end_deg = math.degrees(
             math.atan2(-(end_point.y() - cy), end_point.x() - cx)

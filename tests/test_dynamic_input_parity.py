@@ -1922,7 +1922,7 @@ class TestGhostUpdatesOnFieldCommit:
 # ── Task 5: arc commit extraction ─────────────────────────────────────────
 #
 # Arc was the only multi-click mode whose third-click commit lived inline in
-# ``_press_draw_arc``.  ``_commit_arc_at`` extracts it so a later task can hand
+# ``_press_draw_arc``.  ``_commit_draw_arc_at`` extracts it so a later task can hand
 # it a Dynamic Input span the same way the other appliers take a resolved
 # point.  These tests drive the commit method directly (no HUD yet) and pin the
 # span derivation + degenerate reject the click path used, so the extraction is
@@ -1945,30 +1945,30 @@ def _arcs(scene):
 class TestCommitArcAt:
     """The extracted arc commit: span derivation, reject, and state reset."""
 
-    def test_commit_arc_at_builds_item(self, scene):
+    def test_commit_draw_arc_at_builds_item(self, scene):
         _arm_arc(scene)
-        ok = scene._commit_arc_at(QPointF(0, -1000))   # 90° CCW (Y-up)
+        ok = scene._commit_draw_arc_at(QPointF(0, -1000))   # 90° CCW (Y-up)
         assert ok is True
         arcs = _arcs(scene)
         assert len(arcs) == 1
         assert abs(arcs[0]._span_deg - 90.0) < 0.5
 
-    def test_commit_arc_at_rejects_degenerate(self, scene):
+    def test_commit_draw_arc_at_rejects_degenerate(self, scene):
         _arm_arc(scene)
-        ok = scene._commit_arc_at(QPointF(1000, 0))    # end == start → 360 → reject
+        ok = scene._commit_draw_arc_at(QPointF(1000, 0))    # end == start → 360 → reject
         assert ok is False
         assert not _arcs(scene)
 
-    def test_commit_arc_at_appends_to_draw_arcs(self, scene):
+    def test_commit_draw_arc_at_appends_to_draw_arcs(self, scene):
         _arm_arc(scene)
         before = len(scene._draw_arcs)
-        assert scene._commit_arc_at(QPointF(0, -1000)) is True
+        assert scene._commit_draw_arc_at(QPointF(0, -1000)) is True
         assert len(scene._draw_arcs) == before + 1
         assert scene._draw_arcs[-1] is _arcs(scene)[-1]
 
-    def test_commit_arc_at_resets_state(self, scene):
+    def test_commit_draw_arc_at_resets_state(self, scene):
         _arm_arc(scene)
-        scene._commit_arc_at(QPointF(0, -1000))
+        scene._commit_draw_arc_at(QPointF(0, -1000))
         assert scene._draw_arc_center is None
         assert scene._draw_arc_radius == 0.0
         assert scene._draw_arc_start_deg == 0.0
@@ -1979,22 +1979,30 @@ class TestCommitArcAt:
         calls = []
         monkeypatch.setattr(scene, "push_undo_state",
                             lambda *a, **k: calls.append(1))
-        assert scene._commit_arc_at(QPointF(1000, 0)) is False
+        assert scene._commit_draw_arc_at(QPointF(1000, 0)) is False
         assert calls == []
         assert not _arcs(scene)
 
-    def test_commit_arc_at_pushes_one_undo_state(self, scene, monkeypatch):
+    def test_commit_draw_arc_at_pushes_one_undo_state(self, scene, monkeypatch):
         _arm_arc(scene)
         calls = []
         monkeypatch.setattr(scene, "push_undo_state",
                             lambda *a, **k: calls.append(1))
-        assert scene._commit_arc_at(QPointF(0, -1000)) is True
+        assert scene._commit_draw_arc_at(QPointF(0, -1000)) is True
         assert calls == [1]
+
+    def test_commit_draw_arc_at_unarmed_returns_false(self, scene):
+        # No centre armed (the sibling _commit_* methods all no-op when unarmed).
+        # Matters because this becomes an FSM-independent Dynamic Input applier.
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = None
+        assert scene._commit_draw_arc_at(QPointF(0, -1000)) is False
+        assert not _arcs(scene)
 
     def test_single_place_mode_exits_to_select(self, scene):
         _arm_arc(scene)
         scene.single_place_mode = True
-        scene._commit_arc_at(QPointF(0, -1000))
+        scene._commit_draw_arc_at(QPointF(0, -1000))
         assert scene.mode == "select"
 
     def test_repeat_mode_rearms(self, scene):
@@ -2002,6 +2010,6 @@ class TestCommitArcAt:
         scene.single_place_mode = False
         seen = []
         scene.instructionChanged.connect(seen.append)
-        scene._commit_arc_at(QPointF(0, -1000))
+        scene._commit_draw_arc_at(QPointF(0, -1000))
         assert scene.mode == "draw_arc"
         assert seen[-1] == "Pick center point"
