@@ -4082,13 +4082,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if schema.returns_point:
             self._preview_from_resolved(resolved)
         elif self.mode == "move":
-            # Transform → the point the base anchor lands on, which the move
-            # ghost helper consumes.  Only ``move`` is wired here; the gridline
-            # replicate transforms carry a signed side the typed value alone
-            # does not fix, so their preview-on-commit is deferred.
+            # Transform → the point the base anchor lands on, routed through the
+            # same dispatch the mouse uses (``_PREVIEW_DISPATCH`` maps move to a
+            # helper that re-derives the offset from this point).  Only ``move``
+            # is wired here; the gridline replicate transforms carry a signed
+            # side the typed value alone does not fix, so their preview-on-commit
+            # is deferred and a future branch projects their point the same way.
             offset = resolved["offset"]
-            self._preview_from_move(QPointF(anchor.x() + offset.x(),
-                                            anchor.y() + offset.y()))
+            self._preview_from_resolved(QPointF(anchor.x() + offset.x(),
+                                                anchor.y() + offset.y()))
         else:
             return
         for v in self.views():
