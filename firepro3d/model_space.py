@@ -4954,8 +4954,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _preview_from_resolved(self, resolved) -> None:
         """Redraw the current mode's placement preview from ``resolved``.
 
-        ``resolved`` is a ``QPointF`` for placement schemas or the transform
-        dict for the others.  A no-op when the mode has no preview helper.
+        ``resolved`` is a ``QPointF``.  Placement helpers (line/rect/circle/
+        polyline) use it directly as the second point; the two transform
+        helpers (move, gridline replicate) derive their scalar — offset or
+        spacing — from it internally, keeping that derivation in one place so
+        the mouse path and any future typed path stay identical.  A no-op when
+        the mode has no preview helper.
         """
         name = self._PREVIEW_DISPATCH.get(self.mode)
         if name is not None:
@@ -5377,8 +5381,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._show_status(
             f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
             f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
-        for v in self.views():
-            v.viewport().update()
 
     def _move_rotate(self, event, snapped):
         if self._rotate_pivot is None:
@@ -5696,8 +5698,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # resolved point to publish — the geometry is a signed scalar, not a
         # point.
         self.publish_placement_state(None, None)
-        for v in self.views():
-            v.viewport().update()
 
     def _press_gridline_replicate(self, event, pos, snapped, item_under, node_under, pipe_under):
         """Press handler for gridline_array / gridline_offset modes: commit."""
