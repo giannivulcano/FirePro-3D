@@ -6663,40 +6663,55 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_arc_preview = preview
         elif self._draw_arc_step == 2:
             # Click 3 — set end point → commit arc
-            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
-            end_deg = math.degrees(
-                math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-            )
-            span = end_deg - self._draw_arc_start_deg
-            # Normalise span to positive CCW direction
-            if span <= 0:
-                span += 360.0
-            # Reject near-zero arcs
-            if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
-                self._show_status("Arc span too small — skipped", timeout=2000)
-                return
-            tmpl = self._get_geometry_template()
-            _c, _lw = self._geom_color_lw()
-            item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
-                           self._draw_arc_start_deg, span, _c, _lw)
-            item.level = tmpl.level
-            self.addItem(item)
-            self._draw_arcs.append(item)
-            item.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            # Clean up previews
-            if self._draw_arc_preview is not None:
-                self.removeItem(self._draw_arc_preview)
-                self._draw_arc_preview = None
-            self._draw_arc_center = None
-            self._draw_arc_radius = 0.0
-            self._draw_arc_start_deg = 0.0
-            self._draw_arc_step = 0
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick center point")
+            self._commit_arc_at(snapped)
+
+    def _commit_arc_at(self, end_point) -> bool:
+        """Commit the in-progress arc, sweeping to ``end_point``.
+
+        Shared commit path for both the third mouse click and (later) the
+        Dynamic Input span value.  Reads the stored centre/radius/start angle,
+        derives the span by projecting ``end_point`` onto the radius circle, and
+        rejects a degenerate sweep (near 0 or near 360).
+
+        Returns:
+            True when an ``ArcItem`` was committed, False when the span was under
+            the too-small floor.
+        """
+        cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+        end_deg = math.degrees(
+            math.atan2(-(end_point.y() - cy), end_point.x() - cx)
+        )
+        span = end_deg - self._draw_arc_start_deg
+        # Normalise span to positive CCW direction
+        if span <= 0:
+            span += 360.0
+        # Reject near-zero arcs
+        if abs(span) < 0.5 or abs(span - 360.0) < 0.5:
+            self._show_status("Arc span too small — skipped", timeout=2000)
+            return False
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
+                       self._draw_arc_start_deg, span, _c, _lw)
+        item.level = tmpl.level
+        self.addItem(item)
+        self._draw_arcs.append(item)
+        item.setSelected(True)
+        for v in self.views(): v.viewport().update()
+        # Clean up previews
+        if self._draw_arc_preview is not None:
+            self.removeItem(self._draw_arc_preview)
+            self._draw_arc_preview = None
+        self._draw_arc_center = None
+        self._draw_arc_radius = 0.0
+        self._draw_arc_start_deg = 0.0
+        self._draw_arc_step = 0
+        self.push_undo_state()
+        if self.single_place_mode:
+            self.set_mode("select")
+        else:
+            self.instructionChanged.emit("Pick center point")
+        return True
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Require direct click on a node or pipe (no proximity fallback)

@@ -1917,3 +1917,91 @@ class TestGhostUpdatesOnFieldCommit:
             base.boundingRect().center().x() + 300.0), "ghost dX follows typed"
         assert got.boundingRect().center().y() == pytest.approx(
             base.boundingRect().center().y() - 200.0), "ghost dY is Y-up"
+
+
+# ── Task 5: arc commit extraction ─────────────────────────────────────────
+#
+# Arc was the only multi-click mode whose third-click commit lived inline in
+# ``_press_draw_arc``.  ``_commit_arc_at`` extracts it so a later task can hand
+# it a Dynamic Input span the same way the other appliers take a resolved
+# point.  These tests drive the commit method directly (no HUD yet) and pin the
+# span derivation + degenerate reject the click path used, so the extraction is
+# a proven pure refactor.
+
+
+def _arm_arc(scene, center=QPointF(0, 0), radius=1000.0, start_deg=0.0):
+    """Arm an arc placement at ``_draw_arc_step == 2`` (centre + rim picked)."""
+    scene.set_mode("draw_arc")
+    scene._draw_arc_center = QPointF(center)
+    scene._draw_arc_radius = radius
+    scene._draw_arc_start_deg = start_deg
+    scene._draw_arc_step = 2
+
+
+def _arcs(scene):
+    return [i for i in scene.items() if type(i).__name__ == "ArcItem"]
+
+
+class TestCommitArcAt:
+    """The extracted arc commit: span derivation, reject, and state reset."""
+
+    def test_commit_arc_at_builds_item(self, scene):
+        _arm_arc(scene)
+        ok = scene._commit_arc_at(QPointF(0, -1000))   # 90° CCW (Y-up)
+        assert ok is True
+        arcs = _arcs(scene)
+        assert len(arcs) == 1
+        assert abs(arcs[0]._span_deg - 90.0) < 0.5
+
+    def test_commit_arc_at_rejects_degenerate(self, scene):
+        _arm_arc(scene)
+        ok = scene._commit_arc_at(QPointF(1000, 0))    # end == start → 360 → reject
+        assert ok is False
+        assert not _arcs(scene)
+
+    def test_commit_arc_at_appends_to_draw_arcs(self, scene):
+        _arm_arc(scene)
+        before = len(scene._draw_arcs)
+        assert scene._commit_arc_at(QPointF(0, -1000)) is True
+        assert len(scene._draw_arcs) == before + 1
+        assert scene._draw_arcs[-1] is _arcs(scene)[-1]
+
+    def test_commit_arc_at_resets_state(self, scene):
+        _arm_arc(scene)
+        scene._commit_arc_at(QPointF(0, -1000))
+        assert scene._draw_arc_center is None
+        assert scene._draw_arc_radius == 0.0
+        assert scene._draw_arc_start_deg == 0.0
+        assert scene._draw_arc_step == 0
+
+    def test_rejected_arc_leaves_no_undo_and_no_item(self, scene, monkeypatch):
+        _arm_arc(scene)
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        assert scene._commit_arc_at(QPointF(1000, 0)) is False
+        assert calls == []
+        assert not _arcs(scene)
+
+    def test_commit_arc_at_pushes_one_undo_state(self, scene, monkeypatch):
+        _arm_arc(scene)
+        calls = []
+        monkeypatch.setattr(scene, "push_undo_state",
+                            lambda *a, **k: calls.append(1))
+        assert scene._commit_arc_at(QPointF(0, -1000)) is True
+        assert calls == [1]
+
+    def test_single_place_mode_exits_to_select(self, scene):
+        _arm_arc(scene)
+        scene.single_place_mode = True
+        scene._commit_arc_at(QPointF(0, -1000))
+        assert scene.mode == "select"
+
+    def test_repeat_mode_rearms(self, scene):
+        _arm_arc(scene)
+        scene.single_place_mode = False
+        seen = []
+        scene.instructionChanged.connect(seen.append)
+        scene._commit_arc_at(QPointF(0, -1000))
+        assert scene.mode == "draw_arc"
+        assert seen[-1] == "Pick center point"
