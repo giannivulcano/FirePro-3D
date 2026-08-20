@@ -1,7 +1,7 @@
 ---
-status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14
-last-verified: 2026-08-14
-verified-commit: 41ed103
+status: current          # Revit-aligned on-canvas re-architecture as-built 2026-08-13 (parametric model; dialog removed); §17 array/offset + inference added 2026-08-14; on-canvas bubble-offset grips + move/paste ghost as-built 2026-08-14; §7.1/§17 array/offset re-pointed to the Dynamic Input HUD (modal _DynInput deleted) 2026-08-20
+last-verified: 2026-08-20
+verified-commit: fa6efeb
 applies-to:
   - firepro3d/gridline.py
   - firepro3d/model_space.py
@@ -236,7 +236,7 @@ After any label change (Properties-panel relabel, auto-assign at placement, load
 
 ### 7.1 On-Canvas Placement
 
-Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line-tool handlers** — `_press_draw_line`, the `_handle_tab_input` dynamic-input branch, the move-time dimension hint, and `_constrain_angle` — with the only divergence being a `_make_line_like` item factory (`draw_line` → `LineItem`; `draw_gridline` → `GridlineItem`). This structurally guarantees placement mirrors the Line tool one-for-one:
+Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line-tool handlers** — `_press_draw_line`, the shared `line` Dynamic Input schema + `_commit_draw_line_at` commit path (both modes map to it in `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`; see [inferred-dimension-driven-placement.md §4](inferred-dimension-driven-placement.md)), the published placement readout, and `_constrain_angle` — with the only divergence being a `_make_line_like` item factory (`draw_line` → `LineItem`; `draw_gridline` → `GridlineItem`). This structurally guarantees placement mirrors the Line tool one-for-one:
 
 - **1st click** = origin; **2nd click** = length + angle
 - **Ctrl** = angle-constrain; **Tab** = exact length + angle dynamic input
@@ -570,11 +570,11 @@ Two transient modes — `gridline_offset` and `gridline_array` — replicate a s
 
 ### 17.2 Offset Mode (`gridline_offset`)
 
-Creates **one** parallel copy at a cursor-driven or typed perpendicular distance + side. The cursor drives spacing and side live (perpendicular projection onto the source axis). Tab or any digit opens `_DynInput` with a single "Distance" field. Click/Enter commits; Esc cancels with no copy created.
+Creates **one** parallel copy at a cursor-driven or typed perpendicular distance + side. The cursor drives spacing and side live (perpendicular projection onto the source axis). Tab or any digit opens the Dynamic Input HUD (`distance` schema, single "Distance" field); the typed value is a **magnitude** and the side comes from where the cursor left the ghost. Click/Enter commits; a distance under the too-close floor is refused and keeps the HUD open (D2); Esc cancels with no copy created.
 
 ### 17.3 Array Mode (`gridline_array`)
 
-Creates **N** parallel copies at successive multiples of a signed spacing. Default count = 1. Live ghost preview in `drawForeground` (cosmetic outline — line + bubble circles; no preview scene-items). "Spacing ×Count" Dim HUD displayed live. Tab or any digit opens `_DynInput` with "Spacing" and "Count" fields. Click/Enter commits; Esc cancels.
+Creates **N** parallel copies at successive multiples of a signed spacing. Default count = 1. Live ghost preview in `drawForeground` (cosmetic outline — line + bubble circles; no preview scene-items). The live readout is the Dynamic Input HUD itself (Spacing + integer Count). Tab or any digit opens it (`spacing_count` schema); Spacing is a magnitude, side from the cursor. Click/Enter commits; Esc cancels.
 
 ### 17.4 Copy Geometry
 
