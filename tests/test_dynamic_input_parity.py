@@ -129,91 +129,48 @@ class TestCommitDrawLineAt:
         assert seen[-1] == "Pick start point"
 
 
-def _drive_dyninput(length_text, angle_text="0"):
-    """Fill the live modal ``_DynInput`` and accept it.
+class TestTypedLineCommitViaHud:
+    """The HUD's typed line delegates to ``_commit_draw_line_at``.
 
-    Scheduled via ``QTimer.singleShot`` so it runs inside the dialog's own
-    modal ``exec()`` loop. We deliberately do NOT monkeypatch ``QDialog.exec``:
-    reassigning a sip method at class level corrupts its C++ slot binding for
-    the rest of the process. Driving the live dialog avoids that entirely.
-
-    Args:
-        length_text: Text to type into the first (Length) field.
-        angle_text: Text to type into the second (Angle) field.
-    """
-    w = QApplication.activeModalWidget() or QApplication.activePopupWidget()
-    if w is None:
-        for tw in QApplication.topLevelWidgets():
-            if hasattr(tw, "_order") and tw.isVisible():
-                w = tw
-                break
-    if w is None or not hasattr(w, "_order"):
-        return
-    w._order[0].setText(length_text)
-    if len(w._order) > 1:
-        w._order[1].setText(angle_text)
-    w.accept()
-
-
-class TestModalTypedCommitDelegates:
-    """The modal ``_DynInput`` line path delegates to ``_commit_draw_line_at``.
-
-    Before this fix the modal built the line itself and skipped the too-short
-    guard, so a typed zero length created a degenerate line that the mouse
-    click path refuses.
+    Ports the retired ``TestModalTypedCommitDelegates`` onto the surviving
+    surface: the modal ``_DynInput`` is gone (T17), so the HUD is the only
+    typed-input path, and it must share the click path's commit rather than
+    build the line itself.  The old "typed zero length is rejected" case cannot
+    reach the commit here — ``Length`` carries ``minimum=0.0``, so
+    ``DimensionEdit`` reverts a typed ``0`` to the last valid value before it
+    ever resolves (that revert is the very thing that killed the
+    ``_DynInput.value() → 0.0`` bug).  Commit-level rejection is covered by
+    ``TestCommitDrawLineAt.test_rejects_zero_length``.
     """
 
-    def test_typed_zero_length_is_rejected(self, scene):
-        view = QGraphicsView(scene)
-        view.resize(400, 400)
-        view.resetTransform()
+    def _arm(self, scene):
         scene.set_mode("draw_line")
         scene._draw_line_anchor = QPointF(0, 0)
+        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+        assert scene.begin_dynamic_input() is True
+
+    def test_typed_length_commits_via_the_shared_path(self, scene, view):
+        self._arm(scene)
         before = len(scene._draw_lines)
-
-        QTimer.singleShot(0, lambda: _drive_dyninput("0"))
-        scene._handle_tab_input()
-        view.hide()
-
-        # No degenerate line, and the anchor stays armed for a re-pick.
-        assert len(scene._draw_lines) == before
-        assert scene._draw_line_anchor == QPointF(0, 0)
-
-    def test_typed_real_length_still_commits(self, scene):
-        """Guard the other direction: a valid typed length must still build."""
-        view = QGraphicsView(scene)
-        view.resize(400, 400)
-        view.resetTransform()
-        scene.set_mode("draw_line")
-        scene._draw_line_anchor = QPointF(0, 0)
-        before = len(scene._draw_lines)
-
-        QTimer.singleShot(0, lambda: _drive_dyninput("1000", "0"))
-        scene._handle_tab_input()
-        view.hide()
+        scene.dynamic_input.editor("Length").setText("1000")
+        scene.dynamic_input.editor("Angle").setText("0")
+        scene.dynamic_input._accept()
 
         assert len(scene._draw_lines) == before + 1
         item = scene._draw_lines[-1]
         assert item.line().p1() == QPointF(0, 0)
         assert item.line().p2().x() == pytest.approx(1000.0, abs=1.0)
         assert item.line().p2().y() == pytest.approx(0.0, abs=1.0)
-        # Delegation side effects the old inline path lacked.
+        # Delegation side effects the old inline modal path lacked.
         assert scene._draw_line_anchor is None
         assert scene.get_resolved_point() is None
 
-    def test_typed_commit_clears_placement_state(self, scene):
-        view = QGraphicsView(scene)
-        view.resize(400, 400)
-        view.resetTransform()
-        scene.set_mode("draw_line")
-        scene._draw_line_anchor = QPointF(0, 0)
-        scene.publish_placement_state(QPointF(0, 0), QPointF(100, 0))
+    def test_typed_commit_clears_placement_state(self, scene, view):
+        self._arm(scene)
         assert scene.get_resolved_point() is not None
-
-        QTimer.singleShot(0, lambda: _drive_dyninput("1000", "0"))
-        scene._handle_tab_input()
-        view.hide()
-
+        scene.dynamic_input.editor("Length").setText("1000")
+        scene.dynamic_input.editor("Angle").setText("0")
+        scene.dynamic_input._accept()
         assert scene.get_resolved_point() is None
 
 

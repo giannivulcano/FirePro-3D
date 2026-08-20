@@ -51,49 +51,42 @@ def test_undo_after_seed_baseline_keeps_gridlines(qapp):
     assert len(scene._gridlines) == 2
 
 
-def _grab_dyninput_field(captured):
-    """Read the primary field of the live modal _DynInput and close it.
-
-    Scheduled via QTimer.singleShot so it runs inside the dialog's modal
-    exec() loop. We deliberately do NOT monkeypatch QDialog.exec — reassigning
-    a sip method to the class corrupts its C++ slot binding for the rest of the
-    process (identity restores but the call raises), which leaks into unrelated
-    modal-dialog tests. Interacting with the live dialog avoids that entirely.
-    """
-    from PyQt6.QtWidgets import QApplication
-    w = QApplication.activeModalWidget() or QApplication.activePopupWidget()
-    if w is None:
-        for tw in QApplication.topLevelWidgets():
-            if hasattr(tw, "_order") and tw.isVisible():
-                w = tw
-                break
-    if w is not None and hasattr(w, "_order"):
-        captured["text"] = w._order[0].text()
-    if w is not None:
-        (w.reject if hasattr(w, "reject") else w.close)()
-
-
 def test_array_digit_seeds_spacing_field(qapp):
-    """A digit that opens the array _DynInput lands in the Spacing field."""
+    """A digit during gridline-array replication opens the HUD seeded into
+    Spacing.
+
+    Formerly this opened the modal ``_DynInput`` (deleted in T17); the digit
+    now engages the on-canvas ``DynamicInputHud``, so the test drives the real
+    key path and reads the widget's field instead of a modal ``exec()`` loop.
+    A *visible* ``Model_View`` is required — the HUD parents to the first
+    visible view and the engage is refused when none is shown.
+    """
     from firepro3d.model_space import Model_Space
-    from PyQt6.QtWidgets import QGraphicsView
-    from PyQt6.QtCore import QPointF, QTimer
+    from firepro3d.model_view import Model_View
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtCore import QPointF, Qt, QEvent
     from firepro3d.gridline import GridlineItem
 
     ms = Model_Space()
-    view = QGraphicsView(ms); view.resize(400, 400); view.resetTransform()
+    view = Model_View(ms); view.resize(400, 400); view.resetTransform()
+    view.show(); QTest.qWaitForWindowExposed(view)
     gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
     ms.addItem(gl); ms._gridlines.append(gl)
+    ms.set_mode("gridline_array")
     ms._replicate_source = gl
     ms._replicate_kind = "array"
-    ms.set_mode("gridline_array")
-    ms._pending_seed = "7"
+    ms._replicate_spacing = 1000.0
 
-    captured = {}
-    QTimer.singleShot(0, lambda: _grab_dyninput_field(captured))
-    ms._handle_tab_input()   # opens the modal _DynInput; the timer reads + closes it
-    view.hide()
-    assert captured.get("text") == "7"
+    ev = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_7,
+                   Qt.KeyboardModifier.NoModifier, "7")
+    ms.keyPressEvent(ev)
+
+    hud = ms.dynamic_input
+    assert hud is not None
+    assert hud.editor("Spacing").text() == "7"
+    ms.end_dynamic_input()
+    view.close()
 
 
 def test_placement_digit_opens_and_seeds_length(qapp):
