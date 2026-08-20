@@ -144,3 +144,43 @@ def test_move_excludes_moving_gridline_from_refs(ms_view):
     assert id(gl) in ms._inference_exclude_ids
     refs = ms._collect_alignment_refs()
     assert all(f.source_id != id(gl) for f in refs)  # the mover is not a reference
+
+
+# ── GridlineItem is movable by the generic move (bug: it wasn't) ───────────
+#
+# move_items moves a Node via moveBy and everything else via translate.
+# GridlineItem was the one selectable geometry with neither, so it was
+# silently skipped — its ghost previewed a move the commit never performed.
+# translate() conforms it to the same interface; these pin the commit, not
+# just the preview the ghost tests already cover.
+
+
+def test_gridline_translate_shifts_origin(qapp):
+    gl = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="1")
+    ox, oy = gl.grip_points()[0].x(), gl.grip_points()[0].y()
+    fx, fy = gl.grip_points()[1].x(), gl.grip_points()[1].y()
+    gl.translate(300, -200)
+    # Rigid shift: both endpoints move by the same vector.
+    assert gl.grip_points()[0].x() == pytest.approx(ox + 300)
+    assert gl.grip_points()[0].y() == pytest.approx(oy - 200)
+    assert gl.grip_points()[1].x() == pytest.approx(fx + 300)
+    assert gl.grip_points()[1].y() == pytest.approx(fy - 200)
+
+
+def test_gridline_translate_respects_lock(qapp):
+    gl = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="1")
+    gl._locked = True
+    gl.translate(300, -200)
+    assert gl.grip_points()[0].x() == pytest.approx(1000.0)   # unchanged
+
+
+def test_move_items_moves_a_selected_gridline(ms_view):
+    """The real regression: the generic move commit now moves a gridline."""
+    ms, view = ms_view
+    gl = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="1")
+    ms.addItem(gl); ms._gridlines.append(gl); gl.setSelected(True)
+    ms._selected_items = [gl]
+    ms.set_mode("move")
+    ms.move_items(QPointF(300, -200))
+    assert gl.grip_points()[0].x() == pytest.approx(1300.0)
+    assert gl.grip_points()[0].y() == pytest.approx(-200.0)

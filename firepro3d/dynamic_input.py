@@ -78,17 +78,36 @@ class Schema:
             Callers branch on this to pick an applier, so a future schema that
             seeds from scene state yet resolves to a point must not be able to
             route itself to the wrong one.
+        needs_anchor: Whether the HUD must refuse to open until a placement
+            anchor exists, even though this schema resolves to a transform.
+            Placement schemas always require one (``is_placement`` implies it);
+            this covers the transform that *also* has an anchor — ``move``,
+            whose base point is that anchor and whose live seed is measured
+            from it.  The gridline replicate transforms are genuinely
+            anchorless and leave this False, so they open as soon as their
+            source is armed.
     """
     name: str
     fields: tuple[FieldSpec, ...]
     resolve: Callable
     seed: Callable | None = None
     returns_point: bool = True
+    needs_anchor: bool = False
 
     @property
     def is_placement(self) -> bool:
         """True when this schema resolves to a point rather than a transform."""
         return self.returns_point
+
+    @property
+    def requires_anchor(self) -> bool:
+        """True when the HUD must not open without a placement anchor.
+
+        The engage/commit gates key on this rather than ``is_placement`` so a
+        transform with a real anchor (``move``) is held shut until its base
+        point exists, while the anchorless transforms are not.
+        """
+        return self.returns_point or self.needs_anchor
 
 
 # ── Line ──────────────────────────────────────────────────────────────────
@@ -217,6 +236,10 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_displacement,
         returns_point=False,
+        # A transform, but anchored: the base point is what dX/dY are measured
+        # from, so the HUD stays shut until it is picked (a move entered but not
+        # yet based would otherwise float a dead 0,0 readout).
+        needs_anchor=True,
     ),
     "distance": Schema(
         name="distance",

@@ -573,6 +573,28 @@ class GridlineItem(QGraphicsLineItem):
         self._origin.setY(float(y))
         self._rebuild_geometry()
 
+    def translate(self, dx: float, dy: float):
+        """Rigidly shift the gridline by ``(dx, dy)`` in scene units.
+
+        Conforms ``GridlineItem`` to the ``translate`` interface every other
+        movable geometry item exposes, so ``Model_Space.move_items`` moves it
+        like anything else — dragged or typed.  Without this a gridline was the
+        one selectable item the generic move silently skipped (it is neither a
+        ``Node`` nor did it have ``translate``), so its ghost previewed a move
+        the commit never performed.
+
+        The gridline is parametric: the underlying ``line()`` is derived from
+        ``_origin``/``_length``/``_angle_deg``, so a bare ``QGraphicsItem``
+        position shift would not survive the next ``_rebuild_geometry``.  The
+        origin is the single source of truth, mirroring
+        :meth:`move_perpendicular`.  Locked gridlines do not move.
+        """
+        if self._locked:
+            return
+        self._origin.setX(self._origin.x() + dx)
+        self._origin.setY(self._origin.y() + dy)
+        self._rebuild_geometry()
+
     def set_length(self, length: float):
         if self._locked:
             return

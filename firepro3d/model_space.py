@@ -3867,6 +3867,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_circle": "_commit_draw_circle_at",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
+        "move": "_apply_move_displacement",
     }
 
     def active_schema(self):
@@ -3986,13 +3987,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         the user is looking at is always one they can type into.
 
         Refuses when there is nothing coherent to read out or edit: the mode has
-        no schema, the mode has no applier, or a *placement* schema has no
-        anchor.  Transform schemas — displacement, distance, spacing_count —
-        have no anchor by nature, so the anchor gate is conditioned on
-        ``is_placement`` rather than applied to every schema.
+        no schema, the mode has no applier, or an *anchored* schema has no
+        anchor.  The anchor gate is keyed on ``schema.requires_anchor``, which
+        covers every placement plus the one transform that has a real anchor
+        (``move``, whose base point is measured from).  The genuinely
+        anchorless transforms — ``distance``, ``spacing_count`` — leave it and
+        so open as soon as their source is armed.
 
-        The applier gate is what keeps the refusal honest for those transform
-        modes: skipping the anchor gate would otherwise let them open a HUD
+        The applier gate is what keeps the refusal honest for the anchorless
+        transforms: skipping the anchor gate would otherwise let them open a HUD
         whose Enter reaches nothing, raising inside a Qt signal handler and
         stealing Enter from the mode's own working commit path.  Modes mapped
         in ``_SCHEMA_FOR_MODE`` but not yet in ``_APPLIER_FOR_MODE`` simply do
@@ -4003,7 +4006,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         schema = self.active_schema()
         if schema is None:
             return False
-        return not (schema.is_placement
+        return not (schema.requires_anchor
                     and self.get_placement_anchor() is None)
 
     def _create_dynamic_input(self):
@@ -4313,7 +4316,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         schema = self.active_schema()
         anchor = self.get_placement_anchor()
-        if schema is None or (schema.is_placement and anchor is None):
+        if schema is None or (schema.requires_anchor and anchor is None):
             self.end_dynamic_input()
             return
         hud = self.dynamic_input
@@ -5593,6 +5596,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                          snapped.y() - self.node_start_pos.y())
         self._move_ghost = [p.translated(offset.x(), offset.y())
                             for p in self._move_ghost_base]
+        # Feed the dynamic-input HUD its live dX/dY seed (measured from the
+        # base point in ``_transform_seed_values``).  The status-bar readout
+        # below is a separate surface and stays: S1 retired the painted
+        # on-canvas Dim HUD, which move never used, not the status line — and
+        # it carries ``dist``, which the two-field HUD does not.  A no-op while
+        # a field has focus, so a mid-edit reseed cannot land.  ``paste`` also
+        # reaches here, harmlessly: it has no schema, so nothing seeds from it.
+        self.publish_placement_state(self.node_start_pos, snapped)
         self._show_status(
             f"dx={offset.x():.1f}  dy={-offset.y():.1f}  "
             f"dist={math.hypot(offset.x(), offset.y()):.1f}", timeout=0)
@@ -7488,6 +7499,36 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._move_ghost = []
             self._move_ghost_base = []
             self.set_mode(None)
+
+    def _apply_move_displacement(self, params: dict) -> bool:
+        """Apply a typed dX/dY displacement (transform schema — dict, not point).
+
+        The commit half of the ``move`` branch of :meth:`_press_paste_move`,
+        so a typed displacement and a dragged one share ``move_items`` and one
+        undo push.  Only ``move`` routes here — ``paste`` is deliberately kept
+        out of the schema and anchor tables (F2), because it commits through
+        ``paste_items`` and would otherwise be applied as a move of the current
+        selection.
+
+        Every displacement commits: unlike the length/radius/spacing schemas
+        there is no magnitude floor, so this always reports success (decision
+        D2's verdict is still returned for the dispatcher's sake).
+
+        Args:
+            params: ``resolve_displacement``'s output — ``{"offset": QPointF}``,
+                already Y-flipped into scene coordinates.
+
+        Returns:
+            True — the move is unconditional.
+        """
+        self.move_items(params["offset"])
+        self.push_undo_state()
+        self.node_start_pos = None
+        self._move_ghost = []
+        self._move_ghost_base = []
+        self.clear_placement_state()
+        self.set_mode(None)
+        return True
 
     def _press_place_import(self, event, pos, snapped, item_under, node_under, pipe_under):
         self._commit_place_import(snapped)

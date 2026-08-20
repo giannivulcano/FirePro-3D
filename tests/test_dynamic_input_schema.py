@@ -85,6 +85,27 @@ class TestRegistry:
             if schema.seed is not None:
                 assert schema.returns_point, name
 
+    def test_requires_anchor_covers_placements_plus_move(self):
+        """The engage/commit anchor gate keys on this, not on ``is_placement``.
+
+        Every placement needs an anchor; ``move`` is the one transform that
+        also does (its base point), so it must not open a HUD before that point
+        exists.  The gridline replicate transforms are anchorless.
+        """
+        need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
+        assert need == {"line", "rectangle", "circle", "displacement"}
+
+    def test_anchorless_transforms_do_not_require_an_anchor(self):
+        assert SCHEMAS["distance"].requires_anchor is False
+        assert SCHEMAS["spacing_count"].requires_anchor is False
+
+    def test_move_is_a_transform_that_still_requires_an_anchor(self):
+        """The distinction T15 turns on: transform (dict), yet anchored."""
+        disp = SCHEMAS["displacement"]
+        assert disp.is_placement is False       # resolves to a dict
+        assert disp.needs_anchor is True
+        assert disp.requires_anchor is True
+
 
 class TestLine:
 

@@ -20,6 +20,7 @@ from firepro3d.dynamic_input import SCHEMAS
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
 from firepro3d.model_view import Model_View
+from firepro3d.node import Node
 
 
 @pytest.fixture
@@ -1583,3 +1584,166 @@ class TestGridlineReplicateParity:
 
         assert hud_x == pytest.approx(mouse_x)
         assert mouse_x == pytest.approx(1500.0)   # non-vacuous
+
+
+# ── Move displacement (T15) ───────────────────────────────────────────────
+#
+# ``move`` is a transform schema (resolves to a dict, not a point) that
+# *nonetheless has an anchor* — the base point, ``node_start_pos``.  That is
+# what distinguishes it from the gridline replicate transforms, which are
+# anchorless, and it is why the displacement schema carries ``needs_anchor``:
+# the HUD must stay shut until the base point is picked, or it would float a
+# dead ``0,0`` readout the moment move mode is entered.
+
+
+def _arm_move(scene, base, moved_item):
+    """Enter move mode with *moved_item* selected and *base* as the base point.
+
+    Mirrors the real flow: ``_selected_items`` is what ``move_items`` reads,
+    and ``node_start_pos`` is the base point the second click would have set.
+    """
+    scene.set_mode("move")
+    scene._selected_items = [moved_item]
+    scene.node_start_pos = QPointF(base)
+
+
+class TestMoveHudGate:
+    """The move HUD is gated on the base point, unlike the anchorless transforms."""
+
+    def test_no_hud_before_the_base_point(self, scene, view):
+        """Entering move mode is not enough — there is nothing to read out yet."""
+        scene.set_mode("move")
+        scene._selected_items = [Node(0, 0)]
+        assert scene.node_start_pos is None
+        assert scene.get_placement_anchor() is None
+        assert scene._hud_available() is False
+        assert scene.begin_dynamic_input(seed="1") is False
+        assert scene.dynamic_input is None
+
+    def test_hud_available_once_the_base_point_is_set(self, scene, view):
+        _arm_move(scene, QPointF(0, 0), Node(0, 0))
+        assert scene.get_placement_anchor() == QPointF(0, 0)
+        assert scene._hud_available() is True
+        assert scene.begin_dynamic_input() is True
+
+    def test_move_handler_publishes_the_live_offset(self, scene, view):
+        """After the base point, the move handler feeds the HUD (no painted hint)."""
+        _arm_move(scene, QPointF(0, 0), Node(0, 0))
+        scene._move_paste_move(_FakeEvent(), QPointF(300, -200))
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        scene.begin_dynamic_input()
+        vals = scene.dynamic_input.values()
+        assert vals["dX"] == pytest.approx(300.0)
+        assert vals["dY"] == pytest.approx(200.0)      # Y-up: -scene Y
+
+
+class TestMoveApplier:
+    """Typed dX/dY moves the selection and ends the mode (transform applier)."""
+
+    def test_offset_is_y_up(self, scene, view):
+        _arm_move(scene, QPointF(0, 0), Node(0, 0))
+        moved = []
+        scene.move_items = lambda off: moved.append(off)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("100")
+        scene.dynamic_input.editor("dY").setText("50")
+        scene.dynamic_input._accept()
+        assert moved[0].x() == pytest.approx(100.0)
+        assert moved[0].y() == pytest.approx(-50.0)    # dY up = -scene Y
+
+    def test_negative_components_allowed(self, scene, view):
+        _arm_move(scene, QPointF(0, 0), Node(0, 0))
+        moved = []
+        scene.move_items = lambda off: moved.append(off)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("-25")
+        scene.dynamic_input.editor("dY").setText("-10")
+        scene.dynamic_input._accept()
+        assert moved[0].x() == pytest.approx(-25.0)
+        assert moved[0].y() == pytest.approx(10.0)
+
+    def test_commit_closes_the_hud_and_exits_move_mode(self, scene, view):
+        _arm_move(scene, QPointF(0, 0), Node(0, 0))
+        scene.move_items = lambda off: None
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("10")
+        scene.dynamic_input._accept()
+        assert scene.node_start_pos is None
+        assert scene.mode in (None, "select")
+        assert scene.dynamic_input is None
+
+    def test_the_selection_really_moves(self, scene, view):
+        node = Node(0, 0)
+        scene.addItem(node)
+        _arm_move(scene, QPointF(0, 0), node)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("300")
+        scene.dynamic_input.editor("dY").setText("200")
+        scene.dynamic_input._accept()
+        assert node.scenePos().x() == pytest.approx(300.0)
+        assert node.scenePos().y() == pytest.approx(-200.0)
+
+    def test_undo_reverses_the_typed_move_in_one_step(self, scene, view):
+        # Registered through the sprinkler system so the undo snapshot captures
+        # it — a bare addItem'd Node is invisible to _capture_network.
+        node = scene.add_node(0, 0)
+        scene.push_undo_state()
+        _arm_move(scene, QPointF(0, 0), node)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("300")
+        scene.dynamic_input._accept()
+        assert node.scenePos().x() == pytest.approx(300.0)
+        scene.undo()
+        node_after = next(n for n in scene.items() if isinstance(n, Node))
+        assert node_after.scenePos().x() == pytest.approx(0.0)
+
+
+class TestMoveParity:
+    """A typed displacement and the same displacement dragged agree."""
+
+    def test_mouse_and_hud_agree(self, scene, view):
+        drag = QPointF(300, -200)          # +300 right, 200 up (scene Y down)
+
+        node_mouse = Node(1000, 1000)
+        scene.addItem(node_mouse)
+        _arm_move(scene, QPointF(0, 0), node_mouse)
+        # The click path takes the offset from base point to the release point.
+        scene._press_paste_move(_FakeEvent(), None, drag, None, None, None)
+        mouse_pos = node_mouse.scenePos()
+
+        node_hud = Node(1000, 1000)
+        scene.addItem(node_hud)
+        _arm_move(scene, QPointF(0, 0), node_hud)
+        scene.begin_dynamic_input()
+        scene.dynamic_input.editor("dX").setText("300")
+        scene.dynamic_input.editor("dY").setText("200")   # Y-up magnitude
+        scene.dynamic_input._accept()
+        hud_pos = node_hud.scenePos()
+
+        assert hud_pos.x() == pytest.approx(mouse_pos.x())
+        assert hud_pos.y() == pytest.approx(mouse_pos.y())
+        assert mouse_pos.x() == pytest.approx(1300.0)      # non-vacuous
+
+
+class TestPasteStaysOutOfTheHud:
+    """F2: paste shares node_start_pos and the handler but must not open a HUD.
+
+    ``paste`` commits via ``paste_items``, ``move`` via ``move_items``.  Adding
+    paste to the HUD without its own applier would engage on a paste and commit
+    it as a move of the current selection, so paste is deliberately absent from
+    both the schema and applier tables and from ``get_placement_anchor``.
+    """
+
+    def test_paste_has_no_anchor_even_with_a_base_point(self, scene, view):
+        scene.set_mode("paste")
+        scene.node_start_pos = QPointF(0, 0)
+        assert scene.get_placement_anchor() is None
+
+    def test_paste_mode_opens_no_hud(self, scene, view):
+        scene.set_mode("paste")
+        scene.node_start_pos = QPointF(0, 0)
+        assert scene.active_schema() is None
+        assert scene._hud_available() is False
+        assert scene.begin_dynamic_input(seed="1") is False
+        assert scene.dynamic_input is None
