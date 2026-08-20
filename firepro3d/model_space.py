@@ -137,6 +137,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # The live on-canvas dynamic-input HUD, or None in cursor mode.  Its
         # presence *is* input mode — see is_input_mode.
         self.dynamic_input = None
+        # Left-Shift tap tracking (cycle_placement_ambiguity). Armed on a clean
+        # left-Shift press, broken by any other key or a click, consumed on the
+        # matching release — so Shift-as-modifier never cycles.
+        self._lshift_tap_armed = False
         self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
@@ -4589,6 +4593,122 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     # ─────────────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _is_left_shift(event) -> bool:
+        """Whether *event* is the **left** Shift key specifically.
+
+        Qt reports both Shift keys as ``Key_Shift``; the left one is told apart
+        by its native code so the right Shift stays a pure modifier.  On Windows
+        left Shift carries scan code ``0x2A`` (42) / virtual key ``VK_LSHIFT``
+        (``0xA0``); either match is accepted so a platform that fills only one
+        of the two still works.
+        """
+        if event.key() != Qt.Key.Key_Shift:
+            return False
+        return event.nativeScanCode() == 42 or event.nativeVirtualKey() == 0xA0
+
+    def cycle_placement_ambiguity(self) -> bool:
+        """Left-Shift tap: cycle whatever is ambiguous about the placement.
+
+        Select mode cycles similar elements, pipe mode cycles Z-stacked node
+        candidates, wall mode cycles alignment.  These were Tab until Dynamic
+        Input claimed Tab for the on-canvas HUD in every mode; a clean left-Shift
+        tap now carries them (see :meth:`keyReleaseEvent`).
+
+        Returns:
+            True when something was cycled, False when the current mode has
+            nothing ambiguous to cycle (so the caller can leave the key alone).
+        """
+        if self.mode in ("select", None, ""):
+            return self._cycle_similar_selection()
+        if self.mode == "pipe" and len(self._pipe_tab_candidates) > 1:
+            self._pipe_tab_index = (
+                (self._pipe_tab_index + 1) % len(self._pipe_tab_candidates))
+            self._emit_pipe_tab_readout()
+            return True
+        if self.mode in ("wall", "wall_rect"):
+            self._cycle_wall_alignment()
+            return True
+        return False
+
+    def _cycle_similar_selection(self) -> bool:
+        """Select the next element of the same type as the sole selection.
+
+        Lifted verbatim from the retired ``_handle_tab_input`` select branch.
+
+        Returns:
+            True when the selection was advanced, False when there is not
+            exactly one selected item of a cyclable type.
+        """
+        selected = self.selectedItems()
+        if len(selected) == 1:
+            item = selected[0]
+            _type_map = {
+                Pipe: lambda: list(self.sprinkler_system.pipes),
+                WallSegment: lambda: list(self._walls),
+                Node: lambda: [n for n in self.sprinkler_system.nodes
+                               if n.has_sprinkler()],
+                GridlineItem: lambda: list(self._gridlines),
+                FloorSlab: lambda: list(self._floor_slabs),
+                RoofItem: lambda: list(self._roofs),
+            }
+            collection = None
+            for cls, getter in _type_map.items():
+                if isinstance(item, cls):
+                    collection = getter()
+                    break
+            if collection and item in collection:
+                idx = collection.index(item)
+                nxt = collection[(idx + 1) % len(collection)]
+                self.clearSelection()
+                nxt.setSelected(True)
+                self.requestPropertyUpdate.emit(nxt)
+                return True
+        return False
+
+    def _cycle_wall_alignment(self) -> None:
+        """Advance wall alignment Center → Left → Right and refresh the preview.
+
+        Lifted verbatim from the retired ``_handle_tab_input`` wall branch.
+        """
+        _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
+        self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
+        if self.mode == "wall_rect":
+            if self._wall_rect_anchor is None:
+                self.instructionChanged.emit(
+                    f"Pick first corner for rectangular wall [{self._wall_alignment}]")
+            else:
+                self.instructionChanged.emit(
+                    f"Pick opposite corner [{self._wall_alignment}]")
+        elif self._wall_anchor is None:
+            self.instructionChanged.emit(
+                f"Pick wall start point [{self._wall_alignment}]")
+        else:
+            self.instructionChanged.emit(
+                f"Pick wall end point [{self._wall_alignment}]")
+        # Sync template alignment and update Properties dock live
+        if self._wall_template is not None:
+            self._wall_template._alignment = self._wall_alignment
+            self.requestPropertyUpdate.emit(self._wall_template)
+        # Force preview rect to update without requiring mouse movement
+        if (self._wall_anchor is not None
+                and self._last_scene_pos is not None
+                and self._wall_preview_rect is not None):
+            _wtmpl = self._get_wall_template()
+            p1l, p1r, p2r, p2l = compute_wall_quad(
+                self._wall_anchor, self._last_scene_pos,
+                _wtmpl._thickness_mm, _wtmpl._alignment,
+                self.scale_manager)
+            _pp = QPainterPath()
+            _pp.moveTo(p1l)
+            _pp.lineTo(p2l)
+            _pp.lineTo(p2r)
+            _pp.lineTo(p1r)
+            _pp.closeSubpath()
+            self._wall_preview_rect.setPath(_pp)
+            for v in self.views():
+                v.viewport().update()
+
     def _handle_tab_input(self):
         """
         Open a lightweight inline popup to let the user type exact dimensions
@@ -6290,6 +6410,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     "Pick next node (Esc/double-click to finish)")
 
     def mousePressEvent(self, event):
+        # A click ends any pending left-Shift tap: Shift+click is a modifier
+        # use (multi-select), not a tap, so it must not cycle on release.
+        self._lshift_tap_armed = False
         # Inert in input mode (see mouseMoveEvent): a click must not commit
         # geometry behind an open HUD.
         if self.is_input_mode():
@@ -8099,7 +8222,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._wall_anchor = snapped
             self._wall_chain_start = QPointF(snapped)
             self.update_preview_node(snapped)
-            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Tab=cycle")
+            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Shift=cycle")
         else:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -8152,7 +8275,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 # Chain: end of this wall becomes start of next
                 self._wall_anchor = QPointF(tip)
                 self.instructionChanged.emit(
-                    f"Pick next wall end [{self._wall_alignment}]  Tab=cycle  Esc=stop")
+                    f"Pick next wall end [{self._wall_alignment}]  Shift=cycle  Esc=stop")
 
     # ── Wall rectangle drawing ──────────────────────────────────────────
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -9080,6 +9203,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # KEY EVENTS
 
     def keyPressEvent(self, event):
+        # Left-Shift tap tracking: a clean left-Shift press arms the cycle;
+        # any other key breaks it, so Shift held as a modifier never cycles.
+        # Autorepeat (a held key) is neither an arm nor a break.
+        if not event.isAutoRepeat():
+            self._lshift_tap_armed = self._is_left_shift(event)
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
@@ -9323,6 +9451,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         else:
             super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        """Fire the placement-cycle on a clean left-Shift tap.
+
+        The tap stays armed only if nothing happened between the left-Shift
+        press and this release (see ``keyPressEvent`` and ``mousePressEvent``),
+        so Shift+click, Shift+drag and Shift+key never cycle.  A HUD field
+        having focus suppresses it too — Shift is an ordinary modifier there.
+        """
+        if (self._is_left_shift(event) and self._lshift_tap_armed
+                and not event.isAutoRepeat()):
+            self._lshift_tap_armed = False
+            if not self.is_input_mode() and self.cycle_placement_ambiguity():
+                event.accept()
+                return
+        super().keyReleaseEvent(event)
 
     # -------------------------------------------------------------------------
     # COPY / PASTE / MOVE
