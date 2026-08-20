@@ -1808,3 +1808,112 @@ class TestGhostUpdatesOnFieldCommit:
         line = scene.preview_pipe.line()
         assert abs(line.x2()) < 1e-3 and abs(line.y2() + 1200) < 1e-3, (
             "ghost follows typed Angle (Y-up: 90° points to -y)")
+
+    def _engage_rect(self, scene, view, anchor=QPointF(0, 0)):
+        """First-click a rectangle, seed a decoy far corner, and engage.
+
+        Drives the real press/move path (not the bare ``_engage_rect`` helper)
+        so ``_draw_rect_preview`` actually exists for the ghost to follow, and
+        seeds a decoy corner far from the value the test types.
+        """
+        scene.set_mode("draw_rectangle")
+        scene.single_place_mode = False
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(anchor),
+                                    None, None, None)
+        scene._move_draw_rectangle(_FakeEvent(),
+                                   QPointF(anchor.x() + 800.0,
+                                           anchor.y() - 400.0))    # decoy
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_ghost_updates_on_field_commit_rectangle(self, scene, view):
+        # Confirmation: rectangle is a placement schema, so Task 3's handler
+        # already redraws its ghost on field-commit.  X/Y are SIGNED and Y-up
+        # (resolve_rectangle does anchor.y() - Y); the preview normalises.
+        hud = self._engage_rect(scene, view)
+
+        ed = hud.editor("X")
+        ed.selectAll()
+        ed.setText("1000")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)          # commits X, wraps focus
+
+        ey = hud.editor("Y")
+        ey.selectAll()
+        ey.setText("500")
+        QTest.keyClick(ey, Qt.Key.Key_Tab)          # commits Y
+
+        rect = scene._draw_rect_preview.rect()
+        # Corner mode from (0,0): far corner = (1000, -500) → normalised rect
+        # spans width 1000, height 500 (and the decoy 800×400 is gone).
+        assert rect.width() == pytest.approx(1000.0), "width follows typed X"
+        assert rect.height() == pytest.approx(500.0), "height follows typed Y"
+
+    def _engage_circle(self, scene, view, centre=QPointF(0, 0)):
+        """First-click a circle centre, seed a decoy rim, and engage."""
+        scene.set_mode("draw_circle")
+        scene.single_place_mode = False
+        scene._press_draw_circle(_FakeEvent(), None, QPointF(centre),
+                                 None, None, None)
+        scene._move_draw_circle(_FakeEvent(),
+                                QPointF(centre.x() + 200.0, centre.y()))  # decoy
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_ghost_updates_on_field_commit_circle(self, scene, view):
+        # Confirmation: circle is a placement schema — the handler redraws it.
+        # _preview_from_circle sets the ellipse rect to (cx-r, cy-r, 2r, 2r).
+        hud = self._engage_circle(scene, view)
+
+        ed = hud.editor("Radius")
+        ed.selectAll()
+        ed.setText("750")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)          # commits Radius
+
+        rect = scene._draw_circle_preview.rect()
+        assert rect.width() == pytest.approx(1500.0), "diameter follows Radius"
+        assert rect.height() == pytest.approx(1500.0)
+        assert rect.center().x() == pytest.approx(0.0), "still centred on centre"
+        assert rect.center().y() == pytest.approx(0.0)
+
+    def _engage_move(self, scene, view, base=QPointF(0, 0)):
+        """Arm move on a Node at *base*, build its ghost base, and engage.
+
+        Mirrors ``_press_paste_move``'s first click: it sets ``node_start_pos``
+        and builds ``_move_ghost_base`` from the live selection.  A decoy drag
+        seeds the ghost far from the value the test types.
+        """
+        node = Node(base.x(), base.y())
+        scene.addItem(node)
+        scene.set_mode("move")
+        scene._selected_items = [node]
+        scene.node_start_pos = QPointF(base)
+        scene._move_ghost_base = scene._build_move_ghost_base(is_paste=False)
+        scene._preview_from_move(QPointF(base.x() + 800.0, base.y()))  # decoy
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input, node
+
+    def test_ghost_updates_on_field_commit_move(self, scene, view):
+        # move is a TRANSFORM schema (returns_point False).  Its schema resolves
+        # to {"offset": QPointF}; the field-commit handler must convert that to
+        # the target point the base lands on (base + offset) for the ghost.
+        hud, node = self._engage_move(scene, view)
+
+        ed = hud.editor("dX")
+        ed.selectAll()
+        ed.setText("300")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)          # commits dX, wraps focus
+
+        ey = hud.editor("dY")
+        ey.selectAll()
+        ey.setText("200")
+        QTest.keyClick(ey, Qt.Key.Key_Tab)          # commits dY
+
+        # Y-up: dY 200 = scene -200.  Ghost = base silhouette translated by
+        # (300, -200) from _move_ghost_base.
+        assert scene._move_ghost, "the ghost is populated after commit"
+        base = scene._move_ghost_base[0]
+        got = scene._move_ghost[0]
+        assert got.boundingRect().center().x() == pytest.approx(
+            base.boundingRect().center().x() + 300.0), "ghost dX follows typed"
+        assert got.boundingRect().center().y() == pytest.approx(
+            base.boundingRect().center().y() - 200.0), "ghost dY is Y-up"

@@ -4063,20 +4063,34 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         stays on the real Tab/Enter path — resolves them through the active
         schema, and drives the same preview helper the mouse uses.
 
-        Only placement schemas (``returns_point``) redraw here: they resolve to
-        the ``QPointF`` the preview helpers consume.  Transform schemas are
-        skipped; their preview-on-commit lands with their applier.  A no-op if
-        the HUD closed between signal and slot.
+        Placement schemas (``returns_point``) resolve to the ``QPointF`` the
+        preview helpers consume and redraw directly.  The ``move`` transform
+        redraws too: its ``{"offset": ...}`` is converted to the target point
+        its ghost helper takes (base anchor + offset).  The gridline replicate
+        transforms are deferred — they carry a signed side the typed value
+        alone does not fix, so their preview-on-commit lands with their
+        applier.  A no-op if the HUD closed between signal and slot.
         """
         hud = self.dynamic_input
         schema = self.active_schema()
-        if hud is None or schema is None or not schema.returns_point:
+        if hud is None or schema is None:
             return
         anchor = self.get_placement_anchor()
         if schema.requires_anchor and anchor is None:
             return
         resolved = schema.resolve(anchor, hud.current_values())
-        self._preview_from_resolved(resolved)
+        if schema.returns_point:
+            self._preview_from_resolved(resolved)
+        elif self.mode == "move":
+            # Transform → the point the base anchor lands on, which the move
+            # ghost helper consumes.  Only ``move`` is wired here; the gridline
+            # replicate transforms carry a signed side the typed value alone
+            # does not fix, so their preview-on-commit is deferred.
+            offset = resolved["offset"]
+            self._preview_from_move(QPointF(anchor.x() + offset.x(),
+                                            anchor.y() + offset.y()))
+        else:
+            return
         for v in self.views():
             v.viewport().update()
 
