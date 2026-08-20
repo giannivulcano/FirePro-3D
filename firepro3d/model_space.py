@@ -4936,6 +4936,31 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset":          "_move_gridline_replicate",
     }
 
+    # Mode -> name of the method that redraws the placement preview from an
+    # already-resolved point/transform.  Mouse-move calls it after constraining
+    # the cursor; the Dynamic Input field-commit path calls it with the point a
+    # typed value resolves to.  One preview code path, no divergence.
+    _PREVIEW_DISPATCH = {
+        "draw_line":       "_preview_from_line",
+        "draw_gridline":   "_preview_from_line",
+        "polyline":        "_preview_from_polyline",
+        "draw_rectangle":  "_preview_from_rectangle",
+        "draw_circle":     "_preview_from_circle",
+        "move":            "_preview_from_move",
+        "gridline_offset": "_preview_from_gridline_replicate",
+        "gridline_array":  "_preview_from_gridline_replicate",
+    }
+
+    def _preview_from_resolved(self, resolved) -> None:
+        """Redraw the current mode's placement preview from ``resolved``.
+
+        ``resolved`` is a ``QPointF`` for placement schemas or the transform
+        dict for the others.  A no-op when the mode has no preview helper.
+        """
+        name = self._PREVIEW_DISPATCH.get(self.mode)
+        if name is not None:
+            getattr(self, name)(resolved)
+
     # ── Per-mode move handlers ──────────────────────────────────────────
 
     def _move_pipe(self, event, snapped):
@@ -5027,6 +5052,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             rect = QRectF(c1, snapped).normalized()
             self._design_area_rect_item.setRect(rect)
 
+    def _preview_from_polyline(self, tip) -> None:
+        """Extend the active polyline's rubber-band to ``tip``.
+
+        ``tip`` is already constrained/resolved.  A no-op before the first
+        vertex exists.  Polyline draws its preview through the item's own
+        ``update_preview`` rather than ``preview_pipe``, so it does not share
+        ``_preview_from_line``.
+        """
+        if self._polyline_active is None:
+            return
+        self._polyline_active.update_preview(tip)
+
     def _move_polyline(self, event, snapped):
         if self._polyline_active is None:
             self.update_preview_node(snapped)   # cursor preview before first click
@@ -5040,11 +5077,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 tip = self._constrain_angle(
                     self._polyline_active._points[-1], snapped
                 )
-            self._polyline_active.update_preview(tip)
+            self._preview_from_polyline(tip)
             # Publishing here — after the Ctrl constraint — is what keeps the
             # readout and the HUD's seed from disagreeing with the preview.
             self.publish_placement_state(
                 self._polyline_active._points[-1], tip)
+
+    def _preview_from_line(self, tip) -> None:
+        """Point the rubber-band line at ``tip`` (already constrained/resolved).
+
+        Anchored at ``_draw_line_anchor`` — the ``draw_line``/``draw_gridline``
+        first-click point.  A no-op before the anchor is armed.
+        """
+        anchor = self._draw_line_anchor
+        if anchor is None:
+            return
+        self.preview_pipe.setLine(anchor.x(), anchor.y(), tip.x(), tip.y())
+        self.preview_pipe.show()
 
     def _move_draw_line(self, event, snapped):
         sm = self.scale_manager
@@ -5056,11 +5105,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._constrain_angle(_anchor, snapped)
-            self.preview_pipe.setLine(
-                _anchor.x(), _anchor.y(),
-                tip.x(), tip.y()
-            )
-            self.preview_pipe.show()
+            if _is_line:
+                self._preview_from_line(tip)
+            else:
+                # construction_line keeps its own rubber-band; the extracted
+                # helper is anchored on ``_draw_line_anchor``, which is None here.
+                self.preview_pipe.setLine(
+                    _anchor.x(), _anchor.y(),
+                    tip.x(), tip.y()
+                )
+                self.preview_pipe.show()
             if _is_line:
                 # Publishing here — after the Ctrl constraint — is what keeps
                 # the readout and the HUD's seed from disagreeing.
@@ -5080,6 +5134,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.preview_pipe.hide()
 
+    def _preview_from_rectangle(self, corner) -> None:
+        """Redraw the rectangle preview to the resolved far ``corner``.
+
+        Honours the from-centre branch (symmetric half-extents) and, in corner
+        mode, the ``normalized()`` corner logic.  A no-op until both the anchor
+        and the preview item exist.
+        """
+        if self._draw_rect_anchor is None or self._draw_rect_preview is None:
+            return
+        if self._draw_rect_from_center:
+            # Center mode: anchor is center, rect extends symmetrically
+            hw = abs(corner.x() - self._draw_rect_anchor.x())
+            hh = abs(corner.y() - self._draw_rect_anchor.y())
+            rect = QRectF(
+                self._draw_rect_anchor.x() - hw,
+                self._draw_rect_anchor.y() - hh,
+                2 * hw, 2 * hh,
+            )
+        else:
+            rect = QRectF(self._draw_rect_anchor, corner).normalized()
+        self._draw_rect_preview.setRect(rect)
+
     def _move_draw_rectangle(self, event, snapped):
         if self._draw_rect_anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
@@ -5087,22 +5163,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._draw_rect_anchor is not None and self._draw_rect_preview is not None:
-            if self._draw_rect_from_center:
-                # Center mode: anchor is center, rect extends symmetrically
-                hw = abs(snapped.x() - self._draw_rect_anchor.x())
-                hh = abs(snapped.y() - self._draw_rect_anchor.y())
-                rect = QRectF(
-                    self._draw_rect_anchor.x() - hw,
-                    self._draw_rect_anchor.y() - hh,
-                    2 * hw, 2 * hh,
-                )
-            else:
-                rect = QRectF(self._draw_rect_anchor, snapped).normalized()
-            self._draw_rect_preview.setRect(rect)
+            self._preview_from_rectangle(snapped)
             # The HUD widget is the readout (S1).  Published unnormalised so the
             # signed extents reach the schema — normalising here would seed
             # from-centre-looking magnitudes and lose the dragged quadrant.
             self.publish_placement_state(self._draw_rect_anchor, snapped)
+
+    def _preview_from_circle(self, rim) -> None:
+        """Redraw the circle preview so ``rim`` lands on its circumference.
+
+        The radius is the distance from ``_draw_circle_center`` to ``rim``.  A
+        no-op until both the centre and the preview item exist.
+        """
+        if self._draw_circle_center is None or self._draw_circle_preview is None:
+            return
+        r = math.hypot(rim.x() - self._draw_circle_center.x(),
+                       rim.y() - self._draw_circle_center.y())
+        cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
+        self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
     def _move_draw_circle(self, event, snapped):
         if self._draw_circle_center is None:
@@ -5111,10 +5189,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._draw_circle_center is not None and self._draw_circle_preview is not None:
-            r = math.hypot(snapped.x() - self._draw_circle_center.x(),
-                           snapped.y() - self._draw_circle_center.y())
-            cx, cy = self._draw_circle_center.x(), self._draw_circle_center.y()
-            self._draw_circle_preview.setRect(cx - r, cy - r, 2 * r, 2 * r)
+            self._preview_from_circle(snapped)
             # The HUD widget is the readout (S1); the rim point carries the
             # radius, since the commit takes the hypot.
             self.publish_placement_state(self._draw_circle_center, snapped)
@@ -5262,6 +5337,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.update_preview_node(snapped)
         self.preview_pipe.hide()
 
+    def _preview_from_move(self, target) -> None:
+        """Slide the move/paste ghost silhouette so the base point lands on
+        ``target``.
+
+        Rebuilds ``_move_ghost`` (read by ``drawForeground`` block 8) as the
+        base silhouette translated by ``target - node_start_pos`` and repaints.
+        A no-op before the base point is set.
+        """
+        if self.node_start_pos is None:
+            return
+        offset = QPointF(target.x() - self.node_start_pos.x(),
+                         target.y() - self.node_start_pos.y())
+        self._move_ghost = [p.translated(offset.x(), offset.y())
+                            for p in self._move_ghost_base]
+        for v in self.views():
+            v.viewport().update()
+
     def _move_paste_move(self, event, snapped):
         """Ghost preview for paste/move: silhouette rides the cursor after the
         base point is set. Before that, show the plain cursor marker."""
@@ -5273,8 +5365,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.preview_pipe.hide()
         offset = QPointF(snapped.x() - self.node_start_pos.x(),
                          snapped.y() - self.node_start_pos.y())
-        self._move_ghost = [p.translated(offset.x(), offset.y())
-                            for p in self._move_ghost_base]
+        self._preview_from_move(snapped)
         # Feed the dynamic-input HUD its live dX/dY seed (measured from the
         # base point in ``_transform_seed_values``).  The status-bar readout
         # below is a separate surface and stays: S1 retired the painted
@@ -5562,11 +5653,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ghost.append((QPointF(ox, oy), QPointF(ox + dxl, oy + dyl)))
         return ghost
 
-    def _move_gridline_replicate(self, event, snapped):
-        """Move handler for gridline_array / gridline_offset modes.
+    def _preview_from_gridline_replicate(self, cursor) -> None:
+        """Rebuild the replicate ghost from a resolved ``cursor`` point.
 
-        Computes signed perpendicular distance from source to cursor and
-        rebuilds the ghost preview overlay.
+        Projects ``cursor`` onto the source gridline's perpendicular to get the
+        signed spacing, stores it in ``_replicate_spacing``, rebuilds
+        ``_replicate_ghost`` (read by ``drawForeground`` block 7) and repaints.
+        A no-op with no source.
+
+        Unlike the placement helpers this takes the cursor **point** rather than
+        the resolved scalar: the mouse-move path derives the spacing from the
+        cursor here, so keeping that derivation in one place is what makes the
+        preview identical to the mouse's.
         """
         src = self._replicate_source
         if src is None:
@@ -5575,9 +5673,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         o = src._origin
         # Signed perpendicular distance from source origin to cursor
         self._replicate_spacing = (
-            (snapped.x() - o.x()) * nx + (snapped.y() - o.y()) * ny
+            (cursor.x() - o.x()) * nx + (cursor.y() - o.y()) * ny
         )
         self._replicate_ghost = self._build_replicate_ghost(self._replicate_spacing)
+        for v in self.views():
+            v.viewport().update()
+
+    def _move_gridline_replicate(self, event, snapped):
+        """Move handler for gridline_array / gridline_offset modes.
+
+        Computes signed perpendicular distance from source to cursor and
+        rebuilds the ghost preview overlay.
+        """
+        if self._replicate_source is None:
+            return
+        self._preview_from_gridline_replicate(snapped)
         # The readout is the ``DynamicInputHud`` widget, which seeds from
         # ``_replicate_spacing``/``_replicate_count`` directly (transform
         # schemas have no cursor-derived inverse).  Publishing here only clears

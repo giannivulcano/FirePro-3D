@@ -228,6 +228,61 @@ class TestCtrlConstraintStaysInPicker:
                           constrained.y() - raw.y()) > 1.0
 
 
+# ── Task 2: _preview_from_resolved dispatch ───────────────────────────────
+#
+# The preview-drawing tail of every ``_move_*`` handler is extracted into a
+# per-mode ``_preview_from_<mode>`` so the Dynamic Input field-commit path can
+# redraw the *same* preview from a resolved point (not the mouse).  Parity with
+# the mouse path is proven by the surviving parity tests; this pins the new
+# entry point directly.
+
+
+class TestPreviewFromResolved:
+
+    def test_moves_line_ghost(self, scene, view):
+        """``_preview_from_resolved`` points the rubber-band line at the arg."""
+        scene.set_mode("draw_line")
+        _click(scene, view, QPointF(0, 0))          # arm the anchor
+        assert scene._draw_line_anchor == QPointF(0, 0)
+
+        scene._preview_from_resolved(QPointF(1000, 0))
+
+        line = scene.preview_pipe.line()
+        assert abs(line.x2() - 1000) < 1e-6
+        assert abs(line.y2() - 0) < 1e-6
+        assert scene.preview_pipe.isVisible()
+
+    def test_moves_rectangle_preview(self, scene, view):
+        """The rect preview redraws from the resolved corner point."""
+        scene.set_mode("draw_rectangle")
+        scene._press_draw_rectangle(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                                    None, None, None)
+        assert scene._draw_rect_preview is not None
+
+        scene._preview_from_resolved(QPointF(300, -200))
+
+        r = scene._draw_rect_preview.rect()
+        assert r.width() == pytest.approx(300.0, abs=1e-6)
+        assert r.height() == pytest.approx(200.0, abs=1e-6)
+
+    def test_moves_circle_preview(self, scene, view):
+        """The circle preview redraws from the resolved rim point."""
+        scene.set_mode("draw_circle")
+        scene._press_draw_circle(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                                 None, None, None)
+        assert scene._draw_circle_preview is not None
+
+        scene._preview_from_resolved(QPointF(120, 0))
+
+        r = scene._draw_circle_preview.rect()
+        assert r.width() == pytest.approx(240.0, abs=1e-6)
+
+    def test_noop_when_mode_has_no_preview(self, scene, view):
+        """A mode absent from the table is a silent no-op, not a crash."""
+        scene.set_mode("select")
+        scene._preview_from_resolved(QPointF(1, 1))   # must not raise
+
+
 # ── Task 10: mouse-vs-HUD parity ──────────────────────────────────────────
 #
 # The architectural claim under test is that dynamic input is an alternative
