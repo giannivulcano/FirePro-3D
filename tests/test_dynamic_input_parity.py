@@ -1759,3 +1759,52 @@ class TestPasteStaysOutOfTheHud:
         assert scene._hud_available() is False
         assert scene.begin_dynamic_input(seed="1") is False
         assert scene.dynamic_input is None
+
+
+# ── Task 3: ghost updates on each field commit ────────────────────────────
+#
+# While a HUD field is engaged the mouse is inert (§4.5), so the placement
+# ghost would sit frozen at its engage-time seed.  Each Tab field-commit fires
+# ``fieldCommitted``; the scene re-resolves the HUD's *current* values through
+# the active schema and redraws the same preview the mouse would — so typing a
+# Length then Tab moves the ghost, and typing an Angle then Tab moves it again.
+
+
+class TestGhostUpdatesOnFieldCommit:
+    """A field-commit (Tab) redraws the placement ghost from what was typed."""
+
+    def _engage(self, scene, view, anchor=QPointF(0, 0)):
+        """Arm a draw_line placement, seed a decoy, and engage the HUD.
+
+        The published seed is deliberately far from any value the test types,
+        so a ghost still sitting on the seed cannot masquerade as a ghost that
+        followed the typed field.
+        """
+        scene.set_mode("draw_line")
+        scene.single_place_mode = False
+        scene._draw_line_anchor = QPointF(anchor)
+        scene.publish_placement_state(anchor, QPointF(anchor.x() + 800.0,
+                                                      anchor.y()))
+        assert scene.begin_dynamic_input() is True
+        return scene.dynamic_input
+
+    def test_ghost_updates_on_field_commit_line(self, scene, view):
+        hud = self._engage(scene, view)
+
+        ed = hud.editor("Length")
+        ed.selectAll()
+        ed.setText("1200")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)          # commits Length, wraps focus
+
+        line = scene.preview_pipe.line()
+        assert abs(line.x2() - 1200) < 1e-6, "ghost length follows typed Length"
+        assert abs(line.y2()) < 1e-6, "angle still at its 0° seed"
+
+        ea = hud.editor("Angle")
+        ea.selectAll()
+        ea.setText("90")
+        QTest.keyClick(ea, Qt.Key.Key_Tab)          # commits Angle
+
+        line = scene.preview_pipe.line()
+        assert abs(line.x2()) < 1e-3 and abs(line.y2() + 1200) < 1e-3, (
+            "ghost follows typed Angle (Y-up: 90° points to -y)")

@@ -4035,6 +4035,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud = DynamicInputHud(schema, self.scale_manager, view.viewport())
         hud.committed.connect(self._on_dynamic_input_committed)
         hud.cancelled.connect(self._on_dynamic_input_cancelled)
+        hud.fieldCommitted.connect(self._on_dynamic_input_field_committed)
         self.dynamic_input = hud
         if hasattr(view, "place_dynamic_input"):
             # No scene latch while it is only a readout: passing None puts it
@@ -4052,6 +4053,32 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.end_dynamic_input()
             return None
         return hud
+
+    def _on_dynamic_input_field_committed(self) -> None:
+        """Redraw the placement preview from the HUD's current field values.
+
+        Fires on each Tab field-commit while a field is engaged (§4.5 keeps the
+        mouse inert, so the ghost would otherwise sit frozen at its engage-time
+        seed).  Reads values non-destructively — the invalid-flag machinery
+        stays on the real Tab/Enter path — resolves them through the active
+        schema, and drives the same preview helper the mouse uses.
+
+        Only placement schemas (``returns_point``) redraw here: they resolve to
+        the ``QPointF`` the preview helpers consume.  Transform schemas resolve
+        to a dict; their preview-on-commit is wired with their applier in a
+        later task.  A no-op if the HUD closed between signal and slot.
+        """
+        hud = self.dynamic_input
+        schema = self.active_schema()
+        if hud is None or schema is None or not schema.returns_point:
+            return
+        anchor = self.get_placement_anchor()
+        if schema.requires_anchor and anchor is None:
+            return
+        resolved = schema.resolve(anchor, hud.current_values())
+        self._preview_from_resolved(resolved)
+        for v in self.views():
+            v.viewport().update()
 
     def _sync_dynamic_input(self) -> None:
         """Reconcile the HUD with the live placement state — create, reseed, close.
