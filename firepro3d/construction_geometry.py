@@ -518,6 +518,35 @@ class RectangleItem(QGraphicsRectItem):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
+        # Rotation state.  The rect stays axis-aligned in local coords; the item
+        # is rotated via Qt's native transform (see set_angle).  ``_pivot`` is
+        # None when the origin should track the rect centre on resize; an
+        # explicit pivot is stored and left fixed.
+        self._angle: float = 0.0
+        self._pivot: QPointF | None = None
+
+    # ── Rotation ───────────────────────────────────────────────────────────
+
+    def set_angle(self, angle_deg: float, pivot: "QPointF | None" = None) -> None:
+        """Rotate the rectangle to ``angle_deg`` (from +x) about ``pivot``.
+
+        Uses Qt's item transform (``setRotation`` + ``setTransformOriginPoint``)
+        so paint, ``boundingRect`` and scene hit-testing rotate for free.  The
+        rect stays axis-aligned in local coords; only the item is rotated.
+        ``pivot`` defaults to the rect centre.  The item sits at identity
+        position with the rect holding scene coords, so local == scene here and
+        the pivot is used directly as the local transform origin.
+        """
+        self._angle = float(angle_deg)
+        if pivot is not None:
+            self._pivot = QPointF(pivot)
+            origin = self._pivot
+        else:
+            self._pivot = None          # origin follows rect centre on resize
+            origin = self.rect().center()
+        self.setTransformOriginPoint(origin)
+        self.setRotation(self._angle)
+
     # ── Properties ─────────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
@@ -526,6 +555,7 @@ class RectangleItem(QGraphicsRectItem):
             "Type": {"type": "label", "value": "Rectangle"},
             "Width": {"type": "label", "value": f"{r.width():.1f}"},
             "Height": {"type": "label", "value": f"{r.height():.1f}"},
+            "Angle": {"type": "label", "value": f"{self._angle:.1f}"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
@@ -562,9 +592,16 @@ class RectangleItem(QGraphicsRectItem):
     #   0=TL  1=TM  2=TR  3=RM  4=BR  5=BM  6=BL  7=LM  8=Centre
 
     def grip_points(self) -> list[QPointF]:
+        """Return the 9 grips in SCENE coords.
+
+        Corners are computed in the axis-aligned LOCAL rect, then mapped through
+        the item transform (``mapToScene``) so a rotated rectangle reports its
+        grips in scene space.  At angle 0 the transform is identity and this is a
+        no-op, preserving the original scene-coord contract for consumers.
+        """
         r = self.rect()
         cx, cy = r.center().x(), r.center().y()
-        return [
+        local = [
             QPointF(r.left(),  r.top()),                  # 0 TL
             QPointF(cx,        r.top()),                  # 1 TM
             QPointF(r.right(), r.top()),                  # 2 TR
@@ -575,30 +612,43 @@ class RectangleItem(QGraphicsRectItem):
             QPointF(r.left(),  cy),                       # 7 LM
             QPointF(cx,        cy),                       # 8 Centre
         ]
+        return [self.mapToScene(p) for p in local]
 
     def apply_grip(self, index: int, pos: QPointF):
-        """Resize or translate the rectangle by dragging one of its 9 grips."""
+        """Resize or translate the rectangle by dragging one of its 9 grips.
+
+        ``pos`` arrives in SCENE coords; it is mapped to LOCAL first so the
+        resize runs in the rectangle's own (rotated) frame.  At angle 0 the
+        map is identity and behaviour matches the pre-rotation implementation.
+        """
+        local = self.mapFromScene(pos)
         r = self.rect()
         l, t, ri, b = r.left(), r.top(), r.right(), r.bottom()
 
-        if   index == 0:  new_r = QRectF(QPointF(pos.x(), pos.y()), QPointF(ri,  b )).normalized()
-        elif index == 1:  new_r = QRectF(QPointF(l,  pos.y()), QPointF(ri,  b )).normalized()
-        elif index == 2:  new_r = QRectF(QPointF(l,  pos.y()), QPointF(pos.x(), b )).normalized()
-        elif index == 3:  new_r = QRectF(QPointF(l,  t ), QPointF(pos.x(), b )).normalized()
-        elif index == 4:  new_r = QRectF(QPointF(l,  t ), QPointF(pos.x(), pos.y())).normalized()
-        elif index == 5:  new_r = QRectF(QPointF(l,  t ), QPointF(ri,  pos.y())).normalized()
-        elif index == 6:  new_r = QRectF(QPointF(pos.x(), t ), QPointF(ri,  pos.y())).normalized()
-        elif index == 7:  new_r = QRectF(QPointF(pos.x(), t ), QPointF(ri,  b )).normalized()
+        if   index == 0:  new_r = QRectF(QPointF(local.x(), local.y()), QPointF(ri,  b )).normalized()
+        elif index == 1:  new_r = QRectF(QPointF(l,  local.y()), QPointF(ri,  b )).normalized()
+        elif index == 2:  new_r = QRectF(QPointF(l,  local.y()), QPointF(local.x(), b )).normalized()
+        elif index == 3:  new_r = QRectF(QPointF(l,  t ), QPointF(local.x(), b )).normalized()
+        elif index == 4:  new_r = QRectF(QPointF(l,  t ), QPointF(local.x(), local.y())).normalized()
+        elif index == 5:  new_r = QRectF(QPointF(l,  t ), QPointF(ri,  local.y())).normalized()
+        elif index == 6:  new_r = QRectF(QPointF(local.x(), t ), QPointF(ri,  local.y())).normalized()
+        elif index == 7:  new_r = QRectF(QPointF(local.x(), t ), QPointF(ri,  b )).normalized()
         elif index == 8:
-            # Centre grip → translate
-            dx, dy = pos.x() - r.center().x(), pos.y() - r.center().y()
+            # Centre grip → translate (in local frame)
+            dx, dy = local.x() - r.center().x(), local.y() - r.center().y()
             new_r = r.translated(dx, dy)
         else:
             return
         self.setRect(new_r)
+        # When the pivot follows the centre, keep the rotation origin on the new
+        # centre so a resized rectangle rotates about its own middle.
+        if self._pivot is None:
+            self.setTransformOriginPoint(self.rect().center())
 
     def translate(self, dx: float, dy: float):
         self.setRect(self.rect().translated(dx, dy))
+        if self._pivot is None:
+            self.setTransformOriginPoint(self.rect().center())
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
