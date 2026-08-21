@@ -2696,3 +2696,41 @@ class TestArcProperties:
         assert props["Span"]["value"] == "90.0°"
         assert "Start Angle" in props and "Centre" in props
         assert "Colour" in props and "Line Weight" in props and "Level" in props
+
+
+class TestArcReferenceGuides:
+    """C15: the span step shows a 0° datum + start-angle radial from the centre."""
+
+    def test_guides_appear_at_span_step(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))   # rim due-east → step 2
+        assert scene._draw_arc_step == 2
+        assert scene._draw_arc_ref_line0 is not None
+        assert scene._draw_arc_ref_start is not None
+        l0 = scene._draw_arc_ref_line0.line()
+        assert abs(l0.y1() - l0.y2()) < 1e-6              # 0° datum horizontal
+        # start radial at 0° here (rim was due-east) → also horizontal, length=radius
+        assert abs(scene._draw_arc_ref_start.line().length() - 1000.0) < 1.0
+
+    def test_guides_cleared_on_commit(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_radius = 1000.0
+        scene._draw_arc_start_deg = 0.0
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))
+        scene._commit_draw_arc_at(QPointF(0, -1000))      # commit the arc
+        assert scene._draw_arc_ref_line0 is None
+        assert scene._draw_arc_ref_start is None
+
+    def test_guides_cleared_on_mode_exit(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))
+        assert scene._draw_arc_ref_line0 is not None
+        scene.set_mode("select")
+        assert scene._draw_arc_ref_line0 is None
+        assert scene._draw_arc_ref_start is None

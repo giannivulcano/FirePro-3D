@@ -205,6 +205,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._arc_variant: str = _ARC_VARIANT_CENTER
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
+        # Arc angle-reference guides from the centre (protractor): a 0° datum
+        # (horizontal) through both steps + the start-angle radial in the span
+        # step, so the start/sweep angles read against horizontal.
+        self._draw_arc_ref_line0: "QGraphicsLineItem | None" = None
+        self._draw_arc_ref_start: "QGraphicsLineItem | None" = None
         # Placement-variant registry + session-sticky per-mode index (Task 13).
         self._init_placement_variants()
         # Text rubber-band (Sprint Q)
@@ -900,6 +905,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._draw_arc_preview.scene() is self:
                     self.removeItem(self._draw_arc_preview)
                 self._draw_arc_preview = None
+            self._clear_arc_ref_lines()
         if mode != "text":
             self._text_anchor = None
             if self._text_preview is not None:
@@ -5481,8 +5487,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_preview.setRotation(-angle_deg)   # Y-up CCW → Qt CW negate
         self._update_rect_ref_lines(angle_deg)
 
-    def _make_rect_ref_line(self):
-        """Create a dashed cosmetic guide line for the rotate step, added to scene."""
+    def _make_ref_line(self):
+        """Create a dashed cosmetic angle-reference guide line, added to scene."""
         line = QGraphicsLineItem()
         pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
@@ -5490,6 +5496,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         line.setZValue(200)
         self.addItem(line)
         return line
+
+    def _set_arc_ref_lines(self) -> None:
+        """Place the span-step arc guides: a 0° datum + the start-angle radial.
+
+        Both are static through the span step (radius and start angle are fixed;
+        only the sweep changes), so this runs once at the step-1→2 transition.
+        The arc sweep runs from the start radial, so together they read as a
+        protractor.  A no-op until the centre and both guides exist.
+        """
+        c = self._draw_arc_center
+        if (c is None or self._draw_arc_ref_line0 is None
+                or self._draw_arc_ref_start is None):
+            return
+        cx, cy, r = c.x(), c.y(), self._draw_arc_radius
+        self._draw_arc_ref_line0.setLine(cx, cy, cx + r, cy)   # 0° datum
+        sr = math.radians(self._draw_arc_start_deg)            # Y-up
+        self._draw_arc_ref_start.setLine(
+            cx, cy, cx + r * math.cos(sr), cy - r * math.sin(sr))
+
+    def _clear_arc_ref_lines(self) -> None:
+        """Remove both span-step arc guides from the scene."""
+        for attr in ("_draw_arc_ref_line0", "_draw_arc_ref_start"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
 
     def _update_rect_ref_lines(self, angle_deg) -> None:
         """Point the two rotate-step guides from the pivot (protractor).
@@ -7026,6 +7059,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         preview.setZValue(200)
         self.addItem(preview)
         self._draw_arc_preview = preview
+        # Span-step angle guides (0° datum + start-angle radial), static here.
+        self._clear_arc_ref_lines()
+        self._draw_arc_ref_line0 = self._make_ref_line()
+        self._draw_arc_ref_start = self._make_ref_line()
+        self._set_arc_ref_lines()
 
     def _commit_draw_arc_rim_at(self, point) -> bool:
         """Step-1 applier: fix radius + start angle, then advance to the span step.
@@ -7147,6 +7185,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._draw_arc_preview is not None:
             self.removeItem(self._draw_arc_preview)
             self._draw_arc_preview = None
+        self._clear_arc_ref_lines()
         self._draw_arc_center = None
         self._draw_arc_radius = 0.0
         self._draw_arc_start_deg = 0.0
@@ -8339,8 +8378,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_rect_preview.setRect(QRectF(pt1, pt2).normalized())
         # Rotation reference guides (0° datum + live sweep), drawn from the pivot.
         self._clear_rect_ref_lines()
-        self._draw_rect_ref_line0 = self._make_rect_ref_line()
-        self._draw_rect_ref_lineA = self._make_rect_ref_line()
+        self._draw_rect_ref_line0 = self._make_ref_line()
+        self._draw_rect_ref_lineA = self._make_ref_line()
         self._update_rect_ref_lines(0.0)
         self.clear_placement_state()
         self.instructionChanged.emit("Pick rotation / type angle")
