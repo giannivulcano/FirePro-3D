@@ -926,7 +926,8 @@ class MainWindow(QMainWindow):
         return SheetProperties(
             sheet, self.sheet_mgr,
             on_change=self._on_sheet_meta_changed,
-            on_reject=lambda msg: self.statusBar().showMessage(msg, 4000))
+            on_reject=lambda msg: self.statusBar().showMessage(msg, 4000),
+            scene_getter=lambda: self.paper_space_widget.paper_scene)
 
     def _on_sheet_meta_changed(self):
         """Rename/renumber committed: refresh titleblock Sheet No + UI + dirty.

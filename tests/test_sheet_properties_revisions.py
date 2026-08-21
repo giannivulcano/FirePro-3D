@@ -47,3 +47,36 @@ def test_open_revisions_dialog_is_module_level(qapp):
         "open_revisions_dialog not found at module level in firepro3d.paper_space"
     )
     assert callable(paper_space.open_revisions_dialog)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# T10: Rev/Date/Edit-Revisions in SheetProperties (concern 4 part 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_sheet_properties_exposes_rev_date_and_revisions(qapp):
+    """SheetProperties.get_properties() must expose Rev, Date, and an Edit-Revisions button."""
+    from firepro3d.paper_space import SheetProperties
+
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    props = sp.get_properties()
+    assert "Rev" in props, "Rev row missing from SheetProperties"
+    assert "Date" in props, "Date row missing from SheetProperties"
+    assert any(
+        v.get("type") == "button" and "Revision" in str(v.get("value", ""))
+        for v in props.values()
+    ), "No Edit Revisions button found in SheetProperties"
+
+
+def test_rev_edit_is_undoable(qapp):
+    """Setting Rev via set_property must be undoable via the scene's undo stack."""
+    from firepro3d.paper_space import SheetProperties
+
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    sp.set_property("Rev", "B")
+    assert sheet.title_block_fields.get("Rev") == "B", "Rev not written after set_property"
+    scene.undo_stack.undo()
+    assert sheet.title_block_fields.get("Rev") != "B", "Rev not reverted after undo"

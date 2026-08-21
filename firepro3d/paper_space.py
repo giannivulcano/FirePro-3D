@@ -574,17 +574,21 @@ class SheetProperties:
     """Property-panel adapter for a Sheet (duck-typed protocol, spec §19.4).
 
     A plain object (not a QGraphicsItem): PropertyManager only requires
-    get_properties()/set_property(). Sheet-level edits are non-undoable
-    (grill) — writes go straight to the dataclass; the on_change callback
-    lets MainWindow push UI refreshes + the dirty flag.
+    get_properties()/set_property(). Sheet Number/Name edits are non-undoable
+    — writes go straight to the dataclass.  Rev/Date edits are routed through
+    SetSheetFieldCommand on the PaperScene's undo stack (Task 10 / concern 4).
+    The on_change callback lets MainWindow push UI refreshes + the dirty flag.
     """
 
+    _TB_KEYS = ("Rev", "Date")
+
     def __init__(self, sheet: "Sheet", manager: "SheetManager",
-                 on_change=None, on_reject=None):
+                 on_change=None, on_reject=None, scene_getter=None):
         self._sheet = sheet
         self._mgr = manager
         self._on_change = on_change or (lambda: None)
         self._on_reject = on_reject or (lambda msg: None)
+        self._scene_getter = scene_getter or (lambda: None)
 
     def get_properties(self) -> dict:
         return {
@@ -593,19 +597,48 @@ class SheetProperties:
             "Paper Size": {"type": "label", "value": self._sheet.paper_size},
             "Orientation": {"type": "label",
                             "value": self._sheet.orientation or "native"},
+            "Rev": {"type": "string",
+                    "value": self._sheet.title_block_fields.get("Rev", "")},
+            "Date": {"type": "string",
+                     "value": self._sheet.title_block_fields.get("Date", "")},
+            "": {"type": "button", "value": "Edit Revisions…",
+                 "callback": self._open_revisions},
         }
+
+    def _open_revisions(self):
+        """Open the revisions dialog and fire on_change on dismiss."""
+        scene = self._scene_getter()
+        if scene is None:
+            return
+        open_revisions_dialog(scene, self._sheet, None)
+        self._on_change()
 
     def set_property(self, key: str, value) -> None:
         """Commit an edit to one property field.
 
-        Validates before writing — never partially applies.  Fires
-        *on_change* on a committed mutation, *on_reject* on a validation
+        Rev/Date: routed through SetSheetFieldCommand (undoable).
+        Sheet Number/Name: validates then writes directly (non-undoable).
+
+        Fires *on_change* on a committed mutation, *on_reject* on a validation
         failure.
 
         Args:
             key: Property label from ``get_properties()``.
             value: New value (coerced to ``str`` and stripped).
         """
+        if key in self._TB_KEYS:
+            scene = self._scene_getter()
+            if str(value) == self._sheet.title_block_fields.get(key, ""):
+                return
+            stack = getattr(scene, "undo_stack", None)
+            if stack is not None:
+                from .paper_commands import SetSheetFieldCommand
+                stack.push(SetSheetFieldCommand(scene, self._sheet, key,
+                                                str(value)))
+            else:
+                self._sheet.title_block_fields[key] = str(value)
+            self._on_change()
+            return
         value = str(value).strip()
         if key == "Sheet Number":
             if value == self._sheet.number:
