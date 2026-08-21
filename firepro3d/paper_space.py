@@ -698,6 +698,7 @@ class ViewResolver:
 
 _GRIP_SIZE = SELECTION_GRIP_SIZE_MM   # alias kept for SheetViewport internal use
 _MIN_VIEWPORT_SIZE = 20.0
+_MIN_CROP_MODEL = 1.0   # min crop extent in model mm
 _VIEW_TITLE_H = 8.0  # mm height for view title below viewport
 
 
@@ -717,7 +718,7 @@ class SheetViewport(QGraphicsObject):
         self._resizing = False
         self._resize_handle: int = -1
         self._resize_origin = QPointF()
-        self._geom_at_press = None   # (x, y, w, h) captured on mousePress
+        self._geom_at_press = None   # (x, y, w, h, (cx,cy,cw,ch)) captured on mousePress
 
         self.setPos(data.x, data.y)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -966,6 +967,8 @@ class SheetViewport(QGraphicsObject):
             self._draw_grips(painter)
 
     def _grip_rects(self) -> list[QRectF]:
+        if self._is_detail():
+            return []          # detail extent is owned by the marker (inert)
         w, h = self._data.w, self._data.h
         g = _GRIP_SIZE
         hg = g / 2
@@ -996,8 +999,10 @@ class SheetViewport(QGraphicsObject):
         # Snapshot geometry on every press so move/resize releases can push a
         # single ViewportGeometryCommand (covers both the grip-resize branch
         # and the plain-move branch).
+        cr = self._data.crop_rect
         self._geom_at_press = (self._data.x, self._data.y,
-                               self._data.w, self._data.h)
+                               self._data.w, self._data.h,
+                               (cr.x(), cr.y(), cr.width(), cr.height()))
         if self.isSelected() and event.button() == Qt.MouseButton.LeftButton:
             grip = self._hit_grip(event.pos())
             if grip >= 0:
@@ -1040,7 +1045,9 @@ class SheetViewport(QGraphicsObject):
         self._geom_at_press = None
         if old is None:
             return
-        new = (self._data.x, self._data.y, self._data.w, self._data.h)
+        cr = self._data.crop_rect
+        new = (self._data.x, self._data.y, self._data.w, self._data.h,
+               (cr.x(), cr.y(), cr.width(), cr.height()))
         if old == new:
             return
         scene = self.scene()
@@ -1050,25 +1057,51 @@ class SheetViewport(QGraphicsObject):
 
     def _apply_grip_resize(self, handle: int, delta: QPointF):
         dx, dy = delta.x(), delta.y()
+        if self._is_detail():
+            return  # inert
+        if self._data.scale <= 0:
+            self._nts_free_resize(handle, dx, dy)   # legacy free w/h (no scale to protect)
+            return
+        s = self._data.scale
+        old_crop = self._effective_crop()
+        cr = QRectF(old_crop)
+        mdx, mdy = dx / s, dy / s
+        left_h, right_h = (0, 3, 5), (2, 4, 7)
+        top_h, bot_h = (0, 1, 2), (5, 6, 7)
+        if handle in left_h:
+            cr.setLeft(min(cr.left() + mdx, cr.right() - _MIN_CROP_MODEL))
+        if handle in right_h:
+            cr.setRight(max(cr.right() + mdx, cr.left() + _MIN_CROP_MODEL))
+        if handle in top_h:
+            cr.setTop(min(cr.top() + mdy, cr.bottom() - _MIN_CROP_MODEL))
+        if handle in bot_h:
+            cr.setBottom(max(cr.bottom() + mdy, cr.top() + _MIN_CROP_MODEL))
+        # A left/top edge move shifts the on-sheet origin so the opposite edge
+        # stays put on paper.
+        if handle in left_h:
+            self._data.x += (cr.left() - old_crop.left()) * s
+        if handle in top_h:
+            self._data.y += (cr.top() - old_crop.top()) * s
+        self._data.crop_rect = cr
+        self._recompute_size_from_scale()
+        self.setPos(self._data.x, self._data.y)
+        self.mark_dirty()
+
+    def _nts_free_resize(self, handle: int, dx: float, dy: float):
         x, y = self._data.x, self._data.y
         w, h = self._data.w, self._data.h
         if handle in (0, 3, 5):
             new_w = max(w - dx, _MIN_VIEWPORT_SIZE)
-            actual_dx = w - new_w
-            self._data.x = x + actual_dx
-            self._data.w = new_w
+            self._data.x = x + (w - new_w); self._data.w = new_w
         if handle in (2, 4, 7):
             self._data.w = max(w + dx, _MIN_VIEWPORT_SIZE)
         if handle in (0, 1, 2):
             new_h = max(h - dy, _MIN_VIEWPORT_SIZE)
-            actual_dy = h - new_h
-            self._data.y = y + actual_dy
-            self._data.h = new_h
+            self._data.y = y + (h - new_h); self._data.h = new_h
         if handle in (5, 6, 7):
             self._data.h = max(h + dy, _MIN_VIEWPORT_SIZE)
         self.setPos(self._data.x, self._data.y)
-        self.mark_dirty()
-        self.prepareGeometryChange()
+        self.mark_dirty(); self.prepareGeometryChange()
 
     def mouseDoubleClickEvent(self, event):
         self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)

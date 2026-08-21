@@ -121,3 +121,67 @@ def test_plan_viewport_renders_only_its_crop(qapp):
     found_red = any(img.pixel(x, y) == red
                     for x in range(0, 120, 2) for y in range(0, 120, 2))
     assert not found_red, "geometry outside the crop bled into the viewport"
+
+
+# ── Task 4: grip rework + ViewportGeometryCommand carries crop_rect ───────────
+
+def _drag_grip(vp, handle_index, dx, dy):
+    from PyQt6.QtCore import QPointF
+    vp._apply_grip_resize(handle_index, QPointF(dx, dy))
+
+
+def test_plan_grip_edits_crop_keeps_scale(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
+    from PyQt6.QtCore import QRectF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    model = QGraphicsScene()
+    model.addItem(QGraphicsRectItem(QRectF(0, 0, 1000, 500)))
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, _resolver(model))
+    vp = scene.add_viewport(data)
+    scale_before = data.scale
+    crop_w_before = data.crop_rect.width()
+    _drag_grip(vp, 4, 30, 0)   # middle-right grip +30mm paper → +300 model at 0.1
+    assert data.scale == scale_before
+    assert data.crop_rect.width() == pytest.approx(crop_w_before + 300, abs=1.0)
+    assert data.w == pytest.approx(data.crop_rect.width() * data.scale, abs=0.5)
+
+
+def test_detail_viewport_has_no_resize_grips(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene
+    from PyQt6.QtCore import QRectF, QPointF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    model = QGraphicsScene()
+    markers = {"D1": _FakeMarker(QRectF(0, 0, 100, 100))}
+    sheet = Sheet.create_default()
+    data = SheetViewData("detail", "D1", "DET", 0.2, 0, 0, 0, 0)
+    scene = PaperScene(sheet, _resolver(model, markers))
+    vp = scene.add_viewport(data)
+    vp.setSelected(True)
+    assert vp._grip_rects() == []
+    assert vp._hit_grip(QPointF(0, 0)) == -1
+
+
+def test_viewport_geometry_undo_restores_crop(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
+    from PyQt6.QtCore import QRectF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    model = QGraphicsScene()
+    model.addItem(QGraphicsRectItem(QRectF(0, 0, 1000, 500)))
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, _resolver(model))
+    vp = scene.add_viewport(data)
+    crop_before = QRectF(data.crop_rect)
+    old = (data.x, data.y, data.w, data.h,
+           (data.crop_rect.x(), data.crop_rect.y(),
+            data.crop_rect.width(), data.crop_rect.height()))
+    _drag_grip(vp, 4, 50, 0)
+    new = (data.x, data.y, data.w, data.h,
+           (data.crop_rect.x(), data.crop_rect.y(),
+            data.crop_rect.width(), data.crop_rect.height()))
+    from firepro3d.paper_commands import ViewportGeometryCommand
+    scene.undo_stack.push(ViewportGeometryCommand(scene, data, old, new))
+    scene.undo_stack.undo()
+    assert data.crop_rect == crop_before
