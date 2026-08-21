@@ -567,6 +567,9 @@ class RectangleItem(QGraphicsRectItem):
 
     def to_dict(self) -> dict:
         r = self.rect()
+        # Persist the *effective* pivot (explicit pivot, else current rect
+        # centre) so a reload reproduces the exact rotated render.
+        pivot = self._pivot if self._pivot is not None else r.center()
         return {
             "type":        "draw_rectangle",
             "x":           r.x(),
@@ -576,6 +579,8 @@ class RectangleItem(QGraphicsRectItem):
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
             "level":       self.level,
+            "angle":       self._angle,
+            "pivot":       [pivot.x(), pivot.y()],
         }
 
     @classmethod
@@ -585,6 +590,12 @@ class RectangleItem(QGraphicsRectItem):
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
         obj.level = data.get("level", DEFAULT_LEVEL)
+        # Back-compat: pre-rotation records have no "angle"/"pivot" — default to
+        # 0° about the rect centre, which is an identity transform (renders
+        # axis-aligned exactly as before).
+        angle = data.get("angle", 0.0)
+        pivot = QPointF(*data["pivot"]) if "pivot" in data else obj.rect().center()
+        obj.set_angle(angle, pivot)
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
