@@ -170,8 +170,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Rectangle rotate step (Task 12).  Placement is 3-step: two clicks size
         # the axis-aligned rect, then a third rotates it.  ``_draw_rect_rotating``
         # is the step flag; the sized rect corners and the rotate pivot are
-        # stashed while it is True (pivot = corner-1 in corner mode, the centre
-        # in centre mode).  A 0° rotate is the default axis-aligned end state.
+        # stashed while it is True (pivot = the first-click anchor — one of the
+        # rect's corners — in corner mode, the centre in centre mode).  A 0°
+        # rotate is the default axis-aligned end state.
         self._draw_rect_rotating: bool = False
         self._draw_rect_sized_pt1: "QPointF | None" = None
         self._draw_rect_sized_pt2: "QPointF | None" = None
@@ -3834,8 +3835,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return QPointF(a) if a is not None else None
         if self.mode == "draw_rectangle":
             # Sizing step: the first-click anchor.  Rotate step: the pivot the
-            # rotation turns about (corner-1 in corner mode, the centre in
-            # centre mode).  Both variants store it in ``_draw_rect_pivot``.
+            # rotation turns about (the first-click anchor — one of the rect's
+            # corners — in corner mode, the centre in centre mode).  Both
+            # variants store it in ``_draw_rect_pivot``.
             if self._draw_rect_rotating:
                 p = self._draw_rect_pivot
                 return QPointF(p) if p is not None else None
@@ -8119,8 +8121,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Advance an armed rectangle from the sizing step to the rotate step.
 
         Stores the sized axis-aligned rect (``_draw_rect_sized_pt1/_pt2``) and
-        its pivot (corner-1 of the anchor click in corner mode, the rect centre
-        — which equals the anchor — in centre mode), sets
+        its pivot (the first-click anchor — one of the rect's corners — in
+        corner mode, the rect centre, which equals the anchor, in centre mode),
+        sets
         ``_draw_rect_rotating``, and re-fits the preview rect to the sized
         extents.  Shared verbatim by the mouse second click and the sizing
         Dynamic Input applier, so both hand off to the rotate step identically.
@@ -8142,8 +8145,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return False
         self._draw_rect_sized_pt1 = pt1
         self._draw_rect_sized_pt2 = pt2
-        # Pivot: corner mode turns about the first-click anchor (corner-1);
-        # centre mode turns about the rect centre, which IS the anchor.
+        # Pivot: corner mode turns about the first-click anchor (one of the
+        # rect's corners); centre mode turns about the rect centre = the anchor.
         self._draw_rect_pivot = QPointF(self._draw_rect_anchor)
         self._draw_rect_rotating = True
         # Snap the preview to the final sized rect; the rotate preview spins it.
@@ -8177,8 +8180,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         The real commit for the 3-step placement (Task 12).  The 2-click sizing
         already produced ``_draw_rect_sized_pt1/_pt2`` (axis-aligned) and the
-        ``_draw_rect_pivot`` the rotation turns about (corner-1 in corner mode,
-        the centre in centre mode).  This builds the ``RectangleItem`` from those
+        ``_draw_rect_pivot`` the rotation turns about (the first-click anchor —
+        one of the rect's corners — in corner mode, the centre in centre mode).
+        This builds the ``RectangleItem`` from those
         corners and applies ``set_angle(angle_deg, pivot)`` — a 0° rotate leaves
         it exactly axis-aligned, the old 2-click end state.
 
