@@ -1494,7 +1494,7 @@ class MainWindow(QMainWindow):
                   "draw_rectangle").setToolTip(
             "Draw a rectangle (R) — ←/→ toggles corner/centre")
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
-        _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
+        _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
         _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click) (G)")
         self._single_place_btn = g_geom.add_small_button(

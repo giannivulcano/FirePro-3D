@@ -834,6 +834,9 @@ class Model_View(QGraphicsView):
         Qt.Key.Key_C: "draw_circle",
         Qt.Key.Key_A: "draw_arc",
         Qt.Key.Key_G: "draw_gridline",
+        # TODO: K is a PLACEHOLDER for polyline — remove once Line+Polyline merge
+        # into one cycle tool (polyline becomes a Line variant, no own shortcut).
+        Qt.Key.Key_K: "polyline",
     }
 
     def keyPressEvent(self, event):

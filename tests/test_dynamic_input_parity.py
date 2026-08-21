@@ -2699,7 +2699,7 @@ class TestArcProperties:
 
 
 class TestArcReferenceGuides:
-    """C15: the span step shows a 0° datum + start-angle radial from the centre."""
+    """C15: the span step shows a 0° datum + start radial + a live sweep radial."""
 
     def test_guides_appear_at_span_step(self, scene):
         scene.set_mode("draw_arc")
@@ -2709,10 +2709,21 @@ class TestArcReferenceGuides:
         assert scene._draw_arc_step == 2
         assert scene._draw_arc_ref_line0 is not None
         assert scene._draw_arc_ref_start is not None
+        assert scene._draw_arc_ref_sweep is not None
         l0 = scene._draw_arc_ref_line0.line()
         assert abs(l0.y1() - l0.y2()) < 1e-6              # 0° datum horizontal
         # start radial at 0° here (rim was due-east) → also horizontal, length=radius
         assert abs(scene._draw_arc_ref_start.line().length() - 1000.0) < 1.0
+
+    def test_sweep_radial_tracks_cursor(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))   # r=1000, start 0°, step 2
+        scene._move_draw_arc(_FakeEvent(), QPointF(0, -800))   # cursor 90° up
+        sw = scene._draw_arc_ref_sweep.line()
+        # sweep radial ends on the radius circle at 90° Y-up → (0, -1000)
+        assert abs(sw.x2() - 0.0) < 1.0 and abs(sw.y2() + 1000.0) < 1.0
 
     def test_guides_cleared_on_commit(self, scene):
         scene.set_mode("draw_arc")

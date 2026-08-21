@@ -205,11 +205,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._arc_variant: str = _ARC_VARIANT_CENTER
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
-        # Arc angle-reference guides from the centre (protractor): a 0° datum
-        # (horizontal) through both steps + the start-angle radial in the span
-        # step, so the start/sweep angles read against horizontal.
+        # Arc span-step angle guides from the centre (protractor): a 0° datum
+        # (horizontal) + the fixed start-angle radial + the live sweep radial
+        # that tracks the cursor, so the sweep reads against both.
         self._draw_arc_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_arc_ref_start: "QGraphicsLineItem | None" = None
+        self._draw_arc_ref_sweep: "QGraphicsLineItem | None" = None
         # Placement-variant registry + session-sticky per-mode index (Task 13).
         self._init_placement_variants()
         # Text rubber-band (Sprint Q)
@@ -5515,9 +5516,26 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_arc_ref_start.setLine(
             cx, cy, cx + r * math.cos(sr), cy - r * math.sin(sr))
 
+    def _update_arc_sweep_ref(self, cursor) -> None:
+        """Point the live sweep radial from the centre to the arc endpoint.
+
+        The endpoint sits on the radius circle at the cursor's bearing, so the
+        radial ends exactly where the arc preview does.  A no-op until the sweep
+        guide and centre exist.
+        """
+        c = self._draw_arc_center
+        if c is None or self._draw_arc_ref_sweep is None:
+            return
+        cx, cy, r = c.x(), c.y(), self._draw_arc_radius
+        end_deg = math.degrees(math.atan2(-(cursor.y() - cy), cursor.x() - cx))
+        er = math.radians(end_deg)
+        self._draw_arc_ref_sweep.setLine(
+            cx, cy, cx + r * math.cos(er), cy - r * math.sin(er))
+
     def _clear_arc_ref_lines(self) -> None:
-        """Remove both span-step arc guides from the scene."""
-        for attr in ("_draw_arc_ref_line0", "_draw_arc_ref_start"):
+        """Remove the span-step arc guides from the scene."""
+        for attr in ("_draw_arc_ref_line0", "_draw_arc_ref_start",
+                     "_draw_arc_ref_sweep"):
             line = getattr(self, attr, None)
             if line is not None:
                 if line.scene() is self:
@@ -5667,6 +5685,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 and self._draw_arc_center is not None):
             snapped = self._constrain_angle(self._draw_arc_center, snapped)
         self._preview_from_arc(snapped)
+        if self._draw_arc_step == 2:
+            self._update_arc_sweep_ref(snapped)   # live sweep radial
         self.publish_placement_state(self._draw_arc_center, snapped)
 
     def _move_dimension(self, event, snapped):
@@ -7065,10 +7085,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         preview.setZValue(200)
         self.addItem(preview)
         self._draw_arc_preview = preview
-        # Span-step angle guides (0° datum + start-angle radial), static here.
+        # Span-step angle guides: 0° datum + start radial (static) + a live sweep
+        # radial that tracks the cursor.
         self._clear_arc_ref_lines()
         self._draw_arc_ref_line0 = self._make_ref_line()
         self._draw_arc_ref_start = self._make_ref_line()
+        self._draw_arc_ref_sweep = self._make_ref_line()
         self._set_arc_ref_lines()
 
     def _commit_draw_arc_rim_at(self, point) -> bool:

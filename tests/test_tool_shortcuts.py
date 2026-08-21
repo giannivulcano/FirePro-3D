@@ -41,6 +41,7 @@ def _press(view, key, mods=Qt.KeyboardModifier.NoModifier):
     (Qt.Key.Key_C, "draw_circle"),
     (Qt.Key.Key_A, "draw_arc"),
     (Qt.Key.Key_G, "draw_gridline"),
+    (Qt.Key.Key_K, "polyline"),      # placeholder until Line+Polyline merge
 ])
 def test_bare_key_activates_tool(view, scene, key, mode):
     ev = _press(view, key)
