@@ -2603,3 +2603,54 @@ class TestArcCouplingRadiusSeed:
         arc_len_mm = hud.values()["ArcLength"]
         assert arc_len_mm == pytest.approx(1000.0 * math.radians(90.0),
                                            abs=1.0)
+
+
+class TestArcSpanReadoutLive:
+    """#8: the span-step readout must reflect the live sweep, not sit at 0."""
+
+    def test_span_seed_is_live_not_zero(self, scene):
+        from firepro3d.dynamic_input import SCHEMAS
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_radius = 1000.0
+        scene._draw_arc_start_deg = 0.0
+        scene._draw_arc_step = 2
+        scene.publish_placement_state(QPointF(0, 0), QPointF(0, -1000))  # 90° up
+        vals = scene._transform_seed_values(SCHEMAS["arc_span"])
+        assert vals["Span"] == pytest.approx(90.0)
+        assert vals["ArcLength"] == pytest.approx(math.radians(90) * 1000.0)
+
+
+class TestArcCtrlAngleSnap:
+    """#5/#7: Ctrl snaps the centre→cursor bearing to _snap_angle_deg (45°)."""
+
+    def test_ctrl_snaps_start_bearing(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        # ~1.7° off due-east → Ctrl snaps the start bearing onto the 45° grid (0°).
+        scene._press_draw_arc(_FakeEvent(ctrl=True), None,
+                              QPointF(1000, -30), None, None, None)
+        assert abs(scene._draw_arc_start_deg % 45.0) < 1e-6
+
+    def test_ctrl_snaps_span_end(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_radius = 1000.0
+        scene._draw_arc_start_deg = 0.0
+        scene._draw_arc_step = 2
+        scene._press_draw_arc(_FakeEvent(ctrl=True), None,
+                              QPointF(30, -1000), None, None, None)  # ~88° → 90°
+        arcs = [i for i in scene.items() if type(i).__name__ == "ArcItem"]
+        assert arcs and abs(arcs[-1]._span_deg % 45.0) < 1e-6
+
+
+class TestRectRotateCtrlAngleSnap:
+    """#6: Ctrl snaps the rectangle rotation to _snap_angle_deg (45°)."""
+
+    def test_ctrl_snaps_rotation(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        # rotate step now; pivot = corner-1 = (0,0).  ~44° cursor → snaps to 45°.
+        scene._press_draw_rectangle(_FakeEvent(ctrl=True), None,
+                                    QPointF(1000, -970), None, None, None)
+        assert scene._draw_rects and abs(scene._draw_rects[-1]._angle % 45.0) < 1e-6

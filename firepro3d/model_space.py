@@ -4465,6 +4465,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if point is None:
                 return {"Angle": 0.0}
             return {"Angle": self._rect_rotation_angle_to(point)}
+        if schema.name == "arc_span":
+            # Live span from the resolved point — the same sweep the third click
+            # or a typed Span commits.  Without this the readout sits at 0 the
+            # whole span step (a transform has no cursor-derived inverse).
+            # ArcLength stays in scene units; ``set_values`` converts it to mm.
+            point = self.get_resolved_point()
+            if point is None or self._draw_arc_center is None:
+                return {"Span": 0.0, "ArcLength": 0.0}
+            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+            end_deg = math.degrees(math.atan2(-(point.y() - cy),
+                                              point.x() - cx))
+            span = end_deg - self._draw_arc_start_deg
+            if span <= 0:
+                span += 360.0
+            return {"Span": span,
+                    "ArcLength": math.radians(span) * self._draw_arc_radius}
         # ``_replicate_spacing`` is a *signed* perpendicular projection, so it
         # passes through 0.0 as the cursor crosses the source gridline — 0.0 is
         # not reliably "never set".  Treating it as unset is still correct
@@ -5465,6 +5481,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # cursor heading and publish so the HUD reads out the orientation.
             self.preview_node.hide()
             self.preview_pipe.hide()
+            # Ctrl angle-snaps the rotation to ``_snap_angle_deg`` increments.
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._draw_rect_pivot is not None):
+                snapped = self._constrain_angle(self._draw_rect_pivot, snapped)
             angle = self._rect_rotation_angle_to(snapped)
             self._preview_rectangle_rotation(angle)
             self.publish_placement_state(self._draw_rect_pivot, snapped)
@@ -5559,6 +5579,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # The painted ``_draw_dim_hint`` (block 4) is retired for arc: publish
         # clears it, so a mode that publishes state stops painting block 4.
         self.preview_node.hide()
+        # Ctrl angle-snaps the centre→cursor ray (the radius/start bearing at
+        # step 1, the sweep end at step 2) to ``_snap_angle_deg`` increments.
+        if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                and self._draw_arc_center is not None):
+            snapped = self._constrain_angle(self._draw_arc_center, snapped)
         self._preview_from_arc(snapped)
         self.publish_placement_state(self._draw_arc_center, snapped)
 
@@ -6921,9 +6946,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         elif self._draw_arc_step == 1:
             # Click 2 — set start point (defines radius + start angle).  Shared
             # with the Dynamic Input rim applier via ``_commit_draw_arc_rim_at``.
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                snapped = self._constrain_angle(self._draw_arc_center, snapped)
             self._commit_draw_arc_rim_at(snapped)
         elif self._draw_arc_step == 2:
             # Click 3 — set end point → commit arc
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                snapped = self._constrain_angle(self._draw_arc_center, snapped)
             self._commit_draw_arc_at(snapped)
 
     def _advance_arc_to_span_step(self) -> None:
@@ -8164,6 +8193,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._draw_rect_rotating:
             # Third click: commit at the orientation from the pivot to the click.
+            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._draw_rect_pivot is not None):
+                snapped = self._constrain_angle(self._draw_rect_pivot, snapped)
             self._commit_rectangle_rotated(
                 self._rect_rotation_angle_to(snapped))
         elif self._draw_rect_anchor is None:
