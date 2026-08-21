@@ -68,3 +68,61 @@ def test_detail_self_hide_and_per_sheet_hide(qapp):
     assert d2.isVisible() is False
     restore_model_display(saved)
     assert d2.isVisible() is True
+
+
+def test_toggle_hidden_detail_is_undoable(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
+    from PyQt6.QtCore import QRectF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
+    from firepro3d.paper_commands import ChangeViewportPropertiesCommand
+
+    class _PlanMgr:
+        def __init__(self): self._views = {"Level 1": object()}
+        def get(self, n): return self._views.get(n)
+
+    model = QGraphicsScene(); model.addItem(QGraphicsRectItem(QRectF(0, 0, 100, 100)))
+    resolver = ViewResolver(model, _PlanMgr(), None, None)
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, resolver)
+    vp = scene.add_viewport(data)
+
+    cmd = ChangeViewportPropertiesCommand(
+        scene, data, {"hidden_detail_ids": set()},
+        {"hidden_detail_ids": {"D9"}})
+    scene.undo_stack.push(cmd)
+    assert data.hidden_detail_ids == {"D9"}
+    scene.undo_stack.undo()
+    assert data.hidden_detail_ids == set()
+
+
+def test_toggle_hidden_detail_method(qapp):
+    """SheetViewport._toggle_hidden_detail flips membership + is undoable."""
+    from PyQt6.QtWidgets import QGraphicsScene
+    from PyQt6.QtCore import QRectF
+    from firepro3d.detail_view import DetailMarker
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData, ViewResolver
+
+    class _DetailMgr:
+        def __init__(self, m): self._m = m
+        def get_marker(self, n): return self._m.get(n)
+        @property
+        def detail_names(self): return list(self._m)
+    class _PlanMgr:
+        def __init__(self): self._views = {"Level 1": object()}
+        def get(self, n): return self._views.get(n)
+
+    model = QGraphicsScene()
+    dm = DetailMarker("D1", QRectF(0, 0, 100, 100)); model.addItem(dm)
+    resolver = ViewResolver(model, _PlanMgr(), _DetailMgr({"D1": dm}), None)
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, resolver)
+    vp = scene.add_viewport(data)
+
+    vp._toggle_hidden_detail("D1")
+    assert "D1" in data.hidden_detail_ids
+    scene.undo_stack.undo()
+    assert "D1" not in data.hidden_detail_ids
+    scene.undo_stack.redo()
+    assert "D1" in data.hidden_detail_ids

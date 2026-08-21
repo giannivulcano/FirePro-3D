@@ -1112,6 +1112,23 @@ class SheetViewport(QGraphicsObject):
         goto_action = menu.addAction("Go to View")
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
+
+        # Detail-hide toggles — only for host-plan viewports with a resolved source
+        detail_actions: dict = {}
+        if self._data.source_view_type == "plan" and self._source_scene is not None:
+            from .detail_view import DetailMarker
+            crop = self._effective_crop()
+            details = [it for it in self._source_scene.items(crop)
+                       if isinstance(it, DetailMarker)]
+            if details:
+                menu.addSeparator()
+                for dm in details:
+                    nm = dm.name
+                    hidden = nm in self._data.hidden_detail_ids
+                    label = f'{"Show" if hidden else "Hide"} detail "{nm}" on this sheet'
+                    act = menu.addAction(label)
+                    detail_actions[act] = nm
+
         action = menu.exec(event.screenPos())
         if action == props_action:
             self.properties_requested.emit(self)
@@ -1119,6 +1136,35 @@ class SheetViewport(QGraphicsObject):
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
         elif action == delete_action:
             self.delete_requested.emit(self)
+        elif action in detail_actions:
+            self._toggle_hidden_detail(detail_actions[action])
+
+    def _toggle_hidden_detail(self, name: str) -> None:
+        """Toggle *name* in this viewport's hidden_detail_ids, undoably.
+
+        Adds *name* when not currently hidden, removes it when already hidden.
+        The change is pushed onto the scene's undo stack via
+        ChangeViewportPropertiesCommand so it round-trips through undo/redo.
+
+        Args:
+            name: The DetailMarker name to toggle.
+        """
+        scene = self.scene()
+        old = set(self._data.hidden_detail_ids)
+        new = set(old)
+        if name in new:
+            new.discard(name)
+        else:
+            new.add(name)
+        from .paper_commands import ChangeViewportPropertiesCommand
+        stack = getattr(scene, "undo_stack", None)
+        if stack is not None:
+            stack.push(ChangeViewportPropertiesCommand(
+                scene, self._data,
+                {"hidden_detail_ids": old}, {"hidden_detail_ids": new}))
+        else:
+            self._data.hidden_detail_ids = new
+            self.mark_dirty()
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
