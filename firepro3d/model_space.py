@@ -84,6 +84,11 @@ class _PlacementSentinel:
 
 _GHOST_NODE_MARKER_MM = 120.0  # half-size of the move/paste ghost cross for nodes
 
+# Arc placement variants (see ``_arc_variant``).  De-stringly-typed so a typo
+# fails loudly at import instead of silently falling into centre-first.
+_ARC_VARIANT_CENTER = "center"   # centre-first: click 1 is the arc centre
+_ARC_VARIANT_START = "start"     # start-first: click 1 is the start point
+
 
 class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
@@ -193,9 +198,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # "center" (centre-first, current) or "start" (start-first).  The
         # arrow-key CYCLE that flips this lands in a later task; the geometry is
         # already variant-aware so it can be driven by setting the flag.
-        self._arc_variant: str = "center"
+        self._arc_variant: str = _ARC_VARIANT_CENTER
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
+        # Placement-variant registry + session-sticky per-mode index (Task 13).
+        self._init_placement_variants()
         # Text rubber-band (Sprint Q)
         self._text_anchor: "QPointF | None" = None
         self._text_preview: "QGraphicsRectItem | None" = None
@@ -1148,6 +1155,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f"Pick wall start point [{self._wall_alignment}]")
         elif instr:
             self.instructionChanged.emit(instr)
+
+        # Multi-variant tools (arc, rectangle) re-apply their session-sticky
+        # variant on entry and overwrite the plain instruction above with the
+        # hinted step-0 readout ("<label> (←/→ to change): …").  Runs *after*
+        # this mode's state reset (above) so the variant flag it sets is not
+        # clobbered.  No-op for non-variant modes, so their plain instruction
+        # stands.
+        if mode in self._PLACEMENT_VARIANTS:
+            self._apply_current_variant()
 
         # Populate the Properties dock with the gridline placement template so
         # the user can preset Bubble Offsets / Locked / visibility before
@@ -3913,6 +3929,82 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
     }
+
+    # Mode -> ordered placement variants: (label, first-point instruction,
+    # apply_fn(self)).  ←/→ cycles them at step 0 only; the chosen index is
+    # session-sticky per mode.  Adding a multi-variant tool is one row.
+    def _init_placement_variants(self):
+        """Build the placement-variant registry + the sticky per-mode index.
+
+        Called from ``__init__``.  Each variant is
+        ``(label, first-point instruction, apply_fn(self))``; ``apply_fn`` sets
+        the tool's variant flag so entry and ←/→ both drive geometry through the
+        same state.
+        """
+        self._PLACEMENT_VARIANTS = {
+            "draw_arc": [
+                ("Center Point Arc", "Select center point to begin",
+                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_CENTER)),
+                ("Start Point Arc", "Select start point to begin",
+                 lambda s: setattr(s, "_arc_variant", _ARC_VARIANT_START)),
+            ],
+            "draw_rectangle": [
+                ("Corner Rectangle", "Pick first corner",
+                 lambda s: setattr(s, "_draw_rect_from_center", False)),
+                ("Center Rectangle", "Pick center point",
+                 lambda s: setattr(s, "_draw_rect_from_center", True)),
+            ],
+        }
+        self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
+
+    def _at_placement_step_zero(self) -> bool:
+        """True while the current tool has not placed its first point.
+
+        Cycling the variant only makes sense before the first click; once a
+        point is down the geometry is committed to a variant.
+        """
+        if self.mode == "draw_arc":
+            return self._draw_arc_step == 0
+        if self.mode == "draw_rectangle":
+            return self._draw_rect_anchor is None and not self._draw_rect_rotating
+        return False
+
+    def _apply_current_variant(self) -> None:
+        """Apply the sticky variant's state and emit the hinted step-0 readout.
+
+        No-op for a mode with no variants.  Emits ``"<label> (←/→ to change):
+        <instr>"`` so the readout advertises the cycle while it is still live.
+        """
+        variants = self._PLACEMENT_VARIANTS.get(self.mode)
+        if not variants:
+            return
+        label, instr, apply_fn = variants[self._variant_index[self.mode]]
+        apply_fn(self)
+        self.instructionChanged.emit(f"{label} (←/→ to change): {instr}")
+
+    def cycle_placement_variant(self, direction: int) -> bool:
+        """←/→ cycle the placement variant; return False to fall through.
+
+        Only cycles at step 0 of a multi-variant tool while no HUD field holds
+        focus.  Returns False otherwise so the arrow key reaches the view's
+        default scroll.
+
+        Args:
+            direction: +1 for the next variant, -1 for the previous.
+
+        Returns:
+            True when a variant was cycled (and the arrow key is consumed),
+            False when cycling is not applicable.
+        """
+        if (self.mode not in self._PLACEMENT_VARIANTS
+                or not self._at_placement_step_zero()
+                or self.is_input_mode()):
+            return False
+        n = len(self._PLACEMENT_VARIANTS[self.mode])
+        self._variant_index[self.mode] = (
+            self._variant_index[self.mode] + direction) % n
+        self._apply_current_variant()
+        return True
 
     def active_schema(self):
         """Return the Schema for the current mode, or None.
@@ -6865,7 +6957,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             True when the arc advanced to step 2, False when the radius is under
             the too-small floor (a degenerate rim).
         """
-        if self._arc_variant == "start":
+        if self._arc_variant == _ARC_VARIANT_START:
             # ``point`` is the centre; the first click is the start point.
             cx, cy = point.x(), point.y()
             start = self._draw_arc_center
