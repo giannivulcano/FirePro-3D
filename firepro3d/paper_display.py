@@ -437,7 +437,7 @@ def _save_marker_state(marker, color_attr="_marker_color") -> dict:
 
 
 def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
-                          source_view_key: str = "") -> list[dict]:
+                          source_view_key: str = "", viewport_data=None) -> list[dict]:
     """Temporarily mutate visible items to paper-space display settings.
 
     Type-aware: each item type is handled according to how its paint()

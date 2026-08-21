@@ -84,3 +84,40 @@ def test_detail_viewport_effective_crop_tracks_marker(qapp):
     scene.add_viewport(data)
     assert data.w == pytest.approx(200 * 0.2, abs=0.5)
     assert data.h == pytest.approx(150 * 0.2, abs=0.5)
+
+
+def test_plan_viewport_renders_only_its_crop(qapp):
+    """A plan viewport whose crop is smaller than the full scene extent must
+    render ONLY the crop region. Geometry outside the crop (but inside the full
+    scene extent, so it survives Qt's own source-rect cull) must not appear.
+    This is the concern-1 bleed."""
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
+    from PyQt6.QtGui import QImage, QPainter, QColor, QBrush, QPen
+    from PyQt6.QtCore import QRectF, Qt
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+
+    model = QGraphicsScene()
+    inside = QGraphicsRectItem(QRectF(10, 10, 30, 30))
+    inside.setBrush(QBrush(QColor("black"))); inside.setPen(QPen(Qt.PenStyle.NoPen))
+    model.addItem(inside)
+    outside = QGraphicsRectItem(QRectF(200, 200, 60, 60))
+    outside.setBrush(QBrush(QColor(255, 0, 0))); outside.setPen(QPen(Qt.PenStyle.NoPen))
+    model.addItem(outside)   # inside the full extent (~0..260) but outside the crop
+
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.0, 0, 0, 100, 100)
+    scene = PaperScene(sheet, _resolver(model))
+    scene.add_viewport(data)
+    # Force a crop SMALLER than the full scene extent.
+    data.crop_rect = QRectF(0, 0, 100, 100)
+
+    img = QImage(120, 120, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    scene.render(p, QRectF(0, 0, 120, 120), QRectF(-10, -10, 120, 120))
+    p.end()
+
+    red = QColor(255, 0, 0).rgb()
+    found_red = any(img.pixel(x, y) == red
+                    for x in range(0, 120, 2) for y in range(0, 120, 2))
+    assert not found_red, "geometry outside the crop bled into the viewport"

@@ -847,22 +847,23 @@ class SheetViewport(QGraphicsObject):
         # White background
         painter.fillRect(vp_rect, Qt.GlobalColor.white)
 
-        # Clip to viewport bounds
-        painter.setClipRect(vp_rect)
-
-        # Render source scene with paper-space display overrides
-        if self._source_scene is not None and not self._source_rect.isNull() and not self._source_rect.isEmpty():
+        crop = self._effective_crop()
+        if self._source_scene is not None and not crop.isNull() and not crop.isEmpty():
             from .paper_display import apply_paper_overrides, restore_model_display
             from PyQt6.QtCore import QTimer
-            # True geometric scale (paper mm per model mm) — correct even for
-            # NTS viewports where the declared scale is 0.0 (§9.9.1).
-            # render() below defaults to KeepAspectRatio, so when a grip-resize
-            # diverges the viewport aspect from the source rect's, the true
-            # scale is the min ratio (height is non-empty per the guard above).
-            paper_scale = min(
-                vp_rect.width() / self._source_rect.width(),
-                vp_rect.height() / self._source_rect.height(),
-            )
+            # Aspect-fitted target sub-rect of the viewport box. render() below
+            # uses KeepAspectRatio; by clipping to and rendering INTO this exact
+            # fitted rect, nothing outside the crop can appear — at any box
+            # aspect, including NTS. For scale>0 viewports the box already equals
+            # crop×scale so fitted == vp_rect (fills the box).
+            fit = min(vp_rect.width() / crop.width(),
+                      vp_rect.height() / crop.height())
+            fw, fh = crop.width() * fit, crop.height() * fit
+            fitted = QRectF((vp_rect.width() - fw) / 2.0,
+                            (vp_rect.height() - fh) / 2.0, fw, fh)
+            paper_scale = fit  # paper mm per model mm (== scale when scale>0)
+
+            painter.setClipRect(fitted)
             # Suppress the source-scene ``changed`` echo fired by our own
             # item mutations.  The flag lives on the SOURCE SCENE so the echo
             # is swallowed for every viewport of that scene, not just this one
@@ -873,21 +874,22 @@ class SheetViewport(QGraphicsObject):
             # change after the clear still propagates normally.
             self._source_scene._suppress_paper_echo = True
             try:
-                saved = apply_paper_overrides(self._source_scene, self._source_rect,
-                                              paper_scale=paper_scale,
-                                              source_view_key=(f"{self._data.source_view_type}:"
-                                                               f"{self._data.source_view_name}"))
+                saved = apply_paper_overrides(
+                    self._source_scene, crop,
+                    paper_scale=paper_scale,
+                    source_view_key=(f"{self._data.source_view_type}:"
+                                     f"{self._data.source_view_name}"),
+                    viewport_data=self._data)
                 try:
-                    self._source_scene.render(painter, vp_rect, self._source_rect)
+                    self._source_scene.render(painter, fitted, crop)
                 finally:
                     restore_model_display(saved)
             finally:
                 # Bind the scene at schedule time — self._source_scene may be
                 # rebound before the timer fires (setattr is safe regardless).
-                QTimer.singleShot(0, lambda s=self._source_scene: setattr(s, "_suppress_paper_echo", False))
-
-        # Release clip
-        painter.setClipping(False)
+                QTimer.singleShot(0, lambda s=self._source_scene:
+                                  setattr(s, "_suppress_paper_echo", False))
+            painter.setClipping(False)
 
         # Border (only when enabled)
         if self._data.show_border:
