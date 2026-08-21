@@ -567,9 +567,12 @@ class RectangleItem(QGraphicsRectItem):
 
     def to_dict(self) -> dict:
         r = self.rect()
-        # Persist the *effective* pivot (explicit pivot, else current rect
-        # centre) so a reload reproduces the exact rotated render.
-        pivot = self._pivot if self._pivot is not None else r.center()
+        # Persist ``pivot`` as null when the rotation follows the rect centre
+        # (``_pivot is None``) and as [x, y] only for an explicit pinned pivot.
+        # Storing the resolved centre instead would round-trip the render but
+        # pin the origin, so a later resize (reachable via undo, which uses this
+        # same path) would rotate about the stale point instead of re-centring.
+        pivot = None if self._pivot is None else [self._pivot.x(), self._pivot.y()]
         return {
             "type":        "draw_rectangle",
             "x":           r.x(),
@@ -580,7 +583,7 @@ class RectangleItem(QGraphicsRectItem):
             "lineweight":  self.pen().widthF(),
             "level":       self.level,
             "angle":       self._angle,
-            "pivot":       [pivot.x(), pivot.y()],
+            "pivot":       pivot,
         }
 
     @classmethod
@@ -591,10 +594,11 @@ class RectangleItem(QGraphicsRectItem):
                   data.get("lineweight", 1.0))
         obj.level = data.get("level", DEFAULT_LEVEL)
         # Back-compat: pre-rotation records have no "angle"/"pivot" — default to
-        # 0° about the rect centre, which is an identity transform (renders
-        # axis-aligned exactly as before).
+        # 0° about the rect centre, an identity transform (renders axis-aligned
+        # exactly as before).  A stored null pivot means "follow the centre", so
+        # it restores as _pivot=None (set_angle re-derives + keeps tracking).
         angle = data.get("angle", 0.0)
-        pivot = QPointF(*data["pivot"]) if "pivot" in data else obj.rect().center()
+        pivot = QPointF(*data["pivot"]) if data.get("pivot") else None
         obj.set_angle(angle, pivot)
         return obj
 

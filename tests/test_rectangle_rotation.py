@@ -78,13 +78,20 @@ def test_from_dict_backcompat_no_angle(qapp):
     assert abs(r.rotation()) < 1e-9      # renders axis-aligned exactly as before
 
 
-def test_to_dict_pivot_defaults_to_centre(qapp):
-    # No explicit pivot: persist the effective pivot (rect centre) so reload
-    # reproduces the exact render.
+def test_centre_following_pivot_serialises_as_null_and_round_trips(qapp):
+    # No explicit pivot: the rotation follows the rect centre (_pivot is None).
+    # That tracking semantic must survive the round-trip, so pivot persists as
+    # null (not the resolved centre, which would pin it and break re-centring on
+    # a later resize — reachable via undo, which uses this same path).
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
     r.set_angle(15.0)                     # pivot=None -> origin tracks centre
     d = r.to_dict()
-    assert d["pivot"] == [50.0, 25.0]
+    assert d["pivot"] is None
+    # Render is still faithful (origin = current centre) and tracking survives.
+    r2 = RectangleItem.from_dict(d)
+    assert r2._pivot is None
+    assert r2.transformOriginPoint() == QPointF(50.0, 25.0)
+    assert abs(r2._angle - 15.0) < 1e-9
 
 
 def test_scene_io_round_trip_preserves_angle_pivot(qapp, tmp_path):
