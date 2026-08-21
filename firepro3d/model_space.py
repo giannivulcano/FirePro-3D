@@ -172,6 +172,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
         # Arc drawing (3-click: centre, start point, end point)
         self._draw_arcs: list[ArcItem] = []
+        # Holds the first click point.  In centre-first this is the arc centre
+        # throughout.  In start-first (``_arc_variant == "start"``) it TRANSIENTLY
+        # holds the START point until ``_commit_draw_arc_rim_at`` overwrites it
+        # with the real centre at step 1→2 — don't trust the name mid-placement.
         self._draw_arc_center: "QPointF | None" = None
         self._draw_arc_radius: float = 0.0
         self._draw_arc_start_deg: float = 0.0
