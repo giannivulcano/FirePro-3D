@@ -420,10 +420,15 @@ class TestOverridePassExceptionSafety:
 
 @pytest.fixture
 def aspect_diverged_sheet(qapp, paper_env):
-    """One 80x40mm viewport of the square V50 crop (grip-resized aspect).
+    """One 80x40mm NTS viewport of the square V50 crop (diverged aspect).
 
-    scene.render() defaults to KeepAspectRatio, so the true render scale is
-    min(w_ratio, h_ratio) = the height ratio here — half the width ratio.
+    Aspect divergence between the viewport box and its crop is only reachable
+    for NTS (scale=0) viewports now: scale>0 viewports derive size from
+    crop×scale, so their box always matches the crop aspect (concern 5). This
+    NTS box (80x40 over a square 4000x4000 crop) keeps its free aspect. paint()
+    renders the crop into the aspect-fitted sub-rect (fit = min(w_ratio,
+    h_ratio) = the height ratio here — half the width ratio), so the bubble
+    still renders at that true scale, centered in the fitted rect.
     """
     from firepro3d.model_space import Model_Space
     from firepro3d.paper_space import Sheet, SheetViewData, PaperScene, ViewResolver
@@ -443,7 +448,7 @@ def aspect_diverged_sheet(qapp, paper_env):
     sheet = Sheet.create_default()
     sheet.paper_size = "A4"  # programmatic title block — no DXF artwork load
     sheet.sheet_views = [
-        SheetViewData("plan", "V50", "V50", 0.02,
+        SheetViewData("plan", "V50", "V50", 0.0,   # NTS: free box aspect
                       _VP1_X, _VP1_Y, _VP_W, _VP_W / 2),
     ]
     paper = PaperScene(sheet, resolver)

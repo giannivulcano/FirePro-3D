@@ -3570,8 +3570,8 @@ class PaperScene(QGraphicsScene):
 
         Args:
             data: SheetViewData whose geometry changed.
-            old: (x, y, w, h) before the gesture.
-            new: (x, y, w, h) after the gesture.
+            old: (x, y, w, h, (cx, cy, cw, ch)) before the gesture.
+            new: (x, y, w, h, (cx, cy, cw, ch)) after the gesture.
         """
         if not self._applying_command and old != new:
             self._undo_stack.push(ViewportGeometryCommand(self, data, old, new))
