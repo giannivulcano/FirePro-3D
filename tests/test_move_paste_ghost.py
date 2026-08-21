@@ -184,3 +184,30 @@ def test_move_items_moves_a_selected_gridline(ms_view):
     ms.move_items(QPointF(300, -200))
     assert gl.grip_points()[0].x() == pytest.approx(1300.0)
     assert gl.grip_points()[0].y() == pytest.approx(-200.0)
+
+
+def test_move_ghost_base_built_when_base_click_hits_a_grip(qapp):
+    """Regression: clicking the base point ON the moved item (a grip hit) took an
+    early-return shortcut that set the base point but never built the ghost — so
+    the common case (click the thing you're moving) showed no ghost."""
+    from PyQt6.QtCore import Qt, QEvent
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtTest import QTest
+    ms = Model_Space(); ms.setSceneRect(-500, -500, 1000, 1000)
+    view = Model_View(ms); view.resize(600, 600); view.show(); view.resetTransform()
+    QTest.qWaitForWindowExposed(view)
+    gl = GridlineItem(QPointF(0, 0), QPointF(0, 5000), label="1")
+    ms.addItem(gl); ms._gridlines.append(gl); gl.setSelected(True)
+    ms._selected_items = ms.selectedItems()
+    ms.set_mode("move")
+    # Base click exactly on the gridline's origin grip.
+    vp = QPointF(view.mapFromScene(QPointF(0, 0)))
+    g = QPointF(view.viewport().mapToGlobal(vp.toPoint()))
+    ev = QMouseEvent(QEvent.Type.MouseButtonPress, vp, g,
+                     Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier)
+    qapp.sendEvent(view.viewport(), ev)
+    qapp.processEvents()
+    assert ms.node_start_pos is not None                 # base point set (via grip)
+    assert len(ms._move_ghost_base) >= 1, "grip base-click must still build the ghost"
+    view.hide()

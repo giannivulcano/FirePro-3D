@@ -6582,9 +6582,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             grip_hit = self._find_grip_hit(snapped)
             if grip_hit is not None:
                 if self.mode == "move" and self.node_start_pos is None:
-                    # In move mode, use grip point as precise base point
+                    # In move mode, use grip point as precise base point.  Build
+                    # the ghost silhouette here too: this early return skips the
+                    # ``_press_paste_move`` path that normally builds it, so
+                    # without this the (common) base-click-on-the-moved-item case
+                    # sets a base point but shows no ghost.
                     item, idx = grip_hit
                     self.node_start_pos = item.grip_points()[idx]
+                    self._move_ghost_base = self._build_move_ghost_base(
+                        is_paste=False)
                     self.instructionChanged.emit("Pick destination point")
                     return
                 self._grip_item, self._grip_index = grip_hit
