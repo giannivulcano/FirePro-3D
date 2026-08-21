@@ -567,26 +567,28 @@ def _pdf_pixmap(pdf_path):
         doc.close()
 
 
-def _pm_lightness(pm, x, y):
+def _pm_lightness(buf, pm, x, y):
     off = y * pm.stride + x * pm.n
-    r, g, b = pm.samples[off], pm.samples[off + 1], pm.samples[off + 2]
+    r, g, b = buf[off], buf[off + 1], buf[off + 2]
     return (max(r, g, b) + min(r, g, b)) // 2
 
 
 def _pm_min_lightness(pm, ppm, x0_mm, y0_mm, x1_mm, y1_mm):
     """Darkest pixel in a paper-mm region (255 = nothing drawn)."""
+    buf = pm.samples          # copy the pixmap buffer ONCE — not per pixel
     lo = 255
     for y in range(int(y0_mm * ppm), int(y1_mm * ppm)):
         for x in range(int(x0_mm * ppm), int(x1_mm * ppm)):
-            lo = min(lo, _pm_lightness(pm, x, y))
+            lo = min(lo, _pm_lightness(buf, pm, x, y))
     return lo
 
 
 def _pm_dark_run(pm, y_px, x0, x1):
     """Widest contiguous run of dark pixels on row y between x0..x1."""
+    buf = pm.samples          # copy the pixmap buffer ONCE — not per pixel
     best = run = 0
     for x in range(x0, min(x1, pm.width)):
-        if _pm_lightness(pm, x, y_px) < 200:
+        if _pm_lightness(buf, pm, x, y_px) < 200:
             run += 1
             best = max(best, run)
         else:
