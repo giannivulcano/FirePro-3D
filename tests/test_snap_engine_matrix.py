@@ -283,6 +283,102 @@ class TestRectangleItem:
         _assert_snap(result, "nearest", QPointF(20, 0))
 
 
+# ── RectangleItem (rotated) ──────────────────────────────────────────────────
+
+class TestRectangleItemRotated:
+    """A rotated RectangleItem must snap to its ROTATED corners/edges.
+
+    ``set_angle`` rotates the item via Qt's native transform, so the snap
+    engine must map the local rect corners through ``item.mapToScene`` in
+    every branch (intersections, named corner/edge targets, edge projection).
+    Truth is taken from ``item.mapToScene(local_corner)`` so the assertions
+    stay correct regardless of the rotation maths.
+
+    A 45° rotation is used deliberately: at 45° the ROTATED corner set is
+    disjoint from the AXIS-ALIGNED corner set, so a branch that forgot to map
+    through the item transform (emitting raw ``item.rect()`` coords) would
+    snap to a *different* point and the test fails.  (A 90° rotation maps the
+    corner set onto itself and would hide the bug.)
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, qapp):
+        self.scene = _scene()
+        # 60x60 rect, rotated 45° about its centre (30, 30).
+        self.item = RectangleItem(QPointF(0, 0), QPointF(60, 60))
+        self.item.set_angle(45.0, QPointF(30, 30))
+        self.scene.addItem(self.item)
+
+    def _rotated(self, local: QPointF) -> QPointF:
+        """Scene position of a local rect point after rotation (truth)."""
+        return self.item.mapToScene(local)
+
+    def test_endpoint_rotated_corner(self):
+        # Local top-left (0,0) → rotated scene position.
+        expected = self._rotated(QPointF(0, 0))
+        # Sanity: 45° moves the corner clear of the axis-aligned (0,0).
+        assert math.hypot(expected.x(), expected.y()) > 5.0
+        cursor = QPointF(expected.x(), expected.y() + OFFSET)
+        result = _find(_engine(), self.scene, cursor)
+        _assert_snap(result, "endpoint", expected)
+
+    def test_endpoint_all_four_rotated_corners(self):
+        # Every corner must be reachable at its rotated position, and NONE of
+        # them at the axis-aligned position (which a mapToScene-less branch
+        # would return).
+        for local in (QPointF(0, 0), QPointF(60, 0),
+                      QPointF(60, 60), QPointF(0, 60)):
+            expected = self._rotated(local)
+            cursor = QPointF(expected.x() + OFFSET / 2,
+                             expected.y() + OFFSET / 2)
+            result = _find(_engine(), self.scene, cursor)
+            _assert_snap(result, "endpoint", expected)
+            # The rotated corner is genuinely off its axis-aligned local pos.
+            assert math.hypot(expected.x() - local.x(),
+                              expected.y() - local.y()) > 5.0
+
+    def test_midpoint_rotated_edge(self):
+        # Midpoint of the local top edge (30, 0) → rotated scene position.
+        expected = self._rotated(QPointF(30, 0))
+        # Approach along the rotated outward normal so midpoint (not another
+        # corner) is the nearest named target.
+        normal = self._rotated(QPointF(30, -1)) - self._rotated(QPointF(30, 0))
+        cursor = QPointF(expected.x() + normal.x() * OFFSET,
+                         expected.y() + normal.y() * OFFSET)
+        result = _find(_engine(), self.scene, cursor)
+        _assert_snap(result, "midpoint", expected)
+
+    def test_nearest_on_rotated_edge(self):
+        # Approach the local top-edge midpoint along the edge's rotated
+        # outward normal.  Nearest must land on the ROTATED edge.
+        edge_mid = self._rotated(QPointF(30, 0))
+        normal = self._rotated(QPointF(30, -1)) - self._rotated(QPointF(30, 0))
+        cursor = QPointF(edge_mid.x() + normal.x() * PERP_OFFSET,
+                         edge_mid.y() + normal.y() * PERP_OFFSET)
+        result = _find(
+            _engine(snap_endpoint=False, snap_midpoint=False,
+                    snap_center=False, snap_perpendicular=False),
+            self.scene, cursor)
+        _assert_snap(result, "nearest", edge_mid)
+
+    def test_intersection_on_rotated_edge(self):
+        # Cross the ROTATED top edge at its midpoint with a line along the
+        # edge's rotated normal (so the crossing isn't collinear).  The
+        # intersection (priority 0) must land on the rotated edge midpoint.
+        edge_mid = self._rotated(QPointF(30, 0))
+        normal = self._rotated(QPointF(30, -1)) - self._rotated(QPointF(30, 0))
+        p_a = QPointF(edge_mid.x() - normal.x() * 200,
+                      edge_mid.y() - normal.y() * 200)
+        p_b = QPointF(edge_mid.x() + normal.x() * 200,
+                      edge_mid.y() + normal.y() * 200)
+        line = QGraphicsLineItem(QLineF(p_a, p_b))
+        self.scene.addItem(line)
+        cursor = QPointF(edge_mid.x() + normal.x() * OFFSET,
+                         edge_mid.y() + normal.y() * OFFSET)
+        result = _find(_engine(), self.scene, cursor)
+        _assert_snap(result, "intersection", edge_mid)
+
+
 # ── QGraphicsEllipseItem (full circle) ───────────────────────────────────────
 
 class TestFullCircle:
