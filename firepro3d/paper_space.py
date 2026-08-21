@@ -269,7 +269,16 @@ _LEGACY_DRAWING_NO_DEFAULT = "FP-001"
 
 @dataclass
 class SheetViewData:
-    """Data for one viewport placed on a sheet."""
+    """Data for one viewport placed on a sheet.
+
+    ``crop_rect`` is the model-space window this viewport shows (source-scene
+    coords). ``w``/``h`` are DERIVED caches of ``crop_rect × scale`` for
+    scale>0 viewports (recomputed on crop/scale change); they remain
+    serialized for compatibility. An empty ``crop_rect`` means "resolve the
+    full source extent lazily" (set on first reconnect). ``hidden_detail_ids``
+    is the per-sheet set of detail-marker names hidden in THIS host-plan
+    viewport's paper output.
+    """
     source_view_type: str
     source_view_name: str
     title: str
@@ -280,8 +289,11 @@ class SheetViewData:
     h: float
     show_border: bool = True
     view_number: str = ""
+    crop_rect: QRectF = field(default_factory=QRectF)
+    hidden_detail_ids: set[str] = field(default_factory=set)
 
     def to_dict(self) -> dict:
+        cr = self.crop_rect
         return {
             "source_view_type": self.source_view_type,
             "source_view_name": self.source_view_name,
@@ -291,10 +303,16 @@ class SheetViewData:
             "w": self.w, "h": self.h,
             "show_border": self.show_border,
             "view_number": self.view_number,
+            "crop_rect": {"x": cr.x(), "y": cr.y(),
+                          "w": cr.width(), "h": cr.height()},
+            "hidden_detail_ids": sorted(self.hidden_detail_ids),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "SheetViewData":
+        cr = d.get("crop_rect")
+        crop = (QRectF(cr["x"], cr["y"], cr["w"], cr["h"])
+                if cr else QRectF())
         return cls(
             source_view_type=d["source_view_type"],
             source_view_name=d["source_view_name"],
@@ -304,6 +322,8 @@ class SheetViewData:
             w=d["w"], h=d["h"],
             show_border=d.get("show_border", True),
             view_number=d.get("view_number", ""),
+            crop_rect=crop,
+            hidden_detail_ids=set(d.get("hidden_detail_ids", [])),
         )
 
 
