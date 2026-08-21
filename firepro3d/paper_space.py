@@ -2956,6 +2956,42 @@ def _draw_mm_text(
     painter.restore()
 
 
+def open_revisions_dialog(scene, sheet, parent_widget=None) -> None:
+    """Open the sheet-revisions table editor; push EditRevisionsCommand on accept.
+
+    Relocated from TitleBlockTemplateItem._open_revisions_dialog (T9/concern 4)
+    so the Sheet Properties panel (Task 10) can call it directly without
+    requiring the title block to be selectable.
+
+    Args:
+        scene: The PaperScene that owns *sheet* and its undo stack.
+        sheet: The Sheet whose revisions list will be edited.
+        parent_widget: Optional Qt parent for the dialog (e.g. the PaperView).
+            Falls back to the first scene view when None.
+    """
+    from .paper_commands import EditRevisionsCommand
+
+    if scene is None or sheet is None:
+        return
+    # Unreachable on a real PaperScene (undo_stack is always present), but
+    # silently mutating without dirtying would violate §17.7.
+    stack = getattr(scene, "undo_stack", None)
+    if stack is None:
+        return
+    if parent_widget is None:
+        views = scene.views()
+        parent_widget = views[0] if views else None
+    dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return
+    new_revisions = dlg.result_revisions()
+    # No-change guard: skip the command (and sheetModified) when nothing changed.
+    if new_revisions == [dict(r) for r in sheet.revisions]:
+        return
+    if not getattr(scene, "_applying_command", False):
+        stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+
+
 class TitleBlockTemplateItem(QGraphicsItem):
     """Paints a SolvedLayout — the single render path for template blocks (rev 3).
 
@@ -2992,111 +3028,10 @@ class TitleBlockTemplateItem(QGraphicsItem):
             else:
                 self._image_pixmaps[f.id] = pm
         self.setZValue(1)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-
-    # ── Property-panel protocol ───────────────────────────────────────────────
-
-    #: Sheet-scoped keys exposed in the panel (project-wide fields belong in
-    #: Project Info and are edited there, not per-sheet here).
-    #: Title and Drawing No are intentionally omitted — they derive from
-    #: Sheet.name and Sheet.number (owned by the sheet identity, edited in the
-    #: Sheet Properties / project browser, not here).
-    _SHEET_KEYS = ("Rev", "Date")
-
-    def get_properties(self) -> dict:
-        """Return the property-panel form dict for the sheet's title block fields.
-
-        Exposes _SHEET_KEYS (Rev, Date) as editable string rows. Title and
-        Drawing No are intentionally absent — they derive from Sheet.name /
-        Sheet.number and are edited via the Sheet Properties panel / project
-        browser. Panel-managed project fields (Company, Project, etc.) belong
-        in Project Info, not here. An "Edit Revisions…" button row follows.
-
-        Returns:
-            Ordered dict in PropertyManager meta format (§property-panel.md §3.1).
-        """
-        scene = self.scene()
-        sheet = getattr(scene, "_sheet", None)
-        fields = sheet.title_block_fields if sheet is not None else {}
-        props = {}
-        for key in self._SHEET_KEYS:
-            props[key] = {"type": "string", "value": fields.get(key, "")}
-        props[""] = {
-            "type": "button",
-            "value": "Edit Revisions…",
-            "callback": self._open_revisions_dialog,
-        }
-        return props
-
-    def set_property(self, key: str, value) -> None:
-        """Apply a panel commit for a sheet-scoped title block field.
-
-        For keys in _SHEET_KEYS, pushes a SetSheetFieldCommand on the scene's
-        undo stack so the change is undoable and the §17.7 dirty-flag relay
-        (indexChanged → sheetModified) fires automatically. Unknown keys (e.g.
-        the "Edit Revisions…" button row) are silently ignored.
-
-        No-op when *value* matches the field already stored on the sheet (avoids
-        spurious undo entries when the panel re-commits an unchanged value).
-
-        When the scene has no undo stack (e.g. a bare QGraphicsScene used in a
-        T12 editor preview), writes directly to ``self._values`` and calls
-        ``update()`` — a PaperScene is required for the full undo path.
-
-        Args:
-            key: Panel property key (one of _SHEET_KEYS, or ignored otherwise).
-            value: The committed string value.
-        """
-        if key not in self._SHEET_KEYS:
-            return
-        scene = self.scene()
-        sheet = getattr(scene, "_sheet", None)
-        stack = getattr(scene, "undo_stack", None)
-        if sheet is None:
-            # Bare QGraphicsScene (editor preview) — write to live values only.
-            self._values[key] = str(value)
-            self.update()
-            return
-        # No-op guard: don't push an undo command when nothing changed.
-        if str(value) == sheet.title_block_fields.get(key, ""):
-            return
-        if stack is not None and not getattr(scene, "_applying_command", False):
-            stack.push(SetSheetFieldCommand(scene, sheet, key, str(value)))
-        else:
-            sheet.title_block_fields[key] = str(value)
-            if hasattr(scene, "_refresh_titleblock"):
-                scene._refresh_titleblock()
-
-    def _open_revisions_dialog(self) -> None:
-        """Open the sheet-revisions table editor; push EditRevisionsCommand on accept.
-
-        Called from the property-panel "Edit Revisions…" button row callback.
-        Acquires scene and sheet via self.scene(); uses the first view as parent
-        widget, falling back to None for headless contexts.
-        """
-        from .paper_commands import EditRevisionsCommand
-        scene = self.scene()
-        if scene is None:
-            return
-        sheet = getattr(scene, "_sheet", None)
-        if sheet is None:
-            return
-        # Unreachable on a real PaperScene (undo_stack is always present), but
-        # silently mutating without dirtying would violate §17.7, so return early.
-        stack = getattr(scene, "undo_stack", None)
-        if stack is None:
-            return
-        views = scene.views()
-        parent_widget = views[0] if views else None
-        dlg = RevisionsDialog(list(sheet.revisions), parent_widget)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        new_revisions = dlg.result_revisions()
-        # No-change guard: skip the command (and sheetModified) when nothing changed.
-        if new_revisions == [dict(r) for r in sheet.revisions]:
-            return
-        if not getattr(scene, "_applying_command", False):
-            stack.push(EditRevisionsCommand(scene, sheet, new_revisions))
+        # T9 (concern 4): not selectable on the paper canvas — users must not
+        # be able to click to reach title-block fields; per-sheet data moves to
+        # the Sheet Properties panel (Task 10) via open_revisions_dialog().
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
 
     def boundingRect(self) -> QRectF:
         lay, var = self._layout, self._variant
@@ -3398,13 +3333,10 @@ class PaperScene(QGraphicsScene):
             return
         w, h = sheet_page_mm(self._sheet)
         old = self._title_tb
-        was_selected = old.isSelected()
         self._suppress_modified = True
         try:
             self.removeItem(old)
-            new = self._build_template_item(w, h)
-            if new is not None and was_selected:
-                new.setSelected(True)
+            self._build_template_item(w, h)
         finally:
             self._suppress_modified = False
 

@@ -3602,6 +3602,8 @@ class MainWindow(QMainWindow):
             self.prop_manager.show_properties(self.current_text_template)
             return
         try:
+            # T9: TitleBlockTemplateItem is now non-selectable; this filter
+            # already excluded it, so no change needed here.
             items = [it for it in w.paper_scene.selectedItems()
                      if isinstance(it, TextAnnotationItem)]
         except RuntimeError:
