@@ -9388,6 +9388,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Autorepeat (a held key) is neither an arm nor a break.
         if not event.isAutoRepeat():
             self._lshift_tap_armed = self._is_left_shift(event)
+        # ←/→ cycle the placement variant at step 0 (arc, rectangle, …).
+        # Consume only when a variant actually cycles; otherwise fall through
+        # so the view's default arrow-scroll still works.
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            direction = -1 if event.key() == Qt.Key.Key_Left else +1
+            if self.cycle_placement_variant(direction):
+                event.accept()
+                return
+            # else fall through to default view scroll
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

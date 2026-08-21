@@ -13,13 +13,19 @@ Arrow-key wiring itself lands in Task 14 — these tests drive
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QEvent, QPointF, Qt
+from PyQt6.QtGui import QKeyEvent
 
 from firepro3d.model_space import (
     Model_Space,
     _ARC_VARIANT_CENTER,
     _ARC_VARIANT_START,
 )
+
+
+def _arrow(key):
+    """Build a real KeyPress event for an arrow key (no modifiers)."""
+    return QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier, "")
 
 
 @pytest.fixture
@@ -146,3 +152,57 @@ class TestInputModeGate:
         before = scene._arc_variant
         assert scene.cycle_placement_variant(+1) is False
         assert scene._arc_variant == before
+
+
+class TestArrowKeyWiring:
+    """Task 14: ←/→ in ``keyPressEvent`` drive ``cycle_placement_variant``."""
+
+    def test_right_arrow_flips_and_accepts(self, scene):
+        scene.set_mode("draw_arc")
+        assert scene._arc_variant == _ARC_VARIANT_CENTER
+        ev = _arrow(Qt.Key.Key_Right)
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_START
+        assert ev.isAccepted()
+
+    def test_left_arrow_flips_back_and_accepts(self, scene):
+        scene.set_mode("draw_arc")
+        # Right first → start; Left should wrap back to center.
+        scene.keyPressEvent(_arrow(Qt.Key.Key_Right))
+        assert scene._arc_variant == _ARC_VARIANT_START
+        ev = _arrow(Qt.Key.Key_Left)
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_CENTER
+        assert ev.isAccepted()
+
+    def test_left_arrow_from_center_wraps_to_start(self, scene):
+        scene.set_mode("draw_arc")
+        ev = _arrow(Qt.Key.Key_Left)
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == _ARC_VARIANT_START
+        assert ev.isAccepted()
+
+    def test_no_consume_past_step_zero(self, scene):
+        scene.set_mode("draw_arc")
+        scene._press_draw_arc(None, None, QPointF(0, 0), None, None, None)
+        assert scene._draw_arc_step == 1
+        before = scene._arc_variant
+        ev = _arrow(Qt.Key.Key_Right)
+        scene.keyPressEvent(ev)
+        assert scene._arc_variant == before
+        assert not ev.isAccepted()
+
+    def test_no_consume_in_non_variant_mode(self, scene):
+        scene.set_mode("draw_line")
+        ev = _arrow(Qt.Key.Key_Right)
+        scene.keyPressEvent(ev)
+        # Variant machinery untouched; event falls through (not accepted here).
+        assert not ev.isAccepted()
+
+    def test_rectangle_right_arrow_flips_and_accepts(self, scene):
+        scene.set_mode("draw_rectangle")
+        assert scene._draw_rect_from_center is False
+        ev = _arrow(Qt.Key.Key_Right)
+        scene.keyPressEvent(ev)
+        assert scene._draw_rect_from_center is True
+        assert ev.isAccepted()
