@@ -16,3 +16,7 @@ scipy>=1.14
 pyvista>=0.44
 pyvistaqt>=0.11
 vtk>=9.3
+
+# Testing — per-test timeout so a hung test (e.g. an unpatched modal dialog)
+# fails the run instead of silently stalling the whole suite forever.
+pytest-timeout>=2.3
