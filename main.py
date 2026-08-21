@@ -1480,33 +1480,16 @@ class MainWindow(QMainWindow):
 
         # --- Geometry ---
         g_geom = draw_page.add_group("Geometry")
-        # Line split-menu: main click → draw_line, dropdown → Line / Construction Line
-        _line_btn = g_geom.add_large_button(
-            "Line", _I("line_icon.svg"),
-            lambda: self.scene.set_mode("draw_line"), checkable=True)
-        _line_btn.setToolTip("Draw a line or construction line")
-        _line_menu = QMenu(_line_btn)
-        _line_menu.addAction("Line").triggered.connect(
-            lambda: self.scene.set_mode("draw_line"))
-        _line_menu.addAction("Construction Line").triggered.connect(
-            lambda: self.scene.set_mode("construction_line"))
-        _line_btn.setMenu(_line_menu)
-        _line_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self._mode_buttons["draw_line"] = _line_btn
-        self._mode_buttons["construction_line"] = _line_btn
-        # Rectangle split-menu: main click → draw_rectangle, dropdown → Corner/Center mode
-        _rect_btn = g_geom.add_large_button(
-            "Rectangle", _I("rectangle_icon.svg"),
-            lambda: self.scene.set_mode("draw_rectangle"), checkable=True)
-        _rect_btn.setToolTip("Draw a rectangle")
-        _rect_menu = QMenu(_rect_btn)
-        _rect_corner_act = _rect_menu.addAction("Corner Mode")
-        _rect_center_act = _rect_menu.addAction("Center Mode")
-        _rect_corner_act.triggered.connect(lambda: self._set_rect_mode(False))
-        _rect_center_act.triggered.connect(lambda: self._set_rect_mode(True))
-        _rect_btn.setMenu(_rect_menu)
-        _rect_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        self._mode_buttons["draw_rectangle"] = _rect_btn
+        # Plain Line button (the Construction Line dropdown was retired — the
+        # inference/alignment engine supersedes construction lines; existing
+        # .fpd construction_line records still load via the scene_io factory).
+        _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip(
+            "Draw a line")
+        # Plain Rectangle button — corner vs centre is chosen on-canvas with the
+        # ←/→ variant cycle (consistent with Arc), superseding the old dropdown.
+        _mode_btn(g_geom, "Rectangle", _I("rectangle_icon.svg"),
+                  "draw_rectangle").setToolTip(
+            "Draw a rectangle (←/→ toggles corner/centre)")
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
@@ -2677,11 +2660,6 @@ class MainWindow(QMainWindow):
         self._activate_plan_view(name)
 
     # ── Template workflow helpers ─────────────────────────────────────────────
-
-    def _set_rect_mode(self, from_center: bool):
-        """Switch rectangle drawing between corner and center mode."""
-        self.scene._draw_rect_from_center = from_center
-        self.scene.set_mode("draw_rectangle")
 
     def _on_mode_changed_template(self, mode: str):
         """Show pre-placement template properties when entering wall/floor/geometry mode."""

@@ -8,10 +8,24 @@ from firepro3d.construction_geometry import RectangleItem
 def test_set_angle_stores_and_applies(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
     r.set_angle(37.0, QPointF(0, 0))
-    assert abs(r._angle - 37.0) < 1e-9
-    assert abs(r.rotation() - 37.0) < 1e-9          # Qt transform applied
+    assert abs(r._angle - 37.0) < 1e-9              # stored as the Y-up display angle
+    # App angles are Y-up (CCW+); Qt setRotation is CW+ on the Y-down scene, so the
+    # applied Qt rotation is negated (see set_angle).
+    assert abs(r.rotation() + 37.0) < 1e-9
     # transform origin is the pivot (local coords == scene coords at identity pos)
     assert r.transformOriginPoint() == QPointF(0, 0)
+
+
+def test_positive_angle_rotates_ccw_like_yup_convention(qapp):
+    # A +90° rect must turn CCW (like line/arc angles), so a corner due-east of
+    # the pivot swings UP (scene -y), not down — this is the direction the readout
+    # promises.  RED before the Y-up→Qt negation: setRotation(+90) turned it CW
+    # and the corner went down (+y).
+    r = RectangleItem(QPointF(0, 0), QPointF(100, 0))
+    r.set_angle(90.0, QPointF(0, 0))
+    east = r.mapToScene(QPointF(100, 0))            # local +x corner
+    assert east.y() < -1.0                          # swung UP (CCW)
+    assert abs(east.x()) < 1e-6
 
 
 def test_grip_points_are_scene_coords_after_rotation(qapp):
@@ -67,7 +81,7 @@ def test_from_dict_restores_angle_and_pivot(qapp):
          "angle": 37.0, "pivot": [10.0, 20.0]}
     r = RectangleItem.from_dict(d)
     assert abs(r._angle - 37.0) < 1e-9
-    assert abs(r.rotation() - 37.0) < 1e-9
+    assert abs(r.rotation() + 37.0) < 1e-9
     assert r.transformOriginPoint().x() == 10.0 and r.transformOriginPoint().y() == 20.0
 
 
@@ -109,7 +123,7 @@ def test_scene_io_round_trip_preserves_angle_pivot(qapp, tmp_path):
     assert len(scene2._draw_rects) == 1
     r2 = scene2._draw_rects[0]
     assert abs(r2._angle - 37.0) < 1e-9
-    assert abs(r2.rotation() - 37.0) < 1e-9
+    assert abs(r2.rotation() + 37.0) < 1e-9
     assert r2.transformOriginPoint().x() == 10.0
     assert r2.transformOriginPoint().y() == 20.0
 
@@ -126,6 +140,6 @@ def test_undo_path_preserves_angle_pivot(qapp):
     assert len(scene._draw_rects) == 1
     r2 = scene._draw_rects[0]
     assert abs(r2._angle - 37.0) < 1e-9
-    assert abs(r2.rotation() - 37.0) < 1e-9
+    assert abs(r2.rotation() + 37.0) < 1e-9
     assert r2.transformOriginPoint().x() == 10.0
     assert r2.transformOriginPoint().y() == 20.0

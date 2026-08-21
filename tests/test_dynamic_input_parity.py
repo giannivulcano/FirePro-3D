@@ -1221,7 +1221,8 @@ class TestRectangleRotatePreview:
         _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
         # 90° above +x (Y-up) from the pivot at the origin.
         scene._move_draw_rectangle(_FakeEvent(), QPointF(0, -400))
-        assert scene._draw_rect_preview.rotation() == pytest.approx(90.0)
+        # Ghost Qt-rotation is the Y-up angle negated (CCW readout → CW Qt).
+        assert scene._draw_rect_preview.rotation() == pytest.approx(-90.0)
         # Publishes so the HUD reads out.
         assert scene.get_resolved_point() is not None
 
@@ -1235,7 +1236,8 @@ class TestRectangleRotatePreview:
         ed.selectAll()
         ed.setText("60")
         QTest.keyClick(ed, Qt.Key.Key_Tab)              # commits Angle
-        assert scene._draw_rect_preview.rotation() == pytest.approx(60.0)
+        # Typed 60° Y-up → Qt rotation -60° (CCW readout → CW Qt).
+        assert scene._draw_rect_preview.rotation() == pytest.approx(-60.0)
 
 
 # ── Task 13: circle ───────────────────────────────────────────────────────

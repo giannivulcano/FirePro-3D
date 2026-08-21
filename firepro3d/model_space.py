@@ -5450,13 +5450,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         The rotate-step preview is **angle-driven**, not point-driven: the sized
         rect is fixed, only its orientation follows the cursor/typed angle.  Uses
         the same Qt transform ``RectangleItem.set_angle`` will — origin at the
-        pivot, ``setRotation(angle_deg)`` — so the ghost matches the committed
-        item.  A no-op until the preview rect and the pivot both exist.
+        pivot, and the Y-up angle negated for Qt's CW-positive ``setRotation`` —
+        so the ghost matches the committed item.  A no-op until the preview rect
+        and the pivot both exist.
         """
         if self._draw_rect_preview is None or self._draw_rect_pivot is None:
             return
         self._draw_rect_preview.setTransformOriginPoint(self._draw_rect_pivot)
-        self._draw_rect_preview.setRotation(angle_deg)
+        self._draw_rect_preview.setRotation(-angle_deg)   # Y-up CCW → Qt CW negate
 
     def _move_draw_rectangle(self, event, snapped):
         if self._draw_rect_rotating:

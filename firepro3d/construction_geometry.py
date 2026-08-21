@@ -545,7 +545,10 @@ class RectangleItem(QGraphicsRectItem):
             self._pivot = None          # origin follows rect centre on resize
             origin = self.rect().center()
         self.setTransformOriginPoint(origin)
-        self.setRotation(self._angle)
+        # ``_angle`` is Y-up (CCW-positive), matching line/arc angles and the
+        # rotate readout.  Qt's ``setRotation`` is CW-positive on the Y-down
+        # scene, so negate: a +30° readout must turn the rect 30° CCW on screen.
+        self.setRotation(-self._angle)
 
     # ── Properties ─────────────────────────────────────────────────────────
 
