@@ -1867,10 +1867,13 @@ class SheetViewPropertiesDialog(QDialog):
             self._y_edit = QLineEdit(f"{data.y:.1f}")
             self._w_edit = QLineEdit(f"{data.w:.1f}")
             self._h_edit = QLineEdit(f"{data.h:.1f}")
+            # Size derives from crop × scale (concern 5) — display only.
+            self._w_edit.setReadOnly(True)
+            self._h_edit.setReadOnly(True)
             layout.addRow("Position X:", self._x_edit)
             layout.addRow("Position Y:", self._y_edit)
-            layout.addRow("Width:", self._w_edit)
-            layout.addRow("Height:", self._h_edit)
+            layout.addRow("Width (auto):", self._w_edit)
+            layout.addRow("Height (auto):", self._h_edit)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
@@ -3662,9 +3665,10 @@ class PaperScene(QGraphicsScene):
         pos = dlg.get_position()
         if pos:
             new_x, new_y = pos
-        size = dlg.get_size()
-        if size:
-            new_w, new_h = size
+        # Concern 5: on-paper size is DERIVED from crop × scale (computed above).
+        # The dialog's W/H fields are read-only and must never override it — a
+        # stale field value here silently defeated scale changes (the viewport
+        # never resized). Size follows scale; only position is user-settable.
         new_fields = {
             "title": new_title, "show_border": new_show_border,
             "scale": new_scale, "x": new_x, "y": new_y,

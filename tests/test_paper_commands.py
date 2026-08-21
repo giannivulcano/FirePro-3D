@@ -437,19 +437,26 @@ def test_viewport_properties_scale_rederives_wh(qapp, monkeypatch):
     assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160.0
 
 
-def test_viewport_properties_explicit_size_overrides_scale(qapp, monkeypatch):
-    """An explicit size override wins over the scale-derived w/h."""
+def test_viewport_properties_size_follows_scale_ignoring_stale_fields(qapp, monkeypatch):
+    """Concern 5: on-paper size is derived from crop × scale; a stale W/H value
+    from the (now read-only) dialog fields must NOT override it.
+
+    Regression for the smoke-test bug where changing scale never resized the
+    viewport because get_size() returned the still-populated W/H fields and
+    clobbered the scale-derived size.
+    """
     scene = _resolving_scene()
     data = _vp_data(scale=0.01, w=400.0, h=300.0)
     scene._do_add_viewport(data)
+    # Even if the dialog hands back an explicit size, it is ignored now.
     _patch_vp_dialog(monkeypatch, scale=0.02, size=(123.0, 45.0))
 
     vp = _find_viewport(scene, data)
     scene._on_viewport_properties(vp)
 
     assert scene.undo_stack.count() == 1
-    assert data.w == pytest.approx(123.0)   # explicit override, NOT 200.0
-    assert data.h == pytest.approx(45.0)
+    assert data.w == pytest.approx(_SRC_RECT.width() * 0.02)   # 200, NOT 123
+    assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160, NOT 45
 
 
 def test_update_from_sheet_clears_undo_stack(qapp):
