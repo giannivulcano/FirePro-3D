@@ -2013,3 +2013,174 @@ class TestCommitArcAt:
         scene._commit_draw_arc_at(QPointF(0, -1000))
         assert scene.mode == "draw_arc"
         assert seen[-1] == "Pick center point"
+
+
+# ── Task 7: step-aware arc schema + rim applier + span router ──────────────
+#
+# Arc becomes a Dynamic Input HUD client.  The schema is step-dependent (line
+# at step 1 to type radius+start°, arc_span at step 2 to type the sweep), the
+# anchor is the first click, and a single ``_apply_arc_dynamic_input`` routes a
+# resolved value to the right step's applier.  These tests pin the step-aware
+# schema/anchor, the variant-aware rim applier, and mouse≡HUD parity.
+
+
+def _click_arc(scene, view, scene_pt):
+    """Send a left press at ``scene_pt`` through ``_press_draw_arc``."""
+    vp = view.mapFromScene(scene_pt)
+    ev = QMouseEvent(QEvent.Type.GraphicsSceneMousePress,
+                     QPointF(vp),
+                     Qt.MouseButton.LeftButton,
+                     Qt.MouseButton.LeftButton,
+                     Qt.KeyboardModifier.NoModifier)
+    scene._press_draw_arc(ev, scene_pt, scene_pt, None, None, None)
+
+
+class TestArcStepAwareSchema:
+    """``active_schema()`` and ``get_placement_anchor()`` follow the arc step."""
+
+    def test_schema_none_at_step_0(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_step = 0
+        assert scene.active_schema() is None
+
+    def test_schema_is_line_at_step_1(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_step = 1
+        assert scene.active_schema() is SCHEMAS["line"]
+
+    def test_schema_is_arc_span_at_step_2(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_step = 2
+        assert scene.active_schema() is SCHEMAS["arc_span"]
+
+    def test_schema_follows_real_clicks(self, scene, view):
+        scene.set_mode("draw_arc")
+        assert scene.active_schema() is None
+        _click_arc(scene, view, QPointF(0, 0))          # centre
+        assert scene.active_schema() is SCHEMAS["line"]
+        _click_arc(scene, view, QPointF(1000, 0))       # rim
+        assert scene.active_schema() is SCHEMAS["arc_span"]
+
+    def test_anchor_none_at_step_0(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_step = 0
+        scene._draw_arc_center = None
+        assert scene.get_placement_anchor() is None
+
+    def test_anchor_is_first_click_at_step_1(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        a = scene.get_placement_anchor()
+        assert a is not None
+        assert a.x() == pytest.approx(0.0) and a.y() == pytest.approx(0.0)
+
+    def test_anchor_is_a_copy(self, scene):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(5, 7)
+        scene._draw_arc_step = 1
+        a = scene.get_placement_anchor()
+        a.setX(999)
+        assert scene._draw_arc_center.x() == pytest.approx(5.0)
+
+
+class TestArcRimApplier:
+    """``_commit_draw_arc_rim_at`` advances step 1 → 2, variant-aware."""
+
+    def test_center_first_rim(self, scene):
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        ok = scene._commit_draw_arc_rim_at(QPointF(1000, 0))
+        assert ok is True
+        assert scene._draw_arc_radius == pytest.approx(1000.0)
+        assert scene._draw_arc_start_deg == pytest.approx(0.0)
+        assert scene._draw_arc_step == 2
+
+    def test_center_first_rejects_degenerate(self, scene):
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        assert scene._commit_draw_arc_rim_at(QPointF(0, 0)) is False
+        assert scene._draw_arc_step == 1
+
+    def test_start_first_rim(self, scene):
+        # First click = START at (1000, 0); rim-applier point = CENTRE at (0, 0).
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "start"
+        scene._draw_arc_center = QPointF(1000, 0)   # first click is the start
+        scene._draw_arc_step = 1
+        ok = scene._commit_draw_arc_rim_at(QPointF(0, 0))   # this is the centre
+        assert ok is True
+        assert scene._draw_arc_radius == pytest.approx(1000.0)
+        assert scene._draw_arc_start_deg == pytest.approx(0.0)
+        # centre now stored for the span math
+        assert scene._draw_arc_center.x() == pytest.approx(0.0)
+        assert scene._draw_arc_center.y() == pytest.approx(0.0)
+        assert scene._draw_arc_step == 2
+
+
+class TestArcEndPointForSpan:
+    """``_arc_end_point_for_span`` places a bearing on the radius circle."""
+
+    def test_90_degrees_yup(self, scene):
+        _arm_arc(scene, center=QPointF(0, 0), radius=1000.0, start_deg=0.0)
+        end = scene._arc_end_point_for_span(90.0)
+        assert end.x() == pytest.approx(0.0, abs=1e-6)
+        assert end.y() == pytest.approx(-1000.0, abs=1e-6)   # Y-up 90° CCW
+
+
+def _arc_fields(item):
+    return (item._center.x(), item._center.y(),
+            item._radius, item._start_deg, item._span_deg)
+
+
+class TestArcMouseHudParity:
+    """Center-first mouse arc ≡ HUD arc, and center-first ≡ start-first."""
+
+    def test_mouse_equals_hud(self, scene, view):
+        # Mouse: 3 real clicks.
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        _click_arc(scene, view, QPointF(0, 0))       # centre
+        _click_arc(scene, view, QPointF(1000, 0))    # rim → r=1000, start 0
+        _click_arc(scene, view, QPointF(0, -1000))   # end → 90° CCW
+        mouse_arc = _arcs(scene)[-1]
+        mouse = _arc_fields(mouse_arc)
+
+        # HUD: click centre, then route rim + span through the applier.
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        _click_arc(scene, view, QPointF(0, 0))       # centre
+        assert scene._apply_arc_dynamic_input(QPointF(1000, 0)) is True
+        assert scene._apply_arc_dynamic_input({"span_deg": 90.0}) is True
+        hud_arc = _arcs(scene)[-1]
+        hud = _arc_fields(hud_arc)
+
+        for m, h in zip(mouse, hud):
+            assert m == pytest.approx(h, abs=1e-6)
+
+    def test_center_first_equals_start_first(self, scene, view):
+        # Physical arc: centre (0,0), radius 1000, start at (1000,0), span 90.
+        # Center-first.
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))
+        scene._commit_draw_arc_at(QPointF(0, -1000))
+        cf = _arc_fields(_arcs(scene)[-1])
+
+        # Start-first: first click = start (1000,0), rim-applier = centre (0,0).
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "start"
+        scene._draw_arc_center = QPointF(1000, 0)
+        scene._draw_arc_step = 1
+        scene._commit_draw_arc_rim_at(QPointF(0, 0))
+        scene._commit_draw_arc_at(QPointF(0, -1000))
+        sf = _arc_fields(_arcs(scene)[-1])
+
+        for a, b in zip(cf, sf):
+            assert a == pytest.approx(b, abs=1e-6)

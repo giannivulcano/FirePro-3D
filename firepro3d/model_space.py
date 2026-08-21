@@ -176,6 +176,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_arc_radius: float = 0.0
         self._draw_arc_start_deg: float = 0.0
         self._draw_arc_step: int = 0  # 0=awaiting centre, 1=awaiting start, 2=awaiting end
+        # "center" (centre-first, current) or "start" (start-first).  The
+        # arrow-key CYCLE that flips this lands in a later task; the geometry is
+        # already variant-aware so it can be driven by setting the flag.
+        self._arc_variant: str = "center"
         self._draw_arc_radius_line: "QGraphicsLineItem | None" = None
         self._draw_arc_preview: "QGraphicsPathItem | None" = None
         # Text rubber-band (Sprint Q)
@@ -3817,6 +3821,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "draw_circle":
             a = self._draw_circle_center
             return QPointF(a) if a is not None else None
+        if self.mode == "draw_arc":
+            # The anchor is the FIRST click, stored in ``_draw_arc_center`` for
+            # both variants (the centre in center-first, the start point in
+            # start-first).  None at step 0, before that first click.
+            a = self._draw_arc_center
+            return QPointF(a) if (self._draw_arc_step in (1, 2)
+                                  and a is not None) else None
         if self.mode == "wall":
             a = self._wall_anchor
             return QPointF(a) if a is not None else None
@@ -3868,6 +3879,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
+        # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
+        # special-cases it per step; this router dispatches to the step applier.
+        "draw_arc": "_apply_arc_dynamic_input",
     }
 
     def active_schema(self):
@@ -3891,8 +3905,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             The registered ``Schema`` for ``self.mode``, or None when the mode
             has no dynamic-input schema.
         """
+        if self.mode == "draw_arc":
+            return self._arc_schema_for_step()
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
+
+    def _arc_schema_for_step(self):
+        """Return the arc schema for the current step, or None.
+
+        Arc is the one mode whose schema changes mid-placement: step 1 types the
+        radius + start angle (the ``line`` schema, Length=radius, Angle=start°),
+        step 2 types the sweep (``arc_span``).  Step 0 has no HUD — there is no
+        anchor before the first click, so nothing to read out or seed from.
+        """
+        if self._draw_arc_step == 1:
+            return SCHEMAS.get("line")
+        if self._draw_arc_step == 2:
+            return SCHEMAS.get("arc_span")
+        return None
 
     def get_resolved_point(self) -> "QPointF | None":
         """Return the last point published by ``publish_placement_state``.
@@ -6638,32 +6668,112 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(line)
             self._draw_arc_radius_line = line
         elif self._draw_arc_step == 1:
-            # Click 2 — set start point (defines radius + start angle)
-            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
-            r = math.hypot(snapped.x() - cx, snapped.y() - cy)
-            if r < 0.01:
-                return
-            self._draw_arc_radius = r
-            self._draw_arc_start_deg = math.degrees(
-                math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-            )
-            self._draw_arc_step = 2
-            self.instructionChanged.emit("Pick end angle point")
-            # Remove radius line, create arc preview path
-            if self._draw_arc_radius_line is not None:
-                self.removeItem(self._draw_arc_radius_line)
-                self._draw_arc_radius_line = None
-            preview = QGraphicsPathItem()
-            _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
-            _prev_pen.setCosmetic(True)
-            preview.setPen(_prev_pen)
-            preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            preview.setZValue(200)
-            self.addItem(preview)
-            self._draw_arc_preview = preview
+            # Click 2 — set start point (defines radius + start angle).  Shared
+            # with the Dynamic Input rim applier via ``_commit_draw_arc_rim_at``.
+            self._commit_draw_arc_rim_at(snapped)
         elif self._draw_arc_step == 2:
             # Click 3 — set end point → commit arc
             self._commit_draw_arc_at(snapped)
+
+    def _advance_arc_to_span_step(self) -> None:
+        """Advance an armed arc from step 1 to step 2 (radius → span).
+
+        Removes the radius preview line, creates the arc preview path item, sets
+        ``_draw_arc_step = 2`` and emits the "pick end" instruction.  Shared
+        verbatim by the mouse step-1 click and the Dynamic Input rim applier so
+        both hand off to the span step identically.
+        """
+        self._draw_arc_step = 2
+        self.instructionChanged.emit("Pick end angle point")
+        # Remove radius line, create arc preview path
+        if self._draw_arc_radius_line is not None:
+            self.removeItem(self._draw_arc_radius_line)
+            self._draw_arc_radius_line = None
+        preview = QGraphicsPathItem()
+        _prev_pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+        _prev_pen.setCosmetic(True)
+        preview.setPen(_prev_pen)
+        preview.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        preview.setZValue(200)
+        self.addItem(preview)
+        self._draw_arc_preview = preview
+
+    def _commit_draw_arc_rim_at(self, point) -> bool:
+        """Step-1 applier: fix radius + start angle, then advance to the span step.
+
+        Variant-aware.  In center-first, ``point`` is the rim: radius and start°
+        are measured from the stored centre.  In start-first, ``point`` is the
+        CENTRE and the first click (``_draw_arc_center``) is the START, so the
+        radius/start° are measured from ``point`` to that start, then ``point``
+        is stored as the real centre for the span math.
+
+        Shared by the mouse step-1 click (center-first, parity-preserving) and
+        the Dynamic Input ``line`` schema, which resolves Length=radius +
+        Angle=start° into this rim point.
+
+        Args:
+            point: The rim (center-first) or the centre (start-first).
+
+        Returns:
+            True when the arc advanced to step 2, False when the radius is under
+            the too-small floor (a degenerate rim).
+        """
+        if self._arc_variant == "start":
+            # ``point`` is the centre; the first click is the start point.
+            cx, cy = point.x(), point.y()
+            start = self._draw_arc_center
+            r = math.hypot(start.x() - cx, start.y() - cy)
+            if r < 0.01:
+                return False
+            self._draw_arc_radius = r
+            self._draw_arc_start_deg = math.degrees(
+                math.atan2(-(start.y() - cy), start.x() - cx)
+            )
+            # Store the real centre for the span derivation.
+            self._draw_arc_center = QPointF(point)
+        else:
+            # center-first: ``point`` is the rim, measured from the stored centre.
+            cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+            r = math.hypot(point.x() - cx, point.y() - cy)
+            if r < 0.01:
+                return False
+            self._draw_arc_radius = r
+            self._draw_arc_start_deg = math.degrees(
+                math.atan2(-(point.y() - cy), point.x() - cx)
+            )
+        self._advance_arc_to_span_step()
+        return True
+
+    def _arc_end_point_for_span(self, span_deg) -> "QPointF":
+        """Return the sweep endpoint on the radius circle for ``span_deg``.
+
+        The stored centre/radius/start° plus the typed span give a bearing
+        ``start° + span`` (Y-up), projected onto the radius circle.  Feeds
+        ``_commit_draw_arc_at``, which re-derives the span from this point, so
+        the Dynamic Input span and the mouse third click share one commit.
+        """
+        cx, cy = self._draw_arc_center.x(), self._draw_arc_center.y()
+        r = self._draw_arc_radius
+        end_deg = self._draw_arc_start_deg + span_deg
+        return QPointF(cx + r * math.cos(math.radians(end_deg)),
+                       cy - r * math.sin(math.radians(end_deg)))
+
+    def _apply_arc_dynamic_input(self, geometry) -> bool:
+        """Route a resolved arc value to the right step's applier.
+
+        Arc's schema is step-dependent, so its applier is too: at step 1 the
+        ``line`` schema resolves to a rim QPointF, at step 2 the ``arc_span``
+        schema resolves to a ``{"span_deg": …}`` dict.
+
+        Returns:
+            The step applier's verdict, or False outside steps 1/2.
+        """
+        if self._draw_arc_step == 1:
+            return self._commit_draw_arc_rim_at(geometry)          # QPointF
+        if self._draw_arc_step == 2:
+            return self._commit_draw_arc_at(
+                self._arc_end_point_for_span(geometry["span_deg"]))  # dict
+        return False
 
     def _commit_draw_arc_at(self, end_point) -> bool:
         """Commit the in-progress arc, sweeping to ``end_point``.
