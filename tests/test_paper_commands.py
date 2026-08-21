@@ -281,15 +281,15 @@ def test_viewport_geometry_command_redo_undo(qapp):
     scene = _viewport_scene()
     data = _vp_data(x=50, y=50, w=400, h=300)
     scene._do_add_viewport(data)
-    old = (50.0, 50.0, 400.0, 300.0)
-    new = (100.0, 120.0, 500.0, 350.0)
+    old = (50.0, 50.0, 400.0, 300.0, (0.0, 0.0, 400.0, 300.0))
+    new = (100.0, 120.0, 500.0, 350.0, (0.0, 0.0, 500.0, 350.0))
     cmd = ViewportGeometryCommand(scene, data, old, new)
     cmd.redo()
-    assert (data.x, data.y, data.w, data.h) == new
+    assert (data.x, data.y, data.w, data.h) == new[:4]
     vp = _find_viewport(scene, data)
     assert (vp.pos().x(), vp.pos().y()) == pytest.approx((100.0, 120.0))
     cmd.undo()
-    assert (data.x, data.y, data.w, data.h) == old
+    assert (data.x, data.y, data.w, data.h) == old[:4]
     assert (vp.pos().x(), vp.pos().y()) == pytest.approx((50.0, 50.0))
 
 
@@ -350,11 +350,13 @@ def test_viewport_geometry_push_guard(qapp):
     scene._do_add_viewport(data)
 
     scene._applying_command = True
-    scene._push_viewport_geometry(data, (50, 50, 400, 300), (60, 60, 400, 300))
+    scene._push_viewport_geometry(data, (50, 50, 400, 300, (0, 0, 400, 300)),
+                                  (60, 60, 400, 300, (0, 0, 400, 300)))
     assert scene.undo_stack.count() == 0
 
     scene._applying_command = False
-    scene._push_viewport_geometry(data, (50, 50, 400, 300), (60, 60, 400, 300))
+    scene._push_viewport_geometry(data, (50, 50, 400, 300, (0, 0, 400, 300)),
+                                  (60, 60, 400, 300, (0, 0, 400, 300)))
     assert scene.undo_stack.count() == 1
 
 
