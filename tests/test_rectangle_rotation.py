@@ -143,3 +143,17 @@ def test_undo_path_preserves_angle_pivot(qapp):
     assert abs(r2.rotation() + 37.0) < 1e-9
     assert r2.transformOriginPoint().x() == 10.0
     assert r2.transformOriginPoint().y() == 20.0
+
+
+def test_translate_moves_rotated_rect_with_its_pivot(qapp):
+    # Move bug: a rotated rect has an explicit pivot (rotate step sets one), and
+    # translate must carry the pivot with the rect — else the committed rotated
+    # rect swings about a stale origin and lands away from the ghost.
+    r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
+    r.set_angle(30.0, QPointF(0, 0))                    # explicit pivot at origin
+    br_before = r.mapToScene(r.rect().bottomRight())    # scene pos of the BR corner
+    r.translate(200, 100)
+    br_after = r.mapToScene(r.rect().bottomRight())      # BR corner at its new local pos
+    # the rotated corner must move by exactly the offset (ghost == committed)
+    assert abs(br_after.x() - (br_before.x() + 200)) < 1e-6
+    assert abs(br_after.y() - (br_before.y() + 100)) < 1e-6

@@ -665,8 +665,15 @@ class RectangleItem(QGraphicsRectItem):
 
     def translate(self, dx: float, dy: float):
         self.setRect(self.rect().translated(dx, dy))
+        # Carry the rotation origin with the rect.  A centre-following pivot
+        # tracks the new centre; an explicit pivot (every rotate-step rect has
+        # one) must shift by the same offset — otherwise a rotated rect swings
+        # about a stale origin after a move and lands away from its ghost.
         if self._pivot is None:
             self.setTransformOriginPoint(self.rect().center())
+        else:
+            self._pivot = QPointF(self._pivot.x() + dx, self._pivot.y() + dy)
+            self.setTransformOriginPoint(self._pivot)
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
