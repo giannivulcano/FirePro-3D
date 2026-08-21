@@ -732,7 +732,10 @@ class TestViewTitleMmSizing:
         )
         resolver = MagicMock(spec=ViewResolver)
         # resolve() must match the real signature: (view_type, view_name) -> (scene, rect) | None
-        resolver.resolve.return_value = (QGraphicsScene(), QRectF(0, 0, 1, 1))
+        # The source rect must equal w/h ÷ scale: viewport on-paper size is now
+        # derived as crop × scale (crop seeds from the source extent), so a 1×1
+        # rect would collapse the viewport to ~0. 12000×9000 × 0.01 = 120×90.
+        resolver.resolve.return_value = (QGraphicsScene(), QRectF(0, 0, 12000, 9000))
         vp = SheetViewport(data, resolver)
 
         host_scene = QGraphicsScene()
@@ -806,10 +809,11 @@ class TestViewTitleMmSizing:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TestPanelAndUndo:
-    """Panel protocol on TitleBlockTemplateItem + SetSheetFieldCommand/EditRevisionsCommand.
+    """EditRevisionsCommand + SetSheetFieldCommand / undo contract.
 
-    These tests exercise the property-panel API and undo/redo contract without
-    the MainWindow fixture — a bare PaperScene with a MagicMock resolver.
+    Panel protocol moved to SheetProperties (concern 4); these tests cover
+    the underlying commands without the MainWindow fixture — a bare PaperScene
+    with a MagicMock resolver.
     """
 
     def _scene(self):
@@ -833,77 +837,6 @@ class TestPanelAndUndo:
         return next(
             i for i in sc.items() if isinstance(i, TitleBlockTemplateItem)
         )
-
-    # ── get_properties ─────────────────────────────────────────────────────
-
-    def test_get_properties_lists_sheet_fields(self):
-        # 2026-08-07: Title/Drawing No removed from _SHEET_KEYS — identity-derived.
-        # Panel now shows only Rev + Date (+ Edit Revisions… button).
-        sc, _ = self._scene()
-        props = self._tb(sc).get_properties()
-        assert "Rev" in props, f"Expected 'Rev' in props, got keys: {list(props)}"
-        assert "Date" in props, f"Expected 'Date' in props, got keys: {list(props)}"
-        # OLD contract: Title and Drawing No were panel rows — no longer.
-        assert "Title" not in props, \
-            "Title must NOT appear in panel (derived from sheet.name)"
-        assert "Drawing No" not in props, \
-            "Drawing No must NOT appear in panel (derived from sheet.number)"
-
-    def test_get_properties_types_are_string_or_button(self):
-        sc, _ = self._scene()
-        props = self._tb(sc).get_properties()
-        for key, meta in props.items():
-            t = meta.get("type", "string")
-            assert t in {"string", "button"}, \
-                f"Unexpected property type {t!r} for key {key!r}"
-
-    # ── set_property / undo / redo ─────────────────────────────────────────
-
-    def test_set_property_updates_sheet_field(self):
-        # 2026-08-07: Rev is now the archetypal _SHEET_KEYS entry (Title removed).
-        sc, sheet = self._scene()
-        self._tb(sc).set_property("Rev", "B")
-        assert sheet.title_block_fields["Rev"] == "B"
-
-    def test_set_property_rides_undo_and_dirties(self):
-        """set_property pushes SetSheetFieldCommand; indexChanged relay emits sheetModified.
-
-        2026-08-07: Test migrated from 'Title' (now identity-derived) to 'Rev'
-        (still a typed per-sheet field) to exercise the same undo/redo path.
-        """
-        sc, sheet = self._scene()
-        emitted = []
-        sc.sheetModified.connect(lambda *a: emitted.append(1))
-        self._tb(sc).set_property("Rev", "B")
-        assert sheet.title_block_fields["Rev"] == "B"
-        assert emitted, "sheetModified not emitted after set_property"
-        # After rebuild the item pointer is stale — use sc.undo_stack directly.
-        sc.undo_stack.undo()
-        assert sheet.title_block_fields["Rev"] == "A"
-        sc.undo_stack.redo()
-        assert sheet.title_block_fields["Rev"] == "B"
-
-    def test_set_property_rerenders_template(self):
-        """After set_property, the new TitleBlockTemplateItem has the updated value.
-
-        2026-08-07: Title is identity-derived (always equals sheet.name after
-        build_field_values); verify that set_property for 'Rev' also rerenders.
-        """
-        sc, sheet = self._scene()
-        self._tb(sc).set_property("Rev", "C")
-        tb2 = self._tb(sc)          # fresh item post-rebuild
-        assert tb2._values.get("Rev") == "C", \
-            f"Expected 'C' in _values['Rev'], got {tb2._values.get('Rev')!r}"
-        # Also verify Title derives from sheet.name (not a typed field).
-        assert tb2._values.get("Title") == sheet.name, \
-            f"Title must equal sheet.name={sheet.name!r}, got {tb2._values.get('Title')!r}"
-
-    def test_set_property_unknown_key_ignored(self):
-        """set_property for a key not in _SHEET_KEYS must not raise."""
-        sc, sheet = self._scene()
-        before = dict(sheet.title_block_fields)
-        self._tb(sc).set_property("NotAKey", "X")
-        assert sheet.title_block_fields == before
 
     # ── EditRevisionsCommand ───────────────────────────────────────────────
 
@@ -1263,102 +1196,6 @@ class TestMainWindowWiring:
         _mw.scene._titleblock_template = None
         # Must not raise (no library file, no dialog shown headlessly).
         _mw._maybe_offer_template_push()
-
-    def test_revisions_callback_is_wired(self, _mw):
-        """TitleBlockTemplateItem.get_properties 'Edit Revisions…' callback is not None."""
-        _fresh(_mw)
-        _mw.scene._titleblock_template = make_default_template().to_dict()
-        _mw._push_titleblock_template()
-        sc = _mw.paper_space_widget.paper_scene
-        from firepro3d.paper_space import TitleBlockTemplateItem
-        tb = next(
-            (i for i in sc.items() if isinstance(i, TitleBlockTemplateItem)),
-            None,
-        )
-        assert tb is not None, "No TitleBlockTemplateItem in scene after push"
-        props = tb.get_properties()
-        btn_meta = props.get("")
-        assert btn_meta is not None, "Empty-key button row missing from get_properties()"
-        assert btn_meta.get("callback") is not None, (
-            "Edit Revisions… callback is None — must be wired to _open_revisions_dialog"
-        )
-
-    def test_edit_revisions_via_callback(self, _mw, monkeypatch):
-        """Clicking the Edit Revisions… callback updates revisions and is undoable."""
-        from firepro3d.paper_space import RevisionsDialog, TitleBlockTemplateItem
-        _fresh(_mw)
-        _mw.scene._titleblock_template = make_default_template().to_dict()
-        _mw._push_titleblock_template()
-        sc = _mw.paper_space_widget.paper_scene
-        sheet = sc._sheet
-        sheet.revisions = []
-
-        new_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
-
-        # Monkeypatch RevisionsDialog to auto-accept with prepared rows.
-        class _FakeRevDlg:
-            def __init__(self, revisions, parent=None):
-                self._revs = new_revs
-            def exec(self):
-                return 1  # Accepted
-            def result_revisions(self):
-                return list(self._revs)
-
-        monkeypatch.setattr(
-            "firepro3d.paper_space.RevisionsDialog", _FakeRevDlg
-        )
-
-        tb = next(i for i in sc.items() if isinstance(i, TitleBlockTemplateItem))
-        tb._open_revisions_dialog()
-
-        assert sheet.revisions == new_revs, (
-            f"Revisions not updated after callback: {sheet.revisions!r}"
-        )
-        # Must be undoable.
-        sc.undo_stack.undo()
-        assert sheet.revisions == [], (
-            f"Undo did not clear revisions: {sheet.revisions!r}"
-        )
-
-    def test_no_change_revisions_guard(self, _mw, monkeypatch):
-        """Accepting the revisions dialog with identical rows must not emit
-        sheetModified and must not push onto the undo stack (no-change guard).
-        """
-        from firepro3d.paper_space import RevisionsDialog, TitleBlockTemplateItem
-        _fresh(_mw)
-        _mw.scene._titleblock_template = make_default_template().to_dict()
-        _mw._push_titleblock_template()
-        sc = _mw.paper_space_widget.paper_scene
-        sheet = sc._sheet
-        existing_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
-        sheet.revisions = list(existing_revs)
-
-        stack_count_before = sc.undo_stack.count()
-        emitted = []
-        sc.sheetModified.connect(lambda *a: emitted.append(1))
-
-        # Fake dialog accepts but returns identical rows.
-        class _FakeRevDlgIdentical:
-            def __init__(self, revisions, parent=None):
-                self._revs = list(revisions)  # same rows passed in
-            def exec(self):
-                return 1  # QDialog.DialogCode.Accepted
-            def result_revisions(self):
-                return list(self._revs)
-
-        monkeypatch.setattr(
-            "firepro3d.paper_space.RevisionsDialog", _FakeRevDlgIdentical
-        )
-
-        tb = next(i for i in sc.items() if isinstance(i, TitleBlockTemplateItem))
-        tb._open_revisions_dialog()
-
-        assert not emitted, (
-            "sheetModified must not fire when revisions are unchanged"
-        )
-        assert sc.undo_stack.count() == stack_count_before, (
-            "Undo stack must not grow when revisions are unchanged"
-        )
 
     def test_maybe_offer_pull_from_library_on_no(self, _mw, tmp_path, monkeypatch):
         """When library diverges and user answers No (Pull), the scene gets the

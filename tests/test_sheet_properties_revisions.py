@@ -80,3 +80,64 @@ def test_rev_edit_is_undoable(qapp):
     assert sheet.title_block_fields.get("Rev") == "B", "Rev not written after set_property"
     scene.undo_stack.undo()
     assert sheet.title_block_fields.get("Rev") != "B", "Rev not reverted after undo"
+
+
+def test_sheet_properties_types_are_string_button_or_label(qapp):
+    from firepro3d.paper_space import SheetProperties
+    scene = _scene_with_template()
+    sp = SheetProperties(scene._sheet, None, scene_getter=lambda: scene)
+    for key, meta in sp.get_properties().items():
+        t = meta.get("type", "string")
+        assert t in {"string", "button", "label"}, f"bad type {t!r} for {key!r}"
+
+
+def test_sheet_properties_unknown_key_ignored(qapp):
+    from firepro3d.paper_space import SheetProperties
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    before = dict(sheet.title_block_fields)
+    SheetProperties(sheet, None, scene_getter=lambda: scene).set_property("NotAKey", "X")
+    assert sheet.title_block_fields == before
+
+
+def test_edit_revisions_via_callback_updates_and_undoable(qapp, monkeypatch):
+    from firepro3d.paper_space import SheetProperties
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sheet.revisions = []
+    new_revs = [{"no": "1", "description": "IFC", "date": "07-21"}]
+
+    class _FakeRevDlg:
+        def __init__(self, revisions, parent=None): pass
+        def exec(self): return 1  # Accepted
+        def result_revisions(self): return list(new_revs)
+
+    monkeypatch.setattr("firepro3d.paper_space.RevisionsDialog", _FakeRevDlg)
+
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    btn = sp.get_properties().get("")
+    assert btn is not None and btn.get("type") == "button"
+    btn["callback"]()                       # invoke the Edit Revisions… callback
+    assert sheet.revisions == new_revs
+    scene.undo_stack.undo()
+    assert sheet.revisions == []
+
+
+def test_edit_revisions_no_change_guard(qapp, monkeypatch):
+    from firepro3d.paper_space import SheetProperties
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    existing = [{"no": "1", "description": "IFC", "date": "07-21"}]
+    sheet.revisions = list(existing)
+    count_before = scene.undo_stack.count()
+
+    class _FakeRevDlgIdentical:
+        def __init__(self, revisions, parent=None): self._r = list(revisions)
+        def exec(self): return 1
+        def result_revisions(self): return list(self._r)
+
+    monkeypatch.setattr("firepro3d.paper_space.RevisionsDialog", _FakeRevDlgIdentical)
+
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    sp.get_properties()[""]["callback"]()
+    assert scene.undo_stack.count() == count_before, "no-op revisions must not push undo"
