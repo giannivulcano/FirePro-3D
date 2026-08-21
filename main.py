@@ -708,9 +708,10 @@ class MainWindow(QMainWindow):
             self.view._select_all_items)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
             lambda: self.scene.set_mode("duplicate"))
-        # Align's old "A, L" chord was retired so bare A is the Arc tool shortcut;
-        # Align stays on the ribbon (its keyboard binding is TBD — Ctrl+A is taken
-        # by Select All).
+        # Align on Shift+A (its old "A, L" chord was retired so bare A is the Arc
+        # tool shortcut; Ctrl+A is Select All, so Shift+A keeps the A mnemonic).
+        QShortcut(QKeySequence("Shift+A"), self,
+                  lambda: self.scene.set_mode("align"))
 
         # Restore settings
         self._splash_progress(90, "Restoring settings...")
