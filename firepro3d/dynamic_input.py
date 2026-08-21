@@ -188,6 +188,17 @@ def resolve_distance(anchor, values: dict) -> dict:
     return {"distance": values["Distance"]}
 
 
+def resolve_arc_span(anchor, values: dict) -> dict:
+    """Return the arc sweep for a typed span (Y-up degrees, canonical).
+
+    A transform schema: the end point needs the centre/radius/start the scene
+    holds, so this yields the span the applier sweeps rather than a point.  The
+    coupled ``ArcLength`` field is a derived view maintained in the HUD; only the
+    span reaches the applier.
+    """
+    return {"span_deg": values["Span"]}
+
+
 def resolve_spacing_count(anchor, values: dict) -> dict:
     """Return spacing plus an integer count, floored at one.
 
@@ -257,6 +268,21 @@ SCHEMAS: dict[str, Schema] = {
         ),
         resolve=resolve_spacing_count,
         returns_point=False,
+    ),
+    "arc_span": Schema(
+        name="arc_span",
+        fields=(
+            # Span is canonical; ArcLength is a derived view the HUD keeps in
+            # step via ``arc_len = radius * radians(span)``.  Only Span reaches
+            # the applier (see ``resolve_arc_span``).
+            FieldSpec("Span", "Span", FieldKind.ANGLE),
+            FieldSpec("ArcLength", "Arc", FieldKind.DIMENSION, minimum=0.0),
+        ),
+        resolve=resolve_arc_span,
+        returns_point=False,
+        # Anchored transform: the centre/radius/start are armed in the scene
+        # before step 3, so the HUD stays shut until they exist — like ``move``.
+        needs_anchor=True,
     ),
 }
 
@@ -464,6 +490,14 @@ class DynamicInputHud(QWidget):
         self._engaged = False
         # Grow-only field widths (decision S2), keyed by field name.
         self._field_widths: dict[str, int] = {}
+        # Span°↔Arc-length coupling (arc_span only).  The seed radius is stored
+        # in millimetres — the domain the DIMENSION ``ArcLength`` editor stores
+        # in — so the coupling math needs no scene conversion.  Zero (the
+        # default) disables the coupling, and ``_coupling_writing`` is the
+        # re-entrancy guard that stops one field's write-back re-firing the
+        # other's handler.
+        self._coupling_radius: float = 0.0
+        self._coupling_writing = False
 
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
@@ -491,6 +525,11 @@ class DynamicInputHud(QWidget):
             # entries revert on their own and are not edits to step back over.
             editor.valueChanged.connect(
                 lambda mm, name=spec.name: self._record_edit(name, mm))
+            # Live Span°↔Arc-length coupling.  Fires only for accepted edits
+            # (the granularity ``valueChanged`` gives), and no-ops unless this
+            # is the arc_span schema with a radius armed — see ``_couple``.
+            editor.valueChanged.connect(
+                lambda _mm, name=spec.name: self._couple(name))
             # Set the property up front so the selector has something to match
             # from the first polish rather than only after a rejection.
             self._set_invalid_style(editor, False)
@@ -611,6 +650,49 @@ class DynamicInputHud(QWidget):
             KeyError: If *name* is not a field of this schema.
         """
         return self._editors[name]
+
+    def set_coupling_radius(self, radius_mm: float) -> None:
+        """Arm the Span°↔Arc-length coupling with the sweep *radius* in mm.
+
+        Only the ``arc_span`` schema consults this; every other schema ignores
+        it, so arming it on the wrong HUD is a harmless no-op (see ``_couple``).
+        The radius is stored in millimetres — the domain the ``ArcLength``
+        DIMENSION editor stores in — so ``arc_len = radius * radians(span)``
+        needs no scene conversion.  Zero disables the coupling.
+        """
+        self._coupling_radius = radius_mm
+
+    def _couple(self, name: str) -> None:
+        """Rewrite the sibling field after *name* committed (arc_span only).
+
+        Editing ``Span`` recomputes ``ArcLength = radius * radians(span)``;
+        editing ``ArcLength`` recomputes ``Span = degrees(arc_len / radius)``.
+        The derived value is written with :meth:`DimensionEdit.set_value_mm`,
+        which reformats and re-baselines the field without emitting
+        ``valueChanged`` — so it neither steps the session undo stack nor flags
+        the field.  ``_coupling_writing`` guards against a future write path
+        that *does* re-fire, so one field's update can never bounce back.
+
+        No-ops unless this is the ``arc_span`` schema with a positive radius,
+        keeping every other schema untouched.
+        """
+        if (self._schema.name != "arc_span"
+                or self._coupling_radius <= 0.0
+                or self._coupling_writing):
+            return
+        span_ed = self._editors["Span"]
+        arc_ed = self._editors["ArcLength"]
+        r = self._coupling_radius
+        self._coupling_writing = True
+        try:
+            if name == "Span":
+                # Span is degrees (ANGLE editor stores its value raw); ArcLength
+                # is mm, matching the mm radius, so the product is mm directly.
+                arc_ed.set_value_mm(r * math.radians(span_ed.value_mm()))
+            elif name == "ArcLength":
+                span_ed.set_value_mm(math.degrees(arc_ed.value_mm() / r))
+        finally:
+            self._coupling_writing = False
 
     def set_values(self, values: dict) -> None:
         """Seed the editors from *values*, expressed in schema units.

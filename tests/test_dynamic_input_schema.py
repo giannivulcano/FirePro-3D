@@ -13,6 +13,7 @@ from firepro3d.dynamic_input import (
     resolve_rectangle, seed_rectangle,
     resolve_circle, seed_circle,
     resolve_displacement, resolve_distance, resolve_spacing_count,
+    resolve_arc_span,
 )
 
 # A non-origin anchor, so a seed that silently drops the anchor still fails.
@@ -30,10 +31,11 @@ QUADRANT_OFFSETS = [
 
 class TestRegistry:
 
-    def test_six_schemas_registered(self):
+    def test_schemas_registered(self):
         assert set(SCHEMAS) == {
             "line", "rectangle", "circle",
             "displacement", "distance", "spacing_count",
+            "arc_span",
         }
 
     def test_line_fields(self):
@@ -73,6 +75,7 @@ class TestRegistry:
             "dX": 70.0, "dY": 80.0,
             "Distance": 90.0,
             "Spacing": 500.0, "Count": 3.0,
+            "Span": 90.0, "ArcLength": 0.0,
         }
         for name, schema in SCHEMAS.items():
             out = schema.resolve(anchor, sample)
@@ -88,12 +91,14 @@ class TestRegistry:
     def test_requires_anchor_covers_placements_plus_move(self):
         """The engage/commit anchor gate keys on this, not on ``is_placement``.
 
-        Every placement needs an anchor; ``move`` is the one transform that
-        also does (its base point), so it must not open a HUD before that point
-        exists.  The gridline replicate transforms are anchorless.
+        Every placement needs an anchor; ``move`` and ``arc_span`` are the
+        transforms that also do (a base point / an armed centre+radius+start),
+        so neither opens a HUD before that state exists.  The gridline
+        replicate transforms are anchorless.
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
-        assert need == {"line", "rectangle", "circle", "displacement"}
+        assert need == {"line", "rectangle", "circle",
+                        "displacement", "arc_span"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
@@ -224,3 +229,33 @@ class TestTransforms:
     def test_spacing_count_floors_at_one(self):
         out = resolve_spacing_count(None, {"Spacing": 500.0, "Count": 0.2})
         assert out["count"] == 1
+
+
+class TestArcSpan:
+    """Arc step 3: a span sweep, coupled to a derived arc-length view."""
+
+    def test_arc_span_resolves_to_transform_dict(self):
+        out = resolve_arc_span(None, {"Span": 90.0, "ArcLength": 0.0})
+        assert out == {"span_deg": 90.0}
+
+    def test_arc_span_schema_is_anchored_transform(self):
+        s = SCHEMAS["arc_span"]
+        assert s.returns_point is False
+        assert s.needs_anchor is True          # radius/start armed before step 3
+        assert [f.name for f in s.fields] == ["Span", "ArcLength"]
+
+    def test_arc_length_field_is_a_dimension_with_zero_floor(self):
+        arc = [f for f in SCHEMAS["arc_span"].fields
+               if f.name == "ArcLength"][0]
+        assert arc.kind is FieldKind.DIMENSION
+        assert arc.minimum == 0.0
+
+    def test_span_field_is_an_angle(self):
+        span = [f for f in SCHEMAS["arc_span"].fields
+                if f.name == "Span"][0]
+        assert span.kind is FieldKind.ANGLE
+
+    def test_only_the_span_reaches_the_applier(self):
+        """ArcLength is a derived HUD view; the resolver ignores it."""
+        out = resolve_arc_span(None, {"Span": 45.0, "ArcLength": 9999.0})
+        assert out == {"span_deg": 45.0}

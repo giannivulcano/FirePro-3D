@@ -7,6 +7,8 @@ Construction, seeding, value reads, invalid styling and key routing.  The
 
 from __future__ import annotations
 
+import math
+
 import pytest
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QKeyEvent
@@ -1301,6 +1303,77 @@ class TestFieldWidth:
         second = self._hud()
         second.set_values({"Length": 1.0, "Angle": 0.0})
         assert second.editor("Length").width() < wide
+
+
+class TestArcSpanCoupling:
+    """Task 6: Span° and Arc-length are live-coupled through the seed radius.
+
+    Editing one field rewrites the other via ``arc_len = r * radians(span)``.
+    The coupling is a pure widget+math affair (no scene): the HUD is told the
+    radius in mm, and because ``arc_span`` fields are DIMENSION/ANGLE the write
+    -back reuses the same seed path a normal reseed uses.
+    """
+
+    _R = 1000.0     # mm; uncalibrated so 1 scene unit == 1 mm
+
+    def _arc_hud(self, shown_hud):
+        hud = shown_hud(SCHEMAS["arc_span"])
+        hud.set_coupling_radius(self._R)
+        hud.set_values({"Span": 0.0, "ArcLength": 0.0})
+        hud.focus_first()
+        return hud
+
+    def test_span_edit_updates_arc_length(self, shown_hud):
+        """90° on a 1000 mm radius is a quarter circumference ≈ 1570.8 mm."""
+        hud = self._arc_hud(shown_hud)
+        span = hud.editor("Span")
+        _type(span, "90")
+        QTest.keyClick(span, Qt.Key.Key_Tab)     # commit Span, wraps to Arc
+        assert hud.editor("ArcLength").value_mm() == pytest.approx(
+            math.pi / 2 * self._R, abs=1e-3)
+
+    def test_arc_length_edit_updates_span(self, shown_hud):
+        """1000 mm of arc on a 1000 mm radius is 1 radian ≈ 57.296°."""
+        hud = self._arc_hud(shown_hud)
+        # Move focus onto the ArcLength field first.
+        arc = hud.editor("ArcLength")
+        arc.setFocus(Qt.FocusReason.OtherFocusReason)
+        _type(arc, "1000")
+        QTest.keyClick(arc, Qt.Key.Key_Tab)      # commit Arc, wraps to Span
+        assert hud.editor("Span").value_mm() == pytest.approx(
+            math.degrees(1000.0 / self._R), abs=1e-3)
+
+    def test_coupling_does_not_run_without_a_radius(self, shown_hud):
+        """No radius armed → editing Span leaves ArcLength untouched."""
+        hud = shown_hud(SCHEMAS["arc_span"])
+        hud.set_values({"Span": 0.0, "ArcLength": 0.0})
+        hud.focus_first()
+        span = hud.editor("Span")
+        _type(span, "90")
+        QTest.keyClick(span, Qt.Key.Key_Tab)
+        assert hud.editor("ArcLength").value_mm() == pytest.approx(0.0)
+
+    def test_coupling_is_isolated_to_arc_span(self, shown_hud):
+        """A radius set on a line HUD must not perturb its fields."""
+        hud = shown_hud(SCHEMAS["line"])
+        hud.set_coupling_radius(1000.0)
+        hud.set_values({"Length": 500.0, "Angle": 0.0})
+        hud.focus_first()
+        ed = hud.editor("Length")
+        _type(ed, "250")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        # Angle is untouched: the line schema has no coupling.
+        assert hud.editor("Angle").value_mm() == pytest.approx(0.0)
+        assert hud.values()["Length"] == pytest.approx(250.0)
+
+    def test_write_back_does_not_flag_the_derived_field(self, shown_hud):
+        """The coupled write must not spuriously mark a field invalid."""
+        hud = self._arc_hud(shown_hud)
+        span = hud.editor("Span")
+        _type(span, "90")
+        QTest.keyClick(span, Qt.Key.Key_Tab)
+        hud.values()
+        assert hud.has_invalid_field() is False
 
 
 class TestEngagement:
