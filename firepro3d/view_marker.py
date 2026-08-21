@@ -53,6 +53,8 @@ class SharedCropBox(QGraphicsRectItem):
     for all elevation views.
     """
 
+    PAPER_EXCLUDED = True   # authoring furniture — never plots (hard rule)
+
     def __init__(self, rect: QRectF, parent: QGraphicsItem | None = None):
         super().__init__(rect, parent)
 
@@ -124,6 +126,8 @@ class ViewMarkerArrow(QGraphicsPolygonItem):
 
     Shares a single crop box managed by ViewMarkerManager.
     """
+
+    PAPER_EXCLUDED = True   # elevation tags are authoring furniture — never plot
 
     _CIRCLE_R = BUBBLE_RADIUS_MM * 3.0          # circle radius (3× default)
     # Tip distance chosen so the two tangent lines meet at ~80°:

@@ -472,6 +472,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         for item in items:
             if not item.isVisible():
                 continue
+            if getattr(type(item), "PAPER_EXCLUDED", False):
+                saved.append({"item": item, "cat_key": None,
+                              "visible": item.isVisible()})
+                item.setVisible(False)
+                continue
             if item.data(0) == "origin":
                 # Model origin cross — authoring aid, never plots (§9.9.1).
                 saved.append({"item": item, "cat_key": None,
