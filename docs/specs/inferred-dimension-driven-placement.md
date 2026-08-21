@@ -1,17 +1,19 @@
 ---
 status: partial
-last-verified: 2026-08-20
-verified-commit: 0ef6db9
+last-verified: 2026-08-21
+verified-commit: 9b0f285
 applies-to:
   - firepro3d/inference_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
   - firepro3d/model_view.py
   - firepro3d/gridline.py
+  - firepro3d/construction_geometry.py
   - firepro3d/constants.py
 source-tasks:
   - "TODO.md — gridline follow-up: placement alignment snapping"
   - "docs/superpowers/plans/2026-08-16-dynamic-input-hud.md — §4 rewrite (T22)"
+  - "docs/superpowers/specs/2026-08-20-placement-ux-overhaul-design.md — arc/rect variants + ghost-on-commit"
 ---
 
 # Inferred / Dimension-Driven Placement Specification
@@ -44,7 +46,29 @@ Gridlines are the **first client** of the inference engine. The built slice deli
   `draw_circle`, `move`, `gridline_offset`, `gridline_array`. Type-to-seed and
   Tab both engage it.
 
-**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall, …) and general body-drag as inference clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); **pipe/wall/arc as Dynamic Input clients** (§4.7 — schema-mapped for pipe/wall but no applier yet; arc unmapped); the full three-toggle + master-key system (§10).
+**BUILT (Placement-UX Overhaul, 2026-08-21, commit 9b0f285):**
+- **Arc as a step-aware Dynamic Input client** (§4.7). Two ←/→-cycled variants
+  (centre-first / start-first); step 2 reuses the `line` schema (Radius + Start°),
+  step 3 is the new `arc_span` transform schema (Span° ⇄ Arc-length coupled). HUD
+  drives the readout + preview; block-4 `_draw_dim_hint` retired for arc.
+- **Rectangle rotate step.** Corner/centre variants keep their 2-click sizing, then
+  a third **rotate** step: `RectangleItem` gains a stored `angle` (native Qt
+  transform; grips/snap/serialization all rotation-aware), driven by the new
+  `rotation` transform schema.
+- **Ghost updates on field commit (§4.9).** Each Tab field-commit redraws the live
+  preview from the current HUD values (typed + still-seeded), for all HUD clients.
+- **Generic placement-variant cycle (§4.8).** `_PLACEMENT_VARIANTS` registry +
+  ←/→ at step 0, session-sticky; `<label> (←/→ to change): …` readout.
+- **Ctrl angle-snap** during arc placement (centre→cursor bearing) and the rect
+  rotate step, via the shared `_constrain_angle`.
+- **Angle reference guides** — protractor lines from the pivot/centre during the
+  rect rotate step (0° datum + live sweep) and the arc span step (0° datum + start
+  radial + live sweep radial).
+- **Single-key tool shortcuts** L/R/C/A/G (+ K placeholder for polyline), scene-focus
+  gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the visible view
+  so step-0 keyboard reaches the scene.
+
+**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall) and general body-drag as inference clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); **pipe/wall as Dynamic Input clients** (§4.7 — schema-mapped but no applier yet); the full three-toggle + master-key system (§10).
 
 ---
 
@@ -182,9 +206,11 @@ by its own small applier.
 
 | Schema | Fields | `resolve` → | Built clients (`_APPLIER_FOR_MODE`) |
 |---|---|---|---|
-| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline` |
-| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` |
+| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2** |
+| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` (sizing step) |
 | `circle` | Radius | `QPointF` | `draw_circle` |
+| `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 |
+| `rotation` | Angle | `{"angle_deg": float}` | `draw_rectangle` (rotate step) |
 | `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
 | `distance` | Distance | `{"distance": float}` | `gridline_offset` |
 | `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |
@@ -192,6 +218,15 @@ by its own small applier.
 Angles are **Y-up** (0° = right, 90° = up; scene Y is down, so
 `y = anchor.y() − length·sin θ`). Rectangle X/Y are **signed** (a left/down drag
 is a negative extent, and in corner mode that sign *is* the geometry).
+
+`arc`/`rectangle` are **step-aware**: `active_schema()` returns a different schema
+per placement step (`_draw_arc_step`; the rect rotate flag), and the existing
+`_sync_dynamic_input` schema-change rebuild swaps the HUD's field set. `arc_span`
+uses a dedicated **`FieldKind.SPAN`** (unsigned 0–360° magnitude, non-normalising)
+so a reflex sweep reads 270°, not −90°; its Arc-length field is a derived view
+coupled through the seeded radius (`set_coupling_radius`, in mm). The `rotation`
+angle is **Y-up (CCW+)** and is negated at Qt's `setRotation` (CW+ on the Y-down
+scene) so the rect turns the way the readout says.
 
 **Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`)
 decides whether the HUD may open without a placement anchor. Every placement
@@ -203,8 +238,10 @@ and open as soon as their source is armed.
 > A mode appears in `_SCHEMA_FOR_MODE` (forward declaration) before it appears in
 > `_APPLIER_FOR_MODE` (the gate that actually opens a HUD). `wall` and `pipe` are
 > schema-mapped to `line` but have **no applier yet** — they are **[PROPOSAL]**
-> (§4.7), parked as new clients. `arc`, `sprinkler` and `construction_line` are
-> not schema-mapped at all.
+> (§4.7), parked as new clients. `arc` and `draw_rectangle` are **step-aware**
+> (their `active_schema()` is keyed on the placement step, not a static
+> `_SCHEMA_FOR_MODE` row). `sprinkler` and `construction_line` are not
+> schema-mapped at all.
 
 ### 4.3 Seeding invariant (WYSIWYG)
 
@@ -251,10 +288,16 @@ late snap cannot move the seed out from under a half-typed value.
   retypes — instead of the value vanishing into a status message after the HUD
   has closed.
 
-### 4.7 Still **[PROPOSAL]** — pipe, wall, arc as HUD clients
+### 4.7 HUD clients — arc **[BUILT]**, pipe/wall **[PROPOSAL]**
 
-Parked, not built (plan decision D3 stopped the slice at the modal deletion):
-
+- **Arc — [BUILT 2026-08-21].** Two ←/→-cycled variants (`_arc_variant`:
+  centre-first / start-first). Step 1 is the anchor click; step 2 reuses the
+  `line` schema and `_commit_draw_arc_rim_at` (variant-aware: the second point is
+  the rim in centre-first, the centre in start-first) to fix radius + start°;
+  step 3 is the `arc_span` transform, whose applier `_commit_draw_arc_at` sweeps
+  the stored centre/radius/start to the resolved end point. `_apply_arc_dynamic_input`
+  routes by step. The HUD is the readout + preview (`_preview_from_arc`), so arc
+  no longer paints `_draw_dim_hint` (block 4 survives for the other non-HUD modes).
 - **Pipe** and **wall** are schema-mapped to `line` but have no applier, so no
   HUD opens for them; they still place through their own handlers. When pipe
   lands (bug B5 groundwork is in — see
@@ -265,12 +308,53 @@ Parked, not built (plan decision D3 stopped the slice at the modal deletion):
   a valid fitting rather than forbidden outright. *(This corrects the earlier
   proposal, which called the pipe angle "read-only / non-overridable" and
   "locked to 45° at all times".)*
-- **Arc** keeps its own hand-built `_draw_dim_hint` readout (painted in
-  `Model_View.drawForeground` block 4, which survives for the modes without a
-  HUD); an arc schema is a filed P1 follow-up alongside the arc-workflow revamp.
 - **`construction_line` is out of scope** — its Length field was a visual no-op
   (the drawn line extends past both defining points), so it is deliberately
   absent from `get_placement_anchor` and the schema tables.
+
+### 4.8 Placement-variant cycle **[BUILT]**
+
+`_PLACEMENT_VARIANTS: dict[mode → list[(label, first-point instruction, apply_fn)]]`
+(a data table beside `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`) with a session-sticky
+`_variant_index`. `cycle_placement_variant(±1)` — wired to `←`/`→` in
+`Model_Space.keyPressEvent` — flips the variant **only at step 0** (`_at_placement_step_zero`)
+and while no HUD field is engaged; otherwise it returns False so the arrow reaches
+the view's default scroll. `set_mode` applies the sticky variant on entry and emits
+the `<label> (←/→ to change): <instruction>` readout; the first press handler emits
+the plain next-step instruction, so the hint disappears once a point is placed.
+Orthogonal to the Left-Shift-tap `cycle_placement_ambiguity` (a different axis).
+
+Registered variants: `draw_arc` (Centre Point / Start Point → `_arc_variant`),
+`draw_rectangle` (Corner / Centre → `_draw_rect_from_center`).
+
+**Ribbon/keyboard.** The Line and Rectangle ribbon split-menus were retired (corner/
+centre and line/construction-line are cycle variants now). Single-key tool shortcuts
+live in `Model_View.keyPressEvent` (scene-focus-gated, bare-key only): L/R/C/A/G →
+line/rect/circle/arc/gridline, plus a **placeholder K → polyline** (removed when
+Line+Polyline merge into one cycle tool). `set_mode` returns keyboard focus to the
+visible view so step-0 keys (the cycle arrows) reach the scene after a ribbon click.
+
+### 4.9 Ghost updates on field commit **[BUILT]**
+
+While a field is engaged the cursor is inert (§4.5), so the live preview would sit
+frozen at its engage-time seed. `DynamicInputHud.fieldCommitted` fires on each Tab
+field-commit; `Model_Space._on_dynamic_input_field_committed` reads the current
+values **non-destructively** (`current_values()` — no force-commit, no flag
+mutation), `resolve`s them, and drives the same per-mode preview the mouse uses
+(`_preview_from_resolved` / `_PREVIEW_DISPATCH`, extracted from the `_move_*`
+tails). Placement schemas resolve to a point; the `move` transform and arc's
+`arc_span` resolve via `_transform_preview_point` (offset→target / span→endpoint);
+the rect `rotation` drives its own angle-based `_preview_rectangle_rotation`.
+
+### 4.10 Angle-snap and reference guides **[BUILT]**
+
+**Ctrl** angle-snaps to `_snap_angle_deg` (45°) via the shared `_constrain_angle`
+during arc placement (centre→cursor bearing, both steps) and the rect rotate step
+(pivot→cursor), on both the move preview and the committing click. **Reference
+guides** (dashed cosmetic lines) render as a protractor: the rect rotate step shows
+a 0° datum + a live sweep from the pivot; the arc span step shows a 0° datum + the
+fixed start radial + a live sweep radial from the centre. Created on entering the
+step, cleared on commit and mode-exit.
 
 ---
 
