@@ -185,3 +185,61 @@ def test_viewport_geometry_undo_restores_crop(qapp):
     scene.undo_stack.push(ViewportGeometryCommand(scene, data, old, new))
     scene.undo_stack.undo()
     assert data.crop_rect == crop_before
+
+
+# ── Task 5: scale change keeps crop, recomputes size ─────────────────────────
+
+def test_scale_change_keeps_crop_recomputes_size(qapp):
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
+    from PyQt6.QtCore import QRectF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    model = QGraphicsScene()
+    model.addItem(QGraphicsRectItem(QRectF(0, 0, 1000, 500)))
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, _resolver(model))
+    vp = scene.add_viewport(data)
+    crop_before = QRectF(data.crop_rect)
+    # Simulate a scale change to 0.2 via the derive helper (unit-level).
+    data.scale = 0.2
+    vp._recompute_size_from_scale()
+    assert data.crop_rect == crop_before                    # crop unchanged
+    assert data.w == pytest.approx(crop_before.width() * 0.2, abs=0.5)
+    assert data.h == pytest.approx(crop_before.height() * 0.2, abs=0.5)
+
+
+def test_scale_change_via_properties_keeps_crop(qapp, monkeypatch):
+    """Changing scale via the properties dialog preserves a non-default crop."""
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem, QDialog
+    from PyQt6.QtCore import QRectF
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+
+    model = QGraphicsScene()
+    model.addItem(QGraphicsRectItem(QRectF(0, 0, 1000, 500)))
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Level 1", "PLAN", 0.1, 0, 0, 0, 0)
+    scene = PaperScene(sheet, _resolver(model))
+    vp = scene.add_viewport(data)
+
+    # Shrink the crop to a sub-region of the source.
+    sub_crop = QRectF(100, 100, 400, 200)
+    data.crop_rect = sub_crop
+
+    # Stub the dialog so it returns scale=0.2 without exec-ing a modal.
+    class _StubDlg:
+        def __init__(self, source_view_name, d): self._d = d
+        def exec(self): return QDialog.DialogCode.Accepted
+        def get_title(self): return self._d.title
+        def get_show_border(self): return self._d.show_border
+        def get_scale(self): return 0.2
+        def get_position(self): return None
+        def get_size(self): return None
+
+    monkeypatch.setattr("firepro3d.paper_space.SheetViewPropertiesDialog", _StubDlg)
+    scene._on_viewport_properties(vp)
+
+    # Crop must be unchanged; size must be crop × new_scale.
+    assert data.crop_rect == sub_crop
+    assert data.scale == pytest.approx(0.2)
+    assert data.w == pytest.approx(sub_crop.width() * 0.2, abs=0.5)
+    assert data.h == pytest.approx(sub_crop.height() * 0.2, abs=0.5)

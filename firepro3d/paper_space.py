@@ -3643,12 +3643,11 @@ class PaperScene(QGraphicsScene):
         new_x, new_y = data.x, data.y
         new_w, new_h = data.w, data.h
         if new_scale != data.scale and new_scale != 0.0:
-            result = self._resolver.resolve(
-                data.source_view_type, data.source_view_name)
-            if result:
-                _, src_rect = result
-                new_w = src_rect.width() * new_scale
-                new_h = src_rect.height() * new_scale
+            # Keep the crop; size tracks crop × new scale (concern 5).
+            crop = viewport._effective_crop()
+            if crop is not None and not crop.isEmpty():
+                new_w = crop.width() * new_scale
+                new_h = crop.height() * new_scale
         pos = dlg.get_position()
         if pos:
             new_x, new_y = pos
