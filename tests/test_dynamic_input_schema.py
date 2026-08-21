@@ -250,10 +250,20 @@ class TestArcSpan:
         assert arc.kind is FieldKind.DIMENSION
         assert arc.minimum == 0.0
 
-    def test_span_field_is_an_angle(self):
+    def test_span_field_is_a_span_kind(self):
+        # SPAN (0-360 magnitude), not ANGLE (±180 heading): a 270 sweep must
+        # read 270, not -90.
         span = [f for f in SCHEMAS["arc_span"].fields
                 if f.name == "Span"][0]
-        assert span.kind is FieldKind.ANGLE
+        assert span.kind is FieldKind.SPAN
+
+    def test_span_format_parse_does_not_wrap_reflex(self):
+        from firepro3d.dynamic_input import _format_span, _parse_span
+        assert _format_span(270.0) == "270°"       # not -90
+        assert _format_span(57.2957795) == "57.3°"
+        assert _parse_span("270°") == 270.0        # not -90
+        assert _parse_span("300") == 300.0
+        assert _parse_span("junk") is None
 
     def test_only_the_span_reaches_the_applier(self):
         """ArcLength is a derived HUD view; the resolver ignores it."""

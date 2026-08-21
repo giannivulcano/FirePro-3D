@@ -1343,6 +1343,18 @@ class TestArcSpanCoupling:
         assert hud.editor("Span").value_mm() == pytest.approx(
             math.degrees(1000.0 / self._R), abs=1e-3)
 
+    def test_reflex_span_does_not_wrap_to_negative(self, shown_hud):
+        """A 270° sweep must read 270° and drive the full reflex arc length —
+        FieldKind.SPAN, not ANGLE (which would fold 270 → -90)."""
+        hud = self._arc_hud(shown_hud)
+        span = hud.editor("Span")
+        _type(span, "270")
+        QTest.keyClick(span, Qt.Key.Key_Tab)     # commit Span, wraps to Arc
+        assert span.value_mm() == pytest.approx(270.0)          # not -90
+        assert span.text() == "270°"                            # readout not "-90°"
+        assert hud.editor("ArcLength").value_mm() == pytest.approx(
+            math.radians(270.0) * self._R, abs=1e-3)
+
     def test_coupling_does_not_run_without_a_radius(self, shown_hud):
         """No radius armed → editing Span leaves ArcLength untouched."""
         hud = shown_hud(SCHEMAS["arc_span"])

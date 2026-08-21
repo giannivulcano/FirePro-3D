@@ -32,12 +32,15 @@ from .scale_manager import ScaleManager
 class FieldKind(Enum):
     """How a field is formatted, parsed and validated.
 
-    Three kinds map to three ``DimensionEdit`` configurations — not three
-    widgets.
+    Four kinds map to four ``DimensionEdit`` configurations — not four
+    widgets.  ``SPAN`` is an unsigned sweep magnitude (0–360°), distinct from
+    ``ANGLE`` (a heading normalised to (-180, 180]): an arc that sweeps 270°
+    must read 270°, not −90°.
     """
     DIMENSION = auto()
     ANGLE = auto()
     COUNT = auto()
+    SPAN = auto()
 
 
 @dataclass(frozen=True)
@@ -275,7 +278,7 @@ SCHEMAS: dict[str, Schema] = {
             # Span is canonical; ArcLength is a derived view the HUD keeps in
             # step via ``arc_len = radius * radians(span)``.  Only Span reaches
             # the applier (see ``resolve_arc_span``).
-            FieldSpec("Span", "Span", FieldKind.ANGLE),
+            FieldSpec("Span", "Span", FieldKind.SPAN),
             FieldSpec("ArcLength", "Arc", FieldKind.DIMENSION, minimum=0.0),
         ),
         resolve=resolve_arc_span,
@@ -288,6 +291,43 @@ SCHEMAS: dict[str, Schema] = {
 
 
 # ── HUD widget ────────────────────────────────────────────────────────────
+
+def _format_span(deg: float) -> str:
+    """Format an arc-span magnitude in degrees, **without** ±180 normalisation.
+
+    Unlike ``ScaleManager.format_angle`` (a heading, wrapped to (-180, 180]),
+    a span is an unsigned sweep up to 360°, so 270° must render as ``"270°"``
+    rather than ``"-90°"``.  Two decimals, trailing zeros trimmed; non-finite
+    input renders ``"0°"`` rather than raising (this reaches Qt paint paths).
+    """
+    if not math.isfinite(deg):
+        return "0°"
+    s = f"{deg:.2f}".rstrip("0").rstrip(".")
+    return f"{s}°"
+
+
+def _parse_span(text: str) -> float | None:
+    """Parse an arc-span magnitude in degrees, **without** normalisation.
+
+    Accepts a bare number or a trailing ``°``/``deg``/``degrees`` (same grammar
+    as ``ScaleManager.parse_angle``) but returns the value unwrapped, so a typed
+    ``270`` stays 270 rather than folding to −90.  The applier normalises the
+    final sweep and rejects a degenerate one, so the field itself stays lenient.
+
+    Returns:
+        The span in degrees, or None when unparseable so ``DimensionEdit``
+        reverts to the last valid value.
+    """
+    if not text:
+        return None
+    m = ScaleManager._ANGLE_RE.match(str(text))
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except (TypeError, ValueError):
+        return None
+
 
 def _format_count(value: float) -> str:
     """Format a COUNT value as a bare integer (``"3"``, never ``"3.0"``)."""
@@ -555,6 +595,12 @@ class DynamicInputHud(QWidget):
                 None, initial_mm=0.0, parent=self,
                 parser=ScaleManager.parse_angle,
                 formatter=ScaleManager.format_angle,
+                minimum=spec.minimum,
+            )
+        elif spec.kind is FieldKind.SPAN:
+            editor = DimensionEdit(
+                None, initial_mm=0.0, parent=self,
+                parser=_parse_span, formatter=_format_span,
                 minimum=spec.minimum,
             )
         elif spec.kind is FieldKind.COUNT:
