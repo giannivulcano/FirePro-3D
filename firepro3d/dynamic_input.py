@@ -478,7 +478,7 @@ class DynamicInputHud(QWidget):
     are therefore converted on the way in and back out; ``ANGLE`` and
     ``COUNT`` are dimensionless and pass straight through.  The conversion is
     deliberately guarded on calibration so the editor's text always agrees
-    with ``Model_Space._format_schema_readout`` — see ``_scene_to_mm``.
+    with ``Model_Space._format_schema_readout`` — see ``scene_to_mm``.
 
     This widget is a plain child of whatever it is parented to (a viewport);
     it sets no window flags and is not a dialog.
@@ -616,7 +616,7 @@ class DynamicInputHud(QWidget):
             editor = DimensionEdit(
                 self._sm, initial_mm=0.0, parent=self,
                 minimum=(None if spec.minimum is None
-                         else self._scene_to_mm(spec.minimum)),
+                         else self.scene_to_mm(spec.minimum)),
             )
         # Width is content-driven; see :meth:`_fit_field_width`.
         return editor
@@ -666,8 +666,14 @@ class DynamicInputHud(QWidget):
     # used: they return a number in the current *display unit* (inches under
     # imperial), whereas ``DimensionEdit`` stores millimetres.
 
-    def _scene_to_mm(self, scene_value: float) -> float:
-        """Convert scene units to the mm ``DimensionEdit`` stores."""
+    def scene_to_mm(self, scene_value: float) -> float:
+        """Convert scene units to the mm ``DimensionEdit`` stores.
+
+        Public because ``Model_Space`` seeds the arc Span↔ArcLength coupling
+        radius through it (`_arm_arc_coupling`) — the coupling must use the
+        *same* calibration-guarded conversion the DIMENSION editors use, so the
+        radius agrees with the ArcLength field rather than drifting.
+        """
         if self._sm is not None and self._sm.is_calibrated:
             return self._sm.scene_to_mm(scene_value)
         return scene_value
@@ -759,7 +765,7 @@ class DynamicInputHud(QWidget):
             raw = float(values[name])
             spec = self._specs[name]
             if spec.kind is FieldKind.DIMENSION:
-                raw = self._scene_to_mm(raw)
+                raw = self.scene_to_mm(raw)
             editor.set_value_mm(raw)
         # A reseed replaces whatever text was rejected, so nothing stays flagged.
         for name in list(self._invalid):

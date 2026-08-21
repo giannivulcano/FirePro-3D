@@ -4339,7 +4339,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         ``_draw_arc_radius`` is in scene units; it is converted through the same
         DIMENSION scene->mm path the HUD's dimension editors use
-        (``DynamicInputHud._scene_to_mm``, guarded on calibration: an
+        (``DynamicInputHud.scene_to_mm``, guarded on calibration: an
         uncalibrated scene treats one unit as one mm, a calibrated one routes
         through ``ScaleManager.scene_to_mm``), so the coupling and the editor
         agree.  A no-op for every other schema; ``set_coupling_radius`` is
@@ -4347,7 +4347,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         if schema is None or schema.name != "arc_span":
             return
-        hud.set_coupling_radius(hud._scene_to_mm(self._draw_arc_radius))
+        hud.set_coupling_radius(hud.scene_to_mm(self._draw_arc_radius))
 
     def end_dynamic_input(self) -> None:
         """Close the HUD entirely — the placement it was reading out is over.
