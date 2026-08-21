@@ -708,7 +708,9 @@ class MainWindow(QMainWindow):
             self.view._select_all_items)
         QShortcut(QKeySequence("Ctrl+D"), self).activated.connect(
             lambda: self.scene.set_mode("duplicate"))
-        QShortcut(QKeySequence("A, L"), self, lambda: self.scene.set_mode("align"))
+        # Align's old "A, L" chord was retired so bare A is the Arc tool shortcut;
+        # Align stays on the ribbon (its keyboard binding is TBD — Ctrl+A is taken
+        # by Select All).
 
         # Restore settings
         self._splash_progress(90, "Restoring settings...")
@@ -1484,16 +1486,16 @@ class MainWindow(QMainWindow):
         # inference/alignment engine supersedes construction lines; existing
         # .fpd construction_line records still load via the scene_io factory).
         _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip(
-            "Draw a line")
+            "Draw a line (L)")
         # Plain Rectangle button — corner vs centre is chosen on-canvas with the
         # ←/→ variant cycle (consistent with Arc), superseding the old dropdown.
         _mode_btn(g_geom, "Rectangle", _I("rectangle_icon.svg"),
                   "draw_rectangle").setToolTip(
-            "Draw a rectangle (←/→ toggles corner/centre)")
-        _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle")
+            "Draw a rectangle (R) — ←/→ toggles corner/centre")
+        _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment)")
-        _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click)")
-        _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click)")
+        _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
+        _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click) (G)")
         self._single_place_btn = g_geom.add_small_button(
             "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
         self._single_place_btn.setToolTip("Return to Select mode after placing one item")

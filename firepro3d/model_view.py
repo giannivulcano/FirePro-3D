@@ -824,6 +824,18 @@ class Model_View(QGraphicsView):
         """
         return False
 
+    # Single-key drawing-tool shortcuts.  Scene-focus-gated by construction:
+    # they live on the view, so they never fire while a HUD field or another
+    # widget holds focus, and they are *bare* keys — Ctrl/Shift combinations fall
+    # through to their own bindings (select-all, copy, the Shift+G grid toggle).
+    _TOOL_SHORTCUTS = {
+        Qt.Key.Key_L: "draw_line",
+        Qt.Key.Key_R: "draw_rectangle",
+        Qt.Key.Key_C: "draw_circle",
+        Qt.Key.Key_A: "draw_arc",
+        Qt.Key.Key_G: "draw_gridline",
+    }
+
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Tab:
             sc = self.scene()
@@ -835,17 +847,17 @@ class Model_View(QGraphicsView):
                     and sc.begin_dynamic_input()):
                 event.accept()
                 return
+        if (event.modifiers() == Qt.KeyboardModifier.NoModifier
+                and event.key() in self._TOOL_SHORTCUTS):
+            sc = self.scene()
+            if sc is not None and hasattr(sc, "set_mode"):
+                sc.set_mode(self._TOOL_SHORTCUTS[event.key()])
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_F:
             self.fit_to_screen()
             event.accept()
             return
-        if event.key() == Qt.Key.Key_G:
-            sc = self.scene()
-            mode = getattr(sc, "mode", "select") if sc else "select"
-            if mode == "select":
-                self.set_grid(not self._grid_visible)
-                event.accept()
-                return
         super().keyPressEvent(event)
 
     def scrollContentsBy(self, dx, dy):  # noqa: N802 (Qt naming)
