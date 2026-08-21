@@ -6,6 +6,7 @@
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
 > **§7.3 (Z-order) last-verified:** 2026-06-23 against `constants.py` + `level_manager.apply_to_scene` (commit `59ad233`, Section-A drift fix). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
+> **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against `view_marker.py` (`PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
 
 ---
 
@@ -214,6 +215,19 @@ Introducing a third pattern (e.g. a "shadow scene" with cloned items, or a globa
 > **Elevation markers do not currently persist in the project file** the way detail markers do. Their *placement* (a shared crop box on plan) may persist via `SharedCropBox`, but the per-direction marker geometry and the open-tab state do not survive a save/reload in a documented way.
 
 This is a follow-up. The spec asserts the contract should be: **all view markers persist; opening a project restores the marker geometry; opening a marker's instance recreates it with the same parameters.** Anything that currently violates this contract is a bug to be fixed.
+
+### 6.4 Paper-plotting contract for markers [2026-08-21]
+
+Whether a marker plots onto a sheet is decided during the paper-render pass
+(`paper_display.apply_paper_overrides`; the rendering path is owned by
+`paper-space.md §6.2`). The contract:
+
+| Marker | Plots on a sheet? | Mechanism |
+|---|---|---|
+| **ViewMarkerArrow** (elevation N/S/E/W) | **Never** — hard rule | class sets `PAPER_EXCLUDED = True`; force-hidden unconditionally, ignoring any Display-Manager category. Elevation markers + their `SharedCropBox` are authoring furniture, not drawing symbols. On-screen behavior is unchanged (shown on selection). |
+| **SharedCropBox** | **Never** — hard rule | same `PAPER_EXCLUDED` flag. It defines the elevation building-extent; it is a setup handle, not a plotted element. |
+| **DetailMarker** | **Yes, by default** | plots as a drawing callout. Two exceptions during paper render: a **detail** viewport hides its *own* marker (self-hide); a **host-plan** viewport hides any marker whose name is in that viewport's per-sheet `hidden_detail_ids` set (right-click → "Hide detail on this sheet", undoable, per `paper-space.md §5.2/§6.2`). Nested/other detail markers still plot. |
+| **SectionMarker** *(planned)* | **Yes** (intent) | section/detail callouts are drawing symbols the AHJ needs; when built, `SectionMarker` will simply *not* set `PAPER_EXCLUDED`, so it plots by the default path. Recorded here so the distinction (elevation furniture vs section symbol) is not lost. |
 
 ---
 

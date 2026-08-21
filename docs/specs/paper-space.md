@@ -3,8 +3,8 @@
 **Date:** 2026-04-09
 **Complexity:** Large
 **Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is built (§19 — designed 2026-08-06, shipped + smoke-tested 2026-08-07): sheet create/rename/renumber/reorder/delete, pure-push browser sheet tree, sheet properties panel, uniform paper size, identity-derived title block fields, batch PDF export/print.**
-**Last verified:** 2026-08-08
-**Verified commit:** 90fc7ce
+**Last verified:** 2026-08-21 (crop model §5.2/§6.2/§6.4 + size-from-scale §6.4; paper-exclusion + per-sheet detail hide §6.2; title block non-selectable + Rev/Date/Revisions in Sheet Properties §19.4/§19.7). **Concern-1 crop clip is PARTIAL** — bleeds for `ItemIgnoresTransformations`-child items; robust clip + per-viewport level isolation are P1 follow-ups (§6.2 known-limitation note).
+**Verified commit:** ddef4d3
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_export_dialog.py` (batch export/print dialog — §19.6), `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery + sheet orchestration — §17.7/§19)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`, `project-browser.md` (sheet tree — §19.5), `titleblock-template-system.md` (Sheet No — §19.7)
@@ -118,16 +118,41 @@ Sheet:
 
 ```
 SheetViewData:
-  source_view_type: str     # "plan" | "elevation" | "detail" | "3d"
-  source_view_name: str     # e.g. "Plan: Level 1", "Detail 3", "East"
-  scale: str                # e.g. "1:100", "1/4\"=1'-0\"", or custom ratio
-  x: float                  # position on sheet (mm from left)
-  y: float                  # position on sheet (mm from top)
-  w: float                  # width on sheet (mm)
-  h: float                  # height on sheet (mm)
-  crop_override: dict|null  # {x, y, w, h} in model-space mm, or null
-  layer_overrides: dict     # {layer_name: bool} — true=visible, false=hidden
+  source_view_type: str     # "plan" | "elevation" | "detail"
+  source_view_name: str     # e.g. "Level 1", "Detail 3", "East"
+  title: str
+  scale: float              # paper mm per model mm (0.01 = 1:100); 0.0 = NTS
+  x: float                  # position on sheet (paper mm from left)
+  y: float                  # position on sheet (paper mm from top)
+  w: float                  # DERIVED on-paper width  (see crop model below)
+  h: float                  # DERIVED on-paper height (see crop model below)
+  show_border: bool = True
+  view_number: str = ""
+  crop_rect: QRectF                 # [2026-08-21] model-space window this viewport shows
+  hidden_detail_ids: set[str]       # [2026-08-21] detail-marker names hidden in THIS
+                                    #   host-plan viewport's PAPER output (per-sheet override)
 ```
+
+**Crop model (the extent/scale invariant, 2026-08-21).** `crop_rect` (model-space
+mm) is the source of truth for *what region* a viewport shows; `scale` is the source
+of truth for *how big it plots*. On-paper size is **derived**: for `scale > 0`,
+`w = crop_rect.width · scale` and `h = crop_rect.height · scale`, recomputed on any
+crop or scale change (they are serialized only as a cache). This makes the stated
+scale honest — a viewport can never plot at a size that contradicts its scale.
+
+- **Plan / elevation viewports:** `crop_rect` defaults to the full source extent on
+  first reconnect and is edited by dragging the viewport's **grips**, which move crop
+  edges at *fixed scale* (Revit-style crop region; a left/top edge move shifts the
+  on-sheet origin so the opposite edge stays put). Free w/h resize is gone.
+- **Detail viewports:** `crop_rect` is read-only, tracking the `DetailMarker.crop_rect`
+  via the resolver; grips are inert. Resize a detail by editing its marker in the model.
+- **NTS (`scale == 0`):** no true scale to protect, so w/h stay free (legacy resize),
+  and `crop_rect` is the full extent.
+
+Serialization: `crop_rect` as `{x, y, w, h}`, `hidden_detail_ids` as a sorted list.
+Migration — a legacy view missing `crop_rect` loads with the full source extent and
+`w/h` recomputed from its stated scale (a free-resized legacy viewport snaps to
+displaying at its honest scale). `hidden_detail_ids` missing → empty.
 
 ### 5.3 Annotation Data
 
@@ -185,18 +210,43 @@ Existing project files without a `"sheets"` key load normally with an empty shee
 
 ### 6.2 Render Flow (Per Sheet View Paint Cycle)
 
-1. Check dirty flag — skip if clean and cached
-2. Resolve source view → get the owning `QGraphicsScene`:
-   - Plan: `Model_Space` scene, source rect from plan view's full content bounds
-   - Detail: `Model_Space` scene, source rect from `DetailMarker.crop_rect`
-   - Elevation: `ElevationScene` instance, source rect from scene bounds
-3. Apply crop override if set (intersect with source rect)
-4. Apply layer visibility overrides: temporarily hide/show items on the source scene by toggling `QGraphicsItem.setVisible()` based on the sheet view's `layer_overrides` dict. This is a render-time-only mutation — visibility is restored immediately after the render call (step 7). Alternative: if concurrent rendering becomes an issue, render to an intermediate pixmap with per-item visibility checks instead of mutating the source scene.
-5. Apply constraint filter: temporarily hide items tagged as constraints (same toggle mechanism as step 4)
-6. Call `scene.render(painter, target_rect_on_sheet, source_rect_in_model)`
-7. Restore all visibility state changed in steps 4-5
-8. Draw sheet view border (black hairline; blue dashed when selected)
-9. Mark clean
+`SheetViewport.paint` (screen preview **and** off-screen export share this one path):
+
+1. Placeholder short-circuit when the source view doesn't resolve.
+2. `crop = _effective_crop()` — `data.crop_rect` for plan/elevation, the live
+   `DetailMarker.crop_rect` for details (§5.2 crop model).
+3. **Fitted-clip** (closes the concern-1 detail bleed at any aspect): compute the
+   aspect-fitted sub-rect of the viewport box, `fit = min(w/crop.w, h/crop.h)`,
+   `fitted` = that sub-rect centered in `vp_rect`; `painter.setClipRect(fitted)`;
+   then `source_scene.render(painter, fitted, crop)`. Because `render()` paints
+   items *intersecting* the source rect **in full**, clipping to `fitted` (not the
+   whole box) is what prevents straddling/out-of-crop geometry from leaking into
+   letterbox margins. For `scale > 0`, `fitted == vp_rect` (box already equals
+   `crop × scale`); NTS letterboxes but never bleeds.
+   > **KNOWN LIMITATION (partial, 2026-08-21):** the `setClipRect(fitted)` clip is
+   > **not honored for items with `ItemIgnoresTransformations` children** (gridline
+   > bubbles/grips) under off-screen `scene.render()` — such items' geometry bleeds
+   > past the crop (confirmed: a gridline's line/leader, and walls in a real project).
+   > Concern 1 is therefore only partially delivered; a robust clip (vector-preserving,
+   > or intermediate-pixmap fallback) is tracked as a **P1 follow-up** together with
+   > per-viewport level isolation (see TODO.md). Plain items (walls in synthetic tests,
+   > rooms, pipes) clip correctly.
+4. `apply_paper_overrides(source_scene, crop, paper_scale=fit, …, viewport_data=data)`
+   runs during the render and applies, per source item:
+   - **`PAPER_EXCLUDED` hard rule** — any item whose class sets `PAPER_EXCLUDED`
+     (`ViewMarkerArrow`, `SharedCropBox`) is force-hidden unconditionally, ignoring
+     any Display-Manager category. Elevation-marker furniture never plots.
+   - **Detail self-hide** — when this viewport is a detail, the `DetailMarker` whose
+     name equals its `source_view_name` is hidden (a detail never frames itself).
+   - **Per-sheet detail hide** — any `DetailMarker` whose name is in
+     `data.hidden_detail_ids` is hidden (right-click a host-plan viewport →
+     "Hide detail on this sheet", undoable). Nested/other detail markers still plot.
+   - B&W / line-weight / colour overrides (§7, `paper_display.py`).
+5. `restore_model_display()` restores every mutated item after the render.
+6. Draw sheet-view border (hairline; house selection style when selected).
+
+The on-screen model canvas never runs this pass, so on-screen behavior (elevation
+markers shown on selection, detail markers always visible) is unchanged.
 
 ### 6.3 Dirty-Flag Lifecycle
 
@@ -207,10 +257,11 @@ Existing project files without a `"sheets"` key load normally with an empty shee
 
 ### 6.4 Scale Computation
 
-- Scale ratio `s` = e.g. 1/100 for "1:100"
-- Source rect width in model mm → sheet view width = `source_width_mm * s`
-- Or inverse: user sets sheet view size → source rect = `sheet_size / s`
-- "Fit to view" computes `s` from source bounds and current sheet view size, snaps to nearest standard scale
+Scale is the authoritative input; on-paper size is derived (§5.2 crop model):
+`w = crop_rect.width · scale`, `h = crop_rect.height · scale` for `scale > 0`.
+Changing the scale via the properties dialog keeps `crop_rect` and recomputes `w/h`;
+dragging a grip changes `crop_rect` at fixed scale. NTS (`scale == 0`) keeps free
+w/h and floats the effective scale (`fit`, §6.2).
 
 ### 6.5 Standard Scale Presets
 
@@ -678,7 +729,8 @@ Pure-Python class in `paper_space.py` operating **by reference** on the same lis
 
 ### 19.4 Sheet properties panel & Esc
 
-- `SheetProperties` adapter (duck-typed `get_properties`/`set_property`, `property-panel.md` protocol; a plain object, not a QGraphicsItem) wraps `(sheet, manager, on_change, on_reject)`. Rows: **Sheet Number** (validated; collision/empty → `on_reject` → status-bar message, old value kept), **Sheet Name** (blank rejected with feedback); read-only Paper Size / Orientation labels. Writes never partially apply; sheet-level edits are non-undoable (grill) so they bypass the undo stack. Rename/renumber → `_on_sheet_meta_changed` → titleblock re-render + tab title + browser row + dirty.
+- `SheetProperties` adapter (duck-typed `get_properties`/`set_property`, `property-panel.md` protocol; a plain object, not a QGraphicsItem) wraps `(sheet, manager, on_change, on_reject, scene_getter)`. Rows: **Sheet Number** (validated; collision/empty → `on_reject` → status-bar message, old value kept), **Sheet Name** (blank rejected with feedback); read-only Paper Size / Orientation labels; **Rev** and **Date** (string); an **"Edit Revisions…"** button row opening the revision table. Writes never partially apply. **Undoability split:** Sheet Number/Name stay non-undoable (grill) — straight to the dataclass; **Rev/Date/Revisions stay undoable** — routed through `SetSheetFieldCommand` / `EditRevisionsCommand` on the active `PaperScene.undo_stack` (resolved via `scene_getter`), preserving the §17.7 dirty relay; falls back to a direct write when no scene resolves. Rename/renumber → `_on_sheet_meta_changed` → titleblock re-render + tab title + browser row + dirty.
+- **Title block is not selectable** (2026-08-21): `TitleBlockTemplateItem` is `ItemIsSelectable=False` and has no per-sheet property panel. Per-sheet title-block *data* (Rev/Date/Revisions) is authored here in Sheet Properties; template *design* is authored in the title-block editor. The revisions dialog opener is the module-level `open_revisions_dialog(scene, sheet, parent)` (reused by the panel button), with a no-change guard that skips the undo push when the table is unchanged.
 - **Panel precedence (paper tab):** paper-scene selection → else browser-selected sheet (`sheetSelected`; ignored while Add-Text mode owns the panel — §9.6) → else **active sheet**. The panel is never blank on the paper tab. Stale-adapter guards: `_delete_sheet`, `_apply_loaded_file`, and `new_file` all reset the panel so an adapter never outlives its sheet across delete/load boundaries.
 - **Esc:** `_on_escape` branches on the paper tab — clears `PaperScene` selection (not the model scene), panel falls back to sheet properties; Esc on empty selection is a panel no-op. The paper view's ShortcutOverride (inline text edit / add-text mode) still wins ahead of this. (Model-space Esc-blanks-panel is a filed follow-up: empty selection should show active-view properties.)
 
@@ -692,7 +744,7 @@ Sheet-tree mechanics (pure push, row keying by number, `createPaperSheet()`/`del
 
 ### 19.7 Identity-derived title block fields [revised 2026-08-07, smoke-round decision]
 
-**"Sheet No"**, **"Drawing No"** (synonyms → `Sheet.number`) and **"Title"** (→ `Sheet.name`) are auto-resolved by `build_field_values` — the sheet identity is the ONE authoring home (the sheet properties panel; §19.4). The typed per-sheet fields are retired: `TitleBlockTemplateItem._SHEET_KEYS` shrinks to `("Rev", "Date")` (the title block's own panel shows only those + Edit Revisions), `DEFAULT_TITLE_BLOCK_FIELDS` no longer seeds Title/Drawing No, and the editor's Insert-field picker lists all three tokens under the Auto group. **Legacy adoption on load** (`Sheet.from_dict`): a user-authored typed Title/Drawing No is adopted into `name`/`number` so old files keep printing the same text, then the keys are dropped; never-edited shipped seeds (`_LEGACY_TITLE_DEFAULT`/`_LEGACY_DRAWING_NO_DEFAULT`) are dropped **without** adopting (shipped-defaults filter — unconditional adoption would clobber names and duplicate numbers across pre-filter multi-sheet saves). Batch export renders per-sheet via the existing `render_sheet` values. Token semantics beyond this live in `titleblock-template-system.md` (Rule A).
+**"Sheet No"**, **"Drawing No"** (synonyms → `Sheet.number`) and **"Title"** (→ `Sheet.name`) are auto-resolved by `build_field_values` — the sheet identity is the ONE authoring home (the sheet properties panel; §19.4). The typed per-sheet fields are retired: `DEFAULT_TITLE_BLOCK_FIELDS` no longer seeds Title/Drawing No, and the editor's Insert-field picker lists all three tokens under the Auto group. The remaining typed per-sheet fields (Rev, Date) and the revision table are authored in the **Sheet Properties** panel (§19.4), not on the title block — `TitleBlockTemplateItem`'s own panel was removed when it became non-selectable (2026-08-21). **Legacy adoption on load** (`Sheet.from_dict`): a user-authored typed Title/Drawing No is adopted into `name`/`number` so old files keep printing the same text, then the keys are dropped; never-edited shipped seeds (`_LEGACY_TITLE_DEFAULT`/`_LEGACY_DRAWING_NO_DEFAULT`) are dropped **without** adopting (shipped-defaults filter — unconditional adoption would clobber names and duplicate numbers across pre-filter multi-sheet saves). Batch export renders per-sheet via the existing `render_sheet` values. Token semantics beyond this live in `titleblock-template-system.md` (Rule A).
 
 ### 19.8 Testing contract (grilled)
 
