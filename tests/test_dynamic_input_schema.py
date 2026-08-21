@@ -13,7 +13,7 @@ from firepro3d.dynamic_input import (
     resolve_rectangle, seed_rectangle,
     resolve_circle, seed_circle,
     resolve_displacement, resolve_distance, resolve_spacing_count,
-    resolve_arc_span,
+    resolve_arc_span, resolve_rotation,
 )
 
 # A non-origin anchor, so a seed that silently drops the anchor still fails.
@@ -35,7 +35,7 @@ class TestRegistry:
         assert set(SCHEMAS) == {
             "line", "rectangle", "circle",
             "displacement", "distance", "spacing_count",
-            "arc_span",
+            "arc_span", "rotation",
         }
 
     def test_line_fields(self):
@@ -98,7 +98,7 @@ class TestRegistry:
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "rectangle", "circle",
-                        "displacement", "arc_span"}
+                        "displacement", "arc_span", "rotation"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
@@ -269,3 +269,27 @@ class TestArcSpan:
         """ArcLength is a derived HUD view; the resolver ignores it."""
         out = resolve_arc_span(None, {"Span": 45.0, "ArcLength": 9999.0})
         assert out == {"span_deg": 45.0}
+
+
+class TestRotation:
+    """The rectangle rotate step's transform schema (Task 12)."""
+
+    def test_resolve_returns_angle_dict(self):
+        assert resolve_rotation(None, {"Angle": 30}) == {"angle_deg": 30.0}
+
+    def test_resolve_is_anchor_independent(self):
+        """The pivot lives in scene state, so the anchor is unused here."""
+        assert resolve_rotation(QPointF(9, 9), {"Angle": -45.0}) == {
+            "angle_deg": -45.0}
+
+    def test_rotation_schema_is_anchored_transform(self):
+        s = SCHEMAS["rotation"]
+        assert s.returns_point is False
+        assert s.needs_anchor is True          # sized rect + pivot armed first
+        assert s.requires_anchor is True
+
+    def test_rotation_has_a_single_angle_field(self):
+        s = SCHEMAS["rotation"]
+        assert [f.name for f in s.fields] == ["Angle"]
+        # ANGLE (±180 heading), not SPAN — orientation is a signed heading.
+        assert s.fields[0].kind is FieldKind.ANGLE

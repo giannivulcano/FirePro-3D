@@ -167,6 +167,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_circle_center: "QPointF | None" = None     # first click for circle
         self._draw_rect_from_center: bool = False                # center vs corner rectangle
         self._draw_rect_preview: "QGraphicsRectItem | None" = None
+        # Rectangle rotate step (Task 12).  Placement is 3-step: two clicks size
+        # the axis-aligned rect, then a third rotates it.  ``_draw_rect_rotating``
+        # is the step flag; the sized rect corners and the rotate pivot are
+        # stashed while it is True (pivot = corner-1 in corner mode, the centre
+        # in centre mode).  A 0° rotate is the default axis-aligned end state.
+        self._draw_rect_rotating: bool = False
+        self._draw_rect_sized_pt1: "QPointF | None" = None
+        self._draw_rect_sized_pt2: "QPointF | None" = None
+        self._draw_rect_pivot: "QPointF | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
@@ -851,6 +860,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_line_anchor = None
         if mode != "draw_rectangle":
             self._draw_rect_anchor = None
+            self._draw_rect_rotating = False
+            self._draw_rect_sized_pt1 = None
+            self._draw_rect_sized_pt2 = None
+            self._draw_rect_pivot = None
             if self._draw_rect_preview is not None:
                 if self._draw_rect_preview.scene() is self:
                     self.removeItem(self._draw_rect_preview)
@@ -3820,6 +3833,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             a = self._draw_line_anchor
             return QPointF(a) if a is not None else None
         if self.mode == "draw_rectangle":
+            # Sizing step: the first-click anchor.  Rotate step: the pivot the
+            # rotation turns about (corner-1 in corner mode, the centre in
+            # centre mode).  Both variants store it in ``_draw_rect_pivot``.
+            if self._draw_rect_rotating:
+                p = self._draw_rect_pivot
+                return QPointF(p) if p is not None else None
             a = self._draw_rect_anchor
             return QPointF(a) if a is not None else None
         if self.mode == "draw_circle":
@@ -3862,7 +3881,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "polyline": "line",
         "wall": "line",
         "pipe": "line",
-        "draw_rectangle": "rectangle",
+        # draw_rectangle is intentionally absent — active_schema special-cases
+        # it per step (sizing → ``rectangle``, rotate → ``rotation``), the same
+        # way draw_arc is.
         "draw_circle": "circle",
         "move": "displacement",
         "gridline_offset": "distance",
@@ -3878,7 +3899,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_line": "_commit_draw_line_at",
         "draw_gridline": "_commit_draw_line_at",
         "polyline": "_commit_polyline_at",
-        "draw_rectangle": "_commit_draw_rectangle_at",
+        # draw_rectangle is step-aware (like draw_arc): active_schema special-
+        # cases it, and this router dispatches to the sizing-advance or the
+        # rotate commit.
+        "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
@@ -3911,8 +3935,25 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         if self.mode == "draw_arc":
             return self._arc_schema_for_step()
+        if self.mode == "draw_rectangle":
+            return self._rectangle_schema_for_step()
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
+
+    def _rectangle_schema_for_step(self):
+        """Return the rectangle schema for the current step.
+
+        Rectangle placement is 3-step (Task 12): the two-click **sizing** step
+        types the far corner (the ``rectangle`` X/Y schema), then the
+        **rotate** step types the absolute orientation (the ``rotation``
+        transform).  ``_draw_rect_rotating`` picks which one is live.  Unlike
+        arc there is no anchorless step 0 — the sizing schema has an anchor from
+        the first click, and before that first click the anchor gate keeps the
+        HUD shut anyway.
+        """
+        if self._draw_rect_rotating:
+            return SCHEMAS.get("rotation")
+        return SCHEMAS.get("rectangle")
 
     def _arc_schema_for_step(self):
         """Return the arc schema for the current step, or None.
@@ -4115,6 +4156,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         resolved = schema.resolve(anchor, hud.current_values())
         if schema.returns_point:
             self._preview_from_resolved(resolved)
+        elif schema.name == "rotation":
+            # The rectangle rotate transform's preview is an *angle*, not a
+            # point, so it does not route through ``_transform_preview_point`` /
+            # ``_preview_from_resolved`` (which are point-based).  Its own helper
+            # spins the sized preview rect about the stored pivot.
+            self._preview_rectangle_rotation(resolved["angle_deg"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -4305,6 +4352,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Y-up, matching resolve_displacement's negation.
             return {"dX": point.x() - anchor.x(),
                     "dY": -(point.y() - anchor.y())}
+        if schema.name == "rotation":
+            # Seed the live orientation: the pivot→resolved-point heading, the
+            # same absolute angle the mouse and ``resolve_rotation`` use.  0°
+            # (axis-aligned) before anything is published.
+            point = self.get_resolved_point()
+            if point is None:
+                return {"Angle": 0.0}
+            return {"Angle": self._rect_rotation_angle_to(point)}
         # ``_replicate_spacing`` is a *signed* perpendicular projection, so it
         # passes through 0.0 as the cursor crosses the source gridline — 0.0 is
         # not reliably "never set".  Treating it as unset is still correct
@@ -5284,7 +5339,30 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             rect = QRectF(self._draw_rect_anchor, corner).normalized()
         self._draw_rect_preview.setRect(rect)
 
+    def _preview_rectangle_rotation(self, angle_deg) -> None:
+        """Spin the sized preview rect to ``angle_deg`` about the stored pivot.
+
+        The rotate-step preview is **angle-driven**, not point-driven: the sized
+        rect is fixed, only its orientation follows the cursor/typed angle.  Uses
+        the same Qt transform ``RectangleItem.set_angle`` will — origin at the
+        pivot, ``setRotation(angle_deg)`` — so the ghost matches the committed
+        item.  A no-op until the preview rect and the pivot both exist.
+        """
+        if self._draw_rect_preview is None or self._draw_rect_pivot is None:
+            return
+        self._draw_rect_preview.setTransformOriginPoint(self._draw_rect_pivot)
+        self._draw_rect_preview.setRotation(angle_deg)
+
     def _move_draw_rectangle(self, event, snapped):
+        if self._draw_rect_rotating:
+            # Rotate step: the sized rect is fixed; spin the ghost to the pivot→
+            # cursor heading and publish so the HUD reads out the orientation.
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            angle = self._rect_rotation_angle_to(snapped)
+            self._preview_rectangle_rotation(angle)
+            self.publish_placement_state(self._draw_rect_pivot, snapped)
+            return
         if self._draw_rect_anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         else:
@@ -7978,7 +8056,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.instructionChanged.emit("Pick first point")
 
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._draw_rect_anchor is None:
+        if self._draw_rect_rotating:
+            # Third click: commit at the orientation from the pivot to the click.
+            self._commit_rectangle_rotated(
+                self._rect_rotation_angle_to(snapped))
+        elif self._draw_rect_anchor is None:
             self._draw_rect_anchor = snapped
             self.update_preview_node(snapped)
             _instr = "Pick opposite corner" if not self._draw_rect_from_center else "Pick corner (from center)"
@@ -7993,34 +8075,35 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._draw_rect_preview = preview
         else:
-            self._commit_draw_rectangle_at(snapped)
+            # Second click: size the axis-aligned rect and enter the rotate step
+            # (no longer commits — the third click/typed angle does).
+            self._advance_rectangle_to_rotate_step(snapped)
 
-    def _commit_draw_rectangle_at(self, corner):
-        """Commit the armed rectangle with ``corner`` as its second point.
+    def _rect_rotation_angle_to(self, cursor) -> float:
+        """Return the absolute orientation (Y-up degrees from +x) pivot→``cursor``.
 
-        The commit half of :meth:`_press_draw_rectangle`, split out so Dynamic
-        Input is an alternative *point source* rather than an alternative
-        *commit path*: a typed exact corner and a mouse click land here.
+        0° when the cursor is due-east of the pivot, i.e. axis-aligned.  Shared
+        by the third mouse click and the rotate preview so both read the same
+        heading.  Falls back to 0° when the pivot is unset (a guard; the rotate
+        step always has one).
+        """
+        piv = self._draw_rect_pivot
+        if piv is None:
+            return 0.0
+        return math.degrees(math.atan2(-(cursor.y() - piv.y()),
+                                       cursor.x() - piv.x()))
 
-        A single point serves both rectangle modes.  Corner mode normalises
-        ``QRectF(anchor, corner)``, so the sign of the offset chooses the
-        quadrant; from-centre takes ``abs()`` to derive half-extents and so
-        ignores it.  That is why ``seed_rectangle`` keeps the sign — folding to
-        a magnitude would rebuild every corner-mode rectangle up-and-right of
-        the anchor.
+    def _rect_sizing_points(self, corner):
+        """Return the axis-aligned ``(pt1, pt2)`` the sizing step produces.
 
-        Args:
-            corner: The scene-space second point, fully constrained already.
-
-        Returns:
-            True when a rectangle was committed, False when it was refused (no
-            anchor, or an extent under the too-small floor).  Decision D2 — the
-            floor lives here and nowhere else; the HUD renders a False as a
-            flagged field.
+        The exact 2-click sizing math lifted from ``_commit_draw_rectangle_at``:
+        corner mode normalises ``QRectF(anchor, corner)`` (the drag sign chooses
+        the quadrant); from-centre takes ``abs()`` half-extents about the anchor.
+        Returns ``(None, None)`` when unarmed.
         """
         anc = self._draw_rect_anchor
         if anc is None:
-            return False
+            return None, None
         if self._draw_rect_from_center:
             hw = abs(corner.x() - anc.x())
             hh = abs(corner.y() - anc.y())
@@ -8030,14 +8113,99 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             rect = QRectF(anc, corner).normalized()
             pt1 = QPointF(rect.x(), rect.y())
             pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
-        # Reject zero-size rectangles
+        return pt1, pt2
+
+    def _advance_rectangle_to_rotate_step(self, corner) -> bool:
+        """Advance an armed rectangle from the sizing step to the rotate step.
+
+        Stores the sized axis-aligned rect (``_draw_rect_sized_pt1/_pt2``) and
+        its pivot (corner-1 of the anchor click in corner mode, the rect centre
+        — which equals the anchor — in centre mode), sets
+        ``_draw_rect_rotating``, and re-fits the preview rect to the sized
+        extents.  Shared verbatim by the mouse second click and the sizing
+        Dynamic Input applier, so both hand off to the rotate step identically.
+
+        Args:
+            corner: The second point, fully constrained already.
+
+        Returns:
+            True when the rect advanced to the rotate step, False when it was
+            refused (no anchor, or an extent under the too-small floor).
+        """
+        pt1, pt2 = self._rect_sizing_points(corner)
+        if pt1 is None:
+            return False
+        # Reject zero-size rectangles (decision D2 — the floor lives here, the
+        # same threshold the old 2-click commit used).
         if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
             self._show_status("Rectangle too small — skipped", timeout=2000)
+            return False
+        self._draw_rect_sized_pt1 = pt1
+        self._draw_rect_sized_pt2 = pt2
+        # Pivot: corner mode turns about the first-click anchor (corner-1);
+        # centre mode turns about the rect centre, which IS the anchor.
+        self._draw_rect_pivot = QPointF(self._draw_rect_anchor)
+        self._draw_rect_rotating = True
+        # Snap the preview to the final sized rect; the rotate preview spins it.
+        if self._draw_rect_preview is not None:
+            self._draw_rect_preview.setRect(QRectF(pt1, pt2).normalized())
+        self.clear_placement_state()
+        self.instructionChanged.emit("Pick rotation / type angle")
+        return True
+
+    def _apply_rectangle_dynamic_input(self, geometry) -> bool:
+        """Route a resolved rectangle value to the right step's applier.
+
+        Rectangle's schema is step-dependent, so its applier is too: at the
+        sizing step the ``rectangle`` schema resolves to a far-corner QPointF
+        (advance to the rotate step), at the rotate step the ``rotation`` schema
+        resolves to a ``{"angle_deg": …}`` dict (commit).
+
+        Returns:
+            The step applier's verdict.
+        """
+        if self._draw_rect_rotating:
+            return self._apply_rectangle_rotation(geometry)         # dict
+        return self._advance_rectangle_to_rotate_step(geometry)      # QPointF
+
+    def _apply_rectangle_rotation(self, geometry) -> bool:
+        """Rotate-step applier: commit the sized rect at the typed angle."""
+        return self._commit_rectangle_rotated(geometry["angle_deg"])
+
+    def _commit_rectangle_rotated(self, angle_deg) -> bool:
+        """Commit the sized rectangle rotated to ``angle_deg`` about its pivot.
+
+        The real commit for the 3-step placement (Task 12).  The 2-click sizing
+        already produced ``_draw_rect_sized_pt1/_pt2`` (axis-aligned) and the
+        ``_draw_rect_pivot`` the rotation turns about (corner-1 in corner mode,
+        the centre in centre mode).  This builds the ``RectangleItem`` from those
+        corners and applies ``set_angle(angle_deg, pivot)`` — a 0° rotate leaves
+        it exactly axis-aligned, the old 2-click end state.
+
+        Shared by the third mouse click and the ``rotation`` Dynamic Input value
+        (both route in through ``_apply_rectangle_rotation``).
+
+        Args:
+            angle_deg: Absolute orientation, Y-up degrees from +x.
+
+        Returns:
+            True when a ``RectangleItem`` was committed, False when the sizing
+            state is missing or the sized rect is degenerate (a guard — the
+            floor already gated at the sizing step).
+        """
+        pt1 = self._draw_rect_sized_pt1
+        pt2 = self._draw_rect_sized_pt2
+        if pt1 is None or pt2 is None:
+            return False
+        # Guard: the sizing step already rejected sub-floor extents, but keep it
+        # so a direct call can never build a degenerate item.
+        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
             return False
         tmpl = self._get_geometry_template()
         _c, _lw = self._geom_color_lw()
         item = RectangleItem(pt1, pt2, _c, _lw)
         item.level = tmpl.level
+        item.set_angle(angle_deg, self._draw_rect_pivot)
         self.addItem(item)
         self._draw_rects.append(item)
         item.setSelected(True)
@@ -8049,7 +8217,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Read the mode flag before single_place_mode's set_mode("select")
         # mutates it, so the re-arm wording matches the mode just used.
         _from_centre = self._draw_rect_from_center
+        # Reset the full rect state (anchor + rotate step + sized rect + pivot).
         self._draw_rect_anchor = None
+        self._draw_rect_rotating = False
+        self._draw_rect_sized_pt1 = None
+        self._draw_rect_sized_pt2 = None
+        self._draw_rect_pivot = None
         self.clear_placement_state()
         self.push_undo_state()
         if self.single_place_mode:

@@ -202,6 +202,15 @@ def resolve_arc_span(anchor, values: dict) -> dict:
     return {"span_deg": values["Span"]}
 
 
+def resolve_rotation(anchor, values: dict) -> dict:
+    """Return the rotation for a typed angle (Y-up degrees from +x, 0°=axis-aligned).
+
+    A transform schema (like arc_span): the pivot lives in scene state, so this
+    yields the absolute orientation the applier rotates to rather than a point.
+    """
+    return {"angle_deg": values["Angle"]}
+
+
 def resolve_spacing_count(anchor, values: dict) -> dict:
     """Return spacing plus an integer count, floored at one.
 
@@ -285,6 +294,21 @@ SCHEMAS: dict[str, Schema] = {
         returns_point=False,
         # Anchored transform: the centre/radius/start are armed in the scene
         # before step 3, so the HUD stays shut until they exist — like ``move``.
+        needs_anchor=True,
+    ),
+    "rotation": Schema(
+        name="rotation",
+        fields=(
+            # An absolute orientation (±180 heading from +x), so ANGLE — not
+            # SPAN, which is an unsigned 0–360 sweep magnitude.  0° reads out as
+            # axis-aligned, exactly the old 2-click end state.
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
+        ),
+        resolve=resolve_rotation,
+        returns_point=False,
+        # Anchored transform: the sized rectangle + its pivot are armed in the
+        # scene before the rotate step, so the HUD stays shut until they exist —
+        # like ``move`` and ``arc_span``.
         needs_anchor=True,
     ),
 }

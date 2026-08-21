@@ -11,7 +11,7 @@ import dataclasses
 import math
 
 import pytest
-from PyQt6.QtCore import QEvent, QObject, QPointF, Qt, QTimer
+from PyQt6.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication, QGraphicsView
@@ -942,20 +942,13 @@ class TestPolylineUndoParity:
         assert calls == []
 
 
-# ── Task 12: rectangle ────────────────────────────────────────────────────
-
-
-def _engage_rect(scene, anchor=QPointF(0, 0), from_centre=False):
-    """Arm a rectangle placement and engage the HUD on it."""
-    scene.set_mode("draw_rectangle")
-    scene.single_place_mode = False
-    scene._draw_rect_from_center = from_centre
-    scene._draw_rect_anchor = QPointF(anchor)
-    # Decoy seed 1 unit away, so a path reusing the published point fails.
-    scene.publish_placement_state(anchor, QPointF(anchor.x() + 1.0,
-                                                 anchor.y() - 1.0))
-    assert scene.begin_dynamic_input() is True
-    return scene.dynamic_input
+# ── Task 12: rectangle (3-step: 2-click sizing, then rotate) ─────────────────
+#
+# Rectangle placement gained a rotate step.  The 2-click SIZING geometry is
+# verbatim what it always was (corner/centre variants), and a third click — or a
+# typed ``rotation`` Angle — orients the sized rect about its pivot (corner-1 in
+# corner mode, the centre in centre mode).  A 0° rotate is the axis-aligned end
+# state, the old 2-click behaviour.
 
 
 def _rect_tuple(item):
@@ -963,120 +956,286 @@ def _rect_tuple(item):
     return (r.x(), r.y(), r.width(), r.height())
 
 
-class TestRectangleParity:
-    """Corner mode: the typed rectangle and the dragged one must coincide.
+def _size_rect_by_mouse(scene, view, anchor, corner, from_centre=False):
+    """Drive the two real sizing clicks, leaving the rect at the rotate step."""
+    scene.set_mode("draw_rectangle")
+    scene.single_place_mode = False
+    scene._draw_rect_from_center = from_centre
+    _click(scene, view, QPointF(anchor))          # arm anchor + build preview
+    # ``_click`` routes _press_draw_line; drive rectangle presses directly.
+    scene._draw_rect_anchor = None
+    scene._draw_rect_preview = None
+    scene._press_draw_rectangle(_FakeEvent(), None, QPointF(anchor),
+                                None, None, None)  # 1st click: anchor
+    scene._press_draw_rectangle(_FakeEvent(), None, QPointF(corner),
+                                None, None, None)  # 2nd click: size → rotate
+    assert scene._draw_rect_rotating is True
 
-    The schema's X/Y are **signed** (``seed_rectangle`` keeps the sign so
-    ``resolve_rectangle`` round-trips the drag point exactly), because in
-    corner mode the drag direction chooses the quadrant.  From-centre re-applies
-    ``abs()`` and so ignores it.
+
+def _engage_rect_sizing(scene, anchor=QPointF(0, 0), from_centre=False):
+    """Arm a rectangle at the SIZING step and engage the HUD on it."""
+    scene.set_mode("draw_rectangle")
+    scene.single_place_mode = False
+    scene._draw_rect_from_center = from_centre
+    scene._press_draw_rectangle(_FakeEvent(), None, QPointF(anchor),
+                                None, None, None)      # arm anchor + preview
+    # Decoy seed 1 unit away, so a path reusing the published point fails.
+    scene.publish_placement_state(anchor, QPointF(anchor.x() + 1.0,
+                                                 anchor.y() - 1.0))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+def _engage_rect_rotate(scene, view, anchor=QPointF(0, 0),
+                        corner=QPointF(300, -200), from_centre=False):
+    """Drive sizing (mouse), then engage the ROTATE-step HUD.
+
+    Publishes a decoy resolved point so a rotate path reusing it (rather than
+    the typed Angle) is caught.
+    """
+    _size_rect_by_mouse(scene, view, anchor, corner, from_centre)
+    # Decoy: pivot→(pivot+1,+1) is a ~ -45° heading, not the angles typed below.
+    piv = scene._draw_rect_pivot
+    scene.publish_placement_state(piv, QPointF(piv.x() + 1.0, piv.y() + 1.0))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+class TestRectangleSizingUnchanged:
+    """The 2-click SIZING geometry is verbatim; the 2nd click enters rotate."""
+
+    def test_second_click_enters_rotate_not_commit(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        assert scene._draw_rect_rotating is True
+        assert len(scene._draw_rects) == 0            # not committed yet
+        # Sized axis-aligned rect + corner-mode pivot (corner-1 = anchor).
+        assert scene._draw_rect_pivot == QPointF(0, 0)
+        assert scene._draw_rect_sized_pt1 == QPointF(0, -200)
+        assert scene._draw_rect_sized_pt2 == QPointF(300, 0)
+
+    def test_corner_sizing_math_matches_the_old_commit(self, scene, view):
+        """Corner mode: normalised QRectF(anchor, corner)."""
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(-300, 200))
+        pt1, pt2 = scene._draw_rect_sized_pt1, scene._draw_rect_sized_pt2
+        rect = QRectF(pt1, pt2).normalized()
+        assert rect.width() == pytest.approx(300.0)
+        assert rect.height() == pytest.approx(200.0)
+
+    def test_centre_sizing_uses_half_extents_and_pivots_centre(self, scene,
+                                                               view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(100, -50),
+                            from_centre=True)
+        # Half-extents about the centre; pivot IS the centre (= anchor).
+        assert scene._draw_rect_pivot == QPointF(0, 0)
+        assert scene._draw_rect_sized_pt1 == QPointF(-100, -50)
+        assert scene._draw_rect_sized_pt2 == QPointF(100, 50)
+
+    def test_too_small_second_click_is_refused(self, scene, view):
+        """The floor stays at the sizing step; a degenerate size never rotates."""
+        scene.set_mode("draw_rectangle")
+        scene.single_place_mode = False
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(0, 0),
+                                    None, None, None)
+        ok = scene._advance_rectangle_to_rotate_step(QPointF(0.1, 0.1))
+        assert ok is False
+        assert scene._draw_rect_rotating is False
+
+
+class TestRectangleRotateParity:
+    """Rotate step: the typed Angle and the dragged rotation must coincide.
+
+    Sizing is verbatim, then a 3rd mouse click or a typed ``rotation`` Angle
+    orients the sized rect about its pivot (corner-1 / centre).  0° is the
+    axis-aligned end state.
     """
 
-    def test_mouse_and_hud_agree(self, scene, view):
+    def _mouse_3step(self, scene, view, anchor, corner, cursor,
+                     from_centre=False):
+        """Full 3-step mouse placement; returns the committed item."""
+        _size_rect_by_mouse(scene, view, anchor, corner, from_centre)
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(cursor),
+                                    None, None, None)     # 3rd click: rotate
+        return scene._draw_rects[-1]
+
+    def test_corner_mouse_and_hud_agree(self, scene, view):
+        # Mouse: size then rotate by clicking a point 30° above +x from pivot.
+        r = 400.0
+        cursor = QPointF(r * math.cos(math.radians(30)),
+                         -r * math.sin(math.radians(30)))   # Y-up 30°
+        by_mouse = self._mouse_3step(scene, view, QPointF(0, 0),
+                                     QPointF(300, -200), cursor)
+        m = (_rect_tuple(by_mouse), round(by_mouse._angle, 6),
+             by_mouse._pivot)
+
+        # HUD: size then type Angle=30.
+        hud = _engage_rect_rotate(scene, view, QPointF(0, 0), QPointF(300, -200))
+        hud.editor("Angle").setText("30")
+        scene._on_dynamic_input_committed(hud.values())
+        item = scene._draw_rects[-1]
+        h = (_rect_tuple(item), round(item._angle, 6), item._pivot)
+
+        assert h[0] == pytest.approx(m[0])
+        assert h[1] == pytest.approx(m[1])
+        assert h[1] == pytest.approx(30.0)
+        assert h[2] == m[2] == QPointF(0, 0)          # pivot == corner-1
+
+    def test_centre_mouse_and_hud_agree(self, scene, view):
+        r = 250.0
+        cursor = QPointF(r * math.cos(math.radians(45)),
+                         -r * math.sin(math.radians(45)))
+        by_mouse = self._mouse_3step(scene, view, QPointF(0, 0),
+                                     QPointF(100, -50), cursor,
+                                     from_centre=True)
+        m = (_rect_tuple(by_mouse), round(by_mouse._angle, 6),
+             by_mouse._pivot)
+
+        hud = _engage_rect_rotate(scene, view, QPointF(0, 0), QPointF(100, -50),
+                                  from_centre=True)
+        hud.editor("Angle").setText("45")
+        scene._on_dynamic_input_committed(hud.values())
+        item = scene._draw_rects[-1]
+        h = (_rect_tuple(item), round(item._angle, 6), item._pivot)
+
+        assert h[0] == pytest.approx(m[0])
+        assert h[1] == pytest.approx(m[1])
+        assert h[1] == pytest.approx(45.0)
+        assert h[2] == m[2] == QPointF(0, 0)          # pivot == centre
+
+    def test_zero_angle_gives_an_axis_aligned_rect(self, scene, view):
+        """Regression parity with the old 2-click behaviour: 0° = axis-aligned.
+
+        A user who wants no rotation types/drags 0, and the committed rect is
+        the same axis-aligned one the 2-click flow produced.
+        """
+        # Mouse: rotate to a point due-east of the pivot → 0°.
+        by_mouse = self._mouse_3step(scene, view, QPointF(0, 0),
+                                     QPointF(300, -200), QPointF(500, 0))
+        assert by_mouse._angle == pytest.approx(0.0)
+        assert by_mouse.rotation() == pytest.approx(0.0)   # identity transform
+        assert _rect_tuple(by_mouse) == pytest.approx((0.0, -200.0, 300.0, 200.0))
+
+        # HUD: type Angle=0.
+        hud = _engage_rect_rotate(scene, view, QPointF(0, 0), QPointF(300, -200))
+        hud.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud.values())
+        item = scene._draw_rects[-1]
+        assert item._angle == pytest.approx(0.0)
+        assert _rect_tuple(item) == pytest.approx(_rect_tuple(by_mouse))
+
+    def test_applier_reports_its_verdict(self, scene, view):
+        """The step router: sizing advances, rotate commits."""
         scene.set_mode("draw_rectangle")
         scene.single_place_mode = False
-        scene._draw_rect_from_center = False
-        scene._draw_rect_anchor = QPointF(0, 0)
-        assert scene._commit_draw_rectangle_at(QPointF(300.0, -200.0)) is True
-        by_mouse = _rect_tuple(scene._draw_rects[-1])
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(0, 0),
+                                    None, None, None)
+        # Sizing step: a QPointF far corner advances (True) and enters rotate.
+        assert scene._apply_rectangle_dynamic_input(QPointF(300, -200)) is True
+        assert scene._draw_rect_rotating is True
+        # Rotate step: an angle dict commits.
+        assert scene._apply_rectangle_dynamic_input({"angle_deg": 30.0}) is True
+        assert len(scene._draw_rects) == 1
+        assert scene._draw_rect_rotating is False
 
-        hud = _engage_rect(scene)
-        hud.editor("X").setText("300")
-        hud.editor("Y").setText("200")          # Y-up
-        scene._on_dynamic_input_committed(hud.values())
-        by_hud = _rect_tuple(scene._draw_rects[-1])
-
-        assert by_hud == pytest.approx(by_mouse)
-
-    def test_negative_extents_keep_the_dragged_quadrant(self, scene, view):
-        """A left/down drag stays left/down — the sign is the geometry."""
-        scene.set_mode("draw_rectangle")
-        scene.single_place_mode = False
-        scene._draw_rect_from_center = False
-        scene._draw_rect_anchor = QPointF(0, 0)
-        assert scene._commit_draw_rectangle_at(QPointF(-300.0, 200.0)) is True
-        by_mouse = _rect_tuple(scene._draw_rects[-1])
-
-        hud = _engage_rect(scene)
-        hud.editor("X").setText("-300")
-        hud.editor("Y").setText("-200")
-        scene._on_dynamic_input_committed(hud.values())
-        by_hud = _rect_tuple(scene._draw_rects[-1])
-
-        assert by_hud == pytest.approx(by_mouse)
-        # Non-vacuous: this really is the other quadrant from the positive case.
-        assert by_mouse[0] < 0
-
-    def test_from_centre_uses_half_extents(self, scene, view):
-        hud = _engage_rect(scene, from_centre=True)
-        hud.editor("X").setText("100")
-        hud.editor("Y").setText("50")
-        scene._on_dynamic_input_committed(hud.values())
-        x, y, w, h = _rect_tuple(scene._draw_rects[-1])
-        assert w == pytest.approx(200.0)        # half-extent 100 either side
-        assert h == pytest.approx(100.0)
-        assert x == pytest.approx(-100.0)
-        assert y == pytest.approx(-50.0)
-
-    def test_too_small_is_refused_and_keeps_the_hud_open(self, scene, view):
-        """F1/D2: the schema minimum is 0.0, so 0.1 parses and the commit
-        refuses it — the case that used to no-op after the HUD had closed."""
-        hud = _engage_rect(scene)
-        hud.editor("X").setText("0.1")
-        hud.editor("Y").setText("0.1")
-        scene._on_dynamic_input_committed(hud.values())
-
-        assert len(scene._draw_rects) == 0
-        assert scene.is_input_mode()
-        assert hud.has_invalid_field()
-        assert scene._draw_rect_anchor == QPointF(0, 0)
-
-    def test_applier_reports_its_verdict(self, scene):
-        scene.set_mode("draw_rectangle")
-        scene._draw_rect_from_center = False
-        scene._draw_rect_anchor = QPointF(0, 0)
-        assert scene._commit_draw_rectangle_at(QPointF(0.1, 0.1)) is False
-        scene._draw_rect_anchor = QPointF(0, 0)
-        assert scene._commit_draw_rectangle_at(QPointF(300, -200)) is True
-        scene._draw_rect_anchor = None
-        assert scene._commit_draw_rectangle_at(QPointF(300, -200)) is False
-
-    def test_commit_clears_anchor_preview_and_placement_state(self, scene, view):
-        scene.set_mode("draw_rectangle")
-        scene.single_place_mode = False
-        scene._draw_rect_anchor = QPointF(0, 0)
+    def test_commit_resets_full_rect_state(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
         scene.publish_placement_state(QPointF(0, 0), QPointF(300, -200))
-        scene._commit_draw_rectangle_at(QPointF(300.0, -200.0))
+        assert scene._commit_rectangle_rotated(0.0) is True
         assert scene._draw_rect_anchor is None
+        assert scene._draw_rect_rotating is False
+        assert scene._draw_rect_sized_pt1 is None
+        assert scene._draw_rect_sized_pt2 is None
+        assert scene._draw_rect_pivot is None
         assert scene._draw_rect_preview is None
         assert scene.get_resolved_point() is None
 
-    def test_move_publishes_instead_of_painting_a_hint(self, scene, view):
-        scene.set_mode("draw_rectangle")
-        # The first press arms the anchor *and* builds the preview rect, which
-        # the move branch requires; pre-setting the anchor would instead send
-        # this press down the commit branch.
-        scene._press_draw_rectangle(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
-                                    None, None, None)
-        assert scene._draw_rect_preview is not None
-        scene._move_draw_rectangle(_FakeEvent(), QPointF(300, -200))
-        pt = scene.get_resolved_point()
-        assert pt is not None
-        assert pt.x() == pytest.approx(300.0, abs=1e-6)
-        assert pt.y() == pytest.approx(-200.0, abs=1e-6)
-        assert scene._draw_dim_hint is None
-
-    def test_hud_commit_pushes_exactly_one_undo_state(self, scene, view,
-                                                      monkeypatch):
-        hud = _engage_rect(scene)
-        hud.editor("X").setText("300")
-        hud.editor("Y").setText("200")
+    def test_hud_rotate_commit_pushes_exactly_one_undo_state(self, scene, view,
+                                                             monkeypatch):
+        hud = _engage_rect_rotate(scene, view, QPointF(0, 0), QPointF(300, -200))
+        hud.editor("Angle").setText("30")
         calls = []
         monkeypatch.setattr(scene, "push_undo_state",
                             lambda *a, **k: calls.append(1))
         scene._on_dynamic_input_committed(hud.values())
         assert len(scene._draw_rects) == 1
         assert calls == [1]
+
+
+class TestRectangleSizingHudCommit:
+    """The sizing-step HUD commit advances to rotate (does not build a rect)."""
+
+    def test_sizing_hud_commit_enters_rotate_step(self, scene, view):
+        hud = _engage_rect_sizing(scene)
+        hud.editor("X").setText("300")
+        hud.editor("Y").setText("200")               # Y-up
+        scene._on_dynamic_input_committed(hud.values())
+        # Advanced, not committed.
+        assert scene._draw_rect_rotating is True
+        assert len(scene._draw_rects) == 0
+        assert scene._draw_rect_sized_pt1 == QPointF(0, -200)
+        assert scene._draw_rect_sized_pt2 == QPointF(300, 0)
+
+    def test_sizing_hud_then_rotate_hud_matches_full_mouse(self, scene, view):
+        """Full HUD 3-step ≡ full mouse 3-step, corner mode."""
+        # Mouse.
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(500, 0),
+                                    None, None, None)   # 0° rotate
+        m_item = scene._draw_rects[-1]
+
+        # HUD sizing then HUD rotate.
+        hud = _engage_rect_sizing(scene)
+        hud.editor("X").setText("300")
+        hud.editor("Y").setText("200")
+        scene._on_dynamic_input_committed(hud.values())
+        assert scene._draw_rect_rotating is True
+        # The sizing HUD commit advances the step and closes the HUD (its applier
+        # returned True); the rotate step re-engages a fresh ``rotation`` HUD.
+        scene.publish_placement_state(scene._draw_rect_pivot, QPointF(500, 0))
+        assert scene.begin_dynamic_input() is True
+        hud2 = scene.dynamic_input
+        assert hud2.schema is SCHEMAS["rotation"]
+        hud2.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud2.values())
+        h_item = scene._draw_rects[-1]
+
+        assert _rect_tuple(h_item) == pytest.approx(_rect_tuple(m_item))
+        assert h_item._angle == pytest.approx(m_item._angle)
+
+    def test_too_small_sizing_is_refused_and_keeps_the_hud_open(self, scene,
+                                                                view):
+        """F1/D2: 0.1 parses (0.0 floor) and the sizing advance refuses it."""
+        hud = _engage_rect_sizing(scene)
+        hud.editor("X").setText("0.1")
+        hud.editor("Y").setText("0.1")
+        scene._on_dynamic_input_committed(hud.values())
+        assert len(scene._draw_rects) == 0
+        assert scene._draw_rect_rotating is False
+        assert scene.is_input_mode()
+        assert hud.has_invalid_field()
+
+
+class TestRectangleRotatePreview:
+    """The rotate-step preview is angle-driven (mouse move + field-commit)."""
+
+    def test_move_spins_the_preview_and_publishes(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        # 90° above +x (Y-up) from the pivot at the origin.
+        scene._move_draw_rectangle(_FakeEvent(), QPointF(0, -400))
+        assert scene._draw_rect_preview.rotation() == pytest.approx(90.0)
+        # Publishes so the HUD reads out.
+        assert scene.get_resolved_point() is not None
+
+    def test_field_commit_updates_the_preview_rotation(self, scene, view):
+        """Decoy: seed 0°, type 60°, and the ghost must follow the typed angle."""
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        scene.publish_placement_state(QPointF(0, 0), QPointF(500, 0))   # 0° seed
+        assert scene.begin_dynamic_input() is True
+        hud = scene.dynamic_input
+        ed = hud.editor("Angle")
+        ed.selectAll()
+        ed.setText("60")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)              # commits Angle
+        assert scene._draw_rect_preview.rotation() == pytest.approx(60.0)
 
 
 # ── Task 13: circle ───────────────────────────────────────────────────────
@@ -1812,9 +1971,10 @@ class TestGhostUpdatesOnFieldCommit:
     def _engage_rect(self, scene, view, anchor=QPointF(0, 0)):
         """First-click a rectangle, seed a decoy far corner, and engage.
 
-        Drives the real press/move path (not the bare ``_engage_rect`` helper)
-        so ``_draw_rect_preview`` actually exists for the ghost to follow, and
-        seeds a decoy corner far from the value the test types.
+        Drives the real press/move path so ``_draw_rect_preview`` actually exists
+        for the ghost to follow, and seeds a decoy corner far from the value the
+        test types.  This engages the SIZING-step HUD (X/Y), whose field-commit
+        preview is unchanged by the added rotate step.
         """
         scene.set_mode("draw_rectangle")
         scene.single_place_mode = False
