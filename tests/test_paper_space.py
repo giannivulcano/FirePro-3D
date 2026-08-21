@@ -403,6 +403,7 @@ class TestSheetViewData:
             "source_view_type", "source_view_name", "title",
             "scale", "x", "y", "w", "h",
             "show_border", "view_number",
+            "crop_rect", "hidden_detail_ids",
         }
 
 
