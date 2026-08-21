@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtCore import QEvent, QPointF, Qt
 from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtTest import QTest
 
 from firepro3d.model_space import (
     Model_Space,
@@ -206,3 +207,43 @@ class TestArrowKeyWiring:
         scene.keyPressEvent(ev)
         assert scene._draw_rect_from_center is True
         assert ev.isAccepted()
+
+
+class TestSetModeFocusReturn:
+    """Regression: activating a placement tool must return keyboard focus to the
+    visible plan view, so ←/→ (dispatched in ``Model_Space.keyPressEvent``) reach
+    the scene at step 0.  Without this a ribbon-button click leaves focus on the
+    ribbon and the arrows cycle ribbon widgets instead of the placement variant.
+    """
+
+    @pytest.fixture
+    def shown_view(self, scene):
+        from firepro3d.model_view import Model_View
+        from PyQt6.QtTest import QTest
+        v = Model_View(scene)
+        v.resize(400, 300)
+        v.show()
+        QTest.qWaitForWindowExposed(v)
+        v.activateWindow()          # hasFocus() is False unless the window is active
+        yield v
+        v.close()
+
+    def test_set_mode_returns_focus_to_visible_view(self, qapp, scene, shown_view):
+        # Simulate the ribbon holding focus after a tool-button click.
+        shown_view.clearFocus()
+        qapp.processEvents()
+        assert not shown_view.hasFocus()
+        scene.set_mode("draw_arc")
+        qapp.processEvents()
+        assert shown_view.hasFocus(), \
+            "set_mode must hand keyboard focus back to the visible plan view"
+
+    def test_arrow_cycles_variant_through_the_view_after_set_mode(self, qapp, scene, shown_view):
+        # The whole chain: tool activated → view focused → arrow delivered to the
+        # focused view reaches Model_Space.keyPressEvent → variant cycles.
+        shown_view.clearFocus()
+        scene.set_mode("draw_arc")
+        qapp.processEvents()
+        assert shown_view.hasFocus()
+        QTest.keyClick(shown_view, Qt.Key.Key_Right)
+        assert scene._arc_variant == _ARC_VARIANT_START

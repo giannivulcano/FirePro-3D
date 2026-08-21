@@ -1172,6 +1172,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if mode == "draw_gridline":
             self.requestPropertyUpdate.emit(self._get_gridline_template())
 
+        # Hand keyboard focus back to the canvas.  A tool is usually activated by
+        # clicking its ribbon button, which leaves focus on the ribbon — so
+        # step-0 keyboard input (←/→ variant cycle, and any pre-first-click key)
+        # would be eaten by ribbon focus-navigation and never reach
+        # ``keyPressEvent``.  Focus the *visible* view (not ``views()[0]``, which
+        # is the never-shown orphan); a no-op headless, where nothing is visible.
+        view = self._visible_view()
+        if view is not None:
+            view.setFocus(Qt.FocusReason.OtherFocusReason)
+
     @staticmethod
     def _repair_display_settings():
         """Fix display/*/visible values stored as bool instead of string.
