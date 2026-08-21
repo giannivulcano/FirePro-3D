@@ -273,6 +273,12 @@ def resolve_line_weight_mm(name: str,
     return 0.25
 
 
+def _is_detail_marker(item) -> bool:
+    """Return True if *item* is a DetailMarker instance."""
+    from .detail_view import DetailMarker
+    return isinstance(item, DetailMarker)
+
+
 def _category_for_item(item) -> str | None:
     """Map a QGraphicsItem to its display category key."""
     from .pipe import Pipe
@@ -452,6 +458,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
         source_view_key: The rendering viewport's
             ``f"{source_view_type}:{source_view_name}"`` — drives per-view
             underlay exclusion (§16.5). ``""`` means no per-view filtering.
+        viewport_data: The SheetViewData of the viewport being painted; drives
+            detail self-hide (a detail viewport hides its own marker) and
+            per-sheet ``hidden_detail_ids`` suppression.
     """
     from PyQt6.QtCore import Qt
     from PyQt6.QtGui import QBrush, QColor, QPen
@@ -483,6 +492,18 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                               "visible": item.isVisible()})
                 item.setVisible(False)
                 continue
+            if viewport_data is not None and _is_detail_marker(item):
+                marker_name = getattr(item, "name", None)
+                hide = False
+                if viewport_data.source_view_type == "detail":
+                    hide = (marker_name == viewport_data.source_view_name)  # self-hide
+                if marker_name in viewport_data.hidden_detail_ids:
+                    hide = True                                              # per-sheet hide
+                if hide:
+                    saved.append({"item": item, "cat_key": None,
+                                  "visible": item.isVisible()})
+                    item.setVisible(False)
+                    continue
             cat_key = _category_for_item(item)
             if cat_key is None:
                 continue
