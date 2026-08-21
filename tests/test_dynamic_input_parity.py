@@ -2654,3 +2654,31 @@ class TestRectRotateCtrlAngleSnap:
         scene._press_draw_rectangle(_FakeEvent(ctrl=True), None,
                                     QPointF(1000, -970), None, None, None)
         assert scene._draw_rects and abs(scene._draw_rects[-1]._angle % 45.0) < 1e-6
+
+
+class TestRectRotateReferenceLines:
+    """#3: the rotate step shows a 0° datum + live sweep guide from the pivot."""
+
+    def test_guides_created_and_datum_horizontal(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        scene._move_draw_rectangle(_FakeEvent(), QPointF(0, -400))   # 90° up
+        assert scene._draw_rect_ref_line0 is not None
+        assert scene._draw_rect_ref_lineA is not None
+        l0 = scene._draw_rect_ref_line0.line()
+        assert abs(l0.y1() - l0.y2()) < 1e-6            # 0° datum is horizontal
+        lA = scene._draw_rect_ref_lineA.line()
+        assert lA.y2() < lA.y1()                        # 90° Y-up sweep points up
+
+    def test_guides_cleared_on_commit(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        scene._press_draw_rectangle(_FakeEvent(), None, QPointF(0, -400),
+                                    None, None, None)
+        assert scene._draw_rect_ref_line0 is None
+        assert scene._draw_rect_ref_lineA is None
+
+    def test_guides_cleared_on_mode_exit(self, scene, view):
+        _size_rect_by_mouse(scene, view, QPointF(0, 0), QPointF(300, -200))
+        assert scene._draw_rect_ref_line0 is not None
+        scene.set_mode("select")
+        assert scene._draw_rect_ref_line0 is None
+        assert scene._draw_rect_ref_lineA is None

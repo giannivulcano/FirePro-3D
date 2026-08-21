@@ -182,6 +182,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_sized_pt1: "QPointF | None" = None
         self._draw_rect_sized_pt2: "QPointF | None" = None
         self._draw_rect_pivot: "QPointF | None" = None
+        # Rotate-step reference guides: a 0° datum (horizontal) + the live sweep
+        # line from the pivot, protractor-style (see _update_rect_ref_lines).
+        self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
+        self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
@@ -872,6 +876,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_rect_sized_pt1 = None
             self._draw_rect_sized_pt2 = None
             self._draw_rect_pivot = None
+            self._clear_rect_ref_lines()
             if self._draw_rect_preview is not None:
                 if self._draw_rect_preview.scene() is self:
                     self.removeItem(self._draw_rect_preview)
@@ -5474,6 +5479,50 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         self._draw_rect_preview.setTransformOriginPoint(self._draw_rect_pivot)
         self._draw_rect_preview.setRotation(-angle_deg)   # Y-up CCW → Qt CW negate
+        self._update_rect_ref_lines(angle_deg)
+
+    def _make_rect_ref_line(self):
+        """Create a dashed cosmetic guide line for the rotate step, added to scene."""
+        line = QGraphicsLineItem()
+        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        line.setPen(pen)
+        line.setZValue(200)
+        self.addItem(line)
+        return line
+
+    def _update_rect_ref_lines(self, angle_deg) -> None:
+        """Point the two rotate-step guides from the pivot (protractor).
+
+        ``_draw_rect_ref_line0`` is the horizontal 0° datum; ``_draw_rect_ref_lineA``
+        is the current sweep at ``angle_deg`` (Y-up).  Both run the sized rect's
+        diagonal length so they frame the rectangle.  A no-op until both guides
+        and the sized rect exist.
+        """
+        piv = self._draw_rect_pivot
+        if (piv is None or self._draw_rect_ref_line0 is None
+                or self._draw_rect_ref_lineA is None
+                or self._draw_rect_sized_pt1 is None
+                or self._draw_rect_sized_pt2 is None):
+            return
+        p1, p2 = self._draw_rect_sized_pt1, self._draw_rect_sized_pt2
+        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+        rad = math.radians(angle_deg)
+        self._draw_rect_ref_line0.setLine(piv.x(), piv.y(),
+                                          piv.x() + length, piv.y())
+        self._draw_rect_ref_lineA.setLine(
+            piv.x(), piv.y(),
+            piv.x() + length * math.cos(rad),
+            piv.y() - length * math.sin(rad))   # Y-up: subtract sin
+
+    def _clear_rect_ref_lines(self) -> None:
+        """Remove both rotate-step guides from the scene."""
+        for attr in ("_draw_rect_ref_line0", "_draw_rect_ref_lineA"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
 
     def _move_draw_rectangle(self, event, snapped):
         if self._draw_rect_rotating:
@@ -8288,6 +8337,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Snap the preview to the final sized rect; the rotate preview spins it.
         if self._draw_rect_preview is not None:
             self._draw_rect_preview.setRect(QRectF(pt1, pt2).normalized())
+        # Rotation reference guides (0° datum + live sweep), drawn from the pivot.
+        self._clear_rect_ref_lines()
+        self._draw_rect_ref_line0 = self._make_rect_ref_line()
+        self._draw_rect_ref_lineA = self._make_rect_ref_line()
+        self._update_rect_ref_lines(0.0)
         self.clear_placement_state()
         self.instructionChanged.emit("Pick rotation / type angle")
         return True
@@ -8363,6 +8417,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_sized_pt1 = None
         self._draw_rect_sized_pt2 = None
         self._draw_rect_pivot = None
+        self._clear_rect_ref_lines()
         self.clear_placement_state()
         self.push_undo_state()
         if self.single_place_mode:
