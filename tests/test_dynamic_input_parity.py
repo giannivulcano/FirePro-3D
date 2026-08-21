@@ -2184,3 +2184,260 @@ class TestArcMouseHudParity:
 
         for a, b in zip(cf, sf):
             assert a == pytest.approx(b, abs=1e-6)
+
+
+# ── Task 8: arc HUD-driven preview + readout + coupling seed ───────────────
+#
+# Arc's readout moves off the painted ``_draw_dim_hint`` (block 4) onto the
+# DynamicInputHud widget (decision S1), and its live preview is driven through
+# ``_preview_from_arc`` — the same helper the field-commit path calls — so the
+# ghost follows a typed Span while the mouse is inert.  These tests exercise the
+# real engage path (not just the appliers Task 7 covered) and pin the coupling
+# radius seed's scene→mm conversion.
+
+
+def _engage_arc_step1(scene, center=QPointF(0, 0)):
+    """Click the arc centre and engage the step-1 (line) HUD."""
+    scene.set_mode("draw_arc")
+    scene.single_place_mode = False
+    scene._arc_variant = "center"
+    # First click arms the centre, advances to step 1, builds the radius line.
+    scene._press_draw_arc(_FakeEvent(), center, center, None, None, None)
+    assert scene._draw_arc_step == 1
+    # A decoy publish 1 unit away, so the committed geometry cannot silently be
+    # the seed instead of the typed value.
+    scene.publish_placement_state(center, QPointF(center.x() + 1.0, center.y()))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+def _engage_arc_step2(scene, center=QPointF(0, 0), radius=1000.0,
+                      start_deg=0.0):
+    """Arm an arc through step 1, commit the rim, and engage the step-2 HUD.
+
+    Leaves the arc at ``_draw_arc_step == 2`` with the centre/radius/start armed
+    and the ``arc_span`` HUD engaged.
+    """
+    scene.set_mode("draw_arc")
+    scene.single_place_mode = False
+    scene._arc_variant = "center"
+    scene._press_draw_arc(_FakeEvent(), center, center, None, None, None)
+    assert scene._draw_arc_step == 1
+    scene._commit_draw_arc_rim_at(
+        SCHEMAS["line"].resolve(QPointF(center),
+                                {"Length": radius, "Angle": start_deg}))
+    assert scene._draw_arc_step == 2
+    # Decoy publish so a seed-reuse cannot masquerade as the typed span.
+    scene.publish_placement_state(scene.get_placement_anchor(),
+                                  QPointF(1.0, 1.0))
+    assert scene.begin_dynamic_input() is True
+    return scene.dynamic_input
+
+
+class TestArcPreviewFromResolved:
+    """``_preview_from_arc`` is the arc entry in ``_PREVIEW_DISPATCH``."""
+
+    def test_registered_in_dispatch(self, scene):
+        assert scene._PREVIEW_DISPATCH["draw_arc"] == "_preview_from_arc"
+
+    def test_step1_updates_the_radius_line(self, scene, view):
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._press_draw_arc(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                              None, None, None)
+        assert scene._draw_arc_step == 1
+        assert scene._draw_arc_radius_line is not None
+
+        scene._preview_from_resolved(QPointF(1000, -500))
+
+        ln = scene._draw_arc_radius_line.line()
+        assert ln.x1() == pytest.approx(0.0, abs=1e-6)
+        assert ln.y1() == pytest.approx(0.0, abs=1e-6)
+        assert ln.x2() == pytest.approx(1000.0, abs=1e-6)
+        assert ln.y2() == pytest.approx(-500.0, abs=1e-6)
+
+    def test_step2_rebuilds_the_arc_preview(self, scene, view):
+        _arm_arc(scene, center=QPointF(0, 0), radius=1000.0, start_deg=0.0)
+        # Step-2 needs the preview path item; the FSM builds it on the step-1
+        # click, so create it directly for this unit test.
+        from PyQt6.QtWidgets import QGraphicsPathItem
+        scene._draw_arc_preview = QGraphicsPathItem()
+        scene.addItem(scene._draw_arc_preview)
+
+        end = scene._arc_end_point_for_span(90.0)
+        scene._preview_from_resolved(end)
+
+        path = scene._draw_arc_preview.path()
+        assert not path.isEmpty()
+        last = path.pointAtPercent(1.0)
+        assert last.x() == pytest.approx(end.x(), abs=1.0)
+        assert last.y() == pytest.approx(end.y(), abs=1.0)
+
+    def test_noop_when_radius_line_is_none(self, scene, view):
+        scene.set_mode("draw_arc")
+        scene._draw_arc_center = QPointF(0, 0)
+        scene._draw_arc_step = 1
+        scene._draw_arc_radius_line = None
+        scene._preview_from_resolved(QPointF(1000, 0))   # must not raise
+
+    def test_noop_when_preview_is_none(self, scene, view):
+        _arm_arc(scene)
+        scene._draw_arc_preview = None
+        scene._preview_from_resolved(scene._arc_end_point_for_span(90.0))
+
+
+class TestArcMoveRetiresBlock4:
+    """``_move_draw_arc`` publishes placement state instead of a painted hint."""
+
+    def test_step1_publishes_and_leaves_no_hint(self, scene, view):
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._press_draw_arc(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                              None, None, None)
+        assert scene._draw_arc_step == 1
+
+        scene._move_draw_arc(_FakeEvent(), QPointF(1000, -500))
+
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        assert pt.x() == pytest.approx(1000.0, abs=1e-6)
+        assert pt.y() == pytest.approx(-500.0, abs=1e-6)
+        assert scene._draw_dim_hint is None
+        # The radius line still tracks the cursor — the visual is unchanged.
+        ln = scene._draw_arc_radius_line.line()
+        assert ln.x2() == pytest.approx(1000.0, abs=1e-6)
+        assert ln.y2() == pytest.approx(-500.0, abs=1e-6)
+
+    def test_step2_publishes_and_leaves_no_hint(self, scene, view):
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        scene._press_draw_arc(_FakeEvent(), QPointF(0, 0), QPointF(0, 0),
+                              None, None, None)
+        scene._commit_draw_arc_rim_at(QPointF(1000, 0))   # r=1000, start 0
+        assert scene._draw_arc_step == 2
+
+        scene._move_draw_arc(_FakeEvent(), QPointF(0, -1000))   # 90° CCW
+
+        pt = scene.get_resolved_point()
+        assert pt is not None
+        assert pt.x() == pytest.approx(0.0, abs=1e-6)
+        assert pt.y() == pytest.approx(-1000.0, abs=1e-6)
+        assert scene._draw_dim_hint is None
+        # The arc preview still sweeps to the cursor bearing.
+        assert not scene._draw_arc_preview.path().isEmpty()
+
+    def test_step0_still_shows_the_cursor_and_no_hud(self, scene, view):
+        """Before the first click there is no anchor, so no publish, no HUD."""
+        scene.set_mode("draw_arc")
+        scene._draw_arc_step = 0
+        scene._move_draw_arc(_FakeEvent(), QPointF(500, 500))
+        assert scene.get_resolved_point() is None
+
+
+class TestArcStep2FieldCommitPreview:
+    """A typed Span redraws the arc preview through the field-commit path."""
+
+    def test_field_commit_updates_the_preview_to_the_typed_span(self, scene,
+                                                                view):
+        hud = _engage_arc_step2(scene, radius=1000.0, start_deg=0.0)
+
+        ed = hud.editor("Span")
+        ed.selectAll()
+        ed.setText("90")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)          # commits Span
+
+        end = scene._arc_end_point_for_span(90.0)
+        path = scene._draw_arc_preview.path()
+        assert not path.isEmpty()
+        last = path.pointAtPercent(1.0)
+        assert last.x() == pytest.approx(end.x(), abs=2.0)
+        assert last.y() == pytest.approx(end.y(), abs=2.0)
+
+    def test_preview_is_not_merely_the_decoy_seed(self, scene, view):
+        """The decoy publish is at (1,1); a 90° span sweeps to (0, -1000)."""
+        hud = _engage_arc_step2(scene, radius=1000.0, start_deg=0.0)
+        ed = hud.editor("Span")
+        ed.selectAll()
+        ed.setText("90")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        last = scene._draw_arc_preview.path().pointAtPercent(1.0)
+        # Nowhere near the (1,1) decoy.
+        assert last.y() == pytest.approx(-1000.0, abs=5.0)
+
+
+class TestArcMouseVsHudFullParityWithPreview:
+    """A 3-click mouse arc ≡ the arc built through the real HUD engage path."""
+
+    def test_mouse_equals_hud_through_engage(self, scene, view):
+        # Mouse: three real clicks.
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        _click_arc(scene, view, QPointF(0, 0))       # centre
+        _click_arc(scene, view, QPointF(1000, 0))    # rim → r=1000, start 0
+        _click_arc(scene, view, QPointF(0, -1000))   # end → 90° CCW
+        mouse = _arc_fields(_arcs(scene)[-1])
+
+        # HUD: click centre, engage step-1 line HUD, type Radius+Start, commit;
+        # engage step-2 arc_span HUD, type Span, commit.
+        scene.set_mode("draw_arc")
+        scene._arc_variant = "center"
+        _click_arc(scene, view, QPointF(0, 0))       # centre
+        scene.publish_placement_state(QPointF(0, 0), QPointF(1.0, 0.0))
+        assert scene.begin_dynamic_input() is True
+        hud1 = scene.dynamic_input
+        hud1.editor("Length").setText("1000")
+        hud1.editor("Angle").setText("0")
+        scene._on_dynamic_input_committed(hud1.values())
+        assert scene._draw_arc_step == 2
+
+        scene.publish_placement_state(scene.get_placement_anchor(),
+                                      QPointF(1.0, 1.0))
+        assert scene.begin_dynamic_input() is True
+        hud2 = scene.dynamic_input
+        hud2.editor("Span").setText("90")
+        scene._on_dynamic_input_committed(hud2.values())
+
+        hud = _arc_fields(_arcs(scene)[-1])
+        for m, h in zip(mouse, hud):
+            assert m == pytest.approx(h, abs=1e-6)
+
+
+class TestArcCouplingRadiusSeed:
+    """The Span↔ArcLength coupling radius is seeded scene→mm on ``arc_span``."""
+
+    def test_uncalibrated_is_identity(self, scene, view):
+        assert scene.scale_manager.is_calibrated is False
+        hud = _engage_arc_step2(scene, radius=1234.0, start_deg=0.0)
+        # Uncalibrated: 1 scene unit == 1 mm, so the coupling radius is the
+        # scene radius verbatim.
+        assert hud._coupling_radius == pytest.approx(1234.0, abs=1e-6)
+
+    def test_calibrated_routes_through_scene_to_mm(self, scene, view):
+        # Two scene units per mm: a 2000-unit radius is 1000 mm.
+        scene.scale_manager.set_pixels_per_mm(2.0)
+        assert scene.scale_manager.is_calibrated is True
+        hud = _engage_arc_step2(scene, radius=2000.0, start_deg=0.0)
+        assert hud._coupling_radius == pytest.approx(
+            scene.scale_manager.scene_to_mm(2000.0), abs=1e-6)
+        assert hud._coupling_radius == pytest.approx(1000.0, abs=1e-6)
+
+    def test_not_armed_on_a_non_arc_span_schema(self, scene, view):
+        """Only ``arc_span`` seeds the coupling — a line HUD must leave it 0."""
+        hud = _engage_arc_step1(scene)
+        assert hud.schema is SCHEMAS["line"]
+        assert hud._coupling_radius == pytest.approx(0.0)
+
+    def test_coupling_actually_drives_the_arclength_field(self, scene, view):
+        """End to end: with the radius armed, typing Span rewrites ArcLength.
+
+        Non-vacuous proof the seed reaches the coupling: arc_len =
+        radius * radians(span) = 1000 * radians(90) ≈ 1570.8 mm.
+        """
+        hud = _engage_arc_step2(scene, radius=1000.0, start_deg=0.0)
+        ed = hud.editor("Span")
+        ed.selectAll()
+        ed.setText("90")
+        QTest.keyClick(ed, Qt.Key.Key_Tab)
+        arc_len_mm = hud.values()["ArcLength"]
+        assert arc_len_mm == pytest.approx(1000.0 * math.radians(90.0),
+                                           abs=1.0)

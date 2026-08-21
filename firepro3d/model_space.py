@@ -4115,20 +4115,44 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         resolved = schema.resolve(anchor, hud.current_values())
         if schema.returns_point:
             self._preview_from_resolved(resolved)
-        elif self.mode == "move":
-            # Transform → the point the base anchor lands on, routed through the
-            # same dispatch the mouse uses (``_PREVIEW_DISPATCH`` maps move to a
-            # helper that re-derives the offset from this point).  Only ``move``
-            # is wired here; the gridline replicate transforms carry a signed
-            # side the typed value alone does not fix, so their preview-on-commit
-            # is deferred and a future branch projects their point the same way.
-            offset = resolved["offset"]
-            self._preview_from_resolved(QPointF(anchor.x() + offset.x(),
-                                                anchor.y() + offset.y()))
         else:
-            return
+            # A transform schema resolves to a scalar/offset dict, not a point,
+            # but its preview helper takes the point the resolved value lands on.
+            # Each anchored transform projects its dict onto that point so the
+            # mouse path and this typed path stay identical.  The gridline
+            # replicate transforms carry a signed side the typed value alone does
+            # not fix, so their preview-on-commit is deferred and they fall
+            # through to the no-op.
+            point = self._transform_preview_point(resolved, anchor)
+            if point is None:
+                return
+            self._preview_from_resolved(point)
         for v in self.views():
             v.viewport().update()
+
+    def _transform_preview_point(self, resolved, anchor):
+        """Project an anchored transform's resolved value onto its preview point.
+
+        A transform schema does not resolve to a point, so the field-commit
+        preview cannot feed ``_preview_from_resolved`` directly.  Each anchored
+        transform re-derives the point its own preview helper consumes from the
+        resolved dict and the scene's armed state:
+
+        * ``move`` lands its base anchor at ``anchor + offset``;
+        * ``draw_arc`` at step 2 sweeps to the endpoint the typed span implies on
+          the stored radius circle (``_arc_end_point_for_span``).
+
+        Returns:
+            The ``QPointF`` the preview helper takes, or None for a transform
+            whose preview-on-commit is deferred (the gridline replicate modes,
+            which carry a signed side the typed value alone does not fix).
+        """
+        if self.mode == "move":
+            offset = resolved["offset"]
+            return QPointF(anchor.x() + offset.x(), anchor.y() + offset.y())
+        if self.mode == "draw_arc" and self._draw_arc_step == 2:
+            return self._arc_end_point_for_span(resolved["span_deg"])
+        return None
 
     def _sync_dynamic_input(self) -> None:
         """Reconcile the HUD with the live placement state — create, reseed, close.
@@ -4162,6 +4186,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
+        self._arm_arc_coupling(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Re-placed every frame: an unengaged HUD follows the cursor.
@@ -4206,6 +4231,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # commit.
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
+        self._arm_arc_coupling(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Latch to the resolved placement point — the constrained position
@@ -4302,6 +4328,26 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return {"Spacing": spacing,
                     "Count": max(1, int(self._replicate_count))}
         return {}
+
+    def _arm_arc_coupling(self, hud, schema) -> None:
+        """Arm the HUD's Span-to-ArcLength coupling for the ``arc_span`` schema.
+
+        The coupling recomputes ``ArcLength = radius * radians(Span)`` as the
+        user edits, so it needs the sweep radius in the millimetres the
+        ``ArcLength`` DIMENSION editor stores.  The radius is fixed once step 2
+        is reached, so arming it at seed time (before or at engage) is enough.
+
+        ``_draw_arc_radius`` is in scene units; it is converted through the same
+        DIMENSION scene->mm path the HUD's dimension editors use
+        (``DynamicInputHud._scene_to_mm``, guarded on calibration: an
+        uncalibrated scene treats one unit as one mm, a calibrated one routes
+        through ``ScaleManager.scene_to_mm``), so the coupling and the editor
+        agree.  A no-op for every other schema; ``set_coupling_radius`` is
+        harmlessly ignored by non-arc HUDs, but the guard keeps intent clear.
+        """
+        if schema is None or schema.name != "arc_span":
+            return
+        hud.set_coupling_radius(hud._scene_to_mm(self._draw_arc_radius))
 
     def end_dynamic_input(self) -> None:
         """Close the HUD entirely — the placement it was reading out is over.
@@ -5026,6 +5072,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "move":            "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
+        "draw_arc":        "_preview_from_arc",
     }
 
     def _preview_from_resolved(self, resolved) -> None:
@@ -5275,45 +5322,61 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # radius, since the commit takes the hypot.
             self.publish_placement_state(self._draw_circle_center, snapped)
 
+    def _preview_from_arc(self, resolved) -> None:
+        """Redraw the arc preview from the resolved point ``resolved``.
+
+        Step-aware, mirroring what ``_move_draw_arc`` draws so the mouse path and
+        the Dynamic Input field-commit path share one preview updater:
+
+        * step 1 points the radius line from the stored centre at ``resolved``;
+        * step 2 rebuilds the arc sweep path from start deg to the bearing of
+          ``resolved`` on the radius circle.
+
+        A pure preview updater: no state mutation, no publish, and a no-op when
+        the relevant preview item or the centre is None (before the first click,
+        or between steps).
+        """
+        if self._draw_arc_center is None:
+            return
+        if self._draw_arc_step == 1:
+            if self._draw_arc_radius_line is None:
+                return
+            cx = self._draw_arc_center.x()
+            cy = self._draw_arc_center.y()
+            self._draw_arc_radius_line.setLine(cx, cy,
+                                               resolved.x(), resolved.y())
+        elif self._draw_arc_step == 2:
+            if self._draw_arc_preview is None:
+                return
+            cx = self._draw_arc_center.x()
+            cy = self._draw_arc_center.y()
+            r = self._draw_arc_radius
+            end_deg = math.degrees(
+                math.atan2(-(resolved.y() - cy), resolved.x() - cx)
+            )
+            span = end_deg - self._draw_arc_start_deg
+            if span <= 0:
+                span += 360.0
+            path = QPainterPath()
+            rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+            path.arcMoveTo(rect, self._draw_arc_start_deg)
+            path.arcTo(rect, self._draw_arc_start_deg, span)
+            self._draw_arc_preview.setPath(path)
+
     def _move_draw_arc(self, event, snapped):
-        sm = self.scale_manager
         self.preview_pipe.hide()
         if self._draw_arc_step == 0:
-            # Before first click — show cursor preview
+            # Before the first click there is no anchor, so no HUD; just track
+            # the cursor.
             self.update_preview_node(snapped)
-        elif self._draw_arc_step == 1:
-            # After centre click — update radius line to cursor
-            self.preview_node.hide()
-            if self._draw_arc_radius_line is not None:
-                cx = self._draw_arc_center.x()
-                cy = self._draw_arc_center.y()
-                self._draw_arc_radius_line.setLine(cx, cy,
-                                                    snapped.x(), snapped.y())
-                r = math.hypot(snapped.x() - cx, snapped.y() - cy)
-                self._draw_dim_hint = (
-                    f"R: {sm.scene_to_display(r)}"
-                    if sm.is_calibrated else
-                    f"R: {r:.0f}mm"
-                )
-        elif self._draw_arc_step == 2:
-            # After start click — update arc preview to cursor angle
-            self.preview_node.hide()
-            if self._draw_arc_preview is not None:
-                cx = self._draw_arc_center.x()
-                cy = self._draw_arc_center.y()
-                r = self._draw_arc_radius
-                end_deg = math.degrees(
-                    math.atan2(-(snapped.y() - cy), snapped.x() - cx)
-                )
-                span = end_deg - self._draw_arc_start_deg
-                if span <= 0:
-                    span += 360.0
-                path = QPainterPath()
-                rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
-                path.arcMoveTo(rect, self._draw_arc_start_deg)
-                path.arcTo(rect, self._draw_arc_start_deg, span)
-                self._draw_arc_preview.setPath(path)
-                self._draw_dim_hint = f"Span: {span:.1f}\u00b0"
+            return
+        # Steps 1 and 2 draw through the shared preview updater and publish the
+        # resolved point so the DynamicInputHud (decision S1) is the readout.
+        # The painted ``_draw_dim_hint`` (block 4) is retired for arc: publish
+        # clears it, so a mode that publishes state stops painting block 4.
+        self.preview_node.hide()
+        self._preview_from_arc(snapped)
+        self.publish_placement_state(self._draw_arc_center, snapped)
 
     def _move_dimension(self, event, snapped):
         sm = self.scale_manager
