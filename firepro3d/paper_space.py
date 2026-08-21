@@ -753,7 +753,41 @@ class SheetViewport(QGraphicsObject):
             return
         self._placeholder = False
         self._source_scene, self._source_rect = result
+        # Seed a plan/elevation crop to the full source extent on first use.
+        if (not self._is_detail()
+                and (self._data.crop_rect.isNull()
+                     or self._data.crop_rect.isEmpty())):
+            self._data.crop_rect = QRectF(self._source_rect)
+        self._recompute_size_from_scale()
         self._source_scene.changed.connect(self._on_source_changed)
+
+    def _is_detail(self) -> bool:
+        return self._data.source_view_type == "detail"
+
+    def _effective_crop(self) -> QRectF:
+        """The model-space window actually rendered.
+
+        Detail viewports track the live marker crop (via the resolver's
+        source_rect). Plan/elevation viewports use the stored data.crop_rect,
+        falling back to the resolved full source extent when unset.
+        """
+        if self._is_detail():
+            return QRectF(self._source_rect)
+        if self._data.crop_rect.isNull() or self._data.crop_rect.isEmpty():
+            return QRectF(self._source_rect)
+        return QRectF(self._data.crop_rect)
+
+    def _recompute_size_from_scale(self):
+        """Derive on-paper w/h from crop × scale (scale>0 only).
+
+        NTS (scale==0) viewports keep their existing fit-derived w/h — there is
+        no true scale to protect. prepareGeometryChange so the item re-lays.
+        """
+        crop = self._effective_crop()
+        if self._data.scale > 0 and not crop.isEmpty():
+            self.prepareGeometryChange()
+            self._data.w = crop.width() * self._data.scale
+            self._data.h = crop.height() * self._data.scale
 
     def _on_source_changed(self, rects=None):
         # Scene-scoped guard: Qt delivers one coalesced ``changed`` emission to
