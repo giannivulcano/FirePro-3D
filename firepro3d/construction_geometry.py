@@ -877,6 +877,24 @@ class ArcItem(QGraphicsPathItem):
         path.arcTo(rect, self._start_deg, self._span_deg)
         self.setPath(path)
 
+    # ── Properties ─────────────────────────────────────────────────────────
+
+    def get_properties(self) -> dict:
+        return {
+            "Type":        {"type": "label",     "value": "Arc"},
+            "Centre":      {"type": "label",     "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
+            "Radius":      {"type": "label",     "value": f"{self._radius:.1f}"},
+            "Start Angle": {"type": "label",     "value": f"{self._start_deg:.1f}°"},
+            "Span":        {"type": "label",     "value": f"{self._span_deg:.1f}°"},
+            "Colour":      {"type": "label",     "value": self.pen().color().name()},
+            "Line Weight": {"type": "label",     "value": f"{self.pen().widthF():.1f}"},
+            "Level":       {"type": "level_ref", "value": self.level},
+        }
+
+    def set_property(self, key: str, value):
+        if key == "Level":
+            self.level = str(value)
+
     # ── Serialisation ─────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:

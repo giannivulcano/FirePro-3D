@@ -2682,3 +2682,17 @@ class TestRectRotateReferenceLines:
         scene.set_mode("select")
         assert scene._draw_rect_ref_line0 is None
         assert scene._draw_rect_ref_lineA is None
+
+
+class TestArcProperties:
+    """Arc must surface real properties (Centre/Radius/Start/Span/…), not blank."""
+
+    def test_get_properties_is_rich(self, qapp):
+        from firepro3d.construction_geometry import ArcItem
+        arc = ArcItem(QPointF(10, 20), 1000.0, 0.0, 90.0)
+        props = arc.get_properties()
+        assert props["Type"]["value"] == "Arc"
+        assert props["Radius"]["value"] == "1000.0"
+        assert props["Span"]["value"] == "90.0°"
+        assert "Start Angle" in props and "Centre" in props
+        assert "Colour" in props and "Line Weight" in props and "Level" in props
