@@ -3932,7 +3932,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     # Mode -> ordered placement variants: (label, first-point instruction,
     # apply_fn(self)).  ←/→ cycles them at step 0 only; the chosen index is
-    # session-sticky per mode.  Adding a multi-variant tool is one row.
+    # session-sticky per mode.  Adding a multi-variant tool is one row here
+    # plus a step-0 predicate branch in ``_at_placement_step_zero``.
     def _init_placement_variants(self):
         """Build the placement-variant registry + the sticky per-mode index.
 
