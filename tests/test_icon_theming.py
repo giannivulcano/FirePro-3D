@@ -26,3 +26,19 @@ def test_svg_recolor_ignores_8digit_hex():
     svg = '<svg><path fill="#1A1A1AFF"/></svg>'
     out = svg_recolor(svg, {"#1A1A1A": "#FFFFFF"}).decode("utf-8")
     assert out == '<svg><path fill="#1A1A1AFF"/></svg>'  # 8-digit hex left untouched
+
+from PyQt6.QtGui import QIcon
+from firepro3d import icons
+
+def test_themed_icon_returns_nonnull_for_existing(qapp):
+    ic = icons.themed_icon("save_icon.svg", icons.LIGHT)
+    assert isinstance(ic, QIcon) and not ic.isNull()
+
+def test_themed_icon_missing_uses_fallback_not_blank(qapp):
+    ic = icons.themed_icon("does_not_exist.svg", icons.LIGHT)
+    assert isinstance(ic, QIcon) and not ic.isNull()  # fallback glyph, never blank
+
+def test_theme_tokens_differ_light_vs_dark():
+    assert icons.token_map(icons.LIGHT) != icons.token_map(icons.DARK)
+    assert icons.token_map(icons.LIGHT)[icons.PRIMARY_SENTINEL] != \
+           icons.token_map(icons.DARK)[icons.PRIMARY_SENTINEL]
