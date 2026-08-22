@@ -205,6 +205,85 @@ def test_suppress_flag_cleared_even_if_begin_isolation_throws(qapp, monkeypatch)
     assert scene_model.active_view_key == "plan:Plan: Level 1"
 
 
+def test_isolation_mutations_swallowed_by_echo_suppression(qapp, monkeypatch):
+    """The suppress flag is set BEFORE _begin_isolation, so scene.changed emissions
+    fired by apply_to_scene during the isolation apply/restore are swallowed by
+    _on_source_changed's guard — no repaint loop.
+
+    Non-vacuous strategy:
+
+    Part A — flag window:
+      Immediately after paint() the flag is still True (singleShot hasn't fired
+      yet), proving paint() set it and the async clear is pending.
+
+    Part B — _on_source_changed guard bites (non-vacuous spy):
+      While the flag is True: directly invoke _on_source_changed() and assert
+      mark_dirty is NOT called (the guard returns early).
+      After processEvents() the singleShot fires and the flag becomes False:
+      call _on_source_changed() again and assert mark_dirty IS called.
+      This proves the spy can bite — the guard is the only thing separating the
+      two outcomes, so the Part-A pass is not vacuous.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+
+    fx = build_isolation_fixture()
+    scene_model = fx["scene"]
+    fx["lm"].apply_to_scene(scene_model, "Level 1")
+    scene_model.active_level = "Level 1"
+    scene_model.active_view_key = "plan:Plan: Level 1"
+
+    sheet = Sheet.create_default()
+    # Level-3 viewport => isolation actually switches level (not a no-op skip),
+    # so apply_to_scene runs and fires changed during the pass.
+    data = SheetViewData("plan", "Plan: Level 3", "L3", 0.02, 10, 10, 0, 0)
+    paper = PaperScene(sheet, fx["resolver"])
+    vp = paper.add_viewport(data)
+
+    # --- Spy on mark_dirty ---
+    dirty_calls = []
+    original_mark_dirty = vp.mark_dirty
+    monkeypatch.setattr(vp, "mark_dirty", lambda: dirty_calls.append(1) or original_mark_dirty())
+
+    img = QImage(60, 60, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    vp.paint(p, None, None)
+    p.end()
+
+    # Part A: Immediately after the synchronous pass the flag is still True.
+    # It is cleared only on the next event-loop turn via singleShot(0).
+    assert getattr(scene_model, "_suppress_paper_echo", False) is True, (
+        "_suppress_paper_echo should still be True immediately after paint() "
+        "— it is cleared asynchronously via singleShot(0)."
+    )
+
+    # Part B — non-vacuous guard check (direct _on_source_changed invocations):
+
+    # B1: Flag is True right now; calling _on_source_changed must be a no-op.
+    before_b1 = len(dirty_calls)
+    vp._on_source_changed()
+    assert len(dirty_calls) == before_b1, (
+        "mark_dirty was called by _on_source_changed while _suppress_paper_echo "
+        "is True — the guard is broken."
+    )
+
+    # B2: Drain the event loop so singleShot fires, clearing the flag to False.
+    QApplication.processEvents()
+    assert not getattr(scene_model, "_suppress_paper_echo", False), (
+        "_suppress_paper_echo should be False after processEvents() drains the singleShot."
+    )
+
+    # B2b: Now calling _on_source_changed must propagate (the spy bites).
+    before_b2 = len(dirty_calls)
+    vp._on_source_changed()
+    assert len(dirty_calls) > before_b2, (
+        "mark_dirty was NOT called by _on_source_changed when _suppress_paper_echo "
+        "is False — the spy is not wired correctly or _on_source_changed is broken."
+    )
+
+
 def test_live_scene_restored_even_if_render_throws(qapp, monkeypatch):
     from PyQt6.QtGui import QImage, QPainter, QColor
     fx = build_isolation_fixture()
