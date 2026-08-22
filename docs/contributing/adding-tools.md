@@ -109,7 +109,7 @@ if self.mode == "my_tool":
 
 ## Step 3: Add a Ribbon Button
 
-In `main.py`, ribbon buttons are created inside tab-building methods (`_init_draw_tab`, `_init_build_tab`, `_init_modify_tab`). Use the `_mode_btn` helper for tools that set a drawing mode:
+In `main.py`, ribbon buttons are created inside tab-building helpers. Use the `_mode_btn` helper for tools that set a drawing mode:
 
 ```python
 def _mode_btn(group, label, icon, mode_name, large=True):
@@ -123,15 +123,29 @@ def _mode_btn(group, label, icon, mode_name, large=True):
     return btn
 ```
 
-To add your tool button, call `_mode_btn` inside the appropriate tab method:
+Choose the tab that matches the tool's purpose:
+
+| Tool category | Tab helper | Tab label |
+|---|---|---|
+| Geometry drawing (lines, circles, construction lines) | `_init_create_tab` | **Create** |
+| Building elements (walls, floors, rooms, doors) | `_init_architecture_tab` | **Architecture** |
+| Sprinkler / pipe placement | `_init_sprinkler_systems_tab` | **Sprinkler Systems** |
+
+> **Note — Modify tab removed.** There is no longer a dedicated Modify tab.
+> Model-edit operations (move, rotate, copy) are keyboard/right-click driven.
+> Selection-sensitive commands appear automatically in a **contextual tab**
+> that inserts when an entity family is selected and disappears on deselect.
+> See `docs/specs/ribbon-bar.md §3.8` for the contextual-tab mechanism.
+
+To add your tool button, call `_mode_btn` inside the appropriate tab helper:
 
 ```python
-# In _init_draw_tab or _init_modify_tab:
+# Example: geometry tool → _init_create_tab
 _mode_btn(g_group, "My Tool", _I("my_tool_icon.svg"), "my_tool").setToolTip(
     "Description of what the tool does")
 ```
 
-The button is automatically checkable -- it stays highlighted while the tool is active, and un-highlights when the mode changes.
+The button is automatically checkable — it stays highlighted while the tool is active, and un-highlights when the mode changes.
 
 ### Simple vs. Split-Menu Buttons
 

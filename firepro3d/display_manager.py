@@ -134,6 +134,7 @@ def _recolor_svg_bytes(svg_path: str, color: str | None = None,
     return data
 
 
+
 def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
     """Apply colour tint by setting fill/stroke on the SVG layer group.
 

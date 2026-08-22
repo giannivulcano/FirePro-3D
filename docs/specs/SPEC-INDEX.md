@@ -10,7 +10,8 @@
 |---|---|---|---|
 | Snapping / OSNAP engine | `specs/snapping-engine.md` | `snap_engine.py`, `model_view.py` | current |
 | OSNAP toolbar / per-type toggles | `specs/osnap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
-| Ribbon bar (tabs/groups/buttons, mode-button sync) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `main.py` (`init_ribbon` + `_init_*_tab`) | current |
+| Ribbon bar (tabs/groups/buttons, mode-button sync, contextual tabs) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `icons.py`, `preferences_dialog.py`, `main.py` (`init_ribbon` + `_init_*_tab` + contextual-tab mechanism) | current |
+| Ribbon icons / graphics | `specs/icon-style-guide.md` | `icons.py`, `svg_utils.py`, `graphics/Ribbon/` | current |
 | Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `dwg_converter.py` | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `inference_engine.py` | current |
@@ -35,6 +36,7 @@
 | Subsystem | Modules (`firepro3d/`) | Note |
 |---|---|---|
 | Thermal radiation analysis | `thermal_radiation_solver.py`, `thermal_radiation_report.py`, `fire_curves.py` | Fully implemented, undocumented. Highest-value orphan. |
+| **Preferences dialog** | `preferences_dialog.py` | Built 2026-08-22 (5 panes: Snapping/Units & Precision/Import & Conversion/General/Project Info); governed temporarily by `ribbon-bar.md §3.4` + `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`. **Dedicated governing spec is a filed follow-up.** |
 | 3D view | `view_3d.py`, `view_cube.py` | PyVista/VTK; cross-test teardown hazards (see memory). |
 | Scene I/O / `.fpd` project format | `scene_io.py` | `architecture/io.md` exists but is thin/inaccurate; promote to a real spec on first touch. |
 
