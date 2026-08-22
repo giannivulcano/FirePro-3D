@@ -439,17 +439,6 @@ class UnitsPane(SettingsPane):
         self._precision_spin.setValue(precision)
 
 
-# PDF import-mode values (displayed label → stored string).
-# Values match ImportParams.import_mode and dxf_preview_dialog._mode_combo.
-_PDF_MODES: list[tuple[str, str]] = [
-    ("Auto",    "auto"),
-    ("Vectors", "vectors"),
-    ("Raster",  "raster"),
-]
-
-# DPI options mirroring dxf_preview_dialog._dpi_combo.
-_PDF_DPI_OPTIONS: list[int] = [72, 150, 300]
-
 # Dock defaults as used in MainWindow.restore_settings.
 _DOCK_ITEMS: list[tuple[str, str, bool]] = [
     ("Browser",          "dock/browser",     True),
@@ -464,11 +453,13 @@ class ImportPane(SettingsPane):
 
     Covers:
     - ODA File Converter executable path (QSettings key ``dwg/oda_converter_path``).
-    - PDF rasterisation DPI (QSettings key ``import/pdf_dpi``; default 150).
-    - PDF import mode (QSettings key ``import/pdf_import_mode``; default ``"auto"``).
 
-    These are QSettings-only preferences read at import time; no live-object
-    mutation is needed.  Construct with no args.
+    PDF rasterisation DPI and import mode are **not** exposed here — the import
+    pipeline (``dxf_preview_dialog.py``) owns those choices at import time and
+    does not read QSettings for them.
+
+    This is a QSettings-only preference; no live-object mutation is needed.
+    Construct with no args.
     """
 
     def __init__(self, parent=None):
@@ -497,26 +488,14 @@ class ImportPane(SettingsPane):
         oda_row_layout.addWidget(browse_btn)
         oda_form.addRow("Executable:", oda_row)
 
+        note = QLabel(
+            "PDF rasterisation DPI and import mode are set in the import dialog."
+        )
+        note.setStyleSheet("color: #888; font-size: 11px;")
+        note.setWordWrap(True)
+        oda_form.addRow("", note)
+
         outer.addWidget(oda_group)
-
-        # ── PDF import group ──────────────────────────────────────────────────
-        pdf_group = QGroupBox("PDF Import")
-        pdf_form = QFormLayout(pdf_group)
-
-        self._dpi_spin = QSpinBox()
-        self._dpi_spin.setRange(72, 1200)
-        self._dpi_spin.setSingleStep(50)
-        self._dpi_spin.setSuffix(" DPI")
-        self._dpi_spin.setValue(150)
-        pdf_form.addRow("Rasterisation DPI:", self._dpi_spin)
-
-        self._mode_combo = QComboBox()
-        for label, _ in _PDF_MODES:
-            self._mode_combo.addItem(label)
-        self._mode_combo.setCurrentIndex(0)  # default Auto
-        pdf_form.addRow("Import mode:", self._mode_combo)
-
-        outer.addWidget(pdf_group)
         outer.addStretch()
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -538,42 +517,19 @@ class ImportPane(SettingsPane):
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         oda_path = s.value("dwg/oda_converter_path", "", type=str)
-        dpi = s.value("import/pdf_dpi", 150, type=int)
-        mode = s.value("import/pdf_import_mode", "auto", type=str)
-
-        self._snapshot = {"oda_path": oda_path, "dpi": dpi, "mode": mode}
-
+        self._snapshot = {"oda_path": oda_path}
         self._oda_edit.setText(oda_path)
-        self._dpi_spin.setValue(dpi)
-
-        mode_idx = next(
-            (i for i, (_, v) in enumerate(_PDF_MODES) if v == mode),
-            0,  # fall back to Auto
-        )
-        self._mode_combo.setCurrentIndex(mode_idx)
 
     def apply(self) -> None:
         """Write widget values to QSettings."""
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
-
         s.setValue("dwg/oda_converter_path", self._oda_edit.text())
-        s.setValue("import/pdf_dpi", self._dpi_spin.value())
-        # Store lowercase string matching ImportParams.import_mode convention.
-        mode_str = _PDF_MODES[self._mode_combo.currentIndex()][1]
-        s.setValue("import/pdf_import_mode", mode_str)
 
     def revert(self) -> None:
         """Restore snapshot values to widgets (no live objects to roll back)."""
         if not self._snapshot:
             return
-
         self._oda_edit.setText(self._snapshot["oda_path"])
-        self._dpi_spin.setValue(self._snapshot["dpi"])
-        mode_idx = next(
-            (i for i, (_, v) in enumerate(_PDF_MODES) if v == self._snapshot["mode"]),
-            0,
-        )
-        self._mode_combo.setCurrentIndex(mode_idx)
 
 
 class GeneralPane(SettingsPane):

@@ -246,24 +246,6 @@ def test_import_pane_persists_oda_path(qapp):
     assert QSettings("GV", "FirePro3D").value("dwg/oda_converter_path") == r"C:\tools\ODAFileConverter.exe"
 
 
-def test_import_pane_persists_dpi(qapp):
-    pane = ImportPane()
-    pane.load()
-    pane._dpi_spin.setValue(300)
-    pane.apply()
-    assert int(QSettings("GV", "FirePro3D").value("import/pdf_dpi", 150)) == 300
-
-
-def test_import_pane_persists_mode(qapp):
-    pane = ImportPane()
-    pane.load()
-    # Set mode to "Raster"
-    idx = pane._mode_combo.findText("Raster")
-    pane._mode_combo.setCurrentIndex(idx)
-    pane.apply()
-    assert QSettings("GV", "FirePro3D").value("import/pdf_import_mode") == "raster"
-
-
 def test_import_pane_revert_restores(qapp):
     pane = ImportPane()
     pane.load()
