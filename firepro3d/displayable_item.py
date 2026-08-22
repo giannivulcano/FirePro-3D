@@ -20,7 +20,7 @@ interfering with the Qt graphics item constructor chain.  Call
 from __future__ import annotations
 
 import math
-from PyQt6.QtCore import QPointF
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QBrush, QColor, QPainterPath, QPen, QTransform, QPolygonF
 from .constants import DEFAULT_LEVEL
 
@@ -53,7 +53,11 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
     scale = abs(views[0].transform().m11()) if views else 1.0
 
     painter.save()
-    painter.setClipPath(clip_path)
+    # IntersectClip (not the default ReplaceClip): the section fill/hatch must
+    # respect any outer clip already on the painter — e.g. a paper viewport's
+    # ``fitted`` crop rect. ReplaceClip discarded it, so a section-cut wall
+    # straddling the crop edge bled its solid fill outside the viewport box.
+    painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
 
     # 1. Solid section-fill background
     if section_fill is not None:
@@ -71,7 +75,7 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
     else:
         # Built-in Qt patterns — resolution-independent brush fill
         painter.save()
-        painter.setClipPath(clip_path)
+        painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
         brush = make_hatch_brush(pattern, 24, hatch_col)
         inv = 1.0 / max(scale, 1e-6) * hatch_scale
         brush.setTransform(QTransform().scale(inv, inv))
