@@ -65,3 +65,57 @@ def test_no_modify_base_tab(main_window):
 
 def test_undo_redo_present_on_manage(main_window):
     assert hasattr(main_window, "_btn_undo") and hasattr(main_window, "_btn_redo")
+
+
+# ── Mode-button sync tests (Task C3) ─────────────────────────────────────────
+
+# Every mode string that must appear in _mode_buttons after the ribbon
+# restructure.  Shared-button aliases (wall/wall_rect, floor/floor_rect, …)
+# each get their own entry because _mode_buttons[alias] = same_button is the
+# invariant; clicking the shared button verifies the wiring, not the alias.
+_SURVIVING_MODES = [
+    "draw_line", "draw_rectangle", "draw_circle", "polyline", "draw_arc",
+    "draw_gridline", "dimension", "text", "hatch",
+    "wall", "wall_rect", "floor", "floor_rect", "roof", "roof_rect",
+    "room", "room_manual", "door", "window", "detail",
+    "pipe", "sprinkler", "water_supply", "design_area",
+    "radiation_emitter", "radiation_receiver",
+]
+
+
+def test_all_surviving_modes_registered(main_window):
+    """Every mode in _SURVIVING_MODES must be a key in _mode_buttons."""
+    missing = [m for m in _SURVIVING_MODES if m not in main_window._mode_buttons]
+    assert not missing, f"mode buttons missing from _mode_buttons: {missing}"
+
+
+@pytest.mark.parametrize("mode", _SURVIVING_MODES)
+def test_mode_button_enters_mode(main_window, mode, monkeypatch):
+    """Clicking the button registered for *mode* must invoke scene.set_mode.
+
+    For shared-button aliases (e.g. wall/wall_rect both map to the same
+    QToolButton) the click triggers the button's DEFAULT action, which calls
+    set_mode with the button's wired mode — not necessarily *mode* itself.
+    The invariant tested here is: (a) every mode string is registered and
+    (b) the button is wired so that clicking it reaches set_mode at all.
+    """
+    if mode not in main_window._mode_buttons:
+        pytest.skip(f"{mode!r} not registered (caught by test_all_surviving_modes_registered)")
+
+    calls = []
+    monkeypatch.setattr(main_window.scene, "set_mode", lambda *a, **k: calls.append(a))
+
+    btn = main_window._mode_buttons[mode]
+    # Ensure the button is unchecked so click() checks it (toggled→True), which
+    # fires the callback.  For non-checkable buttons the check state is
+    # irrelevant; for checkable ones toggled fires on BOTH transitions, but
+    # un-checking first gives a consistent, predictable result.
+    if btn.isCheckable() and btn.isChecked():
+        btn.setChecked(False)
+
+    btn.click()
+
+    assert calls, (
+        f"clicking the '{mode}' button did not call scene.set_mode "
+        f"(button text: {btn.text()!r})"
+    )
