@@ -24,7 +24,6 @@ from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 
 import os
-import re
 import xml.etree.ElementTree as ET
 from . import theme as th
 
@@ -134,21 +133,6 @@ def _recolor_svg_bytes(svg_path: str, color: str | None = None,
     _svg_color_cache[key] = data
     return data
 
-
-def svg_recolor(svg_text: str, color_map: dict[str, str]) -> bytes:
-    """Substitute sentinel colours in an SVG string, returning UTF-8 bytes.
-
-    Case-insensitive on the source hex; ``none`` is never a key so
-    fill:none / stroke:none survive untouched. Used by the themed icon
-    loader (two-token model — see docs/specs/icon-style-guide.md).
-    """
-    lut = {k.lower(): v for k, v in color_map.items()}
-
-    def _sub(m: re.Match) -> str:
-        hexv = m.group(0).lower()
-        return lut.get(hexv, m.group(0))
-
-    return re.sub(r"#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])", _sub, svg_text).encode("utf-8")
 
 
 def _set_svg_tint(item, color: str | None, fill_color: str | None = None):

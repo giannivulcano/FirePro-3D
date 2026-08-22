@@ -5,13 +5,16 @@ per theme. See docs/specs/icon-style-guide.md.
 """
 from __future__ import annotations
 
+import logging as _logging
 import os
 from PyQt6.QtGui import QIcon, QPixmap, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtCore import QByteArray, QSize, Qt
 
 from .assets import asset_path
-from .display_manager import svg_recolor
+from .svg_utils import svg_recolor
+
+_log = _logging.getLogger(__name__)
 
 LIGHT = "light"
 DARK = "dark"
@@ -29,6 +32,7 @@ _cache: dict[tuple[str, str], QIcon] = {}
 
 
 def token_map(theme: str) -> dict[str, str]:
+    """Return the sentinel→theme colour substitution map for *theme* (copy)."""
     return dict(_TOKENS.get(theme, _TOKENS[LIGHT]))
 
 
@@ -49,6 +53,7 @@ def themed_icon(name: str, theme: str) -> QIcon:
         return _cache[key]
     path = asset_path("Ribbon", name)
     if not os.path.isfile(path):
+        _log.warning("themed_icon: %r not found in graphics/Ribbon, using fallback", name)
         path = asset_path("Ribbon", _FALLBACK)
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()

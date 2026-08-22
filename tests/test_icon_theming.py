@@ -1,4 +1,7 @@
-from firepro3d.display_manager import svg_recolor
+from PyQt6.QtGui import QIcon
+
+from firepro3d import icons
+from firepro3d.svg_utils import svg_recolor
 
 _SVG = (
     '<?xml version="1.0"?>'
@@ -26,9 +29,6 @@ def test_svg_recolor_ignores_8digit_hex():
     svg = '<svg><path fill="#1A1A1AFF"/></svg>'
     out = svg_recolor(svg, {"#1A1A1A": "#FFFFFF"}).decode("utf-8")
     assert out == '<svg><path fill="#1A1A1AFF"/></svg>'  # 8-digit hex left untouched
-
-from PyQt6.QtGui import QIcon
-from firepro3d import icons
 
 def test_themed_icon_returns_nonnull_for_existing(qapp):
     ic = icons.themed_icon("save_icon.svg", icons.LIGHT)
