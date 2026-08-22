@@ -1,0 +1,31 @@
+from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane
+
+
+class _StubPane(SettingsPane):
+    def __init__(self):
+        super().__init__("Stub")
+        self.log = []
+
+    def load(self):    self.log.append("load")
+    def apply(self):   self.log.append("apply")
+    def revert(self):  self.log.append("revert")
+
+
+def test_dialog_loads_all_panes_on_open(qapp):
+    p = _StubPane()
+    dlg = PreferencesDialog(panes=[p])
+    assert p.log == ["load"]
+
+
+def test_apply_commits_all_panes(qapp):
+    p = _StubPane()
+    dlg = PreferencesDialog(panes=[p])
+    dlg._apply_all()
+    assert "apply" in p.log
+
+
+def test_reject_reverts_all_panes(qapp):
+    p = _StubPane()
+    dlg = PreferencesDialog(panes=[p])
+    dlg.reject()
+    assert "revert" in p.log
