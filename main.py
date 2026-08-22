@@ -2325,13 +2325,13 @@ class MainWindow(QMainWindow):
         )
         panes = [
             SnappingPane(
-                scene=self.scene,
-                view=self.view,
+                scene=getattr(self, "scene", None),
+                view=getattr(self, "view", None),
                 osnap_toolbar=getattr(self, "osnap_toolbar", None),
             ),
             UnitsPane(
-                scale_manager=self.scene.scale_manager,
-                on_changed=self.scene._refresh_all_labels,
+                scale_manager=getattr(getattr(self, "scene", None), "scale_manager", None),
+                on_changed=getattr(self, "scene", None) and self.scene._refresh_all_labels,
             ),
             ImportPane(),
             GeneralPane(),

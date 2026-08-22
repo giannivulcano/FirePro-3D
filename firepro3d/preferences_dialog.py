@@ -234,11 +234,13 @@ class SnappingPane(SettingsPane):
         # ── Per-type snap flags ───────────────────────────────────────────────
         if self._scene is not None:
             eng = self._scene._snap_engine
-        for attr, cb in self._snap_cbs.items():
-            val = cb.isChecked()
-            s.setValue(f"snap/{attr}", val)
-            if self._scene is not None:
+            for attr, cb in self._snap_cbs.items():
+                val = cb.isChecked()
+                s.setValue(f"snap/{attr}", val)
                 setattr(eng, attr, val)
+        else:
+            for attr, cb in self._snap_cbs.items():
+                s.setValue(f"snap/{attr}", cb.isChecked())
 
         # ── Grid spacing ──────────────────────────────────────────────────────
         grid_mm = self._grid_edit.value_mm()
@@ -382,7 +384,7 @@ class UnitsPane(SettingsPane):
         else:
             s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
             unit_str  = s.value("display/unit", "mm", type=str)
-            precision = s.value("display/precision", 2, type=int)
+            precision = s.value("display/precision", 3, type=int)
 
         self._snapshot = {"unit_str": unit_str, "precision": precision}
 
@@ -455,13 +457,6 @@ _DOCK_ITEMS: list[tuple[str, str, bool]] = [
     ("Hydraulic Report", "dock/hydraulics",  False),
     ("Radiation Report", "dock/radiation",   False),
 ]
-# Mapping from short key (suffix after "dock/") to the full QSettings key.
-_DOCK_KEYS: dict[str, str] = {
-    "browser":    "dock/browser",
-    "properties": "dock/properties",
-    "hydraulics": "dock/hydraulics",
-    "radiation":  "dock/radiation",
-}
 
 
 class ImportPane(SettingsPane):
