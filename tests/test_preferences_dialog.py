@@ -230,3 +230,79 @@ def test_units_pane_on_changed_called(qapp):
     pane.load()
     pane.apply()
     assert called == [1]
+
+
+# ── ImportPane tests (Task D4) ────────────────────────────────────────────────
+
+from firepro3d.preferences_dialog import ImportPane, GeneralPane
+from PyQt6.QtCore import QSettings
+
+
+def test_import_pane_persists_oda_path(qapp):
+    pane = ImportPane()
+    pane.load()
+    pane._oda_edit.setText(r"C:\tools\ODAFileConverter.exe")
+    pane.apply()
+    assert QSettings("GV", "FirePro3D").value("dwg/oda_converter_path") == r"C:\tools\ODAFileConverter.exe"
+
+
+def test_import_pane_persists_dpi(qapp):
+    pane = ImportPane()
+    pane.load()
+    pane._dpi_spin.setValue(300)
+    pane.apply()
+    assert int(QSettings("GV", "FirePro3D").value("import/pdf_dpi", 150)) == 300
+
+
+def test_import_pane_persists_mode(qapp):
+    pane = ImportPane()
+    pane.load()
+    # Set mode to "Raster"
+    idx = pane._mode_combo.findText("Raster")
+    pane._mode_combo.setCurrentIndex(idx)
+    pane.apply()
+    assert QSettings("GV", "FirePro3D").value("import/pdf_import_mode") == "raster"
+
+
+def test_import_pane_revert_restores(qapp):
+    pane = ImportPane()
+    pane.load()
+    original_path = pane._oda_edit.text()
+    pane._oda_edit.setText(r"C:\changed\path.exe")
+    pane.revert()
+    assert pane._oda_edit.text() == original_path
+
+
+# ── GeneralPane tests (Task D4) ───────────────────────────────────────────────
+
+def test_general_pane_roundtrips_dock_default(qapp):
+    pane = GeneralPane()
+    pane.load()
+    pane._dock_checks["browser"].setChecked(False)
+    pane.apply()
+    val = QSettings("GV", "FirePro3D").value("dock/browser")
+    assert str(val).lower() in ("false", "0")
+
+
+def test_general_pane_roundtrips_all_docks(qapp):
+    pane = GeneralPane()
+    pane.load()
+    pane._dock_checks["browser"].setChecked(True)
+    pane._dock_checks["properties"].setChecked(False)
+    pane._dock_checks["hydraulics"].setChecked(True)
+    pane._dock_checks["radiation"].setChecked(False)
+    pane.apply()
+    s = QSettings("GV", "FirePro3D")
+    assert str(s.value("dock/browser")).lower() in ("true", "1")
+    assert str(s.value("dock/properties")).lower() in ("false", "0")
+    assert str(s.value("dock/hydraulics")).lower() in ("true", "1")
+    assert str(s.value("dock/radiation")).lower() in ("false", "0")
+
+
+def test_general_pane_revert_restores(qapp):
+    pane = GeneralPane()
+    pane.load()
+    original_browser = pane._dock_checks["browser"].isChecked()
+    pane._dock_checks["browser"].setChecked(not original_browser)
+    pane.revert()
+    assert pane._dock_checks["browser"].isChecked() == original_browser

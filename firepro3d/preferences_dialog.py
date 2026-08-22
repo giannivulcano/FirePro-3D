@@ -9,8 +9,9 @@ from typing import Callable
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
-    QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
 
@@ -434,6 +435,225 @@ class UnitsPane(SettingsPane):
         )
         self._unit_combo.setCurrentIndex(idx)
         self._precision_spin.setValue(precision)
+
+
+# PDF import-mode values (displayed label → stored string).
+# Values match ImportParams.import_mode and dxf_preview_dialog._mode_combo.
+_PDF_MODES: list[tuple[str, str]] = [
+    ("Auto",    "auto"),
+    ("Vectors", "vectors"),
+    ("Raster",  "raster"),
+]
+
+# DPI options mirroring dxf_preview_dialog._dpi_combo.
+_PDF_DPI_OPTIONS: list[int] = [72, 150, 300]
+
+# Dock defaults as used in MainWindow.restore_settings.
+_DOCK_ITEMS: list[tuple[str, str, bool]] = [
+    ("Browser",          "dock/browser",     True),
+    ("Properties",       "dock/properties",  True),
+    ("Hydraulic Report", "dock/hydraulics",  False),
+    ("Radiation Report", "dock/radiation",   False),
+]
+# Mapping from short key (suffix after "dock/") to the full QSettings key.
+_DOCK_KEYS: dict[str, str] = {
+    "browser":    "dock/browser",
+    "properties": "dock/properties",
+    "hydraulics": "dock/hydraulics",
+    "radiation":  "dock/radiation",
+}
+
+
+class ImportPane(SettingsPane):
+    """Preferences pane for import and conversion settings.
+
+    Covers:
+    - ODA File Converter executable path (QSettings key ``dwg/oda_converter_path``).
+    - PDF rasterisation DPI (QSettings key ``import/pdf_dpi``; default 150).
+    - PDF import mode (QSettings key ``import/pdf_import_mode``; default ``"auto"``).
+
+    These are QSettings-only preferences read at import time; no live-object
+    mutation is needed.  Construct with no args.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__("Import & Conversion", parent)
+        self._snapshot: dict = {}
+        self._build_ui()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+
+        # ── ODA Converter group ───────────────────────────────────────────────
+        oda_group = QGroupBox("DWG Conversion (ODA File Converter)")
+        oda_form = QFormLayout(oda_group)
+
+        oda_row = QWidget()
+        oda_row_layout = QHBoxLayout(oda_row)
+        oda_row_layout.setContentsMargins(0, 0, 0, 0)
+        self._oda_edit = QLineEdit()
+        self._oda_edit.setPlaceholderText("Path to ODAFileConverter.exe…")
+        oda_row_layout.addWidget(self._oda_edit)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.setFixedWidth(80)
+        browse_btn.clicked.connect(self._browse_oda)
+        oda_row_layout.addWidget(browse_btn)
+        oda_form.addRow("Executable:", oda_row)
+
+        outer.addWidget(oda_group)
+
+        # ── PDF import group ──────────────────────────────────────────────────
+        pdf_group = QGroupBox("PDF Import")
+        pdf_form = QFormLayout(pdf_group)
+
+        self._dpi_spin = QSpinBox()
+        self._dpi_spin.setRange(72, 1200)
+        self._dpi_spin.setSingleStep(50)
+        self._dpi_spin.setSuffix(" DPI")
+        self._dpi_spin.setValue(150)
+        pdf_form.addRow("Rasterisation DPI:", self._dpi_spin)
+
+        self._mode_combo = QComboBox()
+        for label, _ in _PDF_MODES:
+            self._mode_combo.addItem(label)
+        self._mode_combo.setCurrentIndex(0)  # default Auto
+        pdf_form.addRow("Import mode:", self._mode_combo)
+
+        outer.addWidget(pdf_group)
+        outer.addStretch()
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _browse_oda(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Locate ODA File Converter",
+            self._oda_edit.text() or "",
+            "Executables (*.exe);;All files (*)",
+        )
+        if path:
+            self._oda_edit.setText(path)
+
+    # ── SettingsPane protocol ─────────────────────────────────────────────────
+
+    def load(self) -> None:
+        """Snapshot current QSettings values and populate widgets."""
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+
+        oda_path = s.value("dwg/oda_converter_path", "", type=str)
+        dpi = s.value("import/pdf_dpi", 150, type=int)
+        mode = s.value("import/pdf_import_mode", "auto", type=str)
+
+        self._snapshot = {"oda_path": oda_path, "dpi": dpi, "mode": mode}
+
+        self._oda_edit.setText(oda_path)
+        self._dpi_spin.setValue(dpi)
+
+        mode_idx = next(
+            (i for i, (_, v) in enumerate(_PDF_MODES) if v == mode),
+            0,  # fall back to Auto
+        )
+        self._mode_combo.setCurrentIndex(mode_idx)
+
+    def apply(self) -> None:
+        """Write widget values to QSettings."""
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+
+        s.setValue("dwg/oda_converter_path", self._oda_edit.text())
+        s.setValue("import/pdf_dpi", self._dpi_spin.value())
+        # Store lowercase string matching ImportParams.import_mode convention.
+        mode_str = _PDF_MODES[self._mode_combo.currentIndex()][1]
+        s.setValue("import/pdf_import_mode", mode_str)
+
+    def revert(self) -> None:
+        """Restore snapshot values to widgets (no live objects to roll back)."""
+        if not self._snapshot:
+            return
+
+        self._oda_edit.setText(self._snapshot["oda_path"])
+        self._dpi_spin.setValue(self._snapshot["dpi"])
+        mode_idx = next(
+            (i for i, (_, v) in enumerate(_PDF_MODES) if v == self._snapshot["mode"]),
+            0,
+        )
+        self._mode_combo.setCurrentIndex(mode_idx)
+
+
+class GeneralPane(SettingsPane):
+    """Preferences pane for general application defaults.
+
+    Currently covers dock-panel visibility defaults, mapped to the same
+    QSettings keys that ``MainWindow.restore_settings`` reads on startup
+    (``dock/browser``, ``dock/properties``, ``dock/hydraulics``,
+    ``dock/radiation``).
+
+    These are QSettings-only preferences; no live-object mutation is
+    performed (dock visibility at runtime is controlled by the View menu).
+    Construct with no args.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__("General", parent)
+        self._snapshot: dict = {}
+        self._dock_checks: dict[str, QCheckBox] = {}
+        self._build_ui()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+
+        dock_group = QGroupBox("Dock panel defaults (shown on startup)")
+        dock_layout = QVBoxLayout(dock_group)
+
+        for label, _key, _default in _DOCK_ITEMS:
+            short_key = _key.split("/", 1)[1]  # "browser", "properties", etc.
+            cb = QCheckBox(label)
+            cb.setChecked(_default)
+            dock_layout.addWidget(cb)
+            self._dock_checks[short_key] = cb
+
+        outer.addWidget(dock_group)
+        outer.addStretch()
+
+    # ── SettingsPane protocol ─────────────────────────────────────────────────
+
+    def load(self) -> None:
+        """Snapshot current QSettings values and populate checkboxes."""
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+
+        snapshot: dict[str, bool] = {}
+        for _label, qkey, default in _DOCK_ITEMS:
+            short_key = qkey.split("/", 1)[1]
+            raw = s.value(qkey, default)
+            # QSettings on Windows can return str; coerce to bool.
+            if isinstance(raw, str):
+                val = raw.lower() not in ("false", "0")
+            else:
+                val = bool(raw)
+            snapshot[short_key] = val
+            self._dock_checks[short_key].setChecked(val)
+
+        self._snapshot = snapshot
+
+    def apply(self) -> None:
+        """Write checkbox states to QSettings."""
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+
+        for _label, qkey, _default in _DOCK_ITEMS:
+            short_key = qkey.split("/", 1)[1]
+            s.setValue(qkey, self._dock_checks[short_key].isChecked())
+
+    def revert(self) -> None:
+        """Restore snapshot values to checkboxes."""
+        if not self._snapshot:
+            return
+
+        for short_key, val in self._snapshot.items():
+            if short_key in self._dock_checks:
+                self._dock_checks[short_key].setChecked(val)
 
 
 class PreferencesDialog(QDialog):
