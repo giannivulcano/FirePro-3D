@@ -3,8 +3,8 @@
 **Date:** 2026-04-09
 **Complexity:** Large
 **Status:** partial — Phase-1 (sheet/viewports/title block) + the single-sheet plot step + **sheet text annotations (§9)** + **parametric title block templates (§8 step 0 — governed by `titleblock-template-system.md`; `TitleBlockDialog` retired, view-title pt→mm fix landed, `Sheet` gained `orientation`/`revisions`)** are built, alongside the unified paper-space undo/redo stack (§17) and the dirty-flag / crash-recovery persistence contract (§17.7). Batch/multi-sheet UI and the remaining annotation types (leader/line/cloud/north-arrow/scale-bar) are pending; viewport properties are slated to move from `SheetViewPropertiesDialog` into the panel (follow-up). **Multi-sheet management is built (§19 — designed 2026-08-06, shipped + smoke-tested 2026-08-07): sheet create/rename/renumber/reorder/delete, pure-push browser sheet tree, sheet properties panel, uniform paper size, identity-derived title block fields, batch PDF export/print.**
-**Last verified:** 2026-08-21 (crop model §5.2/§6.2/§6.4 + size-from-scale §6.4; paper-exclusion + per-sheet detail hide §6.2; title block non-selectable + Rev/Date/Revisions in Sheet Properties §19.4/§19.7). **Concern-1 crop clip is PARTIAL** — bleeds for `ItemIgnoresTransformations`-child items; robust clip + per-viewport level isolation are P1 follow-ups (§6.2 known-limitation note).
-**Verified commit:** ddef4d3
+**Last verified:** 2026-08-22 (crop model §5.2/§6.2/§6.4 + size-from-scale §6.4; paper-exclusion + per-sheet detail hide §6.2; title block non-selectable + Rev/Date/Revisions in Sheet Properties §19.4/§19.7; **per-viewport level isolation + concern-1 crop clip resolved §6.2/§6.6**). **Concern-1 crop clip is RESOLVED** — the real bleed was section-cut fill/hatch drawn under `setClipPath(ReplaceClip)` (discarded the viewport clip), fixed to `IntersectClip` (`displayable_item.draw_section_hatch`); `ItemIgnoresTransformations` items clip correctly on their own. **Per-viewport level isolation is built** (§6.6).
+**Verified commit:** 290146d
 **Applies to:** `firepro3d/paper_space.py`, `firepro3d/paper_export.py`, `firepro3d/paper_export_dialog.py` (batch export/print dialog — §19.6), `firepro3d/paper_display.py`, `firepro3d/paper_commands.py` (undo commands), `firepro3d/constants.py` (`DEFAULT_TEXT_HEIGHT_MM`, `TEXT_BOX_MARGIN_MM`, `SELECTION_*`), `main.py` (dirty-flag + load/recovery + sheet orchestration — §17.7/§19)
 **Source tasks:** TODO.md "Spec session: paper space — full MVP scope"
 **Adjacent specs:** `view-relationships.md`, `snapping-engine.md`, `pipe-placement-methodology.md`, `project-browser.md` (sheet tree — §19.5), `titleblock-template-system.md` (Sheet No — §19.7)
@@ -223,15 +223,22 @@ Existing project files without a `"sheets"` key load normally with an empty shee
    whole box) is what prevents straddling/out-of-crop geometry from leaking into
    letterbox margins. For `scale > 0`, `fitted == vp_rect` (box already equals
    `crop × scale`); NTS letterboxes but never bleeds.
-   > **KNOWN LIMITATION (partial, 2026-08-21):** the `setClipRect(fitted)` clip is
-   > **not honored for items with `ItemIgnoresTransformations` children** (gridline
-   > bubbles/grips) under off-screen `scene.render()` — such items' geometry bleeds
-   > past the crop (confirmed: a gridline's line/leader, and walls in a real project).
-   > Concern 1 is therefore only partially delivered; a robust clip (vector-preserving,
-   > or intermediate-pixmap fallback) is tracked as a **P1 follow-up** together with
-   > per-viewport level isolation (see TODO.md). Plain items (walls in synthetic tests,
-   > rooms, pipes) clip correctly.
-4. `apply_paper_overrides(source_scene, crop, paper_scale=fit, …, viewport_data=data)`
+   > **Concern-1 crop clip — RESOLVED (2026-08-22).** `setClipRect(fitted)` *is*
+   > honored for `ItemIgnoresTransformations` items under off-screen `scene.render()`
+   > (verified on real walls, gridlines/bubbles, underlays, fittings, details, and the
+   > exported PDF). The real bleed reported in smoke test was **section-cut walls**:
+   > `displayable_item.draw_section_hatch` drew the solid section fill/hatch under
+   > `painter.setClipPath(clip_path)` with the **default `ReplaceClip`**, which
+   > discarded the viewport's `fitted` clip, so a section-cut wall straddling the crop
+   > bled its fill outside the box. Fixed to `IntersectClip` (both `setClipPath` calls),
+   > which respects any outer clip — vector-preserving, and correct on the model canvas
+   > too (no outer clip there). Non-section walls, rooms, pipes, and ITT items always
+   > clipped correctly.
+4. **Per-viewport level isolation (§6.6):** before the override pass, apply this
+   viewport's `(level, view_height, view_depth)` to the shared source scene, then
+   restore afterward — so the viewport plots its **own** bound view's level/cut-plane,
+   not the on-screen active level.
+5. `apply_paper_overrides(source_scene, crop, paper_scale=fit, …, viewport_data=data)`
    runs during the render and applies, per source item:
    - **`PAPER_EXCLUDED` hard rule** — any item whose class sets `PAPER_EXCLUDED`
      (`ViewMarkerArrow`, `SharedCropBox`) is force-hidden unconditionally, ignoring
@@ -241,12 +248,46 @@ Existing project files without a `"sheets"` key load normally with an empty shee
    - **Per-sheet detail hide** — any `DetailMarker` whose name is in
      `data.hidden_detail_ids` is hidden (right-click a host-plan viewport →
      "Hide detail on this sheet", undoable). Nested/other detail markers still plot.
-   - B&W / line-weight / colour overrides (§7, `paper_display.py`).
-5. `restore_model_display()` restores every mutated item after the render.
-6. Draw sheet-view border (hairline; house selection style when selected).
+   - B&W / line-weight / colour overrides (§7, `paper_display.py`). Construction/draw
+     geometry (rect/circle/arc/line/polyline) is a **paper-only "Construction"
+     category** (`paper_display.py`): it defaults to pen white (invisible on white
+     paper) and reads `self.pen()` directly, so the pass sets its **pen colour** (black
+     in BW) and normalises the width to true on-paper mm (`lw_mm / paper_scale`, like
+     gridlines/underlays) — otherwise it plots as a sub-pixel hairline at scale.
+6. `restore_model_display()` restores every mutated item after the render (level
+   isolation restored synchronously in a `finally` — export-safe, no event loop).
+7. Draw sheet-view border (hairline; house selection style when selected).
 
 The on-screen model canvas never runs this pass, so on-screen behavior (elevation
 markers shown on selection, detail markers always visible) is unchanged.
+
+### 6.6 Per-Viewport Level Isolation ("linked views")
+
+A paper viewport renders the **shared live model scene**, whose per-item visibility
+is whatever level the on-screen active view last applied. Without isolation a
+viewport plots the on-screen level, not its own — a Level-3 detail would show Level-1
+content when Level 1 is active. `SheetViewport.paint` isolates each viewport:
+
+1. **Resolve** the viewport's cut-plane context via
+   `ViewResolver.resolve_level_context(view_type, view_name) → (level, view_height, view_depth)`
+   (plan → its `PlanView`; detail → its `DetailMarker`, inheriting the plan cut-plane
+   when the marker has none; elevation → `None`, already a separate scene). `main`'s
+   `_apply_plan_level`/`_apply_detail_level` share this one resolver method.
+2. **Apply** it with `LevelManager.apply_to_scene(scene, level, view_height, view_depth)`
+   **before** the override pass (so off-level items are already hidden), snapshotting
+   the scene's `active_level`/`active_view_key`.
+3. **No-op skip:** when the viewport's context already equals the on-screen context,
+   skip both apply and restore (near-zero cost in the common single-level case).
+4. **Restore** by re-applying the snapshot context in a `finally` — **synchronous**
+   (PDF export renders without an event loop, so a deferred restore would corrupt the
+   live scene). The `_suppress_paper_echo` window spans the isolation mutations so the
+   extra `changed` emissions don't re-dirty sibling viewports.
+5. **Degrade:** an unresolvable context renders with no isolation and still restores
+   cleanly.
+
+Elevation viewports need no isolation (separate scene). Isolation adds no persisted
+state. Session-level batching (apply once per distinct level across a sheet's
+viewports) is a filed perf follow-up, not needed at current viewport counts.
 
 ### 6.3 Dirty-Flag Lifecycle
 

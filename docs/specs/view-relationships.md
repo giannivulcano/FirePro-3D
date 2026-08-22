@@ -229,6 +229,21 @@ Whether a marker plots onto a sheet is decided during the paper-render pass
 | **DetailMarker** | **Yes, by default** | plots as a drawing callout. Two exceptions during paper render: a **detail** viewport hides its *own* marker (self-hide); a **host-plan** viewport hides any marker whose name is in that viewport's per-sheet `hidden_detail_ids` set (right-click → "Hide detail on this sheet", undoable, per `paper-space.md §5.2/§6.2`). Nested/other detail markers still plot. |
 | **SectionMarker** *(planned)* | **Yes** (intent) | section/detail callouts are drawing symbols the AHJ needs; when built, `SectionMarker` will simply *not* set `PAPER_EXCLUDED`, so it plots by the default path. Recorded here so the distinction (elevation furniture vs section symbol) is not lost. |
 
+### 6.5 Per-viewport level isolation ("linked views") [2026-08-22]
+
+A paper viewport renders the **shared live `Model_Space`**, so without isolation it
+plots whatever level/cut-plane the on-screen active view last applied — a Level-3
+detail would show Level-1 content when Level 1 is active. Each `SheetViewport.paint`
+now temporarily applies its **own** bound view's `(level, view_height, view_depth)`
+via `LevelManager.apply_to_scene`, renders, and restores the live scene
+synchronously. The context is resolved by `ViewResolver.resolve_level_context`
+(plan → its `PlanView`; detail → its `DetailMarker`, inheriting the plan cut-plane
+when unset; elevation → already a separate scene, no isolation). This is the paper
+analogue of switching the active plan tab. **Rendering/restore mechanics are owned by
+`paper-space.md §6.6`** (Rule A — this row records only the view-model contract:
+a paper viewport is a read-only projection of *its* view instance, not of the active
+one).
+
 ---
 
 ## 7. View Range and Drafting Overrides
