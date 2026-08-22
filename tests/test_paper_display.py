@@ -87,9 +87,20 @@ class TestPaperColorMode:
 
 
 class TestPaperCategories:
-    def test_factory_defaults_all_14_categories(self):
+    def test_factory_defaults_all_15_categories(self):
+        # 14 model-mirrored categories + the paper-only "Construction" category
+        # (bug #3: construction/draw geometry plots via a pen-only paper category).
         cats = FACTORY_PAPER_CATEGORIES
-        assert len(cats) == 14
+        assert len(cats) == 15
+
+    def test_factory_construction_pen_only(self):
+        """Construction is a paper-only, pen-only category (color #000000, no fill)."""
+        c = FACTORY_PAPER_CATEGORIES["Construction"]
+        assert c["color"] == "#000000"
+        assert c["fill"] is None
+        assert c["section_color"] is None
+        assert c["line_weight"] == "Light"
+        assert c["visible"] is True
 
     def test_factory_bw_colors(self):
         """Factory default is B&W -- all colors black, fills white."""

@@ -113,6 +113,7 @@ _CATEGORY_KEYS = [
     "Pipe", "Sprinkler", "Fitting", "Water Supply", "Node",
     "Hydraulic Badge", "Wall", "Roof", "Room", "Floor",
     "Grid Line", "Level Datum", "Elevation Marker", "Detail Marker",
+    "Construction",
 ]
 
 # Which categories have a fill colour (mirrors display_manager._CATEGORIES)
@@ -130,6 +131,7 @@ _FACTORY_LW = {
     "Wall": "Heavy", "Roof": "Medium", "Room": "Very Light", "Floor": "Medium",
     "Grid Line": "Medium", "Level Datum": "Very Light",
     "Elevation Marker": "Very Light", "Detail Marker": "Light",
+    "Construction": "Light",
 }
 
 
@@ -318,6 +320,21 @@ def _category_for_item(item) -> str | None:
         return "Detail Marker"
     if cls_name == "LevelDatumItem":
         return "Level Datum"
+    # Construction / draw geometry — pen-only paper category. These read
+    # self.pen() directly in paint(), so they default to white (#ffffff) and
+    # are invisible on white paper unless remapped (see _apply_construction).
+    try:
+        from .construction_geometry import (
+            ConstructionLine, PolylineItem, LineItem,
+            RectangleItem, CircleItem, ArcItem,
+        )
+        if isinstance(item, (ConstructionLine, PolylineItem, LineItem,
+                             RectangleItem, CircleItem, ArcItem)):
+            return "Construction"
+    except ImportError:  # pragma: no cover - defensive fallback
+        if cls_name in ("ConstructionLine", "PolylineItem", "LineItem",
+                        "RectangleItem", "CircleItem", "ArcItem"):
+            return "Construction"
     return None
 
 
@@ -335,6 +352,24 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     item._paper_fill_opaque = True
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
+        pen.setWidthF(lw_mm)
+        pen.setCosmetic(False)
+        item.setPen(pen)
+    item.setOpacity(cat["opacity"] / 100.0)
+    item.update()
+
+
+def _apply_construction(item, cat, color_mode, lw_mm):
+    """Apply paper overrides to construction/draw geometry.
+
+    These items read self.pen() directly in paint(), so the PEN COLOR (not just
+    _display_color) must be set for them to render in paper colours.
+    """
+    from PyQt6.QtGui import QColor
+    if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
+        pen = item.pen()
+        if color_mode != PaperColorMode.FULL_COLOR:
+            pen.setColor(QColor(cat["color"]))
         pen.setWidthF(lw_mm)
         pen.setCosmetic(False)
         item.setPen(pen)
@@ -555,6 +590,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _apply_marker(item, cat, color_mode, lw_mm, "_marker_color")
             elif cat_key == "Detail Marker":
                 _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
+            elif cat_key == "Construction":
+                _apply_construction(item, cat, color_mode, lw_mm)
             else:
                 _apply_generic(item, cat, color_mode, lw_mm)
 
@@ -727,6 +764,14 @@ def restore_model_display(saved: list[dict]):
                 item.setPen(ms["pen"])
             if ms.get("brush") is not None:
                 item.setBrush(ms["brush"])
+            item.update()
+
+        elif cat_key == "Construction":
+            # Construction/draw geometry reads self.pen() directly — restore the
+            # saved pen (color + width + cosmetic flag). No _display_* / fill
+            # attrs are touched on apply, so restore is pen + opacity + vis only.
+            if entry.get("pen") is not None and hasattr(item, "setPen"):
+                item.setPen(entry["pen"])
             item.update()
 
         else:
