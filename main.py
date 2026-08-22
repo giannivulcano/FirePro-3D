@@ -507,6 +507,7 @@ class MainWindow(QMainWindow):
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
+            level_manager=self.level_mgr,
         )
         self.paper_space_widget = PaperSpaceWidget(
             self._sheet, self._view_resolver)
@@ -1047,11 +1048,13 @@ class MainWindow(QMainWindow):
         """Set the active level and refresh visibility for a plan view."""
         self.scene.active_view_key = f"plan:Plan: {level_name}"
         self.scene.active_level = level_name
-        pv = self.plan_view_mgr.get(f"Plan: {level_name}")
-        if pv is not None:
-            self.level_mgr.apply_to_scene(
-                self.scene, level_name,
-                view_height=pv.view_height, view_depth=pv.view_depth)
+        resolver = getattr(self, "_view_resolver", None)
+        ctx = resolver.resolve_level_context(
+            "plan", f"Plan: {level_name}") if resolver is not None else None
+        if ctx is not None:
+            _lvl, vh, vd = ctx
+            self.level_mgr.apply_to_scene(self.scene, level_name,
+                                          view_height=vh, view_depth=vd)
         else:
             self.level_mgr.apply_to_scene(self.scene, level_name)
 
@@ -1208,20 +1211,15 @@ class MainWindow(QMainWindow):
         self.scene.active_view_key = f"detail:{detail_name}"
         level_name = marker.level_name
         self.scene.active_level = level_name
-        vh = marker.view_height
-        vd = marker.view_depth
-        if vh is not None and vd is not None:
-            self.level_mgr.apply_to_scene(
-                self.scene, level_name, view_height=vh, view_depth=vd)
+        resolver = getattr(self, "_view_resolver", None)
+        ctx = resolver.resolve_level_context(
+            "detail", detail_name) if resolver is not None else None
+        if ctx is not None:
+            _lvl, vh, vd = ctx
+            self.level_mgr.apply_to_scene(self.scene, level_name,
+                                          view_height=vh, view_depth=vd)
         else:
-            # Inherit from the plan view for this level
-            pv = self.plan_view_mgr.get(f"Plan: {level_name}")
-            if pv is not None:
-                self.level_mgr.apply_to_scene(
-                    self.scene, level_name,
-                    view_height=pv.view_height, view_depth=pv.view_depth)
-            else:
-                self.level_mgr.apply_to_scene(self.scene, level_name)
+            self.level_mgr.apply_to_scene(self.scene, level_name)
 
     def _delete_detail_view(self, name: str):
         """Delete a detail view (marker + tab)."""
@@ -3064,6 +3062,7 @@ class MainWindow(QMainWindow):
         self._view_resolver = ViewResolver(
             self.scene, self.plan_view_mgr,
             self.detail_manager, self.elevation_manager,
+            level_manager=self.level_mgr,
         )
         # scene.load_from_file replaced scene._sheets with a NEW list —
         # rebind the manager over it (empty list → manager seeds a default
