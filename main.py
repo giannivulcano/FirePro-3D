@@ -2732,9 +2732,120 @@ class MainWindow(QMainWindow):
 
     # ── Contextual tab handler ─────────────────────────────────────────────
 
+    def _family_key_for(self, item) -> "str | None":
+        """Map a scene item to its contextual-tab family key.
+
+        Returns the string key used in ``_contextual_registry``, or ``None``
+        for items that belong to no contextual family (underlays, badges,
+        helper child-items, etc.).
+
+        Subclass-before-base ordering is observed where inheritance exists
+        (DoorOpening/WindowOpening before WallOpening; Sprinkler before Node
+        is moot since they don't share a base, but the order is kept
+        consistent with the taxonomy).
+        """
+        from firepro3d.construction_geometry import (
+            ConstructionLine, PolylineItem, LineItem,
+            RectangleItem, CircleItem, ArcItem,
+        )
+        from firepro3d.annotations import (
+            NoteAnnotation, DimensionAnnotation, HatchItem,
+        )
+        from firepro3d.wall import WallSegment
+        from firepro3d.floor_slab import FloorSlab
+        from firepro3d.roof import RoofItem
+        from firepro3d.room import Room
+        from firepro3d.wall_opening import WallOpening  # covers Door/WindowOpening
+        from firepro3d.detail_view import DetailMarker
+        from firepro3d.node import Node
+        from firepro3d.water_supply import WaterSupply
+        from firepro3d.design_area import DesignArea
+        from firepro3d.gridline import GridlineItem
+
+        # 2-D geometry family
+        if isinstance(item, (ConstructionLine, PolylineItem, LineItem,
+                              RectangleItem, CircleItem, ArcItem)):
+            return "geo2d"
+        # Annotation family
+        if isinstance(item, (NoteAnnotation, DimensionAnnotation, HatchItem)):
+            return "annotation"
+        # Structural / architectural families
+        if isinstance(item, WallSegment):
+            return "wall"
+        if isinstance(item, FloorSlab):
+            return "floor"
+        if isinstance(item, RoofItem):
+            return "roof"
+        if isinstance(item, Room):
+            return "room"
+        # WallOpening covers DoorOpening and WindowOpening (both subclass it)
+        if isinstance(item, WallOpening):
+            return "opening"
+        if isinstance(item, DetailMarker):
+            return "detail"
+        # Fire-protection families — Sprinkler first (doesn't share base with
+        # Node, but ordering is explicit for taxonomy clarity)
+        if isinstance(item, Sprinkler):
+            return "sprinkler"
+        # Pipe and Node both fold into the "pipe" context
+        if isinstance(item, (Pipe, Node)):
+            return "pipe"
+        if isinstance(item, WaterSupply):
+            return "water_supply"
+        if isinstance(item, DesignArea):
+            return "design_area"
+        if isinstance(item, GridlineItem):
+            return "gridline"
+        return None
+
+    def _resolve_selection_context(self, items) -> "str | None":
+        """Derive the contextual-tab key for a list of selected items.
+
+        Returns:
+            ``None``    — nothing selected (or no mappable items).
+            A family key — all selected items map to the same family.
+            ``"mixed"`` — items span more than one family.
+        """
+        if not items:
+            return None
+        keys = {self._family_key_for(it) for it in items}
+        keys.discard(None)
+        if not keys:
+            return None
+        return next(iter(keys)) if len(keys) == 1 else "mixed"
+
     def _on_selection_changed_contextual(self):
-        """Contextual-tab handler — stub; real logic added in a later task."""
-        pass
+        """Show, swap, or hide the contextual ribbon tab on selection change.
+
+        Transitions:
+            no-selection / unknown → hide contextual tab, restore saved base tab.
+            single-family          → show that family's contextual tab.
+            multi-family           → show the "Modify" (``"mixed"``) tab.
+            same key as before     → no-op (avoids redundant rebuild).
+
+        The ``_pre_contextual_tab`` index is captured only on the
+        None → contextual transition so that contextual → contextual switches
+        (e.g. wall → pipe) never overwrite the original base-tab position.
+        """
+        items = self.scene.selectedItems()
+        key = self._resolve_selection_context(items)
+        if key == self._active_contextual_key:
+            return
+        had_contextual = self._active_contextual_key is not None
+        if not had_contextual:
+            # Remember the base tab that was active before any contextual tab
+            self._pre_contextual_tab = self.ribbon._tab_bar.currentIndex()
+        if had_contextual:
+            self.ribbon.remove_page(self._contextual_index)
+            self._active_contextual_key = None
+        if key is None:
+            self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
+            return
+        title, builder = self._contextual_registry[key]
+        page = self.ribbon.insert_page(title, self._contextual_index, contextual=True)
+        builder(page)
+        self._active_contextual_key = key
+        self.ribbon._tab_bar.setCurrentIndex(self._contextual_index)
 
     def _require_selection(self, action):
         """Run *action* only if something is selected; otherwise show message."""

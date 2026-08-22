@@ -1,4 +1,5 @@
-"""Tests for Task C1: contextual-tab registry + shared Edit group builder.
+"""Tests for Task C1 + C2: contextual-tab registry / Edit-group builder (C1)
+and selection-driven show/hide/restore handler (C2).
 
 Reuses the module-scoped ``_main_window_singleton`` pattern from
 ``test_ribbon_restructure.py`` so the expensive MainWindow construction
@@ -101,3 +102,130 @@ def test_edit_group_has_five_buttons(main_window, qapp):
     # Count all QToolButton descendants (RibbonButton and RibbonSmallButton both inherit)
     buttons = page.findChildren(QToolButton)
     assert len(buttons) == 5, f"Expected 5 buttons, got {len(buttons)}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task C2: selection-driven contextual tab show / hide / restore
+# ─────────────────────────────────────────────────────────────────────────────
+
+from PyQt6.QtCore import QPointF
+from firepro3d.wall import WallSegment
+from firepro3d.pipe import Pipe
+from firepro3d.node import Node
+
+
+def _titles(mw):
+    """Return the list of tab titles currently shown in the ribbon."""
+    tb = mw.ribbon._tab_bar
+    return [tb.tabText(i) for i in range(tb.count())]
+
+
+def _make_wall(scene):
+    """Add a real WallSegment to *scene* and return it."""
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0))
+    scene.addItem(w)
+    return w
+
+
+def _make_pipe(scene):
+    """Add a real Pipe (with two Nodes) to *scene* and return the pipe."""
+    n1 = Node(0, 0)
+    n2 = Node(1000, 0)
+    scene.addItem(n1)
+    scene.addItem(n2)
+    p = Pipe(n1, n2)
+    scene.addItem(p)
+    return p
+
+
+@pytest.fixture(autouse=False)
+def clean_scene(main_window, qapp):
+    """Per-test fixture: clear scene selection and remove non-permanent items
+    added during a test, then reset the contextual-tab state.
+
+    ``autouse=False`` — only the C2 tests request this fixture explicitly.
+    """
+    yield
+    # Clear selection first so the selectionChanged handler runs cleanly.
+    main_window.scene.clearSelection()
+    qapp.processEvents()
+    # Remove items that were dynamically added (walls, pipes, nodes).
+    for item in list(main_window.scene.items()):
+        from firepro3d.wall import WallSegment as _WS
+        from firepro3d.pipe import Pipe as _P
+        from firepro3d.node import Node as _N
+        if isinstance(item, (_WS, _P, _N)):
+            main_window.scene.removeItem(item)
+    qapp.processEvents()
+
+
+def test_selecting_a_wall_shows_wall_tab(main_window, qapp, clean_scene):
+    """Selecting a WallSegment must insert a 'Wall' contextual tab and
+    switch to it."""
+    wall = _make_wall(main_window.scene)
+    wall.setSelected(True)
+    qapp.processEvents()
+    tabs = _titles(main_window)
+    assert "Wall" in tabs, f"Expected 'Wall' tab; got {tabs}"
+    assert main_window.ribbon._tab_bar.currentIndex() == tabs.index("Wall")
+
+
+def test_deselect_removes_contextual_and_restores(main_window, qapp, clean_scene):
+    """Clearing the selection must remove the contextual tab and restore the
+    previously active base tab."""
+    mw = main_window
+    mw.ribbon._tab_bar.setCurrentIndex(2)            # 'Create' base tab
+    wall = _make_wall(mw.scene)
+    wall.setSelected(True)
+    qapp.processEvents()
+    assert "Wall" in _titles(mw)                     # contextual appeared
+
+    mw.scene.clearSelection()
+    qapp.processEvents()
+    tabs = _titles(mw)
+    assert "Wall" not in tabs, f"'Wall' tab should be gone; got {tabs}"
+    assert mw.ribbon._tab_bar.currentIndex() == 2, (
+        f"Expected restore to tab 2 (Create); got {mw.ribbon._tab_bar.currentIndex()}"
+    )
+
+
+def test_switch_wall_to_pipe_keeps_pre_tab(main_window, qapp, clean_scene):
+    """Switching directly from a wall selection to a pipe selection must swap
+    the contextual tab and, after final deselect, restore the original base tab
+    (not the contextual index)."""
+    mw = main_window
+    mw.ribbon._tab_bar.setCurrentIndex(2)            # remember 'Create'
+
+    w = _make_wall(mw.scene)
+    w.setSelected(True)
+    qapp.processEvents()
+    assert "Wall" in _titles(mw)
+
+    # Swap selection: deselect wall, select pipe
+    w.setSelected(False)
+    p = _make_pipe(mw.scene)
+    p.setSelected(True)
+    qapp.processEvents()
+    tabs = _titles(mw)
+    assert "Pipe" in tabs, f"Expected 'Pipe' tab; got {tabs}"
+    assert "Wall" not in tabs, f"'Wall' tab should be gone; got {tabs}"
+
+    # Deselect everything — pre-tab must still be 2 (Create), not the
+    # contextual index that was active during the wall→pipe swap.
+    mw.scene.clearSelection()
+    qapp.processEvents()
+    assert mw.ribbon._tab_bar.currentIndex() == 2, (
+        f"Expected restore to tab 2 (Create); got {mw.ribbon._tab_bar.currentIndex()}"
+    )
+
+
+def test_mixed_selection_shows_modify(main_window, qapp, clean_scene):
+    """Selecting items from two different families must show the 'Modify' tab."""
+    mw = main_window
+    w = _make_wall(mw.scene)
+    p = _make_pipe(mw.scene)
+    w.setSelected(True)
+    p.setSelected(True)
+    qapp.processEvents()
+    tabs = _titles(mw)
+    assert "Modify" in tabs, f"Expected 'Modify' (mixed) tab; got {tabs}"
