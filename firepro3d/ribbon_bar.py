@@ -389,3 +389,20 @@ class RibbonBar(QWidget):
         self._stack.addWidget(page)
         self._tab_bar.addTab(title)
         return page
+
+    def insert_page(self, title: str, index: int, *, contextual: bool = False) -> "RibbonPage":
+        """Insert a tab + stacked page at the same index (preserves index parity)."""
+        page = RibbonPage(self._stack)
+        self._stack.insertWidget(index, page)
+        self._tab_bar.insertTab(index, title)
+        if contextual:
+            self._tab_bar.setTabData(index, "contextual")
+        return page
+
+    def remove_page(self, index: int) -> None:
+        """Remove the tab and its stacked page together."""
+        w = self._stack.widget(index)
+        self._tab_bar.removeTab(index)
+        if w is not None:
+            self._stack.removeWidget(w)
+            w.deleteLater()
