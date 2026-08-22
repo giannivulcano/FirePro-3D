@@ -11,6 +11,7 @@
 | Snapping / OSNAP engine | `specs/snapping-engine.md` | `snap_engine.py`, `model_view.py` | current |
 | OSNAP toolbar / per-type toggles | `specs/osnap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
 | Ribbon bar (tabs/groups/buttons, mode-button sync) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `main.py` (`init_ribbon` + `_init_*_tab`) | current |
+| Ribbon icons / graphics | `specs/icon-style-guide.md` | `icons.py`, `svg_utils.py`, `graphics/Ribbon/` | current |
 | Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `dwg_converter.py` | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `inference_engine.py` | current |
