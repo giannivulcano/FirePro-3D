@@ -2284,6 +2284,68 @@ class MainWindow(QMainWindow):
             # value; stale reference would show old project data).
             self._push_titleblock_template()
 
+    # ── Unified Preferences dialog ────────────────────────────────────────────
+
+    def _get_project_info(self) -> dict:
+        """Return a shallow copy of the current project-info dict.
+
+        Used as the ``get_info`` callback for ``ProjectInfoPane``.
+        """
+        return dict(getattr(self.scene, "_project_info", {}) or {})
+
+    def _set_project_info(self, edited: dict) -> None:
+        """Replace ``scene._project_info`` and re-push the titleblock template.
+
+        Used as the ``set_info`` callback for ``ProjectInfoPane``.  Mirrors
+        what ``_open_project_info`` does on OK: replace the dict reference
+        (so ``_push_titleblock_template`` picks up the new values) then push.
+
+        Args:
+            edited: The updated project-info dict from ``ProjectInfoPane.apply()``.
+        """
+        self.scene._project_info = edited
+        self._push_titleblock_template()
+
+    def _build_preferences_dialog(self):
+        """Construct a ``PreferencesDialog`` with all 5 panes wired to live targets.
+
+        This is a factory (non-exec); call ``dlg.exec()`` yourself — or use
+        ``_open_preferences()`` for the normal open-and-block path.
+
+        Returns:
+            A fully wired :class:`~firepro3d.preferences_dialog.PreferencesDialog`.
+        """
+        from firepro3d.preferences_dialog import (
+            PreferencesDialog,
+            SnappingPane,
+            UnitsPane,
+            ImportPane,
+            GeneralPane,
+            ProjectInfoPane,
+        )
+        panes = [
+            SnappingPane(
+                scene=self.scene,
+                view=self.view,
+                osnap_toolbar=getattr(self, "osnap_toolbar", None),
+            ),
+            UnitsPane(
+                scale_manager=self.scene.scale_manager,
+                on_changed=self.scene._refresh_all_labels,
+            ),
+            ImportPane(),
+            GeneralPane(),
+            ProjectInfoPane(
+                get_info=self._get_project_info,
+                set_info=self._set_project_info,
+            ),
+        ]
+        return PreferencesDialog(panes, parent=self)
+
+    def _open_preferences(self) -> None:
+        """Open the unified Preferences dialog and block until closed."""
+        self._build_preferences_dialog().exec()
+
     # ── Snap Settings ────────────────────────────────────────────────────────
 
     def _open_snap_settings(self):
