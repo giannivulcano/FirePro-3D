@@ -361,6 +361,30 @@ class _OsnapToolbar(QToolBar):
 
 
 class MainWindow(QMainWindow):
+    # ── Contextual-tab catalog ─────────────────────────────────────────────────
+    # Maps entity-family key → human-readable ribbon tab title.
+    # Used by _init_contextual_tabs() to build _contextual_registry.
+    _CONTEXTUAL_TABS: dict[str, str] = {
+        "geo2d":        "2D Geometry",
+        "geo3d":        "3D Geometry",
+        "annotation":   "Annotation",
+        "wall":         "Wall",
+        "floor":        "Floor",
+        "roof":         "Roof",
+        "room":         "Room",
+        "opening":      "Opening",
+        "detail":       "Detail",
+        "pipe":         "Pipe",
+        "sprinkler":    "Sprinkler",
+        "water_supply": "Water Supply",
+        "design_area":  "Design Area",
+        "gridline":     "Gridline",
+        "level":        "Level",
+        "viewport":     "Viewport",
+        "sheet_text":   "Sheet Text",
+        "mixed":        "Modify",
+    }
+
     def __init__(self, splash: _SplashScreen | None = None):
         super().__init__()
         self.setWindowTitle("FirePro 3D \u2014 Untitled")
@@ -1329,6 +1353,9 @@ class MainWindow(QMainWindow):
         self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
         self._init_analyze_tab(_I, _btn)
         self._init_draft_tab(_I, _btn, _mode_btn)
+
+        # Build the contextual-tab registry (catalog only; no tab inserted yet).
+        self._init_contextual_tabs()
 
         # Contextual Edit-tab handler (real logic added in a later task).
         self.scene.selectionChanged.connect(self._on_selection_changed_contextual)
@@ -2636,6 +2663,72 @@ class MainWindow(QMainWindow):
             btn.blockSignals(True)
             btn.setChecked(btn is active_btn)
             btn.blockSignals(False)
+
+    # ── Contextual tab catalog + shared Edit group ─────────────────────────
+
+    def _build_contextual_edit_group(self, page) -> None:
+        """Add a shared "Edit" group to *page* with 5 action buttons.
+
+        Every contextual tab calls this method to get the standard clipboard
+        and delete actions.  The callbacks are identical to the shortcuts
+        wired in ``__init__`` (Delete, Copy, Cut, Paste, Duplicate).
+
+        Args:
+            page: A :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        g = page.add_group("Edit")
+        _btn = g.add_small_button(
+            "Delete", _I("delete_icon.svg"),
+            lambda: self.scene.delete_selected_items())
+        _btn.setToolTip("Delete selected items [Del]")
+        _btn = g.add_small_button(
+            "Copy", _I("copy_icon.svg"),
+            lambda: self.scene.copy_selected_items())
+        _btn.setToolTip("Copy selected items [Ctrl+C]")
+        _btn = g.add_small_button(
+            "Cut", _I("cut_icon.svg"),
+            lambda: (self.scene.copy_selected_items(),
+                     self.scene.delete_selected_items()))
+        _btn.setToolTip("Cut selected items [Ctrl+X]")
+        _btn = g.add_small_button(
+            "Paste", _I("paste_icon.svg"),
+            lambda: self.scene.paste_items())
+        _btn.setToolTip("Paste items [Ctrl+V]")
+        _btn = g.add_small_button(
+            "Duplicate", _I("duplicate_icon.svg"),
+            lambda: self.scene.duplicate_selected())
+        _btn.setToolTip("Duplicate selected items [Ctrl+D]")
+
+    def _init_contextual_tabs(self) -> None:
+        """Build the contextual-tab registry and initialise state variables.
+
+        The registry maps each entity-family key to a ``(tab_title,
+        page_builder)`` tuple.  No tab is inserted into the ribbon here —
+        insertion is deferred to the C2 task (selection-driven show/hide).
+
+        Post-conditions:
+            ``self._contextual_registry`` — catalog of all contextual tabs.
+            ``self._contextual_index``    — fixed insert slot (= 7, one past
+                                           the last base tab).
+            ``self._active_contextual_key`` — ``None`` (no tab shown yet).
+            ``self._pre_contextual_tab``    — ``0`` (default saved-tab index).
+        """
+        self._contextual_registry: dict[str, tuple[str, callable]] = {
+            key: (title, self._build_contextual_edit_group)
+            for key, title in self._CONTEXTUAL_TABS.items()
+        }
+        # Fixed slot immediately after the 7 base tabs.
+        self._contextual_index: int = 7
+        # Tracks which contextual family is currently shown (None = hidden).
+        self._active_contextual_key: str | None = None
+        # Remembers the previously selected base tab so C2 can restore it
+        # when the contextual tab is dismissed.
+        self._pre_contextual_tab: int = 0
 
     # ── Contextual tab handler ─────────────────────────────────────────────
 
