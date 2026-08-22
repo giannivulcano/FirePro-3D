@@ -2749,7 +2749,7 @@ class MainWindow(QMainWindow):
             RectangleItem, CircleItem, ArcItem,
         )
         from firepro3d.annotations import (
-            NoteAnnotation, DimensionAnnotation, HatchItem,
+            DimensionAnnotation, HatchItem,
         )
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
@@ -2841,7 +2841,10 @@ class MainWindow(QMainWindow):
         if key is None:
             self.ribbon._tab_bar.setCurrentIndex(self._pre_contextual_tab)
             return
-        title, builder = self._contextual_registry[key]
+        entry = self._contextual_registry.get(key)
+        if entry is None:
+            return
+        title, builder = entry
         page = self.ribbon.insert_page(title, self._contextual_index, contextual=True)
         builder(page)
         self._active_contextual_key = key

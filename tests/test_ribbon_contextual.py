@@ -150,10 +150,10 @@ def clean_scene(main_window, qapp):
     main_window.scene.clearSelection()
     qapp.processEvents()
     # Remove items that were dynamically added (walls, pipes, nodes).
+    from firepro3d.wall import WallSegment as _WS
+    from firepro3d.pipe import Pipe as _P
+    from firepro3d.node import Node as _N
     for item in list(main_window.scene.items()):
-        from firepro3d.wall import WallSegment as _WS
-        from firepro3d.pipe import Pipe as _P
-        from firepro3d.node import Node as _N
         if isinstance(item, (_WS, _P, _N)):
             main_window.scene.removeItem(item)
     qapp.processEvents()
@@ -229,3 +229,29 @@ def test_mixed_selection_shows_modify(main_window, qapp, clean_scene):
     qapp.processEvents()
     tabs = _titles(mw)
     assert "Modify" in tabs, f"Expected 'Modify' (mixed) tab; got {tabs}"
+
+
+def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene):
+    """Selecting only items that _family_key_for maps to None must NOT insert
+    any contextual tab — the tab count stays at 7 and the active tab is
+    unchanged."""
+    from PyQt6.QtWidgets import QGraphicsRectItem
+    mw = main_window
+    mw.ribbon._tab_bar.setCurrentIndex(2)
+    r = QGraphicsRectItem(0, 0, 10, 10)
+    r.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
+    mw.scene.addItem(r)
+    try:
+        r.setSelected(True)
+        qapp.processEvents()
+        titles = _titles(mw)
+        assert mw.ribbon._tab_bar.count() == 7, (
+            f"Expected 7 tabs (no contextual inserted); got {mw.ribbon._tab_bar.count()}: {titles}"
+        )
+        assert mw.ribbon._tab_bar.currentIndex() == 2, (
+            f"Expected active tab 2 (Create) to be unchanged; got {mw.ribbon._tab_bar.currentIndex()}"
+        )
+    finally:
+        mw.scene.removeItem(r)
+        mw.scene.clearSelection()
+        qapp.processEvents()
