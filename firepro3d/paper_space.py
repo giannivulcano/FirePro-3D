@@ -669,11 +669,12 @@ class ViewResolver:
     """
 
     def __init__(self, model_scene, plan_view_manager,
-                 detail_manager, elevation_manager):
+                 detail_manager, elevation_manager, level_manager=None):
         self._scene = model_scene
         self._pvm = plan_view_manager
         self._dm = detail_manager
         self._em = elevation_manager
+        self._level_manager = level_manager
 
     def resolve(self, view_type: str, view_name: str
                 ) -> "tuple[QGraphicsScene, QRectF] | None":
@@ -710,6 +711,35 @@ class ViewResolver:
         if rect.isNull() or rect.isEmpty():
             rect = QRectF(0, 0, 1000, 1000)
         return (scene, rect)
+
+    def resolve_level_context(self, view_type: str, view_name: str):
+        """Return (level_name, view_height, view_depth) for a plan/detail view,
+        or None when it cannot be resolved.
+
+        Elevation views live in a separate scene and need no isolation; a missing
+        level_manager or unresolvable view degrades to None (no isolation).
+        Mirrors main._apply_plan_level / _apply_detail_level, incl. the
+        detail->plan cut-plane inheritance.
+        """
+        if self._level_manager is None:
+            return None
+        if view_type == "plan":
+            pv = self._pvm.get(view_name) if self._pvm is not None else None
+            if pv is None:
+                return None
+            return (pv.level_name, pv.view_height, pv.view_depth)
+        if view_type == "detail":
+            marker = self._dm.get_marker(view_name) if self._dm is not None else None
+            if marker is None:
+                return None
+            level_name = marker.level_name
+            vh, vd = marker.view_height, marker.view_depth
+            if vh is None or vd is None:
+                pv = self._pvm.get(f"Plan: {level_name}") if self._pvm is not None else None
+                if pv is not None:
+                    vh, vd = pv.view_height, pv.view_depth
+            return (level_name, vh, vd)
+        return None
 
     def available_views(self) -> dict[str, list[str]]:
         """Return available views grouped by type."""
