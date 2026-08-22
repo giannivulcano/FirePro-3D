@@ -306,3 +306,80 @@ def test_general_pane_revert_restores(qapp):
     pane._dock_checks["browser"].setChecked(not original_browser)
     pane.revert()
     assert pane._dock_checks["browser"].isChecked() == original_browser
+
+
+# ── ProjectInfoPane tests (Task D5) ──────────────────────────────────────────
+
+from firepro3d.preferences_dialog import ProjectInfoPane
+
+
+def test_project_info_apply_calls_set_info(qapp):
+    saved = {}
+    def get_info(): return {"name": "Old"}
+    def set_info(d): saved.update(d); saved["_called"] = True
+    pane = ProjectInfoPane(get_info=get_info, set_info=set_info)
+    pane.load()
+    pane._set_field("name", "New")
+    pane.apply()
+    assert saved.get("_called") is True
+    assert saved.get("name") == "New"
+
+
+def test_project_info_revert_does_not_call_set_info(qapp):
+    calls = []
+    pane = ProjectInfoPane(get_info=lambda: {"name": "Old"},
+                           set_info=lambda d: calls.append(d))
+    pane.load()
+    pane._set_field("name", "Changed")
+    pane.revert()
+    assert calls == []   # revert must not persist
+
+
+def test_project_info_no_arg_construction(qapp):
+    """No-arg construction must work — pane builds and loads empty."""
+    pane = ProjectInfoPane()
+    pane.load()
+    pane.apply()   # must not raise even with no set_info
+
+
+def test_project_info_revert_restores_widget(qapp):
+    """revert() must restore the widget back to the load-time value."""
+    pane = ProjectInfoPane(get_info=lambda: {"name": "Snapshot"})
+    pane.load()
+    pane._set_field("name", "Dirtied")
+    pane.revert()
+    assert pane._get_field("name") == "Snapshot"
+
+
+def test_project_info_custom_rows_roundtrip(qapp):
+    """Custom key/value rows survive an apply() round-trip."""
+    initial = {
+        "custom": [{"key": "Revision", "value": "A"}]
+    }
+    saved = {}
+    pane = ProjectInfoPane(
+        get_info=lambda: dict(initial),
+        set_info=lambda d: saved.update(d),
+    )
+    pane.load()
+    pane.apply()
+    assert saved.get("custom") == [{"key": "Revision", "value": "A"}]
+
+
+def test_project_info_all_standard_keys_present(qapp):
+    """apply() must include all 11 standard keys in the dict passed to set_info."""
+    _EXPECTED_KEYS = [
+        "name", "number",
+        "address1", "address2", "address3",
+        "client", "client_address1", "client_address2", "client_address3",
+        "designer", "description",
+    ]
+    saved = {}
+    pane = ProjectInfoPane(
+        get_info=lambda: {},
+        set_info=lambda d: saved.update(d),
+    )
+    pane.load()
+    pane.apply()
+    for key in _EXPECTED_KEYS:
+        assert key in saved, f"Missing key: {key}"

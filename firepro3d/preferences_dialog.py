@@ -10,8 +10,8 @@ from typing import Callable
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
-    QTabWidget, QVBoxLayout, QWidget,
+    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
+    QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 
@@ -654,6 +654,206 @@ class GeneralPane(SettingsPane):
         for short_key, val in self._snapshot.items():
             if short_key in self._dock_checks:
                 self._dock_checks[short_key].setChecked(val)
+
+
+# Ordered list of (label, dict-key) for the standard project-info fields.
+# Mirrors _STANDARD_FIELDS in MainWindow._open_project_info exactly.
+_PROJECT_INFO_FIELDS: list[tuple[str, str]] = [
+    ("Project Name",           "name"),
+    ("Project Number",         "number"),
+    ("Address Line 1",         "address1"),
+    ("Address Line 2",         "address2"),
+    ("Address Line 3",         "address3"),
+    ("Client",                 "client"),
+    ("Client Address Line 1",  "client_address1"),
+    ("Client Address Line 2",  "client_address2"),
+    ("Client Address Line 3",  "client_address3"),
+    ("Designer",               "designer"),
+    ("Description",            "description"),
+]
+
+
+class ProjectInfoPane(SettingsPane):
+    """Preferences pane for per-project metadata.
+
+    This pane is fundamentally different from the QSettings-backed panes: its
+    data lives in ``scene._project_info`` (a plain dict inside the project
+    file), not in QSettings.  The caller supplies ``get_info`` / ``set_info``
+    callbacks so the pane stays decoupled from ``MainWindow``.
+
+    ``apply()`` calls ``set_info(edited_dict)`` — the caller is responsible for
+    writing that dict to ``scene._project_info`` **and** calling
+    ``_push_titleblock_template()`` so the paper scene re-renders with the new
+    values (that push is wired in Task D6, not here).
+
+    No-arg construction is valid: both callbacks default to no-ops so the pane
+    builds and loads empty without raising.
+
+    Args:
+        get_info: Zero-arg callable returning the current project-info dict, or
+            ``None`` (treated as returning ``{}``).
+        set_info: One-arg callable receiving the edited dict on ``apply()``, or
+            ``None`` (apply becomes a no-op persist-side, widgets still update).
+        parent: Optional Qt parent widget.
+    """
+
+    def __init__(
+        self,
+        get_info: Callable[[], dict] | None = None,
+        set_info: Callable[[dict], None] | None = None,
+        parent=None,
+    ):
+        super().__init__("Project Info", parent)
+        self._get_info = get_info
+        self._set_info = set_info
+        self._snapshot: dict = {}
+        self._build_ui()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+
+        # Table with two columns: Property | Value
+        self._table = QTableWidget(len(_PROJECT_INFO_FIELDS), 2)
+        self._table.setHorizontalHeaderLabels(["Property", "Value"])
+        self._table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeMode.Stretch)
+        self._table.verticalHeader().setVisible(False)
+
+        # Pre-populate the Property column (read-only labels)
+        from PyQt6.QtCore import Qt
+        for row, (label, _key) in enumerate(_PROJECT_INFO_FIELDS):
+            prop_item = QTableWidgetItem(label)
+            prop_item.setFlags(prop_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._table.setItem(row, 0, prop_item)
+            self._table.setItem(row, 1, QTableWidgetItem(""))
+
+        outer.addWidget(self._table)
+
+        # Add / Remove custom row buttons
+        btn_row = QHBoxLayout()
+        add_btn = QPushButton("+ Add Property")
+        remove_btn = QPushButton("- Remove Property")
+        add_btn.clicked.connect(self._add_custom_row)
+        remove_btn.clicked.connect(self._remove_custom_row)
+        btn_row.addWidget(add_btn)
+        btn_row.addWidget(remove_btn)
+        btn_row.addStretch()
+        outer.addLayout(btn_row)
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _add_custom_row(self) -> None:
+        r = self._table.rowCount()
+        self._table.insertRow(r)
+        self._table.setItem(r, 0, QTableWidgetItem(""))
+        self._table.setItem(r, 1, QTableWidgetItem(""))
+        self._table.editItem(self._table.item(r, 0))
+
+    def _remove_custom_row(self) -> None:
+        row = self._table.currentRow()
+        if row >= len(_PROJECT_INFO_FIELDS):
+            self._table.removeRow(row)
+
+    def _read_dict_from_table(self) -> dict:
+        """Build the project-info dict from current table widget state."""
+        result: dict = {}
+        for row, (_label, key) in enumerate(_PROJECT_INFO_FIELDS):
+            item = self._table.item(row, 1)
+            result[key] = item.text() if item else ""
+        custom = []
+        for row in range(len(_PROJECT_INFO_FIELDS), self._table.rowCount()):
+            k_item = self._table.item(row, 0)
+            v_item = self._table.item(row, 1)
+            k = k_item.text().strip() if k_item else ""
+            v = v_item.text().strip() if v_item else ""
+            if k:
+                custom.append({"key": k, "value": v})
+        if custom:
+            result["custom"] = custom
+        return result
+
+    def _populate_table_from_dict(self, info: dict) -> None:
+        """Write ``info`` values into the table widgets (standard + custom rows)."""
+        # Standard rows (always present)
+        for row, (_label, key) in enumerate(_PROJECT_INFO_FIELDS):
+            item = self._table.item(row, 1)
+            if item is None:
+                self._table.setItem(row, 1, QTableWidgetItem(info.get(key, "")))
+            else:
+                item.setText(info.get(key, ""))
+
+        # Remove any existing custom rows
+        while self._table.rowCount() > len(_PROJECT_INFO_FIELDS):
+            self._table.removeRow(self._table.rowCount() - 1)
+
+        # Re-insert custom rows
+        from PyQt6.QtCore import Qt
+        for entry in info.get("custom", []):
+            r = self._table.rowCount()
+            self._table.insertRow(r)
+            self._table.setItem(r, 0, QTableWidgetItem(entry.get("key", "")))
+            self._table.setItem(r, 1, QTableWidgetItem(entry.get("value", "")))
+
+    # ── Test helper ──────────────────────────────────────────────────────────
+
+    def _set_field(self, key: str, value: str) -> None:
+        """Set a standard field's value widget by dict-key name (for tests)."""
+        for row, (_label, fkey) in enumerate(_PROJECT_INFO_FIELDS):
+            if fkey == key:
+                item = self._table.item(row, 1)
+                if item is None:
+                    self._table.setItem(row, 1, QTableWidgetItem(value))
+                else:
+                    item.setText(value)
+                return
+        raise KeyError(f"Unknown project-info field key: {key!r}")
+
+    def _get_field(self, key: str) -> str:
+        """Get a standard field's current widget value by dict-key name (for tests)."""
+        for row, (_label, fkey) in enumerate(_PROJECT_INFO_FIELDS):
+            if fkey == key:
+                item = self._table.item(row, 1)
+                return item.text() if item else ""
+        raise KeyError(f"Unknown project-info field key: {key!r}")
+
+    # ── SettingsPane protocol ─────────────────────────────────────────────────
+
+    def load(self) -> None:
+        """Snapshot current project-info dict and populate table widgets.
+
+        Calls ``get_info()`` (or uses ``{}`` if not supplied) to obtain the
+        current dict, takes a deep copy as the snapshot, then populates the
+        table.  Custom rows are rebuilt from ``info["custom"]``.
+        """
+        info = dict(self._get_info() or {}) if self._get_info is not None else {}
+        self._snapshot = dict(info)
+        # Preserve nested custom list as a deep copy
+        if "custom" in info:
+            self._snapshot["custom"] = [dict(r) for r in info["custom"]]
+        self._populate_table_from_dict(info)
+
+    def apply(self) -> None:
+        """Read widget state and call set_info(edited_dict).
+
+        Does NOT touch QSettings.  If ``set_info`` was not supplied, the widget
+        values are still read (allowing revert to work) but nothing is persisted.
+        """
+        edited = self._read_dict_from_table()
+        if self._set_info is not None:
+            self._set_info(edited)
+
+    def revert(self) -> None:
+        """Restore table widgets to the snapshot taken at load() time.
+
+        Does NOT call set_info — revert must leave the project source untouched.
+        """
+        if not self._snapshot:
+            return
+        self._populate_table_from_dict(self._snapshot)
 
 
 class PreferencesDialog(QDialog):
