@@ -1002,8 +1002,9 @@ class SheetViewport(QGraphicsObject):
             # display-override mutations (D3): set the flag BEFORE isolation apply.
             self._source_scene._suppress_paper_echo = True
 
-            iso = self._begin_isolation()
+            iso = None
             try:
+                iso = self._begin_isolation()
                 saved = apply_paper_overrides(
                     self._source_scene, crop,
                     paper_scale=paper_scale,

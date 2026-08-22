@@ -146,6 +146,65 @@ def test_level3_viewport_renders_l3_row_not_l1_row(qapp):
         f"L1 rendered into the L3 viewport. interior-inked rows: {inked}")
 
 
+def test_suppress_flag_cleared_even_if_begin_isolation_throws(qapp, monkeypatch):
+    """Regression: _suppress_paper_echo must not stay True when _begin_isolation raises.
+
+    With the OLD structure (iso = self._begin_isolation() OUTSIDE the try), the
+    exception from _begin_isolation propagates before the try block is entered, so
+    neither finally runs, and _suppress_paper_echo is stuck True forever.
+
+    With the fix (iso = None before the try; iso = self._begin_isolation() as the
+    FIRST line INSIDE the try), the finally always runs and schedules the
+    singleShot that clears the flag.
+
+    Biting mechanism: monkeypatch _begin_isolation to raise, call paint(), then
+    drain the event loop via processEvents() so the singleShot fires, and assert
+    the flag is False.  With the old code the singleShot was never scheduled, so
+    the flag stays True and the assertion fails.
+    """
+    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtGui import QImage, QPainter, QColor
+    from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    from tests._paper_iso_helpers import build_isolation_fixture
+
+    fx = build_isolation_fixture()
+    scene_model = fx["scene"]
+    fx["lm"].apply_to_scene(scene_model, "Level 1")
+    scene_model.active_level = "Level 1"
+    scene_model.active_view_key = "plan:Plan: Level 1"
+
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Plan: Level 3", "L3", 0.02, 10, 10, 0, 0)
+    paper = PaperScene(sheet, fx["resolver"])
+    vp = paper.add_viewport(data)
+
+    # Force _begin_isolation to raise before it mutates anything.
+    monkeypatch.setattr(vp, "_begin_isolation",
+                        lambda: (_ for _ in ()).throw(RuntimeError("isolation boom")))
+
+    img = QImage(50, 50, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    try:
+        vp.paint(p, None, None)
+    except RuntimeError:
+        pass
+    p.end()
+
+    # Drain the event loop so the singleShot(0, ...) scheduled by the finally fires.
+    QApplication.processEvents()
+
+    # With the fix the finally ran, the singleShot was scheduled, and the flag is now False.
+    # With the old code (iso outside the try) the finally never ran, the flag stays True.
+    assert not getattr(scene_model, "_suppress_paper_echo", False), (
+        "_suppress_paper_echo is stuck True — the finally block did not run "
+        "when _begin_isolation threw (iso assignment must be INSIDE the try)."
+    )
+
+    # Also confirm the on-screen context was not corrupted (begin threw before mutating).
+    assert scene_model.active_view_key == "plan:Plan: Level 1"
+
+
 def test_live_scene_restored_even_if_render_throws(qapp, monkeypatch):
     from PyQt6.QtGui import QImage, QPainter, QColor
     fx = build_isolation_fixture()
