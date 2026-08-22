@@ -1377,17 +1377,6 @@ class MainWindow(QMainWindow):
         _btn.setToolTip("Recently opened files")
         self._rebuild_recent_menu()
 
-        # --- Import ---
-        g_imp = manage_page.add_group("Import")
-        _btn = g_imp.add_large_button(
-            "Import\nUnderlay", _I("import_icon.svg"), self.open_import_dialog)
-        _btn.setToolTip("Import a PDF, DXF, or DWG underlay")
-        _btn = g_imp.add_small_button(
-            "Refresh All",
-            _I("placeholder_icon.svg"),
-            self.refresh_underlays)
-        _btn.setToolTip("Re-import all underlays from disk")
-
         # --- Settings ---
         g_set = manage_page.add_group("Settings")
         _btn = g_set.add_large_button(
@@ -1447,6 +1436,17 @@ class MainWindow(QMainWindow):
             "Fit to\nScreen", _I("placeholder_icon.svg"),
             self._fit_active_plan_view)
         _btn.setToolTip("Zoom to fit all content [F]")
+
+        # --- Underlay (moved from Manage → Import) ---
+        g_ul = view_page.add_group("Underlay")
+        _btn = g_ul.add_large_button(
+            "Underlay\nManager", _I("import_icon.svg"), self.open_import_dialog)
+        _btn.setToolTip("Import/manage PDF, DXF, or DWG underlays")
+        _btn = g_ul.add_small_button(
+            "Refresh All",
+            _I("placeholder_icon.svg"),
+            self.refresh_underlays)
+        _btn.setToolTip("Re-import all underlays from disk")
 
         # --- Display ---
         g_disp = view_page.add_group("Display")

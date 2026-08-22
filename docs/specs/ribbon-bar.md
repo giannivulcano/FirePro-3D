@@ -60,8 +60,8 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 | # | Tab | Groups |
 |---|-----|--------|
-| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Import (Import Underlay/Refresh All) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) |
-| 2 | **View** | Navigate (Fit to Screen) · Display (Display Manager) · Panels (Properties/Browser/Hydraulic Report/Radiation Report dock toggles) |
+| 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) |
+| 2 | **View** | Navigate (Fit to Screen) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) · Panels (Properties/Browser/Hydraulic Report/Radiation Report dock toggles) |
 | 3 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
 | 4 | **Architecture** | Building (Wall/Floor/Roof/Room/Door/Window/Detail) · Datums (Levels/Gridline) |
 | 5 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
