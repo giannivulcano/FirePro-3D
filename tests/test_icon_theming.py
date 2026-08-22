@@ -21,3 +21,8 @@ def test_svg_recolor_is_case_insensitive_on_source():
 def test_svg_recolor_leaves_none_untouched():
     out = svg_recolor(_SVG, {"#1A1A1A": "#FFFFFF"}).decode("utf-8")
     assert 'fill="none"' in out and 'stroke="none"' in out
+
+def test_svg_recolor_ignores_8digit_hex():
+    svg = '<svg><path fill="#1A1A1AFF"/></svg>'
+    out = svg_recolor(svg, {"#1A1A1A": "#FFFFFF"}).decode("utf-8")
+    assert out == '<svg><path fill="#1A1A1AFF"/></svg>'  # 8-digit hex left untouched

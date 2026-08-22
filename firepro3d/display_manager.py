@@ -148,7 +148,7 @@ def svg_recolor(svg_text: str, color_map: dict[str, str]) -> bytes:
         hexv = m.group(0).lower()
         return lut.get(hexv, m.group(0))
 
-    return re.sub(r"#[0-9A-Fa-f]{6}", _sub, svg_text).encode("utf-8")
+    return re.sub(r"#[0-9A-Fa-f]{6}(?![0-9A-Fa-f])", _sub, svg_text).encode("utf-8")
 
 
 def _set_svg_tint(item, color: str | None, fill_color: str | None = None):
