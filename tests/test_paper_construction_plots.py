@@ -92,3 +92,56 @@ def test_default_circle_plots_black_on_paper(qapp):
     inside = _non_white_inside(img, data)
     assert inside > 0, f"circle did not plot: {inside} non-white pixels inside"
     assert circle.pen().color().name() == "#ffffff"
+
+
+def test_construction_line_width_is_true_on_paper_mm(qapp):
+    """The construction pen width must render at true ON-PAPER mm, not
+    model-units-times-scale (which is a sub-pixel hairline at architectural
+    scale — plots black but "very thin", the smoke-test symptom).
+
+    Renders supersampled at a known px/mm and measures the top-edge line
+    thickness. Red-verify: with the buggy width (lw_mm, no /paper_scale) the
+    dark core is < 2 px; the fix (lw_mm / paper_scale) yields a real weight.
+    """
+    ppm = 20                      # render px per paper-mm (~500 dpi)
+    scale = 0.05                  # 1:20 viewport
+    ms = Model_Space()
+    rect = RectangleItem(QPointF(200, 200), QPointF(800, 800))  # white default
+    rect.level = "Level 1"
+    ms._draw_rects.append(rect)
+    ms.addItem(rect)
+
+    lm = LevelManager(); pvm = PlanViewManager(); pvm.create("Level 1", lm)
+    ms.active_level = "Level 1"; ms.active_view_key = "plan:Plan: Level 1"
+    lm.apply_to_scene(ms, "Level 1")
+    resolver = ViewResolver(ms, pvm, _DetailMgrStub(), None, level_manager=lm)
+    sheet = Sheet.create_default()
+    data = SheetViewData("plan", "Plan: Level 1", "P", scale, 0, 0, 0, 0)
+    paper = PaperScene(sheet, resolver)
+    vp = paper.add_viewport(data)
+    data.crop_rect = QRectF(0, 0, 1000, 1000)
+    vp._recompute_size_from_scale()
+
+    # Supersampled render: painter scaled by ppm, viewport box at (0,0).
+    W = int(data.w * ppm); H = int(data.h * ppm)
+    img = QImage(W, H, QImage.Format.Format_RGB32)
+    img.fill(QColor("white"))
+    p = QPainter(img)
+    p.scale(ppm, ppm)
+    vp.paint(p, None, None)
+    p.end()
+
+    # Rect top edge on paper: y = 200 model * scale = 10mm -> 10*ppm px.
+    edge_y = int(200 * scale * ppm)          # 200px
+    col_x = int(500 * scale * ppm)           # rect mid-x -> 500px
+    # Count DARK pixels (near-black core, excludes faint antialiased hairline)
+    # in a vertical band spanning the top edge.
+    dark = 0
+    for y in range(edge_y - 8, edge_y + 8):
+        px = img.pixel(col_x, y)
+        r, g, b = (px >> 16) & 0xFF, (px >> 8) & 0xFF, px & 0xFF
+        if r < 100 and g < 100 and b < 100:
+            dark += 1
+    # True 0.18mm ("Light") on paper at ppm=20 -> ~3-4 px dark core.
+    # Buggy (0.18 * 0.05 = 0.009mm) -> ~0.18px -> a faint hairline, < 2 dark px.
+    assert dark >= 2, f"construction line too thin: {dark} dark px (hairline bug)"

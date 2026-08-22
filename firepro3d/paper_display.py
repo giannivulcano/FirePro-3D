@@ -359,18 +359,25 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     item.update()
 
 
-def _apply_construction(item, cat, color_mode, lw_mm):
+def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
     """Apply paper overrides to construction/draw geometry.
 
-    These items read self.pen() directly in paint(), so the PEN COLOR (not just
-    _display_color) must be set for them to render in paper colours.
+    These items read ``self.pen()`` directly in paint(), so the PEN COLOR (not
+    just ``_display_color``) must be set for them to render in paper colours.
+
+    The pen width is normalised to true ON-PAPER mm: the pen lives in model
+    (scene) units and is rendered through the viewport at ``paper_scale`` (paper
+    mm per model mm), so a raw ``lw_mm`` would plot at ``lw_mm × paper_scale`` —
+    a sub-pixel hairline at architectural scales. Dividing by ``paper_scale``
+    (non-cosmetic) makes it plot at ``lw_mm`` on paper regardless of scale,
+    matching the gridline/underlay convention (§9.9.1).
     """
     from PyQt6.QtGui import QColor
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         if color_mode != PaperColorMode.FULL_COLOR:
             pen.setColor(QColor(cat["color"]))
-        pen.setWidthF(lw_mm)
+        pen.setWidthF(lw_mm / max(paper_scale, 1e-9))
         pen.setCosmetic(False)
         item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)
@@ -591,7 +598,7 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             elif cat_key == "Detail Marker":
                 _apply_marker(item, cat, color_mode, lw_mm, "_tag_color")
             elif cat_key == "Construction":
-                _apply_construction(item, cat, color_mode, lw_mm)
+                _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
                 _apply_generic(item, cat, color_mode, lw_mm)
 
