@@ -1,4 +1,5 @@
-from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane
+from firepro3d import snap_engine
+from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane, SnappingPane
 
 
 class _StubPane(SettingsPane):
@@ -29,3 +30,21 @@ def test_reject_reverts_all_panes(qapp):
     dlg = PreferencesDialog(panes=[p])
     dlg.reject()
     assert "revert" in p.log
+
+
+def test_snapping_pane_apply_writes_engine(qapp, monkeypatch):
+    monkeypatch.setattr(snap_engine, "SNAP_TOLERANCE_PX", 40, raising=False)
+    pane = SnappingPane()
+    pane.load()
+    pane._tol_spin.setValue(12)
+    pane.apply()
+    assert snap_engine.SNAP_TOLERANCE_PX == 12
+
+
+def test_snapping_pane_revert_restores(qapp, monkeypatch):
+    monkeypatch.setattr(snap_engine, "SNAP_TOLERANCE_PX", 40, raising=False)
+    pane = SnappingPane()
+    pane.load()
+    pane._tol_spin.setValue(5)
+    pane.revert()
+    assert snap_engine.SNAP_TOLERANCE_PX == 40
