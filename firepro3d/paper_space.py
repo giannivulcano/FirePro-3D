@@ -59,6 +59,14 @@ except ImportError:
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _split_view_key(key: str):
+    """'plan:Plan: Level 1' -> ('plan', 'Plan: Level 1'); '' -> ('', '')."""
+    if not key or ":" not in key:
+        return ("", "")
+    vtype, name = key.split(":", 1)
+    return (vtype, name)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Paper sizes (width × height in mm, portrait orientation)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -891,6 +899,60 @@ class SheetViewport(QGraphicsObject):
                       self._data.w + 2 * margin,
                       self._data.h + _VIEW_TITLE_H + 2 * margin)
 
+    def _begin_isolation(self):
+        """Apply this viewport's level context to the shared source scene.
+
+        Returns a token for :meth:`_end_isolation`, or ``None`` when no
+        isolation is needed (elevation, unresolvable context, or the scene
+        already shows this exact context — the D4 no-op skip).
+
+        Returns:
+            dict | None: A restore token, or ``None`` for the no-op path.
+        """
+        resolver = self._resolver
+        if resolver is None or self._data.source_view_type == "elevation":
+            return None
+        target = resolver.resolve_level_context(
+            self._data.source_view_type, self._data.source_view_name)
+        if target is None:
+            return None                              # degrade to no isolation
+        lm = getattr(resolver, "_level_manager", None)
+        if lm is None:
+            return None
+        scene = self._source_scene
+        onscreen_level = getattr(scene, "active_level", None)
+        onscreen_key = getattr(scene, "active_view_key", "")
+        onscreen_ctx = (resolver.resolve_level_context(*_split_view_key(onscreen_key))
+                        if onscreen_key else None)
+        if onscreen_ctx is not None and onscreen_ctx == target:
+            return None                              # no-op skip
+        level, vh, vd = target
+        lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
+        scene.active_level = level
+        scene.active_view_key = (f"{self._data.source_view_type}:"
+                                 f"{self._data.source_view_name}")
+        return {"lm": lm, "scene": scene,
+                "level": onscreen_level, "key": onscreen_key, "ctx": onscreen_ctx}
+
+    def _end_isolation(self, token):
+        """Restore the shared scene to the on-screen context (synchronous).
+
+        Args:
+            token: The value returned by :meth:`_begin_isolation`; ``None`` is
+                a no-op.
+        """
+        if token is None:
+            return
+        scene = token["scene"]; lm = token["lm"]
+        scene.active_level = token["level"]
+        scene.active_view_key = token["key"]
+        ctx = token["ctx"]
+        if ctx is not None:
+            level, vh, vd = ctx
+            lm.apply_to_scene(scene, level, view_height=vh, view_depth=vd)
+        elif token["level"] is not None:
+            lm.apply_to_scene(scene, token["level"])
+
     def paint(self, painter: QPainter, option, widget=None):
         w, h = self._data.w, self._data.h
         vp_rect = QRectF(0, 0, w, h)
@@ -936,7 +998,11 @@ class SheetViewport(QGraphicsObject):
             # below — same-turn FIFO delivery guarantees the echo arrives (and
             # is swallowed) before the flag clears, while any *real* model
             # change after the clear still propagates normally.
+            # Echo suppression spans BOTH the level-isolation mutations and the
+            # display-override mutations (D3): set the flag BEFORE isolation apply.
             self._source_scene._suppress_paper_echo = True
+
+            iso = self._begin_isolation()
             try:
                 saved = apply_paper_overrides(
                     self._source_scene, crop,
@@ -949,6 +1015,10 @@ class SheetViewport(QGraphicsObject):
                 finally:
                     restore_model_display(saved)
             finally:
+                # Synchronous restore (export-safe): PDF export renders without
+                # spinning an event loop, so a deferred restore would leave the
+                # LIVE model scene corrupted after export (D2).
+                self._end_isolation(iso)
                 # Bind the scene at schedule time — self._source_scene may be
                 # rebound before the timer fires (setattr is safe regardless).
                 QTimer.singleShot(0, lambda s=self._source_scene:
