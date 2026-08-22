@@ -3209,6 +3209,8 @@ class MainWindow(QMainWindow):
         if not self._ask_save_changes("starting a new project"):
             return
         self._current_file = None
+        self.detail_manager.clear()
+        self.project_browser.refresh_details(self.detail_manager.detail_names)
         self.scene._clear_scene()
         self.level_widget.populate()
         pass  # level indicator removed

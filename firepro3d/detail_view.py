@@ -525,6 +525,20 @@ class DetailViewManager:
         """Delete a detail (marker + tab). Used from project browser."""
         self.close_detail(name)
 
+    def clear(self):
+        """Remove all detail markers and close all open detail tabs.
+
+        Safe to call on an already-empty manager. Called by :meth:`from_list`
+        before loading and by ``MainWindow.new_file()`` to prevent stale
+        detail entries leaking across projects.
+        """
+        for name in list(self._markers.keys()):
+            self.close_detail(name)
+        # Defensive reset in case close_detail left any orphans
+        self._markers.clear()
+        self._open_views.clear()
+        self._counter = 0
+
     def _on_marker_resized(self, name: str, new_rect: QRectF):
         """Called when a marker's crop rect changes via grip drag."""
         view = self._open_views.get(name)
@@ -540,7 +554,12 @@ class DetailViewManager:
         return [m.to_dict() for m in self._markers.values()]
 
     def from_list(self, data: list[dict]):
-        """Restore detail markers from saved data."""
+        """Restore detail markers from saved data.
+
+        Clears any existing markers first so that loading a project does not
+        accumulate details from a previously-loaded project.
+        """
+        self.clear()
         for d in data:
             name = d["name"]
             cr = d["crop_rect"]
