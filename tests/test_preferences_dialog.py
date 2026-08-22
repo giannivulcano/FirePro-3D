@@ -1,5 +1,5 @@
 from firepro3d import snap_engine
-from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane, SnappingPane
+from firepro3d.preferences_dialog import PreferencesDialog, SettingsPane, SnappingPane, UnitsPane
 
 
 class _StubPane(SettingsPane):
@@ -118,3 +118,115 @@ def test_snapping_pane_revert_restores_live(qapp):
 
     pane.revert()
     assert scene._grip_tolerance_px == 200  # original snapshot value restored
+
+
+# ── UnitsPane tests (Task D3) ─────────────────────────────────────────────────
+
+def test_units_pane_persists_to_qsettings(qapp):
+    pane = UnitsPane()
+    pane.load()
+    pane._precision_spin.setValue(3)
+    pane.apply()
+    from PyQt6.QtCore import QSettings
+    assert int(QSettings("GV", "FirePro3D").value("display/precision", 2)) == 3
+
+
+def test_units_pane_applies_live_precision(qapp):
+    class _SM:
+        def __init__(self):
+            self.precision = 2
+            self._display_unit = None
+
+        @property
+        def display_unit(self):
+            return self._display_unit
+
+        @display_unit.setter
+        def display_unit(self, unit):
+            self._display_unit = unit
+
+    sm = _SM()
+    pane = UnitsPane(scale_manager=sm)
+    pane.load()
+    pane._precision_spin.setValue(4)
+    pane.apply()
+    assert sm.precision == 4
+
+
+def test_units_pane_applies_live_unit(qapp):
+    """apply() must write the selected DisplayUnit to the live ScaleManager."""
+    from firepro3d.scale_manager import DisplayUnit
+
+    class _SM:
+        def __init__(self):
+            self._display_unit = DisplayUnit.METRIC_MM
+            self.precision = 2
+
+        @property
+        def display_unit(self):
+            return self._display_unit
+
+        @display_unit.setter
+        def display_unit(self, unit):
+            self._display_unit = unit
+
+    sm = _SM()
+    pane = UnitsPane(scale_manager=sm)
+    pane.load()
+    # Select the IMPERIAL entry (index 0)
+    pane._unit_combo.setCurrentIndex(0)
+    pane.apply()
+    assert sm.display_unit == DisplayUnit.IMPERIAL
+
+
+def test_units_pane_persists_unit_to_qsettings(qapp):
+    """apply() must persist the unit string value to QSettings display/unit."""
+    from PyQt6.QtCore import QSettings
+    pane = UnitsPane()
+    pane.load()
+    # Force METRIC_M (index 1) selection
+    pane._unit_combo.setCurrentIndex(1)
+    pane.apply()
+    saved = QSettings("GV", "FirePro3D").value("display/unit")
+    assert saved == "m"  # DisplayUnit.METRIC_M.value
+
+
+def test_units_pane_revert_restores_live(qapp):
+    """revert() must restore the scale manager to load()-time state."""
+    from firepro3d.scale_manager import DisplayUnit
+
+    class _SM:
+        def __init__(self):
+            self._display_unit = DisplayUnit.METRIC_MM
+            self.precision = 2
+
+        @property
+        def display_unit(self):
+            return self._display_unit
+
+        @display_unit.setter
+        def display_unit(self, unit):
+            self._display_unit = unit
+
+    sm = _SM()
+    pane = UnitsPane(scale_manager=sm)
+    pane.load()
+
+    pane._precision_spin.setValue(5)
+    pane._unit_combo.setCurrentIndex(0)  # IMPERIAL
+    pane.apply()
+    assert sm.precision == 5
+    assert sm.display_unit == DisplayUnit.IMPERIAL
+
+    pane.revert()
+    assert sm.precision == 2
+    assert sm.display_unit == DisplayUnit.METRIC_MM
+
+
+def test_units_pane_on_changed_called(qapp):
+    """apply() must fire on_changed callback."""
+    called = []
+    pane = UnitsPane(on_changed=lambda: called.append(1))
+    pane.load()
+    pane.apply()
+    assert called == [1]

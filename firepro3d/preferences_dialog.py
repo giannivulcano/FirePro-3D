@@ -5,9 +5,11 @@ Panes own their own persistence target (QSettings or the project dict).
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
     QLabel, QSpinBox, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -299,6 +301,139 @@ class SnappingPane(SettingsPane):
         self._align_cb.setChecked(self._snapshot["inference"])
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
+
+
+# Ordered list of (label, DisplayUnit value-string) for the unit combo.
+# Mirrors _build_units_menu in main.py exactly.
+_UNIT_OPTIONS: list[tuple[str, str]] = [
+    ("Imperial (ft-in)", "imperial"),
+    ("Metric (m)",       "m"),
+    ("Metric (mm)",      "mm"),
+]
+
+
+class UnitsPane(SettingsPane):
+    """Preferences pane for display unit and decimal precision.
+
+    Mirrors the Units / Precision ribbon menus (``_build_units_menu`` /
+    ``_build_precision_menu`` in ``main.py``) as an editable pane.
+
+    When constructed with a live ``scale_manager``, ``apply()`` writes
+    directly to ``scale_manager.display_unit`` and ``scale_manager.precision``
+    (the same attributes set by the ribbon menus) AND persists to QSettings.
+    ``revert()`` restores the snapshot taken at ``load()`` time.
+
+    The optional ``on_changed`` callback is fired after every ``apply()`` so
+    the caller can trigger a display refresh (e.g. re-render pipe labels).
+
+    No-arg construction (``UnitsPane()``) is valid for unit tests; in that
+    mode only QSettings are written; no live objects are mutated.
+
+    Args:
+        scale_manager: The live ``ScaleManager`` instance, or ``None``.
+        on_changed: Optional zero-arg callable fired after each ``apply()``.
+        parent: Optional Qt parent widget.
+    """
+
+    def __init__(
+        self,
+        scale_manager=None,
+        on_changed: Callable[[], None] | None = None,
+        parent=None,
+    ):
+        super().__init__("Units & Precision", parent)
+        self._sm = scale_manager
+        self._on_changed = on_changed
+        self._snapshot: dict = {}
+        self._build_ui()
+
+    # ── UI construction ──────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+
+        form_group = QGroupBox("Display")
+        form = QFormLayout(form_group)
+
+        self._unit_combo = QComboBox()
+        for label, _ in _UNIT_OPTIONS:
+            self._unit_combo.addItem(label)
+        form.addRow("Units:", self._unit_combo)
+
+        self._precision_spin = QSpinBox()
+        self._precision_spin.setRange(0, 6)
+        self._precision_spin.setSuffix(" decimal places")
+        form.addRow("Precision:", self._precision_spin)
+
+        outer.addWidget(form_group)
+        outer.addStretch()
+
+    # ── SettingsPane protocol ─────────────────────────────────────────────────
+
+    def load(self) -> None:
+        """Snapshot current state and populate widgets.
+
+        Source of truth priority: live ScaleManager (if present) → QSettings.
+        """
+        if self._sm is not None:
+            unit_str = self._sm.display_unit.value if self._sm.display_unit is not None else "mm"
+            precision = int(self._sm.precision)
+        else:
+            s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+            unit_str  = s.value("display/unit", "mm", type=str)
+            precision = s.value("display/precision", 2, type=int)
+
+        self._snapshot = {"unit_str": unit_str, "precision": precision}
+
+        # Populate combo — fall back to last item if value not found
+        idx = next(
+            (i for i, (_, v) in enumerate(_UNIT_OPTIONS) if v == unit_str),
+            len(_UNIT_OPTIONS) - 1,
+        )
+        self._unit_combo.setCurrentIndex(idx)
+        self._precision_spin.setValue(precision)
+
+    def apply(self) -> None:
+        """Write widget values to live ScaleManager and QSettings."""
+        from firepro3d.scale_manager import DisplayUnit
+
+        idx      = self._unit_combo.currentIndex()
+        unit_str = _UNIT_OPTIONS[idx][1]
+        precision = self._precision_spin.value()
+
+        # Live update
+        if self._sm is not None:
+            self._sm.display_unit = DisplayUnit(unit_str)
+            self._sm.precision    = precision
+
+        # Persist
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+        s.setValue("display/unit",      unit_str)
+        s.setValue("display/precision", precision)
+
+        if self._on_changed is not None:
+            self._on_changed()
+
+    def revert(self) -> None:
+        """Restore snapshot to live ScaleManager and repopulate widgets."""
+        from firepro3d.scale_manager import DisplayUnit
+
+        if not self._snapshot:
+            return
+
+        unit_str  = self._snapshot["unit_str"]
+        precision = self._snapshot["precision"]
+
+        if self._sm is not None:
+            self._sm.display_unit = DisplayUnit(unit_str)
+            self._sm.precision    = precision
+
+        idx = next(
+            (i for i, (_, v) in enumerate(_UNIT_OPTIONS) if v == unit_str),
+            len(_UNIT_OPTIONS) - 1,
+        )
+        self._unit_combo.setCurrentIndex(idx)
+        self._precision_spin.setValue(precision)
 
 
 class PreferencesDialog(QDialog):
