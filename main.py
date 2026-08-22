@@ -1280,21 +1280,24 @@ class MainWindow(QMainWindow):
     # ─────────────────────────────────────────────────────────────────────────
 
     def init_ribbon(self):
-        """Build the six workflow ribbon tabs and wire every button.
+        """Build the seven base workflow ribbon tabs and wire every button.
 
         Tabs:
-          1. Manage   — file I/O, import, settings, grid, undo/redo, panels
-          2. Draw     — geometry tools, style, snap, annotations
-          3. Build    — pipe/sprinkler placement, system, library
-          4. Modify   — edit/transform/scale tools (auto-switches on selection)
-          5. Analyze  — hydraulics, export
-          6. Draft    — workspace switching, page setup
+          1. Manage             — file I/O, import, preferences, undo/redo, snap
+          2. View               — fit, display manager, dock panels
+          3. Create             — geometry tools, blocks
+          4. Architecture       — walls/floors/roofs/rooms, datums (levels, gridlines)
+          5. Sprinkler Systems  — pipe/sprinkler layout, tools, hydraulics
+          6. Analyze            — thermal radiation
+          7. Draft              — annotate, font, page, plot
 
         Must be called *after* all dock widgets are created so that dock
         visibility toggles can be wired correctly.
         """
-        from firepro3d.assets import asset_path
-        _I = lambda name: QIcon(asset_path("Ribbon", name))
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
 
         # Draw-mode buttons are checkable so the active tool stays highlighted
         self._mode_buttons = {}  # mode_name → QToolButton
@@ -1320,19 +1323,20 @@ class MainWindow(QMainWindow):
             return b
 
         self._init_manage_tab(_I, _btn)
-        self._init_draw_tab(_I, _btn, _mode_btn)
-        self._init_build_tab(_I, _btn, _mode_btn)
-        self._init_modify_tab(_I, _btn, _mode_btn)
+        self._init_view_tab(_I, _btn)
+        self._init_create_tab(_I, _btn, _mode_btn)
+        self._init_architecture_tab(_I, _btn, _mode_btn)
+        self._init_sprinkler_systems_tab(_I, _btn, _mode_btn)
         self._init_analyze_tab(_I, _btn)
-        self._init_draft_tab(_I, _btn)
+        self._init_draft_tab(_I, _btn, _mode_btn)
 
-        # Auto-switch to Modify tab when items are selected
-        self.scene.selectionChanged.connect(self._on_selection_changed_modify)
+        # Contextual Edit-tab handler (real logic added in a later task).
+        self.scene.selectionChanged.connect(self._on_selection_changed_contextual)
 
     # ── Per-tab ribbon helpers ───────────────────────────────────────────────
 
     def _init_manage_tab(self, _I, _btn):
-        """Build Tab 1: Manage — file I/O, import, settings, grid, undo/redo, panels."""
+        """Build Tab 1: Manage — file I/O, import, preferences, undo/redo, snap."""
         manage_page = self.ribbon.add_page("Manage")
 
         # --- File ---
@@ -1357,35 +1361,23 @@ class MainWindow(QMainWindow):
             self.refresh_underlays)
         _btn.setToolTip("Re-import all underlays from disk")
 
-        # --- Export (placeholder) ---
-        g_exp = manage_page.add_group("Export")
-        _exp_btn = g_exp.add_large_button(
-            "Export", _I("export_icon.svg"), lambda: None)
-        _exp_btn.setEnabled(False)
-        _exp_btn.setToolTip("Export functionality — coming soon")
-
-        # --- Project ---
-        g_proj = manage_page.add_group("Project")
-        _btn = g_proj.add_large_button(
-            "Project\nInfo", _I("info_icon.svg"),
-            self._open_project_info)
-        _btn.setToolTip("View/edit project metadata")
-
         # --- Settings ---
         g_set = manage_page.add_group("Settings")
         _btn = g_set.add_large_button(
-            "Display\nManager", _I("placeholder_icon.svg"),
-            self._open_display_manager)
-        _btn.setToolTip("Configure visibility, colour, scale and opacity for model items")
-        _btn = g_set.add_small_menu_button(
-            "Units", _I("info_icon.svg"), self._build_units_menu())
-        _btn.setToolTip("Set display units (Imperial/Metric)")
-        _btn = g_set.add_small_menu_button(
-            "Precision", _I("info_icon.svg"), self._build_precision_menu())
-        _btn.setToolTip("Set decimal precision")
-        _btn = g_set.add_small_button(
-            "Snaps", _I("info_icon.svg"), self._open_snap_settings)
-        _btn.setToolTip("Configure grid spacing and angle snap")
+            "Preferences", _I("info_icon.svg"),
+            self._open_preferences)
+        _btn.setToolTip("Open application preferences")
+
+        # --- Edit (Undo/Redo always accessible) ---
+        g_edit = manage_page.add_group("Edit")
+        self._btn_undo = g_edit.add_large_button(
+            "Undo", _I("undo_icon.svg"),
+            self._dispatch_undo, shortcut="Ctrl+Z")
+        self._btn_undo.setToolTip("Undo last action [Ctrl+Z]")
+        self._btn_redo = g_edit.add_large_button(
+            "Redo", _I("redo_icon.svg"),
+            self._dispatch_redo, shortcut="Ctrl+Y")
+        self._btn_redo.setToolTip("Redo last undone action [Ctrl+Y]")
 
         # --- Snap (moved from Draw tab) ---
         g_snap = manage_page.add_group("Snap")
@@ -1418,33 +1410,26 @@ class MainWindow(QMainWindow):
             self._toggle_osnap_bar, checkable=True)
         self._osnap_bar_btn.setToolTip("Show/hide the OSNAP snap-type toolbar")
 
-        # --- Edit (Undo/Redo always accessible) ---
-        g_edit = manage_page.add_group("Edit")
-        _btn = g_edit.add_large_button(
-            "Undo", _I("undo_icon.svg"),
-            self._dispatch_undo, shortcut="Ctrl+Z")
-        _btn.setToolTip("Undo last action [Ctrl+Z]")
-        _btn = g_edit.add_large_button(
-            "Redo", _I("redo_icon.svg"),
-            self._dispatch_redo, shortcut="Ctrl+Y")
-        _btn.setToolTip("Redo last undone action [Ctrl+Y]")
+    def _init_view_tab(self, _I, _btn):
+        """Build Tab 2: View — fit, display manager, dock panels."""
+        view_page = self.ribbon.add_page("View")
 
-        # --- Project Tools ---
-        g_proj = manage_page.add_group("Project Tools")
-        _btn = g_proj.add_large_button(
-            "Levels", _I("placeholder_icon.svg"),
-            self._open_level_dialog)
-        _btn.setToolTip("Open Level Manager dialog")
-
-        # --- View ---
-        g_view = manage_page.add_group("View")
-        _btn = g_view.add_large_button(
+        # --- Navigate ---
+        g_nav = view_page.add_group("Navigate")
+        _btn = g_nav.add_large_button(
             "Fit to\nScreen", _I("placeholder_icon.svg"),
             self._fit_active_plan_view)
         _btn.setToolTip("Zoom to fit all content [F]")
 
+        # --- Display ---
+        g_disp = view_page.add_group("Display")
+        _btn = g_disp.add_large_button(
+            "Display\nManager", _I("placeholder_icon.svg"),
+            self._open_display_manager)
+        _btn.setToolTip("Configure visibility, colour, scale and opacity for model items")
+
         # --- Panels (dock toggles) ---
-        g_pan = manage_page.add_group("Panels")
+        g_pan = view_page.add_group("Panels")
         prop_btn = g_pan.add_small_button(
             "Properties", _I("info_icon.svg"),
             None, checkable=True)
@@ -1475,10 +1460,10 @@ class MainWindow(QMainWindow):
             lambda on: self.radiation_dock.show() if on else self.radiation_dock.hide())
         self.radiation_dock.visibilityChanged.connect(rad_report_btn.setChecked)
 
-    def _init_draw_tab(self, _I, _btn, _mode_btn):
-        """Build Tab 2: Draw — geometry tools, style, snap, annotations."""
-        # ── Tab 2: Draw ──────────────────────────────────────────────────────
-        draw_page = self.ribbon.add_page("Draw")
+    def _init_create_tab(self, _I, _btn, _mode_btn):
+        """Build Tab 3: Create — geometry tools, blocks."""
+        # ── Tab 3: Create ────────────────────────────────────────────────────
+        draw_page = self.ribbon.add_page("Create")
 
         # --- Geometry ---
         g_geom = draw_page.add_group("Geometry")
@@ -1495,7 +1480,6 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
-        _mode_btn(g_geom, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip("Draw gridlines on canvas (2-click) (G)")
         self._single_place_btn = g_geom.add_small_button(
             "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
         self._single_place_btn.setToolTip("Return to Select mode after placing one item")
@@ -1510,20 +1494,13 @@ class MainWindow(QMainWindow):
         g_blocks.add_small_button(
             "Create\nBlock", _I("placeholder_icon.svg"), self._create_block)
 
-        # --- Annotations ---
-        g_ann = draw_page.add_group("Annotations")
-        _mode_btn(g_ann, "Dimension", _I("dimension_icon.svg"), "dimension").setToolTip("Place a dimension annotation")
-        _mode_btn(g_ann, "Text", _I("text_icon.svg"), "text").setToolTip("Place a text note")
-        _mode_btn(g_ann, "Hatch", _I("placeholder_icon.svg"), "hatch").setToolTip(
-            "Add hatching to a closed object")
+    def _init_architecture_tab(self, _I, _btn, _mode_btn):
+        """Build Tab 4: Architecture — building elements + datums."""
+        # ── Tab 4: Architecture ──────────────────────────────────────────────
+        build_page = self.ribbon.add_page("Architecture")
 
-    def _init_build_tab(self, _I, _btn, _mode_btn):
-        """Build Tab 3: Build — pipe/sprinkler placement, system, library."""
-        # ── Tab 3: Build ─────────────────────────────────────────────────────
-        build_page = self.ribbon.add_page("Build")
-
-        # --- 3D Modeling ---
-        g_3d = build_page.add_group("3D Modeling")
+        # --- Building ---
+        g_3d = build_page.add_group("Building")
         _wall_btn = g_3d.add_large_button(
             "Wall", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("wall_rect"),
@@ -1599,8 +1576,22 @@ class MainWindow(QMainWindow):
         self._mode_buttons["detail"] = _detail_btn
         self._mode_buttons["window"] = _window_btn
 
-        # --- Fire Suppression Systems ---
-        g_sys = build_page.add_group("Fire Suppression Systems")
+        # --- Datums ---
+        g_datum = build_page.add_group("Datums")
+        _btn = g_datum.add_large_button(
+            "Levels", _I("placeholder_icon.svg"),
+            self._open_level_dialog)
+        _btn.setToolTip("Open Level Manager dialog")
+        _mode_btn(g_datum, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip(
+            "Draw gridlines on canvas (2-click) (G)")
+
+    def _init_sprinkler_systems_tab(self, _I, _btn, _mode_btn):
+        """Build Tab 5: Sprinkler Systems — layout, tools, hydraulics."""
+        # ── Tab 5: Sprinkler Systems ─────────────────────────────────────────
+        sys_page = self.ribbon.add_page("Sprinkler Systems")
+
+        # --- Layout ---
+        g_sys = sys_page.add_group("Layout")
         _pipe_btn = g_sys.add_large_button(
             "Pipe", _I("pipe_icon.svg"),
             lambda: self.scene.set_mode("pipe", self.current_pipe_template),
@@ -1625,193 +1616,23 @@ class MainWindow(QMainWindow):
             checkable=True)
         _da_btn.setToolTip("Define the design area for hydraulic calc")
         self._mode_buttons["design_area"] = _da_btn
-        self._coverage_btn = g_sys.add_small_button(
+
+        # --- Tools ---
+        g_tools = sys_page.add_group("Tools")
+        g_tools.add_small_button(
+            "Auto-Populate", _I("placeholder_icon.svg"),
+            self._auto_populate_sprinklers)
+        self._coverage_btn = g_tools.add_small_button(
             "Coverage Overlay", _I("placeholder_icon.svg"),
             self.toggle_coverage_overlay, checkable=True)
         self._coverage_btn.setToolTip("Show/hide sprinkler coverage circles")
-        g_sys.add_small_button(
-            "Display", _I("placeholder_icon.svg"),
-            self._open_display_manager)
-        g_sys.add_small_button(
-            "Auto-Populate", _I("placeholder_icon.svg"),
-            self._auto_populate_sprinklers)
-
-        # --- Library ---
-        g_lib = build_page.add_group("Library")
-        _btn = g_lib.add_large_button(
+        _sm_btn = g_tools.add_large_button(
             "Sprinkler\nManager", _I("sprinkler_manager_icon.svg"),
             self.open_sprinkler_manager)
-        _btn.setToolTip("Open sprinkler database manager")
-
-    def _init_modify_tab(self, _I, _btn, _mode_btn):
-        """Build Tab 4: Modify — edit/transform/scale tools (auto-switches on selection)."""
-        # ── Tab 4: Modify (always visible, auto-switches on selection) ────────
-        modify_page = self.ribbon.add_page("Modify")
-        self._modify_tab_idx = self.ribbon._tab_bar.count() - 1
-
-        # --- Edit ---
-        g_medit = modify_page.add_group("Edit")
-        _btn = g_medit.add_large_button("Undo", _I("undo_icon.svg"), self._dispatch_undo)
-        _btn.setToolTip("Undo last action [Ctrl+Z]")
-        _btn = g_medit.add_large_button("Redo", _I("redo_icon.svg"), self._dispatch_redo)
-        _btn.setToolTip("Redo last undone action [Ctrl+Y / Ctrl+Shift+Z]")
-        self._btn_delete = g_medit.add_large_button(
-            "Delete", _I("delete_icon.svg"),
-            lambda: self.scene.delete_selected_items())
-        self._btn_delete.setToolTip("Delete selected items [Del]")
-        self._btn_cut = g_medit.add_small_button(
-            "Cut", _I("cut_icon.svg"),
-            lambda: (self.scene.copy_selected_items(), self.scene.delete_selected_items()))
-        self._btn_cut.setToolTip("Cut selected items [Ctrl+X]")
-        self._btn_copy = g_medit.add_small_button(
-            "Copy", _I("copy_icon.svg"),
-            lambda: self.scene.copy_selected_items())
-        self._btn_copy.setToolTip("Copy selected items [Ctrl+C]")
-        self._btn_paste = g_medit.add_small_button(
-            "Paste", _I("paste_icon.svg"),
-            lambda: self.scene.paste_items())
-        self._btn_paste.setToolTip("Paste items [Ctrl+V]")
-
-        # --- Transform ---
-        g_xform = modify_page.add_group("Transform")
-        self._btn_move = g_xform.add_small_button(
-            "Move", _I("move_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.set_mode("move")),
-            checkable=True)
-        self._btn_move.setToolTip("Move selected items [Ctrl+M]")
-        self._mode_buttons["move"] = self._btn_move
-        self._btn_duplicate = g_xform.add_small_button(
-            "Duplicate", _I("duplicate_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.duplicate_selected()))
-        self._btn_duplicate.setToolTip("Duplicate selected items [Ctrl+D]")
-        self._btn_array = g_xform.add_small_button(
-            "Array", _I("array_icon.svg"),
-            lambda: self._require_selection(self._open_array_dialog))
-        self._btn_array.setToolTip("Create linear/radial array of selected items")
-        self._btn_rotate = g_xform.add_small_button(
-            "Rotate", _I("rotate_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.set_mode("rotate")),
-            checkable=True)
-        self._btn_rotate.setToolTip("Rotate selected items interactively (pick pivot, then angle)")
-        self._mode_buttons["rotate"] = self._btn_rotate
-        self._btn_scale = g_xform.add_small_button(
-            "Scale", _I("scale_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.set_mode("scale")),
-            checkable=True)
-        self._btn_scale.setToolTip("Scale selected items interactively (pick base, Tab for factor)")
-        self._mode_buttons["scale"] = self._btn_scale
-        _btn = g_xform.add_small_button(
-            "Mirror", _I("mirror_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.set_mode("mirror")),
-            checkable=True)
-        _btn.setToolTip("Mirror selected items across an axis (2 clicks)")
-        self._mode_buttons["mirror"] = _btn
-        _btn = g_xform.add_small_button(
-            "Offset", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("offset"),
-            checkable=True)
-        _btn.setToolTip("Offset geometry (Tab for exact distance)")
-        self._mode_buttons["offset"] = _btn
-        _mode_btn(g_xform, "Stretch", _I("placeholder_icon.svg"), "stretch", large=False).setToolTip(
-            "Stretch items using crossing selection")
-        _mode_btn(g_xform, "Trim", _I("trim_icon.svg"), "trim", large=False).setToolTip(
-            "Trim geometry at intersection")
-        _mode_btn(g_xform, "Extend", _I("placeholder_icon.svg"), "extend", large=False).setToolTip(
-            "Extend geometry to boundary")
-        _mode_btn(g_xform, "Fillet", _I("placeholder_icon.svg"), "fillet", large=False).setToolTip(
-            "Round corner between two lines (Tab for radius)")
-        _mode_btn(g_xform, "Chamfer", _I("placeholder_icon.svg"), "chamfer", large=False).setToolTip(
-            "Bevel corner between two lines (Tab for distance)")
-        _mode_btn(g_xform, "Break", _I("placeholder_icon.svg"), "break", large=False).setToolTip(
-            "Break object between two points")
-        _mode_btn(g_xform, "Break at\nPoint", _I("placeholder_icon.svg"), "break_at_point", large=False).setToolTip(
-            "Split object at a single point")
-        _btn = g_xform.add_small_button(
-            "Join", _I("placeholder_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.join_selected_items()))
-        _btn.setToolTip("Join connected lines/polylines into one polyline")
-        _btn = g_xform.add_small_button(
-            "Explode", _I("placeholder_icon.svg"),
-            lambda: self._require_selection(lambda: self.scene.explode_selected_items()))
-        _btn.setToolTip("Explode polylines/rectangles into individual lines")
-        _mode_btn(g_xform, "Merge\nPoints", _I("placeholder_icon.svg"), "merge_points", large=False).setToolTip(
-            "Merge two endpoints")
-        _mode_btn(g_xform, "Align", _I("placeholder_icon.svg"), "align", large=False).setToolTip(
-            "Align items to a reference edge [AL]")
-
-        # --- Constraints ---
-        g_constraint = modify_page.add_group("Constraints")
-        _mode_btn(g_constraint, "Concentric", _I("placeholder_icon.svg"),
-                  "constraint_concentric", large=False).setToolTip(
-            "Make two circles share the same center")
-        _mode_btn(g_constraint, "Distance", _I("placeholder_icon.svg"),
-                  "constraint_dimensional", large=False).setToolTip(
-            "Fix the distance between two points")
-
-        # --- Text Formatting (shown when text is selected) ---
-        g_text = modify_page.add_group("Text")
-        self._text_format_group = g_text
-
-        self._text_size_spin = QSpinBox()
-        self._text_size_spin.setRange(4, 200)
-        self._text_size_spin.setValue(12)
-        self._text_size_spin.setSuffix(" pt")
-        self._text_size_spin.setFixedWidth(80)
-        self._text_size_spin.valueChanged.connect(self._set_text_size)
-
-        self._text_bold_btn = QPushButton("B")
-        self._text_bold_btn.setCheckable(True)
-        self._text_bold_btn.setFixedSize(28, 28)
-        self._text_bold_btn.setStyleSheet("font-weight: bold;")
-        self._text_bold_btn.toggled.connect(self._toggle_text_bold)
-
-        self._text_italic_btn = QPushButton("I")
-        self._text_italic_btn.setCheckable(True)
-        self._text_italic_btn.setFixedSize(28, 28)
-        self._text_italic_btn.setStyleSheet("font-style: italic;")
-        self._text_italic_btn.toggled.connect(self._toggle_text_italic)
-
-        self._text_align_combo = QComboBox()
-        self._text_align_combo.addItems(["Left", "Center", "Right"])
-        self._text_align_combo.setFixedWidth(80)
-        self._text_align_combo.currentTextChanged.connect(self._set_text_alignment)
-
-        # Add widgets into the group layout
-        text_row1 = QHBoxLayout()
-        text_row1.addWidget(QLabel("Size:"))
-        text_row1.addWidget(self._text_size_spin)
-        text_row1.addWidget(self._text_bold_btn)
-        text_row1.addWidget(self._text_italic_btn)
-        text_row2 = QHBoxLayout()
-        text_row2.addWidget(QLabel("Align:"))
-        text_row2.addWidget(self._text_align_combo)
-
-        text_container = QVBoxLayout()
-        text_container.setSpacing(2)
-        text_container.addLayout(text_row1)
-        text_container.addLayout(text_row2)
-
-        # Insert into the group's outer layout (before the label row)
-        g_text.layout().insertLayout(0, text_container)
-        g_text.setVisible(False)  # hidden until text is selected
-
-        # Selection-dependent button enable/disable
-        self._selection_buttons = [
-            self._btn_delete, self._btn_cut, self._btn_copy,
-            self._btn_move, self._btn_duplicate, self._btn_array,
-            self._btn_rotate, self._btn_scale,
-        ]
-        for btn in self._selection_buttons:
-            btn.setEnabled(False)
-        self._btn_paste.setEnabled(False)
-
-    def _init_analyze_tab(self, _I, _btn):
-        """Build Tab 5: Analyze — hydraulics, export."""
-        # ── Tab 5: Analyze ───────────────────────────────────────────────────
-        analyze_page = self.ribbon.add_page("Analyze")
+        _sm_btn.setToolTip("Open sprinkler database manager")
 
         # --- Hydraulics ---
-        g_hyd = analyze_page.add_group("Hydraulics")
+        g_hyd = sys_page.add_group("Hydraulics")
         _btn = g_hyd.add_large_button(
             "Run\nHydraulics", _I("hydraulics_icon.svg"),
             self.run_hydraulics, shortcut="F5")
@@ -1824,6 +1645,19 @@ class MainWindow(QMainWindow):
             "Equiv.\nLengths", _I("report_icon.svg"),
             self.show_equiv_length_ref)
         _ref_btn.setToolTip("NFPA 13 Table 22.4.3.1.1 — Equivalent pipe lengths")
+        _btn = g_hyd.add_large_button(
+            "Export PDF", _I("export_icon.svg"),
+            self.hydro_report._export_pdf)
+        _btn.setToolTip("Export hydraulic report to PDF")
+        _btn = g_hyd.add_large_button(
+            "Export CSV", _I("report_icon.svg"),
+            self.hydro_report._export_csv)
+        _btn.setToolTip("Export hydraulic results to CSV")
+
+    def _init_analyze_tab(self, _I, _btn):
+        """Build Tab 6: Analyze — thermal radiation."""
+        # ── Tab 6: Analyze ───────────────────────────────────────────────────
+        analyze_page = self.ribbon.add_page("Analyze")
 
         # --- Thermal Radiation ---
         g_rad = analyze_page.add_group("Thermal Radiation")
@@ -1839,34 +1673,10 @@ class MainWindow(QMainWindow):
             self._clear_radiation)
         _btn.setToolTip("Clear radiation overlay and results")
 
-        # --- Export ---
-        g_exp = analyze_page.add_group("Export")
-        _btn = g_exp.add_large_button(
-            "Export PDF", _I("export_icon.svg"),
-            self.hydro_report._export_pdf)
-        _btn.setToolTip("Export hydraulic report to PDF")
-        _btn = g_exp.add_large_button(
-            "Export CSV", _I("report_icon.svg"),
-            self.hydro_report._export_csv)
-        _btn.setToolTip("Export hydraulic results to CSV")
-
-    def _init_draft_tab(self, _I, _btn):
-        """Build Tab 6: Draft — workspace switching, page setup."""
-        # ── Tab 6: Draft ─────────────────────────────────────────────────────
+    def _init_draft_tab(self, _I, _btn, _mode_btn):
+        """Build Tab 7: Draft — annotate, font, page, plot."""
+        # ── Tab 7: Draft ─────────────────────────────────────────────────────
         draft_page = self.ribbon.add_page("Draft")
-
-        # --- Workspace ---
-        g_ws = draft_page.add_group("Workspace")
-        _btn = g_ws.add_large_button(
-            "Model\nSpace",
-            _I("placeholder_icon.svg"),
-            lambda: self.central_tabs.setCurrentIndex(0))
-        _btn.setToolTip("Switch to Model Space view")
-        _btn = g_ws.add_large_button(
-            "Paper\nSpace",
-            _I("placeholder_icon.svg"),
-            lambda: self._activate_paper_sheet())
-        _btn.setToolTip("Switch to Paper Space layout")
 
         # --- Page ---
         g_pg = draft_page.add_group("Page")
@@ -1892,8 +1702,12 @@ class MainWindow(QMainWindow):
             self.paper_space_widget.fit_sheet)
         _btn.setToolTip("Zoom to fit the whole sheet")
 
-        # --- Annotate (sheet text) ---
+        # --- Annotate (model + sheet) ---
         g_annotate = draft_page.add_group("Annotate")
+        _mode_btn(g_annotate, "Dimension", _I("dimension_icon.svg"), "dimension").setToolTip("Place a dimension annotation")
+        _mode_btn(g_annotate, "Text", _I("text_icon.svg"), "text").setToolTip("Place a text note")
+        _mode_btn(g_annotate, "Hatch", _I("placeholder_icon.svg"), "hatch").setToolTip(
+            "Add hatching to a closed object")
         self._add_text_ribbon_btn = g_annotate.add_large_button(
             "Add\nText", _I("text_icon.svg"),
             self._on_ribbon_add_text_toggled, checkable=True)
@@ -2823,52 +2637,11 @@ class MainWindow(QMainWindow):
             btn.setChecked(btn is active_btn)
             btn.blockSignals(False)
 
-    # ── Modify tab auto-switch (Sprint N) ──────────────────────────────────
+    # ── Contextual tab handler ─────────────────────────────────────────────
 
-    _DRAW_MODES = {"draw_line", "construction_line", "draw_rectangle",
-                    "draw_circle", "draw_arc", "draw_gridline",
-                    "polyline", "dimension", "text", "pipe", "sprinkler",
-                    "water_supply", "design_area", "set_scale", "offset",
-                    "offset_side", "wall", "wall_rect", "floor", "floor_rect",
-                    "roof", "roof_rect", "room", "room_manual", "door", "window"}
-
-    def _on_selection_changed_modify(self):
-        """Auto-switch to Modify tab when items are selected (unless drawing)."""
-        try:
-            sel = self.scene.selectedItems()
-        except RuntimeError:
-            return  # scene already deleted during shutdown
-        # Enable/disable selection-dependent buttons
-        has_sel = bool(sel)
-        for btn in self._selection_buttons:
-            btn.setEnabled(has_sel)
-        self._btn_paste.setEnabled(bool(self.scene.clipboard_data()))
-        if sel and self.scene.mode not in self._DRAW_MODES:
-            self.ribbon._tab_bar.setCurrentIndex(self._modify_tab_idx)
-            # Show/hide text formatting group
-            has_text = any(isinstance(i, NoteAnnotation) for i in sel)
-            self._text_format_group.setVisible(has_text)
-            if has_text:
-                txt = next(i for i in sel if isinstance(i, NoteAnnotation))
-                props = txt.get_properties()
-                self._text_size_spin.blockSignals(True)
-                self._text_size_spin.setValue(
-                    int(props.get("FontSize", {}).get("value", "12")))
-                self._text_size_spin.blockSignals(False)
-                self._text_bold_btn.blockSignals(True)
-                self._text_bold_btn.setChecked(
-                    props.get("Bold", {}).get("value", "Off") == "On")
-                self._text_bold_btn.blockSignals(False)
-                self._text_italic_btn.blockSignals(True)
-                self._text_italic_btn.setChecked(
-                    props.get("Italic", {}).get("value", "Off") == "On")
-                self._text_italic_btn.blockSignals(False)
-                self._text_align_combo.blockSignals(True)
-                self._text_align_combo.setCurrentText(
-                    props.get("Alignment", {}).get("value", "Left"))
-                self._text_align_combo.blockSignals(False)
-        else:
-            self._text_format_group.setVisible(False)
+    def _on_selection_changed_contextual(self):
+        """Contextual-tab handler — stub; real logic added in a later task."""
+        pass
 
     def _require_selection(self, action):
         """Run *action* only if something is selected; otherwise show message."""
@@ -2876,32 +2649,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Select an item first", 3000)
             return
         action()
-
-    # ── Text formatting handlers ──────────────────────────────────────────
-
-    def _set_text_size(self, size: int):
-        for item in self.scene.selectedItems():
-            if isinstance(item, NoteAnnotation):
-                item.set_property("FontSize", str(size))
-        self.scene.push_undo_state()
-
-    def _toggle_text_bold(self, checked: bool):
-        for item in self.scene.selectedItems():
-            if isinstance(item, NoteAnnotation):
-                item.set_property("Bold", "On" if checked else "Off")
-        self.scene.push_undo_state()
-
-    def _toggle_text_italic(self, checked: bool):
-        for item in self.scene.selectedItems():
-            if isinstance(item, NoteAnnotation):
-                item.set_property("Italic", "On" if checked else "Off")
-        self.scene.push_undo_state()
-
-    def _set_text_alignment(self, alignment: str):
-        for item in self.scene.selectedItems():
-            if isinstance(item, NoteAnnotation):
-                item.set_property("Alignment", alignment)
-        self.scene.push_undo_state()
 
     # ── Array / Multiply (Sprint J) ──────────────────────────────────────────
 
