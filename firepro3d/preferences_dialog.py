@@ -46,15 +46,26 @@ class SnappingPane(SettingsPane):
       checkboxes, alignment-guides toggle.
     - ``_open_snap_settings`` — grid spacing (mm), angle-snap increment.
 
-    This pane has **no reference to the scene or view**; it reads and writes:
-    - ``snap_engine.SNAP_TOLERANCE_PX`` (module-level int)
-    - QSettings keys for everything that requires a live scene/view object
-      (grip tolerance, per-type flags, grid size, angle, inference).
-      MainWindow.restore_settings reads those back into the scene on startup.
+    When constructed with live ``scene``, ``view``, and ``osnap_toolbar``
+    references the pane applies changes live (mirroring the old dialogs) and
+    reverts them on Cancel.  Without those references only
+    ``snap_engine.SNAP_TOLERANCE_PX`` is applied live; all other settings are
+    written to / read from QSettings (MainWindow.restore_settings picks them up
+    on next startup).
+
+    Args:
+        scene: The live ``Model_Space`` (or compatible) scene, or ``None``.
+        view: The live ``Model_View`` (or compatible) view, or ``None``.
+        osnap_toolbar: The live OSNAP toolbar that exposes
+            ``refresh_from_engine()``, or ``None``.
+        parent: Optional Qt parent widget.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, scene=None, view=None, osnap_toolbar=None, parent=None):
         super().__init__("Snapping", parent)
+        self._scene = scene
+        self._view = view
+        self._osnap_toolbar = osnap_toolbar
         self._snapshot: dict = {}
         self._build_ui()
 
@@ -138,23 +149,44 @@ class SnappingPane(SettingsPane):
     # ── SettingsPane protocol ─────────────────────────────────────────────────
 
     def load(self) -> None:
-        """Snapshot current engine/QSettings state and populate widgets."""
+        """Snapshot current engine/live-object/QSettings state and populate widgets.
+
+        When ``self._scene`` / ``self._view`` are set the snapshot is taken
+        from the live objects (authoritative at runtime).  Otherwise QSettings
+        are used as the source of truth (startup / no-scene unit tests).
+        ``snap_engine.SNAP_TOLERANCE_PX`` is always snapshotted from the
+        module global.
+        """
         from firepro3d import snap_engine
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
+        # Always from the module global
         tol_px = snap_engine.SNAP_TOLERANCE_PX
-        grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
-        grid_mm = s.value("snap/grid_size", 10.0, type=float)
-        angle_deg = s.value("snap/angle_deg", 45, type=int)
-        inference = s.value("inference/alignment_guides", True, type=bool)
 
-        snap_flags: dict[str, bool] = {}
-        for _, attr in _SNAP_TYPES:
-            val = s.value(f"snap/{attr}", True)
-            if isinstance(val, str):
-                val = val.lower() not in ("false", "0")
-            snap_flags[attr] = bool(val)
+        if self._scene is not None:
+            eng = self._scene._snap_engine
+            grip_px = int(getattr(self._scene, "_grip_tolerance_px", 200))
+            angle_deg = int(self._scene._snap_angle_deg)
+            inference = bool(self._scene._inference_enabled)
+            snap_flags: dict[str, bool] = {
+                attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
+            }
+        else:
+            grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
+            angle_deg = s.value("snap/angle_deg", 45, type=int)
+            inference = s.value("inference/alignment_guides", True, type=bool)
+            snap_flags = {}
+            for _, attr in _SNAP_TYPES:
+                val = s.value(f"snap/{attr}", True)
+                if isinstance(val, str):
+                    val = val.lower() not in ("false", "0")
+                snap_flags[attr] = bool(val)
+
+        if self._view is not None:
+            grid_mm = float(self._view._grid_size)
+        else:
+            grid_mm = s.value("snap/grid_size", 10.0, type=float)
 
         # Build snapshot before touching widgets
         self._snapshot = {
@@ -176,38 +208,90 @@ class SnappingPane(SettingsPane):
             cb.setChecked(snap_flags[attr])
 
     def apply(self) -> None:
-        """Write widget values to snap_engine and persist to QSettings."""
+        """Write widget values to snap_engine, live objects, and QSettings.
+
+        Live writes are guarded by ``self._scene is not None`` /
+        ``self._view is not None`` so the pane is safe to use without a live
+        scene (unit tests, headless mode).
+        """
         from firepro3d import snap_engine
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
-        # Module-level tolerance — write live
+        # ── Module-level snap tolerance (always live) ─────────────────────────
         snap_engine.SNAP_TOLERANCE_PX = self._tol_spin.value()
         s.setValue("snap/tolerance_px", snap_engine.SNAP_TOLERANCE_PX)
 
-        # Grip tolerance — QSettings only (scene owns the live value)
-        s.setValue("snap/grip_tolerance_px", self._grip_spin.value())
+        # ── Grip tolerance ────────────────────────────────────────────────────
+        grip_px = self._grip_spin.value()
+        s.setValue("snap/grip_tolerance_px", grip_px)
+        if self._scene is not None:
+            self._scene._grip_tolerance_px = grip_px
 
-        # Per-type flags — QSettings only (scene._snap_engine owns the live values)
+        # ── Per-type snap flags ───────────────────────────────────────────────
+        if self._scene is not None:
+            eng = self._scene._snap_engine
         for attr, cb in self._snap_cbs.items():
-            s.setValue(f"snap/{attr}", cb.isChecked())
+            val = cb.isChecked()
+            s.setValue(f"snap/{attr}", val)
+            if self._scene is not None:
+                setattr(eng, attr, val)
 
-        # Grid / angle — QSettings only (view/scene own the live values)
-        s.setValue("snap/grid_size", self._grid_edit.value_mm())
-        s.setValue("snap/angle_deg", self._angle_spin.value())
+        # ── Grid spacing ──────────────────────────────────────────────────────
+        grid_mm = self._grid_edit.value_mm()
+        s.setValue("snap/grid_size", grid_mm)
+        if self._view is not None:
+            self._view.set_grid(self._view._grid_visible, grid_mm)
 
-        # Inference — QSettings only
-        s.setValue("inference/alignment_guides", self._align_cb.isChecked())
+        # ── Angle snap ────────────────────────────────────────────────────────
+        angle_deg = self._angle_spin.value()
+        s.setValue("snap/angle_deg", angle_deg)
+        if self._scene is not None:
+            self._scene._snap_angle_deg = angle_deg
+
+        # ── Inference (alignment guides) ──────────────────────────────────────
+        inference = self._align_cb.isChecked()
+        s.setValue("inference/alignment_guides", inference)
+        if self._scene is not None:
+            self._scene.set_inference_enabled(inference)
+
+        # ── OSNAP toolbar sync ────────────────────────────────────────────────
+        if self._osnap_toolbar is not None:
+            self._osnap_toolbar.refresh_from_engine()
 
     def revert(self) -> None:
-        """Restore the snapshot to snap_engine (undoes any live changes)."""
+        """Restore snapshot to live objects and snap_engine (undoes any Apply).
+
+        Live writes are guarded by the same ``self._scene`` / ``self._view``
+        None checks as ``apply()``.  The OSNAP toolbar is refreshed if present
+        so it reflects the rolled-back state.
+        """
         from firepro3d import snap_engine
 
         if not self._snapshot:
             return
 
+        # ── Module-level snap tolerance (always) ──────────────────────────────
         snap_engine.SNAP_TOLERANCE_PX = self._snapshot["tol_px"]
-        # Populate widgets back to snapshot values so the UI is consistent
+
+        # ── Live scene objects ─────────────────────────────────────────────────
+        if self._scene is not None:
+            self._scene._grip_tolerance_px = self._snapshot["grip_px"]
+            self._scene._snap_angle_deg = self._snapshot["angle_deg"]
+            self._scene.set_inference_enabled(self._snapshot["inference"])
+            eng = self._scene._snap_engine
+            for _, attr in _SNAP_TYPES:
+                setattr(eng, attr, self._snapshot[attr])
+
+        # ── Live view ─────────────────────────────────────────────────────────
+        if self._view is not None:
+            self._view.set_grid(self._view._grid_visible, self._snapshot["grid_mm"])
+
+        # ── OSNAP toolbar sync ────────────────────────────────────────────────
+        if self._osnap_toolbar is not None:
+            self._osnap_toolbar.refresh_from_engine()
+
+        # ── Populate widgets back to snapshot values ───────────────────────────
         self._tol_spin.setValue(self._snapshot["tol_px"])
         self._grip_spin.setValue(self._snapshot["grip_px"])
         self._grid_edit.set_value_mm(self._snapshot["grid_mm"])
