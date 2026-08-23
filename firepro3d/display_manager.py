@@ -229,6 +229,7 @@ _CATEGORIES: list[dict] = [
     {"key": "Hydraulic Badge",  "color": "#ffffff", "fill": "#2b2b2b", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Design Area",      "color": "#dc1e1e", "fill": "#ffc800", "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Fire Suppression"},
     {"key": "Wall",             "color": "#666666", "fill": "#999999", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
+    {"key": "Opening",         "color": "#888888", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Roof",             "color": "#8B4513", "fill": "#D2B48C", "section": "#8B4513", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Room",             "color": "#4488cc", "fill": "#4488cc", "section": None,      "section_pattern": None,        "font": 12,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
     {"key": "Floor",            "color": "#8888cc", "fill": "#8888cc", "section": "#666666", "section_pattern": "diagonal",  "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Architecture"},
@@ -461,6 +462,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_elevation_marker(item, color, scale, opacity, visible, fill_color, font_size)
     elif _is_detail_marker(item):
         _apply_detail_marker(item, color, scale, opacity, visible, fill_color, font_size)
+    elif _is_opening_item(item):
+        _apply_opening(item, color, opacity, visible)
     elif _is_geo2d_item(item):
         _apply_geo2d(item, color, opacity, visible)
     elif isinstance(item, Node):
@@ -534,12 +537,29 @@ def _is_geo2d_item(item) -> bool:
     )
 
 
+def _is_opening_item(item) -> bool:
+    """Check if item is a WallOpening (avoids circular imports)."""
+    return type(item).__name__ == "WallOpening"
+
+
 def _apply_geo2d(item, color, opacity, visible):
     """Apply display settings to a 2D draw-geometry item (LineItem, PolylineItem, etc.).
 
     Stroke colour is stored in _display_color; the paint() methods read it and
     apply it to the pen before delegating to super().paint().  Fill colour is
     already handled by draw_fill() in each paint() via _display_fill_color.
+    """
+    item._display_color = color
+    item.setVisible(visible)
+    item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
+    item.update()
+
+
+def _apply_opening(item, color, opacity, visible):
+    """Apply display settings to a WallOpening.
+
+    Stroke colour is stored in _display_color; WallOpening._paint_symbol reads
+    it and applies it to the pen used to draw the door/window symbol.
     """
     item._display_color = color
     item.setVisible(visible)
@@ -679,6 +699,8 @@ def apply_category_defaults(item):
         key = "Node"
     elif isinstance(item, WallSegment):
         key = "Wall"
+    elif _is_opening_item(item):
+        key = "Opening"
     elif isinstance(item, Room):
         key = "Room"
     elif isinstance(item, DesignArea):
@@ -3226,6 +3248,11 @@ def _items_for_category_static(scene, key: str) -> list:
         return list(getattr(scene, "_roofs", []))
     elif key == "Wall":
         return list(getattr(scene, "_walls", []))
+    elif key == "Opening":
+        openings = []
+        for wall in getattr(scene, "_walls", []):
+            openings.extend(getattr(wall, "openings", []))
+        return openings
     elif key == "Room":
         return list(getattr(scene, "_rooms", []))
     elif key == "Floor":

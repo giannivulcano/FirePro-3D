@@ -73,3 +73,15 @@ def test_blank_button_enters_opening_mode(qapp, main_window):
     mw._mode_buttons["blank"].click()
     assert mw.scene.mode == "opening"
     assert mw.scene._opening_feature_id == "blank_900"
+
+
+def test_wall_opening_maps_to_opening_family(qapp, main_window):
+    """§7.15: _family_key_for must resolve WallOpening → 'opening' (contextual tab key)."""
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtCore import QPointF
+
+    mw = main_window
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=500.0)
+    assert mw._family_key_for(op) == "opening"

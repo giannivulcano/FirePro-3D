@@ -93,3 +93,41 @@ def test_blank_opening_emits_no_3d_leaf(qapp, model_scene):
     op = WallOpening(wall=w, feature_id="blank_900", offset_along=1000.0)
     scene.addItem(op); w.openings.append(op)
     assert op.get_3d_meshes(level_manager=scene._level_manager) == []
+
+
+# ── PDF visual-gate test (§7.8/§7.15) ────────────────────────────────────────
+
+def test_opening_plots_to_pdf(qapp, model_scene, tmp_path):
+    """Render a plan containing a door opening to PDF at architectural scale.
+
+    This is the smoke-test artifact: non-empty output confirms the rendering
+    path (WallOpening._paint_symbol) produces real drawing content.
+    """
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtGui import QPdfWriter, QPainter
+    from PyQt6.QtCore import QPointF, QRectF
+
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(3000, 0), thickness_mm=200.0)
+    scene.addItem(w)
+    scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=1500.0)
+    scene.addItem(op)
+    w.openings.append(op)
+    op._reposition()
+
+    out = tmp_path / "door.pdf"
+    writer = QPdfWriter(str(out))
+    writer.setResolution(300)
+    p = QPainter(writer)
+    scene.render(
+        p,
+        QRectF(0, 0, writer.width(), writer.height()),
+        scene.itemsBoundingRect(),
+    )
+    p.end()
+
+    assert out.exists() and out.stat().st_size > 1500, (
+        f"PDF should be non-empty: {out.stat().st_size} bytes"
+    )
