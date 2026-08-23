@@ -507,6 +507,12 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Apply effective display colour (category or per-instance override).
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen())
+            pen.setColor(QColor(dc))
+            self.setPen(pen)
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -654,6 +660,12 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Apply effective display colour (category or per-instance override).
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen())
+            pen.setColor(QColor(dc))
+            self.setPen(pen)
         super().paint(painter, option, widget)
         if self.isSelected():
             ln = self.line()
@@ -883,6 +895,12 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Apply effective display colour (category or per-instance override).
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen())
+            pen.setColor(QColor(dc))
+            self.setPen(pen)
         # Draw fill FIRST (behind the outline).  The rect is axis-aligned in
         # local coords; Qt's item rotation (set_angle) rotates the whole item,
         # so the fill in local-coord space rotates with the shape for free.
@@ -1040,6 +1058,12 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Apply effective display colour (category or per-instance override).
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen())
+            pen.setColor(QColor(dc))
+            self.setPen(pen)
         # Draw fill FIRST (behind the outline)
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
@@ -1210,6 +1234,12 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Apply effective display colour (category or per-instance override).
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen())
+            pen.setColor(QColor(dc))
+            self.setPen(pen)
         # Draw fill FIRST (behind the outline); only applies when arc is closed
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
