@@ -1101,6 +1101,50 @@ class Model_View(QGraphicsView):
         menu = self._build_plan_context_menu(scene, selected, mode)
         menu.exec(event.globalPos())
 
+    # ── Fill submenu helper ────────────────────────────────────────────────
+
+    @staticmethod
+    def _build_fill_submenu(parent_menu: QMenu, scene, target) -> QMenu | None:
+        """Build and attach a Fill submenu to *parent_menu* for *target*.
+
+        Returns the created QMenu, or None if *target* is not fillable.
+        The submenu is appended to *parent_menu* before returning.
+        Mutations route through push_undo_state + item.set_property — the same
+        undo idiom used by the ribbon / property panel.
+        """
+        if not getattr(target, "is_fillable", lambda: False)():
+            return None
+
+        from .hatch_patterns import PATTERN_NAMES
+
+        fill_menu = parent_menu.addMenu("Fill")
+
+        def _apply(fill_type, pattern=None):
+            sc = target.scene()
+            if sc is None:
+                return
+            sc.push_undo_state()
+            target.set_property("Fill", fill_type)
+            if pattern is not None:
+                target.set_property("Pattern", pattern)
+            target.update()
+
+        none_act = fill_menu.addAction("None")
+        none_act.triggered.connect(lambda _=False: _apply("none"))
+
+        solid_act = fill_menu.addAction("Solid")
+        solid_act.triggered.connect(lambda _=False: _apply("solid"))
+
+        hatch_menu = fill_menu.addMenu("Hatch")
+        for name in PATTERN_NAMES:
+            _name = name  # capture
+            act = hatch_menu.addAction(_name)
+            act.triggered.connect(
+                lambda _=False, n=_name: _apply("hatch", n)
+            )
+
+        return fill_menu
+
     def _build_plan_context_menu(self, scene, selected, mode) -> QMenu:
         """Build the generic plan-view right-click menu and return it (no exec).
 
@@ -1152,6 +1196,12 @@ class Model_View(QGraphicsView):
                 off.triggered.connect(
                     lambda _checked=False, g=_g: scene._start_gridline_replicate(g, "offset")
                 )
+
+            # Fill submenu: shown when exactly one fillable item is selected
+            fillable = [i for i in selected if getattr(i, "is_fillable", lambda: False)()]
+            if len(fillable) == 1:
+                menu.addSeparator()
+                self._build_fill_submenu(menu, scene, fillable[0])
         else:
             show_all_act = menu.addAction("Show All Hidden")
             show_all_act.triggered.connect(scene._show_all_hidden)
