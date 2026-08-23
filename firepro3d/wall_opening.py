@@ -328,35 +328,64 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         stroker.setWidth(_scene_hit_width(self))
         return stroker.createStroke(path) | path
 
-    # ── Serialisation (stub — later task adds full round-trip) ───────────────
+    # ── Serialisation (§7.11) ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
         return {
-            "kind":         self._type,
-            "feature_id":   self.feature_id,
-            "width_mm":     self._width_mm,
-            "height_mm":    self._height_mm,
-            "sill_mm":      self._sill_mm,
-            "offset_along": self._offset_along,
-            "level":        self.level,
+            "feature_id":      self.feature_id,
+            "type":            self._type,
+            "width_mm":        self._width_mm,
+            "height_mm":       self._height_mm,
+            "sill_mm":         self._sill_mm,
+            "offset_along":    self._offset_along,
+            "cross_offset_mm": self.cross_offset_mm,
+            "alignment":       self.alignment,
+            "mirror_hinge":    self.mirror_hinge,
+            "mirror_facing":   self.mirror_facing,
+            "level":           self.level,
         }
 
     @classmethod
     def from_dict(cls, data: dict, wall=None) -> "WallOpening":
-        """Reconstruct from a saved dict (backward compat with old kind="door"/"window")."""
-        kind = data.get("kind", "door")
-        feature_id = data.get("feature_id") or nearest_feature_for(
-            kind, data.get("width_mm", 914.0)
-        )
+        """Reconstruct from a saved dict.
+
+        Supports two dict shapes:
+
+        * **New format** (§7.11) — has ``"feature_id"`` key; all placement
+          fields present.
+        * **Legacy format** — has ``"kind"`` key (``"door"`` / ``"window"`` /
+          ``"blank"``); ``cross_offset_mm``, ``alignment``, and ``mirror_*``
+          absent; migrated by resolving the nearest Feature for the given width.
+        """
+        # ── Feature resolution ────────────────────────────────────────────────
+        if "feature_id" in data:
+            feature_id = data["feature_id"]
+        else:
+            legacy_type = data.get("kind", "door")
+            if legacy_type not in ("door", "window", "blank"):
+                legacy_type = "door"
+            feature_id = nearest_feature_for(
+                legacy_type, float(data.get("width_mm", 914))
+            )
+
         obj = cls(
             wall=wall,
             feature_id=feature_id,
-            offset_along=data.get("offset_along", 0.0),
-            width_mm=data.get("width_mm"),
-            height_mm=data.get("height_mm"),
-            sill_mm=data.get("sill_mm"),
+            offset_along=float(data.get("offset_along", 0.0)),
+            width_mm=float(data["width_mm"]) if "width_mm" in data else None,
+            height_mm=float(data["height_mm"]) if "height_mm" in data else None,
+            sill_mm=float(data["sill_mm"]) if "sill_mm" in data else None,
         )
+
+        # ── Placement-frame fields (absent in legacy dicts → defaults) ────────
+        obj.cross_offset_mm = float(data.get("cross_offset_mm", 0.0))
+        obj.alignment = data.get("alignment", OPENING_ALIGN_CENTER)
+        obj.mirror_hinge = bool(data.get("mirror_hinge", False))
+        obj.mirror_facing = bool(data.get("mirror_facing", False))
         obj.level = data.get("level", DEFAULT_LEVEL)
+
+        if wall is not None:
+            obj._reposition()
         return obj
 
     # ── Legacy property accessors ─────────────────────────────────────────────
