@@ -18,7 +18,149 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF
-from .constants import DEFAULT_LEVEL, Z_CONSTRUCTION
+from .constants import DEFAULT_LEVEL, Z_CONSTRUCTION, Z_CAT_CONSTRUCTION
+from .displayable_item import DisplayableItemMixin
+from .hatch_patterns import PATTERN_NAMES
+
+_DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Geometry2DMixin
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Geometry2DMixin:
+    """Shared level-plane placement + fill for 2D draw geometry.
+
+    MRO: ``class X(Geometry2DMixin, DisplayableItemMixin, <QtBase>)``.
+    Call ``init_displayable()`` then ``init_geometry2d()`` in ``__init__``.
+    Fill fields are defined here but fill RENDERING is deferred to a later
+    task — do not render fill in paint().
+    """
+
+    def init_geometry2d(self, level: str = DEFAULT_LEVEL):
+        """Initialise placement + fill state.  Call after init_displayable()."""
+        self.level = level
+        self._level_offset_mm: float = 0.0
+        self.fill_type: str = "none"          # "none" | "solid" | "hatch"
+        self.fill_pattern: str = _DEFAULT_FILL_PATTERN
+        # fill colour lives in DisplayableItemMixin._display_fill_color
+
+    def z_range_mm(self):
+        """Return ``(elevation, elevation)`` in mm, or ``None`` if unavailable."""
+        sc = self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return None
+        lvl = lm.get(getattr(self, "level", None))
+        if lvl is None:
+            return None
+        e = lvl.elevation + self._level_offset_mm
+        return (e, e)
+
+    def is_fillable(self) -> bool:
+        """True if this item has a closed path (rectangle, circle, closed polyline)."""
+        gcp = getattr(self, "get_closed_path", None)
+        return gcp is not None and gcp() is not None
+
+    def _g2d_sm(self):
+        sc = self.scene()
+        return getattr(sc, "scale_manager", None) if sc else None
+
+    def _parse_dim(self, value):
+        """Parse a display-formatted or raw numeric value to mm (float or None)."""
+        if isinstance(value, (int, float)):
+            return float(value)
+        sm = self._g2d_sm()
+        if sm is not None:
+            try:
+                return sm.parse_dimension(str(value))
+            except Exception:
+                return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _fmt(self, mm: float) -> str:
+        """Format *mm* as a display string using the scene ScaleManager."""
+        sm = self._g2d_sm()
+        return sm.format_length(mm) if sm else f"{mm:.1f}"
+
+    def _elevation_str(self) -> str:
+        zr = self.z_range_mm()
+        if zr is None:
+            return "—"  # em dash
+        return self._fmt(zr[1])
+
+    def _geom2d_properties(self) -> dict:
+        props = {
+            "Level":        {"type": "level_ref", "value": self.level},
+            "Level Offset": {"type": "dimension",
+                             "value": self._fmt(self._level_offset_mm),
+                             "value_mm": self._level_offset_mm},
+            "Elevation":    {"type": "string", "value": self._elevation_str(),
+                             "readonly": True},
+        }
+        if self.is_fillable():
+            props["Fill"] = {"type": "enum",
+                             "options": ["none", "solid", "hatch"],
+                             "value": self.fill_type}
+            if self.fill_type == "hatch":
+                props["Pattern"] = {"type": "enum",
+                                    "options": list(PATTERN_NAMES),
+                                    "value": self.fill_pattern}
+            if self.fill_type in ("solid", "hatch"):
+                props["Fill Colour"] = {"type": "color",
+                                        "value": self._display_fill_color or "#888888"}
+        return props
+
+    def _geom2d_set(self, key: str, value) -> bool:
+        """Handle a property set for mixin-owned keys.  Returns True if consumed."""
+        if key == "Level":
+            self.level = str(value)
+            return True
+        if key == "Level Offset":
+            parsed = self._parse_dim(value)
+            if parsed is not None:
+                self._level_offset_mm = parsed
+            return True
+        if key == "Fill":
+            self.fill_type = str(value)
+            self.update()
+            return True
+        if key == "Pattern":
+            self.fill_pattern = str(value)
+            self.update()
+            return True
+        if key == "Fill Colour":
+            self._display_fill_color = str(value)
+            self.update()
+            return True
+        return False
+
+    def _geom2d_to_dict(self, d: dict) -> dict:
+        """Stamp mixin fields onto *d* and return it."""
+        d["level"] = self.level
+        if self._level_offset_mm != 0.0:
+            d["level_offset_mm"] = self._level_offset_mm
+        if self.fill_type != "none":
+            d["fill"] = {
+                "type":    self.fill_type,
+                "pattern": self.fill_pattern,
+                "color":   self._display_fill_color or "#888888",
+            }
+        return d
+
+    def _geom2d_from_dict(self, data: dict):
+        """Restore mixin fields from *data*."""
+        self.level = data.get("level", DEFAULT_LEVEL)
+        self._level_offset_mm = data.get("level_offset_mm", 0.0)
+        f = data.get("fill")
+        if f:
+            self.fill_type = f.get("type", "none")
+            self.fill_pattern = f.get("pattern", _DEFAULT_FILL_PATTERN)
+            self._display_fill_color = f.get("color")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +344,7 @@ class ConstructionLine(QGraphicsLineItem):
 # PolylineItem
 # ─────────────────────────────────────────────────────────────────────────────
 
-class PolylineItem(QGraphicsPathItem):
+class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     """
     A multi-segment open polyline drawn by successive mouse clicks.
 
@@ -221,7 +363,9 @@ class PolylineItem(QGraphicsPathItem):
                  lineweight: float = 1.0):
         super().__init__()
         self._points: list[QPointF] = [start]
-        self.level: str = DEFAULT_LEVEL
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -229,7 +373,7 @@ class PolylineItem(QGraphicsPathItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(Z_CONSTRUCTION)
+        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -238,15 +382,18 @@ class PolylineItem(QGraphicsPathItem):
     # ── Properties ─────────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Type": {"type": "label", "value": "Polyline"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Vertices": {"type": "label", "value": str(len(self._points))},
         }
+        props.update(self._geom2d_properties())
+        return props
 
     def set_property(self, key: str, value):
-        pass
+        if self._geom2d_set(key, value):
+            return
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -309,13 +456,13 @@ class PolylineItem(QGraphicsPathItem):
 
     def to_dict(self) -> dict:
         pen_color = self.pen().color().name()
-        return {
+        d = {
             "type":       "polyline",
             "color":      pen_color,
             "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
-            "level":      self.level,
         }
+        return self._geom2d_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "PolylineItem":
@@ -325,7 +472,7 @@ class PolylineItem(QGraphicsPathItem):
         obj = cls(pts[0], color, lw)
         for p in pts[1:]:
             obj.append_point(p)
-        obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._geom2d_from_dict(data)
         return obj
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -362,7 +509,7 @@ class PolylineItem(QGraphicsPathItem):
 # LineItem  — finite 2-point line (AutoCAD-style Line tool)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class LineItem(QGraphicsLineItem):
+class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
     """
     A finite 2-point line with configurable colour and lineweight.
 
@@ -378,14 +525,16 @@ class LineItem(QGraphicsLineItem):
         super().__init__()
         self._pt1 = pt1
         self._pt2 = pt2
-        self.level: str = DEFAULT_LEVEL
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
 
-        self.setZValue(Z_CONSTRUCTION)
+        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -394,27 +543,30 @@ class LineItem(QGraphicsLineItem):
     # ── Properties ─────────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Type": {"type": "label", "value": "Line"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
             "Length": {"type": "label", "value": f"{self.line().length():.1f}"},
         }
+        props.update(self._geom2d_properties())
+        return props
 
     def set_property(self, key: str, value):
-        pass
+        if self._geom2d_set(key, value):
+            return
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":        "draw_line",
             "pt1":         [self._pt1.x(), self._pt1.y()],
             "pt2":         [self._pt2.x(), self._pt2.y()],
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "level":       self.level,
         }
+        return self._geom2d_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "LineItem":
@@ -422,7 +574,7 @@ class LineItem(QGraphicsLineItem):
         pt2 = QPointF(data["pt2"][0], data["pt2"][1])
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
-        obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._geom2d_from_dict(data)
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -491,7 +643,7 @@ class LineItem(QGraphicsLineItem):
 # RectangleItem  — axis-aligned rectangle (two corner clicks)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class RectangleItem(QGraphicsRectItem):
+class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     """
     An axis-aligned rectangle defined by two opposite corners.
 
@@ -506,7 +658,9 @@ class RectangleItem(QGraphicsRectItem):
                  color: str | QColor = "#ffffff", lineweight: float = 1.0):
         rect = QRectF(pt1, pt2).normalized()
         super().__init__(rect)
-        self.level: str = DEFAULT_LEVEL
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -514,7 +668,7 @@ class RectangleItem(QGraphicsRectItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(Z_CONSTRUCTION)
+        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
@@ -554,7 +708,7 @@ class RectangleItem(QGraphicsRectItem):
 
     def get_properties(self) -> dict:
         r = self.rect()
-        return {
+        props = {
             "Type": {"type": "label", "value": "Rectangle"},
             "Width": {"type": "label", "value": f"{r.width():.1f}"},
             "Height": {"type": "label", "value": f"{r.height():.1f}"},
@@ -562,9 +716,12 @@ class RectangleItem(QGraphicsRectItem):
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
+        props.update(self._geom2d_properties())
+        return props
 
     def set_property(self, key: str, value):
-        pass
+        if self._geom2d_set(key, value):
+            return
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
@@ -576,7 +733,7 @@ class RectangleItem(QGraphicsRectItem):
         # pin the origin, so a later resize (reachable via undo, which uses this
         # same path) would rotate about the stale point instead of re-centring.
         pivot = None if self._pivot is None else [self._pivot.x(), self._pivot.y()]
-        return {
+        d = {
             "type":        "draw_rectangle",
             "x":           r.x(),
             "y":           r.y(),
@@ -584,10 +741,10 @@ class RectangleItem(QGraphicsRectItem):
             "h":           r.height(),
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "level":       self.level,
             "angle":       self._angle,
             "pivot":       pivot,
         }
+        return self._geom2d_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "RectangleItem":
@@ -595,7 +752,7 @@ class RectangleItem(QGraphicsRectItem):
         pt2 = QPointF(data["x"] + data["w"], data["y"] + data["h"])
         obj = cls(pt1, pt2, data.get("color", "#ffffff"),
                   data.get("lineweight", 1.0))
-        obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._geom2d_from_dict(data)
         # Back-compat: pre-rotation records have no "angle"/"pivot" — default to
         # 0° about the rect centre, an identity transform (renders axis-aligned
         # exactly as before).  A stored null pivot means "follow the centre", so
@@ -713,7 +870,7 @@ class RectangleItem(QGraphicsRectItem):
 # CircleItem  — circle defined by centre + edge point
 # ─────────────────────────────────────────────────────────────────────────────
 
-class CircleItem(QGraphicsEllipseItem):
+class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     """
     A circle defined by its centre and one point on the circumference.
 
@@ -731,7 +888,9 @@ class CircleItem(QGraphicsEllipseItem):
         self._radius = radius
         r = radius
         super().__init__(center.x() - r, center.y() - r, 2 * r, 2 * r)
-        self.level: str = DEFAULT_LEVEL
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
 
         pen = QPen(QColor(color) if isinstance(color, str) else color)
         pen.setWidthF(lineweight)
@@ -739,43 +898,46 @@ class CircleItem(QGraphicsEllipseItem):
         self.setPen(pen)
         self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
 
-        self.setZValue(Z_CONSTRUCTION)
+        self.setZValue(Z_CAT_CONSTRUCTION)
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
     # ── Properties ─────────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        return {
+        props = {
             "Type": {"type": "label", "value": "Circle"},
             "Centre": {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
             "Radius": {"type": "label", "value": f"{self._radius:.1f}"},
             "Colour": {"type": "label", "value": self.pen().color().name()},
             "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
+        props.update(self._geom2d_properties())
+        return props
 
     def set_property(self, key: str, value):
-        pass
+        if self._geom2d_set(key, value):
+            return
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":        "draw_circle",
             "cx":          self._center.x(),
             "cy":          self._center.y(),
             "radius":      self._radius,
             "color":       self.pen().color().name(),
             "lineweight":  self.pen().widthF(),
-            "level":       self.level,
         }
+        return self._geom2d_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "CircleItem":
         center = QPointF(data["cx"], data["cy"])
         obj = cls(center, data["radius"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
-        obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._geom2d_from_dict(data)
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
@@ -849,7 +1011,7 @@ class CircleItem(QGraphicsEllipseItem):
 # ArcItem
 # ─────────────────────────────────────────────────────────────────────────────
 
-class ArcItem(QGraphicsPathItem):
+class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     """
     A circular arc defined by centre, radius, start angle and span angle.
     Angles are in degrees, measured counter-clockwise from the +X axis
@@ -865,7 +1027,10 @@ class ArcItem(QGraphicsPathItem):
         self._radius = max(radius, 0.01)
         self._start_deg = start_deg
         self._span_deg = span_deg
-        self.level: str = DEFAULT_LEVEL
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
         pen = QPen(QColor(color), lineweight)
         pen.setCosmetic(True)
         self.setPen(pen)
@@ -887,25 +1052,26 @@ class ArcItem(QGraphicsPathItem):
     # ── Properties ─────────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        return {
-            "Type":        {"type": "label",     "value": "Arc"},
-            "Centre":      {"type": "label",     "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
-            "Radius":      {"type": "label",     "value": f"{self._radius:.1f}"},
-            "Start Angle": {"type": "label",     "value": f"{self._start_deg:.1f}°"},
-            "Span":        {"type": "label",     "value": f"{self._span_deg:.1f}°"},
-            "Colour":      {"type": "label",     "value": self.pen().color().name()},
-            "Line Weight": {"type": "label",     "value": f"{self.pen().widthF():.1f}"},
-            "Level":       {"type": "level_ref", "value": self.level},
+        props = {
+            "Type":        {"type": "label", "value": "Arc"},
+            "Centre":      {"type": "label", "value": f"({self._center.x():.1f}, {self._center.y():.1f})"},
+            "Radius":      {"type": "label", "value": f"{self._radius:.1f}"},
+            "Start Angle": {"type": "label", "value": f"{self._start_deg:.1f}°"},
+            "Span":        {"type": "label", "value": f"{self._span_deg:.1f}°"},
+            "Colour":      {"type": "label", "value": self.pen().color().name()},
+            "Line Weight": {"type": "label", "value": f"{self.pen().widthF():.1f}"},
         }
+        props.update(self._geom2d_properties())
+        return props
 
     def set_property(self, key: str, value):
-        if key == "Level":
-            self.level = str(value)
+        if self._geom2d_set(key, value):
+            return
 
     # ── Serialisation ─────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "type":       "arc",
             "cx":         self._center.x(),
             "cy":         self._center.y(),
@@ -914,15 +1080,15 @@ class ArcItem(QGraphicsPathItem):
             "span_deg":   self._span_deg,
             "color":      self.pen().color().name(),
             "lineweight": self.pen().widthF(),
-            "level":      self.level,
         }
+        return self._geom2d_to_dict(d)
 
     @classmethod
     def from_dict(cls, data: dict) -> "ArcItem":
         center = QPointF(data["cx"], data["cy"])
         obj = cls(center, data["radius"], data["start_deg"], data["span_deg"],
                   data.get("color", "#ffffff"), data.get("lineweight", 1.0))
-        obj.level = data.get("level", DEFAULT_LEVEL)
+        obj._geom2d_from_dict(data)
         return obj
 
     # ── Grip protocol ─────────────────────────────────────────────────────────
