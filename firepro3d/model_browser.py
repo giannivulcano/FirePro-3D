@@ -22,7 +22,6 @@ from PyQt6.QtGui import QFont, QColor, QBrush
 from . import theme as th
 from .wall import WallSegment
 from .floor_slab import FloorSlab
-from .wall_opening import DoorOpening, WindowOpening
 from .pipe import Pipe
 from .node import Node
 from .underlay import Underlay
@@ -237,7 +236,7 @@ class ModelBrowser(QWidget):
             doors: list = []
             for wall in walls:
                 for op in getattr(wall, "openings", []):
-                    if isinstance(op, DoorOpening):
+                    if getattr(op, "_type", "door") == "door":
                         doors.append(op)
             doors_root = QTreeWidgetItem(self._tree, [f"Doors ({len(doors)})"])
             doors_root.setFont(0, f_bold)
@@ -250,7 +249,7 @@ class ModelBrowser(QWidget):
             windows: list = []
             for wall in walls:
                 for op in getattr(wall, "openings", []):
-                    if isinstance(op, WindowOpening):
+                    if getattr(op, "_type", "") == "window":
                         windows.append(op)
             windows_root = QTreeWidgetItem(self._tree, [f"Windows ({len(windows)})"])
             windows_root.setFont(0, f_bold)

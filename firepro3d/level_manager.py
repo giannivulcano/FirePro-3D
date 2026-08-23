@@ -517,7 +517,8 @@ class LevelManager:
             "RoofItem":       Z_CAT_ROOF,
             "Room":           Z_CAT_ROOM,
             "WallSegment":    Z_CAT_WALL,
-            "DoorOpening":    Z_CAT_OPENING,
+            "WallOpening":    Z_CAT_OPENING,   # redesigned first-class opening
+            "DoorOpening":    Z_CAT_OPENING,   # legacy aliases (= WallOpening)
             "WindowOpening":  Z_CAT_OPENING,
             "Pipe":           Z_CAT_PIPE,
             "Node":           Z_CAT_NODE,
