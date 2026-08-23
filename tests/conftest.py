@@ -26,6 +26,31 @@ def qapp():
 
 
 @pytest.fixture
+def model_scene(qapp):
+    """Factory fixture that returns a callable producing a fresh Model_Space
+    with a LevelManager (Level 1 at elevation 0.0) and a ScaleManager.
+
+    Usage in tests::
+
+        def test_foo(qapp, model_scene):
+            scene = model_scene()
+            ...
+    """
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+
+    def _factory():
+        s = Model_Space()
+        lm = LevelManager()            # seeds Level 1 (elevation 0.0) by default
+        s._level_manager = lm
+        s.scale_manager = ScaleManager()
+        return s
+
+    return _factory
+
+
+@pytest.fixture
 def tiny_png_b64(qapp):
     """A 4×4 solid-color (0xFF336699) PNG encoded as base64 ASCII.
 

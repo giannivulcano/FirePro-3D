@@ -1,12 +1,30 @@
 """
 wall_opening.py
 ===============
-Door and Window opening entities for FirePro 3D.
+First-class, wall-hosted Opening entity (door / window / blank) for FirePro 3D.
 
-Openings belong to a parent WallSegment and are defined by their
-position along the wall centerline, width, height, and (for windows)
-sill height.  They produce standard 2D plan-view symbols and cut
-rectangular holes from the wall's 3D mesh.
+An opening is parameterised by a FeatureDef (from ``feature.py``) and placed
+on a host WallSegment via a local reference frame:
+
+* ``_offset_along``  — distance from host pt1 to opening centre, scene units;
+                       clamped to [0, wall_length] on reposition.
+* ``cross_offset_mm``— signed cross-wall displacement (mm); stored as the
+                       user's typed value; NOT clamped (user can go off-wall).
+* ``alignment``      — preset cross-wall alignment (Centered / Flush-front /
+                       Flush-back); shifts the effective cross position without
+                       overwriting the typed ``cross_offset_mm``.
+* ``mirror_hinge``   — flip the door leaf / hinge side (along-wall axis).
+* ``mirror_facing``  — flip which wall face is "front" — negates the effective
+                       cross displacement (proud-stays-proud invariant: a
+                       positive cross_offset_mm always means "toward the current
+                       front face").
+
+See docs/specs/wall-room-floor-system.md §7.4 / §7.5 / §7.7 / §7.9.
+
+Backward-compat aliases ``DoorOpening`` and ``WindowOpening`` are provided at
+the bottom so existing import sites in model_space.py / model_browser.py /
+scene_io.py continue to resolve without change.  They will be reworked in later
+tasks once all call sites are updated.
 """
 
 from __future__ import annotations
@@ -16,24 +34,30 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QGraphicsPathItem, QStyle, QGraphicsItem
 from PyQt6.QtCore import Qt, QPointF
-from PyQt6.QtGui import (
-    QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
+from PyQt6.QtGui import QPen, QColor, QPainterPath, QPainterPathStroker
+
+from .displayable_item import DisplayableItemMixin
+from .constants import (
+    DEFAULT_LEVEL, Z_CAT_OPENING,
+    OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK,
 )
+from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for
 
 if TYPE_CHECKING:
     from .wall import WallSegment
 
-from .constants import DEFAULT_LEVEL
+_SELECTION_COLOR = QColor("red")
+_DOOR_COLOR = QColor("#aa6633")
+_WINDOW_COLOR = QColor("#3399cc")
 
 
-# ── Preset libraries ─────────────────────────────────────────────────────────
+# ── Preset libraries (legacy — kept for backward compat with from_dict) ───────
 
-# Width × Height in mm
 DOOR_PRESETS = {
     "820×2040":  (820,  2040),
     "920×2040":  (920,  2040),
     "1200×2040": (1200, 2040),
-    "1800×2040": (1800, 2040),   # double door
+    "1800×2040": (1800, 2040),
 }
 DOOR_DEFAULT = "920×2040"
 
@@ -44,10 +68,6 @@ WINDOW_PRESETS = {
     "1800×1200": (1800, 1200),
 }
 WINDOW_DEFAULT = "900×1200"
-
-_SELECTION_COLOR = QColor("red")
-_DOOR_COLOR = QColor("#aa6633")
-_WINDOW_COLOR = QColor("#3399cc")
 
 
 def _scene_hit_width(item) -> float:
@@ -60,99 +80,242 @@ def _scene_hit_width(item) -> float:
     return 6.0
 
 
-# ── Base class ───────────────────────────────────────────────────────────────
+# ── WallOpening ───────────────────────────────────────────────────────────────
 
-class WallOpening(QGraphicsPathItem):
-    """Base class for openings in a wall segment.
+class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
+    """First-class, wall-hosted Opening parameterised by a FeatureDef.
 
-    An opening is positioned along the wall by ``offset_along``, which is
-    the distance from pt1 of the parent wall to the center of the opening
-    (in scene units).
+    A single class handles all opening types ("door" | "window" | "blank");
+    the FeatureDef supplies type-specific defaults.  Rendering (``_rebuild_path``
+    / ``_paint_symbol``) is stubbed — later tasks implement the 2D symbols.
+
+    Args:
+        wall:       Host WallSegment, or ``None`` for a detached opening.
+        feature_id: Key into ``FEATURE_REGISTRY`` (default "door_914").
+        offset_along: Distance (scene units) from host ``pt1`` to opening centre.
+        width_mm:   Override feature default width (mm), or ``None`` to use default.
+        height_mm:  Override feature default height (mm), or ``None`` to use default.
+        sill_mm:    Override feature default sill height (mm), or ``None`` to use
+                    default.
     """
 
-    KIND = "opening"   # overridden by subclasses
+    KIND = "opening"   # matches legacy test checks; used by to_dict
 
-    def __init__(self, wall: WallSegment | None = None,
-                 width_mm: float = 920.0,
-                 height_mm: float = 2040.0,
-                 sill_mm: float = 0.0,
-                 offset_along: float = 0.0):
-        super().__init__()
+    def __init__(self, wall=None, *, feature_id: str = "door_914",
+                 offset_along: float = 0.0,
+                 width_mm=None, height_mm=None, sill_mm=None,
+                 # Legacy kwargs accepted but ignored — kept so old call sites
+                 # like DoorOpening(wall=w, offset_along=x) still work through
+                 # the alias without TypeError.
+                 preset=None,
+                 **_legacy):
+        QGraphicsPathItem.__init__(self)
+        self.init_displayable(level=DEFAULT_LEVEL)
+
+        # ── Feature resolution ────────────────────────────────────────────────
+        fdef = FEATURE_REGISTRY.get(feature_id) or get_feature("door_914")
+        self.feature_id: str = fdef.id
+        self._type: str = fdef.type
+        self._leaves: int = fdef.leaves
+
+        # ── Dimensional overrides ─────────────────────────────────────────────
+        self._width_mm: float = float(width_mm if width_mm is not None
+                                      else fdef.default_width_mm)
+        self._height_mm: float = float(height_mm if height_mm is not None
+                                       else fdef.default_height_mm)
+        self._sill_mm: float = float(sill_mm if sill_mm is not None
+                                     else fdef.default_sill_mm)
+
+        # ── Placement frame ───────────────────────────────────────────────────
         self._wall = wall
-        self._width_mm: float = width_mm
-        self._height_mm: float = height_mm
-        self._sill_mm: float = sill_mm         # distance from floor (windows)
-        self._offset_along: float = offset_along  # scene units from wall pt1
+        self._offset_along: float = float(offset_along)
 
-        self.level: str = DEFAULT_LEVEL
+        # Cross-wall offset (mm) — the user's typed value; never clamped.
+        self.cross_offset_mm: float = 0.0
+        # Alignment preset: shifts effective cross position without mutating
+        # cross_offset_mm.
+        self.alignment: str = OPENING_ALIGN_CENTER
+        # Mirror flags
+        self.mirror_hinge: bool = False    # flip leaf/hinge side (along-wall)
+        self.mirror_facing: bool = False   # flip front/back face (cross-wall)
 
-        self.setZValue(-45)
+        # ── Qt item setup ─────────────────────────────────────────────────────
+        self.setZValue(Z_CAT_OPENING)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
 
         if wall is not None:
             self._reposition()
 
-    # ── Geometry ─────────────────────────────────────────────────────────────
+    # ── Host wall ─────────────────────────────────────────────────────────────
 
     @property
-    def wall(self) -> WallSegment | None:
+    def wall(self):
         return self._wall
 
     @wall.setter
-    def wall(self, w: WallSegment | None):
+    def wall(self, w):
         self._wall = w
         if w is not None:
             self._reposition()
 
-    def width_scene(self) -> float:
-        """Opening width in scene units."""
-        sc = self.scene() if self._wall is None else self._wall.scene()
+    # ── Dimensional properties (with public setters for tests) ────────────────
+
+    @property
+    def width_mm(self) -> float:
+        return self._width_mm
+
+    @width_mm.setter
+    def width_mm(self, v: float):
+        self._width_mm = float(v)
+
+    @property
+    def height_mm(self) -> float:
+        return self._height_mm
+
+    @height_mm.setter
+    def height_mm(self, v: float):
+        self._height_mm = float(v)
+
+    @property
+    def sill_mm(self) -> float:
+        return self._sill_mm
+
+    @sill_mm.setter
+    def sill_mm(self, v: float):
+        self._sill_mm = float(v)
+
+    @property
+    def openings_type(self) -> str:
+        """Opening type string: "door" | "window" | "blank"."""
+        return self._type
+
+    # ── Scene/unit helpers ────────────────────────────────────────────────────
+
+    def _mm_to_scene(self, mm: float) -> float:
+        """Convert mm to scene units using the attached scene's ScaleManager."""
+        sc = self._wall.scene() if self._wall is not None else self.scene()
         if sc and hasattr(sc, "scale_manager"):
             sm = sc.scale_manager
-            if sm.is_calibrated and sm.drawing_scale > 0:
-                paper_mm = self._width_mm / sm.drawing_scale
-                return sm.paper_to_scene(paper_mm)
-        return self._width_mm * 0.15   # fallback
+            if sm.drawing_scale > 0:
+                return sm.paper_to_scene(mm / sm.drawing_scale)
+        return mm * 0.15  # fallback: 1 scene-unit ≈ 0.15 mm
+
+    def width_scene(self) -> float:
+        """Opening width in scene units."""
+        return self._mm_to_scene(self._width_mm)
+
+    def _half_thickness_mm(self) -> float:
+        """Half the host wall thickness (mm)."""
+        if self._wall is not None:
+            return self._wall._thickness_mm / 2.0
+        return 0.0
+
+    # ── Cross-wall displacement (the "proud-stays-proud" math) ───────────────
+
+    def _cross_offset_effective_mm(self) -> float:
+        """Compute the signed cross-wall displacement (mm) for the current
+        alignment preset, then apply the facing mirror.
+
+        The user's typed ``cross_offset_mm`` is the base value.  The alignment
+        preset adds or subtracts half the wall thickness so the opening sits:
+        * Centered  — on the wall centreline (no shift).
+        * Flush-front — shifted toward the +normal face by half thickness.
+        * Flush-back  — shifted toward the -normal face by half thickness.
+
+        ``mirror_facing`` negates the result so the opening flips sides while
+        the typed offset magnitude is preserved (proud-stays-proud).
+        """
+        base = self.cross_offset_mm
+        if self.alignment == OPENING_ALIGN_FRONT:
+            base += self._half_thickness_mm()
+        elif self.alignment == OPENING_ALIGN_BACK:
+            base -= self._half_thickness_mm()
+        # Centered: no extra shift
+        return -base if self.mirror_facing else base
+
+    # ── Geometry ──────────────────────────────────────────────────────────────
 
     def center_on_wall(self) -> QPointF:
-        """World position of the opening center on the wall centerline."""
+        """World position of the opening centre (along + cross of host wall)."""
         if self._wall is None:
             return QPointF(0, 0)
         a = self._wall.centerline_angle_rad()
-        return QPointF(
+        nx, ny = self._wall.normal()   # unit normal (tuple[float, float])
+        # Along-wall component (scene units)
+        along = QPointF(
             self._wall.pt1.x() + self._offset_along * math.cos(a),
             self._wall.pt1.y() + self._offset_along * math.sin(a),
         )
+        # Cross-wall component (convert mm → scene units)
+        cross_scene = self._mm_to_scene(self._cross_offset_effective_mm())
+        return QPointF(along.x() + nx * cross_scene,
+                       along.y() + ny * cross_scene)
 
     def _reposition(self):
-        """Recompute path and position based on parent wall."""
+        """Clamp along-wall offset and sync the Qt item position."""
         if self._wall is None:
             return
         length = self._wall.centerline_length()
         self._offset_along = max(0.0, min(self._offset_along, length))
-        center = self.center_on_wall()
-        self.setPos(center)
+        self.setPos(self.center_on_wall())
         self._rebuild_path()
 
     def _rebuild_path(self):
-        """Override in subclasses for door/window specific symbols."""
-        pass
+        """Stub — rendering is implemented in a later task."""
+        self.setPath(QPainterPath())
 
-    # ── Paint ────────────────────────────────────────────────────────────────
+    # ── Z range ───────────────────────────────────────────────────────────────
+
+    def z_range_mm(self) -> tuple[float, float] | None:
+        """Return (z_bottom, z_top) in absolute mm from the assigned level.
+
+        Returns ``None`` when no LevelManager is reachable or the level name
+        is not registered.
+        """
+        # Prefer the wall's scene (opening may not be in the scene itself yet)
+        sc = (self._wall.scene() if self._wall is not None else None) or self.scene()
+        lm = getattr(sc, "_level_manager", None) if sc else None
+        if lm is None:
+            return None
+        lvl = lm.get(self.level)
+        if lvl is None:
+            return None
+        z_bot = lvl.elevation + self._sill_mm
+        z_top = lvl.elevation + self._sill_mm + self._height_mm
+        return (z_bot, z_top)
+
+    def fits_within_wall(self) -> bool:
+        """True when the opening's Z range lies within the host wall's Z range."""
+        zr = self.z_range_mm()
+        wr = self._wall.z_range_mm() if self._wall is not None else None
+        if zr is None or wr is None:
+            return True
+        return wr[0] - 1e-6 <= zr[0] and zr[1] <= wr[1] + 1e-6
+
+    # ── Move support (for grip/drag) ──────────────────────────────────────────
+
+    def translate(self, dx: float, dy: float):
+        """Shift the along-wall offset by the wall-projected component of (dx, dy)."""
+        if self._wall is None:
+            return
+        a = self._wall.centerline_angle_rad()
+        self._offset_along += dx * math.cos(a) + dy * math.sin(a)
+        self._reposition()
+
+    # ── Paint ─────────────────────────────────────────────────────────────────
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
-        # Subclasses implement drawing
         self._paint_symbol(painter)
         if self.isSelected():
-            sel_pen = QPen(_SELECTION_COLOR, 2)
-            sel_pen.setCosmetic(True)
-            painter.setPen(sel_pen)
+            pen = QPen(_SELECTION_COLOR, 2)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self.path())
 
     def _paint_symbol(self, painter):
-        """Override in subclasses."""
+        """Stub — rendering is implemented in a later task."""
         pass
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
@@ -165,17 +328,44 @@ class WallOpening(QGraphicsPathItem):
         stroker.setWidth(_scene_hit_width(self))
         return stroker.createStroke(path) | path
 
-    # ── Properties ───────────────────────────────────────────────────────────
+    # ── Serialisation (stub — later task adds full round-trip) ───────────────
 
-    def _fmt(self, mm: float) -> str:
-        from .format_utils import fmt_length
-        return fmt_length(self, mm)
+    def to_dict(self) -> dict:
+        return {
+            "kind":         self._type,
+            "feature_id":   self.feature_id,
+            "width_mm":     self._width_mm,
+            "height_mm":    self._height_mm,
+            "sill_mm":      self._sill_mm,
+            "offset_along": self._offset_along,
+            "level":        self.level,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, wall=None) -> "WallOpening":
+        """Reconstruct from a saved dict (backward compat with old kind="door"/"window")."""
+        kind = data.get("kind", "door")
+        feature_id = data.get("feature_id") or nearest_feature_for(
+            kind, data.get("width_mm", 914.0)
+        )
+        obj = cls(
+            wall=wall,
+            feature_id=feature_id,
+            offset_along=data.get("offset_along", 0.0),
+            width_mm=data.get("width_mm"),
+            height_mm=data.get("height_mm"),
+            sill_mm=data.get("sill_mm"),
+        )
+        obj.level = data.get("level", DEFAULT_LEVEL)
+        return obj
+
+    # ── Legacy property accessors ─────────────────────────────────────────────
 
     def get_properties(self) -> dict:
         return {
-            "Type":       {"type": "label", "value": self.KIND.title()},
-            "Width":      {"type": "string", "value": self._fmt(self._width_mm)},
-            "Height":     {"type": "string", "value": self._fmt(self._height_mm)},
+            "Type":   {"type": "label",  "value": self._type.title()},
+            "Width":  {"type": "string", "value": self._fmt(self._width_mm)},
+            "Height": {"type": "string", "value": self._fmt(self._height_mm)},
         }
 
     def set_property(self, key: str, value):
@@ -191,215 +381,12 @@ class WallOpening(QGraphicsPathItem):
             except (ValueError, TypeError):
                 return
 
-    # ── Serialisation ────────────────────────────────────────────────────────
 
-    def to_dict(self) -> dict:
-        return {
-            "kind":          self.KIND,
-            "width_mm":      self._width_mm,
-            "height_mm":     self._height_mm,
-            "sill_mm":       self._sill_mm,
-            "offset_along":  self._offset_along,
-            "level":         self.level,
-        }
+# ── Backward-compat aliases ───────────────────────────────────────────────────
+# model_space.py, model_browser.py, scene_io.py and __init__.py import these by
+# name.  They point to WallOpening so isinstance checks continue to work.
+# Later tasks rework all call sites and remove these aliases.
 
-    @classmethod
-    def from_dict(cls, data: dict, wall: WallSegment | None = None) -> "WallOpening":
-        kind = data.get("kind", "door")
-        if kind == "window":
-            obj = WindowOpening(
-                wall=wall,
-                width_mm=data.get("width_mm", 900),
-                height_mm=data.get("height_mm", 1200),
-                sill_mm=data.get("sill_mm", 900),
-                offset_along=data.get("offset_along", 0),
-            )
-        else:
-            obj = DoorOpening(
-                wall=wall,
-                width_mm=data.get("width_mm", 920),
-                height_mm=data.get("height_mm", 2040),
-                offset_along=data.get("offset_along", 0),
-            )
-        obj.level = data.get("level", DEFAULT_LEVEL)
-        return obj
-
-    # ── Translate ────────────────────────────────────────────────────────────
-
-    def translate(self, dx: float, dy: float):
-        """Move along wall — adjust offset_along by projected distance."""
-        if self._wall is None:
-            return
-        a = self._wall.centerline_angle_rad()
-        proj = dx * math.cos(a) + dy * math.sin(a)
-        self._offset_along += proj
-        length = self._wall.centerline_length()
-        self._offset_along = max(0.0, min(self._offset_along, length))
-        self._reposition()
-
-
-# ── DoorOpening ──────────────────────────────────────────────────────────────
-
-class DoorOpening(WallOpening):
-    """Door opening — 2D symbol: rectangle with arc swing indicator."""
-
-    KIND = "door"
-
-    def __init__(self, wall=None, width_mm=920, height_mm=2040,
-                 offset_along=0, preset: str | None = None):
-        if preset and preset in DOOR_PRESETS:
-            width_mm, height_mm = DOOR_PRESETS[preset]
-        super().__init__(wall=wall, width_mm=width_mm, height_mm=height_mm,
-                         sill_mm=0, offset_along=offset_along)
-        self._preset: str = preset or DOOR_DEFAULT
-
-    def _rebuild_path(self):
-        if self._wall is None:
-            self.setPath(QPainterPath())
-            return
-
-        half_w = self.width_scene() / 2.0
-        ht = self._wall.half_thickness_scene()
-        a = self._wall.centerline_angle_rad()
-
-        # Local coords: wall runs along X, normal along Y
-        path = QPainterPath()
-        # Gap rectangle (clear wall lines)
-        path.addRect(-half_w, -ht, half_w * 2, ht * 2)
-        # Door swing arc (90-degree arc from hinge side)
-        arc_rect = QPainterPath()
-        arc_rect.moveTo(-half_w, -ht)
-        arc_rect.arcTo(-half_w - half_w, -ht - half_w * 2,
-                       half_w * 2, half_w * 2, 0, -90)
-        path.addPath(arc_rect)
-
-        self.setPath(path)
-        # Rotate to match wall angle
-        self.setRotation(math.degrees(a))
-
-    def _paint_symbol(self, painter):
-        if self._wall is None:
-            return
-        half_w = self.width_scene() / 2.0
-        ht = self._wall.half_thickness_scene()
-
-        pen = QPen(_DOOR_COLOR, 1.5)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-
-        # Clear fill for gap
-        painter.setBrush(QBrush(QColor(30, 30, 30)))
-        painter.drawRect(QPointF(-half_w, -ht).x(), QPointF(-half_w, -ht).y(),
-                         half_w * 2, ht * 2)
-
-        # Door leaf line
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawLine(QPointF(-half_w, ht), QPointF(half_w, ht))
-
-        # Swing arc
-        from PyQt6.QtCore import QRectF
-        arc_rect = QRectF(-half_w, ht - half_w * 2, half_w * 2, half_w * 2)
-        painter.drawArc(arc_rect, 0, 90 * 16)
-
-    def get_properties(self) -> dict:
-        props = super().get_properties()
-        props["Preset"] = {
-            "type": "enum",
-            "value": self._preset,
-            "options": list(DOOR_PRESETS.keys()) + ["Custom"],
-        }
-        return props
-
-    def set_property(self, key: str, value):
-        if key == "Preset" and value in DOOR_PRESETS:
-            self._preset = value
-            self._width_mm, self._height_mm = DOOR_PRESETS[value]
-            self._reposition()
-        else:
-            super().set_property(key, value)
-
-
-# ── WindowOpening ────────────────────────────────────────────────────────────
-
-class WindowOpening(WallOpening):
-    """Window opening — 2D symbol: rectangle with crossing diagonal lines."""
-
-    KIND = "window"
-
-    def __init__(self, wall=None, width_mm=900, height_mm=1200,
-                 sill_mm=900, offset_along=0, preset: str | None = None):
-        if preset and preset in WINDOW_PRESETS:
-            width_mm, height_mm = WINDOW_PRESETS[preset]
-        super().__init__(wall=wall, width_mm=width_mm, height_mm=height_mm,
-                         sill_mm=sill_mm, offset_along=offset_along)
-        self._preset: str = preset or WINDOW_DEFAULT
-
-    def _rebuild_path(self):
-        if self._wall is None:
-            self.setPath(QPainterPath())
-            return
-
-        half_w = self.width_scene() / 2.0
-        ht = self._wall.half_thickness_scene()
-        a = self._wall.centerline_angle_rad()
-
-        path = QPainterPath()
-        # Rectangle
-        path.addRect(-half_w, -ht, half_w * 2, ht * 2)
-        # Crossing lines
-        path.moveTo(-half_w, -ht)
-        path.lineTo(half_w, ht)
-        path.moveTo(-half_w, ht)
-        path.lineTo(half_w, -ht)
-
-        self.setPath(path)
-        self.setRotation(math.degrees(a))
-
-    def _paint_symbol(self, painter):
-        if self._wall is None:
-            return
-        half_w = self.width_scene() / 2.0
-        ht = self._wall.half_thickness_scene()
-
-        pen = QPen(_WINDOW_COLOR, 1.5)
-        pen.setCosmetic(True)
-        painter.setPen(pen)
-
-        # Fill for gap
-        painter.setBrush(QBrush(QColor(40, 60, 80, 100)))
-        from PyQt6.QtCore import QRectF
-        rect = QRectF(-half_w, -ht, half_w * 2, ht * 2)
-        painter.drawRect(rect)
-
-        # Crossing diagonals
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawLine(QPointF(-half_w, -ht), QPointF(half_w, ht))
-        painter.drawLine(QPointF(-half_w, ht), QPointF(half_w, -ht))
-
-        # Center horizontal line (glass pane indicator)
-        painter.drawLine(QPointF(-half_w, 0), QPointF(half_w, 0))
-
-    def get_properties(self) -> dict:
-        props = super().get_properties()
-        props["Sill Height"] = {
-            "type": "string", "value": self._fmt(self._sill_mm),
-        }
-        props["Preset"] = {
-            "type": "enum",
-            "value": self._preset,
-            "options": list(WINDOW_PRESETS.keys()) + ["Custom"],
-        }
-        return props
-
-    def set_property(self, key: str, value):
-        if key in ("Sill Height", "Sill Height (mm)"):
-            try:
-                self._sill_mm = float(value)
-            except (ValueError, TypeError):
-                pass
-        elif key == "Preset" and value in WINDOW_PRESETS:
-            self._preset = value
-            self._width_mm, self._height_mm = WINDOW_PRESETS[value]
-            self._reposition()
-        else:
-            super().set_property(key, value)
+Opening = WallOpening
+DoorOpening = WallOpening
+WindowOpening = WallOpening

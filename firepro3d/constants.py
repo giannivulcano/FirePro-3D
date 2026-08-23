@@ -42,6 +42,13 @@ Z_CAT_ROOF       = 0.1    # RoofItem
 Z_CAT_ROOM       = 0.2    # Room
 Z_CAT_WALL       = 0.3    # WallSegment
 Z_CAT_OPENING    = 0.35   # DoorOpening, WindowOpening
+
+# Opening cross-wall alignment (§7.5)
+OPENING_ALIGN_CENTER = "Centered"
+OPENING_ALIGN_FRONT  = "Flush-front"
+OPENING_ALIGN_BACK   = "Flush-back"
+OPENING_ALIGNMENTS   = [OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK]
+OPENING_TYPES        = ["door", "window", "blank"]
 Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
 Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
