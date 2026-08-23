@@ -82,6 +82,7 @@ def test_registry_builder_is_shared_edit_group(main_window):
     # Keys with dedicated builders (not the shared edit-group fallback):
     _DEDICATED_BUILDERS = {
         "geo2d": main_window._build_geo2d_context,
+        "opening": main_window._build_opening_context,
     }
     for key, (_title, builder) in main_window._contextual_registry.items():
         if key in _DEDICATED_BUILDERS:
