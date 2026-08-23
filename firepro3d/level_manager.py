@@ -572,8 +572,14 @@ class LevelManager:
             _apply_elev_z(pipe)
         for item in getattr(scene, "_walls", []):
             _apply_elev_z(item)
+            wall_z = item.zValue()
             for op in getattr(item, "openings", []):
                 _apply_elev_z(op)
+                # An opening is shorter than its host wall, so elevation-based
+                # z (max head vs wall top) would place it BELOW the wall and its
+                # plan gap would never cut the wall.  Pin it just above its host
+                # wall so the gap always reads (Z_CAT_OPENING > Z_CAT_WALL).
+                op.setZValue(wall_z + (Z_CAT_OPENING - Z_CAT_WALL))
         for item in getattr(scene, "_floor_slabs", []):
             _apply_elev_z(item)
 

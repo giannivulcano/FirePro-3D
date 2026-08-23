@@ -135,6 +135,22 @@ def test_set_alignment_snapshots_undo(qapp, model_scene):
     assert len(scene._undo_stack) == n_before + 1
 
 
+# ── Smoke-fix regression: opening z-order above host wall ─────────────────────
+
+def test_opening_renders_above_host_wall_after_z_pass(qapp, model_scene):
+    """The elevation z-pass must keep an opening ABOVE its host wall so its plan
+    gap cuts the wall. A door (head ~2032) is shorter than the wall (top ~3048);
+    naive max-elevation z pushed it below the wall and the gap never cut
+    (smoke-test 2026-08-23)."""
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(3000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=1500.0)
+    scene.addItem(op); w.openings.append(op)
+    scene._level_manager.apply_to_scene(scene)
+    assert op.zValue() > w.zValue()
+
+
 # ── Task-8 tests: FeatureBrowser widget ──────────────────────────────────────
 
 def test_feature_browser_lists_categories_and_activates(qapp):
