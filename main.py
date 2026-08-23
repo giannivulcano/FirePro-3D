@@ -2658,6 +2658,314 @@ class MainWindow(QMainWindow):
 
     # ── Contextual tab catalog + shared Edit group ─────────────────────────
 
+    # ── Geo2D contextual builders ──────────────────────────────────────────────
+
+    def _build_geo2d_context(self, page) -> None:
+        """Build the '2D Geometry' contextual tab: Placement + Fill + Edit.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        self._build_placement_group(page)
+        self._build_fill_group(page)
+        self._build_contextual_edit_group(page)
+
+    def _build_placement_group(self, page) -> None:
+        """Add a 'Placement' group (Level combo + Level Offset field) to *page*.
+
+        Writes are routed through ``item.set_property()`` then
+        ``scene.push_undo_state()``.  A no-op gesture (value unchanged)
+        does NOT push an undo step.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from PyQt6.QtWidgets import QComboBox, QLabel, QWidget, QVBoxLayout
+        from firepro3d.dimension_edit import DimensionEdit
+
+        g = page.add_group("Placement")
+
+        # ── Level combo ────────────────────────────────────────────────────────
+        level_container = QWidget()
+        lvl_lay = QVBoxLayout(level_container)
+        lvl_lay.setContentsMargins(2, 2, 2, 0)
+        lvl_lay.setSpacing(1)
+        lbl_lvl = QLabel("Level")
+        lbl_lvl.setMaximumWidth(110)
+        level_combo = QComboBox()
+        level_combo.setMaximumWidth(110)
+        lvl_lay.addWidget(lbl_lvl)
+        lvl_lay.addWidget(level_combo)
+
+        def _refresh_level_combo():
+            lm = getattr(self.scene, "_level_manager", None)
+            current_names = [level_combo.itemText(i) for i in range(level_combo.count())]
+            new_names = [lvl.name for lvl in lm.levels] if lm else ["Level 1"]
+            if new_names != current_names:
+                level_combo.blockSignals(True)
+                level_combo.clear()
+                level_combo.addItems(new_names)
+                level_combo.blockSignals(False)
+            # Reflect selection
+            items = self.scene.selectedItems()
+            geo = [it for it in items if hasattr(it, "level")]
+            if geo:
+                vals = {it.level for it in geo}
+                lvl_val = next(iter(vals)) if len(vals) == 1 else None
+                level_combo.blockSignals(True)
+                if lvl_val is not None and level_combo.findText(lvl_val) >= 0:
+                    level_combo.setCurrentText(lvl_val)
+                else:
+                    level_combo.setCurrentIndex(-1)
+                level_combo.blockSignals(False)
+
+        _refresh_level_combo()
+
+        def _on_level_changed(index):
+            new_val = level_combo.currentText()
+            targets = [it for it in self.scene.selectedItems()
+                       if hasattr(it, "set_property")]
+            apply = [t for t in targets if getattr(t, "level", None) != new_val]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Level", new_val)
+
+        level_combo.activated.connect(_on_level_changed)
+        g.add_widget(level_container)
+
+        # ── Level Offset field ─────────────────────────────────────────────────
+        offset_container = QWidget()
+        off_lay = QVBoxLayout(offset_container)
+        off_lay.setContentsMargins(2, 2, 2, 0)
+        off_lay.setSpacing(1)
+        lbl_off = QLabel("Level Offset")
+        lbl_off.setMaximumWidth(110)
+        sm = getattr(self.scene, "scale_manager", None)
+        offset_edit = DimensionEdit(sm, initial_mm=0.0)
+        offset_edit.setMaximumWidth(110)
+        offset_edit.setToolTip("Vertical offset from floor-level elevation (mm)")
+        off_lay.addWidget(lbl_off)
+        off_lay.addWidget(offset_edit)
+
+        # Seed with current selection value
+        items = self.scene.selectedItems()
+        geo = [it for it in items if hasattr(it, "_level_offset_mm")]
+        if geo:
+            vals = {it._level_offset_mm for it in geo}
+            if len(vals) == 1:
+                offset_edit.set_value_mm(next(iter(vals)))
+
+        def _on_offset_committed(new_mm: float):
+            targets = [it for it in self.scene.selectedItems()
+                       if hasattr(it, "set_property")
+                       and hasattr(it, "_level_offset_mm")]
+            apply = [t for t in targets
+                     if abs(t._level_offset_mm - new_mm) > 1e-6]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Level Offset", new_mm)
+
+        offset_edit.valueChanged.connect(_on_offset_committed)
+        g.add_widget(offset_container)
+
+    def _build_fill_group(self, page) -> None:
+        """Add a 'Fill' group (Fill type + Pattern + Colour + Opacity) to *page*.
+
+        The group is enabled only when ≥1 selected item returns True for
+        ``is_fillable()``.  All writes route through ``set_property()`` +
+        ``push_undo_state()``.  No-op gestures push NO undo step.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from PyQt6.QtWidgets import (
+            QComboBox, QLabel, QToolButton, QLineEdit,
+            QWidget, QVBoxLayout, QHBoxLayout,
+        )
+        from PyQt6.QtGui import QColor
+        from PyQt6.QtWidgets import QColorDialog
+        from firepro3d import theme as _th
+        from firepro3d.hatch_patterns import PATTERN_NAMES
+
+        _syncing_fill = [False]  # mutable flag inside closures
+
+        g = page.add_group("Fill")
+
+        # ── Row 1: Fill type + Pattern ─────────────────────────────────────────
+        row1 = QWidget()
+        r1_lay = QHBoxLayout(row1)
+        r1_lay.setContentsMargins(2, 2, 2, 0)
+        r1_lay.setSpacing(4)
+
+        fill_combo = QComboBox()
+        fill_combo.addItems(["none", "solid", "hatch"])
+        fill_combo.setMaximumWidth(70)
+        fill_combo.setToolTip("Fill type")
+
+        pattern_combo = QComboBox()
+        pattern_combo.addItems(list(PATTERN_NAMES))
+        pattern_combo.setMaximumWidth(90)
+        pattern_combo.setToolTip("Hatch pattern")
+
+        r1_lay.addWidget(QLabel("Fill:"))
+        r1_lay.addWidget(fill_combo)
+        r1_lay.addWidget(QLabel("Pat:"))
+        r1_lay.addWidget(pattern_combo)
+
+        # ── Row 2: Colour swatch + Opacity ────────────────────────────────────
+        row2 = QWidget()
+        r2_lay = QHBoxLayout(row2)
+        r2_lay.setContentsMargins(2, 0, 2, 2)
+        r2_lay.setSpacing(4)
+
+        t = _th.detect()
+        color_btn = QToolButton()
+        color_btn.setToolTip("Fill colour")
+        color_btn.setFixedSize(28, 26)
+        color_btn.setStyleSheet(
+            f"QToolButton {{ border: 1px solid {t.border_strong}; background: #888888; }}"
+            f"QToolButton:hover {{ border-color: {t.accent_primary}; }}")
+        _fill_swatch = ["#888888"]  # store last colour
+
+        opacity_edit = QLineEdit("45")
+        opacity_edit.setMaximumWidth(40)
+        opacity_edit.setToolTip("Fill opacity 0–100 %")
+        r2_lay.addWidget(QLabel("Col:"))
+        r2_lay.addWidget(color_btn)
+        r2_lay.addWidget(QLabel("Opa%:"))
+        r2_lay.addWidget(opacity_edit)
+
+        # Pack both rows into the group
+        outer = QWidget()
+        out_lay = QVBoxLayout(outer)
+        out_lay.setContentsMargins(0, 0, 0, 0)
+        out_lay.setSpacing(2)
+        out_lay.addWidget(row1)
+        out_lay.addWidget(row2)
+        g.add_widget(outer)
+
+        # ── Helpers ────────────────────────────────────────────────────────────
+
+        def _fillable_targets():
+            return [it for it in self.scene.selectedItems()
+                    if callable(getattr(it, "is_fillable", None))
+                    and it.is_fillable()
+                    and hasattr(it, "set_property")]
+
+        def _set_swatch(hex_color: str):
+            _fill_swatch[0] = hex_color
+            t2 = _th.detect()
+            color_btn.setStyleSheet(
+                f"QToolButton {{ border: 1px solid {t2.border_strong}; "
+                f"background: {hex_color}; }}"
+                f"QToolButton:hover {{ border-color: {t2.accent_primary}; }}")
+
+        def _sync_fill_group():
+            """Reflect current selection state into fill widgets."""
+            _syncing_fill[0] = True
+            try:
+                targets = _fillable_targets()
+                has_fill = bool(targets)
+                g.setEnabled(has_fill)
+                if not has_fill:
+                    return
+
+                def uniform(getter):
+                    vals = {getter(it) for it in targets}
+                    return vals.pop() if len(vals) == 1 else None
+
+                ft = uniform(lambda it: it.fill_type)
+                fill_combo.setCurrentText(ft if ft is not None else "")
+
+                pat = uniform(lambda it: it.fill_pattern)
+                pattern_combo.setCurrentText(pat if pat is not None else "")
+
+                col = uniform(lambda it: getattr(it, "_display_fill_color", None) or "#888888")
+                if col:
+                    _set_swatch(col)
+
+                opa = uniform(lambda it: round(it.fill_opacity * 100))
+                opacity_edit.setText("" if opa is None else str(opa))
+            finally:
+                _syncing_fill[0] = False
+
+        # Initial enable/sync
+        _sync_fill_group()
+
+        # ── Write handlers ─────────────────────────────────────────────────────
+
+        def _on_fill_type(index):
+            if _syncing_fill[0]:
+                return
+            new_val = fill_combo.currentText()
+            targets = _fillable_targets()
+            apply = [t for t in targets if t.fill_type != new_val]
+            if not apply:
+                _sync_fill_group()
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Fill", new_val)
+            _sync_fill_group()
+
+        def _on_pattern(index):
+            if _syncing_fill[0]:
+                return
+            new_val = pattern_combo.currentText()
+            targets = _fillable_targets()
+            apply = [t for t in targets if t.fill_pattern != new_val]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Pattern", new_val)
+
+        def _on_colour():
+            targets = _fillable_targets()
+            if not targets:
+                return
+            existing = (
+                getattr(targets[0], "_display_fill_color", None) or "#888888"
+            )
+            c = QColorDialog.getColor(QColor(existing), page, "Fill Colour")
+            if c.isValid():
+                hex_val = c.name()
+                apply = [t for t in targets
+                         if (getattr(t, "_display_fill_color", None) or "#888888")
+                         != hex_val]
+                if not apply:
+                    return
+                self.scene.push_undo_state()
+                for t in apply:
+                    t.set_property("Fill Colour", hex_val)
+                _set_swatch(hex_val)
+
+        def _on_opacity():
+            if _syncing_fill[0]:
+                return
+            try:
+                pct = float(opacity_edit.text())
+            except (ValueError, TypeError):
+                return
+            pct = max(0.0, min(100.0, pct))
+            targets = _fillable_targets()
+            apply = [t for t in targets
+                     if abs(t.fill_opacity * 100 - pct) > 0.5]
+            if not apply:
+                return
+            self.scene.push_undo_state()
+            for t in apply:
+                t.set_property("Fill Opacity", pct)
+
+        fill_combo.activated.connect(_on_fill_type)
+        pattern_combo.activated.connect(_on_pattern)
+        color_btn.clicked.connect(_on_colour)
+        opacity_edit.editingFinished.connect(_on_opacity)
+
     def _build_contextual_edit_group(self, page) -> None:
         """Add a shared "Edit" group to *page* with 5 action buttons.
 
@@ -2714,6 +3022,11 @@ class MainWindow(QMainWindow):
             key: (title, self._build_contextual_edit_group)
             for key, title in self._CONTEXTUAL_TABS.items()
         }
+        # Override geo2d with its richer builder (Placement + Fill + Edit).
+        self._contextual_registry["geo2d"] = (
+            self._CONTEXTUAL_TABS["geo2d"],
+            self._build_geo2d_context,
+        )
         # Fixed slot immediately after the 7 base tabs.
         self._contextual_index: int = 7
         # Tracks which contextual family is currently shown (None = hidden).
