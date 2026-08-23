@@ -1207,17 +1207,6 @@ class ElevationScene(QGraphicsScene):
             line.setZValue(-90)
             self.addItem(line)
 
-        for item in getattr(self._ms, "_construction_lines", []):
-            z = self._level_z(getattr(item, "level", DEFAULT_LEVEL))
-            wx1, wy1 = self._scene_to_world(item._pt1.x(), item._pt1.y())
-            wx2, wy2 = self._scene_to_world(item._pt2.x(), item._pt2.y())
-            h1, v1 = self._world_to_elev(wx1, wy1, z)
-            h2, v2 = self._world_to_elev(wx2, wy2, z)
-            line = QGraphicsLineItem(h1, v1, h2, v2)
-            line.setPen(pen)
-            line.setZValue(-90)
-            self.addItem(line)
-
     # ── Level datums ─────────────────────────────────────────────────────
 
     def _datum_extent(self) -> tuple[float, float]:

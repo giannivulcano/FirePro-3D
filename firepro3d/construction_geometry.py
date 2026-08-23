@@ -3,7 +3,6 @@ construction_geometry.py
 =========================
 Reference-geometry items for FirePro 3D.
 
-ConstructionLine  — an "infinite" dashed cyan line placed by two clicks.
 PolylineItem      — a multi-click open polyline on the active user layer.
 """
 
@@ -18,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF
-from .constants import DEFAULT_LEVEL, Z_CONSTRUCTION, Z_CAT_CONSTRUCTION
+from .constants import DEFAULT_LEVEL, Z_CAT_CONSTRUCTION
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import PATTERN_NAMES
 
@@ -181,14 +180,6 @@ class Geometry2DMixin:
             self.fill_opacity = f.get("opacity", 0.45)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Constants
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CONSTRUCTION_COLOR = "#00aaff"     # cyan-blue
-_CONSTRUCTION_EXTEND = 100_000      # px beyond the two anchor points (effectively infinite)
-
-
 def _scene_hit_width(item) -> float:
     """Viewport-scale-aware hit width — always ~10 screen pixels regardless of zoom.
 
@@ -204,158 +195,6 @@ def _scene_hit_width(item) -> float:
             scale = views[0].transform().m11()
             return max(2.0, 10.0 / max(scale, 1e-6))
     return 6.0
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# ConstructionLine
-# ─────────────────────────────────────────────────────────────────────────────
-
-class ConstructionLine(QGraphicsLineItem):
-    """
-    An infinite-looking dashed reference line.
-
-    Parameters
-    ----------
-    pt1, pt2 : QPointF
-        The two anchor points that define the direction of the line.
-        The drawn line is extended far beyond both points so it appears
-        to extend to the edge of the canvas.
-    """
-
-    def __init__(self, pt1: QPointF, pt2: QPointF):
-        super().__init__()
-        self._pt1 = pt1
-        self._pt2 = pt2
-
-        pen = QPen(QColor(_CONSTRUCTION_COLOR))
-        pen.setWidth(1)
-        pen.setStyle(Qt.PenStyle.DashLine)
-        pen.setCosmetic(True)       # stays 1 viewport pixel at any zoom
-        self.setPen(pen)
-
-        self.setZValue(-5)          # drawn behind all model items
-        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
-        self.level: str = DEFAULT_LEVEL
-
-        self._recompute_line()
-
-    # ── Properties ───────────────────────────────────────────────────────────
-
-    @property
-    def pt1(self) -> QPointF:
-        return self._pt1
-
-    @property
-    def pt2(self) -> QPointF:
-        return self._pt2
-
-    # ── Serialisation ────────────────────────────────────────────────────────
-
-    def to_dict(self) -> dict:
-        """Return a plain dict for JSON serialisation."""
-        return {
-            "type": "construction_line",
-            "pt1":  [self._pt1.x(), self._pt1.y()],
-            "pt2":  [self._pt2.x(), self._pt2.y()],
-            "level": self.level,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "ConstructionLine":
-        pt1 = QPointF(data["pt1"][0], data["pt1"][1])
-        pt2 = QPointF(data["pt2"][0], data["pt2"][1])
-        obj = cls(pt1, pt2)
-        obj.level = data.get("level", DEFAULT_LEVEL)
-        return obj
-
-    # ── Properties ─────────────────────────────────────────────────────────
-
-    def get_properties(self) -> dict:
-        return {
-            "Type":  {"type": "label",     "value": "Construction Line"},
-            "pt1":   {"type": "label",     "value": f"({self._pt1.x():.1f}, {self._pt1.y():.1f})"},
-            "pt2":   {"type": "label",     "value": f"({self._pt2.x():.1f}, {self._pt2.y():.1f})"},
-            "Level": {"type": "level_ref", "value": self.level},
-        }
-
-    def set_property(self, key: str, value):
-        if key == "Level":
-            self.level = str(value)
-
-    # ── Grips ─────────────────────────────────────────────────────────────
-
-    def grip_points(self) -> list[QPointF]:
-        """Return [pt1, midpoint, pt2] as grip handles."""
-        mid = QPointF((self._pt1.x() + self._pt2.x()) / 2,
-                      (self._pt1.y() + self._pt2.y()) / 2)
-        return [self._pt1, mid, self._pt2]
-
-    def apply_grip(self, index: int, pos: QPointF):
-        """Move a grip handle to *pos*.  index 0=pt1, 1=midpoint, 2=pt2."""
-        if index == 0:
-            self._pt1 = pos
-        elif index == 1:
-            # Mid-grip: translate entire line
-            dx = pos.x() - (self._pt1.x() + self._pt2.x()) / 2
-            dy = pos.y() - (self._pt1.y() + self._pt2.y()) / 2
-            self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
-            self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
-        elif index == 2:
-            self._pt2 = pos
-        self._recompute_line()
-
-    # ── Move ──────────────────────────────────────────────────────────────
-
-    def translate(self, dx: float, dy: float):
-        """Move both anchor points by (dx, dy) and recompute."""
-        self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
-        self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
-        self._recompute_line()
-
-    # ── Internal ─────────────────────────────────────────────────────────────
-
-    def _recompute_line(self):
-        """Extend the line segment far beyond pt1 and pt2."""
-        dx = self._pt2.x() - self._pt1.x()
-        dy = self._pt2.y() - self._pt1.y()
-        length = math.hypot(dx, dy)
-        if length < 1e-6:
-            # Degenerate: draw a tiny horizontal stub
-            self.setLine(self._pt1.x() - 1, self._pt1.y(),
-                         self._pt1.x() + 1, self._pt1.y())
-            return
-        # Unit vector
-        ux, uy = dx / length, dy / length
-        x1 = self._pt1.x() - ux * _CONSTRUCTION_EXTEND
-        y1 = self._pt1.y() - uy * _CONSTRUCTION_EXTEND
-        x2 = self._pt2.x() + ux * _CONSTRUCTION_EXTEND
-        y2 = self._pt2.y() + uy * _CONSTRUCTION_EXTEND
-        self.setLine(x1, y1, x2, y2)
-
-    # ── Paint (selection highlight) ──────────────────────────────────────────
-
-    def paint(self, painter, option, widget=None):
-        option.state &= ~QStyle.StateFlag.State_Selected
-        super().paint(painter, option, widget)
-        if self.isSelected():
-            ln = self.line()
-            highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
-            highlight.setCosmetic(True)
-            painter.setPen(highlight)
-            painter.drawLine(ln.p1(), ln.p2())
-
-    # ── Shape / hit-test ─────────────────────────────────────────────────────
-
-    def shape(self) -> QPainterPath:
-        """Return a viewport-scale-aware stroked path so the line is clickable."""
-        ln = self.line()
-        path = QPainterPath()
-        path.moveTo(ln.p1())
-        path.lineTo(ln.p2())
-        stroker = QPainterPathStroker()
-        stroker.setWidth(_scene_hit_width(self))
-        return stroker.createStroke(path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

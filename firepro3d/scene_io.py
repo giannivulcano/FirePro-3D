@@ -179,7 +179,6 @@ class SceneIOMixin:
         )
 
         # --- Construction geometry ---
-        clines_data = [cl.to_dict() for cl in self._construction_lines]
         polylines_data = [pl.to_dict() for pl in self._polylines]
         draw_lines_data = [l.to_dict() for l in self._draw_lines]
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
@@ -213,7 +212,6 @@ class SceneIOMixin:
             "underlays":           underlays_data,
             "water_supply":        ws_data,
             "design_areas":        design_areas_data,
-            "construction_lines":  clines_data,
             "polylines":           polylines_data,
             "draw_lines":          draw_lines_data,
             "draw_rectangles":     draw_rects_data,
@@ -266,7 +264,7 @@ class SceneIOMixin:
         from .water_supply import WaterSupply
         from .design_area import DesignArea
         from .construction_geometry import (
-            ConstructionLine, PolylineItem, LineItem, RectangleItem,
+            PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem,
         )
         from .gridline import GridlineItem
@@ -562,10 +560,7 @@ class SceneIOMixin:
             # computing here would produce wall-less (over-wide) tiles
 
         # --- Construction geometry ---
-        for entry in payload.get("construction_lines", []):
-            cl = ConstructionLine.from_dict(entry)
-            self.addItem(cl)
-            self._construction_lines.append(cl)
+        # Note: legacy "construction_lines" key is silently dropped.
         for entry in payload.get("polylines", []):
             pl = PolylineItem.from_dict(entry)
             self.addItem(pl)
@@ -688,9 +683,7 @@ class SceneIOMixin:
                 self.removeItem(da)
         self.design_areas = []
         self.active_design_area = None
-        self._construction_lines = []
         self._polylines = []
-        self._cline_anchor = None
         self._polyline_active = None
         self._draw_lines = []
         self._draw_rects = []

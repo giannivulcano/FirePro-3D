@@ -423,9 +423,6 @@ class LevelManager:
             _set_level_vis(pipe)
 
         # ── Construction / draw geometry ──────────────────────────────────
-        for item in getattr(scene, "_construction_lines", []):
-            _set_level_vis(item)
-
         for item in getattr(scene, "_polylines", []):
             _set_level_vis(item)
 

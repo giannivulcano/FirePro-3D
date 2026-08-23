@@ -27,7 +27,7 @@ from .dxf_import_worker import DxfImportWorker
 from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .construction_geometry import (
-    ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
@@ -158,9 +158,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._da_highlights: list = []                        # pick-mode rings
         self._da_editing = None                               # DesignArea picks modify
         # Construction geometry (Sprint C)
-        self._construction_lines: list[ConstructionLine] = []
         self._polylines: list[PolylineItem] = []
-        self._cline_anchor: "QPointF | None" = None           # first click for construction line
         self._polyline_active: "PolylineItem | None" = None   # in-progress polyline
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
@@ -595,7 +593,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         type_to_list = {
             DimensionAnnotation: self.annotations.dimensions,
             NoteAnnotation:      self.annotations.notes,
-            ConstructionLine:    self._construction_lines,
             PolylineItem:        self._polylines,
             LineItem:            self._draw_lines,
             RectangleItem:       self._draw_rects,
@@ -862,8 +859,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.node_start_pos = None
         self._pipe_node_was_new = False
         # Cancel in-progress construction geometry
-        if mode != "construction_line":
-            self._cline_anchor = None
         if mode != "polyline" and self._polyline_active is not None:
             # Cancel: always discard the in-progress polyline
             # (Enter commits via finalize() and sets _polyline_active=None
@@ -1132,7 +1127,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "design_area":    "Click sprinklers to toggle. Shift+click for rectangle. Right-click to confirm; the next click starts a new area.",
             "water_supply":   "Click to place water supply",
             "paste":          "Click to place pasted items",
-            "construction_line": "Pick first point",
             "draw_gridline":  "Pick start point",
             "trim":           "Select cutting edge",
             "trim_pick":      "Click segment to trim (right-click to cancel)",
@@ -3125,7 +3119,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "water_supply":       ws_data,
             "design_areas":       da_data,
             # ── Draw geometry ──────────────────────────────────────────────
-            "construction_lines": [cl.to_dict() for cl in self._construction_lines],
             "polylines":          [pl.to_dict() for pl in self._polylines],
             "draw_lines":         [l.to_dict()  for l in self._draw_lines],
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
@@ -3323,11 +3316,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
             # ── Draw geometry ──────────────────────────────────────────────
             # Remove existing items from scene and lists
-            for cl in list(self._construction_lines):
-                if cl.scene() is self:
-                    self.removeItem(cl)
-            self._construction_lines.clear()
-
             for pl in list(self._polylines):
                 if pl.scene() is self:
                     self.removeItem(pl)
@@ -3395,11 +3383,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._constraints.clear()
 
             # Restore from snapshot
-            for d in state.get("construction_lines", []):
-                cl = ConstructionLine.from_dict(d)
-                self.addItem(cl)
-                self._construction_lines.append(cl)
-
             for d in state.get("polylines", []):
                 pl = PolylineItem.from_dict(d)
                 self.addItem(pl)
@@ -3860,10 +3843,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         The returned point is always a fresh copy, so callers are free to
         mutate it; it never aliases the scene's or an item's internal state.
-
-        ``construction_line`` is intentionally absent — it is out of scope
-        (a typed Length would be a visual no-op, since the drawn line extends
-        past both defining points).
 
         Returns:
             A copy of the anchor point, or None when no anchor exists.
@@ -5216,7 +5195,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "polyline":                 "_move_polyline",
         "draw_line":                "_move_draw_line",
         "draw_gridline":            "_move_draw_line",
-        "construction_line":        "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
         "draw_arc":                 "_move_draw_arc",
@@ -5412,41 +5390,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.preview_pipe.show()
 
     def _move_draw_line(self, event, snapped):
-        sm = self.scale_manager
-        _is_line = self.mode in ("draw_line", "draw_gridline")
-        _anchor = self._draw_line_anchor if _is_line else self._cline_anchor
+        _anchor = self._draw_line_anchor
         if _anchor is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         if _anchor is not None:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 tip = self._constrain_angle(_anchor, snapped)
-            if _is_line:
-                self._preview_from_line(tip)
-            else:
-                # construction_line keeps its own rubber-band; the extracted
-                # helper is anchored on ``_draw_line_anchor``, which is None here.
-                self.preview_pipe.setLine(
-                    _anchor.x(), _anchor.y(),
-                    tip.x(), tip.y()
-                )
-                self.preview_pipe.show()
-            if _is_line:
-                # Publishing here — after the Ctrl constraint — is what keeps
-                # the readout and the HUD's seed from disagreeing.
-                self.publish_placement_state(_anchor, tip)
-            else:
-                # construction_line is out of scope for dynamic input; it keeps
-                # its hand-built readout until/unless it gains a schema.
-                _dx = tip.x() - _anchor.x()
-                _dy = tip.y() - _anchor.y()
-                _len = math.hypot(_dx, _dy)
-                _ang = math.degrees(math.atan2(-_dy, _dx))
-                self._draw_dim_hint = (
-                    f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
-                    if sm.is_calibrated else
-                    f"L: {_len:.0f}mm  A: {_ang:.1f}°"
-                )
+            self._preview_from_line(tip)
+            # Publishing here — after the Ctrl constraint — is what keeps
+            # the readout and the HUD's seed from disagreeing.
+            self.publish_placement_state(_anchor, tip)
         else:
             self.preview_pipe.hide()
 
@@ -6313,7 +6267,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "align":                    "_press_align",
         "polyline":                 "_press_polyline",
         "draw_line":                "_press_draw_line",
-        "construction_line":        "_press_construction_line",
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
         "wall":                     "_press_wall",
@@ -6593,7 +6546,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Grip hit takes priority over mode handlers ──────────────────
         # Skip grip detection in drawing modes so clicks reach the draw handler
         _skip_grip_modes = ("wall", "wall_rect", "floor", "floor_rect", "pipe", "sprinkler",
-                            "draw_line", "construction_line", "draw_rectangle",
+                            "draw_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
                             "detail", "align", "design_area")
@@ -8282,33 +8235,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
         return True
 
-    def _press_construction_line(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._cline_anchor is None:
-            self._cline_anchor = snapped
-            self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick second point")
-        else:
-            tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                tip = self._constrain_angle(self._cline_anchor, snapped)
-            if math.hypot(tip.x() - self._cline_anchor.x(),
-                          tip.y() - self._cline_anchor.y()) < 0.5:
-                self._show_status("Construction line too short — skipped", timeout=2000)
-                return
-            item = ConstructionLine(self._cline_anchor, tip)
-            item.level = self.active_level
-            self.addItem(item)
-            self._construction_lines.append(item)
-            item.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            self._cline_anchor = None
-            self.preview_pipe.hide()
-            self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick first point")
-
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._draw_rect_rotating:
             # Third click: commit at the orientation from the pivot to the click.
@@ -9233,7 +9159,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Find the first selectable scene entity at the given position."""
         ENTITY_TYPES = (
             Node, Pipe, DimensionAnnotation, NoteAnnotation,
-            ConstructionLine, PolylineItem, LineItem, RectangleItem,
+            PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, GridlineItem, HatchItem, WaterSupply,
             WallSegment, FloorSlab, DoorOpening, WindowOpening, Room,
         )
@@ -9402,7 +9328,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for pipe in self.sprinkler_system.pipes:
             if getattr(pipe, "level", None) == level_name:
                 result.append(pipe)
-        for lst in [self._construction_lines, self._polylines, self._draw_lines,
+        for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
                     self._gridlines, self._hatch_items,
                     self._walls, self._floor_slabs, self._roofs]:
@@ -9951,12 +9877,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._polylines.append(item)
 
-            elif obj_type == "construction_line":
-                item = ConstructionLine.from_dict(obj)
-                item.translate(offset.x(), offset.y())
-                self.addItem(item)
-                self._construction_lines.append(item)
-
             elif obj_type == "block_item":
                 from .block_item import BlockItem
                 def _item_factory(d):
@@ -9971,8 +9891,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return PolylineItem.from_dict(d)
                     elif t == "arc":
                         return ArcItem.from_dict(d)
-                    elif t == "construction_line":
-                        return ConstructionLine.from_dict(d)
                     elif t == "block_item":
                         return BlockItem.from_dict(d, _item_factory)
                     return None

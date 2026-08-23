@@ -32,7 +32,7 @@ from .annotations import DimensionAnnotation, NoteAnnotation
 from .underlay_snap_index import UnderlaySnapIndex
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem,
-    PolylineItem, ConstructionLine,
+    PolylineItem,
 )
 from .geometry_intersect import _angle_in_arc
 from .gridline import GridlineItem
@@ -420,9 +420,7 @@ class SnapEngine:
                 yield item
 
         for item in _phase4_items():
-            if isinstance(item, ConstructionLine):
-                _segments.append((item.pt1, item.pt2, item, item))
-            elif isinstance(item, QGraphicsLineItem):
+            if isinstance(item, QGraphicsLineItem):
                 line = item.line()
                 _segments.append((item.mapToScene(line.p1()),
                                  item.mapToScene(line.p2()), item, item))
@@ -636,19 +634,6 @@ class SnapEngine:
         # ── LineItem (finite draw line) ───────────────────────────────────
         if isinstance(item, LineItem):
             pts.extend(self._line_snaps(item))
-
-        # ── ConstructionLine (extends to infinity) ────────────────────────
-        elif isinstance(item, ConstructionLine):
-            # Snap to the two anchor points only
-            if self.snap_endpoint:
-                pts.append(("endpoint", item.pt1, None))
-                pts.append(("endpoint", item.pt2, None))
-            if self.snap_midpoint:
-                mid = QPointF(
-                    (item.pt1.x() + item.pt2.x()) / 2,
-                    (item.pt1.y() + item.pt2.y()) / 2,
-                )
-                pts.append(("midpoint", mid, None))
 
         # ── GridlineItem (endpoints, midpoint) ───────────────────────────
         elif isinstance(item, GridlineItem):

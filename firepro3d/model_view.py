@@ -68,7 +68,6 @@ class Model_View(QGraphicsView):
             "dimension":              _C.CrossCursor,
             "text":                   _C.CrossCursor,
             "set_scale":              _C.CrossCursor,
-            "construction_line":      _C.CrossCursor,
             "trim":                   _C.CrossCursor,
             "trim_pick":              _C.CrossCursor,
             "extend":                 _C.CrossCursor,

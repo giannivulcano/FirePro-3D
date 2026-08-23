@@ -1494,9 +1494,6 @@ class MainWindow(QMainWindow):
 
         # --- Geometry ---
         g_geom = draw_page.add_group("Geometry")
-        # Plain Line button (the Construction Line dropdown was retired — the
-        # inference/alignment engine supersedes construction lines; existing
-        # .fpd construction_line records still load via the scene_io factory).
         _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip(
             "Draw a line (L)")
         # Plain Rectangle button — corner vs centre is chosen on-canvas with the
@@ -2478,7 +2475,6 @@ class MainWindow(QMainWindow):
         from firepro3d.block_item import BlockItem
         from firepro3d.construction_geometry import (
             LineItem, RectangleItem, CircleItem, PolylineItem, ArcItem,
-            ConstructionLine,
         )
         import json
 
@@ -2505,8 +2501,6 @@ class MainWindow(QMainWindow):
                 return PolylineItem.from_dict(d)
             elif t == "arc":
                 return ArcItem.from_dict(d)
-            elif t == "construction_line":
-                return ConstructionLine.from_dict(d)
             elif t == "block_item":
                 return BlockItem.from_dict(d, _factory)
             return None
@@ -2578,7 +2572,7 @@ class MainWindow(QMainWindow):
         elif mode in ("roof", "roof_rect"):
             template = self.scene._get_roof_template()
             self.prop_manager.show_properties(template)
-        elif mode in ("draw_line", "construction_line", "draw_rectangle",
+        elif mode in ("draw_line", "draw_rectangle",
                        "draw_circle", "draw_arc", "polyline"):
             template = self.scene._get_geometry_template()
             self.prop_manager.show_properties(template)
@@ -2745,7 +2739,7 @@ class MainWindow(QMainWindow):
         consistent with the taxonomy).
         """
         from firepro3d.construction_geometry import (
-            ConstructionLine, PolylineItem, LineItem,
+            PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
         )
         from firepro3d.annotations import (
@@ -2763,7 +2757,7 @@ class MainWindow(QMainWindow):
         from firepro3d.gridline import GridlineItem
 
         # 2-D geometry family
-        if isinstance(item, (ConstructionLine, PolylineItem, LineItem,
+        if isinstance(item, (PolylineItem, LineItem,
                               RectangleItem, CircleItem, ArcItem)):
             return "geo2d"
         # Annotation family
