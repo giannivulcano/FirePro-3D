@@ -325,14 +325,14 @@ def _category_for_item(item) -> str | None:
     # are invisible on white paper unless remapped (see _apply_construction).
     try:
         from .construction_geometry import (
-            ConstructionLine, PolylineItem, LineItem,
+            PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
         )
-        if isinstance(item, (ConstructionLine, PolylineItem, LineItem,
+        if isinstance(item, (PolylineItem, LineItem,
                              RectangleItem, CircleItem, ArcItem)):
             return "Construction"
     except ImportError:  # pragma: no cover - defensive fallback
-        if cls_name in ("ConstructionLine", "PolylineItem", "LineItem",
+        if cls_name in ("PolylineItem", "LineItem",
                         "RectangleItem", "CircleItem", "ArcItem"):
             return "Construction"
     return None

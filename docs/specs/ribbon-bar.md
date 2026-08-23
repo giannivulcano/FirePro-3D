@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
 last-verified: 2026-08-22
-verified-commit: 716fa87
+verified-commit: ce37220
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -101,7 +101,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 **Content & registry (`main.py` — owns all behavioral decisions):**
 
 - **`_CONTEXTUAL_TABS`** (class-level `dict[str, str]`): maps family key → human-readable tab title. Current catalog: `geo2d`, `geo3d`, `annotation`, `wall`, `floor`, `roof`, `room`, `opening`, `detail`, `pipe`, `sprinkler`, `water_supply`, `design_area`, `gridline`, `level`, `viewport`, `sheet_text`, `mixed` (→ "Modify").
-- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(title, page_builder)` callable. Currently every entry uses `_build_contextual_edit_group` as its builder; type-specific tools are a filed follow-up.
+- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(title, page_builder)` callable. The **`geo2d`** key uses a dedicated `_build_geo2d_context` builder (2026-08-22 — Placement + Fill groups, then the shared Edit group); all other keys still use `_build_contextual_edit_group`. Remaining type-specific tools are a filed follow-up.
 - **`_contextual_index`**: fixed slot = 7 (one past the 7th base tab) where the contextual tab is always inserted.
 - **`_active_contextual_key`**: the currently visible family key, or `None` when no contextual tab is shown.
 - **`_pre_contextual_tab`**: the base-tab index to restore on deselect; captured only on the `None → contextual` transition so contextual-to-contextual swaps (wall → pipe) never overwrite the saved base.
@@ -113,7 +113,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
   - **`contextual → contextual`** (key change): `remove_page` old; `insert_page` + activate new (pre-tab stays from the original `None → contextual` capture).
   - **`contextual → None`**: `remove_page`; restore `_pre_contextual_tab`.
 
-**Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. This is the **only content** in every contextual tab today; type-specific tools (transform, property shortcuts, etc.) are a filed follow-up. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
+**Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. It is on **every** contextual tab. The **`geo2d`** tab additionally carries a **Placement group** (Level combo + Level Offset `DimensionEdit`, via the reusable `_build_placement_group`) and a **Fill group** (Fill type / Pattern / Fill Colour / Fill Opacity, enabled only when a fillable shape is selected) — the first type-specific contextual tools (2026-08-22); writes route through the scene undo path (`push_undo_state` + `set_property`). Remaining families' type-specific tools are a filed follow-up. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
 
 **Scope note:** the contextual tab mechanism is currently **model-scene-driven only** (`scene.selectionChanged`). Paper-scene parity (paper items triggering `viewport`/`sheet_text` contextual tabs) is a filed follow-up.
 

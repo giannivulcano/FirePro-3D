@@ -28,7 +28,7 @@ from .node import Node
 from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .construction_geometry import (
-    ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from .gridline import GridlineItem
 from .water_supply import WaterSupply
@@ -788,15 +788,6 @@ class View3D(QWidget):
 
         # Lines
         for item in getattr(self._scene, "_draw_lines", []):
-            z = self._level_z_mm(getattr(item, "level", DEFAULT_LEVEL))
-            ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
-            p1 = item._pt1
-            p2 = item._pt2
-            lines_data.append([p1.x() / ppm, -p1.y() / ppm, z])
-            lines_data.append([p2.x() / ppm, -p2.y() / ppm, z])
-
-        # Construction lines
-        for item in getattr(self._scene, "_construction_lines", []):
             z = self._level_z_mm(getattr(item, "level", DEFAULT_LEVEL))
             ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
             p1 = item._pt1

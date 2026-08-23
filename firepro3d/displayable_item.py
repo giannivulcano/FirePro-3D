@@ -27,6 +27,41 @@ from .constants import DEFAULT_LEVEL
 _SECTION_HATCH_COLOR = QColor(100, 100, 100)  # fallback for section hatching
 
 
+def _apply_hatch_pattern(painter, clip_path: "QPainterPath", scene,
+                          pattern: str, hatch_col: "QColor",
+                          line_width: float = 1.0,
+                          hatch_scale: float = 1.0):
+    """Internal helper: draw hatch lines for *pattern* clipped to *clip_path*.
+
+    Handles both SVG and built-in Qt brush patterns.  Caller is responsible
+    for any outer save/restore; this function manages its own painter state.
+
+    *scene* may be ``None`` — falls back to viewport scale 1.0.
+    """
+    from .hatch_patterns import make_hatch_brush, is_svg, draw_svg_hatch
+
+    views = scene.views() if scene else []
+    scale = abs(views[0].transform().m11()) if views else 1.0
+
+    if is_svg(pattern):
+        # SVG patterns — draw as true vector lines (perfectly crisp).
+        # draw_svg_hatch manages its own save/restore and clip.
+        draw_svg_hatch(painter, clip_path, scene, pattern, hatch_col,
+                       line_width=line_width, hatch_scale=hatch_scale)
+    else:
+        # Built-in Qt patterns — resolution-independent brush fill.
+        painter.save()
+        # IntersectClip: respect any outer clip (e.g. paper-viewport crop rect).
+        painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
+        brush = make_hatch_brush(pattern, 24, hatch_col)
+        inv = 1.0 / max(scale, 1e-6) * hatch_scale
+        brush.setTransform(QTransform().scale(inv, inv))
+        painter.setPen(QPen(QColor(0, 0, 0, 0)))
+        painter.setBrush(brush)
+        painter.drawRect(clip_path.boundingRect())
+        painter.restore()
+
+
 def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
                        color: "QColor | None" = None,
                        pattern: str = "diagonal",
@@ -46,11 +81,7 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
     if clip_path.isEmpty():
         return
 
-    from .hatch_patterns import make_hatch_brush, is_builtin, is_svg, draw_svg_hatch
-
     hatch_col = color or _SECTION_HATCH_COLOR
-    views = scene.views() if scene else []
-    scale = abs(views[0].transform().m11()) if views else 1.0
 
     painter.save()
     # IntersectClip (not the default ReplaceClip): the section fill/hatch must
@@ -67,22 +98,49 @@ def draw_section_hatch(painter, clip_path: "QPainterPath", scene,
 
     painter.restore()
 
-    # 2. Hatch lines on top
-    if is_svg(pattern):
-        # SVG patterns — draw as true vector lines (perfectly crisp)
-        draw_svg_hatch(painter, clip_path, scene, pattern, hatch_col,
-                       line_width=line_width, hatch_scale=hatch_scale)
-    else:
-        # Built-in Qt patterns — resolution-independent brush fill
+    # 2. Hatch lines on top (delegates to shared helper)
+    _apply_hatch_pattern(painter, clip_path, scene, pattern, hatch_col,
+                         line_width=line_width, hatch_scale=hatch_scale)
+
+
+def draw_fill(painter, closed_path: "QPainterPath | None", scene,
+              fill_type: str, pattern: str, colour: str,
+              alpha: int = 115):
+    """Render a 2-D closed-shape fill (solid or hatch) into *painter*.
+
+    Parameters
+    ----------
+    painter     : active QPainter (caller owns begin/end)
+    closed_path : filled region; silently returns when None or empty
+    scene       : QGraphicsScene or None (used only for viewport-scale lookup)
+    fill_type   : ``"none"`` — no fill (early-out)
+                  ``"solid"`` — semi-transparent flat colour
+                  ``"hatch"`` — tiled hatch pattern
+    pattern     : hatch pattern name (see ``hatch_patterns.PATTERN_NAMES``);
+                  ignored for ``"solid"``/``"none"``
+    colour      : CSS colour string (``"#rrggbb"``) for the fill
+    alpha       : opacity 0-255 applied to the colour (default 115 ≈ 45 %)
+    """
+    if closed_path is None or closed_path.isEmpty():
+        return
+    if fill_type == "none":
+        return
+
+    fill_col = QColor(colour)
+
+    if fill_type == "solid":
+        fill_col.setAlpha(alpha)
         painter.save()
-        painter.setClipPath(clip_path, Qt.ClipOperation.IntersectClip)
-        brush = make_hatch_brush(pattern, 24, hatch_col)
-        inv = 1.0 / max(scale, 1e-6) * hatch_scale
-        brush.setTransform(QTransform().scale(inv, inv))
+        # IntersectClip: honour any outer viewport crop.
+        painter.setClipPath(closed_path, Qt.ClipOperation.IntersectClip)
         painter.setPen(QPen(QColor(0, 0, 0, 0)))
-        painter.setBrush(brush)
-        painter.drawRect(clip_path.boundingRect())
+        painter.setBrush(QBrush(fill_col))
+        painter.drawRect(closed_path.boundingRect())
         painter.restore()
+
+    elif fill_type == "hatch":
+        fill_col.setAlpha(alpha)
+        _apply_hatch_pattern(painter, closed_path, scene, pattern, fill_col)
 
 
 def centre_svg_on_origin(item, target_mm: float, fallback_scale: float = 1.0,

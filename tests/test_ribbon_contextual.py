@@ -76,11 +76,23 @@ def test_registry_titles_match(main_window):
 
 
 def test_registry_builder_is_shared_edit_group(main_window):
-    """Every registry entry's builder must be _build_contextual_edit_group."""
+    """All registry entries use _build_contextual_edit_group unless they have
+    a richer family-specific builder (e.g. 'geo2d' uses _build_geo2d_context).
+    Every entry must have a callable builder."""
+    # Keys with dedicated builders (not the shared edit-group fallback):
+    _DEDICATED_BUILDERS = {
+        "geo2d": main_window._build_geo2d_context,
+    }
     for key, (_title, builder) in main_window._contextual_registry.items():
-        assert builder == main_window._build_contextual_edit_group, (
-            f"Builder for key {key!r} is not _build_contextual_edit_group"
-        )
+        if key in _DEDICATED_BUILDERS:
+            assert builder == _DEDICATED_BUILDERS[key], (
+                f"Builder for key {key!r} expected {_DEDICATED_BUILDERS[key].__name__!r}, "
+                f"got {builder.__name__!r}"
+            )
+        else:
+            assert builder == main_window._build_contextual_edit_group, (
+                f"Builder for key {key!r} is not _build_contextual_edit_group"
+            )
 
 
 def test_active_contextual_key_initially_none(main_window):

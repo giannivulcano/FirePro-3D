@@ -94,10 +94,10 @@ def test_default_circle_plots_black_on_paper(qapp):
     assert circle.pen().color().name() == "#ffffff"
 
 
-def test_construction_line_width_is_true_on_paper_mm(qapp):
-    """The construction pen width must render at true ON-PAPER mm, not
-    model-units-times-scale (which is a sub-pixel hairline at architectural
-    scale — plots black but "very thin", the smoke-test symptom).
+def test_draw_geometry_pen_width_is_true_on_paper_mm(qapp):
+    """The draw-geometry (Construction category) pen width must render at true
+    ON-PAPER mm, not model-units-times-scale (which is a sub-pixel hairline at
+    architectural scale — plots black but "very thin", the smoke-test symptom).
 
     Renders supersampled at a known px/mm and measures the top-edge line
     thickness. Red-verify: with the buggy width (lw_mm, no /paper_scale) the
@@ -144,4 +144,4 @@ def test_construction_line_width_is_true_on_paper_mm(qapp):
             dark += 1
     # True 0.18mm ("Light") on paper at ppm=20 -> ~3-4 px dark core.
     # Buggy (0.18 * 0.05 = 0.009mm) -> ~0.18px -> a faint hairline, < 2 dark px.
-    assert dark >= 2, f"construction line too thin: {dark} dark px (hairline bug)"
+    assert dark >= 2, f"draw geometry too thin on paper: {dark} dark px (hairline bug)"

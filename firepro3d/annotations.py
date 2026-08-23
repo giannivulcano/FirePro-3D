@@ -424,302 +424,45 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# HatchItem — pattern fill for closed geometry
+# Legacy migration helper — kept as a module-level function so scene_io.py
+# can import it when loading old .fpd files that contain "hatches" entries.
+# HatchItem itself has been retired; fills are now properties of the geometry.
 # ═════════════════════════════════════════════════════════════════════════════
 
-class HatchItem(QGraphicsPathItem):
+def _rebuild_path_from_elements(elements: list) -> "QPainterPath":
+    """Rebuild a QPainterPath from a serialised element list.
+
+    Each element is ``[el_type, x, y]`` where el_type follows
+    QPainterPath.ElementType integer values (0=MoveTo, 1=LineTo, 2=CurveTo).
+    Cubic curves consume three consecutive elements (control1, control2, end).
+    This is the exact format that the retired HatchItem.to_dict() produced.
     """
-    A hatch-fill drawn inside a closed QPainterPath boundary.
-
-    The item stores a *copy* of the boundary path (plus a scene-coordinate
-    position offset) so it is independent of the source geometry item.
-
-    Supported patterns
-    ------------------
-    * ``"diagonal"`` — parallel lines at the given *angle* (default 45 deg).
-    * ``"cross"``    — two sets of diagonal lines at *angle* and *angle + 90*.
-    * ``"solid"``    — filled region with the hatch colour.
-
-    Parameters
-    ----------
-    boundary_path : QPainterPath
-        The closed path that defines the filled region (in *local* coordinates).
-    pos : QPointF
-        Scene position for the item (typically the position of the source
-        geometry item, so the path aligns correctly).
-    pattern_type : str
-        One of ``"diagonal"``, ``"cross"``, ``"solid"``.
-    angle : float
-        Line angle in degrees (default 45).
-    spacing : float
-        Distance between hatch lines in scene units (default 8).
-    colour : str
-        Hex colour string (default ``"#888888"``).
-    """
-
-    def __init__(
-        self,
-        boundary_path: QPainterPath,
-        pos: QPointF = QPointF(0, 0),
-        pattern_type: str = "diagonal",
-        angle: float = 45.0,
-        spacing: float = 8.0,
-        colour: str = "#888888",
-    ):
-        super().__init__()
-        self._boundary_path = QPainterPath(boundary_path)
-        self._pattern_type = pattern_type
-        self._angle = angle
-        self._spacing = spacing
-        self._colour = colour
-        self._source_item = None  # reference to source geometry for dynamic updates
-
-        # Set the boundary as the item's path (used for boundingRect / shape)
-        self.setPath(self._boundary_path)
-        self.setPos(pos)
-
-        # No outline pen — the hatch lines are drawn in paint()
-        self.setPen(QPen(Qt.PenStyle.NoPen))
-        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-
-        self.setZValue(0)  # sits between geometry and annotations
-        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
-        self.level: str = DEFAULT_LEVEL
-
-    # ── Public properties ────────────────────────────────────────────────────
-
-    @property
-    def pattern_type(self) -> str:
-        return self._pattern_type
-
-    @pattern_type.setter
-    def pattern_type(self, value: str):
-        if value in ("diagonal", "cross", "solid"):
-            self._pattern_type = value
-            self.update()
-
-    @property
-    def angle(self) -> float:
-        return self._angle
-
-    @angle.setter
-    def angle(self, value: float):
-        self._angle = value
-        self.update()
-
-    @property
-    def spacing(self) -> float:
-        return self._spacing
-
-    @spacing.setter
-    def spacing(self, value: float):
-        self._spacing = max(1.0, value)
-        self.update()
-
-    @property
-    def colour(self) -> str:
-        return self._colour
-
-    @colour.setter
-    def colour(self, value: str):
-        self._colour = value
-        self.update()
-
-    # ── Grip protocol (empty — hatches have no grips) ────────────────────────
-
-    def grip_points(self) -> list[QPointF]:
-        return []
-
-    def rebuild_from_source(self):
-        """Rebuild hatch boundary from the source geometry item."""
-        if self._source_item is not None and hasattr(self._source_item, 'get_closed_path'):
-            new_path = self._source_item.get_closed_path()
-            if new_path is not None:
-                self._boundary_path = QPainterPath(new_path)
-                self.setPath(self._boundary_path)
-                self.setPos(self._source_item.pos())
-                self.update()
-
-    # ── Property panel integration ───────────────────────────────────────────
-
-    def get_properties(self) -> dict:
-        return {
-            "Type":    {"type": "label",  "value": "Hatch"},
-            "Pattern": {"type": "enum",   "options": ["diagonal", "cross", "solid"],
-                        "value": self._pattern_type},
-            "Angle":   {"type": "string", "value": f"{self._angle:.1f}"},
-            "Spacing": {"type": "string", "value": f"{self._spacing:.1f}"},
-            "Colour":  {"type": "string", "value": self._colour},
-        }
-
-    def set_property(self, key: str, value):
-        if key == "Pattern":
-            self.pattern_type = value
-        elif key == "Angle":
-            try:
-                self.angle = float(value)
-            except (ValueError, TypeError):
-                pass
-        elif key == "Spacing":
-            try:
-                self.spacing = float(value)
-            except (ValueError, TypeError):
-                pass
-        elif key == "Colour":
-            self.colour = value
-
-    # ── Serialisation ────────────────────────────────────────────────────────
-
-    def to_dict(self) -> dict:
-        """Serialise the hatch to a plain dict for JSON storage."""
-        # Serialise the boundary path as a list of element tuples
-        elements = []
-        for i in range(self._boundary_path.elementCount()):
-            el = self._boundary_path.elementAt(i)
-            el_type = el.type
-            # Handle both enum (PyQt6 newer) and int (older) for el.type
-            if hasattr(el_type, 'value'):
-                el_type = el_type.value
-            elements.append([int(el_type), el.x, el.y])
-        return {
-            "type":         "hatch",
-            "path":         elements,
-            "pos":          [self.pos().x(), self.pos().y()],
-            "pattern_type": self._pattern_type,
-            "angle":        self._angle,
-            "spacing":      self._spacing,
-            "colour":       self._colour,
-            "level":        self.level,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HatchItem":
-        """Reconstruct a HatchItem from a serialised dict."""
-        path = cls._rebuild_path_from_elements(data["path"])
-
-        pos_data = data.get("pos", [0, 0])
-        pos = QPointF(pos_data[0], pos_data[1])
-        obj = cls(
-            boundary_path=path,
-            pos=pos,
-            pattern_type=data.get("pattern_type", "diagonal"),
-            angle=data.get("angle", 45.0),
-            spacing=data.get("spacing", 8.0),
-            colour=data.get("colour", "#888888"),
-        )
-        obj.level = data.get("level", DEFAULT_LEVEL)
-        return obj
-
-    @staticmethod
-    def _rebuild_path_from_elements(elements: list) -> QPainterPath:
-        """Rebuild a QPainterPath from the serialised element list,
-        correctly handling cubic curve segments."""
-        path = QPainterPath()
-        i = 0
-        while i < len(elements):
-            el_type, x, y = elements[i]
-            if el_type == 0:        # MoveToElement
-                path.moveTo(x, y)
-                i += 1
-            elif el_type == 1:      # LineToElement
-                path.lineTo(x, y)
-                i += 1
-            elif el_type == 2:      # CurveToElement — next 2 entries are data
-                # Collect the control and end points
-                if i + 2 < len(elements):
-                    _, cx2, cy2 = elements[i + 1]
-                    _, ex, ey = elements[i + 2]
-                    path.cubicTo(x, y, cx2, cy2, ex, ey)
-                    i += 3
-                else:
-                    i += 1  # malformed — skip
+    path = QPainterPath()
+    i = 0
+    while i < len(elements):
+        el_type, x, y = elements[i]
+        if el_type == 0:        # MoveToElement
+            path.moveTo(x, y)
+            i += 1
+        elif el_type == 1:      # LineToElement
+            path.lineTo(x, y)
+            i += 1
+        elif el_type == 2:      # CurveToElement — next 2 entries are data
+            if i + 2 < len(elements):
+                _, cx2, cy2 = elements[i + 1]
+                _, ex, ey = elements[i + 2]
+                path.cubicTo(x, y, cx2, cy2, ex, ey)
+                i += 3
             else:
-                i += 1
-        return path
-
-    # ── Translate ────────────────────────────────────────────────────────────
-
-    def translate(self, dx: float, dy: float):
-        """Move the hatch by (dx, dy)."""
-        self.setPos(self.pos().x() + dx, self.pos().y() + dy)
-
-    # ── Paint ────────────────────────────────────────────────────────────────
-
-    def paint(self, painter: QPainter, option, widget=None):
-        """Draw the hatch pattern clipped to the boundary path."""
-        painter.save()
-        option.state &= ~QStyle.StateFlag.State_Selected
-
-        # Clip all drawing to the closed boundary
-        painter.setClipPath(self._boundary_path)
-
-        color = QColor(self._colour)
-
-        if self._pattern_type == "solid":
-            painter.fillPath(self._boundary_path, QBrush(color))
+                i += 1  # malformed — skip
         else:
-            # Draw hatch lines
-            pen = QPen(color, 1)
-            pen.setCosmetic(True)
-            painter.setPen(pen)
+            i += 1
+    return path
 
-            self._draw_hatch_lines(painter, self._angle)
-            if self._pattern_type == "cross":
-                self._draw_hatch_lines(painter, self._angle + 90)
 
-        # Selection highlight
-        if self.isSelected():
-            sel_pen = QPen(QColor("#44aaff"), 1.5, Qt.PenStyle.DashLine)
-            sel_pen.setCosmetic(True)
-            painter.setClipping(False)
-            painter.setPen(sel_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(self._boundary_path)
-
-        painter.restore()
-
-    def _draw_hatch_lines(self, painter: QPainter, angle_deg: float):
-        """Draw a set of parallel lines at *angle_deg* across the bounding
-        rect, clipped to the boundary path (clip is already set by paint)."""
-        br = self._boundary_path.boundingRect()
-        if br.isEmpty():
-            return
-
-        spacing = max(1.0, self._spacing)
-        angle_rad = math.radians(angle_deg)
-
-        # Direction along the hatch lines
-        dx = math.cos(angle_rad)
-        dy = math.sin(angle_rad)
-        # Perpendicular direction (used to step between lines)
-        nx = -dy
-        ny = dx
-
-        # Diagonal length of the bounding rect — guarantees full coverage
-        diag = math.hypot(br.width(), br.height())
-        cx = br.center().x()
-        cy = br.center().y()
-
-        # Number of lines needed to cover the bounding rect
-        n = int(diag / spacing) + 1
-
-        lines = []
-        for i in range(-n, n + 1):
-            # Offset along the perpendicular
-            ox = cx + nx * i * spacing
-            oy = cy + ny * i * spacing
-            # Line endpoints extending across the full diagonal
-            x1 = ox - dx * diag
-            y1 = oy - dy * diag
-            x2 = ox + dx * diag
-            y2 = oy + dy * diag
-            lines.append(QLineF(x1, y1, x2, y2))
-
-        painter.drawLines(lines)
-
-    # ── Shape / hit-test ─────────────────────────────────────────────────────
-
-    def shape(self) -> QPainterPath:
-        """The entire filled region is clickable."""
-        return self._boundary_path
+# ---------------------------------------------------------------------------
+# NOTE: HatchItem has been RETIRED (2026-08-22).
+# Fills are now a property of 2-D geometry items (PolylineItem, RectangleItem,
+# CircleItem) via Geometry2DMixin (fill_type / fill_pattern / fill_opacity).
+# Legacy "hatches" entries in old .fpd files are migrated on load in scene_io.
+# ---------------------------------------------------------------------------

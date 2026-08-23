@@ -144,12 +144,6 @@ class TestPlacementAnchor:
         scene._draw_line_anchor = QPointF(10, 20)
         assert scene.get_placement_anchor() is None
 
-    def test_construction_line_is_out_of_scope(self, scene):
-        """construction_line is excluded by design — no dynamic input."""
-        scene.mode = "construction_line"
-        scene._cline_anchor = QPointF(9, 9)
-        assert scene.get_placement_anchor() is None
-
     # ── Branches with real logic ──────────────────────────────────────────
 
     def test_polyline_returns_last_vertex(self, scene):

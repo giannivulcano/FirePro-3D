@@ -29,11 +29,11 @@ from PyQt6.QtGui import QPen, QBrush, QColor, QPainterPath, QFont
 from PyQt6.QtWidgets import QGraphicsItem, QGraphicsPathItem, QGraphicsLineItem, QApplication
 
 from .construction_geometry import (
-    ConstructionLine, PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
 )
 from .constants import DEFAULT_LEVEL
 from .node import Node
-from .annotations import HatchItem
+
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 
@@ -58,7 +58,7 @@ def extract_edges(item) -> list[tuple[QPointF, QPointF]]:
     from .gridline import GridlineItem
     from .wall import WallSegment
     from .pipe import Pipe
-    from .construction_geometry import LineItem, PolylineItem, ConstructionLine
+    from .construction_geometry import LineItem, PolylineItem
 
     # GridlineItem — single line segment
     if isinstance(item, GridlineItem):
@@ -82,8 +82,8 @@ def extract_edges(item) -> list[tuple[QPointF, QPointF]]:
             return [(item.node1.scenePos(), item.node2.scenePos())]
         return []
 
-    # LineItem or ConstructionLine — use item.line() mapped to scene coords
-    if isinstance(item, (LineItem, ConstructionLine)):
+    # LineItem — use item.line() mapped to scene coords
+    if isinstance(item, LineItem):
         line = item.line()
         p1 = item.mapToScene(line.p1())
         p2 = item.mapToScene(line.p2())
@@ -590,14 +590,11 @@ class SceneToolsMixin:
                 new_pos = rp(item.scenePos(), pivot, angle_deg)
                 item.setPos(new_pos)
                 item.fitting.update()
-            elif isinstance(item, (LineItem, ConstructionLine)):
+            elif isinstance(item, LineItem):
                 item._pt1 = rp(item._pt1, pivot, angle_deg)
                 item._pt2 = rp(item._pt2, pivot, angle_deg)
-                if isinstance(item, LineItem):
-                    item.setLine(item._pt1.x(), item._pt1.y(),
-                                 item._pt2.x(), item._pt2.y())
-                else:
-                    item._recompute_line()
+                item.setLine(item._pt1.x(), item._pt1.y(),
+                             item._pt2.x(), item._pt2.y())
             elif isinstance(item, PolylineItem):
                 item._points = [rp(p, pivot, angle_deg) for p in item._points]
                 item._rebuild_path()
@@ -643,14 +640,11 @@ class SceneToolsMixin:
                 new_pos = sp(item.scenePos(), base, factor)
                 item.setPos(new_pos)
                 item.fitting.update()
-            elif isinstance(item, (LineItem, ConstructionLine)):
+            elif isinstance(item, LineItem):
                 item._pt1 = sp(item._pt1, base, factor)
                 item._pt2 = sp(item._pt2, base, factor)
-                if isinstance(item, LineItem):
-                    item.setLine(item._pt1.x(), item._pt1.y(),
-                                 item._pt2.x(), item._pt2.y())
-                else:
-                    item._recompute_line()
+                item.setLine(item._pt1.x(), item._pt1.y(),
+                             item._pt2.x(), item._pt2.y())
             elif isinstance(item, PolylineItem):
                 item._points = [sp(p, base, factor) for p in item._points]
                 item._rebuild_path()
@@ -729,13 +723,6 @@ class SceneToolsMixin:
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
                 new_items.append(ai)
-            elif isinstance(item, ConstructionLine):
-                p1 = mp(item._pt1, axis_p1, axis_p2)
-                p2 = mp(item._pt2, axis_p1, axis_p2)
-                cl = ConstructionLine(p1, p2)
-                self.addItem(cl)
-                self._construction_lines.append(cl)
-                new_items.append(cl)
         return new_items
 
     # -------------------------------------------------------------------------
@@ -1468,30 +1455,6 @@ class SceneToolsMixin:
                 self._merge_preview = None
             self._merge_point1 = None
             self.instructionChanged.emit("Click first endpoint")
-
-    def _handle_hatch_click(self, pos: QPointF):
-        """Handle mouse click during hatch mode."""
-        item = self._find_geometry_at(pos)
-        if item is None:
-            return
-
-        if not hasattr(item, 'is_closed') or not item.is_closed():
-            self._show_status("Object is not closed — cannot hatch")
-            return
-
-        closed_path = item.get_closed_path()
-        if closed_path is None:
-            self._show_status("Cannot get closed path for hatching")
-            return
-
-        hatch = HatchItem(closed_path, item.pos())
-        hatch._source_item = item
-        self.addItem(hatch)
-        self._hatch_items.append(hatch)
-        hatch.setSelected(True)
-        hatch.level = getattr(item, "level", self.active_level)
-        self.push_undo_state()
-        self._show_status("Hatch applied")
 
     def _handle_constraint_concentric_click(self, pos: QPointF):
         """Handle mouse click during concentric constraint mode."""

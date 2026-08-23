@@ -44,6 +44,7 @@ Z_CAT_WALL       = 0.3    # WallSegment
 Z_CAT_OPENING    = 0.35   # DoorOpening, WindowOpening
 Z_CAT_PIPE       = 0.4    # Pipe
 Z_CAT_NODE       = 0.5    # Node
+Z_CAT_CONSTRUCTION = Z_CAT_NODE + 0.1  # 2D draw geometry (above building geometry)
 
 # ── Default gridline geometry ────────────────────────────────────────────────
 DEFAULT_GRIDLINE_SPACING_MM = 7315.2   # 288 in / 24 ft

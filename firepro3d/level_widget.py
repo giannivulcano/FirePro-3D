@@ -402,14 +402,12 @@ class LevelWidget(QWidget):
             return []
         items = (list(self.scene.sprinkler_system.nodes) +
                  list(self.scene.sprinkler_system.pipes))
-        items += getattr(self.scene, "_construction_lines", [])
         items += getattr(self.scene, "_polylines", [])
         items += getattr(self.scene, "_draw_lines", [])
         items += getattr(self.scene, "_draw_rects", [])
         items += getattr(self.scene, "_draw_circles", [])
         items += getattr(self.scene, "_draw_arcs", [])
         items += getattr(self.scene, "_gridlines", [])
-        items += getattr(self.scene, "_hatch_items", [])
         items += getattr(self.scene, "_roofs", [])
         ann = getattr(self.scene, "annotations", None)
         if ann:

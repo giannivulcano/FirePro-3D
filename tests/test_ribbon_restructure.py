@@ -75,7 +75,7 @@ def test_undo_redo_present_on_manage(main_window):
 # invariant; clicking the shared button verifies the wiring, not the alias.
 _SURVIVING_MODES = [
     "draw_line", "draw_rectangle", "draw_circle", "polyline", "draw_arc",
-    "draw_gridline", "dimension", "text", "hatch",
+    "draw_gridline", "dimension", "text",
     "wall", "wall_rect", "floor", "floor_rect", "roof", "roof_rect",
     "room", "room_manual", "door", "window", "detail",
     "pipe", "sprinkler", "water_supply", "design_area",

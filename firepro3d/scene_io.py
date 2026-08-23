@@ -110,11 +110,7 @@ class SceneIOMixin:
                 "level":      getattr(note, "level", DEFAULT_LEVEL),
             })
 
-        # --- Hatch items ---
-        hatch_data = []
-        for h in self._hatch_items:
-            if hasattr(h, 'to_dict'):
-                hatch_data.append(h.to_dict())
+        # (HatchItem retired 2026-08-22 — no longer saved; migration on load only)
 
         # --- Constraints ---
         all_geom = self._all_geometry_items()
@@ -179,7 +175,6 @@ class SceneIOMixin:
         )
 
         # --- Construction geometry ---
-        clines_data = [cl.to_dict() for cl in self._construction_lines]
         polylines_data = [pl.to_dict() for pl in self._polylines]
         draw_lines_data = [l.to_dict() for l in self._draw_lines]
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
@@ -213,7 +208,6 @@ class SceneIOMixin:
             "underlays":           underlays_data,
             "water_supply":        ws_data,
             "design_areas":        design_areas_data,
-            "construction_lines":  clines_data,
             "polylines":           polylines_data,
             "draw_lines":          draw_lines_data,
             "draw_rectangles":     draw_rects_data,
@@ -224,7 +218,6 @@ class SceneIOMixin:
             "floor_slabs":         floor_slabs_data,
             "roofs":               roofs_data,
             "rooms":               rooms_data,
-            "hatches":             hatch_data,
             "constraints":         constraints_data,
             "detail_views":        (self._detail_manager.to_list()
                                     if getattr(self, "_detail_manager", None) else []),
@@ -260,13 +253,13 @@ class SceneIOMixin:
         from .node import Node
         from .pipe import Pipe
         from .sprinkler import Sprinkler
-        from .annotations import DimensionAnnotation, NoteAnnotation, HatchItem
+        from .annotations import DimensionAnnotation, NoteAnnotation, _rebuild_path_from_elements
         from .underlay import Underlay
         from .scale_manager import ScaleManager
         from .water_supply import WaterSupply
         from .design_area import DesignArea
         from .construction_geometry import (
-            ConstructionLine, PolylineItem, LineItem, RectangleItem,
+            PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem,
         )
         from .gridline import GridlineItem
@@ -562,10 +555,7 @@ class SceneIOMixin:
             # computing here would produce wall-less (over-wide) tiles
 
         # --- Construction geometry ---
-        for entry in payload.get("construction_lines", []):
-            cl = ConstructionLine.from_dict(entry)
-            self.addItem(cl)
-            self._construction_lines.append(cl)
+        # Note: legacy "construction_lines" key is silently dropped.
         for entry in payload.get("polylines", []):
             pl = PolylineItem.from_dict(entry)
             self.addItem(pl)
@@ -633,14 +623,36 @@ class SceneIOMixin:
         sync_grid_counters(self._gridlines)
         apply_duplicate_warnings(self._gridlines)
 
-        # --- Hatches ---
+        # --- Legacy hatch migration (HatchItem retired 2026-08-22) ---
+        # Old .fpd files have a "hatches" list of HatchItem dicts.  Migrate each
+        # entry into a filled closed PolylineItem so old drawings keep their fills.
+        _NEAREST = {"diagonal": "diagonal", "cross": "cross_hatch"}
         for entry in payload.get("hatches", []):
             try:
-                h = HatchItem.from_dict(entry)
-                self.addItem(h)
-                self._hatch_items.append(h)
-            except (ValueError, KeyError, TypeError):
-                pass
+                path = _rebuild_path_from_elements(entry["path"])
+                poly = path.toFillPolygon()
+                pts = [poly.at(i) for i in range(poly.count())]
+                if len(pts) < 3:
+                    continue
+                if pts[0] != pts[-1]:
+                    pts.append(pts[0])
+                pl = PolylineItem(pts[0])
+                for p in pts[1:]:
+                    pl.append_point(p)
+                px, py = entry.get("pos", [0, 0])
+                pl.setPos(px, py)
+                pl.level = entry.get("level", DEFAULT_LEVEL)
+                pt = entry.get("pattern_type", "solid")
+                if pt == "solid":
+                    pl.fill_type = "solid"
+                else:
+                    pl.fill_type = "hatch"
+                    pl.fill_pattern = _NEAREST.get(pt, pl.fill_pattern)
+                pl._display_fill_color = entry.get("colour", "#888888")
+                self._polylines.append(pl)
+                self.addItem(pl)
+            except Exception:
+                continue  # tolerant: skip malformed legacy hatch
 
         # --- Constraints ---
         all_geom = self._all_geometry_items()
@@ -688,9 +700,7 @@ class SceneIOMixin:
                 self.removeItem(da)
         self.design_areas = []
         self.active_design_area = None
-        self._construction_lines = []
         self._polylines = []
-        self._cline_anchor = None
         self._polyline_active = None
         self._draw_lines = []
         self._draw_rects = []
@@ -718,7 +728,6 @@ class SceneIOMixin:
         self._wall_chain_start = None
         self._floor_active = None
         self._roof_active = None
-        self._hatch_items = []
         self._constraints = []
         reset_grid_counters()
         self.dimension_start = None

@@ -236,10 +236,11 @@ _CATEGORIES: list[dict] = [
     {"key": "Level Datum",      "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Elevation Marker", "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
     {"key": "Detail Marker",    "color": "#4488cc", "fill": "#1a1a2e", "section": None,      "section_pattern": None,        "font": 10,   "scale": 1.0, "opacity": 100, "visible": True, "group": "Grids & Levels"},
+    {"key": "2D Geometry",      "color": "#ffffff", "fill": None,      "section": None,      "section_pattern": None,        "font": None, "scale": 1.0, "opacity": 100, "visible": True, "group": "Annotation & Geometry"},
 ]
 
 # Group display order
-_GROUPS = ["Fire Suppression", "Architecture", "Grids & Levels"]
+_GROUPS = ["Fire Suppression", "Architecture", "Grids & Levels", "Annotation & Geometry"]
 
 # Tree-column indices
 _COL_NAME    = 0
@@ -460,6 +461,8 @@ def apply_display_to_item(item, color: str | None, scale: float,
         _apply_elevation_marker(item, color, scale, opacity, visible, fill_color, font_size)
     elif _is_detail_marker(item):
         _apply_detail_marker(item, color, scale, opacity, visible, fill_color, font_size)
+    elif _is_geo2d_item(item):
+        _apply_geo2d(item, color, opacity, visible)
     elif isinstance(item, Node):
         _apply_node(item, color, scale, opacity, visible)
     else:
@@ -522,6 +525,26 @@ def _apply_fitting(fitting, color, scale, opacity, visible, fill_color=None):
     # otherwise align_fitting can misplace the symbol.
     if fitting.node and len(fitting.node.pipes) > 0:
         fitting.align_fitting()
+
+
+def _is_geo2d_item(item) -> bool:
+    """Check if item is one of the 5 draw-geometry classes (avoids circular imports)."""
+    return type(item).__name__ in (
+        "LineItem", "PolylineItem", "RectangleItem", "CircleItem", "ArcItem"
+    )
+
+
+def _apply_geo2d(item, color, opacity, visible):
+    """Apply display settings to a 2D draw-geometry item (LineItem, PolylineItem, etc.).
+
+    Stroke colour is stored in _display_color; the paint() methods read it and
+    apply it to the pen before delegating to super().paint().  Fill colour is
+    already handled by draw_fill() in each paint() via _display_fill_color.
+    """
+    item._display_color = color
+    item.setVisible(visible)
+    item.setOpacity(opacity / 100.0 if opacity > 1 else opacity)
+    item.update()
 
 
 def _apply_node(node, color, scale, opacity, visible):
@@ -3209,4 +3232,12 @@ def _items_for_category_static(scene, key: str) -> list:
         return list(getattr(scene, "_floor_slabs", []))
     elif key == "Elevation Marker":
         return [i for i in scene.items() if _is_elevation_marker(i)]
+    elif key == "2D Geometry":
+        items = []
+        items.extend(getattr(scene, "_polylines", []))
+        items.extend(getattr(scene, "_draw_lines", []))
+        items.extend(getattr(scene, "_draw_rects", []))
+        items.extend(getattr(scene, "_draw_circles", []))
+        items.extend(getattr(scene, "_draw_arcs", []))
+        return items
     return []

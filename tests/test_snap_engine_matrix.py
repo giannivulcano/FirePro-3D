@@ -745,26 +745,3 @@ class TestDXFPathItem:
         _assert_snap(result, "nearest", QPointF(80, 0))
 
 
-# ── HatchItem (negative test) ───────────────────────────────────────────────
-
-class TestHatchItem:
-    """HatchItem: all N/A — must contribute zero snap candidates."""
-
-    @pytest.fixture(autouse=True)
-    def setup(self, qapp):
-        from firepro3d.annotations import HatchItem
-        self.scene = _scene()
-        path = QPainterPath()
-        path.moveTo(0, 0)
-        path.lineTo(200, 0)
-        path.lineTo(200, 200)
-        path.closeSubpath()
-        self.item = HatchItem(path, QPointF(0, 0))
-        self.scene.addItem(self.item)
-
-    def test_no_snap(self):
-        """HatchItem must produce no snap of any type."""
-        result = _find(_engine(), self.scene, QPointF(100, OFFSET))
-        assert result is None, (
-            f"HatchItem leaked a {result.snap_type} snap"
-        )
