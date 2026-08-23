@@ -39,5 +39,6 @@
 | **Preferences dialog** | `preferences_dialog.py` | Built 2026-08-22 (5 panes: Snapping/Units & Precision/Import & Conversion/General/Project Info); governed temporarily by `ribbon-bar.md §3.4` + `docs/superpowers/specs/2026-08-22-ribbon-overhaul-design.md §3`. **Dedicated governing spec is a filed follow-up.** |
 | 3D view | `view_3d.py`, `view_cube.py` | PyVista/VTK; cross-test teardown hazards (see memory). |
 | Scene I/O / `.fpd` project format | `scene_io.py` | `architecture/io.md` exists but is thin/inaccurate; promote to a real spec on first touch. |
+| **Feature system** (Feature framework: definition/instance, Category > Type, host strategies, Manager, Editor) | `wall_opening.py` (first Category = *Openings*), future `feature_*.py` | Vision specced in `wall-room-floor-system.md §7.16` (2026-08-23). The Opening element (first Feature) is governed by `wall-room-floor-system.md §7`. **Promote to its own governing spec at Phase B (Manager).** |
 
 _Backfill posture: **lazy** — these get a spec the first time a task touches them (blocking-prerequisite), not proactively._

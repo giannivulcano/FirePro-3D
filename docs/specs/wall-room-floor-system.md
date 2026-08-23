@@ -1,5 +1,5 @@
 ---
-status: current          # §5/§9/§12 code-verified as-built; divergences ledger in §13
+status: current          # §4–§6/§8–§13 code-verified as-built; §7 = redesign PROPOSAL (not built, 2026-08-23); divergences ledger in §13
 last-verified: 2026-07-14
 verified-commit: 5ba9227
 applies-to:
@@ -18,6 +18,7 @@ applies-to:
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
+**Design note (2026-08-23):** §7 rewritten as a **first-principles redesign PROPOSAL** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). **Not yet built** (see §7.1 phasing). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill). §4–§6, §8–§13 unchanged as-built.
 
 ## 1. Goal
 
@@ -41,6 +42,8 @@ These four entity types form the core architectural model that drives NFPA 13 sp
 | `WindowOpening` | `WallOpening` | `wall_opening.py` | Rectangle + crossing diagonals, variable sill |
 
 All entities except `WallOpening` inherit `DisplayableItemMixin` for display system integration (category defaults, per-instance overrides, section-cut flags, Z-range reporting).
+
+> **Redesign (§7, PROPOSAL):** `WallOpening` becomes a **first-class `DisplayableItemMixin` element** and the first **Feature** (Category *Openings*; Types Door / Window / **Blank Opening**), adopting elevation-based Z-ordering via `Z_CAT_OPENING`. The as-built rows above (hardcoded Z = −45, no `DisplayableItemMixin`) describe the superseded model (§7.17). See §7.
 
 ### 3.2 Coordinate System
 
@@ -274,89 +277,168 @@ Walls participate in the unified section-cut protocol:
 - **Coordinate conversion:** Scene units → real mm via scale_manager. Y negated for 3D convention.
 - **Z-range:** `base_z = base_level.elevation + base_offset_mm`, `top_z = top_level.elevation + top_offset_mm` (fallback: `base_z + height_mm`).
 
-## 7. Wall Openings
+## 7. Wall Openings — First-Class, Feature-Based Element (redesign)
 
-### 7.1 Data Model
+> **Status: PROPOSAL / not-yet-built** (2026-08-23 first-principles grill; supersedes the as-built wall-owned-cutout model, retained for reference in §7.17). This section specifies the redesigned **Opening** as the first concrete instance of a new **Feature** framework. **Phase A** (this task's deliverable) builds the Opening element + the minimal Feature data model + Feature Browser; **Phase B** (Manager) and **Phase C** (Editor) are specced forward-looking in §7.16 and filed as follow-up tasks. The rest of this spec (§4–§6, §8–§13) remains as-built/current.
 
-| Field | Type | Default | Notes |
-|-------|------|---------|-------|
-| `_wall` | `WallSegment \| None` | constructor | Parent wall reference |
-| `_offset_along` | `float` | constructor | Scene units from pt1 along centerline |
-| `_width_mm` | `float` | from preset | Opening width in mm |
-| `_height_mm` | `float` | from preset | Opening height in mm |
-| `_sill_mm` | `float` | 0 (door) / varies (window) | Distance from floor to opening bottom |
+### 7.1 Scope & Phasing
 
-### 7.2 Positioning
+- **Phase A (this deliverable):** the Opening element — Door / Window / Blank Opening — as a Hybrid first-class, wall-hosted element with the placement/orientation model, the wall cut, all three view representations, level binding, the property panel + "Openings" contextual ribbon tab, a read-only Feature Browser, and 3 seed door Features.
+- **Phase B:** Feature **Manager** dialog (load Features into a project; template-project prepopulation).
+- **Phase C:** Feature **Editor v1** (author void+symbol Features by drawing 2D geometry).
 
-`center_on_wall()` computes the opening's world position:
-```
-angle = wall.centerline_angle_rad()
-center = wall.pt1 + offset_along × (cos(angle), sin(angle))
-```
+### 7.2 The Feature Model
 
-`_reposition()` sets the item's scene position and calls `_rebuild_path()` to update the local symbol geometry. The item's rotation is set to match the wall angle.
+A **Feature** is a saved, parametric, placeable *definition* — the 3D/parametric cousin of a `BlockItem` (which groups static 2D geometry). Taxonomy:
 
-### 7.3 Wall-Edit Reposition Contract
+> **Feature** (definition) → **Category** (Openings, Furniture, Fixtures, …) → **Type** (Door, Window, Blank Opening, …), placed in the scene as **instances**.
 
-**Invariant:** Any wall geometry change must reposition all owned openings.
+A Feature definition bundles **representation artifacts** (plan schematic, elevation/section schematic, 3D geometry — each authored, see §7.8), **parameters** (size, …), and a **host declaration** (`host_type`). Openings are Category **"Openings"**, `host_type = Wall`. `host_type` is first-class from day one so a future Floor-hosted table or Ceiling-hosted diffuser is a data change, not a re-architecture. Phase A defines Features in a **code registry**; Phase B/C add project-loaded sets and user authoring.
 
-`WallSegment._rebuild_path()` must call `_reposition()` on every opening in `self.openings`. This ensures openings follow wall edits in real time — grip drag, translate, or any other geometry mutation.
+*(Naming note: the future extrude/hole/boolean 3D modeling ops are named **"operations"**, not "features", to avoid colliding with this term.)*
 
-### 7.4 Offset Clamping
+### 7.3 Opening = Hybrid First-Class, Wall-Hosted
 
-`_offset_along` is clamped to `[0, centerline_length()]` whenever:
-- The opening is repositioned (§7.3)
-- The user drags the opening along the wall (`translate()`)
-- The wall is shortened (endpoint grip drag)
+An opening is a **first-class element** (own identity, selection, "Openings" contextual tab, property record) that is **hard-bound to exactly one host wall**: it cannot exist wall-less, does **not** re-host to another wall, and is **deleted with its host wall**. (Decision: *Hybrid* — first-class identity + wall lifecycle dependency; no floating/re-hosting openings in MVP.)
 
-This prevents openings from floating past wall endpoints.
+### 7.4 Data Model
 
-### 7.5 Offset Model
+**Feature definition (registry):** `id`, `category` ("Openings"), `type` ("Door"|"Window"|"Blank Opening"), `host_type` ("Wall"), default parameters (width/height/sill), and the three representation artifacts (§7.8) as scale-parametric authored geometry.
 
-`_offset_along` is **absolute** (scene units from pt1), not parametric. This means:
-- Wall shortened from pt2 side: opening stays at same distance from pt1 (clamped if exceeds new length).
-- Wall lengthened: opening stays at same distance from pt1.
-- Wall translated: opening follows (pt1 moves, offset unchanged, position recomputed).
+**Opening instance (placed):**
 
-### 7.6 Door Symbol
+| Field | Notes |
+|-------|-------|
+| `feature_id` | Which Feature definition. |
+| host wall | Implicit = parent wall (serialized within it, §7.11). |
+| `offset_along` | Scene units from wall pt1 (along-wall position; clamped §7.7). |
+| `cross_offset_mm` | Signed cross-wall offset from the alignment reference (proud allowed; sign-flips on facing mirror, §7.5). |
+| `alignment` | `Centered` \| `Flush-front` \| `Flush-back`. |
+| `mirror_hinge` | bool — YZ mirror (hand/hinge, along wall). |
+| `mirror_facing` | bool — XZ mirror (which face it faces). |
+| `width_mm`, `height_mm`, `sill_mm` | Size (override the definition defaults; drive the parametric scale). |
+| `level` | Default = host wall base level; user-assignable (§7.9). |
 
-- Gap rectangle clearing the wall lines
-- 90° swing arc from hinge-side corner (radius = half opening width)
-- Fill: dark color (RGB 30, 30, 30)
+### 7.5 Reference Frame, Position & Orientation
 
-### 7.7 Window Symbol
+Each opening carries a **local reference frame** anchored on its host wall (local X = along wall, Y = across wall / thickness, Z = up):
 
-- Gap rectangle clearing the wall lines
-- Crossing diagonals (X pattern)
-- Horizontal centerline (glass pane indicator)
-- Fill: semi-transparent blue (RGB 40, 60, 80, alpha 100)
+- **XY plane (level plane)** — horizontal at the opening's Level elevation; sill/head measured up in world-Z from it (§7.9).
+- **XZ plane (wall plane)** — vertical, along the wall through its centerline. Default position = centerline. The opening may be **offset** across the wall (`cross_offset_mm`) and **mirrored** about this plane (`mirror_facing`).
+- **YZ plane** — vertical, perpendicular to the wall through the opening centre. Aligns to nothing; used only to **mirror** the opening along the wall (`mirror_hinge` — the hand/hinge side).
 
-### 7.8 Preset Libraries
+**Cross-wall alignment** (`Centered` / `Flush-front` / `Flush-back`) is the preset that `cross_offset_mm` is measured from; **Centered + 0** is the default. The cross-wall offset is **continuous** and **not clamped** — a positive offset intentionally sits the opening *proud* of a face.
 
-**Doors:** 820, 920, 1200, 1800 mm wide × 2040 mm tall. Default: 920×2040.
+**Sign-flip invariant (hard):** `cross_offset_mm` is defined in the opening's own facing frame, so a **facing mirror negates the world-space offset**. An element sitting *proud of the front face* stays *proud of the back face* after a facing flip — never recessed.
 
-**Windows:** Widths 600, 900, 1200, 1800 mm. Heights 600, 1200, 1500 mm. Default: 900×1200.
+**Offset preserved on alignment cycle:** cycling `alignment` (Spacebar) **preserves** the typed `cross_offset_mm` (set "Flush-back, +10 mm" then re-centre without losing the 10).
 
-"Custom" preset allows manual dimension entry.
+### 7.6 Placement Mode & Controls
 
-### 7.9 Wall Deletion
+Placement is an **active placement mode** (no literal drag-drop). Entered from either a **ribbon quick-button** (Door / Window / Blank Opening — launches the last-used Feature of that Type) or the **Feature Browser** (activating a Feature carries *that* Feature into the mode). Behavior:
 
-When a wall is deleted, all owned openings are removed from the scene and the wall's `openings` list is cleared. Openings cannot exist without a parent wall.
+- Live preview follows the cursor onto a wall; commit click places the opening.
+- **Spacebar** → cycle cross-wall **alignment** (Centered / Flush-front / Flush-back).
+- **← / →** → **hinge** flip (YZ mirror).
+- **↑ / ↓** → **facing** flip (XZ mirror).
+- Committing over **empty space (no host wall)** is **rejected** (no-op + status message).
+- The same keys + the **property panel** edit a **selected** placed opening (undoable), matching how walls expose alignment via both the cycle key and the panel.
+- **Keyboard gating:** these keys are gated **off while a Dynamic Input HUD field is focused** (typing a dimension must not cycle) — same rule as the wall-alignment Spacebar change.
 
-### 7.10 Opening Deletion
+**Dependencies to record:** (a) Spacebar-for-alignment is the *target* convention of the pending P1 task *"Cycle key: Left-Shift tap → Spacebar"* (walls); openings adopt the target. (b) In opening-placement mode, **←/→ rebinds** from the generic "placement-variant" cycle to the hinge mirror.
 
-When an opening is deleted independently, it is removed from its parent wall's `openings` list and from the scene.
+### 7.7 The Wall Cut (Host Behavior — Distinct From the Symbol)
 
-### 7.11 Translation Along Wall
+The **cut** is a host behavior driven by the opening's width/height/sill/position, **separate from the drawn symbol**, and occurs in every view *even for a Blank Opening with no symbol*:
 
-`translate(dx, dy)` projects the movement vector onto the wall direction:
-```
-proj = dx × cos(angle) + dy × sin(angle)
-offset_along += proj
-offset_along = clamp(offset_along, 0, centerline_length)
-```
+- **Plan:** jambs break the wall lines (a gap in the wall poché).
+- **Elevation/section:** the wall's poché/fill is voided across the opening width, sill→head.
+- **3D:** a rectangular hole is cut through the wall mesh (existing capability, §6.5).
 
-This constrains opening movement to the wall axis.
+**Clamping:** *along-wall* position (`offset_along`) is clamped to keep the opening fully within the wall segment. *Cross-wall* offset is **never** clamped (proud is intentional, §7.5).
+
+### 7.8 Representations — Authored, Feature-Owned, Parametric-by-Scale
+
+Representations are **independent authored artifacts** — **not** projections of one another or of the 3D model (a door is drawn **open** in plan but **closed** in 3D). They belong to the **Feature definition** and are drawn using the existing **2D-geometry system** (the geo2d line/arc/rect tooling) — this is precisely what the Phase-C Editor authors. For Phase A the seed Features **generate** these procedurally; the architecture treats them as Feature-owned artifacts either way. They **scale to the instance's primary dimensions** (a scale transform of the authored artifact — width/height stretch); richer parametrics are future.
+
+**7.8.1 Plan schematic**
+- **Door:** jambs + a **leaf line at the 90°-open position** + a **90° swing arc**; the **hinge side** (`mirror_hinge`) sets the pivot jamb, the **facing** (`mirror_facing`) sets which side of the wall it swings to. **Double-leaf** = two mirrored leaves + two arcs meeting at centre.
+- **Window:** jambs + **3 parallel lines** (frame / glass / frame) across the opening.
+- **Blank Opening:** jambs only (gap), no symbol.
+- Weights/colours via the Display Manager (an "Openings"/"Features" category) — not hardcoded.
+
+**7.8.2 Elevation / section schematic** (the currently-missing representation)
+- The opening **voids the wall poché** across its width, **sill→head**, and the Feature's elevation schematic is drawn into the void:
+  - **Door:** frame rectangle sill(0)→head; optional centre line for a double-leaf; no swing in elevation.
+  - **Window:** frame rectangle sill→head + a **sill line** (+ optional mullion, parametric later) — where sill height reads visually.
+  - **Blank:** void rectangle only.
+- One schematic serves both a **cardinal elevation view** and a **section cut through the wall** (no separate section symbol for MVP).
+- **Section plane passing *through* the opening:** wall poché interrupted over the opening width; head/sill show as horizontal lines (the hole reads in section). No door leaf in section. (Projection mechanism owned by `view-relationships.md`; this section defines only what an opening contributes.)
+
+**7.8.3 3D representation**
+- The wall **hole-cut** (host behavior, §6.5) **+** a **simple procedural closed** geometry: doors → frame box + closed leaf slab (on the facing side, respecting the facing mirror); windows → frame + semi-transparent glass pane; Blank → void only. All parametric-by-scale; no hardware/reveals/mullions.
+- **Fallback (if Phase A runs hot):** void-only, closed-leaf 3D deferred to a follow-up.
+
+### 7.9 Level Binding
+
+The opening's Level defaults to the **host wall's base level** but is **user-assignable** at MVP (panel level dropdown). Sill/head are measured from the **assigned** level (`head = sill + height`; door sill = 0, window sill > 0). **Invariant / warning:** the resulting world-Z `[sill, head]` must fall within the host wall's `[base_z, top_z]`; a violation raises a **non-blocking warning** (panel), never an auto-resize.
+
+### 7.10 Edge Cases
+
+| Situation | Ruling |
+|-----------|--------|
+| Place with no valid host wall | **Reject** (no-op + status). |
+| Along-wall position past a wall end | **Clamp** `offset_along` within the segment. |
+| Wall shorter than opening width | **Reject placement**; an existing opening on a shrunk wall stays clamped + **validity warning** (never auto-delete). |
+| Wall shortened / moved / rotated | Opening **follows** + re-clamps (§7.12). |
+| Cross-wall offset past a wall face | **Allowed** (proud), not clamped. |
+| Overlapping openings on one wall | **Permissive** — allowed, no hard block in MVP (soft-validation = future). |
+| Sill/head outside wall vertical extent | **Warn** (§7.9), non-blocking; no auto-resize. |
+| Host wall deleted | Opening **deleted** with it. |
+
+### 7.11 Persistence & Undo
+
+- **Instances** serialize **within their host wall's `openings` array** (keeps the wall↔opening lifecycle atomic). Instance shape = §7.4 fields. Legacy openings (`kind` / `width_mm` / `height_mm` / `sill_mm` / `offset_along` / `level`) **migrate** on load: `kind`→`type` + `feature_id` (nearest seed Feature); missing fields default (`cross_offset_mm`=0, `alignment`=Centered, mirrors=`False`).
+- **Definitions** = code registry in Phase A (not persisted); Phase B adds the project loaded-set.
+- **Undo (tension to resolve in Phase 3/4):** architectural elements are currently **file-save only — not in the undo network** (`_capture_network` / `_restore_network` skip walls/openings). Opening **place / edit / delete / orientation-cycle must be undoable**, so the plan must bring opening ops into an undo mechanism (extend the arch capture, or dedicated `QUndoCommand`s).
+- **Dual-serialization discipline:** any new persisted field lands in **both** the file path and whatever undo path is chosen, in the same commit; "survives save/load **and** undo/redo" is an explicit acceptance test.
+
+### 7.12 Reposition Contract (unchanged from as-built)
+
+Any wall geometry change repositions all owned openings: `WallSegment._rebuild_path()` calls `_reposition()` on every opening (grip drag, translate, thickness/endpoint edits). Along-wall offset is re-clamped on every reposition.
+
+### 7.13 Feature Browser, Manager & Model Browser
+
+- **Feature Browser (Phase A):** a new tree tab showing Features **loaded in the current project**, organized **Feature > Category > Type**; activating a leaf enters the placement mode (§7.6). Read-only in Phase A (seeded set).
+- **Manager (Phase B):** an Architecture-ribbon **dialog** to choose which Features (from the global library) are **loaded into this project**; template projects prepopulate a default set (Revit "Load Family").
+- **Model/Project browser:** *placed instances* grouped **by Type** (Doors, Windows, …) — matches current behavior.
+
+### 7.14 Seed Data (Phase A)
+
+Three door Features for test/troubleshooting: **813 mm (32″)** and **914 mm (36″)** single man doors, and an **1829 mm (72″) double-leaf** door — one procedural "Door" definition instantiated at three widths (parametric-by-scale).
+
+### 7.15 Acceptance Criteria (Phase A)
+
+1. Place Door/Window/Blank on a wall via placement mode (ribbon quick-button **and** Feature Browser); empty-space rejected.
+2. Spacebar alignment; ←→ hinge; ↑↓ facing; live preview during placement; same keys + panel edit a selected opening (undoable); keys gated while a HUD field is focused.
+3. Cross-wall offset continuous, proud allowed, **sign-flips on facing mirror**; along-wall clamped.
+4. All three views: **plan** (open door + arc reflecting hinge/facing, window glazing, blank gap; wall cut), **elevation/section** (void + frame/sill), **3D** (hole + closed leaf/frame/pane).
+5. 3 seed doors selectable, parametric-scaled.
+6. Level default-from-wall-base but assignable; sill/head from level; fit warning.
+7. Feature Browser (Feature>Category>Type) + "Openings" contextual tab + property panel.
+8. Survives save/load **and** undo/redo.
+
+### 7.16 Feature System — Forward-Looking Architecture (graduates to its own spec)
+
+The Opening proves a general **Feature framework** that will grow beyond walls. Captured here so openings don't design into a corner; **it graduates to its own governing spec** when Phase B/C build it (filed in `SPEC-INDEX.md` orphans).
+
+- **Host strategies:** `host_type` ∈ Wall (openings) | Floor (e.g. a table, riser base) | Ceiling (pendent sprinkler, diffuser) | Face | Level/free (unhosted). The wall-hosting placement model (§7.5–7.7) is one strategy.
+- **Editor v1 (Phase C) is deliberately constrained** to the **void+symbol paradigm**: define size parameters, draw the plan & elevation schematics (reusing the 2D-geometry tools), define the wall-cut and `host_type`. **Free-form 3D solid authoring is deferred** to Editor v2, gated behind the future 3D solid-modeling ("operations") system.
+- **Future feasibility (own session):** folding Sprinkler Systems (Pipe/Fitting/Sprinkler/Valve/Pump) into the Feature framework — needs a brainstorm/feasibility review, and must first reconcile the terminology tension (there "Feature" reads as a *discipline/system* grouping, a looser sense than "Feature = a concrete placeable definition" here).
+
+### 7.17 Superseded As-Built Model (reference)
+
+The pre-redesign code (`wall_opening.py`) modeled openings as **wall-owned cutouts**: `WallOpening(QGraphicsPathItem)` with `DoorOpening` / `WindowOpening`, positioned by absolute `offset_along` only (no cross-wall offset, no alignment, no mirrors), centered on the wall centerline, serialized by `kind` within the wall, plan door-swing-arc / window-crossing-diagonals symbols, 3D hole-cut, **no elevation projection**, level inherited from the wall, and a placeholder "opening" contextual tab. This model is **superseded** by §7.1–7.16; §7.11 defines its migration.
 
 ## 8. Room Boundary Detection
 
@@ -624,6 +706,8 @@ Every polygon vertex is a grip point. `apply_grip(index, new_pos)` moves the ind
 ```
 
 Openings are serialized within their parent wall's `openings` array. The wall reference is restored by the caller during deserialization.
+
+> **Redesign (§7.11, PROPOSAL):** the instance shape gains `feature_id`, `type`, `cross_offset_mm`, `alignment`, `mirror_hinge`, `mirror_facing`; the legacy shape above (`kind` + width/height/sill/offset_along/level) becomes the **migration source** (`kind`→`type`+`feature_id`; missing fields default). New fields must land on **both** serialization paths (file + undo — see §7.11 undo tension).
 
 ### 12.3 Room
 
