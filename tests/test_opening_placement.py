@@ -41,10 +41,22 @@ def test_click_on_wall_places_opening(qapp, shown_model_view):
 
 
 def test_click_empty_space_rejected(qapp, shown_model_view):
+    """A click well off the wall must not host an opening on it.
+
+    A real wall is present so the assertion is non-vacuous: if the
+    empty-space guard in _press_opening were removed, _find_wall_at would
+    return None and the handler would return early — but if the guard were
+    *replaced* with unconditional placement (or the click hit the wall), the
+    wall would gain an opening and the assert would go red.  The wall lies on
+    y=0; the click lands at y=500 (250× the 200 mm half-thickness away) so
+    wall.shape().contains(QPointF(500, 500)) is False and the guard fires.
+    """
     view, scene = shown_model_view
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
     scene.set_mode("opening", template="door_914")
-    _click(view, QPointF(500, 500))
-    assert all(len(w.openings) == 0 for w in scene._walls)
+    _click(view, QPointF(500, 500))          # well off the wall (wall lies on y=0)
+    assert len(w.openings) == 0              # nothing hosted from an empty-space click
 
 
 def test_spacebar_cycles_alignment_during_placement(qapp, shown_model_view):
@@ -83,4 +95,5 @@ def test_placed_opening_carries_cycle_state(qapp, shown_model_view):
     op = w.openings[0]
     assert op.alignment == aligned
     assert op.mirror_hinge is True
+    assert op.mirror_facing is False   # facing was never toggled; default must survive
     assert op.level == w.level
