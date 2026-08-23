@@ -39,13 +39,15 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY, INFERENCE_TOL_PX)
+                       Z_OVERLAY, INFERENCE_TOL_PX,
+                       OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
 from .roof import RoofItem
 from .room import Room
 from .wall_opening import WallOpening, DoorOpening, WindowOpening
+from .feature import DEFAULT_FEATURE_FOR_TYPE
 from .constraints import Constraint as ConstraintBase
 from .dynamic_input import SCHEMAS, effective_modifiers
 from . import geometry_intersect as gi
@@ -343,6 +345,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._floor_rect_anchor: "QPointF | None" = None   # first click for rect floor
         self._floor_rect_preview: "QGraphicsRectItem | None" = None
         self._geometry_template = None                      # pre-placement template for geometry tools
+        # Opening placement (§7.6): unified door/window/blank mode carrying a
+        # Feature id + pre-commit cycle state (alignment / hinge / facing).
+        self._opening_feature_id: str = DEFAULT_FEATURE_FOR_TYPE["door"]
+        self._opening_alignment: str = OPENING_ALIGN_CENTER
+        self._opening_mirror_hinge: bool = False
+        self._opening_mirror_facing: bool = False
+        self._opening_ghost: "WallOpening | None" = None    # live preview on hovered wall
         # Detail view placement
         self._detail_rect_anchor: "QPointF | None" = None
         self._detail_rect_preview: "QGraphicsRectItem | None" = None
@@ -1040,6 +1049,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         self._rooms.remove(self._room_manual_active)
                 self._room_manual_active = None
 
+        # ── Opening placement (§7.6) ─────────────────────────────────────────
+        # Entering "opening" arms the placement template (Feature id + the
+        # pre-commit cycle state) and clears any leftover ghost.  Leaving it
+        # tears the ghost down so it never strands on the canvas.
+        if mode == "opening":
+            self._opening_feature_id = template or DEFAULT_FEATURE_FOR_TYPE["door"]
+            self._opening_alignment = OPENING_ALIGN_CENTER
+            self._opening_mirror_hinge = False
+            self._opening_mirror_facing = False
+        if mode != "opening":
+            self._clear_opening_ghost()
+
         # Clean up place_import ghost and params
         if mode != "place_import":
             if self._place_import_ghost is not None:
@@ -1147,6 +1168,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "floor_rect":      "Pick first corner for rectangular floor",
             "room":            "Click inside a closed wall region",
             "room_manual":     "Pick first room boundary point",
+            "opening":         "Click on a wall to place an opening",
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
             "detail":          "Pick first corner for detail view boundary",
@@ -4894,7 +4916,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.mode in ("wall", "wall_rect"):
             self._cycle_wall_alignment()
             return True
+        if self.mode == "opening":
+            self._cycle_opening_alignment()
+            return True
         return False
+
+    def _cycle_opening_alignment(self) -> None:
+        """Advance opening alignment through OPENING_ALIGNMENTS and refresh the
+        live ghost (§7.6)."""
+        aligns = list(OPENING_ALIGNMENTS)
+        try:
+            idx = aligns.index(self._opening_alignment)
+        except ValueError:
+            idx = -1
+        self._opening_alignment = aligns[(idx + 1) % len(aligns)]
+        self._refresh_opening_ghost()
+        self.instructionChanged.emit(
+            f"Opening [{self._opening_alignment}] · Space=align "
+            f"←/→=hinge ↑/↓=facing")
 
     def _cycle_similar_selection(self) -> bool:
         """Select the next element of the same type as the sole selection.
@@ -5193,6 +5232,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "roof":                     "_move_roof",
         "roof_rect":                "_move_roof_rect",
         "room_manual":              "_move_room_manual",
+        "opening":                  "_move_opening",
         "door":                     "_move_door_window",
         "window":                   "_move_door_window",
         "detail":                   "_move_detail",
@@ -6250,6 +6290,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "floor_rect":               "_press_floor_rect",
         "roof":                     "_press_roof",
         "roof_rect":                "_press_roof_rect",
+        "opening":                  "_press_opening",
         "door":                     "_press_door",
         "window":                   "_press_window",
         "detail":                   "_press_detail",
@@ -8915,28 +8956,91 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.instructionChanged.emit("Pick first corner for rectangular roof")
 
     # ── Door placement ────────────────────────────────────────────────
-    def _press_door(self, event, pos, snapped, item_under, node_under, pipe_under):
-        wall = self._find_wall_at(snapped)
-        if wall is not None:
-            offset = self._offset_along_wall(wall, snapped)
-            door = DoorOpening(wall=wall, offset_along=offset)
-            door.level = wall.level
-            wall.openings.append(door)
-            self.addItem(door)
-            self.push_undo_state()
-            self.instructionChanged.emit("Click on a wall to place another door")
+    def _press_opening(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Commit-click for the unified opening placement mode (§7.6).
 
-    # ── Window placement ──────────────────────────────────────────────
-    def _press_window(self, event, pos, snapped, item_under, node_under, pipe_under):
+        Requires a wall under the cursor: empty-space clicks are rejected with a
+        status prompt (§7.10).  The placed opening inherits the pre-commit cycle
+        state (alignment / hinge / facing) currently armed on the scene.
+        """
         wall = self._find_wall_at(snapped)
-        if wall is not None:
-            offset = self._offset_along_wall(wall, snapped)
-            win = WindowOpening(wall=wall, offset_along=offset)
-            win.level = wall.level
-            wall.openings.append(win)
-            self.addItem(win)
-            self.push_undo_state()
-            self.instructionChanged.emit("Click on a wall to place another window")
+        if wall is None:
+            self._show_status("Click on a wall to place an opening", timeout=2000)
+            self.instructionChanged.emit("Click on a wall to place an opening")
+            return
+        op = WallOpening(wall=wall, feature_id=self._opening_feature_id,
+                         offset_along=self._offset_along_wall(wall, snapped))
+        op.alignment = self._opening_alignment
+        op.mirror_hinge = self._opening_mirror_hinge
+        op.mirror_facing = self._opening_mirror_facing
+        op.level = wall.level
+        op._reposition()
+        wall.openings.append(op)
+        self.addItem(op)
+        self.push_undo_state()
+        self.instructionChanged.emit("Click on a wall to place an opening")
+
+    def _press_door(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Legacy door dispatch — retarget onto the unified opening path so the
+        pre-Task-7 ribbon buttons keep working (§7.6)."""
+        self._opening_feature_id = DEFAULT_FEATURE_FOR_TYPE["door"]
+        self._press_opening(event, pos, snapped, item_under, node_under, pipe_under)
+
+    # ── Window placement (legacy shim) ────────────────────────────────
+    def _press_window(self, event, pos, snapped, item_under, node_under, pipe_under):
+        """Legacy window dispatch — retarget onto the unified opening path."""
+        self._opening_feature_id = DEFAULT_FEATURE_FOR_TYPE["window"]
+        self._press_opening(event, pos, snapped, item_under, node_under, pipe_under)
+
+    # ── Opening live preview (§7.6) ───────────────────────────────────
+    def _move_opening(self, event, snapped):
+        """Redraw the live opening ghost on the hovered wall.
+
+        Hidden (and removed) when the cursor is not over a wall, so the ghost
+        never floats in empty space.
+        """
+        wall = self._find_wall_at(snapped)
+        if wall is None:
+            self._clear_opening_ghost()
+            return
+        offset = self._offset_along_wall(wall, snapped)
+        ghost = self._opening_ghost
+        # Rebuild the ghost from scratch if it is missing or its Feature changed
+        # (feature_id is immutable on a WallOpening, so swap on mismatch).
+        if ghost is None or ghost.feature_id != self._opening_feature_id:
+            self._clear_opening_ghost()
+            ghost = WallOpening(feature_id=self._opening_feature_id)
+            ghost.setOpacity(0.5)
+            ghost.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            ghost._exclude_from_bulk_select = True
+            self.addItem(ghost)
+            self._opening_ghost = ghost
+        ghost.wall = wall
+        ghost._offset_along = offset
+        ghost.alignment = self._opening_alignment
+        ghost.mirror_hinge = self._opening_mirror_hinge
+        ghost.mirror_facing = self._opening_mirror_facing
+        ghost._reposition()
+
+    def _refresh_opening_ghost(self):
+        """Re-apply the current cycle state to the live ghost (post-cycle)."""
+        ghost = self._opening_ghost
+        if ghost is None:
+            return
+        ghost.alignment = self._opening_alignment
+        ghost.mirror_hinge = self._opening_mirror_hinge
+        ghost.mirror_facing = self._opening_mirror_facing
+        ghost._reposition()
+        for v in self.views():
+            v.viewport().update()
+
+    def _clear_opening_ghost(self):
+        """Remove the live opening ghost if present."""
+        ghost = getattr(self, "_opening_ghost", None)
+        if ghost is not None:
+            if ghost.scene() is self:
+                self.removeItem(ghost)
+            self._opening_ghost = None
 
     # ── Shift-click floor vertex editing (select mode) ────────────────
     def _press_select_shift_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -9462,6 +9566,25 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 event.accept()
                 return
             # else fall through to default view scroll
+        # ── Opening placement cycle keys (§7.6) ──────────────────────────────
+        # Spacebar cycles alignment; ←/→ toggle the hinge mirror; ↑/↓ toggle the
+        # facing mirror.  All gated on not-input-mode so a focused HUD field
+        # keeps these keys for typing.
+        if self.mode == "opening" and not self.is_input_mode():
+            if event.key() == Qt.Key.Key_Space:
+                self.cycle_placement_ambiguity()
+                event.accept()
+                return
+            if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                self._opening_mirror_hinge = not self._opening_mirror_hinge
+                self._refresh_opening_ghost()
+                event.accept()
+                return
+            if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+                self._opening_mirror_facing = not self._opening_mirror_facing
+                self._refresh_opening_ghost()
+                event.accept()
+                return
         # Radiation selection flow — intercept Enter/Escape first
         if self._radiation_selecting:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

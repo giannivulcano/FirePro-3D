@@ -51,6 +51,40 @@ def model_scene(qapp):
 
 
 @pytest.fixture
+def shown_model_view(qapp):
+    """A SHOWN, focused ``Model_View`` wrapping a ``Model_Space`` with a
+    LevelManager (Level 1 @ 0.0) and ScaleManager.
+
+    Returns ``(view, scene)``.  The view is shown, exposed and focused, and its
+    transform reset + centred on the origin so scene points near (500, 0) map
+    inside the viewport — posted ``QMouseEvent`` / ``QKeyEvent`` therefore route
+    through the real event pipeline instead of vacuously missing every handler.
+    """
+    from PyQt6.QtTest import QTest
+    from firepro3d.model_space import Model_Space
+    from firepro3d.model_view import Model_View
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+
+    scene = Model_Space()
+    scene._level_manager = LevelManager()      # seeds Level 1 (elevation 0.0)
+    scene.scale_manager = ScaleManager()
+
+    view = Model_View(scene)
+    view.resize(800, 600)
+    view.resetTransform()
+    view.centerOn(0, 0)
+    view.show()
+    QTest.qWaitForWindowExposed(view)
+    view.setFocus()
+    QApplication.processEvents()
+
+    yield view, scene
+
+    view.close()
+
+
+@pytest.fixture
 def tiny_png_b64(qapp):
     """A 4×4 solid-color (0xFF336699) PNG encoded as base64 ASCII.
 
