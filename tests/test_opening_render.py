@@ -48,3 +48,21 @@ def test_blank_opening_has_no_swing(qapp, model_scene):
     op._reposition()
     br = op.path().boundingRect()
     assert br.height() <= w.half_thickness_scene() * 2 + 1.0
+
+
+def test_opening_projected_into_elevation(qapp, elevation_scene_for):
+    """§7.8.2: _project_openings must tag at least one scene item with the
+    WallOpening as _ROLE_SOURCE so elevation views can round-trip source refs."""
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from firepro3d.elevation_scene import _ROLE_SOURCE
+    from PyQt6.QtCore import QPointF
+    scene, elev = elevation_scene_for(direction="north")
+    w = WallSegment(QPointF(0, 0), QPointF(2000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="window_900", offset_along=1000.0)
+    op.sill_mm = 900.0; op.height_mm = 1200.0; op.level = w.level
+    scene.addItem(op); w.openings.append(op)
+    elev.rebuild()
+    sources = [it.data(_ROLE_SOURCE) for it in elev.items()]
+    assert op in sources

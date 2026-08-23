@@ -706,6 +706,7 @@ class ElevationScene(QGraphicsScene):
         self._depth_items: list[tuple[float, list]] = []  # (depth, [items])
         self._project_level_datums()
         self._project_walls()
+        self._project_openings()
         self._project_pipes()
         self._project_sprinklers()
         self._project_floor_slabs()
@@ -857,6 +858,121 @@ class ElevationScene(QGraphicsScene):
         for depth, rect in wall_rects:
             self.addItem(rect)
             self._register_depth_item(depth, rect)
+
+    # ── Openings ─────────────────────────────────────────────────────────
+
+    def _project_openings(self):
+        """Project wall openings (doors, windows, blanks) into elevation (§7.8.2).
+
+        For each opening on a visible wall:
+        - Computes the opening's H extent (along-wall) by projecting the two
+          along-wall edge points through the same coordinate path as _project_walls.
+        - Computes the V extent from the level elevation + sill/head heights.
+        - Draws a void rect (white fill) to interrupt the wall poché, then adds
+          type-specific frame/sill schematic lines.
+        - Tags the primary void rect with ``_ROLE_SOURCE = opening`` so elevation
+          views can round-trip source references.
+        """
+        import math as _math
+
+        bg_brush = self.backgroundBrush()
+        void_color = bg_brush.color() if bg_brush.color().isValid() else QColor("white")
+
+        d = self._direction
+        frame_pen = QPen(self._edge_color, 1)
+        frame_pen.setCosmetic(True)
+
+        for wall in getattr(self._ms, "_walls", []):
+            if not getattr(wall, "openings", None):
+                continue
+
+            for op in wall.openings:
+                # ── Along-wall endpoints in scene coords ──────────────────
+                a = wall.centerline_angle_rad()
+                half_w = op.width_scene() / 2.0
+                cx_scene = wall.pt1.x() + op._offset_along * _math.cos(a)
+                cy_scene = wall.pt1.y() + op._offset_along * _math.sin(a)
+                dx = half_w * _math.cos(a)
+                dy = half_w * _math.sin(a)
+                p_left = (cx_scene - dx, cy_scene - dy)
+                p_right = (cx_scene + dx, cy_scene + dy)
+
+                # ── Convert to world mm then to elevation H ───────────────
+                wl_x, wl_y = self._scene_to_world(*p_left)
+                wr_x, wr_y = self._scene_to_world(*p_right)
+                h_left = self._world_to_elev(wl_x, wl_y, 0)[0]
+                h_right = self._world_to_elev(wr_x, wr_y, 0)[0]
+                h_min = min(h_left, h_right)
+                h_max = max(h_left, h_right)
+                width = h_max - h_min
+                if width < 0.5:
+                    continue
+
+                # ── Vertical extent ───────────────────────────────────────
+                lvl_name = getattr(op, "level", None) or getattr(wall, "_base_level", None)
+                lvl = self._lm.get(lvl_name) if lvl_name else None
+                if lvl is None:
+                    lvl_elev = 0.0
+                else:
+                    lvl_elev = lvl.elevation
+                bot_z = lvl_elev + op._sill_mm
+                top_z = bot_z + op._height_mm
+                if abs(top_z - bot_z) < 1.0:
+                    continue
+                v_top = -top_z
+                v_bottom = -bot_z
+
+                # ── Depth (same convention as _project_walls) ─────────────
+                wc_x = (wl_x + wr_x) / 2.0
+                wc_y = (wl_y + wr_y) / 2.0
+                if d == "north":
+                    depth = wc_y
+                elif d == "south":
+                    depth = -wc_y
+                elif d == "east":
+                    depth = wc_x
+                elif d == "west":
+                    depth = -wc_x
+                else:
+                    depth = wc_y
+
+                # ── Void rect (interrupts wall poché) ─────────────────────
+                void_rect = QGraphicsRectItem(h_min, v_top, width, v_bottom - v_top)
+                void_pen = QPen(Qt.PenStyle.NoPen)
+                void_rect.setPen(void_pen)
+                void_rect.setBrush(QBrush(void_color))
+                void_rect.setData(_ROLE_SOURCE, op)
+                void_rect.setFlag(
+                    QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
+
+                # ── Frame rect (outline of the opening) ───────────────────
+                frame_rect = QGraphicsRectItem(h_min, v_top, width, v_bottom - v_top)
+                frame_rect.setPen(frame_pen)
+                frame_rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+
+                items_to_add = [void_rect, frame_rect]
+
+                op_type = getattr(op, "_type", "blank")
+
+                if op_type == "window":
+                    # Horizontal sill line at bottom of opening
+                    sill_line = QGraphicsLineItem(h_min, v_bottom, h_max, v_bottom)
+                    sill_line.setPen(frame_pen)
+                    items_to_add.append(sill_line)
+
+                elif op_type == "door":
+                    # Centre vertical line for double-leaf doors
+                    if getattr(op, "_leaves", 1) == 2:
+                        h_mid = (h_min + h_max) / 2.0
+                        mid_line = QGraphicsLineItem(h_mid, v_top, h_mid, v_bottom)
+                        mid_line.setPen(frame_pen)
+                        items_to_add.append(mid_line)
+
+                # blank: void + frame only — no extra lines
+
+                for item in items_to_add:
+                    self.addItem(item)
+                self._register_depth_item(depth, *items_to_add)
 
     # ── Pipes ────────────────────────────────────────────────────────────
 

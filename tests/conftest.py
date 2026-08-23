@@ -85,6 +85,38 @@ def shown_model_view(qapp):
 
 
 @pytest.fixture
+def elevation_scene_for(qapp):
+    """Factory fixture returning a callable ``(direction) -> (model_scene, elev_scene)``.
+
+    Creates a fresh Model_Space with a LevelManager (Level 1 at 0.0 mm) and a
+    ScaleManager (uncalibrated, so pixels_per_mm == 1.0), then wraps it in an
+    ElevationScene bound to the requested direction.
+
+    Usage in tests::
+
+        def test_foo(qapp, elevation_scene_for):
+            scene, elev = elevation_scene_for("north")
+            ...
+    """
+    from firepro3d.model_space import Model_Space
+    from firepro3d.level_manager import LevelManager
+    from firepro3d.scale_manager import ScaleManager
+    from firepro3d.elevation_scene import ElevationScene
+
+    def _factory(direction: str = "north"):
+        ms = Model_Space()
+        lm = LevelManager()            # seeds Level 1 (elevation 0.0) by default
+        ms._level_manager = lm
+        sm = ScaleManager()
+        ms.scale_manager = sm
+        elev = ElevationScene(direction=direction, model_space=ms,
+                              level_manager=lm, scale_manager=sm)
+        return ms, elev
+
+    return _factory
+
+
+@pytest.fixture
 def tiny_png_b64(qapp):
     """A 4×4 solid-color (0xFF336699) PNG encoded as base64 ASCII.
 
