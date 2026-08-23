@@ -7205,6 +7205,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         item = ArcItem(self._draw_arc_center, self._draw_arc_radius,
                        self._draw_arc_start_deg, span, _c, _lw)
         item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self.addItem(item)
         self._draw_arcs.append(item)
         item.setSelected(True)
@@ -8107,6 +8108,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             _c, _lw = self._geom_color_lw()
             pl = PolylineItem(snapped, _c, _lw)
             pl.level = tmpl.level
+            pl._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
             self.addItem(pl)
             self._polylines.append(pl)
             self._polyline_active = pl
@@ -8213,6 +8215,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _c, _lw = self._geom_color_lw()
         item = LineItem(anchor, tip, _c, _lw)
         item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self.addItem(item)
         self._draw_lines.append(item)
         item.setSelected(True)
@@ -8466,6 +8469,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _c, _lw = self._geom_color_lw()
         item = RectangleItem(pt1, pt2, _c, _lw)
         item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         item.set_angle(angle_deg, self._draw_rect_pivot)
         self.addItem(item)
         self._draw_rects.append(item)
@@ -8544,6 +8548,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         _c, _lw = self._geom_color_lw()
         item = CircleItem(centre, r, _c, _lw)
         item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self.addItem(item)
         self._draw_circles.append(item)
         item.setSelected(True)

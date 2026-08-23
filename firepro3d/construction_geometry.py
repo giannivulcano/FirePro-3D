@@ -1172,14 +1172,18 @@ class GeometryTemplate:
 
     def __init__(self):
         self.level: str = DEFAULT_LEVEL
+        self._level_offset_mm: float = 0.0
         self.name: str = "(Template)"
 
     def get_properties(self) -> dict:
         return {
-            "Type":  {"type": "label",     "value": "Geometry"},
-            "Level": {"type": "level_ref", "value": self.level},
+            "Type":         {"type": "label",     "value": "Geometry"},
+            "Level":        {"type": "level_ref", "value": self.level},
+            "Level Offset": {"type": "dimension", "value": self._level_offset_mm},
         }
 
     def set_property(self, key: str, value):
         if key == "Level":
             self.level = str(value)
+        elif key == "Level Offset":
+            self._level_offset_mm = float(value)
