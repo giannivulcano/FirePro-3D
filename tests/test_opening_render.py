@@ -1,5 +1,5 @@
 from PyQt6.QtCore import QPointF, QRectF
-from PyQt6.QtGui import QImage, QPainter, QColor
+from PyQt6.QtGui import QImage, QPainter, QColor, QPainterPath
 from firepro3d.wall_opening import WallOpening
 from firepro3d.wall import WallSegment
 
@@ -31,13 +31,16 @@ def test_door_plan_symbol_draws_arc(qapp, model_scene):
 
 
 def test_hinge_mirror_changes_path(qapp, model_scene):
+    """Flipping the hinge mirrors the swing left↔right. The swing correctly
+    spans the opening in both cases, so the *bounding rect* is symmetric —
+    assert the actual PATH changes (the mirror does real work)."""
     scene = model_scene()
     w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
     scene.addItem(w); scene._walls.append(w)
     op = WallOpening(wall=w, feature_id="door_914", offset_along=500.0)
-    op._reposition(); before = op.path().boundingRect()
+    op._reposition(); before = QPainterPath(op.path())     # copy
     op.mirror_hinge = True; op._reposition()
-    assert op.path().boundingRect() != before
+    assert op.path() != before
 
 
 def test_blank_opening_has_no_swing(qapp, model_scene):
