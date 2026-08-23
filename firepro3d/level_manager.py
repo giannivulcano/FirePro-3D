@@ -63,7 +63,7 @@ from .constants import (
     DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM,
     Z_ELEV_SCALE, Z_CAT_FLOOR, Z_CAT_UNDERLAY, Z_CAT_ROOF,
     Z_CAT_ROOM, Z_CAT_WALL, Z_CAT_OPENING, Z_CAT_PIPE, Z_CAT_NODE,
-    Z_GRIDLINE_BUBBLE,
+    Z_CAT_CONSTRUCTION, Z_GRIDLINE_BUBBLE,
 )
 @dataclass
 class Level:
@@ -520,14 +520,20 @@ class LevelManager:
         # render on top of lower items.  Small category offsets preserve
         # draw order within the same elevation (slab < room < wall < pipe < node).
         _Z_CATEGORY = {
-            "FloorSlab":    Z_CAT_FLOOR,
-            "RoofItem":     Z_CAT_ROOF,
-            "Room":         Z_CAT_ROOM,
-            "WallSegment":  Z_CAT_WALL,
-            "DoorOpening":  Z_CAT_OPENING,
-            "WindowOpening": Z_CAT_OPENING,
-            "Pipe":         Z_CAT_PIPE,
-            "Node":         Z_CAT_NODE,
+            "FloorSlab":      Z_CAT_FLOOR,
+            "RoofItem":       Z_CAT_ROOF,
+            "Room":           Z_CAT_ROOM,
+            "WallSegment":    Z_CAT_WALL,
+            "DoorOpening":    Z_CAT_OPENING,
+            "WindowOpening":  Z_CAT_OPENING,
+            "Pipe":           Z_CAT_PIPE,
+            "Node":           Z_CAT_NODE,
+            # 2D draw / construction geometry — above all building geometry
+            "LineItem":       Z_CAT_CONSTRUCTION,
+            "PolylineItem":   Z_CAT_CONSTRUCTION,
+            "RectangleItem":  Z_CAT_CONSTRUCTION,
+            "CircleItem":     Z_CAT_CONSTRUCTION,
+            "ArcItem":        Z_CAT_CONSTRUCTION,
         }
         # Items that always overlay on top regardless of elevation
         _Z_OVERLAY = {"DetailMarker": Z_GRIDLINE_BUBBLE,
@@ -597,6 +603,17 @@ class LevelManager:
 
         for item in getattr(scene, "_gridlines", []):
             _apply_elev_z(item)
+
+        # ── 2D draw / construction geometry ───────────────────────────────
+        for _lst in (
+            getattr(scene, "_polylines", []),
+            getattr(scene, "_draw_lines", []),
+            getattr(scene, "_draw_rects", []),
+            getattr(scene, "_draw_circles", []),
+            getattr(scene, "_draw_arcs", []),
+        ):
+            for _it in _lst:
+                _apply_elev_z(_it)
 
         # ── Detail markers ────────────────────────────────────────────────
         dm = getattr(scene, "_detail_manager", None)
