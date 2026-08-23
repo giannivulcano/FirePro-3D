@@ -261,8 +261,175 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         self._rebuild_path()
 
     def _rebuild_path(self):
-        """Stub — rendering is implemented in a later task."""
-        self.setPath(QPainterPath())
+        """Build the plan-view schematic path for this opening type.
+
+        Local coordinates have the wall running along +X.  The wall gap rect
+        spans (-half_w … +half_w) along X and (-ht … +ht) along Y.
+
+        Door:
+            Hinge pivot is at x = -half_w (mirror_hinge=False) or +half_w
+            (mirror_hinge=True).  The swing arc extends to side sy=-1 (toward
+            +Y, i.e. top of screen) when mirror_facing=False, or sy=+1 (toward
+            -Y) when mirror_facing=True.  The opened leaf goes perpendicular to
+            the wall by full opening width.  For double-leaf (self._leaves==2),
+            two symmetric half-width leaf+arc pairs are drawn.
+
+        Window:
+            Gap rect + three parallel horizontal lines spanning the gap at
+            y = -ht*0.5, 0, +ht*0.5.
+
+        Blank:
+            Gap rect only — no swing or extra lines.
+        """
+        if self._wall is None:
+            self.setPath(QPainterPath())
+            return
+
+        # Set rotation so local X aligns with the wall direction.
+        a = self._wall.centerline_angle_rad()
+        self.setRotation(math.degrees(a))
+
+        half_w = self.width_scene() / 2.0
+        ht = self._wall.half_thickness_scene()
+
+        if self._type == "door":
+            path = self._door_path(half_w, ht)
+        elif self._type == "window":
+            path = self._window_path(half_w, ht)
+        else:
+            path = self._blank_path(half_w, ht)
+
+        self.setPath(path)
+
+    # ── Path builders ─────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _gap_rect(half_w: float, ht: float) -> QPainterPath:
+        """Return a QPainterPath containing only the wall gap rectangle."""
+        path = QPainterPath()
+        path.addRect(-half_w, -ht, half_w * 2.0, ht * 2.0)
+        return path
+
+    def _door_path(self, half_w: float, ht: float) -> QPainterPath:
+        """Build door path: gap rect + leaf line(s) + swing arc(s).
+
+        The hinge pivot jamb X is determined by mirror_hinge:
+            mirror_hinge=False → hinge at x = -half_w (left jamb)
+            mirror_hinge=True  → hinge at x = +half_w (right jamb)
+
+        The swing side (which face the door swings toward) is determined by
+        mirror_facing:
+            mirror_facing=False → sy = -1 (arc extends toward -Y face in local
+                                  coords, i.e. the wall's front face)
+            mirror_facing=True  → sy = +1 (arc extends toward +Y face)
+
+        For double-leaf (self._leaves == 2), two symmetric half-width
+        leaf+arc pairs are drawn (one from each jamb, meeting at x=0).
+        """
+        path = self._gap_rect(half_w, ht)
+
+        # Swing direction: -1 = toward -Y face, +1 = toward +Y face
+        sy = 1.0 if self.mirror_facing else -1.0
+
+        if self._leaves == 2:
+            # Two half-width leaves: each with the full half_w as leaf radius.
+            # Each leaf swings from its jamb toward the centre x=0.
+            for hinge_x, outward_x_sign in ((-half_w, -1.0), (half_w, 1.0)):
+                self._add_leaf_and_arc(path, hinge_x, outward_x_sign, half_w, ht, sy)
+        else:
+            # Single leaf
+            hinge_x = half_w if self.mirror_hinge else -half_w
+            # outward_x_sign: +1 = hinge on right → arc extends right;
+            #                  -1 = hinge on left → arc extends left
+            outward_x_sign = 1.0 if self.mirror_hinge else -1.0
+            self._add_leaf_and_arc(path, hinge_x, outward_x_sign, 2.0 * half_w, ht, sy)
+
+        return path
+
+    @staticmethod
+    def _add_leaf_and_arc(
+        path: QPainterPath,
+        hinge_x: float,
+        outward_x_sign: float,
+        leaf_len: float,
+        ht: float,
+        sy: float,
+    ) -> None:
+        """Add one door-leaf line + 90° swing arc to *path*.
+
+        The hinge corner is at (hinge_x, sy*ht).  The open leaf goes
+        perpendicular into the room (sy direction, length leaf_len).  The
+        swing arc has radius = leaf_len, centred on the hinge corner, and
+        sweeps 90° outward from the open-leaf position toward the wall
+        (outward_x_sign direction), so it visually shows how far the door
+        needs to clear.  The arc's outer end lies at distance leaf_len
+        from the hinge in the wall-plane direction, which is OUTSIDE the
+        gap rect when outward_x_sign != 0, making the two hinge positions
+        produce different bounding rects.
+
+        Args:
+            hinge_x:        Local X of the hinge jamb (±half_w for the gap edges).
+            outward_x_sign: +1 if the hinge is on the right (arc extends right),
+                            -1 if hinge is on the left (arc extends left).
+            leaf_len:       Leaf length in scene units (= full door width for single
+                            leaf, half width per leaf for double).
+            ht:             Half-thickness of the wall.
+            sy:             Swing side: -1 = -Y face, +1 = +Y face.
+        """
+        from PyQt6.QtCore import QRectF as _QRectF
+
+        # Hinge corner on the swing face of the wall
+        hinge_y = sy * ht
+
+        # Open leaf: perpendicular to wall from hinge into room (sy direction)
+        open_tip_x = hinge_x
+        open_tip_y = hinge_y + sy * leaf_len
+
+        # Draw open-position leaf line
+        path.moveTo(hinge_x, hinge_y)
+        path.lineTo(open_tip_x, open_tip_y)
+
+        # Arc: centred on hinge_x, hinge_y; radius = leaf_len.
+        # The arc sweeps from the open leaf position (90° into room from wall)
+        # to the along-wall outward direction, showing the clearance envelope.
+        # The outward end of the arc lies at:
+        #   (hinge_x + outward_x_sign * leaf_len, hinge_y)
+        # which is OUTSIDE the gap rect by leaf_len in the outward direction,
+        # producing an asymmetric bounding rect for the two hinge positions.
+        rect = _QRectF(hinge_x - leaf_len, hinge_y - leaf_len,
+                       leaf_len * 2.0, leaf_len * 2.0)
+
+        # In Qt, arcTo angles are measured from +X axis, CCW positive.
+        # Open tip is at angle: sy=-1 → 90° (up in Qt coords = -Y), sy=+1 → 270°
+        open_angle_deg = 90.0 if sy < 0.0 else 270.0
+
+        # Outward tip is at angle: outward_x_sign=+1 → 0°, outward_x_sign=-1 → 180°
+        out_angle_deg = 0.0 if outward_x_sign > 0.0 else 180.0
+
+        # Sweep from open position toward outward along-wall position.
+        # Determine shortest signed sweep (CCW positive, CW negative).
+        raw_sweep = out_angle_deg - open_angle_deg
+        # Normalise to (-180, 180] — we always want a 90° or -90° sweep.
+        if raw_sweep > 180.0:
+            raw_sweep -= 360.0
+        elif raw_sweep < -180.0:
+            raw_sweep += 360.0
+
+        path.arcMoveTo(rect, open_angle_deg)
+        path.arcTo(rect, open_angle_deg, raw_sweep)
+
+    def _window_path(self, half_w: float, ht: float) -> QPainterPath:
+        """Gap rect + three horizontal glass lines spanning the opening."""
+        path = self._gap_rect(half_w, ht)
+        for frac in (-0.5, 0.0, 0.5):
+            y = ht * frac
+            path.moveTo(-half_w, y)
+            path.lineTo(half_w, y)
+        return path
+
+    def _blank_path(self, half_w: float, ht: float) -> QPainterPath:
+        """Gap rect only."""
+        return self._gap_rect(half_w, ht)
 
     # ── Z range ───────────────────────────────────────────────────────────────
 
@@ -315,8 +482,41 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             painter.drawPath(self.path())
 
     def _paint_symbol(self, painter):
-        """Stub — rendering is implemented in a later task."""
-        pass
+        """Draw the plan-view symbol for this opening type.
+
+        Uses a cosmetic pen in the type's default colour (or ``_display_color``
+        if one has been assigned).  The gap rect receives a white fill so the
+        opening visually cuts through the wall.  The swing/glass lines are
+        stroked on top.
+        """
+        path = self.path()
+        if path.isEmpty():
+            return
+
+        # Resolve pen colour
+        if self._display_color is not None:
+            pen_color = QColor(self._display_color)
+        elif self._type == "door":
+            pen_color = _DOOR_COLOR
+        elif self._type == "window":
+            pen_color = _WINDOW_COLOR
+        else:
+            pen_color = QColor("#888888")
+
+        # White fill for the gap rect so the opening cuts the wall visually
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(Qt.GlobalColor.white)
+        half_w = self.width_scene() / 2.0
+        ht = self._wall.half_thickness_scene() if self._wall else 1.0
+        from PyQt6.QtCore import QRectF as _QRectF
+        painter.drawRect(_QRectF(-half_w, -ht, half_w * 2.0, ht * 2.0))
+
+        # Stroke the full path (gap outline + swing / glass lines)
+        pen = QPen(pen_color, 1.5)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
