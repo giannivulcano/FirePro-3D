@@ -36,6 +36,7 @@ from firepro3d.ribbon_bar import RibbonBar
 from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
+from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d import theme as th
@@ -566,10 +567,14 @@ class MainWindow(QMainWindow):
         self.scene.selectionChanged.connect(self.model_browser.sync_from_scene)
         self.scene.sceneModified.connect(self.model_browser.refresh)
 
+        self.feature_browser = FeatureBrowser()
+        self.feature_browser.featureActivated.connect(self._on_feature_activated)
+
         self._left_tabs = QTabWidget()
         self._left_tabs.setTabPosition(QTabWidget.TabPosition.West)
         self._left_tabs.addTab(self.project_browser, "Project")
         self._left_tabs.addTab(self.model_browser, "Model")
+        self._left_tabs.addTab(self.feature_browser, "Features")
 
         self.browser_dock = QDockWidget("", self)
         self.browser_dock.setObjectName("BrowserDock")
@@ -2661,6 +2666,20 @@ class MainWindow(QMainWindow):
             A Feature id string (e.g. ``"door_914"``).
         """
         return self._last_feature.get(type_, DEFAULT_FEATURE_FOR_TYPE[type_])
+
+    def _on_feature_activated(self, feature_id: str) -> None:
+        """Handle a leaf activation from the Feature Browser (§7.13).
+
+        Args:
+            feature_id: The FeatureDef.id emitted by FeatureBrowser.featureActivated.
+        """
+        from firepro3d.feature import get_feature
+        try:
+            fdef = get_feature(feature_id)
+        except KeyError:
+            return
+        self._last_feature[fdef.type] = feature_id
+        self.scene.set_mode("opening", template=feature_id)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""

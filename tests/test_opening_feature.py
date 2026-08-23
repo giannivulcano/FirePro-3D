@@ -133,3 +133,18 @@ def test_set_alignment_snapshots_undo(qapp, model_scene):
     op.set_property("Alignment", C.OPENING_ALIGN_FRONT)
     assert op.alignment == C.OPENING_ALIGN_FRONT
     assert len(scene._undo_stack) == n_before + 1
+
+
+# ── Task-8 tests: FeatureBrowser widget ──────────────────────────────────────
+
+def test_feature_browser_lists_categories_and_activates(qapp):
+    from firepro3d.feature_browser import FeatureBrowser
+    activated = []
+    fb = FeatureBrowser()
+    fb.featureActivated.connect(activated.append)
+    roots = [fb._tree.topLevelItem(i).text(0) for i in range(fb._tree.topLevelItemCount())]
+    assert "Openings" in roots
+    leaf = fb._find_leaf("door_914")
+    assert leaf is not None
+    fb._on_item_activated(leaf, 0)
+    assert activated == ["door_914"]
