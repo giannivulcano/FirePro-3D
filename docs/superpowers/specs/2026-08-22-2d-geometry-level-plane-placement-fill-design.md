@@ -1,7 +1,7 @@
 ---
-status: proposal          # proposal until built; folds into governing specs at wrap-up
-last-verified: 2026-08-22  # grounded against code this date
-verified-commit: d83147c   # base HEAD the design was grounded against
+status: built              # shipped on feat/geo2d-level-fill (2026-08-22); folded into governing specs (view-relationships §3.3/§7.3, ribbon-bar §3.8)
+last-verified: 2026-08-22  # built + full suite (3049) green at commit ce37220
+verified-commit: ce37220   # branch HEAD after implementation
 applies-to:
   - firepro3d/construction_geometry.py
   - firepro3d/annotations.py

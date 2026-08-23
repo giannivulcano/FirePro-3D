@@ -5,7 +5,8 @@
 > **Source tasks:** TODO.md "Spec & grill session: define and refine the relationship between views" (P1, Architecture)
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
-> **§7.3 (Z-order) last-verified:** 2026-06-23 against `constants.py` + `level_manager.apply_to_scene` (commit `59ad233`, Section-A drift fix). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
+> **§7.3 (Z-order) last-verified:** 2026-08-22 against `constants.py` + `level_manager.apply_to_scene` (commit `ce37220`, 2D-geometry level+fill task — added `Z_CAT_CONSTRUCTION`; 2D geometry now elevation-based). This section is the single source of truth for Z draw-order; `constants.py` owns the values.
+> **§3.3 (world-Z table) last-verified:** 2026-08-22 against `construction_geometry.py` `Geometry2DMixin` (commit `ce37220`) — 2D geometry gained `level` + `_level_offset_mm` + `z_range_mm()`.
 > **§6.4 (marker paper-plotting) last-verified:** 2026-08-21 against `view_marker.py` (`PAPER_EXCLUDED`) + `paper_display.apply_paper_overrides` (commit `d553068`). Rendering path owned by `paper-space.md §6.2` (Rule A).
 
 ---
@@ -112,6 +113,8 @@ This table enumerates every property in the data model that contributes to an ob
 | **Roof** | `level` (inherited) | str | "Level 1" | Roof base elevation | `roof.py:23` |
 | **Roof** | (slope/pitch) | — | flat | Pitch affects 3D only; 2D treats roof as flat at level elevation | `roof.py:28-30` |
 | **Underlay** (DXF/PDF) | (none) | — | Z = 0 | Always at world Z = 0; not configurable | `underlay.py` |
+| **2D geometry** (Line/Polyline/Rectangle/Circle/Arc) | `level` | str | "Level 1" | Placement level (dropdown; new items default to the active level via `GeometryTemplate`) | `construction_geometry.py` (`Geometry2DMixin`) |
+| **2D geometry** | `_level_offset_mm` | float (mm) | 0 | Offset above the level plane; world-Z = `level.elevation + offset`; `z_range_mm()` returns the zero-thickness point `(E, E)` (added 2026-08-22) | `construction_geometry.py` |
 | **ViewMarker** (elevation/section) | `level` | str | "Level 1" | Marker sits on this level (no Z extent) | `view_marker.py:159` |
 | **DetailMarker** | `level` | str | "Level 1" | Same | `detail_view.py:81` |
 | **DetailMarker** | `_view_height` / `_view_depth` | float \| None | None | Optional Z-range override; inherits from parent plan if None | `detail_view.py:61-62` |
@@ -310,6 +313,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 | Doors/Windows | 0.35 | `DoorOpening`, `WindowOpening` |
 | Pipes | 0.4 | `Pipe` |
 | Nodes | 0.5 | `Node` |
+| 2D geometry | 0.6 (`Z_CAT_CONSTRUCTION` = `Z_CAT_NODE` + 0.1) | `LineItem`, `PolylineItem`, `RectangleItem`, `CircleItem`, `ArcItem` — draws above building geometry at equal elevation (2026-08-22) |
 
 **Static z-values** (not elevation-based) for items outside the elevation system:
 
@@ -317,7 +321,7 @@ The spec's contract is unambiguous: **room view-range membership is anchored to 
 |---|---|---|---|
 | Below geometry | -200 | `Z_CROP_BOX` | `SharedCropBox` |
 | Below geometry | -100 | `Z_BELOW_GEOMETRY` | origin cross |
-| Construction geometry | 1 | `Z_CONSTRUCTION` | lines, rects, circles, arcs |
+| ~~Construction geometry~~ | ~~1~~ | ~~`Z_CONSTRUCTION`~~ | **Superseded 2026-08-22** — 2D geometry is now elevation-based via `Z_CAT_CONSTRUCTION` (see the category table above). `Z_CONSTRUCTION` remains only as a pre-apply default / `gridline.py` base. |
 | Design area | 2 | `Z_DESIGN_AREA` | `DesignArea` boundary |
 | Pipes / paper viewport | 5 | `Z_PIPE` | `Pipe`, `paper_space.py` |
 | Nodes | 10 | `Z_NODE` | `Node` |
