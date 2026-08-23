@@ -44,6 +44,7 @@ class Geometry2DMixin:
         self._level_offset_mm: float = 0.0
         self.fill_type: str = "none"          # "none" | "solid" | "hatch"
         self.fill_pattern: str = _DEFAULT_FILL_PATTERN
+        self.fill_opacity: float = 0.45       # solid-fill opacity (0.0–1.0)
         # fill colour lives in DisplayableItemMixin._display_fill_color
 
     def z_range_mm(self):
@@ -113,6 +114,12 @@ class Geometry2DMixin:
             if self.fill_type in ("solid", "hatch"):
                 props["Fill Colour"] = {"type": "color",
                                         "value": self._display_fill_color or "#888888"}
+            if self.fill_type == "solid":
+                props["Fill Opacity"] = {
+                    "type":  "string",
+                    "value": str(round(self.fill_opacity * 100)),
+                    "suffix": "%",
+                }
         return props
 
     def _geom2d_set(self, key: str, value) -> bool:
@@ -137,6 +144,15 @@ class Geometry2DMixin:
             self._display_fill_color = str(value)
             self.update()
             return True
+        if key == "Fill Opacity":
+            try:
+                pct = float(value)
+            except (TypeError, ValueError):
+                return True  # reject non-numeric; keep prior
+            pct = max(0.0, min(100.0, pct))
+            self.fill_opacity = pct / 100.0
+            self.update()
+            return True
         return False
 
     def _geom2d_to_dict(self, d: dict) -> dict:
@@ -149,6 +165,7 @@ class Geometry2DMixin:
                 "type":    self.fill_type,
                 "pattern": self.fill_pattern,
                 "color":   self._display_fill_color or "#888888",
+                "opacity": self.fill_opacity,
             }
         return d
 
@@ -161,6 +178,7 @@ class Geometry2DMixin:
             self.fill_type = f.get("type", "none")
             self.fill_pattern = f.get("pattern", _DEFAULT_FILL_PATTERN)
             self._display_fill_color = f.get("color")
+            self.fill_opacity = f.get("opacity", 0.45)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -495,7 +513,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888")
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -872,7 +891,8 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888")
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -1026,7 +1046,8 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888")
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -1195,7 +1216,8 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             if cp is not None:
                 from .displayable_item import draw_fill
                 draw_fill(painter, cp, self.scene(), self.fill_type,
-                          self.fill_pattern, self._display_fill_color or "#888888")
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
