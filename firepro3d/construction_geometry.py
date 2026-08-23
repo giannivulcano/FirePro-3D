@@ -489,6 +489,13 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Draw fill FIRST (behind the outline)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888")
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -499,10 +506,19 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
-        """Return a viewport-scale-aware stroked path so thin polylines are clickable."""
+        """Return a viewport-scale-aware stroked path so thin polylines are clickable.
+
+        When the polyline is closed and filled, the interior is also included
+        so the shape is interior-clickable.
+        """
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
-        return stroker.createStroke(self.path())
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                path = path.united(cp)
+        return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -848,6 +864,15 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Draw fill FIRST (behind the outline).  The rect is axis-aligned in
+        # local coords; Qt's item rotation (set_angle) rotates the whole item,
+        # so the fill in local-coord space rotates with the shape for free.
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888")
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -858,12 +883,18 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
-        """Return a stroked outline path so the rectangle border is clickable."""
-        path = QPainterPath()
-        path.addRect(self.rect())
+        """Return a stroked outline path so the rectangle border is clickable.
+
+        When filled, also include the interior so clicking anywhere inside
+        selects the rectangle.
+        """
+        cp = self.get_closed_path()  # addRect path in local coords
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
-        return stroker.createStroke(path)
+        path = stroker.createStroke(cp)
+        if getattr(self, "fill_type", "none") != "none":
+            path = path.united(cp)
+        return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -989,6 +1020,13 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Draw fill FIRST (behind the outline)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888")
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -999,12 +1037,18 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
     # ── Shape / hit-test ─────────────────────────────────────────────────────
 
     def shape(self) -> QPainterPath:
-        """Return a stroked ellipse outline path so the circle border is clickable."""
-        path = QPainterPath()
-        path.addEllipse(self.rect())
+        """Return a stroked ellipse outline path so the circle border is clickable.
+
+        When filled, also include the interior so clicking anywhere inside
+        selects the circle.
+        """
+        cp = self.get_closed_path()  # addEllipse path in local coords
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
-        return stroker.createStroke(path)
+        path = stroker.createStroke(cp)
+        if getattr(self, "fill_type", "none") != "none":
+            path = path.united(cp)
+        return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1145,6 +1189,13 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
+        # Draw fill FIRST (behind the outline); only applies when arc is closed
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888")
         super().paint(painter, option, widget)
         if self.isSelected():
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
@@ -1153,9 +1204,17 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             painter.drawPath(self.path())
 
     def shape(self) -> QPainterPath:
+        """Return a stroked arc path; when the arc is a closed circle and is
+        filled, also include the interior for interior hit-testing.
+        """
         stroker = QPainterPathStroker()
         stroker.setWidth(_scene_hit_width(self))
-        return stroker.createStroke(self.path())
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                path = path.united(cp)
+        return path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
