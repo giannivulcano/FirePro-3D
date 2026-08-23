@@ -37,6 +37,7 @@ from firepro3d.array_dialog import ArrayDialog
 from firepro3d.project_browser import ProjectBrowser
 from firepro3d.model_browser import ModelBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
+from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d import theme as th
 
 
@@ -403,6 +404,7 @@ class MainWindow(QMainWindow):
         self._modified: bool = False
         self._MAX_RECENT = 8
         self._recent_files: list[str] = self.settings.value("recent_files", [], type=list)
+        self._last_feature: dict[str, str] = {}  # type_ → last-used feature id
 
         # Auto-save every 2 minutes for crash recovery
         self._autosave_timer = QTimer(self)
@@ -1583,22 +1585,28 @@ class MainWindow(QMainWindow):
         self._mode_buttons["room_manual"] = _room_btn
         _door_btn = g_3d.add_small_button(
             "Door", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("door"),
+            lambda: self.scene.set_mode("opening", template=self._last_feature_for("door")),
             checkable=True)
         _door_btn.setToolTip("Place a door opening in a wall")
         self._mode_buttons["door"] = _door_btn
         _window_btn = g_3d.add_small_button(
             "Window", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("window"),
+            lambda: self.scene.set_mode("opening", template=self._last_feature_for("window")),
             checkable=True)
         _window_btn.setToolTip("Place a window opening in a wall")
+        self._mode_buttons["window"] = _window_btn
+        _blank_btn = g_3d.add_small_button(
+            "Blank", _I("placeholder_icon.svg"),
+            lambda: self.scene.set_mode("opening", template=self._last_feature_for("blank")),
+            checkable=True)
+        _blank_btn.setToolTip("Place a blank (frameless) opening in a wall")
+        self._mode_buttons["blank"] = _blank_btn
         _detail_btn = g_3d.add_small_button(
             "Detail", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("detail"),
             checkable=True)
         _detail_btn.setToolTip("Draw a detail view crop boundary")
         self._mode_buttons["detail"] = _detail_btn
-        self._mode_buttons["window"] = _window_btn
 
         # --- Datums ---
         g_datum = build_page.add_group("Datums")
@@ -2642,6 +2650,17 @@ class MainWindow(QMainWindow):
         # Update prominent mode name badge
         pretty = mode.replace("_", " ").title() if mode else "Select"
         self.mode_name_label.setText(pretty)
+
+    def _last_feature_for(self, type_: str) -> str:
+        """Return the last-used Feature id for *type_*, falling back to the default.
+
+        Args:
+            type_: Opening type key — ``"door"``, ``"window"``, or ``"blank"``.
+
+        Returns:
+            A Feature id string (e.g. ``"door_914"``).
+        """
+        return self._last_feature.get(type_, DEFAULT_FEATURE_FOR_TYPE[type_])
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
