@@ -333,16 +333,19 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         sy = 1.0 if self.mirror_facing else -1.0
 
         if self._leaves == 2:
-            # Two half-width leaves: each with the full half_w as leaf radius.
-            # Each leaf swings from its jamb toward the centre x=0.
-            for hinge_x, outward_x_sign in ((-half_w, -1.0), (half_w, 1.0)):
+            # Two half-width leaves: each closes from its jamb toward the centre
+            # x=0, so each arc sweeps INWARD across its half of the opening.
+            for hinge_x, outward_x_sign in ((-half_w, 1.0), (half_w, -1.0)):
                 self._add_leaf_and_arc(path, hinge_x, outward_x_sign, half_w, ht, sy)
         else:
-            # Single leaf
+            # Single leaf: the closed leaf lies along the wall from the hinge jamb
+            # ACROSS the opening to the opposite jamb, so the arc sweeps toward
+            # that opposite jamb (spanning the gap), not away from it.
             hinge_x = half_w if self.mirror_hinge else -half_w
-            # outward_x_sign: +1 = hinge on right → arc extends right;
-            #                  -1 = hinge on left → arc extends left
-            outward_x_sign = 1.0 if self.mirror_hinge else -1.0
+            # outward_x_sign points from the hinge toward the opposite jamb:
+            #   hinge on left (-half_w)  → sweep right (+1)
+            #   hinge on right (+half_w) → sweep left  (-1)
+            outward_x_sign = -1.0 if self.mirror_hinge else 1.0
             self._add_leaf_and_arc(path, hinge_x, outward_x_sign, 2.0 * half_w, ht, sy)
 
         return path
@@ -504,9 +507,17 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         else:
             pen_color = QColor("#888888")
 
-        # White fill for the gap rect so the opening cuts the wall visually
+        # Fill the gap with the scene background colour so the opening reads as
+        # a clean HOLE through the wall (dark on screen, white on paper/plot) —
+        # not a jarring white block.  Falls back to a neutral dark if unknown.
+        gap_bg = QColor("#2b2b2b")
+        sc = self.scene()
+        if sc is not None:
+            brush = sc.backgroundBrush()
+            if brush.style() != Qt.BrushStyle.NoBrush:
+                gap_bg = brush.color()
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(Qt.GlobalColor.white)
+        painter.setBrush(gap_bg)
         half_w = self.width_scene() / 2.0
         ht = self._wall.half_thickness_scene() if self._wall else 1.0
         from PyQt6.QtCore import QRectF as _QRectF
