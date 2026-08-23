@@ -626,6 +626,215 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             }
         return props
 
+    # ── 3D geometry (§7.8.3) ─────────────────────────────────────────────────
+
+    def get_3d_meshes(self, level_manager=None) -> list[dict]:
+        """Return a list of mesh dicts for the 3D view (frame + leaf/pane).
+
+        Each dict has:
+            ``{"vertices": [[x,y,z],...], "faces": [[i,j,k],...], "color": (r,g,b,a)}``
+
+        Returns an empty list for blank openings (no 3D geometry) or when the
+        host wall or scene is unavailable.
+
+        The coordinate convention matches ``WallSegment.get_3d_mesh``:
+        * Scene X → world X via ``scale_manager.scene_to_real``
+        * Scene Y → world Y via ``-scale_manager.scene_to_real`` (Y negated)
+        * Z = ``level.elevation + sill_mm`` (bottom) / ``+ height_mm`` (top)
+
+        Args:
+            level_manager: Optional LevelManager for elevation lookup.
+
+        Returns:
+            List of mesh dicts; empty for blank type.
+        """
+        if self._type == "blank":
+            return []
+        if self._wall is None:
+            return []
+
+        # ── Scale helper (mirrors wall.get_3d_mesh to_mm) ────────────────────
+        sc = self._wall.scene() if self._wall is not None else self.scene()
+        sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
+
+        def scene_to_real(v: float) -> float:
+            if sm and sm.is_calibrated and sm.drawing_scale > 0:
+                return sm.scene_to_real(v)
+            return v
+
+        # ── Elevations ────────────────────────────────────────────────────────
+        base_z = 0.0
+        if level_manager is not None:
+            lvl = level_manager.get(self.level)
+            if lvl is not None:
+                base_z = lvl.elevation
+        z_bot = base_z + self._sill_mm
+        z_top = z_bot + self._height_mm
+        if z_top <= z_bot:
+            return []
+
+        # ── Opening centre in 3D world coords ────────────────────────────────
+        cpt = self.center_on_wall()
+        cx = scene_to_real(cpt.x())
+        cy = -scene_to_real(cpt.y())   # Y-negate for 3D convention
+
+        # ── Wall orientation vectors in 3D ────────────────────────────────────
+        # Wall angle θ in scene coords.  Along-wall 3D = (cos θ, −sin θ).
+        # Scene normal = (−sin θ, cos θ); 3D normal = (−sin θ, −cos θ).
+        theta = self._wall.centerline_angle_rad()
+        import math as _m
+        ax = _m.cos(theta)          # along-wall, world-X component
+        ay = -_m.sin(theta)         # along-wall, world-Y component (Y-negated)
+        nx = -_m.sin(theta)         # normal, world-X component
+        ny = -_m.cos(theta)         # normal, world-Y component (Y-negated)
+
+        # ── Dimensions in mm ─────────────────────────────────────────────────
+        half_w = self._width_mm / 2.0
+        half_d = self._wall._thickness_mm / 2.0   # half-depth (into wall)
+        frame_t = max(20.0, min(50.0, half_d * 0.15))  # frame bar thickness (~50 mm)
+        leaf_t  = 40.0   # door leaf / window pane thickness in mm
+
+        # ── Box helper ────────────────────────────────────────────────────────
+        def _box(cx3, cy3, cz3, dw, dd, dh, color):
+            """Axis-aligned box centred on (cx3,cy3,cz3) with half-extents dw×dd×dh."""
+            verts = [
+                [cx3 - dw, cy3 - dd, cz3 - dh],
+                [cx3 + dw, cy3 - dd, cz3 - dh],
+                [cx3 + dw, cy3 + dd, cz3 - dh],
+                [cx3 - dw, cy3 + dd, cz3 - dh],
+                [cx3 - dw, cy3 - dd, cz3 + dh],
+                [cx3 + dw, cy3 - dd, cz3 + dh],
+                [cx3 + dw, cy3 + dd, cz3 + dh],
+                [cx3 - dw, cy3 + dd, cz3 + dh],
+            ]
+            faces = [
+                [0, 1, 2], [0, 2, 3],   # bottom
+                [4, 6, 5], [4, 7, 6],   # top
+                [0, 1, 5], [0, 5, 4],   # front
+                [1, 2, 6], [1, 6, 5],   # right
+                [2, 3, 7], [2, 7, 6],   # back
+                [3, 0, 4], [3, 4, 7],   # left
+            ]
+            return {"vertices": verts, "faces": faces, "color": color}
+
+        # _oriented_box: places a box whose local-X is the wall along-axis,
+        # local-Y is the wall normal, local-Z is world-Z.
+        def _oriented_box(along_offset, normal_offset, z_center, dw, dd, dh, color):
+            """Box whose X-axis = wall along, Y-axis = wall normal.
+
+            Args:
+                along_offset:  centre displacement along wall (mm), relative to
+                               the opening centre projected onto the wall axis.
+                normal_offset: centre displacement along wall normal (mm).
+                z_center:      world-Z of the box centre.
+                dw:            half-extent along wall axis.
+                dd:            half-extent along normal axis.
+                dh:            half-extent along Z.
+                color:         (r, g, b, a) tuple.
+            """
+            # Centre in world
+            bx = cx + along_offset * ax + normal_offset * nx
+            by = cy + along_offset * ay + normal_offset * ny
+            bz = z_center
+
+            # 8 corners (±dw along wall, ±dd along normal, ±dh along Z)
+            verts = []
+            for sa in (-1, 1):
+                for sn in (-1, 1):
+                    for sz in (-1, 1):
+                        verts.append([
+                            bx + sa * dw * ax + sn * dd * nx,
+                            by + sa * dw * ay + sn * dd * ny,
+                            bz + sz * dh,
+                        ])
+            # Corner indices: [along_sign, normal_sign, z_sign] cycling
+            # Order: (--−), (--+), (-+−), (-++), (+-−), (+-+), (++−), (+++)
+            # which maps to indices 0..7 per the loop above.
+            faces = [
+                [0, 2, 4], [2, 6, 4],   # bottom (sz=−1 plane: 0,2,4,6)
+                [1, 5, 3], [3, 5, 7],   # top    (sz=+1 plane: 1,3,5,7)
+                [0, 1, 2], [1, 3, 2],   # left   (sa=−1 plane: 0,1,2,3)
+                [4, 6, 5], [5, 6, 7],   # right  (sa=+1 plane: 4,5,6,7)
+                [0, 4, 1], [1, 4, 5],   # front  (sn=−1 plane: 0,4,1,5)
+                [2, 3, 6], [3, 7, 6],   # back   (sn=+1 plane: 2,3,6,7)
+            ]
+            return {"vertices": verts, "faces": faces, "color": color}
+
+        meshes: list[dict] = []
+        z_center = (z_bot + z_top) / 2.0
+        half_h = (z_top - z_bot) / 2.0
+
+        if self._type == "door":
+            # Frame: four thin bars — left jamb, right jamb, head, sill-threshold
+            frame_color = (0.55, 0.33, 0.14, 1.0)   # brown
+
+            # Left jamb: at along = −half_w + frame_t/2
+            meshes.append(_oriented_box(
+                -half_w + frame_t / 2.0, 0.0, z_center,
+                frame_t / 2.0, half_d, half_h, frame_color,
+            ))
+            # Right jamb
+            meshes.append(_oriented_box(
+                half_w - frame_t / 2.0, 0.0, z_center,
+                frame_t / 2.0, half_d, half_h, frame_color,
+            ))
+            # Head (top bar)
+            meshes.append(_oriented_box(
+                0.0, 0.0, z_top - frame_t / 2.0,
+                half_w, half_d, frame_t / 2.0, frame_color,
+            ))
+            # Threshold (bottom bar)
+            meshes.append(_oriented_box(
+                0.0, 0.0, z_bot + frame_t / 2.0,
+                half_w, half_d, frame_t / 2.0, frame_color,
+            ))
+
+            # Closed leaf: thin slab filling inner aperture, slightly toward facing side
+            leaf_normal_offset = (half_d - leaf_t / 2.0) * (
+                -1.0 if self.mirror_facing else 1.0
+            )
+            leaf_color = (0.67, 0.40, 0.18, 1.0)   # warm wood
+            inner_half_w = half_w - frame_t
+            inner_half_h = half_h - frame_t
+            if inner_half_w > 0 and inner_half_h > 0:
+                meshes.append(_oriented_box(
+                    0.0, leaf_normal_offset, z_center,
+                    inner_half_w, leaf_t / 2.0, inner_half_h, leaf_color,
+                ))
+
+        elif self._type == "window":
+            # Frame: same four-bar approach
+            frame_color = (0.75, 0.75, 0.75, 1.0)   # light grey
+
+            meshes.append(_oriented_box(
+                -half_w + frame_t / 2.0, 0.0, z_center,
+                frame_t / 2.0, half_d, half_h, frame_color,
+            ))
+            meshes.append(_oriented_box(
+                half_w - frame_t / 2.0, 0.0, z_center,
+                frame_t / 2.0, half_d, half_h, frame_color,
+            ))
+            meshes.append(_oriented_box(
+                0.0, 0.0, z_top - frame_t / 2.0,
+                half_w, half_d, frame_t / 2.0, frame_color,
+            ))
+            meshes.append(_oriented_box(
+                0.0, 0.0, z_bot + frame_t / 2.0,
+                half_w, half_d, frame_t / 2.0, frame_color,
+            ))
+
+            # Glass pane: thin semi-transparent slab at wall centreline
+            pane_color = (0.5, 0.75, 0.9, 0.35)   # translucent blue
+            inner_half_w = half_w - frame_t
+            inner_half_h = half_h - frame_t
+            if inner_half_w > 0 and inner_half_h > 0:
+                meshes.append(_oriented_box(
+                    0.0, 0.0, z_center,
+                    inner_half_w, leaf_t / 2.0, inner_half_h, pane_color,
+                ))
+
+        return meshes
+
     def set_property(self, key: str, value) -> None:
         """Apply a property mutation, update geometry, and snapshot undo.
 

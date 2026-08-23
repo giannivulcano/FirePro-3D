@@ -596,6 +596,7 @@ class View3D(QWidget):
             self._extract_construction_geometry()
             self._extract_level_floors()
             self._extract_walls()
+            self._extract_openings()
             self._extract_floor_slabs()
             self._extract_roofs()
             self._on_2d_selection_changed()
@@ -970,6 +971,45 @@ class View3D(QWidget):
 
         self._wall_centroids_3d = np.array(centroids) if centroids else None
 
+    # ── Extract: Openings ─────────────────────────────────────────────────
+
+    def _extract_openings(self):
+        """Render wall opening geometry (frame + leaf/pane) as 3D meshes.
+
+        Iterates all openings on all walls and calls
+        ``WallOpening.get_3d_meshes(level_manager)`` for each.  Blank openings
+        return an empty list and are silently skipped.  Actor categories
+        ``"openings"`` and ``"opening_edges"`` are cleared and rebuilt on every
+        call — they must also be cleared in ``_clear_actors`` (see cleanup path).
+        """
+        self._clear_actors("openings")
+        self._clear_actors("opening_edges")
+
+        scene_obj = self._scene
+        if scene_obj is None:
+            return
+        lm = self._lm
+        for wall in getattr(scene_obj, "_walls", []):
+            for op in getattr(wall, "openings", []):
+                mesh_dicts = op.get_3d_meshes(level_manager=lm)
+                for md in mesh_dicts:
+                    verts = np.array(md["vertices"], dtype=np.float32)
+                    faces = np.array(md["faces"], dtype=np.uint32)
+                    col = md.get("color", (0.8, 0.8, 0.8, 1.0))
+                    if len(verts) < 3 or len(faces) < 1:
+                        continue
+                    mesh = _mesh_from_faces(verts, faces)
+                    opacity = col[3] if len(col) > 3 else 1.0
+                    actor = self._plotter.add_mesh(
+                        mesh, color=col[:3], opacity=opacity,
+                    )
+                    self._add_actor("openings", actor, entity=op, entity_type="opening")
+                    self._actor_z_range[actor] = (
+                        float(verts[:, 2].min()),
+                        float(verts[:, 2].max()),
+                    )
+                    self._add_edge_actor(mesh, "opening_edges")
+
     # ── Extract: Floor Slabs ──────────────────────────────────────────────
 
     def _extract_floor_slabs(self):
@@ -1074,11 +1114,13 @@ class View3D(QWidget):
         cut_z = self._h_cut_height_mm
 
         # Hide mesh actors above cut
-        for category in ("walls", "slabs", "roofs", "floors"):
+        for category in ("walls", "openings", "slabs", "roofs", "floors"):
             actors = self._actors.get(category, [])
-            edge_cat = category.rstrip("s") + "_edges"  # walls→wall_edges
+            edge_cat = category.rstrip("s") + "_edges"  # walls→wall_edges, openings→opening_edges
             if category == "floors":
                 edge_cat = "floor_edges"
+            elif category == "openings":
+                edge_cat = "opening_edges"
             edge_actors = self._actors.get(edge_cat, [])
             for i, actor in enumerate(actors):
                 if actor is None:
@@ -1093,11 +1135,11 @@ class View3D(QWidget):
 
     def _remove_horizontal_cut(self):
         """Restore all meshes to visible (respecting floors toggle)."""
-        for category in ("walls", "slabs", "roofs"):
+        for category in ("walls", "openings", "slabs", "roofs"):
             for actor in self._actors.get(category, []):
                 if actor is not None:
                     actor.SetVisibility(True)
-        for category in ("wall_edges", "slab_edges", "roof_edges"):
+        for category in ("wall_edges", "opening_edges", "slab_edges", "roof_edges"):
             for actor in self._actors.get(category, []):
                 if actor is not None:
                     actor.SetVisibility(True)

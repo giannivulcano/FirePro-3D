@@ -66,3 +66,30 @@ def test_opening_projected_into_elevation(qapp, elevation_scene_for):
     elev.rebuild()
     sources = [it.data(_ROLE_SOURCE) for it in elev.items()]
     assert op in sources
+
+
+def test_opening_emits_3d_meshes(qapp, model_scene):
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtCore import QPointF
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(2000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=1000.0)
+    scene.addItem(op); w.openings.append(op)
+    meshes = op.get_3d_meshes(level_manager=scene._level_manager)
+    assert len(meshes) >= 2                       # door → frame + closed leaf
+    for m in meshes:
+        assert len(m["vertices"]) >= 4 and len(m["faces"]) >= 2
+
+
+def test_blank_opening_emits_no_3d_leaf(qapp, model_scene):
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtCore import QPointF
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(2000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="blank_900", offset_along=1000.0)
+    scene.addItem(op); w.openings.append(op)
+    assert op.get_3d_meshes(level_manager=scene._level_manager) == []
