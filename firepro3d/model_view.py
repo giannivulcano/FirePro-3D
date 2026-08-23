@@ -80,7 +80,6 @@ class Model_View(QGraphicsView):
             "paste":                  _C.SizeAllCursor,
             "offset":                 _C.PointingHandCursor,
             "offset_side":            _C.PointingHandCursor,
-            "hatch":                  _C.PointingHandCursor,
         }
         if hasattr(scene, "modeChanged"):
             scene.modeChanged.connect(self._on_mode_changed)

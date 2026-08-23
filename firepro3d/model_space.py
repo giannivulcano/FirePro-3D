@@ -17,7 +17,7 @@ from .pipe import Pipe
 from .sprinkler import Sprinkler
 from .sprinkler_system import SprinklerSystem
 from .cad_math import CAD_Math
-from .annotations import Annotation, DimensionAnnotation, NoteAnnotation, HatchItem
+from .annotations import Annotation, DimensionAnnotation, NoteAnnotation
 from .underlay import Underlay
 from .scale_manager import ScaleManager
 from .calibrate_dialog import CalibrateDialog
@@ -270,8 +270,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._extend_boundary_highlight = None
         self._merge_point1: tuple | None = None  # (item, grip_index, QPointF)
         self._merge_preview = None          # visual line connecting merge points
-        # Hatching state (Sprint Y)
-        self._hatch_items: list = []        # list of HatchItem
         # Constraint state (Sprint Y)
         self._constraints: list = []        # list of Constraint objects
         self._constraint_circle_a = None    # first circle for concentric constraint
@@ -599,7 +597,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             CircleItem:          self._draw_circles,
             ArcItem:             self._draw_arcs,
             GridlineItem:        self._gridlines,
-            HatchItem:           self._hatch_items,
         }
         for cls, lst in type_to_list.items():
             if isinstance(item, cls):
@@ -1133,7 +1130,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "extend":         "Select boundary edge",
             "extend_pick":    "Click near endpoint to extend (right-click to cancel)",
             "merge_points":   "Click first endpoint",
-            "hatch":          "Click a closed object to apply hatching",
             "constraint_concentric":   "Select first circle",
             "constraint_dimensional":  "Click first grip point",
             "align": "Click reference edge",
@@ -3130,9 +3126,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],
             "roofs":              [r.to_dict()  for r in self._roofs],
             "rooms":              [r.to_dict()  for r in self._rooms],
-            # ── Hatches & Constraints ─────────────────────────────────────
-            "hatches":            [h.to_dict() for h in self._hatch_items
-                                  if hasattr(h, 'to_dict')],
             "constraints":        self._capture_constraints(),
         }
 
@@ -3369,11 +3362,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(rm)
             self._rooms.clear()
 
-            for h in list(self._hatch_items):
-                if h.scene() is self:
-                    self.removeItem(h)
-            self._hatch_items.clear()
-
             # Clear padlocks
             for p in self._align_padlocks:
                 if p.scene() is self:
@@ -3444,15 +3432,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # ── Design-area tiles (now that walls & rooms exist) ──────────
             for da in self.design_areas:
                 da.compute_area(self.scale_manager)
-
-            # ── Hatches ───────────────────────────────────────────────────
-            for d in state.get("hatches", []):
-                try:
-                    h = HatchItem.from_dict(d)
-                    self.addItem(h)
-                    self._hatch_items.append(h)
-                except (ValueError, KeyError, TypeError):
-                    pass  # skip malformed hatch data
 
             # ── Constraints ───────────────────────────────────────────────
             all_geom = self._all_geometry_items()
@@ -5101,9 +5080,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             gi.apply_grip(self._grip_index, pos)
         self._solve_constraints(gi)
-        for h in self._hatch_items:
-            if getattr(h, '_source_item', None) is gi:
-                h.rebuild_from_source()
         for v in self.views():
             v.viewport().update()
 
@@ -6261,7 +6237,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "extend":                   "_press_extend",
         "extend_pick":              "_press_extend",
         "merge_points":             "_press_merge_hatch",
-        "hatch":                    "_press_merge_hatch",
         "constraint_concentric":    "_press_constraint",
         "constraint_dimensional":   "_press_constraint",
         "align":                    "_press_align",
@@ -8044,8 +8019,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _press_merge_hatch(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.mode == "merge_points":
             self._handle_merge_click(snapped)
-        elif self.mode == "hatch":
-            self._handle_hatch_click(snapped)
 
     # ── Constraints ──────────────────────────────────────────────────
     def _press_constraint(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -9013,10 +8986,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
             self._solve_constraints(self._grip_item)  # enforce constraints
-            # Rebuild any hatches whose source was the dragged item
-            for h in self._hatch_items:
-                if getattr(h, '_source_item', None) is self._grip_item:
-                    h.rebuild_from_source()
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
@@ -9160,7 +9129,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ENTITY_TYPES = (
             Node, Pipe, DimensionAnnotation, NoteAnnotation,
             PolylineItem, LineItem, RectangleItem,
-            CircleItem, ArcItem, GridlineItem, HatchItem, WaterSupply,
+            CircleItem, ArcItem, GridlineItem, WaterSupply,
             WallSegment, FloorSlab, DoorOpening, WindowOpening, Room,
         )
         for item in self.items(pos):
@@ -9330,7 +9299,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 result.append(pipe)
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
-                    self._gridlines, self._hatch_items,
+                    self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:
                 if getattr(item, "level", None) == level_name:

@@ -33,7 +33,7 @@ from .construction_geometry import (
 )
 from .constants import DEFAULT_LEVEL
 from .node import Node
-from .annotations import HatchItem
+
 from .cad_math import CAD_Math
 from . import geometry_intersect as gi
 
@@ -1455,30 +1455,6 @@ class SceneToolsMixin:
                 self._merge_preview = None
             self._merge_point1 = None
             self.instructionChanged.emit("Click first endpoint")
-
-    def _handle_hatch_click(self, pos: QPointF):
-        """Handle mouse click during hatch mode."""
-        item = self._find_geometry_at(pos)
-        if item is None:
-            return
-
-        if not hasattr(item, 'is_closed') or not item.is_closed():
-            self._show_status("Object is not closed — cannot hatch")
-            return
-
-        closed_path = item.get_closed_path()
-        if closed_path is None:
-            self._show_status("Cannot get closed path for hatching")
-            return
-
-        hatch = HatchItem(closed_path, item.pos())
-        hatch._source_item = item
-        self.addItem(hatch)
-        self._hatch_items.append(hatch)
-        hatch.setSelected(True)
-        hatch.level = getattr(item, "level", self.active_level)
-        self.push_undo_state()
-        self._show_status("Hatch applied")
 
     def _handle_constraint_concentric_click(self, pos: QPointF):
         """Handle mouse click during concentric constraint mode."""

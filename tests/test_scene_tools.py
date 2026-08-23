@@ -44,7 +44,6 @@ class _StubScene(SceneToolsMixin, QGraphicsScene):
         self._draw_circles: list = []
         self._draw_arcs: list = []
         self._polylines: list = []
-        self._hatch_items: list = []
         self._constraints: list = []
         self._offset_preview = None
         self._trim_edge = None

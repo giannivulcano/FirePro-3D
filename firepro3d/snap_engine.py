@@ -283,8 +283,7 @@ class SnapEngine:
                            search_rect: QRectF,
                            exclude: QGraphicsItem | None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
-        from .annotations import HatchItem
-        _skip_types = (DimensionAnnotation, NoteAnnotation, HatchItem)
+        _skip_types = (DimensionAnnotation, NoteAnnotation)
 
         _underlay_tags = ("DXF Underlay", "PDF Underlay")
 
@@ -375,7 +374,6 @@ class SnapEngine:
                                        exclude: QGraphicsItem | None,
                                        gl_items: list):
         """Phase 4: Line-line and line-circle intersection snaps."""
-        from .annotations import HatchItem as _hatch_type
         # Each segment is (p1, p2, src_item, parent_key). ``src_item`` is the
         # QGraphicsItem traced for highlighting; ``parent_key`` drives
         # same-parent intersection suppression (two segments sharing a parent
@@ -453,33 +451,30 @@ class SnapEngine:
             elif isinstance(item, CircleItem):
                 _circles.append((item._center, item._radius, item))
             elif isinstance(item, QGraphicsPathItem):
-                # Generic path items (DXF imports). Skip HatchItem —
-                # intentionally all-N/A per snap spec §5.
-                # Filter each segment against the search rect — polyline
-                # bounding rects are large but only a few segments are
-                # actually near the cursor.
-                if not isinstance(item, _hatch_type):
-                    path = item.path()
-                    n = path.elementCount()
-                    for j in range(min(n - 1, 511)):
-                        e2 = path.elementAt(j + 1)
-                        if e2.type == QPainterPath.ElementType.MoveToElement:
-                            continue  # sub-path boundary, no segment
-                        e1 = path.elementAt(j)
-                        p1 = item.mapToScene(QPointF(e1.x, e1.y))
-                        p2 = item.mapToScene(QPointF(e2.x, e2.y))
-                        seg_r = QRectF(
-                            min(p1.x(), p2.x()) - 0.5,
-                            min(p1.y(), p2.y()) - 0.5,
-                            abs(p2.x() - p1.x()) + 1.0,
-                            abs(p2.y() - p1.y()) + 1.0,
-                        )
-                        if search_rect.intersects(seg_r):
-                            _segments.append((p1, p2, item, item))
-                    # Abort during extraction — once over the cap the
-                    # phase bails anyway (see check below).
-                    if len(_segments) > _PHASE4_MAX_SEGMENTS:
-                        return
+                # Generic path items (DXF imports). Filter each segment
+                # against the search rect — polyline bounding rects are
+                # large but only a few segments are actually near the cursor.
+                path = item.path()
+                n = path.elementCount()
+                for j in range(min(n - 1, 511)):
+                    e2 = path.elementAt(j + 1)
+                    if e2.type == QPainterPath.ElementType.MoveToElement:
+                        continue  # sub-path boundary, no segment
+                    e1 = path.elementAt(j)
+                    p1 = item.mapToScene(QPointF(e1.x, e1.y))
+                    p2 = item.mapToScene(QPointF(e2.x, e2.y))
+                    seg_r = QRectF(
+                        min(p1.x(), p2.x()) - 0.5,
+                        min(p1.y(), p2.y()) - 0.5,
+                        abs(p2.x() - p1.x()) + 1.0,
+                        abs(p2.y() - p1.y()) + 1.0,
+                    )
+                    if search_rect.intersects(seg_r):
+                        _segments.append((p1, p2, item, item))
+                # Abort during extraction — once over the cap the
+                # phase bails anyway (see check below).
+                if len(_segments) > _PHASE4_MAX_SEGMENTS:
+                    return
 
         # Extract segments from underlay snap indices
         _queried_groups: set[int] = set()

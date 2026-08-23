@@ -46,7 +46,6 @@ _LAZY: dict[str, tuple[str, str]] = {
     # Annotations
     "DimensionAnnotation": (".annotations",     "DimensionAnnotation"),
     "NoteAnnotation":    (".annotations",       "NoteAnnotation"),
-    "HatchItem":         (".annotations",       "HatchItem"),
     # Managers
     "LevelManager":      (".level_manager",     "LevelManager"),
     "Level":             (".level_manager",     "Level"),

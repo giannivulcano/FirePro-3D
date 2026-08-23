@@ -1730,8 +1730,6 @@ class MainWindow(QMainWindow):
         g_annotate = draft_page.add_group("Annotate")
         _mode_btn(g_annotate, "Dimension", _I("dimension_icon.svg"), "dimension").setToolTip("Place a dimension annotation")
         _mode_btn(g_annotate, "Text", _I("text_icon.svg"), "text").setToolTip("Place a text note")
-        _mode_btn(g_annotate, "Hatch", _I("placeholder_icon.svg"), "hatch").setToolTip(
-            "Add hatching to a closed object")
         self._add_text_ribbon_btn = g_annotate.add_large_button(
             "Add\nText", _I("text_icon.svg"),
             self._on_ribbon_add_text_toggled, checkable=True)
@@ -2743,7 +2741,7 @@ class MainWindow(QMainWindow):
             RectangleItem, CircleItem, ArcItem,
         )
         from firepro3d.annotations import (
-            DimensionAnnotation, HatchItem,
+            DimensionAnnotation,
         )
         from firepro3d.wall import WallSegment
         from firepro3d.floor_slab import FloorSlab
@@ -2761,7 +2759,7 @@ class MainWindow(QMainWindow):
                               RectangleItem, CircleItem, ArcItem)):
             return "geo2d"
         # Annotation family
-        if isinstance(item, (NoteAnnotation, DimensionAnnotation, HatchItem)):
+        if isinstance(item, (NoteAnnotation, DimensionAnnotation)):
             return "annotation"
         # Structural / architectural families
         if isinstance(item, WallSegment):
