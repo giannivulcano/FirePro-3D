@@ -106,3 +106,30 @@ def test_z_range_from_assigned_level_and_sill(qapp, model_scene):
     zr = op.z_range_mm()
     lvl_elev = scene._level_manager.get(op.level).elevation
     assert zr == (lvl_elev + 900.0, lvl_elev + 900.0 + 1200.0)
+
+
+def test_properties_expose_placement_fields(qapp, model_scene):
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="window_900", offset_along=500.0)
+    scene.addItem(op); w.openings.append(op)
+    props = op.get_properties()
+    assert props["Alignment"]["type"] == "enum"
+    assert set(props["Alignment"]["options"]) == set(C.OPENING_ALIGNMENTS)
+    assert props["Cross Offset"]["type"] == "dimension"
+    assert props["Hinge Flip"]["type"] == "bool"
+    assert props["Facing Flip"]["type"] == "bool"
+    assert props["Level"]["type"] == "level_ref"
+
+
+def test_set_alignment_snapshots_undo(qapp, model_scene):
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=500.0)
+    scene.addItem(op); w.openings.append(op)
+    n_before = len(scene._undo_stack)
+    op.set_property("Alignment", C.OPENING_ALIGN_FRONT)
+    assert op.alignment == C.OPENING_ALIGN_FRONT
+    assert len(scene._undo_stack) == n_before + 1

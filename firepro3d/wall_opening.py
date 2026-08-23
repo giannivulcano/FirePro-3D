@@ -40,6 +40,7 @@ from .displayable_item import DisplayableItemMixin
 from .constants import (
     DEFAULT_LEVEL, Z_CAT_OPENING,
     OPENING_ALIGN_CENTER, OPENING_ALIGN_FRONT, OPENING_ALIGN_BACK,
+    OPENING_ALIGNMENTS,
 )
 from .feature import FEATURE_REGISTRY, get_feature, nearest_feature_for
 
@@ -588,27 +589,74 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             obj._reposition()
         return obj
 
-    # ── Legacy property accessors ─────────────────────────────────────────────
+    # ── Property panel integration (§7.6 / §7.9 / §7.13) ────────────────────
 
     def get_properties(self) -> dict:
-        return {
-            "Type":   {"type": "label",  "value": self._type.title()},
-            "Width":  {"type": "string", "value": self._fmt(self._width_mm)},
-            "Height": {"type": "string", "value": self._fmt(self._height_mm)},
-        }
+        """Return an ordered dict of property descriptors for the property panel.
 
-    def set_property(self, key: str, value):
-        if key in ("Width", "Width (mm)"):
-            try:
-                self._width_mm = float(value)
-            except (ValueError, TypeError):
-                return
-            self._reposition()
-        elif key in ("Height", "Height (mm)"):
-            try:
-                self._height_mm = float(value)
-            except (ValueError, TypeError):
-                return
+        Keys and types match the property-panel protocol:
+            - ``"label"``     — read-only text row.
+            - ``"dimension"`` — DimensionEdit; ``set_property`` receives a mm float.
+            - ``"enum"``      — QComboBox; ``set_property`` receives a str.
+            - ``"bool"``      — QCheckBox; ``set_property`` receives a bool.
+            - ``"level_ref"`` — level combo; ``set_property`` receives a level name str.
+            - ``"warning"``   — warning box; only included when a warning exists.
+
+        Returns:
+            dict: Ordered mapping of property-key → descriptor dict.
+        """
+        props: dict = {}
+        props["Type"] = {"type": "label", "value": self._type.title()}
+        props["Width"] = {"type": "dimension", "value_mm": self._width_mm}
+        props["Height"] = {"type": "dimension", "value_mm": self._height_mm}
+        props["Sill Height"] = {"type": "dimension", "value_mm": self._sill_mm}
+        props["Alignment"] = {
+            "type": "enum",
+            "value": self.alignment,
+            "options": list(OPENING_ALIGNMENTS),
+        }
+        props["Cross Offset"] = {"type": "dimension", "value_mm": self.cross_offset_mm}
+        props["Hinge Flip"] = {"type": "bool", "value": self.mirror_hinge}
+        props["Facing Flip"] = {"type": "bool", "value": self.mirror_facing}
+        props["Level"] = {"type": "level_ref", "value": self.level}
+        if not self.fits_within_wall():
+            props["Fit Warning"] = {
+                "type": "warning",
+                "value": "Opening extends beyond the host wall's vertical extent.",
+            }
+        return props
+
+    def set_property(self, key: str, value) -> None:
+        """Apply a property mutation, update geometry, and snapshot undo.
+
+        Args:
+            key:   Property key as returned by ``get_properties()``.
+            value: New value — mm float for dimension keys, str for enum/level_ref,
+                   bool for bool keys.  Unknown keys are silently ignored.
+        """
+        if key == "Width":
+            self._width_mm = float(value)
+        elif key == "Height":
+            self._height_mm = float(value)
+        elif key == "Sill Height":
+            self._sill_mm = float(value)
+        elif key == "Alignment":
+            self.alignment = str(value)
+        elif key == "Cross Offset":
+            self.cross_offset_mm = float(value)
+        elif key == "Hinge Flip":
+            self.mirror_hinge = bool(value)
+        elif key == "Facing Flip":
+            self.mirror_facing = bool(value)
+        elif key == "Level":
+            self.level = str(value)
+        else:
+            return  # unknown key — no-op, no undo push
+
+        self._reposition()
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "push_undo_state"):
+            sc.push_undo_state()
 
 
 # ── Backward-compat aliases ───────────────────────────────────────────────────

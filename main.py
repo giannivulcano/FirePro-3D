@@ -2670,6 +2670,100 @@ class MainWindow(QMainWindow):
         self._build_fill_group(page)
         self._build_contextual_edit_group(page)
 
+    def _build_opening_context(self, page) -> None:
+        """Build the 'Opening' contextual tab: Placement + Orientation + Edit.
+
+        Groups:
+            Placement  — Level combo (reused from :meth:`_build_placement_group`).
+            Orientation — Alignment combo, Flip Hinge button, Flip Facing button.
+            Edit        — Standard clipboard/delete actions.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from PyQt6.QtWidgets import QComboBox, QLabel, QWidget, QVBoxLayout
+        from firepro3d.constants import OPENING_ALIGNMENTS
+        from firepro3d.wall_opening import WallOpening
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        self._build_placement_group(page)
+
+        # ── Orientation group ─────────────────────────────────────────────────
+        g = page.add_group("Orientation")
+
+        # Alignment combo
+        align_container = QWidget()
+        al_lay = QVBoxLayout(align_container)
+        al_lay.setContentsMargins(2, 2, 2, 0)
+        al_lay.setSpacing(1)
+        lbl_al = QLabel("Alignment")
+        lbl_al.setMaximumWidth(110)
+        align_combo = QComboBox()
+        align_combo.setMaximumWidth(110)
+        align_combo.addItems(list(OPENING_ALIGNMENTS))
+        al_lay.addWidget(lbl_al)
+        al_lay.addWidget(align_combo)
+
+        # Seed combo from current selection
+        _openings = [it for it in self.scene.selectedItems()
+                     if isinstance(it, WallOpening)]
+        if _openings:
+            vals = {it.alignment for it in _openings}
+            cur = next(iter(vals)) if len(vals) == 1 else None
+            align_combo.blockSignals(True)
+            if cur is not None and align_combo.findText(cur) >= 0:
+                align_combo.setCurrentText(cur)
+            else:
+                align_combo.setCurrentIndex(-1)
+            align_combo.blockSignals(False)
+
+        def _on_alignment_changed(index):
+            new_val = align_combo.currentText()
+            targets = [it for it in self.scene.selectedItems()
+                       if isinstance(it, WallOpening)
+                       and it.alignment != new_val]
+            if not targets:
+                return
+            self.scene.push_undo_state()
+            for t in targets:
+                t.set_property("Alignment", new_val)
+
+        align_combo.activated.connect(_on_alignment_changed)
+        g.add_widget(align_container)
+
+        # Flip Hinge button
+        g.add_small_button(
+            "Flip Hinge", None,
+            lambda: self._opening_flip("Hinge Flip"),
+        )
+        # Flip Facing button
+        g.add_small_button(
+            "Flip Facing", None,
+            lambda: self._opening_flip("Facing Flip"),
+        )
+
+        self._build_contextual_edit_group(page)
+
+    def _opening_flip(self, prop_key: str) -> None:
+        """Toggle a bool property on all selected WallOpenings with undo snapshot.
+
+        Args:
+            prop_key: ``"Hinge Flip"`` or ``"Facing Flip"``.
+        """
+        from firepro3d.wall_opening import WallOpening
+        targets = [it for it in self.scene.selectedItems()
+                   if isinstance(it, WallOpening)]
+        if not targets:
+            return
+        self.scene.push_undo_state()
+        for t in targets:
+            current = getattr(t, "mirror_hinge" if prop_key == "Hinge Flip"
+                              else "mirror_facing", False)
+            t.set_property(prop_key, not current)
+
     def _build_placement_group(self, page) -> None:
         """Add a 'Placement' group (Level combo + Level Offset field) to *page*.
 
@@ -3026,6 +3120,11 @@ class MainWindow(QMainWindow):
         self._contextual_registry["geo2d"] = (
             self._CONTEXTUAL_TABS["geo2d"],
             self._build_geo2d_context,
+        )
+        # Override opening with its richer builder (Placement + Orientation + Edit).
+        self._contextual_registry["opening"] = (
+            self._CONTEXTUAL_TABS["opening"],
+            self._build_opening_context,
         )
         # Fixed slot immediately after the 7 base tabs.
         self._contextual_index: int = 7
