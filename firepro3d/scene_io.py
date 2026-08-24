@@ -180,6 +180,7 @@ class SceneIOMixin:
         draw_rects_data = [r.to_dict() for r in self._draw_rects]
         draw_circles_data = [c.to_dict() for c in self._draw_circles]
         draw_arcs_data = [a.to_dict() for a in self._draw_arcs]
+        polygons_data = [p.to_dict() for p in self._draw_polygons]
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
         floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]
@@ -213,6 +214,7 @@ class SceneIOMixin:
             "draw_rectangles":     draw_rects_data,
             "draw_circles":        draw_circles_data,
             "draw_arcs":           draw_arcs_data,
+            "polygons":            polygons_data,
             "gridlines":           gridlines_data,
             "walls":               walls_data,
             "floor_slabs":         floor_slabs_data,
@@ -260,7 +262,7 @@ class SceneIOMixin:
         from .design_area import DesignArea
         from .construction_geometry import (
             PolylineItem, LineItem, RectangleItem,
-            CircleItem, ArcItem,
+            CircleItem, ArcItem, RegularPolygonItem,
         )
         from .gridline import GridlineItem
         from .wall import WallSegment
@@ -577,6 +579,11 @@ class SceneIOMixin:
             self.addItem(item)
             self._draw_arcs.append(item)
 
+        for entry in payload.get("polygons", []):
+            item = RegularPolygonItem.from_dict(entry)
+            self.addItem(item)
+            self._draw_polygons.append(item)
+
         # --- Gridlines ---
         for entry in payload.get("gridlines", []):
             gl = GridlineItem.from_dict(entry)
@@ -706,6 +713,7 @@ class SceneIOMixin:
         self._draw_rects = []
         self._draw_circles = []
         self._draw_arcs = []
+        self._draw_polygons = []
         self._draw_line_anchor = None
         self._draw_rect_anchor = None
         self._draw_circle_center = None

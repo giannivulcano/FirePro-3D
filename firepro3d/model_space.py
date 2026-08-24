@@ -612,6 +612,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             RectangleItem:       self._draw_rects,
             CircleItem:          self._draw_circles,
             ArcItem:             self._draw_arcs,
+            RegularPolygonItem:  self._draw_polygons,
             GridlineItem:        self._gridlines,
         }
         for cls, lst in type_to_list.items():
@@ -3172,6 +3173,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "draw_rectangles":    [r.to_dict()  for r in self._draw_rects],
             "draw_circles":       [c.to_dict()  for c in self._draw_circles],
             "draw_arcs":          [a.to_dict()  for a in self._draw_arcs],
+            "polygons":           [p.to_dict()  for p in self._draw_polygons],
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
             "walls":              [w.to_dict()  for w in self._walls],
@@ -3386,6 +3388,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(item)
             self._draw_arcs.clear()
 
+            for item in list(self._draw_polygons):
+                if item.scene() is self:
+                    self.removeItem(item)
+            self._draw_polygons.clear()
+
             for gl in list(self._gridlines):
                 if gl.scene() is self:
                     self.removeItem(gl)
@@ -3447,6 +3454,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 ai = ArcItem.from_dict(d)
                 self.addItem(ai)
                 self._draw_arcs.append(ai)
+
+            for d in state.get("polygons", []):
+                pg = RegularPolygonItem.from_dict(d)
+                self.addItem(pg)
+                self._draw_polygons.append(pg)
 
             for d in state.get("gridlines", []):
                 gl = GridlineItem.from_dict(d)
@@ -10198,6 +10210,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self.addItem(item)
                 self._polylines.append(item)
 
+            elif obj_type == "polygon":
+                item = RegularPolygonItem.from_dict(obj)
+                item.translate(offset.x(), offset.y())
+                item.level = self.active_level
+                self.addItem(item)
+                self._draw_polygons.append(item)
+
             elif obj_type == "block_item":
                 from .block_item import BlockItem
                 def _item_factory(d):
@@ -10212,6 +10231,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                         return PolylineItem.from_dict(d)
                     elif t == "arc":
                         return ArcItem.from_dict(d)
+                    elif t == "polygon":
+                        return RegularPolygonItem.from_dict(d)
                     elif t == "block_item":
                         return BlockItem.from_dict(d, _item_factory)
                     return None
@@ -10276,6 +10297,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         without adding anything to the scene. Covers the copyable types."""
         from .construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+            RegularPolygonItem as _RegularPolygonItem,
         )
         paths = []
         if not data:
@@ -10283,6 +10305,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         geom_ctors = {
             "draw_line": LineItem, "draw_rectangle": RectangleItem,
             "draw_circle": CircleItem, "draw_arc": ArcItem, "polyline": PolylineItem,
+            "polygon": _RegularPolygonItem,
         }
         for obj in data:
             t = obj.get("type", "")

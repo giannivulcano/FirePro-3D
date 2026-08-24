@@ -13,6 +13,11 @@ Path B — undo snapshot:
 
 Both paths verify that level, _level_offset_mm, fill_type, and
 _display_fill_color survive a round-trip without any information loss.
+
+Additionally (Task 5):
+- RegularPolygonItem round-trips through both paths.
+- Closed PolylineItem flag round-trips through the file path.
+- paste_items() dispatches "polygon" type correctly.
 """
 
 from __future__ import annotations
@@ -20,10 +25,11 @@ from __future__ import annotations
 import json
 import pytest
 from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
 from firepro3d.level_manager import LevelManager
-from firepro3d.construction_geometry import RectangleItem
+from firepro3d.construction_geometry import RectangleItem, RegularPolygonItem, PolylineItem
 from firepro3d.scale_manager import ScaleManager
 
 
@@ -220,3 +226,92 @@ def test_to_dict_from_dict_direct(qapp):
     assert r2._level_offset_mm == pytest.approx(777.5)
     assert r2.fill_type == "solid"
     assert r2._display_fill_color == "#deadbe"
+
+
+# ── Task 5: RegularPolygonItem + closed PolylineItem dual serialization ───────
+
+def test_polygon_survives_undo_capture(qapp):
+    """_capture_network / _restore_network round-trips RegularPolygonItem."""
+    scene = _make_scene(qapp)
+    p = RegularPolygonItem(QPointF(10, 20), sides=5, radius_mm=80.0)
+    scene.addItem(p)
+    scene._draw_polygons.append(p)
+
+    snap = scene._capture_network()
+    assert "polygons" in snap
+    assert len(snap["polygons"]) == 1
+
+    scene._draw_polygons.clear()
+    scene.removeItem(p)
+
+    scene._restore_network(snap)
+    assert len(scene._draw_polygons) == 1
+    assert scene._draw_polygons[0]._sides == 5
+
+
+def test_restore_network_clears_existing_polygons(qapp):
+    """_restore_network must not duplicate polygons on a second restore."""
+    scene = _make_scene(qapp)
+    p = RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=50.0)
+    scene.addItem(p)
+    scene._draw_polygons.append(p)
+
+    snap = scene._capture_network()
+
+    # Restore twice — polygon count must remain 1.
+    scene._restore_network(snap)
+    scene._restore_network(snap)
+    assert len(scene._draw_polygons) == 1
+
+
+def test_polygon_file_round_trip(qapp, tmp_path):
+    """save_to_file / load_from_file round-trips RegularPolygonItem."""
+    scene = _make_scene(qapp)
+    p = RegularPolygonItem(QPointF(0, 0), sides=8, radius_mm=60.0, inscribed=False)
+    scene.addItem(p)
+    scene._draw_polygons.append(p)
+
+    f = tmp_path / "poly.fpd"
+    scene.save_to_file(str(f))
+
+    scene2 = _make_scene(qapp)
+    scene2.load_from_file(str(f))
+
+    assert len(scene2._draw_polygons) == 1
+    assert scene2._draw_polygons[0]._sides == 8
+    assert scene2._draw_polygons[0]._inscribed is False
+
+
+def test_closed_polyline_file_round_trip(qapp, tmp_path):
+    """Closed PolylineItem flag survives a file round-trip."""
+    scene = _make_scene(qapp)
+    pl = PolylineItem(QPointF(0, 0))
+    pl.append_point(QPointF(100, 0))
+    pl.append_point(QPointF(0, 100))
+    pl.close()
+
+    scene.addItem(pl)
+    scene._polylines.append(pl)
+
+    f = tmp_path / "pl.fpd"
+    scene.save_to_file(str(f))
+
+    scene2 = _make_scene(qapp)
+    scene2.load_from_file(str(f))
+
+    assert len(scene2._polylines) == 1
+    assert scene2._polylines[0].is_closed() is True
+
+
+def test_polygon_paste(qapp):
+    """paste_items dispatches 'polygon' type and appends to _draw_polygons."""
+    scene = _make_scene(qapp)
+    p = RegularPolygonItem(QPointF(0, 0), sides=6, radius_mm=50.0)
+    d = p.to_dict()
+
+    QApplication.clipboard().setText(json.dumps([d]))
+
+    before = len(scene._draw_polygons)
+    scene.paste_items(QPointF(0, 0))
+    assert len(scene._draw_polygons) == before + 1
+    assert scene._draw_polygons[-1]._sides == 6
