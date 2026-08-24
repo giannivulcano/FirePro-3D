@@ -1539,7 +1539,7 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
         _mode_btn(g_geom, "Polygon", _I("polygon_icon.svg"), "polygon").setToolTip(
-            "Draw a regular polygon — ↑/↓ sides, ←/→ inscribed/circumscribed")
+            "Draw a regular polygon — ↑/↓ sides, ←/→ inscribed/circumscribed (P)")
 
         # --- Blocks ---
         g_blocks = draw_page.add_group("Blocks")
@@ -3233,6 +3233,7 @@ class MainWindow(QMainWindow):
         from firepro3d.construction_geometry import (
             PolylineItem, LineItem,
             RectangleItem, CircleItem, ArcItem,
+            RegularPolygonItem,
         )
         from firepro3d.annotations import (
             DimensionAnnotation,
@@ -3250,7 +3251,8 @@ class MainWindow(QMainWindow):
 
         # 2-D geometry family
         if isinstance(item, (PolylineItem, LineItem,
-                              RectangleItem, CircleItem, ArcItem)):
+                              RectangleItem, CircleItem, ArcItem,
+                              RegularPolygonItem)):
             return "geo2d"
         # Annotation family
         if isinstance(item, (NoteAnnotation, DimensionAnnotation)):

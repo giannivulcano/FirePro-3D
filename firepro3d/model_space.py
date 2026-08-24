@@ -9418,7 +9418,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ENTITY_TYPES = (
             Node, Pipe, DimensionAnnotation, NoteAnnotation,
             PolylineItem, LineItem, RectangleItem,
-            CircleItem, ArcItem, GridlineItem, WaterSupply,
+            CircleItem, ArcItem, RegularPolygonItem, GridlineItem, WaterSupply,
             WallSegment, FloorSlab, DoorOpening, WindowOpening, Room,
         )
         for item in self.items(pos):

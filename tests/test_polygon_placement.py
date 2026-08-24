@@ -100,3 +100,33 @@ def test_placement_continuous_after_commit(scene):
     scene._draw_circle_center = QPointF(0, 0)
     scene._commit_draw_circle_at(QPointF(100, 0))
     assert scene.mode == "draw_circle"   # stays continuous, never "select"
+
+
+# ── P shortcut wires polygon mode (real entry-point: posted QKeyEvent on shown view) ──
+
+def test_p_shortcut_sets_polygon_mode(view, scene):
+    """Posting Key_P to a focused Model_View must switch scene.mode to 'polygon'.
+
+    RED-VERIFY: before adding Qt.Key.Key_P to _TOOL_SHORTCUTS, this test
+    would fail because the key press is not handled and mode stays unchanged.
+    """
+    from PyQt6.QtCore import QEvent
+    from PyQt6.QtGui import QKeyEvent
+    from PyQt6.QtWidgets import QApplication
+
+    # Start in a different mode so we can detect the change.
+    scene.set_mode("select")
+    assert scene.mode != "polygon", "pre-condition: mode must not be polygon before key press"
+
+    view.setFocus()
+    QApplication.processEvents()
+
+    for event_type in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(
+            view,
+            QKeyEvent(event_type, Qt.Key.Key_P, Qt.KeyboardModifier.NoModifier),
+        )
+
+    assert scene.mode == "polygon", (
+        f"Expected mode 'polygon' after pressing P; got {scene.mode!r}"
+    )

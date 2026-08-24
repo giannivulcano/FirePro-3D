@@ -244,6 +244,48 @@ def test_mixed_selection_shows_modify(main_window, qapp, clean_scene):
     assert "Modify" in tabs, f"Expected 'Modify' (mixed) tab; got {tabs}"
 
 
+# ── RegularPolygonItem → "geo2d" contextual key ───────────────────────────────
+
+def test_polygon_family_key_is_geo2d(main_window):
+    """_family_key_for(RegularPolygonItem) must return 'geo2d'.
+
+    RED-VERIFY: before adding RegularPolygonItem to the isinstance tuple in
+    _family_key_for, this test would return None and the assert would fail.
+    """
+    from firepro3d.construction_geometry import RegularPolygonItem
+    from PyQt6.QtCore import QPointF
+
+    poly = RegularPolygonItem(center=QPointF(0, 0), sides=6, radius_mm=50.0)
+    key = main_window._family_key_for(poly)
+    assert key == "geo2d", (
+        f"Expected 'geo2d' for RegularPolygonItem; got {key!r}"
+    )
+
+
+def test_selecting_polygon_shows_geo2d_tab(main_window, qapp, clean_scene):
+    """Selecting a RegularPolygonItem must insert the '2D Geometry' contextual tab."""
+    from firepro3d.construction_geometry import RegularPolygonItem
+    from PyQt6.QtCore import QPointF
+
+    poly = RegularPolygonItem(center=QPointF(0, 0), sides=6, radius_mm=50.0)
+    poly.setFlag(poly.GraphicsItemFlag.ItemIsSelectable, True)
+    main_window.scene.addItem(poly)
+    try:
+        poly.setSelected(True)
+        qapp.processEvents()
+        tabs = _titles(main_window)
+        assert "2D Geometry" in tabs, (
+            f"Expected '2D Geometry' contextual tab; got tabs: {tabs}"
+        )
+        assert main_window._active_contextual_key == "geo2d", (
+            f"Expected _active_contextual_key='geo2d'; got {main_window._active_contextual_key!r}"
+        )
+    finally:
+        main_window.scene.removeItem(poly)
+        main_window.scene.clearSelection()
+        qapp.processEvents()
+
+
 def test_unmappable_selection_shows_no_contextual(main_window, qapp, clean_scene):
     """Selecting only items that _family_key_for maps to None must NOT insert
     any contextual tab — the tab count stays at 7 and the active tab is
