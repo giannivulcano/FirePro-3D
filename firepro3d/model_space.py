@@ -5416,6 +5416,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
                     self.update_preview_node(pts[0])
                     self._preview_from_polyline(pts[0])
+                    # Keep the HUD readout live on the closing segment.
+                    self.publish_placement_state(pts[-1], pts[0])
                     return
             tip = snapped
             if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
