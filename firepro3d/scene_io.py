@@ -639,13 +639,14 @@ class SceneIOMixin:
                 path = _rebuild_path_from_elements(entry["path"])
                 poly = path.toFillPolygon()
                 pts = [poly.at(i) for i in range(poly.count())]
+                if len(pts) >= 2 and pts[0] == pts[-1]:
+                    pts = pts[:-1]
                 if len(pts) < 3:
                     continue
-                if pts[0] != pts[-1]:
-                    pts.append(pts[0])
                 pl = PolylineItem(pts[0])
                 for p in pts[1:]:
                     pl.append_point(p)
+                pl.close()
                 px, py = entry.get("pos", [0, 0])
                 pl.setPos(px, py)
                 pl.level = entry.get("level", DEFAULT_LEVEL)

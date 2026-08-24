@@ -33,7 +33,7 @@ class TestRegistry:
 
     def test_schemas_registered(self):
         assert set(SCHEMAS) == {
-            "line", "rectangle", "circle",
+            "line", "rectangle", "circle", "polygon",
             "displacement", "distance", "spacing_count",
             "arc_span", "rotation",
         }
@@ -97,7 +97,7 @@ class TestRegistry:
         replicate transforms are anchorless.
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
-        assert need == {"line", "rectangle", "circle",
+        assert need == {"line", "rectangle", "circle", "polygon",
                         "displacement", "arc_span", "rotation"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
