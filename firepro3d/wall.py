@@ -839,65 +839,143 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
 
         verts = []
         faces = []
+        _vert_cache: dict[tuple, int] = {}
 
         def V(x, y, z):
+            # Round to sub-micron precision so geometrically identical points
+            # share a vertex index, enabling edge-sharing for watertightness.
+            key = (round(x, 4), round(y, 4), round(z, 4))
+            if key in _vert_cache:
+                return _vert_cache[key]
             idx = len(verts)
             verts.append([x, y, z])
+            _vert_cache[key] = idx
             return idx
 
         def quad(a, b, c, d):
             faces.append([a, b, c])
             faces.append([a, c, d])
 
-        # Bottom face (solid, no openings cut from floor)
-        i0 = V(*c0, base_z); i1 = V(*c1, base_z)
-        i2 = V(*c2, base_z); i3 = V(*c3, base_z)
-        quad(i0, i1, i2, i3)
+        # ── Structured mesh: t-columns × z-rows ──────────────────────────────
+        # Build t-breakpoints and z-breakpoints from all openings so that every
+        # cell boundary is shared correctly between adjacent faces.
+        #
+        # t-columns: [0..t0, t0..t1, t1..1] for each opening
+        # z-rows:    [base_z..ob, ob..ot, ot..top_z] for each opening
+        #
+        # The centre cell (t0..t1, ob..ot) is the aperture void — no face.
+        # All other cells emit one quad on each of the two long faces,
+        # plus the end caps and floor/ceiling close the box.
 
-        # Top face (solid)
-        i4 = V(*c0, top_z); i5 = V(*c1, top_z)
-        i6 = V(*c2, top_z); i7 = V(*c3, top_z)
-        quad(i4, i6, i5, i4)  # note winding
-        quad(i4, i7, i6, i4)
+        # Collect unique t-breakpoints and z-breakpoints
+        t_pts = sorted({0.0, 1.0} | {t for (t0, t1, _, __) in openings_sorted
+                                      for t in (t0, t1)})
+        z_pts = sorted({base_z, top_z} | {z for (_, __, ob, ot) in openings_sorted
+                                           for z in (ob, ot)})
 
-        # End caps (side 1 at pt1, side 3 at pt2)
-        # Side 1: c0 base→c1 base→c1 top→c0 top
-        quad(V(*c0, base_z), V(*c1, base_z), V(*c1, top_z), V(*c0, top_z))
-        # Side 3: c2 base→c3 base→c3 top→c2 top
-        quad(V(*c2, base_z), V(*c3, base_z), V(*c3, top_z), V(*c2, top_z))
+        # Build set of (t-col, z-row) cells that are void (aperture)
+        void_cells = set()
+        for (t0, t1, ob, ot) in openings_sorted:
+            ti = t_pts.index(t0)
+            zi = z_pts.index(ob)
+            void_cells.add((ti, zi))  # col=ti (t0→t1 segment), row=zi (ob→ot segment)
 
-        # Now build the two long faces (left and right) with openings cut out.
-        # Left face runs c3→c0 (p2l→p1l) — but for consistent t=0→1,
-        # left edge goes c0→c3 (t=0 at pt1, t=1 at pt2).
-        # Right edge goes c1→c2 (t=0 at pt1, t=1 at pt2).
+        # End caps (side 1 at pt1-end t=0, side 3 at pt2-end t=1) — always solid.
+        # Side 1: c0(left)–c1(right) end cap
+        for zi in range(len(z_pts) - 1):
+            za, zb = z_pts[zi], z_pts[zi + 1]
+            quad(V(*c0, za), V(*c1, za), V(*c1, zb), V(*c0, zb))
+        # Side 3: c3(left)–c2(right) end cap
+        for zi in range(len(z_pts) - 1):
+            za, zb = z_pts[zi], z_pts[zi + 1]
+            quad(V(*c3, za), V(*c2, za), V(*c2, zb), V(*c3, zb))
 
-        for edge_start, edge_end in [(c0, c3), (c1, c2)]:
-            # Build wall-face strips around each opening
-            t_cursor = 0.0
-            for (t0, t1, ob, ot) in openings_sorted:
-                # Solid strip before this opening (full height)
-                if t0 > t_cursor:
-                    bl = lerp_2d(edge_start, edge_end, t_cursor)
-                    br = lerp_2d(edge_start, edge_end, t0)
-                    quad(V(*bl, base_z), V(*br, base_z), V(*br, top_z), V(*bl, top_z))
+        # The bottom-face row index and top-face row index in z_pts.
+        bottom_zi = z_pts.index(base_z)   # always 0
+        top_zi = len(z_pts) - 2           # always the last row (z_pts[-2]→top_z)
 
-                ol = lerp_2d(edge_start, edge_end, t0)
-                orr = lerp_2d(edge_start, edge_end, t1)
+        # Bottom face (z = base_z): skip any t-column where the aperture goes
+        # all the way to the floor (ob == base_z), since there is no wall
+        # material on the floor at the opening position — the jamb provides the
+        # only face there, and including a bottom quad would share the edge with
+        # 3 faces instead of 2, creating a non-manifold mesh.
+        # Winding → normal DOWN (−Z).
+        for ti in range(len(t_pts) - 1):
+            if (ti, bottom_zi) in void_cells:
+                continue    # opening at floor level — no bottom face here
+            ta, tb = t_pts[ti], t_pts[ti + 1]
+            lA = lerp_2d(c0, c3, ta);  rA = lerp_2d(c1, c2, ta)
+            lB = lerp_2d(c0, c3, tb);  rB = lerp_2d(c1, c2, tb)
+            quad(V(*lA, base_z), V(*rA, base_z), V(*rB, base_z), V(*lB, base_z))
 
-                # Below opening (sill region)
-                if ob > base_z:
-                    quad(V(*ol, base_z), V(*orr, base_z), V(*orr, ob), V(*ol, ob))
-                # Above opening (head region)
-                if ot < top_z:
-                    quad(V(*ol, ot), V(*orr, ot), V(*orr, top_z), V(*ol, top_z))
+        # Top face (z = top_z): skip any t-column where the aperture goes all
+        # the way to the ceiling (ot == top_z) — same reasoning as bottom face.
+        # Winding → normal UP (+Z).
+        for ti in range(len(t_pts) - 1):
+            if (ti, top_zi) in void_cells:
+                continue    # opening at ceiling level — no top face here
+            ta, tb = t_pts[ti], t_pts[ti + 1]
+            lA = lerp_2d(c0, c3, ta);  rA = lerp_2d(c1, c2, ta)
+            lB = lerp_2d(c0, c3, tb);  rB = lerp_2d(c1, c2, tb)
+            quad(V(*lB, top_z), V(*rB, top_z), V(*rA, top_z), V(*lA, top_z))
 
-                t_cursor = t1
+        # ── Long faces (left c0→c3 and right c1→c2) with aperture voids ──────
+        # Each (t-col, z-row) cell that is NOT void gets a quad on EACH long face.
+        # Left face normal: outward (away from wall depth centre).
+        # Right face normal: outward (away from wall depth centre).
+        #
+        # Left face quad winding: (near-bot, far-bot, far-top, near-top) → outward −Y
+        # Right face quad winding: (near-bot, far-bot, far-top, near-top) but
+        #   for right face c1→c2 "near" = smaller t → same winding pattern.
 
-            # Solid strip after last opening
-            if t_cursor < 1.0:
-                bl = lerp_2d(edge_start, edge_end, t_cursor)
-                br = lerp_2d(edge_start, edge_end, 1.0)
-                quad(V(*bl, base_z), V(*br, base_z), V(*br, top_z), V(*bl, top_z))
+        for ti in range(len(t_pts) - 1):
+            ta, tb = t_pts[ti], t_pts[ti + 1]
+            for zi in range(len(z_pts) - 1):
+                if (ti, zi) in void_cells:
+                    continue        # aperture void — no face
+                za, zb = z_pts[zi], z_pts[zi + 1]
+
+                # Left long face (c0→c3 edge)
+                lA = lerp_2d(c0, c3, ta)
+                lB = lerp_2d(c0, c3, tb)
+                quad(V(*lA, za), V(*lB, za), V(*lB, zb), V(*lA, zb))
+
+                # Right long face (c1→c2 edge)
+                rA = lerp_2d(c1, c2, ta)
+                rB = lerp_2d(c1, c2, tb)
+                quad(V(*rA, za), V(*rB, za), V(*rB, zb), V(*rA, zb))
+
+        # ── Reveal caps: close the tunnel at each aperture depth-face ─────────
+        # At each aperture void cell (ti, zi), four faces close the tunnel:
+        #   sill cap (bottom of void), head cap (top of void),
+        #   near jamb (t=t0 face), far jamb (t=t1 face).
+        # Each cap face connects the left-face side to the right-face side.
+        for (ti, zi) in void_cells:
+            ta, tb = t_pts[ti], t_pts[ti + 1]    # t0, t1
+            za, zb = z_pts[zi], z_pts[zi + 1]    # ob, ot
+
+            oL0 = lerp_2d(c0, c3, ta)    # left face at t=t0
+            oL1 = lerp_2d(c0, c3, tb)    # left face at t=t1
+            oR0 = lerp_2d(c1, c2, ta)    # right face at t=t0
+            oR1 = lerp_2d(c1, c2, tb)    # right face at t=t1
+
+            # Sill cap (z = za = ob): quad facing UP into aperture.
+            # Only needed when ob > base_z; if ob == base_z the bottom face
+            # (emitted above) already covers this horizontal surface.
+            if za > base_z:
+                quad(V(*oL0, za), V(*oR0, za), V(*oR1, za), V(*oL1, za))
+
+            # Head cap (z = zb = ot): quad facing DOWN into aperture.
+            # Only needed when ot < top_z; if ot == top_z the top face
+            # (emitted above) already covers this horizontal surface.
+            if zb < top_z:
+                quad(V(*oL1, zb), V(*oR1, zb), V(*oR0, zb), V(*oL0, zb))
+
+            # Near jamb (t = ta = t0): quad facing toward t<t0.
+            quad(V(*oL0, za), V(*oL0, zb), V(*oR0, zb), V(*oR0, za))
+
+            # Far jamb (t = tb = t1): quad facing toward t>t1.
+            quad(V(*oR1, za), V(*oL1, za), V(*oL1, zb), V(*oR1, zb))
 
         return {"vertices": verts, "faces": faces, "color": color}
 

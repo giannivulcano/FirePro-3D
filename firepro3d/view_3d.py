@@ -958,6 +958,8 @@ class View3D(QWidget):
             actor = self._plotter.add_mesh(
                 mesh, color=col[:3], opacity=1.0,
             )
+            actor.GetProperty().SetBackfaceCulling(False)
+            actor.GetProperty().SetFrontfaceCulling(False)
             self._add_actor("walls", actor, entity=wall, entity_type="wall")
             self._wall_refs.append(wall)
             self._original_wall_colors.append(col)

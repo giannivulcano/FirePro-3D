@@ -134,3 +134,38 @@ def test_opening_plots_to_pdf(qapp, model_scene, tmp_path):
     assert out.exists() and out.stat().st_size > 1500, (
         f"PDF should be non-empty: {out.stat().st_size} bytes"
     )
+
+
+def test_wall_with_opening_mesh_is_watertight(qapp, model_scene):
+    """§3D: wall with an opening must produce a watertight mesh (no open edges).
+
+    The four reveal quads (sill cap, head cap, left jamb, right jamb) close the
+    tunnel through the wall depth at every aperture, so PyVista reports 0 open
+    (boundary) edges.
+    """
+    import numpy as np
+    import pyvista as pv
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtCore import QPointF
+
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(3000, 0), thickness_mm=200.0)
+    scene.addItem(w)
+    scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=1500.0)
+    scene.addItem(op)
+    w.openings.append(op)
+
+    mesh_data = w.get_3d_mesh(level_manager=scene._level_manager)
+    assert mesh_data is not None, "get_3d_mesh returned None for wall with opening"
+
+    verts = np.array(mesh_data["vertices"], dtype=float)
+    faces = np.array(mesh_data["faces"], dtype=np.int64)
+
+    pd = pv.PolyData.from_regular_faces(verts, faces)
+    open_edges = pd.n_open_edges
+    assert open_edges == 0, (
+        f"Wall mesh has {open_edges} open edge(s) — reveal caps are missing or "
+        "wound incorrectly (open edges arise from unshared boundary edges)"
+    )
