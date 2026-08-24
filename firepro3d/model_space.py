@@ -5408,6 +5408,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._polyline_active is not None:
+            pl = self._polyline_active
+            pts = pl._points
+            if len(pts) >= 3:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
+                    self.update_preview_node(pts[0])
+                    self._preview_from_polyline(pts[0])
+                    return
             tip = snapped
             if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and len(self._polyline_active._points) >= 1):
@@ -8109,9 +8118,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.update_preview_node(snapped)
             self.instructionChanged.emit("Pick next point (Enter to finish)")
         else:
+            pts = self._polyline_active._points
+            # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
+            if len(pts) >= 3:
+                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                tol = 8.0 / max(scale, 1e-6)
+                d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
+                if d0 <= tol:
+                    pl = self._polyline_active
+                    pl.close()
+                    pl.finalize()
+                    self._polyline_active = None
+                    pl.setSelected(True)
+                    self.preview_pipe.hide()
+                    for v in self.views(): v.viewport().update()
+                    self.push_undo_state()
+                    self.instructionChanged.emit("Pick first point")
+                    return
             # Subsequent clicks — append vertex (apply Ctrl constraint if held)
             tip = snapped
-            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and len(self._polyline_active._points) >= 1):
                 tip = self._constrain_angle(
                     self._polyline_active._points[-1], snapped
@@ -8156,6 +8183,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # The published point described the segment just committed; the next
         # frame republishes from the new anchor.
         self.clear_placement_state()
+        return True
+
+    def _delete_or_pop_polyline_vertex(self) -> bool:
+        """Delete key during polyline placement pops the last vertex.
+
+        At one remaining vertex the in-progress polyline is discarded and the
+        tool re-arms.  Returns True when it handled the key (placement active).
+        """
+        pl = self._polyline_active
+        if self.mode != "polyline" or pl is None:
+            return False
+        if len(pl._points) <= 1:
+            if pl.scene() is self:
+                self.removeItem(pl)
+            if pl in self._polylines:
+                self._polylines.remove(pl)
+            self._polyline_active = None
+            self.instructionChanged.emit("Pick first point")
+        else:
+            pl._points.pop()
+            pl._rebuild_path()
+        for v in self.views(): v.viewport().update()
         return True
 
     def _register_gridline(self, gl):
@@ -9674,7 +9723,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._show_status("Mode cancelled", 2000)
             self.set_mode(None)
         elif event.key() == Qt.Key.Key_Delete:
-            self.delete_selected_items()
+            if not self._delete_or_pop_polyline_vertex():
+                self.delete_selected_items()
         elif event.key() == Qt.Key.Key_A and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             # Ctrl+A is handled by QShortcut → Model_View._select_all_items()
             # This fallback is kept for completeness.
