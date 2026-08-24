@@ -795,14 +795,14 @@ class MainWindow(QMainWindow):
         state = self.settings.value("windowState", b"")
         if state:
             self.restoreState(state, self._STATE_VERSION)
-        # Restore dock visibility (only if settings exist, otherwise keep defaults)
-        if self.settings.contains("dock/browser"):
-            self.browser_dock.setVisible(self.settings.value("dock/browser", True, type=bool))
-        # Properties panel defaults to visible; honour saved preference only
-        # when the user explicitly hid it (saved as False).
-        self.prop_dock.setVisible(self.settings.value("dock/properties", True, type=bool))
-        if self.settings.contains("dock/hydraulics"):
-            self.hydro_dock.setVisible(self.settings.value("dock/hydraulics", False, type=bool))
+        # Panels open in FIXED startup defaults (NOT persisted from the previous
+        # session): Project Browser + Properties always open, Hydraulic Report
+        # always closed.  All remain toggleable during the session.  Applied
+        # after restoreState() so it overrides any dock visibility the saved
+        # window-state would otherwise re-apply.
+        self.browser_dock.setVisible(True)
+        self.prop_dock.setVisible(True)
+        self.hydro_dock.setVisible(False)
         # Restore snap settings
         if self.settings.contains("snap/grid_size"):
             grid = self.settings.value("snap/grid_size", 10, type=float)

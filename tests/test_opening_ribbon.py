@@ -138,3 +138,13 @@ def test_wall_opening_maps_to_opening_family(qapp, main_window):
     w = WallSegment(QPointF(0, 0), QPointF(1000, 0), thickness_mm=200.0)
     op = WallOpening(wall=w, feature_id="door_914", offset_along=500.0)
     assert mw._family_key_for(op) == "opening"
+
+
+def test_startup_panel_defaults(qapp, main_window):
+    """Startup panel defaults are FIXED (not persisted from the previous
+    session): Project Browser + Properties open, Hydraulic Report closed.
+    restore_settings() forces these regardless of saved dock/* values."""
+    mw = main_window
+    assert mw.browser_dock.isVisible() is True
+    assert mw.prop_dock.isVisible() is True
+    assert mw.hydro_dock.isVisible() is False
