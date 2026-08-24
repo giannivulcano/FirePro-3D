@@ -409,6 +409,8 @@ class SceneToolsMixin:
             item = PolylineItem(new_pts[0], color, lw)
             for p in new_pts[1:]:
                 item.append_point(p)
+            if source.is_closed():
+                item.close()
             item.level = getattr(source, "level", DEFAULT_LEVEL)
             return item
 

@@ -203,7 +203,7 @@ def _scene_hit_width(item) -> float:
 
 class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     """
-    A multi-segment open polyline drawn by successive mouse clicks.
+    A multi-segment polyline (optionally flagged closed via `close()`) drawn by successive mouse clicks.
 
     The path is rebuilt each time a new point is appended so the
     partial line is always visible in the scene.
@@ -267,6 +267,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         for p in self._points[1:]:
             path.lineTo(p)
         path.lineTo(pt)
+        if self._closed and len(self._points) >= 3:
+            path.closeSubpath()
         self.setPath(path)
 
     def finalize(self):

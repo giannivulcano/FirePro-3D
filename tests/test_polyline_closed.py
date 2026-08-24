@@ -48,3 +48,17 @@ def test_legacy_open_stays_open(qapp):
               "points": [[0, 0], [100, 0], [0, 100]]}
     pl = PolylineItem.from_dict(legacy)
     assert pl.is_closed() is False
+
+
+def test_offset_of_closed_polyline_stays_closed(qapp):
+    from firepro3d.model_space import Model_Space
+    scene = Model_Space()
+    pl = PolylineItem(QPointF(0, 0))
+    pl.append_point(QPointF(100, 0))
+    pl.append_point(QPointF(0, 100))
+    pl.close()
+    scene.addItem(pl)
+    scene._polylines.append(pl)
+    offset = scene._make_offset_item(pl, 10.0)
+    assert offset is not None
+    assert offset.is_closed() is True
