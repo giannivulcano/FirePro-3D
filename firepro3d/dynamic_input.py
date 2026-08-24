@@ -251,6 +251,14 @@ SCHEMAS: dict[str, Schema] = {
         resolve=resolve_circle,
         seed=seed_circle,
     ),
+    "polygon": Schema(
+        name="polygon",
+        fields=(
+            FieldSpec("Radius", "R", FieldKind.DIMENSION, minimum=0.0),
+        ),
+        resolve=resolve_circle,
+        seed=seed_circle,
+    ),
     "displacement": Schema(
         name="displacement",
         fields=(

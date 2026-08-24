@@ -61,6 +61,7 @@ class Model_View(QGraphicsView):
             "draw_circle":            _C.CrossCursor,
             "draw_arc":               _C.CrossCursor,
             "polyline":               _C.CrossCursor,
+            "polygon":                _C.CrossCursor,
             "draw_gridline":          _C.CrossCursor,
             "pipe":                   _C.CrossCursor,
             "sprinkler":              _C.CrossCursor,

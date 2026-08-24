@@ -28,6 +28,7 @@ from .water_supply import WaterSupply
 from .design_area import DesignArea, DesignAreaBadge
 from .construction_geometry import (
     PolylineItem, LineItem, RectangleItem, CircleItem, ArcItem,
+    RegularPolygonItem,
 )
 from .snap_engine import SnapEngine, OsnapResult
 from .display_manager import apply_category_defaults
@@ -187,6 +188,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
+        # Polygon drawing (2-click: centre, then radius/rotation point)
+        self._polygon_center: "QPointF | None" = None
+        self._polygon_sides: int = 6
+        self._polygon_inscribed: bool = True
+        self._polygon_preview: "RegularPolygonItem | None" = None
+        self._draw_polygons: list = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
         # Arc drawing (3-click: centre, start point, end point)
@@ -894,6 +901,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._draw_circle_preview.scene() is self:
                     self.removeItem(self._draw_circle_preview)
                 self._draw_circle_preview = None
+        if mode != "polygon":
+            self._polygon_center = None
+            if self._polygon_preview is not None:
+                if self._polygon_preview.scene() is self:
+                    self.removeItem(self._polygon_preview)
+                self._polygon_preview = None
         if mode != "draw_arc":
             self._draw_arc_center = None
             self._draw_arc_radius = 0.0
@@ -1188,6 +1201,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
             "detail":          "Pick first corner for detail view boundary",
+            "polygon":         "Pick centre point",
         }
         instr = _initial_steps.get(mode, "")
         if mode == "wall":
@@ -3880,6 +3894,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "draw_circle":
             a = self._draw_circle_center
             return QPointF(a) if a is not None else None
+        if self.mode == "polygon":
+            a = self._polygon_center
+            return QPointF(a) if a is not None else None
         if self.mode == "draw_arc":
             # The anchor is the FIRST click, stored in ``_draw_arc_center`` for
             # both variants (the centre in center-first, the start point in
@@ -3921,6 +3938,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # it per step (sizing → ``rectangle``, rotate → ``rotation``), the same
         # way draw_arc is.
         "draw_circle": "circle",
+        "polygon": "polygon",
         "move": "displacement",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
@@ -3940,6 +3958,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
+        "polygon": "_commit_polygon_at",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
@@ -5278,6 +5297,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "polyline":        "_preview_from_polyline",
         "draw_rectangle":  "_preview_from_rectangle",
         "draw_circle":     "_preview_from_circle",
+        "polygon":         "_preview_from_polygon",
         "move":            "_preview_from_move",
         "gridline_offset": "_preview_from_gridline_replicate",
         "gridline_array":  "_preview_from_gridline_replicate",
@@ -6322,6 +6342,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_line":                "_press_draw_line",
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
+        "polygon":                  "_press_polygon",
         "wall":                     "_press_wall",
         "wall_rect":                "_press_wall_rect",
         "floor":                    "_press_floor",
@@ -8584,6 +8605,89 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit("Pick center point")
         return True
 
+    # ── Polygon drawing ───────────────────────────────────────────────
+
+    def _press_polygon(self, event, pos, snapped, item_under, node_under, pipe_under):
+        if self._polygon_center is None:
+            self._polygon_center = snapped
+            self.update_preview_node(snapped)
+            self.instructionChanged.emit(
+                "Pick radius point (↑/↓ sides, ←/→ inscribed/circumscribed)")
+        else:
+            tip = snapped
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+                tip = self._constrain_angle(self._polygon_center, snapped)
+            self._commit_polygon_at(tip)
+
+    def _commit_polygon_at(self, rim):
+        """Commit the armed polygon with ``rim`` on its defining radius circle."""
+        centre = self._polygon_center
+        if centre is None:
+            return False
+        dx, dy = rim.x() - centre.x(), rim.y() - centre.y()
+        r = math.hypot(dx, dy)
+        if r < 0.5:
+            self._show_status("Polygon radius too small — skipped", timeout=2000)
+            return False
+        rotation = math.degrees(math.atan2(dy, dx))   # same for inscribed + circumscribed
+        tmpl = self._get_geometry_template()
+        _c, _lw = self._geom_color_lw()
+        item = RegularPolygonItem(centre, sides=self._polygon_sides, radius_mm=r,
+                                  rotation_deg=rotation, inscribed=self._polygon_inscribed,
+                                  color=_c, lineweight=_lw)
+        item.level = tmpl.level
+        item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
+        self.addItem(item)
+        self._draw_polygons.append(item)
+        item.setSelected(True)
+        if self._polygon_preview is not None:
+            if self._polygon_preview.scene() is self:
+                self.removeItem(self._polygon_preview)
+            self._polygon_preview = None
+        self._polygon_center = None
+        self.clear_placement_state()
+        for v in self.views(): v.viewport().update()
+        self.push_undo_state()
+        self.instructionChanged.emit("Pick centre point")
+        return True
+
+    def _preview_from_polygon(self, tip):
+        """Live ghost of the polygon from centre to ``tip``."""
+        if self._polygon_center is None:
+            return
+        c = self._polygon_center
+        dx, dy = tip.x() - c.x(), tip.y() - c.y()
+        r = math.hypot(dx, dy)
+        if r < 0.5:
+            return
+        rot = math.degrees(math.atan2(dy, dx))
+        if self._polygon_preview is not None and self._polygon_preview.scene() is self:
+            self.removeItem(self._polygon_preview)
+        ghost = RegularPolygonItem(c, sides=self._polygon_sides, radius_mm=r,
+                                   rotation_deg=rot, inscribed=self._polygon_inscribed,
+                                   color=self._geom_color_lw()[0])
+        pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        ghost.setPen(pen)
+        ghost.setZValue(200)
+        ghost.setFlag(ghost.GraphicsItemFlag.ItemIsSelectable, False)
+        self.addItem(ghost)
+        self._polygon_preview = ghost
+
+    def _cycle_polygon_sides(self, direction: int):
+        self._polygon_sides = max(3, min(120, self._polygon_sides + direction))
+        if self._last_scene_pos is not None:
+            self._preview_from_polygon(self._last_scene_pos)
+        self.instructionChanged.emit(
+            f"Polygon: {self._polygon_sides} sides "
+            f"({'inscribed' if self._polygon_inscribed else 'circumscribed'})")
+
+    def _toggle_polygon_inscribed(self):
+        self._polygon_inscribed = not self._polygon_inscribed
+        if self._last_scene_pos is not None:
+            self._preview_from_polygon(self._last_scene_pos)
+
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._wall_anchor is None:
@@ -9665,6 +9769,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 event.accept()
                 return
             # else fall through to default view scroll
+        # ── Polygon placement cycle keys ─────────────────────────────────────
+        if self.mode == "polygon" and not self.is_input_mode():
+            if event.key() == Qt.Key.Key_Up:
+                self._cycle_polygon_sides(+1); event.accept(); return
+            if event.key() == Qt.Key.Key_Down:
+                self._cycle_polygon_sides(-1); event.accept(); return
+            if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                self._toggle_polygon_inscribed(); event.accept(); return
         # ── Opening placement cycle keys (§7.6) ──────────────────────────────
         # Spacebar cycles alignment; ←/→ toggle the hinge mirror; ↑/↓ toggle the
         # facing mirror.  All gated on not-input-mode so a focused HUD field
