@@ -220,6 +220,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                  lineweight: float = 1.0):
         super().__init__()
         self._points: list[QPointF] = [start]
+        self._closed: bool = False
 
         self.init_displayable(DEFAULT_LEVEL)
         self.init_geometry2d(DEFAULT_LEVEL)
@@ -292,15 +293,17 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
-        """Return True if the first and last vertices coincide (within 1e-3)."""
-        if len(self._points) < 3:
-            return False
-        first, last = self._points[0], self._points[-1]
-        return (abs(first.x() - last.x()) < 1e-3 and
-                abs(first.y() - last.y()) < 1e-3)
+        """Return True if this polyline is flagged closed (≥3 vertices)."""
+        return self._closed and len(self._points) >= 3
+
+    def close(self):
+        """Flag the polyline closed (needs ≥3 vertices).  Idempotent."""
+        if len(self._points) >= 3:
+            self._closed = True
+            self._rebuild_path()
 
     def get_closed_path(self) -> QPainterPath | None:
-        """Return a QPainterPath polygon if the polyline is closed, else None."""
+        """Return a closed QPainterPath if flagged closed, else None."""
         if not self.is_closed():
             return None
         poly = QPolygonF(self._points)
@@ -318,6 +321,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
             "color":      pen_color,
             "lineweight": self.pen().widthF(),
             "points":     [[p.x(), p.y()] for p in self._points],
+            "closed":     self._closed,
         }
         return self._geom2d_to_dict(d)
 
@@ -326,10 +330,23 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         pts = [QPointF(p[0], p[1]) for p in data["points"]]
         color = data.get("color", "#ffffff")
         lw = data.get("lineweight", 1.0)
+        closed = data.get("closed")
+        if closed is None:
+            # Legacy: closure was a duplicated last vertex coincident with the
+            # first.  Detect, flag closed, and drop the duplicate.
+            if (len(pts) >= 4
+                    and abs(pts[0].x() - pts[-1].x()) < 1e-3
+                    and abs(pts[0].y() - pts[-1].y()) < 1e-3):
+                pts = pts[:-1]
+                closed = True
+            else:
+                closed = False
         obj = cls(pts[0], color, lw)
         for p in pts[1:]:
             obj.append_point(p)
+        obj._closed = bool(closed)
         obj._geom2d_from_dict(data)
+        obj._rebuild_path()
         return obj
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -340,6 +357,8 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         path = QPainterPath(self._points[0])
         for p in self._points[1:]:
             path.lineTo(p)
+        if self._closed and len(self._points) >= 3:
+            path.closeSubpath()
         self.setPath(path)
 
     # ── Paint (selection highlight) ──────────────────────────────────────────

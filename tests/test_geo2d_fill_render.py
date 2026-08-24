@@ -240,11 +240,11 @@ class TestPolylineFill:
             QPointF(100, 20),
             QPointF(100, 100),
             QPointF(20, 100),
-            QPointF(20, 20),   # close back to start
         ]
         p = PolylineItem(pts[0])
         for pt in pts[1:]:
             p.append_point(pt)
+        p.close()  # explicit close flag (new API; no duplicate vertex)
         p.fill_type = fill
         p._display_fill_color = "#aa00aa"
         scene.addItem(p)
