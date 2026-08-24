@@ -91,7 +91,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 
 ### 3.8 Contextual tabs
 
-**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it.
+**Mechanism overview:** a contextual tab appears on-demand when an entity family is selected; it disappears when the selection is cleared. The always-visible Modify tab is gone — contextual tabs replace it. (The `geo2d` family + its "2D Geometry" placement group is governed by `2d-geometry.md`; `RegularPolygonItem` is a `geo2d` member.)
 
 **Library primitives (`ribbon_bar.py` — dumb, no entity knowledge):**
 

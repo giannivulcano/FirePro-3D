@@ -86,6 +86,8 @@ Conversion is **one-way**: world Z → render Z, computed by the plan renderer. 
 
 This table enumerates every property in the data model that contributes to an object's world Z. **It is the authoritative reference** for "where does this object live in 3D?" — if you add a Z-bearing property and don't update this table, the spec is out of date.
 
+> The 2D-geometry item models, placement workflows, closed-polyline model, and `RegularPolygonItem` are governed by `2d-geometry.md`; it links here for the Z-model (Rule A).
+
 | Object | Attribute | Type | Default | Meaning | Source |
 |---|---|---|---|---|---|
 | **Level** | `elevation` | float (mm) | Level 1 = 0; Level 2 = 3048; Level 3 = 6096 | Floor elevation of the level | `level_manager.py:68-74` |
