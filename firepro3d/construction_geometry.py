@@ -1130,6 +1130,208 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# RegularPolygonItem — parametric regular N-gon
+# ─────────────────────────────────────────────────────────────────────────────
+
+_POLY_MIN_SIDES = 3
+_POLY_MAX_SIDES = 120
+
+
+class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
+    """A parametric regular polygon defined by centre/sides/radius/rotation.
+
+    ``_radius_mm`` is the *defining* radius the user picked: the circumradius
+    (centre->vertex) when ``_inscribed`` is True, or the apothem (centre->edge
+    midpoint) when False.  Vertices are always derived, never stored.
+    """
+
+    def __init__(self, center: QPointF, sides: int = 6, radius_mm: float = 0.0,
+                 rotation_deg: float = 0.0, inscribed: bool = True,
+                 color: str | QColor = "#ffffff", lineweight: float = 1.0):
+        super().__init__()
+        self._center = QPointF(center)
+        self._sides = max(_POLY_MIN_SIDES, min(_POLY_MAX_SIDES, int(sides)))
+        self._radius_mm = float(radius_mm)
+        self._rotation_deg = float(rotation_deg)
+        self._inscribed = bool(inscribed)
+
+        self.init_displayable(DEFAULT_LEVEL)
+        self.init_geometry2d(DEFAULT_LEVEL)
+
+        pen = QPen(QColor(color) if isinstance(color, str) else color)
+        pen.setWidthF(lineweight)
+        pen.setCosmetic(True)
+        self.setPen(pen)
+        self.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        self.setZValue(Z_CAT_CONSTRUCTION)
+        self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
+        self._regenerate()
+
+    def _circumradius(self) -> float:
+        if self._inscribed:
+            return self._radius_mm
+        return self._radius_mm / math.cos(math.pi / self._sides)
+
+    def vertices(self) -> list[QPointF]:
+        rv = self._circumradius()
+        step = 360.0 / self._sides
+        # For circumscribed polygons the natural orientation places a flat edge
+        # facing the user (apothem along +X axis), which means the first vertex
+        # is offset by half a step from the rotation origin.
+        base = self._rotation_deg + (0.0 if self._inscribed
+                                     else 180.0 / self._sides)
+        out = []
+        for k in range(self._sides):
+            a = math.radians(base + k * step)
+            out.append(QPointF(self._center.x() + rv * math.cos(a),
+                               self._center.y() + rv * math.sin(a)))
+        return out
+
+    def _regenerate(self):
+        verts = self.vertices()
+        path = QPainterPath()
+        if verts:
+            path.addPolygon(QPolygonF(verts))
+            path.closeSubpath()
+        self.setPath(path)
+        self.update()
+
+    def get_closed_path(self) -> QPainterPath | None:
+        p = QPainterPath()
+        p.addPolygon(QPolygonF(self.vertices()))
+        p.closeSubpath()
+        return p
+
+    def get_properties(self) -> dict:
+        props = {
+            "Type":     {"type": "label", "value": "Polygon"},
+            "Sides":    {"type": "string", "value": str(self._sides)},
+            "Radius":   {"type": "dimension",
+                         "value": self._fmt(self._radius_mm),
+                         "value_mm": self._radius_mm},
+            "Rotation": {"type": "string",
+                         "value": f"{self._rotation_deg:.2f}", "suffix": "°"},
+            "Shape":    {"type": "enum",
+                         "options": ["inscribed", "circumscribed"],
+                         "value": "inscribed" if self._inscribed else "circumscribed"},
+        }
+        props.update(self._geom2d_properties())
+        return props
+
+    def set_property(self, key: str, value):
+        if key == "Sides":
+            try:
+                self._sides = max(_POLY_MIN_SIDES, min(_POLY_MAX_SIDES, int(float(value))))
+            except (TypeError, ValueError):
+                return
+            self._regenerate()
+            return
+        if key == "Radius":
+            r = self._parse_dim(value)
+            if r is not None and r > 0:
+                self._radius_mm = r
+                self._regenerate()
+            return
+        if key == "Rotation":
+            try:
+                self._rotation_deg = float(value)
+            except (TypeError, ValueError):
+                return
+            self._regenerate()
+            return
+        if key == "Shape":
+            self._inscribed = (str(value) == "inscribed")
+            self._regenerate()
+            return
+        if self._geom2d_set(key, value):
+            self._regenerate()
+            return
+
+    def grip_points(self) -> list[QPointF]:
+        return [QPointF(self._center)] + self.vertices()
+
+    def apply_grip(self, index: int, pos: QPointF):
+        if index == 0:
+            self._center = QPointF(pos)
+            self._regenerate()
+            return
+        vi = index - 1
+        if not (0 <= vi < self._sides):
+            return
+        dx, dy = pos.x() - self._center.x(), pos.y() - self._center.y()
+        rv = math.hypot(dx, dy)
+        if rv < 0.5:
+            return
+        step = 360.0 / self._sides
+        # The base angle for vertex 0 is _rotation_deg + circ_offset.
+        # Solve: ang = _rotation_deg + circ_offset + vi * step
+        circ_offset = 0.0 if self._inscribed else 180.0 / self._sides
+        ang = math.degrees(math.atan2(dy, dx))
+        self._rotation_deg = ang - circ_offset - vi * step
+        self._radius_mm = rv if self._inscribed else rv * math.cos(math.pi / self._sides)
+        self._regenerate()
+
+    def translate(self, dx: float, dy: float):
+        self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        self._regenerate()
+
+    def to_dict(self) -> dict:
+        d = {
+            "type":        "polygon",
+            "center":      [self._center.x(), self._center.y()],
+            "sides":       self._sides,
+            "radius_mm":   self._radius_mm,
+            "rotation":    self._rotation_deg,
+            "inscribed":   self._inscribed,
+            "color":       self.pen().color().name(),
+            "lineweight":  self.pen().widthF(),
+        }
+        return self._geom2d_to_dict(d)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RegularPolygonItem":
+        c = data["center"]
+        obj = cls(QPointF(c[0], c[1]),
+                  sides=data.get("sides", 6),
+                  radius_mm=data.get("radius_mm", 0.0),
+                  rotation_deg=data.get("rotation", 0.0),
+                  inscribed=data.get("inscribed", True),
+                  color=data.get("color", "#ffffff"),
+                  lineweight=data.get("lineweight", 1.0))
+        obj._geom2d_from_dict(data)
+        obj._regenerate()
+        return obj
+
+    def paint(self, painter, option, widget=None):
+        option.state &= ~QStyle.StateFlag.State_Selected
+        dc = getattr(self, "_display_color", None)
+        if dc:
+            pen = QPen(self.pen()); pen.setColor(QColor(dc)); self.setPen(pen)
+        if getattr(self, "fill_type", "none") != "none":
+            cp = self.get_closed_path()
+            if cp is not None:
+                from .displayable_item import draw_fill
+                draw_fill(painter, cp, self.scene(), self.fill_type,
+                          self.fill_pattern, self._display_fill_color or "#888888",
+                          alpha=int(round(self.fill_opacity * 255)))
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
+            hl.setCosmetic(True)
+            painter.setPen(hl)
+            painter.drawPath(self.path())
+
+    def shape(self) -> QPainterPath:
+        stroker = QPainterPathStroker()
+        stroker.setWidth(_scene_hit_width(self))
+        path = stroker.createStroke(self.path())
+        if getattr(self, "fill_type", "none") != "none":
+            path = path.united(self.get_closed_path())
+        return path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # GeometryTemplate — pre-placement defaults for geometry tools
 # ─────────────────────────────────────────────────────────────────────────────
 
