@@ -51,6 +51,11 @@ _SELECTION_COLOR = QColor("red")
 _DOOR_COLOR = QColor("#aa6633")
 _WINDOW_COLOR = QColor("#3399cc")
 
+# A door/window FRAME is a fixed real-world object — its depth does NOT stretch
+# with the host wall (only the opening CUT through the wall matches wall depth).
+# Frame jamb depth is a fixed value, clamped to the wall when the wall is thinner.
+_FRAME_DEPTH_MM = 114.3   # ~4.5" standard jamb depth
+
 
 # ── Preset libraries (legacy — kept for backward compat with from_dict) ───────
 
@@ -746,8 +751,11 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
 
         # ── Dimensions in mm ─────────────────────────────────────────────────
         half_w = self._width_mm / 2.0
-        half_d = self._wall._thickness_mm / 2.0   # half-depth (into wall)
-        frame_t = max(20.0, min(50.0, half_d * 0.15))  # frame bar thickness (~50 mm)
+        half_d = self._wall._thickness_mm / 2.0   # half wall-depth (the CUT depth)
+        # Frame is a fixed-depth object (not parametric to the wall) — clamp only
+        # so it never protrudes from a wall thinner than the standard frame.
+        frame_half_d = min(half_d, _FRAME_DEPTH_MM / 2.0)
+        frame_t = max(20.0, min(50.0, frame_half_d * 0.15))  # frame bar thickness
         leaf_t  = 40.0   # door leaf / window pane thickness in mm
 
         # ── Box helper ────────────────────────────────────────────────────────
@@ -827,26 +835,26 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             # Left jamb: at along = −half_w + frame_t/2
             meshes.append(_oriented_box(
                 -half_w + frame_t / 2.0, 0.0, z_center,
-                frame_t / 2.0, half_d, half_h, frame_color,
+                frame_t / 2.0, frame_half_d, half_h, frame_color,
             ))
             # Right jamb
             meshes.append(_oriented_box(
                 half_w - frame_t / 2.0, 0.0, z_center,
-                frame_t / 2.0, half_d, half_h, frame_color,
+                frame_t / 2.0, frame_half_d, half_h, frame_color,
             ))
             # Head (top bar)
             meshes.append(_oriented_box(
                 0.0, 0.0, z_top - frame_t / 2.0,
-                half_w, half_d, frame_t / 2.0, frame_color,
+                half_w, frame_half_d, frame_t / 2.0, frame_color,
             ))
             # Threshold (bottom bar)
             meshes.append(_oriented_box(
                 0.0, 0.0, z_bot + frame_t / 2.0,
-                half_w, half_d, frame_t / 2.0, frame_color,
+                half_w, frame_half_d, frame_t / 2.0, frame_color,
             ))
 
             # Closed leaf: thin slab filling inner aperture, slightly toward facing side
-            leaf_normal_offset = (half_d - leaf_t / 2.0) * (
+            leaf_normal_offset = (frame_half_d - leaf_t / 2.0) * (
                 -1.0 if self.mirror_facing else 1.0
             )
             leaf_color = (0.67, 0.40, 0.18, 1.0)   # warm wood
@@ -864,19 +872,19 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
 
             meshes.append(_oriented_box(
                 -half_w + frame_t / 2.0, 0.0, z_center,
-                frame_t / 2.0, half_d, half_h, frame_color,
+                frame_t / 2.0, frame_half_d, half_h, frame_color,
             ))
             meshes.append(_oriented_box(
                 half_w - frame_t / 2.0, 0.0, z_center,
-                frame_t / 2.0, half_d, half_h, frame_color,
+                frame_t / 2.0, frame_half_d, half_h, frame_color,
             ))
             meshes.append(_oriented_box(
                 0.0, 0.0, z_top - frame_t / 2.0,
-                half_w, half_d, frame_t / 2.0, frame_color,
+                half_w, frame_half_d, frame_t / 2.0, frame_color,
             ))
             meshes.append(_oriented_box(
                 0.0, 0.0, z_bot + frame_t / 2.0,
-                half_w, half_d, frame_t / 2.0, frame_color,
+                half_w, frame_half_d, frame_t / 2.0, frame_color,
             ))
 
             # Glass pane: thin semi-transparent slab at wall centreline
