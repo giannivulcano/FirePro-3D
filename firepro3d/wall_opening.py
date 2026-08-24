@@ -542,15 +542,21 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         else:
             pen_color = QColor("#888888")
 
-        # Fill the gap with the scene background colour so the opening reads as
-        # a clean HOLE through the wall (dark on screen, white on paper/plot) —
-        # not a jarring white block.  Falls back to a neutral dark if unknown.
-        gap_bg = QColor("#2b2b2b")
-        sc = self.scene()
-        if sc is not None:
-            brush = sc.backgroundBrush()
-            if brush.style() != Qt.BrushStyle.NoBrush:
-                gap_bg = brush.color()
+        # Fill the gap with the correct background colour:
+        #   Paper/plot: _paper_gap_color is set by apply_paper_overrides → white,
+        #               so the opening reads as a clean hole on white paper.
+        #   Screen:     use the scene background (dark theme) so the gap blends
+        #               with the canvas and the wall appears cut through.
+        paper_gap = getattr(self, "_paper_gap_color", None)
+        if paper_gap is not None:
+            gap_bg = QColor(paper_gap)
+        else:
+            gap_bg = QColor("#2b2b2b")
+            sc = self.scene()
+            if sc is not None:
+                brush = sc.backgroundBrush()
+                if brush.style() != Qt.BrushStyle.NoBrush:
+                    gap_bg = brush.color()
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(gap_bg)
         half_w = self.width_scene() / 2.0

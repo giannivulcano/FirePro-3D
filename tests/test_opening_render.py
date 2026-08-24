@@ -136,6 +136,58 @@ def test_opening_plots_to_pdf(qapp, model_scene, tmp_path):
     )
 
 
+def test_opening_gets_paper_override(qapp, model_scene):
+    """Paper pipeline must handle WallOpening: register it in a category so
+    apply_paper_overrides sets _display_color (pen colour normalised for paper)
+    and sets _paper_gap_color to a light/white colour so the gap reads as a
+    clean hole on white paper rather than a dark block."""
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from firepro3d.paper_display import apply_paper_overrides, restore_model_display
+    from PyQt6.QtCore import QPointF, QRectF
+
+    scene = model_scene()
+    w = WallSegment(QPointF(0, 0), QPointF(3000, 0), thickness_mm=200.0)
+    scene.addItem(w); scene._walls.append(w)
+    op = WallOpening(wall=w, feature_id="door_914", offset_along=1500.0)
+    scene.addItem(op); w.openings.append(op)
+    op._reposition()
+
+    rect = scene.itemsBoundingRect().adjusted(-100, -100, 100, 100)
+    saved = apply_paper_overrides(scene, rect)
+
+    # Opening is now handled (has a paper category → _display_color set to
+    # the paper pen colour — not None).
+    assert op._display_color is not None, (
+        "_display_color should be set by paper override (opening is in a category)"
+    )
+
+    # Gap fill flag set — and it should be a light/white paper colour (not the
+    # dark model background that sc.backgroundBrush() returns on screen).
+    gap_color = getattr(op, "_paper_gap_color", None)
+    assert gap_color is not None, (
+        "_paper_gap_color should be set by paper override so gap renders white on paper"
+    )
+    from PyQt6.QtGui import QColor
+    c = QColor(gap_color)
+    # Paper background is white (or near-white). Lightness > 0.8 means
+    # it is clearly a paper/white colour, not the dark screen background.
+    assert c.lightnessF() > 0.8, (
+        f"_paper_gap_color should be near-white for paper; got {c.name()} "
+        f"(lightness={c.lightnessF():.2f})"
+    )
+
+    restore_model_display(saved)
+
+    # After restore: flag cleared and _display_color back to None (screen default).
+    assert getattr(op, "_paper_gap_color", None) is None, (
+        "_paper_gap_color should be cleared / restored to None after restore"
+    )
+    assert op._display_color is None, (
+        "_display_color should be restored to None (screen default) after restore"
+    )
+
+
 def test_wall_with_opening_mesh_is_watertight(qapp, model_scene):
     """§3D: wall with an opening must produce a watertight mesh (no open edges).
 

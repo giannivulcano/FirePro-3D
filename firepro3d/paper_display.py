@@ -290,6 +290,7 @@ def _category_for_item(item) -> str | None:
     from .gridline import GridlineItem
     from .hydraulic_node_badge import HydraulicNodeBadge
     from .wall import WallSegment
+    from .wall_opening import WallOpening
     from .room import Room
 
     if isinstance(item, Pipe):
@@ -297,6 +298,8 @@ def _category_for_item(item) -> str | None:
     if isinstance(item, Sprinkler):
         return "Sprinkler"
     if isinstance(item, WallSegment):
+        return "Wall"
+    if isinstance(item, WallOpening):
         return "Wall"
     if isinstance(item, Room):
         return "Room"
@@ -574,6 +577,9 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 entry["marker"] = _save_marker_state(item, "_marker_color")
             elif cat_key == "Detail Marker":
                 entry["marker"] = _save_marker_state(item, "_tag_color")
+            from .wall_opening import WallOpening
+            if isinstance(item, WallOpening):
+                entry["paper_gap_color"] = getattr(item, "_paper_gap_color", None)
 
             saved.append(entry)
 
@@ -601,6 +607,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 _apply_construction(item, cat, color_mode, lw_mm, paper_scale)
             else:
                 _apply_generic(item, cat, color_mode, lw_mm)
+                # WallOpening gap fill: set paper-white so the gap reads as a
+                # clean hole on white paper instead of the dark screen background.
+                from .wall_opening import WallOpening as _WallOpening
+                if isinstance(item, _WallOpening):
+                    from PyQt6.QtGui import QColor as _QColor
+                    item._paper_gap_color = _QColor("#ffffff")
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -782,7 +794,7 @@ def restore_model_display(saved: list[dict]):
             item.update()
 
         else:
-            # Generic (Wall, Room, Floor, Roof)
+            # Generic (Wall, Room, Floor, Roof, WallOpening)
             item._display_color = entry["display_color"]
             if hasattr(item, "_display_fill_color"):
                 item._display_fill_color = entry.get("display_fill_color")
@@ -792,6 +804,14 @@ def restore_model_display(saved: list[dict]):
                 del item._paper_fill_opaque
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
+            # Restore WallOpening gap colour: prior value (None means unset →
+            # delete the attr entirely so the screen path reverts to backgroundBrush).
+            if "paper_gap_color" in entry:
+                prior = entry["paper_gap_color"]
+                if prior is None:
+                    item.__dict__.pop("_paper_gap_color", None)
+                else:
+                    item._paper_gap_color = prior
             item.update()
 
         # Restore fitting wrapper attributes
