@@ -9345,6 +9345,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 pl.setSelected(True)
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
+                self.instructionChanged.emit("Pick first point")
             event.accept()
             return
 
@@ -9899,6 +9900,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._polyline_active = None
                     pl.setSelected(True)
                     self.push_undo_state()
+                    self.instructionChanged.emit("Pick first point")
                     # Stay in polyline mode so user can draw another
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:

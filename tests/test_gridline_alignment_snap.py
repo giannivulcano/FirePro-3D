@@ -564,6 +564,11 @@ class TestTask5PlacementAndGripWiring:
         assert ms.mode == "draw_gridline", (
             f"Expected mode to stay 'draw_gridline', got {ms.mode!r}"
         )
+        # In continuous mode the sentinel stays armed (inference remains active
+        # for the next placement); it must NOT be None.
+        assert ms._inference_active_item is not None, (
+            "Expected _inference_active_item to remain armed (sentinel) after continuous commit"
+        )
 
     def test_active_item_cleared_on_mode_change(self, qapp, make_model_space):
         """set_mode to anything else must clear _inference_active_item."""

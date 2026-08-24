@@ -1514,6 +1514,28 @@ class TestPolylineDoubleClickFinish:
         scene.mouseDoubleClickEvent(_FakeDblEvent())
         assert calls == [1]
 
+    def test_double_click_finish_re_arms_instruction(self, scene, view):
+        """Double-click finish emits ``"Pick first point"`` so the status bar
+        is re-armed for the next polyline — consistent with floor/roof finish
+        and the Enter-key path.
+
+        RED before fix: the emit was absent, so seen stayed empty or ended on
+        the per-vertex instruction, never on ``"Pick first point"``.
+        """
+        seen: list[str] = []
+        scene.instructionChanged.connect(seen.append)
+
+        pl = self._finish(scene, [QPointF(0, 0), QPointF(1000, 0),
+                                  QPointF(2000, 0)])
+        _click_vertex(scene, QPointF(3000, 0))
+        scene.mouseDoubleClickEvent(_FakeDblEvent())
+
+        assert scene._polyline_active is None, "polyline should be finished"
+        assert seen, "instructionChanged must have fired at least once"
+        assert seen[-1] == "Pick first point", (
+            f"Expected last instruction 'Pick first point', got {seen[-1]!r}"
+        )
+
 
 class TestPolylineReadout:
     """``_move_polyline`` publishes placement state instead of a painted hint."""
