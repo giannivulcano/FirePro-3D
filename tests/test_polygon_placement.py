@@ -78,3 +78,15 @@ def test_hud_radius_matches_mouse(scene):
     rim = SCHEMAS["polygon"].resolve(QPointF(0, 0), {"Radius": 150.0})
     scene._commit_polygon_at(rim)
     assert math.isclose(scene._draw_polygons[-1]._radius_mm, 150.0, abs_tol=1e-6)
+
+def test_move_dispatch_registered(scene):
+    # Guards the exact wiring gap: mouse-move must dispatch to _move_polygon.
+    assert scene._MOVE_DISPATCH.get("polygon") == "_move_polygon"
+
+def test_move_creates_and_commit_clears_ghost(scene):
+    scene.set_mode("polygon")
+    scene._press_polygon(None, None, QPointF(0, 0), None, None, None)
+    scene._move_polygon(None, QPointF(100, 0))
+    assert scene._polygon_preview is not None
+    scene._commit_polygon_at(QPointF(100, 0))
+    assert scene._polygon_preview is None

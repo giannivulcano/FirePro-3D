@@ -5258,6 +5258,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_gridline":            "_move_draw_line",
         "draw_rectangle":           "_move_draw_rectangle",
         "draw_circle":              "_move_draw_circle",
+        "polygon":                  "_move_polygon",
         "draw_arc":                 "_move_draw_arc",
         "dimension":                "_move_dimension",
         "text":                     "_move_text",
@@ -5653,6 +5654,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # The HUD widget is the readout (S1); the rim point carries the
             # radius, since the commit takes the hypot.
             self.publish_placement_state(self._draw_circle_center, snapped)
+
+    def _move_polygon(self, event, snapped):
+        if self._polygon_center is None:
+            self.update_preview_node(snapped)   # cursor preview before first click
+        else:
+            self.preview_node.hide()
+        self.preview_pipe.hide()
+        if self._polygon_center is not None:
+            self._preview_from_polygon(snapped)
+            self.publish_placement_state(self._polygon_center, snapped)
 
     def _preview_from_arc(self, resolved) -> None:
         """Redraw the arc preview from the resolved point ``resolved``.
@@ -8664,10 +8675,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         rot = math.degrees(math.atan2(dy, dx))
         if self._polygon_preview is not None and self._polygon_preview.scene() is self:
             self.removeItem(self._polygon_preview)
+        _c, _lw = self._geom_color_lw()
         ghost = RegularPolygonItem(c, sides=self._polygon_sides, radius_mm=r,
                                    rotation_deg=rot, inscribed=self._polygon_inscribed,
-                                   color=self._geom_color_lw()[0])
-        pen = QPen(QColor(self._geom_color_lw()[0]), 2, Qt.PenStyle.DashLine)
+                                   color=_c, lineweight=_lw)
+        pen = QPen(QColor(_c), 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         ghost.setPen(pen)
         ghost.setZValue(200)
@@ -8687,6 +8699,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._polygon_inscribed = not self._polygon_inscribed
         if self._last_scene_pos is not None:
             self._preview_from_polygon(self._last_scene_pos)
+        self.instructionChanged.emit(
+            f"Polygon: {self._polygon_sides} sides "
+            f"({'inscribed' if self._polygon_inscribed else 'circumscribed'})")
 
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
