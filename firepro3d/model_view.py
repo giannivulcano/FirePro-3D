@@ -4,8 +4,8 @@ from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
-from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont
+from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, QEvent, pyqtSignal
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont, QKeyEvent
 from . import theme as th
 from .snap_engine import SNAP_COLORS, SNAP_MARKERS
 
@@ -838,6 +838,37 @@ class Model_View(QGraphicsView):
         Qt.Key.Key_K: "polyline",
         Qt.Key.Key_P: "polygon",
     }
+
+    def event(self, ev: QEvent) -> bool:
+        """Accept the Delete ShortcutOverride during polyline placement.
+
+        The window-level ``QShortcut(Delete)`` in ``main.py`` fires
+        ``delete_selected_items`` and suppresses delivery of the KeyPress event
+        to the scene, so ``Model_Space.keyPressEvent``'s Delete branch (which
+        calls ``_delete_or_pop_polyline_vertex``) is never reached.  Accepting
+        the ShortcutOverride here makes Qt skip the window shortcut and deliver
+        a plain KeyPress to the view instead, which ``QGraphicsView`` forwards
+        to the scene as normal.
+
+        The accept is conditional: it only applies when an in-progress polyline
+        exists (``mode == "polyline"`` and ``_polyline_active`` is not None), so
+        Delete still fires ``delete_selected_items`` in every other context.
+
+        Args:
+            ev: The event to handle.
+
+        Returns:
+            True if the event was consumed; otherwise delegates to super.
+        """
+        if (ev.type() == QEvent.Type.ShortcutOverride
+                and isinstance(ev, QKeyEvent)
+                and ev.key() == Qt.Key.Key_Delete):
+            sc = self.scene()
+            if (getattr(sc, "mode", None) == "polyline"
+                    and getattr(sc, "_polyline_active", None) is not None):
+                ev.accept()
+                return True
+        return super().event(ev)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Tab:
