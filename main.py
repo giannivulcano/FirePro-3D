@@ -602,11 +602,12 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.prop_dock)
         self.prop_dock.setMinimumWidth(200)
 
-        # Keyboard shortcuts to toggle dock visibility (B = browser, P = properties)
+        # Keyboard shortcuts to toggle dock visibility (B = browser, / = properties).
+        # NOTE: "/" (not "P") toggles Properties — P is the Polygon tool shortcut.
         QShortcut(QKeySequence("B"), self,
                   lambda: self.browser_dock.setVisible(not self.browser_dock.isVisible()),
                   context=Qt.ShortcutContext.ApplicationShortcut)
-        QShortcut(QKeySequence("P"), self,
+        QShortcut(QKeySequence("/"), self,
                   lambda: self.prop_dock.setVisible(not self.prop_dock.isVisible()),
                   context=Qt.ShortcutContext.ApplicationShortcut)
 
@@ -1494,7 +1495,7 @@ class MainWindow(QMainWindow):
         prop_btn = g_pan.add_small_button(
             "Properties", _I("info_icon.svg"),
             None, checkable=True)
-        prop_btn.setToolTip("Show/hide Properties dock")
+        prop_btn.setToolTip("Show/hide Properties dock (/)")
         prop_btn.setChecked(True)  # visible by default
         prop_btn.toggled.connect(self.prop_dock.setVisible)
         self.prop_dock.visibilityChanged.connect(prop_btn.setChecked)
