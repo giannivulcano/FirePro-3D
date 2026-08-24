@@ -41,7 +41,8 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, INFERENCE_TOL_PX,
-                       OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS)
+                       OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
+                       SELECTION_OUTLINE_COLOR)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -163,6 +164,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Construction geometry (Sprint C)
         self._polylines: list[PolylineItem] = []
         self._polyline_active: "PolylineItem | None" = None   # in-progress polyline
+        self._polyline_close_indicator: "QGraphicsEllipseItem | None" = None  # close-cue ring
         # Draw geometry (Sprint G)
         self._draw_lines: list[LineItem] = []
         self._draw_rects: list[RectangleItem] = []
@@ -880,6 +882,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self._polyline_active in self._polylines:
                 self._polylines.remove(self._polyline_active)
             self._polyline_active = None
+        self._hide_polyline_close_indicator()
         # Cancel in-progress draw geometry
         if mode not in ("draw_line", "draw_gridline"):
             self._draw_line_anchor = None
@@ -5431,6 +5434,42 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         self._polyline_active.update_preview(tip)
 
+    # ── Polyline close-indicator ring ────────────────────────────────────────
+
+    _POLYLINE_CLOSE_RING_PX = 14  # half-side of the bounding square, screen px
+
+    def _show_polyline_close_indicator(self, pt: QPointF) -> None:
+        """Show (lazily-create) the hollow ring on *pt* signalling close-cue.
+
+        The ring is a fixed screen-size QGraphicsEllipseItem with
+        ItemIgnoresTransformations — it stays 14 px radius regardless of zoom,
+        exactly like the design-area highlight rings in ``_refresh_da_highlights``.
+        Coloured with ``SELECTION_OUTLINE_COLOR`` so it reads as a selection
+        action, clearly distinct from the yellow/green snap dot.
+        """
+        r = self._POLYLINE_CLOSE_RING_PX
+        if self._polyline_close_indicator is None:
+            ring = QGraphicsEllipseItem(-r, -r, 2 * r, 2 * r)
+            pen = QPen(QColor(SELECTION_OUTLINE_COLOR), 2)
+            pen.setCosmetic(True)
+            ring.setPen(pen)
+            ring.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+            ring.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+            ring.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+            ring.setZValue(201)  # above Z_OVERLAY (200)
+            self.addItem(ring)
+            self._polyline_close_indicator = ring
+        self._polyline_close_indicator.setPos(pt)
+        self._polyline_close_indicator.show()
+
+    def _hide_polyline_close_indicator(self) -> None:
+        """Hide the close-cue ring (keeps the item alive for reuse)."""
+        if self._polyline_close_indicator is not None:
+            self._polyline_close_indicator.hide()
+
     def _move_polyline(self, event, snapped):
         if self._polyline_active is None:
             self.update_preview_node(snapped)   # cursor preview before first click
@@ -5445,12 +5484,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 tol = 8.0 / max(scale, 1e-6)
                 if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
                     self.update_preview_node(pts[0])
+                    self._show_polyline_close_indicator(pts[0])
                     self._preview_from_polyline(pts[0])
                     # Keep the HUD readout live on the closing segment.
                     self.publish_placement_state(pts[-1], pts[0])
                     return
+            self._hide_polyline_close_indicator()
             tip = snapped
-            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                     and len(self._polyline_active._points) >= 1):
                 tip = self._constrain_angle(
                     self._polyline_active._points[-1], snapped
@@ -8166,6 +8208,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     pl.close()
                     pl.finalize()
                     self._polyline_active = None
+                    self._hide_polyline_close_indicator()
                     pl.setSelected(True)
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
@@ -8237,10 +8280,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if pl in self._polylines:
                 self._polylines.remove(pl)
             self._polyline_active = None
+            self._hide_polyline_close_indicator()
             self.instructionChanged.emit("Pick first point")
         else:
             pl._points.pop()
             pl._rebuild_path()
+            self._hide_polyline_close_indicator()
         for v in self.views(): v.viewport().update()
         return True
 
@@ -9342,6 +9387,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 pl = self._polyline_active
                 pl.finalize()
                 self._polyline_active = None
+                self._hide_polyline_close_indicator()
                 pl.setSelected(True)
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
@@ -9898,6 +9944,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     pl = self._polyline_active
                     pl.finalize()
                     self._polyline_active = None
+                    self._hide_polyline_close_indicator()
                     pl.setSelected(True)
                     self.push_undo_state()
                     self.instructionChanged.emit("Pick first point")

@@ -146,3 +146,98 @@ def test_delete_keypress_pops_vertex_via_scene(view, scene):
         "Polyline should still be active (mode continues) after vertex pop"
     )
     assert scene.mode == "polyline"
+
+
+# ── Close-indicator ring tests ───────────────────────────────────────────────
+
+def test_close_indicator_shown_near_start(view, scene):
+    """Ring appears when cursor is within tolerance of pts[0] with ≥3 vertices."""
+    _start(scene, (0, 0), (100, 0), (50, 100))
+    # near_start is within 8 screen-px scene units (no zoom, scale=1)
+    near_start = QPointF(0.5, 0.5)
+    scene._move_polyline(None, near_start)
+    assert scene._polyline_close_indicator is not None, (
+        "_polyline_close_indicator was never created"
+    )
+    assert scene._polyline_close_indicator.isVisible(), (
+        "Close-indicator ring is not visible when cursor is near pts[0]"
+    )
+
+
+def test_close_indicator_hidden_away_from_start(view, scene):
+    """Ring is hidden when cursor moves away from pts[0].
+
+    Uses scene coordinates far enough from pts[0]=(0,0) that the screen-px
+    tolerance (8px / view_scale) cannot bridge the gap even at the smallest
+    typical zoom (~0.01 px/mm → tol ~800mm).  5000mm is always beyond that.
+    """
+    _start(scene, (0, 0), (10000, 0), (5000, 10000))
+    near_start = QPointF(0.5, 0.5)
+    scene._move_polyline(None, near_start)
+    assert scene._polyline_close_indicator is not None
+    assert scene._polyline_close_indicator.isVisible()
+
+    far_point = QPointF(5000, 5000)   # ~7071mm from origin — beyond any tol
+    scene._move_polyline(None, far_point)
+    assert not scene._polyline_close_indicator.isVisible(), (
+        "Close-indicator ring should be hidden when cursor is far from pts[0]"
+    )
+
+
+def test_close_indicator_hidden_after_close_commit(view, scene):
+    """Ring is gone (hidden) after the user clicks to close the polyline."""
+    _start(scene, (0, 0), (100, 0), (50, 100))
+    near_start = QPointF(0.5, 0.5)
+    scene._move_polyline(None, near_start)
+    assert scene._polyline_close_indicator is not None
+    assert scene._polyline_close_indicator.isVisible()
+
+    # Commit the close — click within tolerance of pts[0]
+    scene._press_polyline(None, None, near_start, None, None, None)
+    assert scene._polyline_active is None, "Polyline should be finalized after close"
+    assert scene._polyline_close_indicator is not None  # item still exists, just hidden
+    assert not scene._polyline_close_indicator.isVisible(), (
+        "Stale close-indicator ring is still visible after polyline was closed"
+    )
+
+
+def test_close_indicator_hidden_after_mode_change(view, scene):
+    """Ring is hidden when mode changes away from polyline."""
+    _start(scene, (0, 0), (100, 0), (50, 100))
+    scene._move_polyline(None, QPointF(0.5, 0.5))
+    assert scene._polyline_close_indicator is not None
+    assert scene._polyline_close_indicator.isVisible()
+
+    scene.set_mode("select")
+    assert not scene._polyline_close_indicator.isVisible(), (
+        "Stale close-indicator ring visible after mode change to select"
+    )
+
+
+def test_close_indicator_hidden_after_delete_cancel(view, scene):
+    """Ring is hidden when Delete cancels the single-vertex polyline."""
+    _start(scene, (0, 0), (100, 0), (50, 100))
+    scene._move_polyline(None, QPointF(0.5, 0.5))
+    assert scene._polyline_close_indicator is not None
+    assert scene._polyline_close_indicator.isVisible()
+
+    # Pop vertices down to 1, then one more delete cancels
+    scene._delete_or_pop_polyline_vertex()  # 3→2 (hides indicator)
+    scene._delete_or_pop_polyline_vertex()  # 2→1 (hides indicator)
+    scene._delete_or_pop_polyline_vertex()  # 1→0: cancels, _polyline_active=None
+    assert scene._polyline_active is None
+    assert scene._polyline_close_indicator is not None
+    assert not scene._polyline_close_indicator.isVisible(), (
+        "Stale close-indicator ring visible after polyline was deleted/cancelled"
+    )
+
+
+def test_close_indicator_not_shown_with_2_vertices(view, scene):
+    """Ring must NOT appear with only 2 vertices even near pts[0]."""
+    _start(scene, (0, 0), (100, 0))
+    scene._move_polyline(None, QPointF(0.5, 0.5))
+    # With only 2 points the close-cue branch is guarded by len(pts) >= 3
+    indicator = scene._polyline_close_indicator
+    assert indicator is None or not indicator.isVisible(), (
+        "Close-indicator ring must not appear with fewer than 3 vertices"
+    )
