@@ -438,6 +438,9 @@ class LevelManager:
         for item in getattr(scene, "_draw_arcs", []):
             _set_level_vis(item)
 
+        for item in getattr(scene, "_draw_polygons", []):
+            _set_level_vis(item)
+
         # ── Gridlines (always visible on all levels) ─────────────────────
         for item in getattr(scene, "_gridlines", []):
             item.setVisible(True)
@@ -611,6 +614,7 @@ class LevelManager:
             getattr(scene, "_draw_rects", []),
             getattr(scene, "_draw_circles", []),
             getattr(scene, "_draw_arcs", []),
+            getattr(scene, "_draw_polygons", []),
         ):
             for _it in _lst:
                 _apply_elev_z(_it)

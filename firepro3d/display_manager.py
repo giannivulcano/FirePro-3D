@@ -3266,5 +3266,6 @@ def _items_for_category_static(scene, key: str) -> list:
         items.extend(getattr(scene, "_draw_rects", []))
         items.extend(getattr(scene, "_draw_circles", []))
         items.extend(getattr(scene, "_draw_arcs", []))
+        items.extend(getattr(scene, "_draw_polygons", []))
         return items
     return []

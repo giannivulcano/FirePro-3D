@@ -848,6 +848,20 @@ class View3D(QWidget):
             for i in range(len(pts) - 1):
                 lines_data.append([pts[i].x() / ppm, -pts[i].y() / ppm, z])
                 lines_data.append([pts[i + 1].x() / ppm, -pts[i + 1].y() / ppm, z])
+            if item.is_closed() and len(pts) >= 3:
+                lines_data.append([pts[-1].x() / ppm, -pts[-1].y() / ppm, z])
+                lines_data.append([pts[0].x() / ppm, -pts[0].y() / ppm, z])
+
+        # Polygons
+        for item in getattr(self._scene, "_draw_polygons", []):
+            z = self._level_z_mm(getattr(item, "level", DEFAULT_LEVEL))
+            ppm = self._sm.pixels_per_mm if self._sm.is_calibrated else 1.0
+            verts = item.vertices()
+            n = len(verts)
+            for i in range(n):
+                a, b = verts[i], verts[(i + 1) % n]
+                lines_data.append([a.x() / ppm, -a.y() / ppm, z])
+                lines_data.append([b.x() / ppm, -b.y() / ppm, z])
 
         if lines_data:
             points = np.array(lines_data, dtype=np.float32)
