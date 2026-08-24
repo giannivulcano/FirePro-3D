@@ -1,7 +1,7 @@
 ---
-status: current          # §4–§6/§8–§13 code-verified as-built; §7 = redesign PROPOSAL (not built, 2026-08-23); divergences ledger in §13
-last-verified: 2026-07-14
-verified-commit: 5ba9227
+status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; divergences ledger in §13
+last-verified: 2026-08-24
+verified-commit: f5b63b2
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -18,7 +18,8 @@ applies-to:
 **Source tasks:** TODO.md — "Spec & grill session: wall, room & floor slab system"
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
-**Design note (2026-08-23):** §7 rewritten as a **first-principles redesign PROPOSAL** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). **Not yet built** (see §7.1 phasing). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill). §4–§6, §8–§13 unchanged as-built.
+**Design note (2026-08-23):** §7 rewritten as a **first-principles redesign** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill).
+**Impl note (2026-08-24):** §7 **Phase A BUILT** as-built on `feat/opening-feature-element` (subagent-driven; `feature.py`, `feature_browser.py`, rewritten `wall_opening.py`, + model_space/main/elevation_scene/view_3d/display_manager/level_manager/wall wiring; ~40 commits; full suite green). Verified against commit `f5b63b2`; tests `tests/test_opening_{feature,placement,render,persistence,ribbon}.py`. **As-built refinements over the §7 draft** (from smoke tests): (a) **z-order** — an opening is pinned just above its host wall (`level_manager._apply_elev_z`) so its plan gap cuts the wall regardless of head-vs-wall height (§7.7); (b) **plan gap fill** = scene background on screen / paper-white on sheets (not white/dark block); door swing arc spans the opening; (c) **3D** — the door/window **frame is a fixed-depth object** (`_FRAME_DEPTH_MM`), only the wall **cut** matches wall depth; `wall.get_3d_mesh` builds from `quad_points` (un-mitered) so opening jambs stay perpendicular on joined walls (3D corners butt-join — follow-up to re-mitre); walls made watertight through openings (capped reveals, §7.8.3); (d) **paper space** — openings use the "Wall" paper category + a paper-aware gap fill; (e) **undo** — openings ride the existing snapshot undo (no new mechanism, §7.11 correction); (f) a **pre-placement property template** (`current_opening_template`, QSettings `template/opening`) lets sill/size/orientation be set before placing (§7.6). Deferred (filed in TODO): Phase B Manager, Phase C Editor, 3D `boolean_difference`/re-mitre, vertical-plane anchoring, elevation projection polish, panel polish.
 
 ## 1. Goal
 
@@ -279,7 +280,7 @@ Walls participate in the unified section-cut protocol:
 
 ## 7. Wall Openings — First-Class, Feature-Based Element (redesign)
 
-> **Status: PROPOSAL / not-yet-built** (2026-08-23 first-principles grill; supersedes the as-built wall-owned-cutout model, retained for reference in §7.17). This section specifies the redesigned **Opening** as the first concrete instance of a new **Feature** framework. **Phase A** (this task's deliverable) builds the Opening element + the minimal Feature data model + Feature Browser; **Phase B** (Manager) and **Phase C** (Editor) are specced forward-looking in §7.16 and filed as follow-up tasks. The rest of this spec (§4–§6, §8–§13) remains as-built/current.
+> **Status: Phase A BUILT as-built (2026-08-24)** — see the 2026-08-24 impl note at the top of this spec for the as-built refinements over this draft (z-order pin, gap fill, fixed-depth frame, `quad_points` 3D, paper category, template). Superseded the wall-owned-cutout model (retained for reference in §7.17). This section specifies the redesigned **Opening** as the first concrete instance of a new **Feature** framework. **Phase A** (built) = the Opening element + the minimal Feature data model + Feature Browser; **Phase B** (Manager) and **Phase C** (Editor) remain forward-looking (§7.16) and are filed as follow-up tasks. The rest of this spec (§4–§6, §8–§13) is as-built/current.
 
 ### 7.1 Scope & Phasing
 
