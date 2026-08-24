@@ -32,7 +32,7 @@ from .annotations import DimensionAnnotation, NoteAnnotation
 from .underlay_snap_index import UnderlaySnapIndex
 from .construction_geometry import (
     LineItem, RectangleItem, CircleItem, ArcItem,
-    PolylineItem,
+    PolylineItem, RegularPolygonItem,
 )
 from .geometry_intersect import _angle_in_arc
 from .gridline import GridlineItem
@@ -450,6 +450,11 @@ class SnapEngine:
                     pass
             elif isinstance(item, CircleItem):
                 _circles.append((item._center, item._radius, item))
+            elif isinstance(item, RegularPolygonItem):
+                verts = item.vertices()
+                for j in range(len(verts)):
+                    _segments.append((verts[j], verts[(j + 1) % len(verts)],
+                                      item, item))
             elif isinstance(item, QGraphicsPathItem):
                 # Generic path items (DXF imports). Filter each segment
                 # against the search rect — polyline bounding rects are
@@ -773,6 +778,21 @@ class SnapEngine:
                         q_pt = QPointF(cx + r * math.cos(q_rad),
                                        cy - r * math.sin(q_rad))
                         pts.append(("quadrant", q_pt, None))
+
+        # ── RegularPolygonItem (must come before generic QGraphicsPathItem) ─
+        elif isinstance(item, RegularPolygonItem):
+            verts = item.vertices()
+            if self.snap_endpoint:
+                for v in verts:
+                    pts.append(("endpoint", v, None))
+            if self.snap_midpoint:
+                for i in range(len(verts)):
+                    a, b = verts[i], verts[(i + 1) % len(verts)]
+                    pts.append(("midpoint",
+                                QPointF((a.x() + b.x()) / 2,
+                                        (a.y() + b.y()) / 2), None))
+            if self.snap_center:
+                pts.append(("center", QPointF(item._center), None))
 
         # ── Generic QGraphicsPathItem (DXF imports, etc.) ────────────────
         elif isinstance(item, QGraphicsPathItem):
