@@ -1184,8 +1184,13 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         out = []
         for k in range(self._sides):
             a = math.radians(base + k * step)
+            # Y-up convention (CCW-positive, app-wide): a positive rotation
+            # swings vertices up (−y in Qt scene), so sin is negated.  Matches
+            # the placement rotate angle, the dashed reference line, and the
+            # shared "rotation" HUD schema.  apply_grip() negates dy to stay the
+            # exact inverse of this.
             out.append(QPointF(self._center.x() + rv * math.cos(a),
-                               self._center.y() + rv * math.sin(a)))
+                               self._center.y() - rv * math.sin(a)))
         return out
 
     def _regenerate(self):
@@ -1269,7 +1274,10 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         # circ_offset mirrors the same half-step applied in vertices(); the two
         # must stay in sync — this line is the inverse of vertices()'s `base`.
         circ_offset = 0.0 if self._inscribed else 180.0 / self._sides
-        ang = math.degrees(math.atan2(dy, dx))
+        # Y-up angle of the drag point (−dy): the exact inverse of vertices(),
+        # which places vertex vi at angle (rotation + circ_offset + vi*step) in
+        # the Y-up frame.  So the dragged vertex lands exactly under the cursor.
+        ang = math.degrees(math.atan2(-dy, dx))
         self._rotation_deg = ang - circ_offset - vi * step
         self._radius_mm = rv if self._inscribed else rv * math.cos(math.pi / self._sides)
         self._regenerate()

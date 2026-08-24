@@ -5779,6 +5779,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             angle = self._polygon_rotation_angle_to(snapped)
             self._preview_polygon_rotation(angle)
             self.publish_placement_state(self._polygon_center, snapped)
+            # Live angle in the readout so the user sees the rotation update.
+            self.instructionChanged.emit(
+                f"Pick rotation angle: {angle:.1f}°  |  {self._polygon_readout()}")
             return
         if self._polygon_center is None:
             self.update_preview_node(snapped)   # cursor preview before first click

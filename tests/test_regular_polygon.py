@@ -80,3 +80,21 @@ def test_circumscribed_vertex_grip_round_trip(qapp):
     edges = [math.hypot(vs[(i+1) % 5].x()-vs[i].x(), vs[(i+1) % 5].y()-vs[i].y())
              for i in range(5)]
     assert all(_approx(e, edges[0], tol=1e-3) for e in edges)
+
+
+def test_positive_rotation_swings_vertex_up_yup(qapp):
+    """Ground truth (Y-up, CCW+): rotation_deg=90 puts vertex 0 straight UP.
+
+    'Up' on screen is -y in Qt scene.  Asserts the OBSERVABLE direction, not
+    rotation()==angle — it fails on a y-down (mirrored) convention.
+    """
+    p = RegularPolygonItem(QPointF(0, 0), sides=4, radius_mm=100.0,
+                           rotation_deg=90.0, inscribed=True)
+    v0 = p.vertices()[0]
+    assert _approx(v0.x(), 0.0, tol=1e-6)
+    assert _approx(v0.y(), -100.0, tol=1e-6)   # up = -y in Qt scene
+    # 0 deg points due-east (+x), matching the reference-line datum.
+    p0 = RegularPolygonItem(QPointF(0, 0), sides=4, radius_mm=100.0,
+                            rotation_deg=0.0, inscribed=True)
+    e0 = p0.vertices()[0]
+    assert _approx(e0.x(), 100.0, tol=1e-6) and _approx(e0.y(), 0.0, tol=1e-6)

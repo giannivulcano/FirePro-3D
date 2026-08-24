@@ -106,33 +106,25 @@ def test_three_step_state_cleared_after_commit(scene):
     assert scene.mode == "polygon"   # stays in placement mode
 
 
-def test_three_step_rotation_ground_truth(scene):
-    """Centre (0,0), radius click (100,0), rotate click (0,100) → rotation ≈ 90°.
+def test_rotate_click_points_reference_vertex_at_cursor(scene):
+    """OBSERVABLE TRUTH: the reference vertex points where you rotate-click.
 
-    Y-up convention: atan2(-(0-100-0), 0-0) where cursor is (0,100), centre (0,0):
-    atan2(-(100), 0) = atan2(-100, 0) = -90°... wait, let's think:
-    cursor.y=100, center.y=0 → -(cursor.y - center.y) = -(100) = -100
-    cursor.x=0, center.x=0 → 0
-    atan2(-100, 0) = -90° ... but in Qt scene-space Y is DOWN.
-    The formula is atan2(-(cursor.y - piv.y), cursor.x - piv.x) which gives
-    Y-up convention: a cursor ABOVE center (negative Y in scene) gives positive angles.
-    Here cursor (0,100) is BELOW center in Y-up, so rotation = -90°.
-    We just verify the committed polygon matches _polygon_rotation_angle_to.
+    Centre (0,0) → radius (100,0) → rotate-click due-NORTH (0,-100, i.e. up on
+    screen).  Vertex 0 (the inscribed reference vertex) must land ON the click,
+    at (0,-100).  This is the direction the polygon visibly rotates; it fails on
+    the mirrored (y-down) convention where the vertex would go to (0,+100).
     """
     scene.set_mode("polygon")
-    center = QPointF(0, 0)
-    radius_click = QPointF(100, 0)
-    rotate_click = QPointF(0, 100)
-
-    scene._press_polygon(None, None, center, None, None, None)
-    scene._press_polygon(None, None, radius_click, None, None, None)
-
-    expected_angle = scene._polygon_rotation_angle_to(rotate_click)
-    scene._press_polygon(None, None, rotate_click, None, None, None)
+    scene._press_polygon(None, None, QPointF(0, 0), None, None, None)      # centre
+    scene._press_polygon(None, None, QPointF(100, 0), None, None, None)    # radius 100
+    scene._press_polygon(None, None, QPointF(0, -100), None, None, None)   # rotate north
 
     poly = scene._draw_polygons[-1]
-    assert math.isclose(poly._rotation_deg, expected_angle, abs_tol=1e-6), (
-        f"Rotation {poly._rotation_deg!r} != expected {expected_angle!r}"
+    v0 = poly.vertices()[0]
+    assert math.isclose(v0.x(), 0.0, abs_tol=1e-3), f"vertex 0 x={v0.x()}"
+    assert math.isclose(v0.y(), -100.0, abs_tol=1e-3), (
+        f"vertex 0 y={v0.y()} — expected -100 (points at the north click), "
+        f"not +100 (mirrored/backwards rotation)"
     )
 
 
@@ -461,6 +453,21 @@ def test_commit_clears_ghost(scene):
     scene._press_polygon(None, None, QPointF(100, 0), None, None, None)
     scene._press_polygon(None, None, QPointF(0, 100), None, None, None)
     assert scene._polygon_preview is None
+
+
+def test_move_during_rotate_emits_live_angle(scene):
+    """The readout live-updates the angle as the cursor moves in the rotate step."""
+    scene.set_mode("polygon")
+    scene._press_polygon(None, None, QPointF(0, 0), None, None, None)
+    scene._press_polygon(None, None, QPointF(100, 0), None, None, None)  # -> rotate step
+    emissions = []
+    scene.instructionChanged.connect(emissions.append)
+    scene._move_polygon(None, QPointF(0, -100))   # north -> +90 deg (Y-up)
+    assert emissions, "expected a readout emission during rotate move"
+    last = emissions[-1]
+    assert "90" in last and "°" in last, (
+        f"expected the live rotation angle in the readout; got {last!r}"
+    )
 
 
 # ── P shortcut (regression guard) ────────────────────────────────────────────
