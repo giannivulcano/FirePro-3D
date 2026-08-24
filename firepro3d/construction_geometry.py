@@ -1323,6 +1323,15 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             hl.setCosmetic(True)
             painter.setPen(hl)
             painter.drawPath(self.path())
+            # Draw a dashed circumradius reference circle when selected so the
+            # user can see the defining circle.  Subtle: thin dashed cosmetic pen.
+            rv = self._circumradius()
+            cx, cy = self._center.x(), self._center.y()
+            ref_pen = QPen(self.pen().color(), 1, Qt.PenStyle.DashLine)
+            ref_pen.setCosmetic(True)
+            painter.setPen(ref_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QRectF(cx - rv, cy - rv, 2 * rv, 2 * rv))
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()

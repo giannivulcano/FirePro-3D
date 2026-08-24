@@ -190,11 +190,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_rect_ref_line0: "QGraphicsLineItem | None" = None
         self._draw_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_circle_preview: "QGraphicsEllipseItem | None" = None
-        # Polygon drawing (2-click: centre, then radius/rotation point)
+        # Polygon drawing (3-step: centre → radius → rotate)
+        # _polygon_rotating: True during rotate step (after radius click)
+        # _polygon_sized_radius: the fixed radius while rotating
         self._polygon_center: "QPointF | None" = None
         self._polygon_sides: int = 6
         self._polygon_inscribed: bool = True
         self._polygon_preview: "RegularPolygonItem | None" = None
+        self._polygon_rotating: bool = False
+        self._polygon_sized_radius: "float | None" = None
+        self._polygon_ref_circle: "QGraphicsEllipseItem | None" = None
+        self._polygon_ref_lineA: "QGraphicsLineItem | None" = None
         self._draw_polygons: list[RegularPolygonItem] = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
@@ -905,10 +911,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._draw_circle_preview = None
         if mode != "polygon":
             self._polygon_center = None
+            self._polygon_rotating = False
+            self._polygon_sized_radius = None
             if self._polygon_preview is not None:
                 if self._polygon_preview.scene() is self:
                     self.removeItem(self._polygon_preview)
                 self._polygon_preview = None
+            self._clear_polygon_ref_items()
         if mode != "draw_arc":
             self._draw_arc_center = None
             self._draw_arc_radius = 0.0
@@ -1203,12 +1212,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "door":            "Click on a wall to place door",
             "window":          "Click on a wall to place window",
             "detail":          "Pick first corner for detail view boundary",
-            "polygon":         "Pick centre point",
+            "polygon":         None,   # emitted with live readout below
         }
         instr = _initial_steps.get(mode, "")
         if mode == "wall":
             self.instructionChanged.emit(
                 f"Pick wall start point [{self._wall_alignment}]")
+        elif mode == "polygon":
+            self.instructionChanged.emit(
+                f"Pick centre point  |  {self._polygon_readout()}")
         elif instr:
             self.instructionChanged.emit(instr)
 
@@ -3908,6 +3920,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             a = self._draw_circle_center
             return QPointF(a) if a is not None else None
         if self.mode == "polygon":
+            # Both sizing and rotate steps pivot about _polygon_center.
             a = self._polygon_center
             return QPointF(a) if a is not None else None
         if self.mode == "draw_arc":
@@ -3950,8 +3963,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # draw_rectangle is intentionally absent — active_schema special-cases
         # it per step (sizing → ``rectangle``, rotate → ``rotation``), the same
         # way draw_arc is.
+        # polygon is also intentionally absent — active_schema special-cases it
+        # per step (sizing → ``polygon``, rotate → ``rotation``).
         "draw_circle": "circle",
-        "polygon": "polygon",
         "move": "displacement",
         "gridline_offset": "distance",
         "gridline_array": "spacing_count",
@@ -3971,7 +3985,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # rotate commit.
         "draw_rectangle": "_apply_rectangle_dynamic_input",
         "draw_circle": "_commit_draw_circle_at",
-        "polygon": "_commit_polygon_at",
+        # polygon is step-aware (like draw_rectangle): active_schema special-
+        # cases it, and this router dispatches to the sizing-advance or the
+        # rotate commit.
+        "polygon": "_apply_polygon_dynamic_input",
         "gridline_offset": "_apply_gridline_offset",
         "gridline_array": "_apply_gridline_array",
         "move": "_apply_move_displacement",
@@ -4082,6 +4099,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return self._arc_schema_for_step()
         if self.mode == "draw_rectangle":
             return self._rectangle_schema_for_step()
+        if self.mode == "polygon":
+            return self._polygon_schema_for_step()
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
 
@@ -4099,6 +4118,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._draw_rect_rotating:
             return SCHEMAS.get("rotation")
         return SCHEMAS.get("rectangle")
+
+    def _polygon_schema_for_step(self):
+        """Return the polygon schema for the current step.
+
+        Polygon placement is 3-step: the sizing step types the radius (the
+        ``polygon`` schema), then the rotate step types the orientation (the
+        ``rotation`` schema).  ``_polygon_rotating`` picks which one is live.
+        Step 0 has no anchor before the first click, so the anchor gate keeps
+        the HUD shut then — exactly like draw_rectangle.
+        """
+        if self._polygon_rotating:
+            return SCHEMAS.get("rotation")
+        return SCHEMAS.get("polygon")
 
     def _arc_schema_for_step(self):
         """Return the arc schema for the current step, or None.
@@ -4302,11 +4334,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if schema.returns_point:
             self._preview_from_resolved(resolved)
         elif schema.name == "rotation":
-            # The rectangle rotate transform's preview is an *angle*, not a
-            # point, so it does not route through ``_transform_preview_point`` /
-            # ``_preview_from_resolved`` (which are point-based).  Its own helper
-            # spins the sized preview rect about the stored pivot.
-            self._preview_rectangle_rotation(resolved["angle_deg"])
+            # The rectangle and polygon rotate transforms' preview is an *angle*,
+            # not a point, so it does not route through ``_transform_preview_point``
+            # / ``_preview_from_resolved`` (which are point-based).  Dispatch to
+            # the mode-appropriate helper.
+            if self.mode == "polygon":
+                self._preview_polygon_rotation(resolved["angle_deg"])
+            else:
+                self._preview_rectangle_rotation(resolved["angle_deg"])
         else:
             # A transform schema resolves to a scalar/offset dict, not a point,
             # but its preview helper takes the point the resolved value lands on.
@@ -5578,6 +5613,32 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.addItem(line)
         return line
 
+    def _make_ref_circle(self):
+        """Create a dashed cosmetic radius-reference circle, added to scene.
+
+        Mirrors ``_make_ref_line``: dashed cosmetic pen, zValue 200, non-selectable.
+        Callers position it via ``setRect``.  Stored as ``self._polygon_ref_circle``
+        by the caller.
+        """
+        circle = QGraphicsEllipseItem()
+        pen = QPen(QColor(self._geom_color_lw()[0]), 1, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        circle.setPen(pen)
+        circle.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        circle.setZValue(200)
+        circle.setFlag(circle.GraphicsItemFlag.ItemIsSelectable, False)
+        self.addItem(circle)
+        return circle
+
+    def _clear_polygon_ref_items(self) -> None:
+        """Remove the polygon rotate-step reference circle and radial line."""
+        for attr in ("_polygon_ref_circle", "_polygon_ref_lineA"):
+            item = getattr(self, attr, None)
+            if item is not None:
+                if item.scene() is self:
+                    self.removeItem(item)
+                setattr(self, attr, None)
+
     def _set_arc_ref_lines(self) -> None:
         """Place the span-step arc guides: a 0° datum + the start-angle radial.
 
@@ -5707,6 +5768,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.publish_placement_state(self._draw_circle_center, snapped)
 
     def _move_polygon(self, event, snapped):
+        if self._polygon_rotating:
+            # Rotate step: ghost is fixed-radius, only orientation changes.
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._polygon_center is not None):
+                snapped = self._constrain_angle(self._polygon_center, snapped)
+            angle = self._polygon_rotation_angle_to(snapped)
+            self._preview_polygon_rotation(angle)
+            self.publish_placement_state(self._polygon_center, snapped)
+            return
         if self._polygon_center is None:
             self.update_preview_node(snapped)   # cursor preview before first click
         else:
@@ -8652,66 +8725,165 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     # ── Polygon drawing ───────────────────────────────────────────────
 
+    def _polygon_readout(self) -> str:
+        """Return the live-state suffix shown in every polygon instruction line.
+
+        Format: ``"{n} sides (↑/↓)  ·  {shape} (←/→)"``.  Called by
+        ``_press_polygon``, ``_cycle_polygon_sides``, and
+        ``_toggle_polygon_inscribed`` so the full hint always includes the
+        current step prompt.
+        """
+        shape = "inscribed" if self._polygon_inscribed else "circumscribed"
+        return f"{self._polygon_sides} sides (↑/↓)  ·  {shape} (←/→)"
+
     def _press_polygon(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._polygon_center is None:
+        if self._polygon_rotating:
+            # Step 2: commit at the pivot→click orientation.
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._polygon_center is not None):
+                snapped = self._constrain_angle(self._polygon_center, snapped)
+            self._commit_polygon_rotated(self._polygon_rotation_angle_to(snapped))
+        elif self._polygon_center is None:
+            # Step 0: arm the centre.
             self._polygon_center = snapped
             self.update_preview_node(snapped)
             self.instructionChanged.emit(
-                "Pick radius point (↑/↓ sides, ←/→ inscribed/circumscribed)")
+                f"Pick radius  |  {self._polygon_readout()}")
         else:
-            tip = snapped
-            if (event is not None
-                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-                tip = self._constrain_angle(self._polygon_center, snapped)
-            self._commit_polygon_at(tip)
+            # Step 1: set the radius and advance to the rotate step.
+            self._advance_polygon_to_rotate_step(snapped)
 
-    def _commit_polygon_at(self, rim):
-        """Commit the armed polygon with ``rim`` on its defining radius circle."""
-        centre = self._polygon_center
-        if centre is None:
+    def _polygon_rotation_angle_to(self, cursor) -> float:
+        """Return absolute Y-up orientation (degrees from +x) centre→``cursor``.
+
+        0° when the cursor is due-east of the centre (axis-aligned first vertex).
+        Falls back to 0° when the centre is unset (guard — rotate step always has
+        one).
+        """
+        c = self._polygon_center
+        if c is None:
+            return 0.0
+        return math.degrees(math.atan2(-(cursor.y() - c.y()),
+                                       cursor.x() - c.x()))
+
+    def _advance_polygon_to_rotate_step(self, rim) -> bool:
+        """Advance an armed polygon from the sizing step to the rotate step.
+
+        Stores the sized radius (``_polygon_sized_radius``), sets
+        ``_polygon_rotating = True``, rebuilds the ghost at rotation 0
+        (axis-aligned), and shows the reference circle + a 0° datum line.
+        Shared by the mouse second click and the sizing Dynamic Input applier.
+
+        Args:
+            rim: The radius-pick point (fully constrained).
+
+        Returns:
+            True when advanced; False when rejected (no centre, or radius < 0.5).
+        """
+        c = self._polygon_center
+        if c is None:
             return False
-        dx, dy = rim.x() - centre.x(), rim.y() - centre.y()
-        r = math.hypot(dx, dy)
+        r = math.hypot(rim.x() - c.x(), rim.y() - c.y())
         if r < 0.5:
             self._show_status("Polygon radius too small — skipped", timeout=2000)
             return False
-        rotation = math.degrees(math.atan2(dy, dx))   # same for inscribed + circumscribed
+        self._polygon_sized_radius = r
+        self._polygon_rotating = True
+        # Rebuild ghost axis-aligned (rotation 0) at the fixed radius.
+        if self._polygon_preview is not None and self._polygon_preview.scene() is self:
+            self.removeItem(self._polygon_preview)
+            self._polygon_preview = None
+        self._polygon_preview = self._build_polygon_ghost(c, r, 0.0)
+        # Reference circle centred on the centre at the sized radius.
+        self._clear_polygon_ref_items()
+        self._polygon_ref_circle = self._make_ref_circle()
+        self._polygon_ref_circle.setRect(
+            c.x() - r, c.y() - r, 2 * r, 2 * r)
+        # Radial reference line (0° datum) from centre eastwards.
+        self._polygon_ref_lineA = self._make_ref_line()
+        self._polygon_ref_lineA.setLine(c.x(), c.y(), c.x() + r, c.y())
+        self.clear_placement_state()
+        self.instructionChanged.emit(
+            f"Pick rotation angle  |  {self._polygon_readout()}")
+        return True
+
+    def _apply_polygon_dynamic_input(self, geometry) -> bool:
+        """Route a resolved polygon value to the right step's applier.
+
+        At the sizing step the ``polygon`` schema resolves to a radius QPointF
+        (advance to the rotate step); at the rotate step the ``rotation`` schema
+        resolves to a ``{"angle_deg": …}`` dict (commit).  Mirrors
+        ``_apply_rectangle_dynamic_input``.
+        """
+        if self._polygon_rotating:
+            return self._commit_polygon_rotated(geometry["angle_deg"])   # dict
+        return self._advance_polygon_to_rotate_step(geometry)             # QPointF
+
+    def _commit_polygon_rotated(self, angle_deg) -> bool:
+        """Commit the sized polygon at ``angle_deg`` orientation (Y-up, degrees).
+
+        Builds ``RegularPolygonItem`` from the stored centre and sized radius,
+        clears all placement state, and pushes undo.  Shared by the third mouse
+        click and the ``rotation`` Dynamic Input value.
+
+        Args:
+            angle_deg: Absolute orientation, Y-up degrees from +x.
+
+        Returns:
+            True when committed; False when sizing state is missing.
+        """
+        c = self._polygon_center
+        r = self._polygon_sized_radius
+        if c is None or r is None:
+            return False
         tmpl = self._get_geometry_template()
         _c, _lw = self._geom_color_lw()
-        item = RegularPolygonItem(centre, sides=self._polygon_sides, radius_mm=r,
-                                  rotation_deg=rotation, inscribed=self._polygon_inscribed,
+        item = RegularPolygonItem(c, sides=self._polygon_sides, radius_mm=r,
+                                  rotation_deg=angle_deg,
+                                  inscribed=self._polygon_inscribed,
                                   color=_c, lineweight=_lw)
         item.level = tmpl.level
         item._level_offset_mm = getattr(tmpl, "_level_offset_mm", 0.0)
         self.addItem(item)
         self._draw_polygons.append(item)
         item.setSelected(True)
+        # Remove preview ghost.
         if self._polygon_preview is not None:
             if self._polygon_preview.scene() is self:
                 self.removeItem(self._polygon_preview)
             self._polygon_preview = None
+        # Clear all placement state.
         self._polygon_center = None
+        self._polygon_rotating = False
+        self._polygon_sized_radius = None
+        self._clear_polygon_ref_items()
         self.clear_placement_state()
         for v in self.views(): v.viewport().update()
         self.push_undo_state()
-        self.instructionChanged.emit("Pick centre point")
+        self.instructionChanged.emit(
+            f"Pick centre point  |  {self._polygon_readout()}")
         return True
 
-    def _preview_from_polygon(self, tip):
-        """Live ghost of the polygon from centre to ``tip``."""
-        if self._polygon_center is None:
-            return
-        c = self._polygon_center
-        dx, dy = tip.x() - c.x(), tip.y() - c.y()
-        r = math.hypot(dx, dy)
-        if r < 0.5:
-            return
-        rot = math.degrees(math.atan2(dy, dx))
-        if self._polygon_preview is not None and self._polygon_preview.scene() is self:
-            self.removeItem(self._polygon_preview)
+    def _commit_polygon_at(self, rim):
+        """Legacy 2-step commit: radius-pick point carries both radius and rotation.
+
+        Kept for backward compatibility with the HUD ``polygon`` schema resolver
+        which returns a QPointF on the rim circle.  In 3-step placement this is
+        only reached via ``_apply_polygon_dynamic_input`` at the sizing step,
+        which calls ``_advance_polygon_to_rotate_step`` instead — so this method
+        is no longer the commit path.  It is preserved so external callers (e.g.
+        tests that pre-date the 3-step change) can still advance the sizing step
+        by passing a point.
+        """
+        return self._advance_polygon_to_rotate_step(rim)
+
+    def _build_polygon_ghost(self, center, radius, rotation_deg) -> "RegularPolygonItem":
+        """Create and return a dashed ghost RegularPolygonItem added to the scene."""
         _c, _lw = self._geom_color_lw()
-        ghost = RegularPolygonItem(c, sides=self._polygon_sides, radius_mm=r,
-                                   rotation_deg=rot, inscribed=self._polygon_inscribed,
+        ghost = RegularPolygonItem(center, sides=self._polygon_sides, radius_mm=radius,
+                                   rotation_deg=rotation_deg,
+                                   inscribed=self._polygon_inscribed,
                                    color=_c, lineweight=_lw)
         pen = QPen(QColor(_c), 2, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
@@ -8719,23 +8891,90 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         ghost.setZValue(200)
         ghost.setFlag(ghost.GraphicsItemFlag.ItemIsSelectable, False)
         self.addItem(ghost)
-        self._polygon_preview = ghost
+        return ghost
+
+    def _preview_from_polygon(self, tip):
+        """Live ghost of the polygon during the sizing step (centre→tip).
+
+        During the sizing step, tip sets both radius and rotation; the ghost
+        tracks both live.  During the rotate step, use ``_preview_polygon_rotation``
+        instead (which keeps a fixed radius and only spins the ghost).
+        """
+        if self._polygon_center is None:
+            return
+        c = self._polygon_center
+        dx, dy = tip.x() - c.x(), tip.y() - c.y()
+        r = math.hypot(dx, dy)
+        if r < 0.5:
+            return
+        # During sizing step, rotation tracks the cursor bearing.
+        rot = 0.0  # axis-aligned during sizing step (rotation added at step 2)
+        if self._polygon_preview is not None and self._polygon_preview.scene() is self:
+            self.removeItem(self._polygon_preview)
+        self._polygon_preview = self._build_polygon_ghost(c, r, rot)
+        # Also update / create the reference circle (shows bounding circle).
+        if self._polygon_ref_circle is None:
+            self._polygon_ref_circle = self._make_ref_circle()
+        self._polygon_ref_circle.setRect(c.x() - r, c.y() - r, 2 * r, 2 * r)
+
+    def _preview_polygon_rotation(self, angle_deg) -> None:
+        """Spin the sized-radius polygon ghost to ``angle_deg`` during rotate step.
+
+        Mirrors ``_preview_rectangle_rotation``: only the ghost's orientation
+        changes, the radius is fixed at ``_polygon_sized_radius``.  Also updates
+        the radial reference line.  A no-op until the ghost and centre exist.
+        """
+        c = self._polygon_center
+        r = self._polygon_sized_radius
+        if c is None or r is None:
+            return
+        # Rebuild ghost at the fixed radius and new rotation.
+        if self._polygon_preview is not None and self._polygon_preview.scene() is self:
+            self.removeItem(self._polygon_preview)
+        self._polygon_preview = self._build_polygon_ghost(c, r, angle_deg)
+        # Update the radial reference line to follow the cursor heading.
+        if self._polygon_ref_lineA is not None:
+            rad = math.radians(angle_deg)
+            self._polygon_ref_lineA.setLine(
+                c.x(), c.y(),
+                c.x() + r * math.cos(rad),
+                c.y() - r * math.sin(rad))  # Y-up: subtract sin
 
     def _cycle_polygon_sides(self, direction: int):
         self._polygon_sides = max(3, min(120, self._polygon_sides + direction))
         if self._last_scene_pos is not None:
-            self._preview_from_polygon(self._last_scene_pos)
-        self.instructionChanged.emit(
-            f"Polygon: {self._polygon_sides} sides "
-            f"({'inscribed' if self._polygon_inscribed else 'circumscribed'})")
+            if self._polygon_rotating:
+                angle = self._polygon_rotation_angle_to(self._last_scene_pos)
+                self._preview_polygon_rotation(angle)
+            else:
+                self._preview_from_polygon(self._last_scene_pos)
+        if self._polygon_rotating:
+            self.instructionChanged.emit(
+                f"Pick rotation angle  |  {self._polygon_readout()}")
+        elif self._polygon_center is not None:
+            self.instructionChanged.emit(
+                f"Pick radius  |  {self._polygon_readout()}")
+        else:
+            self.instructionChanged.emit(
+                f"Pick centre point  |  {self._polygon_readout()}")
 
     def _toggle_polygon_inscribed(self):
         self._polygon_inscribed = not self._polygon_inscribed
         if self._last_scene_pos is not None:
-            self._preview_from_polygon(self._last_scene_pos)
-        self.instructionChanged.emit(
-            f"Polygon: {self._polygon_sides} sides "
-            f"({'inscribed' if self._polygon_inscribed else 'circumscribed'})")
+            if self._polygon_rotating:
+                angle = self._polygon_rotation_angle_to(self._last_scene_pos)
+                self._preview_polygon_rotation(angle)
+            else:
+                self._preview_from_polygon(self._last_scene_pos)
+        if self._polygon_rotating:
+            self.instructionChanged.emit(
+                f"Pick rotation angle  |  {self._polygon_readout()}")
+        elif self._polygon_center is not None:
+            self.instructionChanged.emit(
+                f"Pick radius  |  {self._polygon_readout()}")
+        else:
+            self.instructionChanged.emit(
+                f"Pick centre point  |  {self._polygon_readout()}")
 
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
