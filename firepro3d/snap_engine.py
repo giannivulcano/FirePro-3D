@@ -1203,6 +1203,13 @@ class SnapEngine:
                         )
                         pts.append(("tangent", tp))
 
+        # ── RegularPolygonItem — project onto each polygon edge (must come
+        #    before generic QGraphicsPathItem) ──────────────────────────────
+        elif isinstance(item, RegularPolygonItem):
+            verts = item.vertices()
+            for i in range(len(verts)):
+                _seg_snap(verts[i], verts[(i + 1) % len(verts)])
+
         # ── Generic QGraphicsPathItem (DXF imports) — project onto segments
         elif isinstance(item, QGraphicsPathItem):
             # Skip if already handled as WallSegment or PolylineItem

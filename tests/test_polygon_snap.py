@@ -112,10 +112,8 @@ class TestPolygonVertexSnap:
         eng.snap_tangent = False
         eng.snap_quadrant = False
         hit = _find(eng, scene, QPointF(99, 1))
-        # With all snaps off there should be no result near the vertex
-        if hit is not None:
-            # Accept only if it is NOT an endpoint
-            assert hit.snap_type != "endpoint"
+        # With all snaps off there must be no result at all
+        assert hit is None, f"expected no snap with all toggles off, got {hit}"
 
 
 class TestPolygonCenterSnap:
@@ -236,3 +234,60 @@ class TestPolygonSnapVariants:
         assert hit.snap_type == "endpoint"
         assert math.isclose(hit.point.x(), 580.0, abs_tol=2.0)
         assert math.isclose(hit.point.y(), 500.0, abs_tol=2.0)
+
+
+class TestPolygonClosingEdge:
+    """Closing (last→first) edge: midpoint snap and nearest snap coverage."""
+
+    def test_closing_edge_midpoint(self, qapp):
+        """Midpoint of the closing edge (0,-100)→(100,0) is (50,-50).
+
+        Vertices: (100,0),(0,100),(-100,0),(0,-100).
+        Closing edge: verts[3]→verts[0] = (0,-100)→(100,0).
+        Midpoint: (50, -50).
+        """
+        scene, _ = _scene_with_polygon()
+        eng = _engine()
+        hit = _find(eng, scene, QPointF(49, -51))
+        assert hit is not None, "expected midpoint snap near (50, -50)"
+        assert hit.snap_type == "midpoint"
+        assert math.isclose(hit.point.x(), 50.0, abs_tol=1.0)
+        assert math.isclose(hit.point.y(), -50.0, abs_tol=1.0)
+
+    def test_nearest_snap_on_edge_via_geometric_snaps(self, qapp):
+        """_geometric_snaps must project the cursor onto each polygon edge,
+        including the closing edge, and emit a 'nearest' candidate.
+
+        Cursor at (75, 15) — off all vertices/midpoints of the first edge
+        (100,0)→(0,100).  Expected foot:
+          t = ((75-100)*(-100) + (15-0)*(100)) / (100²+100²) = 0.2
+          foot = (80.0, 20.0)
+
+        We call _geometric_snaps directly (not find()) to avoid priority
+        competition suppressing the nearest result.
+        """
+        _, poly = _scene_with_polygon()
+        eng = SnapEngine()
+        eng.snap_nearest = True
+        eng.snap_perpendicular = False
+        eng.snap_endpoint = False
+        eng.snap_midpoint = False
+        eng.snap_center = False
+        eng.snap_intersection = False
+
+        results = eng._geometric_snaps(QPointF(75, 15), poly)
+        nearest_pts = [pt for snap_type, pt in results if snap_type == "nearest"]
+        assert nearest_pts, (
+            "expected at least one 'nearest' candidate from _geometric_snaps "
+            "on RegularPolygonItem; got zero — check that the RegularPolygonItem "
+            "branch was added before the generic QGraphicsPathItem branch"
+        )
+        # The nearest point on the first edge (100,0)→(0,100) to cursor (75,15)
+        # should be approximately (80.0, 20.0)
+        foot = nearest_pts[0]
+        assert math.isclose(foot.x(), 80.0, abs_tol=1.0), (
+            f"expected foot.x ≈ 80.0, got {foot.x():.3f}"
+        )
+        assert math.isclose(foot.y(), 20.0, abs_tol=1.0), (
+            f"expected foot.y ≈ 20.0, got {foot.y():.3f}"
+        )
