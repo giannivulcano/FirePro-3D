@@ -96,23 +96,14 @@ class TestCommitDrawLineAt:
         scene._commit_draw_line_at(QPointF(100, 0))
         assert scene.get_resolved_point() is None
 
-    def test_single_place_mode_exits_to_select(self, scene):
-        scene.set_mode("draw_line")
-        scene.single_place_mode = True
-        scene._draw_line_anchor = QPointF(0, 0)
-        scene._commit_draw_line_at(QPointF(100, 0))
-        assert scene.mode == "select"
-
     def test_repeat_mode_rearms(self, scene):
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         scene._draw_line_anchor = QPointF(0, 0)
         scene._commit_draw_line_at(QPointF(100, 0))
         assert scene.mode == "draw_line"
 
     def test_repeat_mode_emits_start_instruction(self, scene):
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         seen = []
         scene.instructionChanged.connect(seen.append)
         scene._draw_line_anchor = QPointF(0, 0)
@@ -121,7 +112,6 @@ class TestCommitDrawLineAt:
 
     def test_gridline_repeat_mode_emits_gridline_wording(self, scene):
         scene.set_mode("draw_gridline")
-        scene.single_place_mode = False
         seen = []
         scene.instructionChanged.connect(seen.append)
         scene._draw_line_anchor = QPointF(0, 0)
@@ -201,7 +191,6 @@ class TestCtrlConstraintStaysInPicker:
         view.resize(400, 400)
         view.resetTransform()
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         anchor = QPointF(0, 0)
         raw = QPointF(1000, 300)     # ~16.7° — off any 15°/45° snap increment
         _click(scene, view, anchor)
@@ -322,7 +311,6 @@ def _place_by_mouse(scene, view, mode, anchor, length, angle):
         The committed item's line.
     """
     scene.set_mode(mode)
-    scene.single_place_mode = False
     tip = SCHEMAS["line"].resolve(anchor, {"Length": length, "Angle": angle})
     _click(scene, view, anchor)
     _click(scene, view, tip)
@@ -351,7 +339,6 @@ def _place_by_hud(scene, view, mode, anchor, length, angle):
         The committed item's line.
     """
     scene.set_mode(mode)
-    scene.single_place_mode = False
     scene._draw_line_anchor = QPointF(anchor)
     # A decoy seed well away from the target: the committed geometry must come
     # from the typed text, so a path that silently reused the published point
@@ -621,7 +608,6 @@ class TestResolveBeforeCloseOrdering:
     def _run(self, scene, view, monkeypatch):
         """Commit through the HUD and return the ordered event log."""
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         scene._draw_line_anchor = QPointF(0, 0)
         scene.publish_placement_state(QPointF(0, 0), QPointF(1, 0))
         assert scene.begin_dynamic_input() is True
@@ -690,7 +676,6 @@ class TestCancelLeavesNoGeometry:
 
     def _engage(self, scene, anchor=QPointF(0, 0)):
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         scene._draw_line_anchor = QPointF(anchor)
         scene.publish_placement_state(anchor, QPointF(anchor.x() + 1000.0,
                                                       anchor.y()))
@@ -959,7 +944,6 @@ def _rect_tuple(item):
 def _size_rect_by_mouse(scene, view, anchor, corner, from_centre=False):
     """Drive the two real sizing clicks, leaving the rect at the rotate step."""
     scene.set_mode("draw_rectangle")
-    scene.single_place_mode = False
     scene._draw_rect_from_center = from_centre
     _click(scene, view, QPointF(anchor))          # arm anchor + build preview
     # ``_click`` routes _press_draw_line; drive rectangle presses directly.
@@ -975,7 +959,6 @@ def _size_rect_by_mouse(scene, view, anchor, corner, from_centre=False):
 def _engage_rect_sizing(scene, anchor=QPointF(0, 0), from_centre=False):
     """Arm a rectangle at the SIZING step and engage the HUD on it."""
     scene.set_mode("draw_rectangle")
-    scene.single_place_mode = False
     scene._draw_rect_from_center = from_centre
     scene._press_draw_rectangle(_FakeEvent(), None, QPointF(anchor),
                                 None, None, None)      # arm anchor + preview
@@ -1033,7 +1016,6 @@ class TestRectangleSizingUnchanged:
     def test_too_small_second_click_is_refused(self, scene, view):
         """The floor stays at the sizing step; a degenerate size never rotates."""
         scene.set_mode("draw_rectangle")
-        scene.single_place_mode = False
         scene._press_draw_rectangle(_FakeEvent(), None, QPointF(0, 0),
                                     None, None, None)
         ok = scene._advance_rectangle_to_rotate_step(QPointF(0.1, 0.1))
@@ -1125,7 +1107,6 @@ class TestRectangleRotateParity:
     def test_applier_reports_its_verdict(self, scene, view):
         """The step router: sizing advances, rotate commits."""
         scene.set_mode("draw_rectangle")
-        scene.single_place_mode = False
         scene._press_draw_rectangle(_FakeEvent(), None, QPointF(0, 0),
                                     None, None, None)
         # Sizing step: a QPointF far corner advances (True) and enters rotate.
@@ -1246,7 +1227,6 @@ class TestRectangleRotatePreview:
 def _engage_circle(scene, centre=QPointF(0, 0)):
     """Arm a circle placement and engage the HUD on it."""
     scene.set_mode("draw_circle")
-    scene.single_place_mode = False
     scene._draw_circle_center = QPointF(centre)
     scene.publish_placement_state(centre, QPointF(centre.x() + 1.0, centre.y()))
     assert scene.begin_dynamic_input() is True
@@ -1260,7 +1240,6 @@ class TestCircleParity:
 
     def test_mouse_and_hud_agree(self, scene, view):
         scene.set_mode("draw_circle")
-        scene.single_place_mode = False
         scene._draw_circle_center = QPointF(0, 0)
         assert scene._commit_draw_circle_at(QPointF(120.0, 0.0)) is True
         by_mouse = scene._draw_circles[-1].rect()
@@ -1278,7 +1257,6 @@ class TestCircleParity:
         """Any rim point of the same magnitude yields the same circle, which is
         what lets ``resolve_circle`` emit a bare +X point."""
         scene.set_mode("draw_circle")
-        scene.single_place_mode = False
         scene._draw_circle_center = QPointF(0, 0)
         scene._commit_draw_circle_at(QPointF(0.0, -50.0))
         a = scene._draw_circles[-1].rect()
@@ -1333,7 +1311,6 @@ class TestCircleParity:
 
     def test_commit_clears_centre_preview_and_placement_state(self, scene, view):
         scene.set_mode("draw_circle")
-        scene.single_place_mode = False
         scene._draw_circle_center = QPointF(0, 0)
         scene.publish_placement_state(QPointF(0, 0), QPointF(120, 0))
         scene._commit_draw_circle_at(QPointF(120.0, 0.0))
@@ -1377,7 +1354,6 @@ class TestApplierRejectionKeepsTheHudOpen:
 
     def _engage(self, scene, anchor=QPointF(0, 0)):
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         scene._draw_line_anchor = QPointF(anchor)
         scene.publish_placement_state(anchor, QPointF(anchor.x() + 1000.0,
                                                      anchor.y()))
@@ -1942,7 +1918,6 @@ class TestGhostUpdatesOnFieldCommit:
         followed the typed field.
         """
         scene.set_mode("draw_line")
-        scene.single_place_mode = False
         scene._draw_line_anchor = QPointF(anchor)
         scene.publish_placement_state(anchor, QPointF(anchor.x() + 800.0,
                                                       anchor.y()))
@@ -1979,7 +1954,6 @@ class TestGhostUpdatesOnFieldCommit:
         preview is unchanged by the added rotate step.
         """
         scene.set_mode("draw_rectangle")
-        scene.single_place_mode = False
         scene._press_draw_rectangle(_FakeEvent(), None, QPointF(anchor),
                                     None, None, None)
         scene._move_draw_rectangle(_FakeEvent(),
@@ -2013,7 +1987,6 @@ class TestGhostUpdatesOnFieldCommit:
     def _engage_circle(self, scene, view, centre=QPointF(0, 0)):
         """First-click a circle centre, seed a decoy rim, and engage."""
         scene.set_mode("draw_circle")
-        scene.single_place_mode = False
         scene._press_draw_circle(_FakeEvent(), None, QPointF(centre),
                                  None, None, None)
         scene._move_draw_circle(_FakeEvent(),
@@ -2161,15 +2134,8 @@ class TestCommitArcAt:
         assert scene._commit_draw_arc_at(QPointF(0, -1000)) is False
         assert not _arcs(scene)
 
-    def test_single_place_mode_exits_to_select(self, scene):
-        _arm_arc(scene)
-        scene.single_place_mode = True
-        scene._commit_draw_arc_at(QPointF(0, -1000))
-        assert scene.mode == "select"
-
     def test_repeat_mode_rearms(self, scene):
         _arm_arc(scene)
-        scene.single_place_mode = False
         seen = []
         scene.instructionChanged.connect(seen.append)
         scene._commit_draw_arc_at(QPointF(0, -1000))
@@ -2361,7 +2327,6 @@ class TestArcMouseHudParity:
 def _engage_arc_step1(scene, center=QPointF(0, 0)):
     """Click the arc centre and engage the step-1 (line) HUD."""
     scene.set_mode("draw_arc")
-    scene.single_place_mode = False
     scene._arc_variant = "center"
     # First click arms the centre, advances to step 1, builds the radius line.
     scene._press_draw_arc(_FakeEvent(), center, center, None, None, None)
@@ -2381,7 +2346,6 @@ def _engage_arc_step2(scene, center=QPointF(0, 0), radius=1000.0,
     and the ``arc_span`` HUD engaged.
     """
     scene.set_mode("draw_arc")
-    scene.single_place_mode = False
     scene._arc_variant = "center"
     scene._press_draw_arc(_FakeEvent(), center, center, None, None, None)
     assert scene._draw_arc_step == 1

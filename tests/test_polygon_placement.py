@@ -90,3 +90,13 @@ def test_move_creates_and_commit_clears_ghost(scene):
     assert scene._polygon_preview is not None
     scene._commit_polygon_at(QPointF(100, 0))
     assert scene._polygon_preview is None
+
+def test_no_single_place_attribute(scene):
+    assert not hasattr(scene, "single_place_mode")
+
+def test_placement_continuous_after_commit(scene):
+    from PyQt6.QtCore import QPointF
+    scene.set_mode("draw_circle")
+    scene._draw_circle_center = QPointF(0, 0)
+    scene._commit_draw_circle_at(QPointF(100, 0))
+    assert scene.mode == "draw_circle"   # stays continuous, never "select"

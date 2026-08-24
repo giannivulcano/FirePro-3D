@@ -1526,8 +1526,8 @@ class MainWindow(QMainWindow):
         # ── Tab 3: Create ────────────────────────────────────────────────────
         draw_page = self.ribbon.add_page("Create")
 
-        # --- Geometry ---
-        g_geom = draw_page.add_group("Geometry")
+        # --- 2D Geometry ---
+        g_geom = draw_page.add_group("2D Geometry")
         _mode_btn(g_geom, "Line", _I("line_icon.svg"), "draw_line").setToolTip(
             "Draw a line (L)")
         # Plain Rectangle button — corner vs centre is chosen on-canvas with the
@@ -1538,12 +1538,8 @@ class MainWindow(QMainWindow):
         _mode_btn(g_geom, "Circle", _I("circle_icon.svg"), "draw_circle").setToolTip("Draw a circle (C)")
         _mode_btn(g_geom, "Polyline", _I("polyline_icon.svg"), "polyline").setToolTip("Draw a polyline (multi-segment) (K — placeholder)")
         _mode_btn(g_geom, "Arc", _I("arc_icon.svg"), "draw_arc").setToolTip("Draw an arc (3-click) (A) — ←/→ toggles start point")
-        self._single_place_btn = g_geom.add_small_button(
-            "Single\nPlace", _I("placeholder_icon.svg"), None, checkable=True)
-        self._single_place_btn.setToolTip("Return to Select mode after placing one item")
-        self._single_place_btn.setChecked(False)
-        self._single_place_btn.toggled.connect(
-            lambda on: setattr(self.scene, 'single_place_mode', on))
+        _mode_btn(g_geom, "Polygon", _I("polygon_icon.svg"), "polygon").setToolTip(
+            "Draw a regular polygon — ↑/↓ sides, ←/→ inscribed/circumscribed")
 
         # --- Blocks ---
         g_blocks = draw_page.add_group("Blocks")

@@ -270,8 +270,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._offset_preview = None             # preview item shown during side-pick
         self._offset_manual: bool = False       # True when user typed distance via Tab
         self._offset_highlight = None           # highlight overlay for selected offset entity
-        # Single place mode (Sprint Y) — return to select after placing one item
-        self.single_place_mode: bool = False
         # Trim / Extend / Merge state (Sprint Y)
         self._trim_edge = None              # cutting edge item for trim
         self._trim_edge_highlight = None    # highlight overlay
@@ -4660,9 +4658,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud = self.dynamic_input
         geometry = schema.resolve(anchor, values)
         if self.apply_dynamic_input(geometry):
-            # An applier may have torn the HUD down itself by exiting the mode
-            # (single_place_mode → set_mode("select")); end_dynamic_input is a
-            # no-op in that case.
+            # An applier may have torn the HUD down itself (e.g. by calling
+            # set_mode); end_dynamic_input is a no-op in that case.
             self.end_dynamic_input()
         elif hud is not None and hud is self.dynamic_input:
             hud.reject_commit()
@@ -7271,10 +7268,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_arc_start_deg = 0.0
         self._draw_arc_step = 0
         self.push_undo_state()
-        if self.single_place_mode:
-            self.set_mode("select")
-        else:
-            self.instructionChanged.emit("Pick center point")
+        self.instructionChanged.emit("Pick center point")
         return True
 
     def _press_water_supply(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -7878,10 +7872,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first room boundary point")
+                    self.instructionChanged.emit("Pick first room boundary point")
                     return
             # Click-to-delete vertex
             if len(pts) >= 2:
@@ -8348,9 +8339,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         anchor = self._draw_line_anchor
         if anchor is None:
             return False
-        # Read the mode flag up front: the single_place_mode branch below calls
-        # set_mode("select"), which mutates self.mode, so a later read would
-        # pick the wrong wording for the re-arm instruction.
         _is_grid = self.mode == "draw_gridline"
         # Reject zero-length lines
         if math.hypot(tip.x() - anchor.x(),
@@ -8365,10 +8353,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.clear_placement_state()
         self.preview_pipe.hide()
         self.push_undo_state()
-        if self.single_place_mode:
-            self.set_mode("select")
-        else:
-            self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
+        self.instructionChanged.emit("Pick start point" if _is_grid else "Pick first point")
         return True
 
     def _press_draw_rectangle(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8541,8 +8526,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._draw_rect_preview is not None:
             self.removeItem(self._draw_rect_preview)
             self._draw_rect_preview = None
-        # Read the mode flag before single_place_mode's set_mode("select")
-        # mutates it, so the re-arm wording matches the mode just used.
         _from_centre = self._draw_rect_from_center
         # Reset the full rect state (anchor + rotate step + sized rect + pivot).
         self._draw_rect_anchor = None
@@ -8553,11 +8536,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._clear_rect_ref_lines()
         self.clear_placement_state()
         self.push_undo_state()
-        if self.single_place_mode:
-            self.set_mode("select")
-        else:
-            self.instructionChanged.emit(
-                "Pick center point" if _from_centre else "Pick first corner")
+        self.instructionChanged.emit(
+            "Pick center point" if _from_centre else "Pick first corner")
         return True
 
     def _press_draw_circle(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8622,10 +8602,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._draw_circle_center = None
         self.clear_placement_state()
         self.push_undo_state()
-        if self.single_place_mode:
-            self.set_mode("select")
-        else:
-            self.instructionChanged.emit("Pick center point")
+        self.instructionChanged.emit("Pick center point")
         return True
 
     # ── Polygon drawing ───────────────────────────────────────────────
@@ -8765,11 +8742,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 # Loop closed — stop wall chain
                 self._wall_anchor = None
                 self._wall_chain_start = None
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit(
-                        f"Pick wall start point [{self._wall_alignment}]")
+                self.instructionChanged.emit(
+                    f"Pick wall start point [{self._wall_alignment}]")
             else:
                 # Chain: end of this wall becomes start of next
                 self._wall_anchor = QPointF(tip)
@@ -8839,10 +8813,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._wall_rect_thickness_preview = None
             self._wall_rect_anchor = None
             self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick first corner for rectangular wall")
+            self.instructionChanged.emit("Pick first corner for rectangular wall")
 
     # ── Floor drawing ─────────────────────────────────────────────────
     def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -8874,10 +8845,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    self.instructionChanged.emit("Pick first boundary point (click near first to close)")
                     return
             # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
             if len(pts) >= 2:
@@ -8935,10 +8903,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._floor_rect_preview = None
             self._floor_rect_anchor = None
             self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick first corner for rectangular floor")
+            self.instructionChanged.emit("Pick first corner for rectangular floor")
 
     # ── Detail view placement ──────────────────────────────────────────
 
@@ -9064,10 +9029,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     roof.setSelected(True)
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    self.instructionChanged.emit("Pick first boundary point (click near first to close)")
                     return
             if len(pts) >= 2:
                 scale = self.views()[0].transform().m11() if self.views() else 1.0
@@ -9159,10 +9121,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             roof.setSelected(True)
             for v in self.views(): v.viewport().update()
             self.push_undo_state()
-            if self.single_place_mode:
-                self.set_mode("select")
-            else:
-                self.instructionChanged.emit("Pick first corner for rectangular roof")
+            self.instructionChanged.emit("Pick first corner for rectangular roof")
 
     # ── Door placement ────────────────────────────────────────────────
     def _press_opening(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -9386,8 +9345,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 pl.setSelected(True)
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
             event.accept()
             return
 
@@ -9406,10 +9363,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._floor_active = None
                 for v in self.views(): v.viewport().update()
                 self.push_undo_state()
-                if self.single_place_mode:
-                    self.set_mode("select")
-                else:
-                    self.instructionChanged.emit("Pick first boundary point (double-click to close)")
+                self.instructionChanged.emit("Pick first boundary point (double-click to close)")
             event.accept()
             return
 
@@ -9945,8 +9899,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._polyline_active = None
                     pl.setSelected(True)
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
                     # Stay in polyline mode so user can draw another
             # Close an in-progress floor slab
             elif self.mode == "floor" and self._floor_active is not None:
@@ -9957,10 +9909,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._floor_active = None
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first boundary point (double-click or Enter to close)")
+                    self.instructionChanged.emit("Pick first boundary point (double-click or Enter to close)")
             # Close an in-progress roof polygon
             elif self.mode == "roof" and self._roof_active is not None:
                 if len(self._roof_active._points) >= 3:
@@ -10007,10 +9956,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     roof.setSelected(True)
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    self.instructionChanged.emit("Pick first boundary point (click near first to close)")
             # Close an in-progress manual room polygon
             elif self.mode == "room_manual" and self._room_manual_active is not None:
                 if len(self._room_manual_active._boundary) >= 3:
@@ -10025,10 +9971,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    if self.single_place_mode:
-                        self.set_mode("select")
-                    else:
-                        self.instructionChanged.emit("Pick first room boundary point")
+                    self.instructionChanged.emit("Pick first room boundary point")
             # Commit fillet
             elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
                 data = self._compute_fillet(self._fillet_item1, self._fillet_item2,

@@ -483,7 +483,6 @@ class TestTask5PlacementAndGripWiring:
 
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
 
-        ms.single_place_mode = True
         ms.set_mode("draw_gridline")
 
         _place_click(ms, 0.0, 0.0)       # 1st click: origin
@@ -538,7 +537,6 @@ class TestTask5PlacementAndGripWiring:
 
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
 
-        ms.single_place_mode = True
         ms.set_mode("draw_gridline")
 
         _place_click(ms, 10.0, 10.0)
@@ -547,21 +545,24 @@ class TestTask5PlacementAndGripWiring:
         assert len(ms._gridlines) == 1, "Should have placed one gridline without refs"
 
     def test_active_item_cleared_after_placement(self, qapp, make_model_space):
-        """_inference_active_item must be None after single_place_mode commit."""
+        """After a gridline commit (continuous mode), the previous in-progress item
+        is gone and the mode stays draw_gridline (re-armed for the next one)."""
         ms = make_model_space()
         ms._osnap_enabled = False
         ms._snap_to_underlay = False
 
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
 
-        ms.single_place_mode = True
         ms.set_mode("draw_gridline")
 
         _place_click(ms, 0.0, 0.0)
         _place_click(ms, 0.0, 200.0)   # short gridline within viewport
 
-        assert ms._inference_active_item is None, (
-            f"Expected None after placement, got {ms._inference_active_item!r}"
+        # The committed gridline was added to the scene.
+        assert len(ms._gridlines) == 1, "Expected one placed gridline"
+        # Continuous mode: mode stays draw_gridline (does not exit to select).
+        assert ms.mode == "draw_gridline", (
+            f"Expected mode to stay 'draw_gridline', got {ms.mode!r}"
         )
 
     def test_active_item_cleared_on_mode_change(self, qapp, make_model_space):

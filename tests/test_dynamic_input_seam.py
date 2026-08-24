@@ -796,15 +796,14 @@ class TestCommitAndCancel:
         assert not scene.is_input_mode()
         assert scene.dynamic_input is None
 
-    def test_single_place_commit_still_closes_cleanly(self, scene, view):
-        """The commit path calls ``set_mode`` itself — no double tear-down."""
+    def test_continuous_commit_closes_cleanly(self, scene, view):
+        """Commit via HUD leaves no stale HUD and stays in placement mode."""
         _armed_line(scene)
-        scene.single_place_mode = True
         scene.begin_dynamic_input()
         scene.dynamic_input.set_values({"Length": 1000.0, "Angle": 0.0})
         scene.dynamic_input._accept()
         assert len(scene._draw_lines) == 1
-        assert scene.mode == "select"
+        assert scene.mode == "draw_line"   # stays continuous
         assert scene.dynamic_input is None
 
     def test_unmapped_mode_applier_raises(self, scene, view):
