@@ -193,7 +193,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._polygon_sides: int = 6
         self._polygon_inscribed: bool = True
         self._polygon_preview: "RegularPolygonItem | None" = None
-        self._draw_polygons: list = []
+        self._draw_polygons: list[RegularPolygonItem] = []
         self._last_scene_pos: "QPointF | None" = None  # last cursor position for Tab defaults
         self._resolved_point: "QPointF | None" = None  # constrained point published each frame
         # Arc drawing (3-click: centre, start point, end point)
@@ -9633,6 +9633,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 result.append(pipe)
         for lst in [self._polylines, self._draw_lines,
                     self._draw_rects, self._draw_circles, self._draw_arcs,
+                    self._draw_polygons,
                     self._gridlines,
                     self._walls, self._floor_slabs, self._roofs]:
             for item in lst:

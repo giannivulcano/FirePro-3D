@@ -1113,6 +1113,7 @@ class SceneToolsMixin:
         """Return a flat list of all construction geometry items in the scene."""
         from .construction_geometry import (
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
+            RegularPolygonItem,
         )
         items = []
         items.extend(self._draw_lines)
@@ -1120,6 +1121,7 @@ class SceneToolsMixin:
         items.extend(self._draw_circles)
         items.extend(self._draw_arcs)
         items.extend(self._polylines)
+        items.extend(self._draw_polygons)
         return items
 
     def _find_geometry_at(self, pos: QPointF):

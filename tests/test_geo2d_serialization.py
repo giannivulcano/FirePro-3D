@@ -23,6 +23,7 @@ Additionally (Task 5):
 from __future__ import annotations
 
 import json
+import math
 import pytest
 from PyQt6.QtCore import QPointF
 from PyQt6.QtWidgets import QApplication
@@ -267,7 +268,8 @@ def test_restore_network_clears_existing_polygons(qapp):
 def test_polygon_file_round_trip(qapp, tmp_path):
     """save_to_file / load_from_file round-trips RegularPolygonItem."""
     scene = _make_scene(qapp)
-    p = RegularPolygonItem(QPointF(0, 0), sides=8, radius_mm=60.0, inscribed=False)
+    p = RegularPolygonItem(QPointF(0, 0), sides=8, radius_mm=60.0,
+                           rotation_deg=30.0, inscribed=False)
     scene.addItem(p)
     scene._draw_polygons.append(p)
 
@@ -280,6 +282,8 @@ def test_polygon_file_round_trip(qapp, tmp_path):
     assert len(scene2._draw_polygons) == 1
     assert scene2._draw_polygons[0]._sides == 8
     assert scene2._draw_polygons[0]._inscribed is False
+    assert math.isclose(scene2._draw_polygons[0]._radius_mm, 60.0, abs_tol=1e-6)
+    assert math.isclose(scene2._draw_polygons[0]._rotation_deg, 30.0, abs_tol=1e-6)
 
 
 def test_closed_polyline_file_round_trip(qapp, tmp_path):
@@ -315,3 +319,15 @@ def test_polygon_paste(qapp):
     scene.paste_items(QPointF(0, 0))
     assert len(scene._draw_polygons) == before + 1
     assert scene._draw_polygons[-1]._sides == 6
+
+
+def test_polygon_included_in_items_on_level(qapp):
+    """_items_on_level must include RegularPolygonItem entries."""
+    scene = _make_scene(qapp)
+    from firepro3d.construction_geometry import RegularPolygonItem
+    p = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=40.0)
+    p.level = "Level 1"
+    scene.addItem(p)
+    scene._draw_polygons.append(p)
+    items = scene._items_on_level("Level 1")
+    assert p in items
