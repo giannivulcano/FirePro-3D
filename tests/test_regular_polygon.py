@@ -65,3 +65,18 @@ def test_sides_clamped(qapp):
     assert p._sides == 3
     p.set_property("Sides", 999)
     assert p._sides == 120
+
+def test_circumscribed_vertex_grip_round_trip(qapp):
+    # Grip index 0 = centre; grip index k+1 = vertex k.
+    # apply_grip(3, ...) → vi = 3-1 = 2 → vertex index 2.
+    p = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=80.0,
+                           rotation_deg=10.0, inscribed=False)
+    target = QPointF(150.0, 40.0)
+    p.apply_grip(3, target)   # drag grip 3 → vertex index 2
+    vs = p.vertices()
+    assert _approx(vs[2].x(), target.x(), tol=1e-3)
+    assert _approx(vs[2].y(), target.y(), tol=1e-3)
+    # still regular: all edges equal
+    edges = [math.hypot(vs[(i+1) % 5].x()-vs[i].x(), vs[(i+1) % 5].y()-vs[i].y())
+             for i in range(5)]
+    assert all(_approx(e, edges[0], tol=1e-3) for e in edges)

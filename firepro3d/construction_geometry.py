@@ -1235,7 +1235,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
             return
         if key == "Rotation":
             try:
-                self._rotation_deg = float(value)
+                self._rotation_deg = float(str(value).replace("°", "").strip())
             except (TypeError, ValueError):
                 return
             self._regenerate()
@@ -1266,6 +1266,8 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         step = 360.0 / self._sides
         # The base angle for vertex 0 is _rotation_deg + circ_offset.
         # Solve: ang = _rotation_deg + circ_offset + vi * step
+        # circ_offset mirrors the same half-step applied in vertices(); the two
+        # must stay in sync — this line is the inverse of vertices()'s `base`.
         circ_offset = 0.0 if self._inscribed else 180.0 / self._sides
         ang = math.degrees(math.atan2(dy, dx))
         self._rotation_deg = ang - circ_offset - vi * step
