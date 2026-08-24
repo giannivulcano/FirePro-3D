@@ -4535,10 +4535,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if schema.name == "rotation":
             # Seed the live orientation: the pivot→resolved-point heading, the
             # same absolute angle the mouse and ``resolve_rotation`` use.  0°
-            # (axis-aligned) before anything is published.
+            # (axis-aligned) before anything is published.  The pivot differs by
+            # mode — the polygon rotate step pivots about its centre, the
+            # rectangle about its stored pivot — so dispatch to the matching
+            # angle helper (both share the same Y-up formula).
             point = self.get_resolved_point()
             if point is None:
                 return {"Angle": 0.0}
+            if self.mode == "polygon":
+                return {"Angle": self._polygon_rotation_angle_to(point)}
             return {"Angle": self._rect_rotation_angle_to(point)}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click
@@ -5779,9 +5784,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             angle = self._polygon_rotation_angle_to(snapped)
             self._preview_polygon_rotation(angle)
             self.publish_placement_state(self._polygon_center, snapped)
-            # Live angle in the readout so the user sees the rotation update.
-            self.instructionChanged.emit(
-                f"Pick rotation angle: {angle:.1f}°  |  {self._polygon_readout()}")
             return
         if self._polygon_center is None:
             self.update_preview_node(snapped)   # cursor preview before first click

@@ -455,18 +455,28 @@ def test_commit_clears_ghost(scene):
     assert scene._polygon_preview is None
 
 
-def test_move_during_rotate_emits_live_angle(scene):
-    """The readout live-updates the angle as the cursor moves in the rotate step."""
+def test_hud_angle_live_seeds_during_polygon_rotate(scene):
+    """The HUD Angle field seeds from the LIVE cursor angle during polygon rotate.
+
+    Root of the smoke bug: the "rotation" seed was hardcoded to the rectangle
+    pivot (`_rect_rotation_angle_to`), which is unset during polygon placement,
+    so the HUD Angle stayed at 0.  It must seed from the polygon centre.
+    """
+    from firepro3d.dynamic_input import SCHEMAS
     scene.set_mode("polygon")
     scene._press_polygon(None, None, QPointF(0, 0), None, None, None)
     scene._press_polygon(None, None, QPointF(100, 0), None, None, None)  # -> rotate step
-    emissions = []
-    scene.instructionChanged.connect(emissions.append)
+    assert scene._polygon_rotating
+
     scene._move_polygon(None, QPointF(0, -100))   # north -> +90 deg (Y-up)
-    assert emissions, "expected a readout emission during rotate move"
-    last = emissions[-1]
-    assert "90" in last and "°" in last, (
-        f"expected the live rotation angle in the readout; got {last!r}"
+    seed = scene._seed_values_for(SCHEMAS["rotation"], None)
+    assert math.isclose(seed["Angle"], 90.0, abs_tol=1e-6), (
+        f"HUD Angle should live-seed to 90 deg, got {seed}"
+    )
+    scene._move_polygon(None, QPointF(100, 0))    # east -> 0 deg (proves not static)
+    seed2 = scene._seed_values_for(SCHEMAS["rotation"], None)
+    assert math.isclose(seed2["Angle"], 0.0, abs_tol=1e-6), (
+        f"HUD Angle should track the cursor (0 deg east), got {seed2}"
     )
 
 
