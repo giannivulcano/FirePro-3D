@@ -738,8 +738,15 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         if abs(top_z - base_z) < 1.0:
             return None
 
-        # 2D quad corners (scene coords → mm via scale manager), mitered
-        p1l, p1r, p2r, p2l = self.mitered_quad()
+        # 2D quad corners (scene coords → mm via scale manager).
+        # Use the UN-mitered rectangle (parallel long edges) rather than
+        # mitered_quad: mitered corners skew the two long edges near joins, so
+        # same-parameter interpolation of an opening's jambs lands off-square
+        # (openings cut at an angle on connected walls). quad_points keeps the
+        # long edges parallel → opening jambs are perpendicular by construction.
+        # Trade-off: 3D wall corners butt-join instead of mitre (minor; a
+        # separate follow-up can re-mitre the 3D corners if wanted).
+        p1l, p1r, p2r, p2l = self.quad_points()
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None
 

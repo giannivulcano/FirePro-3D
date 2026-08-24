@@ -221,3 +221,43 @@ def test_wall_with_opening_mesh_is_watertight(qapp, model_scene):
         f"Wall mesh has {open_edges} open edge(s) — reveal caps are missing or "
         "wound incorrectly (open edges arise from unshared boundary edges)"
     )
+
+
+def test_opening_perpendicular_on_joined_wall(qapp, model_scene):
+    """#2 fix: on a mitered (joined) wall, the 3D opening jamb must stay
+    perpendicular. get_3d_mesh uses the UN-mitered quad_points (parallel long
+    edges → perpendicular jambs); the mitered_quad edges skew (the old bug).
+    Asserts the geometric ground truth + watertightness on a real L-joint."""
+    import math
+    import numpy as np
+    import pyvista as pv
+    from firepro3d.wall import WallSegment
+    from firepro3d.wall_opening import WallOpening
+    from PyQt6.QtCore import QPointF
+
+    scene = model_scene()
+    a = WallSegment(QPointF(0, 0), QPointF(3000, 0), thickness_mm=200.0)
+    b = WallSegment(QPointF(3000, 0), QPointF(3000, 3000), thickness_mm=200.0)
+    for w in (a, b):
+        scene.addItem(w); scene._walls.append(w)
+
+    def _len(p, q):
+        return math.hypot(q.x() - p.x(), q.y() - p.y())
+
+    # Precondition: wall A IS mitered — the two long edges have UNEQUAL length
+    # (one corner is pushed out to meet the neighbour), so same-parameter
+    # interpolation of a jamb lands off-square (the old bug).
+    mq0, mq1, mq2, mq3 = a.mitered_quad()
+    assert abs(_len(mq0, mq3) - _len(mq1, mq2)) > 1.0, "test wall not mitered"
+
+    # Fix: quad_points long edges are EQUAL length → same-t jamb is perpendicular.
+    qp0, qp1, qp2, qp3 = a.quad_points()
+    assert abs(_len(qp0, qp3) - _len(qp1, qp2)) < 1e-6
+
+    op = WallOpening(wall=a, feature_id="door_914", offset_along=2400.0)
+    scene.addItem(op); a.openings.append(op)
+    mesh = a.get_3d_mesh(level_manager=scene._level_manager)
+    verts = np.array(mesh["vertices"], dtype=float)
+    faces = np.array(mesh["faces"], dtype=np.int64)
+    pd = pv.PolyData.from_regular_faces(verts, faces)
+    assert pd.n_open_edges == 0
