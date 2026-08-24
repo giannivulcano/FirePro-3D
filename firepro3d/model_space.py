@@ -1054,10 +1054,26 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # pre-commit cycle state) and clears any leftover ghost.  Leaving it
         # tears the ghost down so it never strands on the canvas.
         if mode == "opening":
-            self._opening_feature_id = template or DEFAULT_FEATURE_FOR_TYPE["door"]
-            self._opening_alignment = OPENING_ALIGN_CENTER
-            self._opening_mirror_hinge = False
-            self._opening_mirror_facing = False
+            # Accept either a WallOpening TEMPLATE object (the pre-placement
+            # property template — the new pattern) or a bare feature-id string
+            # (legacy call sites / tests).  A string is adopted onto the
+            # persistent template so there is always one source of truth.
+            if isinstance(template, WallOpening):
+                self.current_template = template
+            else:
+                feature_id = template or DEFAULT_FEATURE_FOR_TYPE["door"]
+                self.current_template = WallOpening(feature_id=feature_id)
+            tmpl = self.current_template
+            tmpl._scene_ref = self
+            # Mirror the template's placement state onto the scene fields the
+            # cycle keys / ghost read (kept in sync both ways below).
+            self._opening_feature_id = tmpl.feature_id
+            self._opening_alignment = tmpl.alignment
+            self._opening_mirror_hinge = tmpl.mirror_hinge
+            self._opening_mirror_facing = tmpl.mirror_facing
+            # Surface the template in the right-side property panel so the user
+            # can edit Sill / size / orientation BEFORE placing.
+            self.requestPropertyUpdate.emit(tmpl)
         if mode != "opening":
             self._clear_opening_ghost()
 
@@ -4930,10 +4946,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         except ValueError:
             idx = -1
         self._opening_alignment = aligns[(idx + 1) % len(aligns)]
+        self._sync_opening_state_to_template()
         self._refresh_opening_ghost()
         self.instructionChanged.emit(
             f"Opening [{self._opening_alignment}] · Space=align "
             f"←/→=hinge ↑/↓=facing")
+
+    def _sync_opening_state_to_template(self) -> None:
+        """Push the live cycle state onto the placement template and refresh the
+        property panel so Spacebar/arrow changes are reflected there (§7.6)."""
+        tmpl = getattr(self, "current_template", None)
+        if isinstance(tmpl, WallOpening):
+            tmpl.alignment = self._opening_alignment
+            tmpl.mirror_hinge = self._opening_mirror_hinge
+            tmpl.mirror_facing = self._opening_mirror_facing
+            self.requestPropertyUpdate.emit(tmpl)
 
     def _cycle_similar_selection(self) -> bool:
         """Select the next element of the same type as the sole selection.
@@ -8968,11 +8995,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._show_status("Click on a wall to place an opening", timeout=2000)
             self.instructionChanged.emit("Click on a wall to place an opening")
             return
-        op = WallOpening(wall=wall, feature_id=self._opening_feature_id,
-                         offset_along=self._offset_along_wall(wall, snapped))
-        op.alignment = self._opening_alignment
-        op.mirror_hinge = self._opening_mirror_hinge
-        op.mirror_facing = self._opening_mirror_facing
+        # The placement TEMPLATE (a WallOpening) is the single source of truth
+        # for feature + size + sill; the scene mirrors below carry only the
+        # live cycle state (alignment / hinge / facing) which is kept synced
+        # onto the template by the cycle keys.
+        tmpl = getattr(self, "current_template", None)
+        if isinstance(tmpl, WallOpening):
+            op = WallOpening(
+                wall=wall, feature_id=tmpl.feature_id,
+                offset_along=self._offset_along_wall(wall, snapped),
+                width_mm=tmpl.width_mm, height_mm=tmpl.height_mm,
+                sill_mm=tmpl.sill_mm,
+            )
+            op.alignment = tmpl.alignment
+            op.mirror_hinge = tmpl.mirror_hinge
+            op.mirror_facing = tmpl.mirror_facing
+        else:
+            op = WallOpening(wall=wall, feature_id=self._opening_feature_id,
+                             offset_along=self._offset_along_wall(wall, snapped))
+            op.alignment = self._opening_alignment
+            op.mirror_hinge = self._opening_mirror_hinge
+            op.mirror_facing = self._opening_mirror_facing
         op.level = wall.level
         op._reposition()
         wall.openings.append(op)
@@ -9017,6 +9060,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._opening_ghost = ghost
         ghost.wall = wall
         ghost._offset_along = offset
+        tmpl = getattr(self, "current_template", None)
+        if isinstance(tmpl, WallOpening):
+            ghost.width_mm = tmpl.width_mm
+            ghost.height_mm = tmpl.height_mm
+            ghost.sill_mm = tmpl.sill_mm
         ghost.alignment = self._opening_alignment
         ghost.mirror_hinge = self._opening_mirror_hinge
         ghost.mirror_facing = self._opening_mirror_facing
@@ -9577,11 +9625,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 self._opening_mirror_hinge = not self._opening_mirror_hinge
+                self._sync_opening_state_to_template()
                 self._refresh_opening_ghost()
                 event.accept()
                 return
             if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down):
                 self._opening_mirror_facing = not self._opening_mirror_facing
+                self._sync_opening_state_to_template()
                 self._refresh_opening_ghost()
                 event.accept()
                 return

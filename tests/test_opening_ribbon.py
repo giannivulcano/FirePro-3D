@@ -75,6 +75,59 @@ def test_blank_button_enters_opening_mode(qapp, main_window):
     assert mw.scene._opening_feature_id == "blank_900"
 
 
+def test_opening_template_surfaces_in_panel_on_mode_entry(qapp, main_window):
+    """Entering opening mode via the ribbon emits the WallOpening template to the
+    property panel so the user can edit Sill/size BEFORE placing (§7.6)."""
+    from firepro3d.wall_opening import WallOpening
+
+    mw = main_window
+    captured = []
+    mw.scene.requestPropertyUpdate.connect(captured.append)
+    mw._mode_buttons["door"].click()
+    assert any(isinstance(t, WallOpening) for t in captured), \
+        "template not surfaced to panel"
+    # The surfaced object is the persistent template (last-used-defaults home).
+    assert mw.current_opening_template in captured
+
+
+def test_template_feature_enum_present_no_wall(qapp, main_window):
+    """A wall=None template exposes an editable Feature enum + Sill, no Level/warning."""
+    mw = main_window
+    props = mw.current_opening_template.get_properties()
+    assert "Feature" in props and props["Feature"]["type"] == "enum"
+    assert "Sill Height" in props
+    assert "Level" not in props          # no wall context on a template
+    assert "Fit Warning" not in props
+
+
+def test_template_sill_edit_applies_to_placed_opening(qapp, main_window):
+    """Editing the template's Sill BEFORE placing must reach the placed opening.
+
+    Drives the real placement entry (_press_opening) after entering opening mode
+    through the ribbon button, proving panel→template→placement is closed.
+    """
+    from firepro3d.wall import WallSegment
+    from PyQt6.QtCore import QPointF
+
+    mw = main_window
+    # Author a window feature + a non-default sill on the persistent template.
+    mw.current_opening_template.apply_feature("window_900")
+    mw.current_opening_template.set_property("Sill Height", 1234.0)   # mm
+    mw._mode_buttons["window"].click()   # enters opening mode carrying the template
+    # Button re-applies the last-used feature only when it CHANGES; window is
+    # already selected, so the edited sill must survive. Re-assert defensively.
+    assert mw.current_opening_template.sill_mm == 1234.0
+
+    w = WallSegment(QPointF(0, 0), QPointF(2000, 0), thickness_mm=200.0)
+    mw.scene.addItem(w); mw.scene._walls.append(w)
+
+    snapped = QPointF(1000, 0)
+    mw.scene._press_opening(None, snapped, snapped, None, None, None)
+    assert len(w.openings) == 1
+    assert w.openings[0].sill_mm == 1234.0, \
+        "template sill did not reach the placed opening"
+
+
 def test_wall_opening_maps_to_opening_family(qapp, main_window):
     """§7.15: _family_key_for must resolve WallOpening → 'opening' (contextual tab key)."""
     from firepro3d.wall import WallSegment

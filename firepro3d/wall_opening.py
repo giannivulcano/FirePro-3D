@@ -190,6 +190,36 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         """Opening type string: "door" | "window" | "blank"."""
         return self._type
 
+    # ── Feature switching (template + placement) ─────────────────────────────
+
+    def apply_feature(self, feature_id: str) -> None:
+        """Switch this opening to *feature_id*, resetting dims to its defaults.
+
+        Sets ``feature_id`` / ``_type`` / ``_leaves`` from ``FEATURE_REGISTRY``
+        and resets ``_width_mm`` / ``_height_mm`` / ``_sill_mm`` to that
+        feature's defaults.  Used when the ribbon button, Feature Browser, or the
+        panel's "Feature" enum selects a different feature on the placement
+        template.  Unknown ids fall back to ``door_914``.
+
+        Args:
+            feature_id: Key into ``FEATURE_REGISTRY``.
+        """
+        fdef = FEATURE_REGISTRY.get(feature_id) or get_feature("door_914")
+        self.feature_id = fdef.id
+        self._type = fdef.type
+        self._leaves = fdef.leaves
+        self._width_mm = float(fdef.default_width_mm)
+        self._height_mm = float(fdef.default_height_mm)
+        self._sill_mm = float(fdef.default_sill_mm)
+        if self._wall is not None:
+            self._reposition()
+
+    def _features_for_category(self) -> list["FeatureDef"]:
+        """FeatureDefs sharing this opening's category, for the panel enum."""
+        cur = FEATURE_REGISTRY.get(self.feature_id)
+        category = cur.category if cur is not None else "Openings"
+        return [f for f in FEATURE_REGISTRY.values() if f.category == category]
+
     # ── Scene/unit helpers ────────────────────────────────────────────────────
 
     def _mm_to_scene(self, mm: float) -> float:
@@ -616,8 +646,21 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         Returns:
             dict: Ordered mapping of property-key → descriptor dict.
         """
+        is_template = self._wall is None
         props: dict = {}
-        props["Type"] = {"type": "label", "value": self._type.title()}
+        # As a pre-placement template (no host wall) the first row is an editable
+        # "Feature" enum so the user can switch door/window/blank + size class
+        # before placing.  On a placed opening the type is fixed, shown as a
+        # read-only label.
+        if is_template:
+            cur = FEATURE_REGISTRY.get(self.feature_id)
+            props["Feature"] = {
+                "type": "enum",
+                "value": cur.display_name if cur is not None else self.feature_id,
+                "options": [f.display_name for f in self._features_for_category()],
+            }
+        else:
+            props["Type"] = {"type": "label", "value": self._type.title()}
         props["Width"] = {"type": "dimension", "value_mm": self._width_mm}
         props["Height"] = {"type": "dimension", "value_mm": self._height_mm}
         props["Sill Height"] = {"type": "dimension", "value_mm": self._sill_mm}
@@ -629,12 +672,14 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
         props["Cross Offset"] = {"type": "dimension", "value_mm": self.cross_offset_mm}
         props["Hinge Flip"] = {"type": "bool", "value": self.mirror_hinge}
         props["Facing Flip"] = {"type": "bool", "value": self.mirror_facing}
-        props["Level"] = {"type": "level_ref", "value": self.level}
-        if not self.fits_within_wall():
-            props["Fit Warning"] = {
-                "type": "warning",
-                "value": "Opening extends beyond the host wall's vertical extent.",
-            }
+        # Level + fit warning need a wall context; drop them on the template.
+        if not is_template:
+            props["Level"] = {"type": "level_ref", "value": self.level}
+            if not self.fits_within_wall():
+                props["Fit Warning"] = {
+                    "type": "warning",
+                    "value": "Opening extends beyond the host wall's vertical extent.",
+                }
         return props
 
     # ── 3D geometry (§7.8.3) ─────────────────────────────────────────────────
@@ -854,7 +899,19 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             value: New value — mm float for dimension keys, str for enum/level_ref,
                    bool for bool keys.  Unknown keys are silently ignored.
         """
-        if key == "Width":
+        if key == "Feature":
+            # value is a display_name (or an id) from the panel enum → resolve
+            # to a feature id and switch (resets dims to that feature's defaults).
+            fid = str(value)
+            if fid not in FEATURE_REGISTRY:
+                match = next(
+                    (f.id for f in FEATURE_REGISTRY.values()
+                     if f.display_name == fid),
+                    None,
+                )
+                fid = match or self.feature_id
+            self.apply_feature(fid)
+        elif key == "Width":
             self._width_mm = float(value)
         elif key == "Height":
             self._height_mm = float(value)

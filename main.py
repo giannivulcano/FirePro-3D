@@ -39,6 +39,7 @@ from firepro3d.model_browser import ModelBrowser
 from firepro3d.feature_browser import FeatureBrowser
 from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LENGTH_MM
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
+from firepro3d.wall_opening import WallOpening
 from firepro3d import theme as th
 
 
@@ -401,6 +402,7 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("GV", "FirePro3D")
         self.current_sprinkler_template = Sprinkler(None)
         self.current_pipe_template = Pipe(None, None)
+        self.current_opening_template = WallOpening(wall=None, feature_id="door_914")
         self._current_file: str | None = None
         self._modified: bool = False
         self._MAX_RECENT = 8
@@ -424,6 +426,7 @@ class MainWindow(QMainWindow):
         # *current* scale_manager (survives _clear_scene resets).
         self.current_pipe_template._scene_ref = self.scene
         self.current_sprinkler_template._scene_ref = self.scene
+        self.current_opening_template._scene_ref = self.scene
         self.view = Model_View(self.scene)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.view.setMouseTracking(True)
@@ -845,6 +848,30 @@ class MainWindow(QMainWindow):
             raw = self.settings.value("template/text", {})
             if isinstance(raw, dict):
                 apply_template_settings(self.current_text_template.data, raw)
+        if self.settings.contains("template/opening"):
+            op = self.settings.value("template/opening", {})
+            if isinstance(op, dict):
+                tmpl = self.current_opening_template
+                fid = op.get("feature_id")
+                if fid:
+                    tmpl.apply_feature(str(fid))   # resets dims to feature defaults
+                # Restore user-authored overrides ON TOP of the feature defaults.
+                if "sill_mm" in op:
+                    tmpl.sill_mm = float(op["sill_mm"])
+                if "width_mm" in op:
+                    tmpl.width_mm = float(op["width_mm"])
+                if "height_mm" in op:
+                    tmpl.height_mm = float(op["height_mm"])
+                if "alignment" in op:
+                    tmpl.alignment = str(op["alignment"])
+                if "mirror_hinge" in op:
+                    mh = op["mirror_hinge"]
+                    tmpl.mirror_hinge = (mh if isinstance(mh, bool)
+                                         else str(mh).lower() in ("true", "1"))
+                if "mirror_facing" in op:
+                    mf = op["mirror_facing"]
+                    tmpl.mirror_facing = (mf if isinstance(mf, bool)
+                                          else str(mf).lower() in ("true", "1"))
 
     def _apply_persistent_unit_prefs(self):
         """Override the scale manager's display unit and precision with the
@@ -1590,19 +1617,19 @@ class MainWindow(QMainWindow):
         self._mode_buttons["room_manual"] = _room_btn
         _door_btn = g_3d.add_small_button(
             "Door", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("opening", template=self._last_feature_for("door")),
+            lambda: self._enter_opening_mode("door"),
             checkable=True)
         _door_btn.setToolTip("Place a door opening in a wall")
         self._mode_buttons["door"] = _door_btn
         _window_btn = g_3d.add_small_button(
             "Window", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("opening", template=self._last_feature_for("window")),
+            lambda: self._enter_opening_mode("window"),
             checkable=True)
         _window_btn.setToolTip("Place a window opening in a wall")
         self._mode_buttons["window"] = _window_btn
         _blank_btn = g_3d.add_small_button(
             "Blank", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("opening", template=self._last_feature_for("blank")),
+            lambda: self._enter_opening_mode("blank"),
             checkable=True)
         _blank_btn.setToolTip("Place a blank (frameless) opening in a wall")
         self._mode_buttons["blank"] = _blank_btn
@@ -2667,6 +2694,24 @@ class MainWindow(QMainWindow):
         """
         return self._last_feature.get(type_, DEFAULT_FEATURE_FOR_TYPE[type_])
 
+    def _enter_opening_mode(self, type_: str) -> None:
+        """Enter opening placement carrying the persistent template (§7.6).
+
+        Applies the last-used feature for *type_* to
+        ``self.current_opening_template`` (only when the feature actually
+        changes, so a user's pre-placement Sill/size edits survive a re-click of
+        the same button), then enters "opening" mode with the template object so
+        the property panel surfaces it for pre-placement editing.
+
+        Args:
+            type_: Opening type key — ``"door"``, ``"window"``, or ``"blank"``.
+        """
+        feature_id = self._last_feature_for(type_)
+        tmpl = self.current_opening_template
+        if tmpl.feature_id != feature_id:
+            tmpl.apply_feature(feature_id)
+        self.scene.set_mode("opening", template=tmpl)
+
     def _on_feature_activated(self, feature_id: str) -> None:
         """Handle a leaf activation from the Feature Browser (§7.13).
 
@@ -2679,7 +2724,10 @@ class MainWindow(QMainWindow):
         except KeyError:
             return
         self._last_feature[fdef.type] = feature_id
-        self.scene.set_mode("opening", template=feature_id)
+        tmpl = self.current_opening_template
+        if tmpl.feature_id != feature_id:
+            tmpl.apply_feature(feature_id)
+        self.scene.set_mode("opening", template=tmpl)
 
     def _sync_mode_buttons(self, mode: str):
         """Keep draw-mode buttons checked/unchecked to match the active mode."""
@@ -4238,6 +4286,17 @@ class MainWindow(QMainWindow):
             self.settings.setValue(
                 "template/text",
                 text_template_to_settings(self.current_text_template.data))
+        if getattr(self, "current_opening_template", None) is not None:
+            t = self.current_opening_template
+            self.settings.setValue("template/opening", {
+                "feature_id":   t.feature_id,
+                "sill_mm":      t.sill_mm,
+                "width_mm":     t.width_mm,
+                "height_mm":    t.height_mm,
+                "alignment":    t.alignment,
+                "mirror_hinge": t.mirror_hinge,
+                "mirror_facing": t.mirror_facing,
+            })
 
 
 # ─────────────────────────────────────────────────────────────────────────────
