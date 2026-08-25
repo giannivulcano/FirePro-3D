@@ -141,3 +141,29 @@ def test_w_enters_wall_mode_via_focused_view(qapp, shown_model_view):
     view.setFocus()
     _key(view, Qt.Key.Key_W)
     assert scene.mode == "wall"
+
+
+# ── Task 7: Spacebar cycles wall alignment (sole binding) ─────────────────────
+
+def test_spacebar_cycles_wall_alignment(qapp, shown_model_view):
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    a0 = scene._wall_alignment
+    _key(view, Qt.Key.Key_Space)
+    assert scene._wall_alignment != a0
+
+
+def test_left_shift_no_longer_cycles_wall_alignment(scene):
+    scene.set_mode("wall")
+    a0 = scene._wall_alignment
+    assert scene.cycle_placement_ambiguity() is False
+    assert scene._wall_alignment == a0
+
+
+def test_spacebar_ignored_while_hud_engaged(qapp, shown_model_view, monkeypatch):
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    monkeypatch.setattr(scene, "is_input_mode", lambda: True)
+    a0 = scene._wall_alignment
+    _key(view, Qt.Key.Key_Space)
+    assert scene._wall_alignment == a0

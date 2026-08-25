@@ -5020,9 +5020,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 (self._pipe_tab_index + 1) % len(self._pipe_tab_candidates))
             self._emit_pipe_tab_readout()
             return True
-        if self.mode == "wall":
-            self._cycle_wall_alignment()
-            return True
         if self.mode == "opening":
             self._cycle_opening_alignment()
             return True
@@ -5091,20 +5088,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _cycle_wall_alignment(self) -> None:
         """Advance wall alignment Center → Left → Right and refresh the preview.
 
-        Lifted verbatim from the retired ``_handle_tab_input`` wall branch.
+        Triggered by Spacebar during wall placement (sole binding since Task 7).
+        Previously bound to Left-Shift via ``cycle_placement_ambiguity``.
         """
         _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
         self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
-        if self._wall_primitive == "rect" and self._wall_rect_anchor is not None:
-            self.instructionChanged.emit(
-                f"Pick opposite corner [{self._wall_alignment}]")
+        if self._wall_primitive == "rect":
+            if self._wall_rect_anchor is None:
+                self.instructionChanged.emit(
+                    f"Pick first corner [{self._wall_alignment}]")
+            else:
+                self.instructionChanged.emit(
+                    f"Pick opposite corner [{self._wall_alignment}]")
         elif self._wall_anchor is None:
             self.instructionChanged.emit(
-                f"Pick wall start point [{self._wall_alignment}]")
+                f"Pick wall start point [{self._wall_alignment}]  Space=align")
         else:
             self.instructionChanged.emit(
-                f"Pick wall end point [{self._wall_alignment}]")
-        # Sync template alignment and update Properties dock live
+                f"Pick wall end point [{self._wall_alignment}]  Space=align")
         if self._wall_template is not None:
             self._wall_template._alignment = self._wall_alignment
             self.requestPropertyUpdate.emit(self._wall_template)
@@ -9014,7 +9015,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._wall_anchor = snapped
             self._wall_chain_start = QPointF(snapped)
             self.update_preview_node(snapped)
-            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Shift=cycle")
+            self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Space=align")
         else:
             tip = snapped
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -9065,7 +9066,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 # Polyline: end of this wall becomes start of next.
                 self._wall_anchor = QPointF(tip)
                 self.instructionChanged.emit(
-                    f"Pick next wall end [{self._wall_alignment}]  Shift=cycle  Esc=stop")
+                    f"Pick next wall end [{self._wall_alignment}]  Space=align  Esc=stop")
 
     # ── Wall rectangle drawing ──────────────────────────────────────────
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
@@ -10078,6 +10079,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._cycle_polygon_sides(-1); event.accept(); return
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                 self._toggle_polygon_inscribed(); event.accept(); return
+        # ── Wall placement: Spacebar cycles alignment ─────────────────────────
+        if (event.key() == Qt.Key.Key_Space
+                and self.mode == "wall"
+                and not self.is_input_mode()):
+            self._cycle_wall_alignment()
+            event.accept()
+            return
         # ── Opening placement cycle keys (§7.6) ──────────────────────────────
         # Spacebar cycles alignment; ←/→ toggle the hinge mirror; ↑/↓ toggle the
         # facing mirror.  All gated on not-input-mode so a focused HUD field
