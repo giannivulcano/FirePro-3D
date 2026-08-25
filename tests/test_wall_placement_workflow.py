@@ -197,3 +197,95 @@ def test_typed_line_wall_matches_mouse(qapp, shown_model_view):
     assert ok is not False
     assert len(scene._walls) == 1
     assert scene._walls[0].pt2 == QPointF(1000, 0)
+
+
+# ── Task 8 fixes: rect anchor + live readout ─────────────────────────────────
+
+
+def test_rect_wall_hud_opens_after_first_corner(qapp, shown_model_view):
+    """get_placement_anchor must return the rect anchor after the first click.
+
+    FIX 1: before the fix, get_placement_anchor returned self._wall_anchor for
+    ALL wall primitives.  For the rect primitive only _wall_rect_anchor is
+    ever set; _wall_anchor stays None.  So _hud_available() saw anchor=None
+    and begin_dynamic_input() returned False — the HUD could never open for
+    typed rect-wall placement.
+    """
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)   # line -> polyline
+    scene.cycle_placement_variant(+1)   # polyline -> rect
+    assert scene._wall_primitive == "rect"
+    _click(view, QPointF(0, 0))                      # sets _wall_rect_anchor
+    assert scene.get_placement_anchor() is not None  # RED before fix
+    # With the anchor known the HUD must be willing to engage.
+    assert scene.begin_dynamic_input() is True       # RED before fix
+    scene.end_dynamic_input()                        # teardown
+
+
+def test_typed_rect_wall_builds_four_walls(qapp, shown_model_view):
+    """Typed rect placement must build exactly 4 wall segments."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)   # line -> polyline
+    scene.cycle_placement_variant(+1)   # polyline -> rect
+    assert scene._wall_primitive == "rect"
+    _click(view, QPointF(0, 0))
+    scene._apply_wall_dynamic_input(QPointF(1000, 800))
+    assert len(scene._walls) == 4
+
+
+class _MoveEventStub:
+    """Minimal stand-in for ``QGraphicsSceneMouseEvent``.
+
+    PyQt6 refuses to instantiate QGraphicsSceneMouseEvent headlessly.
+    Wall move handlers only touch ``event.modifiers()``, so this stub
+    covers the whole event surface they use.
+    """
+    def __init__(self, modifiers=None):
+        from PyQt6.QtCore import Qt
+        self._mods = modifiers or Qt.KeyboardModifier.NoModifier
+
+    def modifiers(self):
+        return self._mods
+
+
+def test_move_wall_publishes_placement_state(scene):
+    """_move_wall must publish the resolved tip via publish_placement_state.
+
+    FIX 2: before the fix _resolved_point stayed None during wall placement
+    because _move_wall never called publish_placement_state.  This test
+    drives the move handler directly (posted MouseMove is inert in PyQt6 —
+    project limitation documented in test_dynamic_input_seam.py) with the
+    anchor set, and asserts that get_resolved_point() reflects the tip.
+    """
+    scene.set_mode("wall")
+    scene._wall_anchor = QPointF(0, 0)
+    tip = QPointF(1000, 0)
+    scene._move_wall(_MoveEventStub(), tip)
+    got = scene.get_resolved_point()
+    assert got is not None, "_move_wall must call publish_placement_state when anchor is set"
+    assert abs(got.x() - 1000) < 1 and abs(got.y() - 0) < 1
+
+
+def test_move_wall_rect_publishes_placement_state(scene):
+    """_move_wall_rect must publish the resolved opposite corner.
+
+    FIX 2: same gap — _move_wall_rect never called publish_placement_state,
+    leaving the live readout frozen at 0mm/0°.  Driven via direct handler
+    call (posted MouseMove is inert).
+    """
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)   # line -> polyline
+    scene.cycle_placement_variant(+1)   # polyline -> rect
+    # Arm the preview rect that _move_wall_rect checks before publishing.
+    from PyQt6.QtWidgets import QGraphicsRectItem
+    from PyQt6.QtCore import QRectF
+    scene._wall_rect_anchor = QPointF(0, 0)
+    scene._wall_rect_preview = QGraphicsRectItem(QRectF(0, 0, 1, 1))
+    scene.addItem(scene._wall_rect_preview)
+    opposite = QPointF(1000, 800)
+    scene._move_wall_rect(_MoveEventStub(), opposite)
+    got = scene.get_resolved_point()
+    assert got is not None, "_move_wall_rect must call publish_placement_state when anchor is set"
+    assert abs(got.x() - 1000) < 1 and abs(got.y() - 800) < 1

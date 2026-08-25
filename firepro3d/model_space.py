@@ -3958,7 +3958,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return QPointF(a) if (self._draw_arc_step in (1, 2)
                                   and a is not None) else None
         if self.mode == "wall":
-            a = self._wall_anchor
+            a = (self._wall_rect_anchor if self._wall_primitive == "rect"
+                 else self._wall_anchor)
             return QPointF(a) if a is not None else None
         if self.mode == "polyline":
             pl = self._polyline_active
@@ -6160,6 +6161,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if sm.is_calibrated else
                 f"L: {_len:.0f}mm"
             )
+            self.publish_placement_state(self._wall_anchor, tip)
             # -- Wall thickness preview rectangle --
             if _len > 1.0:  # avoid degenerate preview
                 if self._wall_preview_rect is None:
@@ -6220,6 +6222,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f"W: {sm.scene_to_display(rect.width())}  "
                 f"H: {sm.scene_to_display(rect.height())}"
             )
+            self.publish_placement_state(self._wall_rect_anchor, snapped)
             # -- Wall thickness preview (4 quads around rectangle) --
             if rect.width() > 1.0 and rect.height() > 1.0:
                 if self._wall_rect_thickness_preview is None:
