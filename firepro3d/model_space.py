@@ -3823,12 +3823,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._snap_result = None
 
-        # Underlay snap
+        # Underlay snap — routed through the ONE snap engine, restricted to
+        # underlay geometry (pixel-correct + zoom-invariant). Runs when the
+        # OSNAP block above did not fire (e.g. select mode) and the toggle is on.
         if self._snap_to_underlay:
-            snap_pt = self.find_snap_point(scene_pos)
-            if snap_pt is not None:
-                self._inference_result = None
-                return snap_pt
+            views = self.views()
+            if views:
+                def _is_underlay(it):
+                    p = it.parentItem()
+                    return (p is not None
+                            and p.data(0) in ("DXF Underlay", "PDF Underlay"))
+                # Force-enable the engine for this call: the underlay toggle is
+                # independent of the general OSNAP on/off switch.
+                _was_enabled = self._snap_engine.enabled
+                self._snap_engine.enabled = True
+                result = self._snap_engine.find(
+                    scene_pos, self, views[0].transform(),
+                    item_filter=_is_underlay)
+                self._snap_engine.enabled = _was_enabled
+                if result is not None:
+                    self._snap_result = result
+                    self._inference_result = None
+                    return result.point
 
         # ── Inferred alignment guides (weak snap, below OSNAP) ────────────
         if self._inference_enabled and self._inference_active_item is not None:
@@ -3872,44 +3888,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
         self.inferenceToggled.emit(self._inference_enabled)
-
-    def find_snap_point(self, pos: QPointF) -> QPointF | None:
-        """Find the nearest DXF underlay snap point within tolerance."""
-        sm = self.scale_manager
-        tolerance = sm.paper_to_scene(2.0) if sm.is_calibrated else 15.0
-        search_rect = QRectF(pos.x() - tolerance, pos.y() - tolerance,
-                             tolerance * 2, tolerance * 2)
-        best_dist = tolerance
-        best_pt = None
-        for item in self.items(search_rect):
-            parent = item.parentItem()
-            if parent is None or not isinstance(parent, QGraphicsItemGroup):
-                continue
-            for pt in self._item_snap_points(item):
-                d = math.hypot(pos.x() - pt.x(), pos.y() - pt.y())
-                if d < best_dist:
-                    best_dist = d
-                    best_pt = pt
-        return best_pt
-
-    def _item_snap_points(self, item) -> list:
-        """Return scene-coordinate snap points for a QGraphicsItem."""
-        pts = []
-        if isinstance(item, QGraphicsLineItem):
-            line = item.line()
-            pts.append(item.mapToScene(line.p1()))
-            pts.append(item.mapToScene(line.p2()))
-            pts.append(item.mapToScene(
-                QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
-            ))
-        elif isinstance(item, QGraphicsEllipseItem):
-            pts.append(item.mapToScene(item.boundingRect().center()))
-        elif isinstance(item, QGraphicsPathItem):
-            path = item.path()
-            for i in range(min(path.elementCount(), 256)):   # cap to avoid spam on splines
-                elem = path.elementAt(i)
-                pts.append(item.mapToScene(QPointF(elem.x, elem.y)))
-        return pts
 
     def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """

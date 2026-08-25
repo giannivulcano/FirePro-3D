@@ -26,6 +26,39 @@ def qapp():
 
 
 @pytest.fixture
+def make_model_space(qapp):
+    """Factory that builds a Model_Space with an attached QGraphicsView.
+
+    The view is sized 800×800 at identity transform (m11==1.0) and centred
+    on the origin so that scene coords in the range ~(-400,400) are in the
+    viewport.  Tests requiring wider coverage or a different transform call
+    ``view.setTransform(...)`` or ``view.centerOn(...)`` on the returned
+    scene's first view after construction.
+
+    Mirrors the fixture in ``test_gridline_alignment_snap.py``.
+    """
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QGraphicsView
+
+    created: list[tuple[Model_Space, QGraphicsView]] = []
+
+    def _factory() -> Model_Space:
+        ms = Model_Space()
+        view = QGraphicsView(ms)
+        view.resize(800, 800)
+        view.resetTransform()
+        view.centerOn(0.0, 0.0)
+        QApplication.processEvents()
+        created.append((ms, view))
+        return ms
+
+    yield _factory
+
+    for ms, view in created:
+        view.hide()
+
+
+@pytest.fixture
 def model_scene(qapp):
     """Factory fixture that returns a callable producing a fresh Model_Space
     with a LevelManager (Level 1 at elevation 0.0) and a ScaleManager.
