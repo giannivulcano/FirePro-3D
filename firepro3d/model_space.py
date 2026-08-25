@@ -60,6 +60,12 @@ from .scene_io import SceneIOMixin
 from .scene_tools import SceneToolsMixin
 
 
+def _is_underlay_item(it) -> bool:
+    """True if a scene item is a child of a DXF/PDF underlay group."""
+    p = it.parentItem()
+    return p is not None and p.data(0) in ("DXF Underlay", "PDF Underlay")
+
+
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
 
@@ -3829,18 +3835,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._snap_to_underlay:
             views = self.views()
             if views:
-                def _is_underlay(it):
-                    p = it.parentItem()
-                    return (p is not None
-                            and p.data(0) in ("DXF Underlay", "PDF Underlay"))
                 # Force-enable the engine for this call: the underlay toggle is
                 # independent of the general OSNAP on/off switch.
                 _was_enabled = self._snap_engine.enabled
                 self._snap_engine.enabled = True
-                result = self._snap_engine.find(
-                    scene_pos, self, views[0].transform(),
-                    item_filter=_is_underlay)
-                self._snap_engine.enabled = _was_enabled
+                try:
+                    result = self._snap_engine.find(
+                        scene_pos, self, views[0].transform(),
+                        item_filter=_is_underlay_item)
+                finally:
+                    self._snap_engine.enabled = _was_enabled
                 if result is not None:
                     self._snap_result = result
                     self._inference_result = None

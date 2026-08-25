@@ -25,7 +25,6 @@ def test_underlay_snap_pixel_invariant(qapp, make_model_space, scale):
     t = QTransform(); t.scale(scale, scale)
     for v in ms.views():
         v.setTransform(t)
-    from firepro3d import snap_engine
     # Place the cursor 17 px (in screen pixels) away from (0,0) along x.
     # At both scale values this is inside the 20 px aperture.
     inside_scene = 17.0 / scale

@@ -8,48 +8,9 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QPointF
-from PyQt6.QtWidgets import QGraphicsView
 
 from firepro3d.gridline import GridlineItem
 from firepro3d.model_space import Model_Space
-
-
-# ---------------------------------------------------------------------------
-# make_model_space fixture
-# ---------------------------------------------------------------------------
-
-@pytest.fixture
-def make_model_space(qapp):
-    """Factory that builds a Model_Space with an attached QGraphicsView.
-
-    The view is sized 800×800 at identity transform (m11==1.0) and centred
-    on the origin so that scene coords in the range ~(-400,400) are in the
-    viewport.  Scenes requiring wider coverage call
-    ``view.centerOn(x, y)`` or ``view.resize(...)`` on the returned scene's
-    first view after construction.
-    """
-    created: list[tuple[Model_Space, QGraphicsView]] = []
-
-    def _factory() -> Model_Space:
-        ms = Model_Space()
-        view = QGraphicsView(ms)
-        view.resize(800, 800)
-        # Identity transform: m11 == 1.0, viewport rect maps 1 px → 1 scene unit.
-        view.resetTransform()
-        # Centre the view on origin so the 800×800 viewport covers roughly
-        # (-400, -400) to (400, 400) in scene units.
-        view.centerOn(0.0, 0.0)
-        # Pump events so Qt registers the view with the scene.
-        from PyQt6.QtWidgets import QApplication
-        QApplication.processEvents()
-        created.append((ms, view))
-        return ms
-
-    yield _factory
-
-    # Cleanup — hide views so Qt doesn't complain about open widgets.
-    for ms, view in created:
-        view.hide()
 
 
 # ---------------------------------------------------------------------------
