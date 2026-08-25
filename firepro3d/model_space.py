@@ -5263,10 +5263,40 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                                  sg[self._grip_index].y() + delta.y())
                 sel.apply_grip(self._grip_index, target)
         else:
+            old_pt = None
+            if (self._grip_index in (0, 1)
+                    and isinstance(gi, WallSegment)
+                    and hasattr(gi, "grip_points")):
+                old_pt = gi.grip_points()[self._grip_index]
             gi.apply_grip(self._grip_index, pos)
+            if old_pt is not None:
+                new_pt = gi.grip_points()[self._grip_index]
+                self._propagate_wall_endpoint(gi, old_pt, new_pt)
         self._solve_constraints(gi)
         for v in self.views():
             v.viewport().update()
+
+    def _propagate_wall_endpoint(self, moved, old_pt, new_pt) -> None:
+        """Move every OTHER wall endpoint coincident with *old_pt* to *new_pt*.
+
+        Polyline-drawn (or snapped-together) walls behave as joined: dragging a
+        shared corner drags all its walls.  Proximity-based (no stored
+        connectivity, no serialization change).  WallSegment endpoints only.
+
+        Args:
+            moved: The wall whose grip was directly dragged (excluded from scan).
+            old_pt: The grip position before the drag move.
+            new_pt: The grip position after the drag move.
+        """
+        eps = 0.5   # scene-unit anti-degeneracy tolerance (same family as snap)
+        for w in self._walls:
+            if w is moved:
+                continue
+            for idx in (0, 1):
+                gp = w.grip_points()[idx]
+                if (abs(gp.x() - old_pt.x()) <= eps
+                        and abs(gp.y() - old_pt.y()) <= eps):
+                    w.apply_grip(idx, QPointF(new_pt))
 
     def _format_cursor_readout(self, scene_pos) -> str:
         """Render *scene_pos* as the status-bar coordinate string.
