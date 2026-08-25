@@ -336,6 +336,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._next_wall_num: int = 1
         self._next_floor_num: int = 1
         self._wall_alignment: str = "Center"                  # alignment mode for new walls
+        self._wall_primitive: str = "line"                    # variant for wall mode: "line"|"polyline"|"rect"
         self._wall_template: "WallSegment | None" = None      # pre-placement property template
         self._floor_template: "FloorSlab | None" = None       # pre-placement property template
         self._gridline_template: "GridlineItem | None" = None  # pre-placement property template
@@ -793,6 +794,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # MODE MANAGEMENT
 
     def set_mode(self, mode, template=None):
+        # Backward-compat alias: the ribbon calls set_mode("wall_rect") until
+        # Task 6 updates it.  Fold into the unified "wall" mode with the rect
+        # primitive pre-selected so all downstream logic sees mode == "wall".
+        # Also pin the sticky variant index to the "rect" slot (index 2) so
+        # _apply_current_variant() does not overwrite the selection.
+        if mode == "wall_rect":
+            self._wall_primitive = "rect"
+            if hasattr(self, "_variant_index"):
+                self._variant_index["wall"] = 2  # "Wall (Rectangle)" slot
+            mode = "wall"
         # A HUD outlives neither its schema nor its anchor: leaving one open
         # across a mode switch would strand a widget whose applier belongs to
         # the mode just left.  Closed before self.mode changes so the tear-down
@@ -1031,7 +1042,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     if self._floor_active in self._floor_slabs:
                         self._floor_slabs.remove(self._floor_active)
                 self._floor_active = None
-        if mode != "wall_rect":
+        if mode != "wall":
             self._wall_rect_anchor = None
             if self._wall_rect_preview is not None:
                 if self._wall_rect_preview.scene() is self:
@@ -1203,7 +1214,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point",
-            "wall_rect":       "Pick first corner for rectangular wall",
             "floor":           "Pick first boundary point (click near first to close)",
             "floor_rect":      "Pick first corner for rectangular floor",
             "room":            "Click inside a closed wall region",
@@ -4022,6 +4032,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 ("Center Rectangle", "Pick center point",
                  lambda s: setattr(s, "_draw_rect_from_center", True)),
             ],
+            "wall": [
+                ("Wall (Line)", "Pick wall start point",
+                 lambda s: setattr(s, "_wall_primitive", "line")),
+                ("Wall (Polyline)", "Pick wall start point",
+                 lambda s: setattr(s, "_wall_primitive", "polyline")),
+                ("Wall (Rectangle)", "Pick first corner",
+                 lambda s: setattr(s, "_wall_primitive", "rect")),
+            ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
 
@@ -4035,6 +4053,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return self._draw_arc_step == 0
         if self.mode == "draw_rectangle":
             return self._draw_rect_anchor is None and not self._draw_rect_rotating
+        if self.mode == "wall":
+            return self._wall_anchor is None and self._wall_rect_anchor is None
         return False
 
     def _apply_current_variant(self) -> None:
@@ -5000,7 +5020,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 (self._pipe_tab_index + 1) % len(self._pipe_tab_candidates))
             self._emit_pipe_tab_readout()
             return True
-        if self.mode in ("wall", "wall_rect"):
+        if self.mode == "wall":
             self._cycle_wall_alignment()
             return True
         if self.mode == "opening":
@@ -5075,13 +5095,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         _cycle = {"Center": "Left", "Left": "Right", "Right": "Center"}
         self._wall_alignment = _cycle.get(self._wall_alignment, "Center")
-        if self.mode == "wall_rect":
-            if self._wall_rect_anchor is None:
-                self.instructionChanged.emit(
-                    f"Pick first corner for rectangular wall [{self._wall_alignment}]")
-            else:
-                self.instructionChanged.emit(
-                    f"Pick opposite corner [{self._wall_alignment}]")
+        if self._wall_primitive == "rect" and self._wall_rect_anchor is not None:
+            self.instructionChanged.emit(
+                f"Pick opposite corner [{self._wall_alignment}]")
         elif self._wall_anchor is None:
             self.instructionChanged.emit(
                 f"Pick wall start point [{self._wall_alignment}]")
@@ -5324,8 +5340,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "rotate":                   "_move_rotate",
         "mirror":                   "_move_mirror",
         "stretch":                  "_move_stretch",
-        "wall":                     "_move_wall",
-        "wall_rect":                "_move_wall_rect",
+        "wall":                     "_move_wall_router",
         "floor":                    "_move_floor",
         "floor_rect":               "_move_floor_rect",
         "roof":                     "_move_roof",
@@ -6483,8 +6498,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_rectangle":           "_press_draw_rectangle",
         "draw_circle":              "_press_draw_circle",
         "polygon":                  "_press_polygon",
-        "wall":                     "_press_wall",
-        "wall_rect":                "_press_wall_rect",
+        "wall":                     "_press_wall_router",
         "floor":                    "_press_floor",
         "floor_rect":               "_press_floor_rect",
         "roof":                     "_press_roof",
@@ -6760,7 +6774,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # ── Grip hit takes priority over mode handlers ──────────────────
         # Skip grip detection in drawing modes so clicks reach the draw handler
-        _skip_grip_modes = ("wall", "wall_rect", "floor", "floor_rect", "pipe", "sprinkler",
+        _skip_grip_modes = ("wall", "floor", "floor_rect", "pipe", "sprinkler",
                             "draw_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",
@@ -8980,6 +8994,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             self.instructionChanged.emit(
                 f"Pick centre point  |  {self._polygon_readout()}")
+
+    # ── Wall primitive routers (variant dispatch) ─────────────────────
+    def _press_wall_router(self, *args):
+        """Dispatch a wall click to the active primitive's builder."""
+        if self._wall_primitive == "rect":
+            return self._press_wall_rect(*args)
+        return self._press_wall(*args)
+
+    def _move_wall_router(self, *args):
+        """Dispatch a wall mouse-move to the active primitive's preview builder."""
+        if self._wall_primitive == "rect":
+            return self._move_wall_rect(*args)
+        return self._move_wall(*args)
 
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
