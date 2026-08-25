@@ -52,6 +52,7 @@ SNAP_TOLERANCE_PX = 20        # screen-pixel aperture (grab radius); was 40 (too
 # ~40 screen px. See docs/specs/snapping-engine.md §3.1 (cap is perf, not tolerance).
 SNAP_MAX_SCENE_TOL = 10000.0  # mm
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
+SNAP_HYSTERESIS_PX = 3       # hold the current snap until another beats it by this many px
 _ENDPOINT_PROTECTION_PX = 6  # intersection candidates within this px of an in-aperture endpoint are suppressed (spec §6.3 Change B)
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
@@ -267,6 +268,7 @@ class SnapEngine:
         exclude:        QGraphicsItem | None = None,
         only_types:     "set[str] | None" = None,
         item_filter:    "Callable[[QGraphicsItem], bool] | None" = None,
+        held:           "OsnapResult | None" = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -281,6 +283,12 @@ class SnapEngine:
             item_filter: Optional predicate — ``item_filter(item)`` must return
                 True for an item to contribute snap candidates.  ``None``
                 (default) allows all items.
+            held: Previously-committed snap result (hysteresis anchor).  When
+                provided, the engine holds this point unless another candidate
+                beats it by ``SNAP_HYSTERESIS_PX`` OR the cursor leaves the
+                aperture OR a strictly-higher-priority candidate appears.
+                ``None`` (default) means no hysteresis — existing callers are
+                unaffected.
         """
         if not self.enabled:
             return None
@@ -323,7 +331,27 @@ class SnapEngine:
             self._check_geometry_intersections(ctx, scene, search_rect, exclude,
                                                gl_items, item_filter)
 
-        return ctx.best_result
+        best = ctx.best_result
+        if held is None:
+            return best
+        held_d_px = scene_to_px(
+            math.hypot(held.point.x() - cursor_scene.x(),
+                       held.point.y() - cursor_scene.y()), scale)
+        if held_d_px > aperture_px:
+            return best  # cursor left the held aperture → release the hold
+        if best is None:
+            return OsnapResult(point=held.point, snap_type=held.snap_type)
+        best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
+        held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
+        if best_prio < held_prio:
+            return best  # strictly higher priority always breaks the hold (recall-first)
+        # Margin release only fires when best has equal or better priority than held.
+        # A lower-priority candidate (worse number) never displaces a held higher-priority
+        # snap, regardless of distance — "recall-first: never hide an endpoint that just
+        # came into range."
+        if best_prio <= held_prio and ctx.best_dist_px < held_d_px - SNAP_HYSTERESIS_PX:
+            return best  # beat the hold by the margin (same or better priority tier)
+        return OsnapResult(point=held.point, snap_type=held.snap_type)
 
     # ── Phase methods ──────────────────────────────────────────────────────
 

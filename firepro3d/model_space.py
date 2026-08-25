@@ -3802,7 +3802,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 result = self._snap_engine.find(
                     scene_pos, self, xform,
                     only_types={"center"},
-                    item_filter=lambda it: it in sprinkler_nodes)
+                    item_filter=lambda it: it in sprinkler_nodes,
+                    held=self._snap_result)
             finally:
                 self._snap_engine.enabled = _was_enabled
                 self._snap_engine.snap_center = _was_center
@@ -3823,7 +3824,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             views = self.views()
             if views:
                 result = self._snap_engine.find(
-                    scene_pos, self, views[0].transform(), exclude=exclude)
+                    scene_pos, self, views[0].transform(), exclude=exclude,
+                    held=self._snap_result)
                 self._snap_result = result
                 if result is not None:
                     self._inference_result = None
@@ -3846,7 +3848,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 try:
                     result = self._snap_engine.find(
                         scene_pos, self, views[0].transform(),
-                        item_filter=_is_underlay_item)
+                        item_filter=_is_underlay_item,
+                        held=self._snap_result)
                 finally:
                     self._snap_engine.enabled = _was_enabled
                 if result is not None:
