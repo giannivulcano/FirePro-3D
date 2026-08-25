@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-22
-verified-commit: ce37220
+last-verified: 2026-08-25
+verified-commit: eead762
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -63,7 +63,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 | 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) |
 | 2 | **View** | Navigate (Fit to Screen) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) · Panels (Properties/Browser/Hydraulic Report/Radiation Report dock toggles) |
 | 3 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
-| 4 | **Architecture** | Building (Wall/Floor/Roof/Room/Door/Window/Detail) · Datums (Levels/Gridline) |
+| 4 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle]/Floor/Roof/Room/Door/Window/Detail) · Datums (Levels/Gridline) |
 | 5 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
 | 6 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
 | 7 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Text/Hatch + sheet Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
@@ -74,7 +74,9 @@ The **Modify tab was removed** (D2, D8 resolved). The old Manage Export stub was
 
 ### 3.5 Mode-button protocol
 
-Checkable tool buttons that enter a scene mode register in `self._mode_buttons[mode_name] = btn`; clicking calls `scene.set_mode(mode_name)`. The reverse edge is `scene.modeChanged → _sync_mode_buttons(mode)`: every registered button gets `blockSignals(True); setChecked(btn is active_btn)` — deduped by `id(btn)` because split buttons register under **multiple** mode names (e.g. `wall` and `wall_rect` → one button). New mode buttons must join this dict or they'll stay stuck checked.
+Checkable tool buttons that enter a scene mode register in `self._mode_buttons[mode_name] = btn`; clicking calls `scene.set_mode(mode_name)`. The reverse edge is `scene.modeChanged → _sync_mode_buttons(mode)`: every registered button gets `blockSignals(True); setChecked(btn is active_btn)` — deduped by `id(btn)` because split buttons may register under multiple mode names. New mode buttons must join this dict or they'll stay stuck checked.
+
+> **As-built (2026-08-25):** the Wall button (Architecture → Building) is a **single checkable button** calling `set_mode("wall")`. It registers under the key `"wall"` only. The old split-button `wall` / `wall_rect` pair is retired; `set_mode("wall_rect")` remains as a backward-compat alias in `Model_Space.set_mode` (folds to `wall + rect primitive`) but is no longer used by the ribbon. The **W** shortcut is a scene-focus-gated window-level binding in `Model_View._TOOL_SHORTCUTS` — not a `shortcut=` ribbon param (§3.3). ←/→ cycles the wall primitive (Line/Polyline/Corner Rect/Center Rect) at step 0; Spacebar cycles alignment; see `wall-room-floor-system.md §4.4`.
 
 ### 3.6 Tab behaviors
 

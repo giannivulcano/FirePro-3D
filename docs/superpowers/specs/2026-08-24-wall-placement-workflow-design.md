@@ -283,3 +283,15 @@ a Left wall, not `== _pt1`). `qapp` fixture (no pytest-qt); full suite green
 Curved wall entities; polygon walls; angled inference guides; any change to OSNAP
 (already covers walls); any serialization/format change; touching opening placement
 keys beyond the filed follow-up.
+
+## 10. As-built amendments (2026-08-25)
+
+Smoke-test-driven changes over the §3–§5 design. Verified against commit `eead762`.
+
+**Q11 rect variants pulled into scope (§3.1 D1/D2 amendment):** the design's §3.1 deferred Corner Rectangle vs Center Rectangle as a sub-variant question ("no corner/centre, no rotate step"). During implementation, full parity with the 2D-geo rectangle was judged the correct outcome: the wall rect got **both** Corner and Center variants (4 total primitives in `_PLACEMENT_VARIANTS`) and the full **3-step placement** (anchor → size → rotate step with the shared `rotation` HUD schema). ←/→ therefore cycles all four primitives (Line → Polyline → Corner Rectangle → Center Rectangle), not three.
+
+**HUD rect-angle live-seed fix:** the rect rotate step seeds the HUD angle from the **wall pivot** (`_wall_rect_pivot`), not the 2D-geo pivot. A `get_placement_anchor` branch for `wall` at the rotating step was needed; `_wall_schema_for_primitive()` handles the step-aware dispatch.
+
+**Ctrl-snap fixed for both endpoints (§3.8 amendment):** the design noted Ctrl angle-snap worked during the grip drag from pt1 only. The as-built fix in `Model_Space._mouseMoveEvent` applies `_constrain_angle` to **either** endpoint grip (index 0 or 1) of `WallSegment` (and `GridlineItem` / `LineItem`) by reading the opposite endpoint from `grip_points()` as the reference. No design change needed — this is a bug fix on an invariant the design assumed.
+
+**Inference-at-range deferred:** "at-range" wall-proximity tracking (near-wall cursor → locked guide when within distance) was not built; filed as a TODO follow-up (angled Wall-Parallel/Wall-Perpendicular guides). The built slice is H/V centerline endpoint/midpoint references + consumption during placement, as specified in §3.5.

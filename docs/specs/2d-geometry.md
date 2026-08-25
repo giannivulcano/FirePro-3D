@@ -4,8 +4,8 @@ status: current
 applies-to:
   - firepro3d/construction_geometry.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-08-24
-verified-commit: 8a7dde4
+last-verified: 2026-08-25
+verified-commit: eead762
 ---
 
 # 2D Geometry System
@@ -111,6 +111,15 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   polygon is **selected**; the readout carries the sides/shape hints; the HUD
   Angle field live-seeds during the rotate step. Radius < 0.5 mm is rejected
   (centre stays armed).
+- **Wall (2026-08-25):** wall placement registers into this same dispatch surface
+  as a first-class client. One `"wall"` scene-mode carries `_wall_primitive ∈
+  {"line","polyline","rect"}` + `_wall_rect_from_center`; ←/→ cycles all four
+  variants (Line / Polyline / Corner Rect / Center Rect) via `_PLACEMENT_VARIANTS`;
+  the rect variants share the same **3-step** pattern (anchor → size → rotate)
+  and use the shared **"rotation"** HUD schema for the rotate step (step-aware
+  `active_schema`). `rect_sizing_points()` in `construction_geometry.py` is now
+  **shared** between the 2D-geo rectangle and the wall rectangle. See
+  `wall-room-floor-system.md §4.4` for the full wall-placement contract.
 
 ## 5. Snap contribution (`snap_engine.py`)
 

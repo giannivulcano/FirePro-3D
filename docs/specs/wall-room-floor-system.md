@@ -1,7 +1,7 @@
 ---
 status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; divergences ledger in §13
-last-verified: 2026-08-24
-verified-commit: f5b63b2
+last-verified: 2026-08-25
+verified-commit: eead762
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
@@ -89,13 +89,30 @@ WallSegment ──owns──► WallOpening (lifecycle-bound)
 
 ### 4.1 Centerline Model
 
-A wall is defined by two scene-coordinate endpoints (`pt1`, `pt2`) representing the wall axis. The axis meaning depends on alignment mode. Wall thickness is applied perpendicular to the axis.
+A wall is defined by two scene-coordinate endpoints (`_pt1`, `_pt2`) representing the wall's **alignment reference line** (the click line). The axis meaning depends on alignment mode. Wall thickness is applied perpendicular to the axis.
 
-**Derived properties:**
+**Derived geometric properties:**
 - `centerline_length()` = distance(pt1, pt2)
 - `centerline_angle_rad()` = atan2(pt2.y - pt1.y, pt2.x - pt1.x)
-- `normal()` = unit vector perpendicular to centerline, rotated +90°: `(-sin(angle), cos(angle))`
+- `normal()` = unit vector perpendicular to the click line, rotated +90°: `(-sin(angle), cos(angle))`
 - `half_thickness_scene()` = `(thickness_mm / 2) / drawing_scale` converted to scene units
+
+**True geometric centerline (derived, no serialization change):**
+
+For Center-aligned walls the click line IS the true centerline. For Left/Right-aligned walls the click line is a face; the true centerline is offset perpendicular by `normal() · half_thickness_scene() · k`, where k encodes the alignment:
+
+| Alignment | k | True centerline offset from `_pt1`/`_pt2` |
+|-----------|---|--------------------------------------------|
+| Center    | 0 | None — click line = true centerline         |
+| Left      | +1 | `normal() * half_thickness_scene()`        |
+| Right     | −1 | `-normal() * half_thickness_scene()`       |
+
+Three derived accessors (`_centerline_offset()` is the private helper):
+- `centerline_pt1` → `QPointF` — first endpoint of the true geometric centerline
+- `centerline_pt2` → `QPointF` — second endpoint
+- `centerline_midpoint()` → `QPointF` — midpoint of the true centerline
+
+**Consumers of the true centerline:** wall-hosted openings (`center_on_wall` in `wall_opening.py`), the 3D mesh (`get_3d_mesh` via `center_on_wall`), and the elevation-scene projection all reference `centerline_pt1` so that features sit at the wall's true geometric center on Left/Right-aligned walls, not on the click/face line. Center-aligned walls are unaffected (k = 0).
 
 ### 4.2 Alignment Modes
 
@@ -137,30 +154,57 @@ Zero-thickness "room separation lines" are a distinct concept requiring a future
 
 ### 4.4 Wall Placement Workflow
 
-**Chain mode** (default):
-1. User clicks to set anchor (pt1). Snap engine provides the point.
-2. User clicks to set tip (pt2). Ctrl constrains to angle increments.
-3. Wall created from anchor to tip using active template properties (thickness, alignment, fill, levels).
-4. `_auto_join_wall()` snaps endpoints to nearby walls (§5.3).
-5. Tip becomes next wall's anchor (chaining). If tip is within tolerance of chain start → loop closes, chain ends.
+Wall placement is a first-class client of the unified 2D-geometry placement dispatch (see `inferred-dimension-driven-placement.md §4` and `2d-geometry.md §4` for shared machinery — not restated here).
 
-**Rectangle mode:**
-1. User clicks opposite corners of a rectangle.
-2. Four walls created along rectangle edges with shared template properties.
-3. All four walls auto-joined.
+**Single `"wall"` scene-mode** carries `_wall_primitive ∈ {"line", "polyline", "rect"}` and `_wall_rect_from_center: bool`. The old separate `"wall_rect"` mode is **retired**; `set_mode("wall_rect")` is a backward-compat alias that folds to `wall + rect primitive`.
 
-**Template:** A hidden `WallSegment` instance stores the active wall properties (thickness, alignment, color, fill mode, base/top level). Tab cycles alignment during placement.
+**W shortcut** — scene-focus-gated in `Model_View._TOOL_SHORTCUTS` (bare key, no Ctrl/Shift); enters `"wall"` mode and returns focus to the view.
+
+**←/→ cycles the primitive** at step 0 only (session-sticky, via the shared `cycle_placement_variant` + `_PLACEMENT_VARIANTS["wall"]`):
+
+| Slot | Variant | First-step instruction |
+|------|---------|------------------------|
+| 0 | Wall (Line) | Pick wall start point |
+| 1 | Wall (Polyline) | Pick wall start point |
+| 2 | Wall (Corner Rectangle) | Pick first corner |
+| 3 | Wall (Center Rectangle) | Pick centre point |
+
+↑/↓ are **reserved** (no binding) for future polygon walls.
+
+**Spacebar** cycles wall alignment Center → Left → Right. This is the **sole** alignment binding; Left-Shift no longer cycles wall alignment. Gated on `not is_input_mode()` so a focused HUD field receives the key for typing.
+
+**Line variant:** places one segment (anchor → tip) then re-arms. Ctrl constrains the tip to 45° increments. `_auto_join_wall()` snaps endpoints to nearby walls (§5.3). Placement is always-continuous (Esc → select mode).
+
+**Polyline variant:** chains segments. Ctrl constrains angle. Close-near-start snaps the tip to the chain's first point and ends the chain. Each committed segment calls `_auto_join_wall()`. Otherwise identical to Line.
+
+**Corner / Center Rectangle — 3-step placement:**
+1. **Anchor** — first click sets the first corner (Corner variant) or the centre (Center variant).
+2. **Sizing** — second click fixes the opposite corner; produces an axis-aligned bounding rectangle. `rect_sizing_points()` (shared with 2D-geo rect, see `construction_geometry.py`) computes `pt1/pt2` from anchor + corner + the `from_center` flag.
+3. **Rotate step** — third click sets the rectangle's orientation. Ctrl snaps to 45° increments (pivot = rectangle centroid). HUD uses the `rotation` schema (Y-up CCW, seeded live from the wall pivot). Commit at the desired angle; four mitered `WallSegment`s are built and auto-joined.
+
+**Dynamic Input HUD:** wall is a built HUD client. `active_schema()` dispatches by primitive and step:
+- `_wall_primitive in ("line", "polyline")` → `line` schema (Length + Angle)
+- `_wall_primitive == "rect"`, sizing step → `rectangle` schema (X, Y signed)
+- `_wall_primitive == "rect"`, rotate step → `rotation` schema (Angle)
+
+Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse placement produce identical geometry (structural commit parity per `inferred-dimension-driven-placement.md §4.2`).
+
+**Template:** A hidden `WallSegment` instance stores the active wall properties (thickness, alignment, colour, fill mode, base/top level). Set before placement via the property panel or by cycling with Spacebar.
 
 ### 4.5 Grip Points
 
 | Index | Position | Behavior |
 |-------|----------|----------|
-| 0 | pt1 | Move endpoint, openings reposition |
-| 1 | pt2 | Move endpoint, openings reposition |
+| 0 | pt1 | Move endpoint, openings reposition; joined-endpoint propagation (see below) |
+| 1 | pt2 | Move endpoint, openings reposition; joined-endpoint propagation (see below) |
 | 2 | Midpoint | Translate whole wall, openings follow |
 | 3 | Far face midpoint | Drag perpendicular to wall to adjust thickness (min 25.4 mm / 1 inch). For Center alignment the grip sits on the positive-normal face; for Right alignment, the negative-normal face. |
 
 `apply_grip()` updates endpoints (indices 0–2) or thickness (index 3), calls `_rebuild_path()`, which repositions all owned openings (§7.3). The width grip projects the drag position onto the wall normal and converts back to mm via the current scene-to-mm ratio.
+
+**Joined-endpoint propagation (`_propagate_wall_endpoint`, model_space.py):** when an endpoint grip (index 0 or 1) is dragged, `Model_Space` finds every **other** `WallSegment` whose `_pt1` or `_pt2` is coincident with the pre-drag position (proximity, ~0.5 scene-unit epsilon) and applies the same move to it. This keeps polyline-drawn or snapped-together walls joined on edit. No stored connectivity; no serialization change. 2+ walls at a vertex all follow (T/X junctions). Openings on all moved walls re-anchor automatically (`_rebuild_path` runs on each).
+
+**Ctrl angle-snap during grip drag:** holding Ctrl during an endpoint-grip drag (indices 0 or 1) angle-snaps the dragged point to 45° increments **from the opposite endpoint** (`_constrain_angle`). Applies to `WallSegment` grips 0/1, `GridlineItem` grips 0/1, and `LineItem` grips 0/2. (Other grip indices and item types are unaffected.)
 
 ## 5. Wall Joinery
 
@@ -325,8 +369,10 @@ An opening is a **first-class element** (own identity, selection, "Openings" con
 Each opening carries a **local reference frame** anchored on its host wall (local X = along wall, Y = across wall / thickness, Z = up):
 
 - **XY plane (level plane)** — horizontal at the opening's Level elevation; sill/head measured up in world-Z from it (§7.9).
-- **XZ plane (wall plane)** — vertical, along the wall through its centerline. Default position = centerline. The opening may be **offset** across the wall (`cross_offset_mm`) and **mirrored** about this plane (`mirror_facing`).
+- **XZ plane (wall plane)** — vertical, along the wall through its **true geometric centerline**. The along-wall origin is `centerline_pt1` (§4.1), so `cross_offset_mm = 0` lands at the wall's true centre regardless of alignment. The opening may be **offset** across the wall (`cross_offset_mm`) and **mirrored** about this plane (`mirror_facing`).
 - **YZ plane** — vertical, perpendicular to the wall through the opening centre. Aligns to nothing; used only to **mirror** the opening along the wall (`mirror_hinge` — the hand/hinge side).
+
+> **As-built (2026-08-25):** `wall_opening.py`'s `center_on_wall` helper anchors at `wall.centerline_pt1` (not `wall.pt1`). `get_3d_mesh` and the elevation-scene projection inherit the fix via `center_on_wall`. Center-aligned walls are unaffected (k=0 → `centerline_pt1 == pt1`).
 
 **Cross-wall alignment** (`Centered` / `Flush-front` / `Flush-back`) is the preset that `cross_offset_mm` is measured from; **Centered + 0** is the default. The cross-wall offset is **continuous** and **not clamped** — a positive offset intentionally sits the opening *proud* of a face.
 

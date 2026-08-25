@@ -1,19 +1,21 @@
 ---
 status: partial
-last-verified: 2026-08-21
-verified-commit: 9b0f285
+last-verified: 2026-08-25
+verified-commit: eead762
 applies-to:
   - firepro3d/inference_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
   - firepro3d/model_view.py
   - firepro3d/gridline.py
+  - firepro3d/wall.py
   - firepro3d/construction_geometry.py
   - firepro3d/constants.py
 source-tasks:
   - "TODO.md — gridline follow-up: placement alignment snapping"
   - "docs/superpowers/plans/2026-08-16-dynamic-input-hud.md — §4 rewrite (T22)"
   - "docs/superpowers/specs/2026-08-20-placement-ux-overhaul-design.md — arc/rect variants + ghost-on-commit"
+  - "docs/superpowers/specs/2026-08-24-wall-placement-workflow-design.md — wall as HUD + inference client"
 ---
 
 # Inferred / Dimension-Driven Placement Specification
@@ -68,7 +70,9 @@ Gridlines are the **first client** of the inference engine. The built slice deli
   gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the visible view
   so step-0 keyboard reaches the scene.
 
-**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler/wall reference sources; other placement tools (pipe, wall) and general body-drag as inference clients (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); **pipe/wall as Dynamic Input clients** (§4.7 — schema-mapped but no applier yet); the full three-toggle + master-key system (§10).
+**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler reference sources; **pipe** placement as Dynamic Input + inference client; general body-drag (non-wall) as inference client (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); angled Wall-Parallel/Wall-Perpendicular guides + at-range/acquire tracking (filed in TODO.md follow-ups); the full three-toggle + master-key system (§10).
+
+**BUILT 2026-08-25 (commit eead762):** wall placement is a full HUD client (primitive-aware `active_schema`: `line`/`polyline` → `line` schema, rect sizing → `rectangle` schema, rect rotate step → `rotation` schema; applier `_apply_wall_dynamic_input`); wall provides H/V references (`WallSegment.alignment_reference_points()` at the true centerline endpoints + midpoint) and consumes them during placement (`_inference_active_item` set for `"wall"`); the wall provider pass in `_collect_alignment_refs` is spatial-filtered via `scene.items(rect)` (no unbounded scan — see §5.3).
 
 ---
 
@@ -288,7 +292,7 @@ late snap cannot move the seed out from under a half-typed value.
   retypes — instead of the value vanishing into a status message after the HUD
   has closed.
 
-### 4.7 HUD clients — arc **[BUILT]**, pipe/wall **[PROPOSAL]**
+### 4.7 HUD clients — arc **[BUILT]**, wall **[BUILT 2026-08-25]**, pipe **[PROPOSAL]**
 
 - **Arc — [BUILT 2026-08-21].** Two ←/→-cycled variants (`_arc_variant`:
   centre-first / start-first). Step 1 is the anchor click; step 2 reuses the
@@ -298,16 +302,24 @@ late snap cannot move the seed out from under a half-typed value.
   the stored centre/radius/start to the resolved end point. `_apply_arc_dynamic_input`
   routes by step. The HUD is the readout + preview (`_preview_from_arc`), so arc
   no longer paints `_draw_dim_hint` (block 4 survives for the other non-HUD modes).
-- **Pipe** and **wall** are schema-mapped to `line` but have no applier, so no
-  HUD opens for them; they still place through their own handlers. When pipe
-  lands (bug B5 groundwork is in — see
-  [pipe-placement-methodology.md §4.1](pipe-placement-methodology.md)), its angle
-  field is intended to be **editable and validated**, *not* read-only: the 45°
-  constraint is **relative to the reference pipe and only when connected** (a
-  free pipe soft-snaps within 7.5°), so a typed angle is accepted when it yields
-  a valid fitting rather than forbidden outright. *(This corrects the earlier
-  proposal, which called the pipe angle "read-only / non-overridable" and
-  "locked to 45° at all times".)*
+- **Wall — [BUILT 2026-08-25, commit eead762].** `active_schema()` is
+  **primitive-aware** for `"wall"` (same step-aware pattern as rect/arc): `line`
+  and `polyline` primitives → `line` schema (Length + Angle); `rect` primitive at
+  the sizing step → `rectangle` schema (signed X, Y); `rect` primitive at the
+  rotate step → `rotation` schema (Angle, Y-up CCW). The applier
+  `_apply_wall_dynamic_input` routes on `_wall_primitive` and step to build the
+  `WallSegment`(s) via the same finish-vs-continue branch the mouse path uses
+  (structural commit parity — `inferred-dimension-driven-placement.md §4.2`).
+  `"wall"` is **no longer a parked static `_SCHEMA_FOR_MODE` entry** — it is
+  handled inside `active_schema()` by `_wall_schema_for_primitive()`.
+- **Pipe — [PROPOSAL].** Pipe is schema-mapped to `line` in `_SCHEMA_FOR_MODE`
+  but has no applier, so no HUD opens; it still places through its own handlers.
+  When pipe lands, its angle field is intended to be **editable and validated**,
+  *not* read-only: the 45° constraint is **relative to the reference pipe and only
+  when connected** (a free pipe soft-snaps within 7.5°), so a typed angle is
+  accepted when it yields a valid fitting rather than forbidden outright.
+  *(This corrects the earlier proposal, which called the pipe angle "read-only
+  / non-overridable" and "locked to 45° at all times".)*
 - **`construction_line` is out of scope** — its Length field was a visual no-op
   (the drawn line extends past both defining points), so it is deliberately
   absent from `get_placement_anchor` and the schema tables.
@@ -325,7 +337,8 @@ the plain next-step instruction, so the hint disappears once a point is placed.
 Orthogonal to the Left-Shift-tap `cycle_placement_ambiguity` (a different axis).
 
 Registered variants: `draw_arc` (Centre Point / Start Point → `_arc_variant`),
-`draw_rectangle` (Corner / Centre → `_draw_rect_from_center`).
+`draw_rectangle` (Corner / Centre → `_draw_rect_from_center`),
+`wall` (Line / Polyline / Corner Rectangle / Center Rectangle → `_wall_primitive` + `_wall_rect_from_center`).
 
 **Ribbon/keyboard.** The Line and Rectangle ribbon split-menus were retired (corner/
 centre and line/construction-line are cycle variants now). Single-key tool shortcuts
@@ -372,15 +385,22 @@ step, cleared on commit and mode-exit.
 | Extension Line | Cursor aligns with the direction of an existing pipe endpoint or wall face edge | Dashed line extending from the endpoint through cursor | Blue | PROPOSAL |
 | Equal Spacing | Distance from cursor to nearest item matches an existing spacing pattern (2+ items) | Dashed line at the inferred position, with spacing dimension label | Green | PROPOSAL |
 
-### 5.2 Active During **[PARTIAL — gridlines only; others PROPOSAL]**
+### 5.2 Active During **[PARTIAL]**
 
-**BUILT:** `draw_gridline` placement (both points), gridline endpoint grip-drag, and the **move/paste pick points** (both clicks; move self-excludes the movers). **PROPOSAL:** all other placement modes (pipe, sprinkler, wall, construction geometry), moved-geometry key-point snapping, and drag repositioning of other entity types.
+**BUILT:** `draw_gridline` placement (both points), gridline endpoint grip-drag, the **move/paste pick points** (both clicks; move self-excludes the movers), and **`"wall"` placement** (all primitives and steps; provider + consumer — see §5.3 and §0 built note above).
+
+**PROPOSAL:** `pipe`, `sprinkler`, and other construction-geometry placement modes as consumers; moved-geometry key-point snapping (non-wall); drag repositioning of non-wall entity types.
 
 ### 5.3 Detection Algorithm **[PARTIAL]**
 
-**As built (gridline slice):** `_collect_alignment_refs` iterates `self._gridlines` directly (the provider list is small, so no spatial-index or cursor-move cache is needed for this slice). Providers are duck-typed (`alignment_reference_points()`); future wall/pipe/node providers slot in by iterating their own collections, keeping the per-frame cost bounded without a global scene scan. The as-specced `scene.items(rect)` path and 2px cursor-move cache are not needed for this slice and are not built.
+**As built (gridline + wall slice):** `_collect_alignment_refs(cursor, tol)` now runs two passes:
 
-**PROPOSAL (for future multi-entity providers, if the provider list grows large):** spatial filter via `scene.items(rect)` + per-provider type filter + cursor-move cache threshold (§9.5).
+1. **Gridlines** — iterates `self._gridlines` directly (small list, no spatial filter needed).
+2. **Walls** — spatial-filter via `scene.items(rect)` (inflated cursor rect using `INFERENCE_TOL_PX` mapped to scene units), type-filtered to `WallSegment`, then `alignment_reference_points()` on the survivors. This uses the scene BSP index (`scene.items(rect)`, **not** `sceneBoundingRect`), bounding per-frame cost to walls near the cursor independent of total wall count.
+
+Both providers are duck-typed (`alignment_reference_points()`); self-exclusion via `source_id` and `_inference_exclude_ids` is applied to all collected refs.
+
+**PROPOSAL (for future multi-entity providers):** node/sprinkler/pipe providers slotting in by iterating their own collections; cursor-move cache threshold (§9.5).
 
 ### 5.4 Tolerance **[BUILT]**
 
