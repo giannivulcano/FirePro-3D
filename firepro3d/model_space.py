@@ -4620,13 +4620,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # same absolute angle the mouse and ``resolve_rotation`` use.  0°
             # (axis-aligned) before anything is published.  The pivot differs by
             # mode — the polygon rotate step pivots about its centre, the
-            # rectangle about its stored pivot — so dispatch to the matching
-            # angle helper (both share the same Y-up formula).
+            # rectangle about its stored pivot, the wall-rectangle about its
+            # own stored pivot — so dispatch to the matching angle helper (all
+            # share the same Y-up formula).
             point = self.get_resolved_point()
             if point is None:
                 return {"Angle": 0.0}
             if self.mode == "polygon":
                 return {"Angle": self._polygon_rotation_angle_to(point)}
+            if self.mode == "wall":
+                return {"Angle": self._wall_rect_rotation_angle_to(point)}
             return {"Angle": self._rect_rotation_angle_to(point)}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click

@@ -449,3 +449,25 @@ def test_rotated_rect_corners_parity_with_rectangle_item():
                 f"angle={angle_deg}° corner {i}: expected ({e.x():.6f},{e.y():.6f})"
                 f" got ({g.x():.6f},{g.y():.6f})"
             )
+
+
+def test_wall_rect_rotate_hud_angle_live_seeds(qapp, shown_model_view):
+    """Rotate-step passive HUD seeds the live pivot→cursor angle (not frozen 0°).
+
+    Regression: ``_transform_seed_values`` for the "rotation" schema fell through
+    to ``_rect_rotation_angle_to``, which reads the 2D-geo ``_draw_rect_pivot``
+    (None during wall placement) → 0°.  A ``wall`` branch now uses
+    ``_wall_rect_rotation_angle_to`` (the wall pivot).
+    """
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)
+    scene.cycle_placement_variant(+1)          # -> Corner Rectangle
+    _click(view, QPointF(0, 0))                # anchor
+    _click(view, QPointF(1000, 500))           # size (non-degenerate) → rotate step
+    assert scene._wall_rect_rotating is True
+    pivot = scene._wall_rect_pivot
+    # Publish a resolved point 45° up-right of the pivot (Y-up: y decreases up).
+    scene.publish_placement_state(pivot, QPointF(pivot.x() + 100, pivot.y() - 100))
+    vals = scene._transform_seed_values(SCHEMAS["rotation"])
+    assert abs(vals["Angle"] - 45.0) < 0.5     # RED before fix: 0.0 (wrong pivot)
