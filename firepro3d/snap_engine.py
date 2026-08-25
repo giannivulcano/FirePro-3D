@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 from PyQt6.QtCore  import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtGui   import QPainterPath, QTransform
@@ -181,10 +182,11 @@ class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
     __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
                  "best_dist_px", "best_prio", "best_result",
-                 "endpoint_candidates", "underlay_geoms")
+                 "endpoint_candidates", "underlay_geoms", "only_types")
 
     def __init__(self, cursor: QPointF, scale: float,
-                 aperture_px: float, priority_band_px: float):
+                 aperture_px: float, priority_band_px: float,
+                 only_types: "set[str] | None" = None):
         self.cursor = cursor
         self.scale = _safe_scale(scale)
         self.aperture_px = aperture_px
@@ -200,12 +202,16 @@ class _SnapCtx:
         # id(group). Phase 1 fills it; Phase 4 reuses it so each group
         # is queried once per find(), not twice per mousemove.
         self.underlay_geoms: dict[int, list[dict]] = {}
+        # Whitelist of snap types that may be returned (None = no restriction)
+        self.only_types: "set[str] | None" = only_types
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
               name: str | None = None, *,
               src_item2: QGraphicsItem | None = None,
               source_lines: list | None = None):
         """Compare a candidate snap against the current best, judged in PIXELS."""
+        if self.only_types is not None and snap_type not in self.only_types:
+            return
         d_scene = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
         d_px = d_scene * self.scale
         if d_px > self.aperture_px:
@@ -259,8 +265,23 @@ class SnapEngine:
         scene:          QGraphicsScene,
         view_transform: QTransform,
         exclude:        QGraphicsItem | None = None,
+        only_types:     "set[str] | None" = None,
+        item_filter:    "Callable[[QGraphicsItem], bool] | None" = None,
     ) -> OsnapResult | None:
-        """Return the nearest snappable point within tolerance, or *None*."""
+        """Return the nearest snappable point within tolerance, or *None*.
+
+        Args:
+            cursor_scene: Cursor position in scene coordinates.
+            scene: The QGraphicsScene to search.
+            view_transform: Current view transform (m11() gives px/scene scale).
+            exclude: Optional single item to skip entirely.
+            only_types: Optional whitelist of snap type strings (e.g. ``{"center"}``).
+                If provided, only candidates whose snap_type is in this set are
+                returned.  ``None`` (default) imposes no restriction.
+            item_filter: Optional predicate — ``item_filter(item)`` must return
+                True for an item to contribute snap candidates.  ``None``
+                (default) allows all items.
+        """
         if not self.enabled:
             return None
 
@@ -280,14 +301,16 @@ class SnapEngine:
 
         # Mutable snap-tracking state shared across phases
         ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
-                       aperture_px=aperture_px, priority_band_px=priority_band_px)
+                       aperture_px=aperture_px, priority_band_px=priority_band_px,
+                       only_types=only_types)
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
-        self._check_scene_items(ctx, scene, search_rect, exclude)
+        self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
 
         # Phase 2 — Gridline-to-gridline intersections
         gl_items = [gl for gl in getattr(scene, "_gridlines", [])
-                     if gl.isVisible() and (exclude is None or gl is not exclude)]
+                     if gl.isVisible() and (exclude is None or gl is not exclude)
+                     and (item_filter is None or item_filter(gl))]
         if self.snap_intersection:
             self._check_gridline_intersections(ctx, gl_items)
 
@@ -297,7 +320,8 @@ class SnapEngine:
         # Phase 4 — Geometry-to-geometry intersections
         # (_PHASE4_MAX_SEGMENTS inside the method caps the O(n²) pairing)
         if self.snap_intersection:
-            self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
+            self._check_geometry_intersections(ctx, scene, search_rect, exclude,
+                                               gl_items, item_filter)
 
         return ctx.best_result
 
@@ -305,7 +329,8 @@ class SnapEngine:
 
     def _check_scene_items(self, ctx: "_SnapCtx", scene: QGraphicsScene,
                            search_rect: QRectF,
-                           exclude: QGraphicsItem | None):
+                           exclude: QGraphicsItem | None,
+                           item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
         _skip_types = (DimensionAnnotation, NoteAnnotation)
 
@@ -334,6 +359,8 @@ class SnapEngine:
                     else:
                         # No snap index (import dialog) — process
                         # invisible child items directly
+                        if item_filter is not None and not item_filter(item):
+                            continue
                         for snap_type, scene_pt, name in self._collect(
                                 item):
                             ctx.check(snap_type, scene_pt, item, name)
@@ -358,6 +385,9 @@ class SnapEngine:
                 if gid not in _queried_underlays:
                     _queried_underlays.add(gid)
                     self._query_underlay_snaps(ctx, item, search_rect)
+                continue
+
+            if item_filter is not None and not item_filter(item):
                 continue
 
             for snap_type, pt, name in self._collect(item):
@@ -393,7 +423,8 @@ class SnapEngine:
                                        scene: QGraphicsScene,
                                        search_rect: QRectF,
                                        exclude: QGraphicsItem | None,
-                                       gl_items: list):
+                                       gl_items: list,
+                                       item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 4: Line-line and line-circle intersection snaps."""
         # Each segment is (p1, p2, src_item, parent_key). ``src_item`` is the
         # QGraphicsItem traced for highlighting; ``parent_key`` drives
@@ -431,10 +462,14 @@ class SnapEngine:
                             and parent.data(0) in _underlay_tags):
                         if isinstance(parent.data(4), UnderlaySnapIndex):
                             continue  # segments from index below
+                        if item_filter is not None and not item_filter(item):
+                            continue
                         yield item  # no index — process directly
                     continue
                 if (isinstance(item, QGraphicsItemGroup)
                         and item.data(0) in _underlay_tags):
+                    continue
+                if item_filter is not None and not item_filter(item):
                     continue
                 yield item
 
