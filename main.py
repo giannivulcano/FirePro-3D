@@ -813,6 +813,9 @@ class MainWindow(QMainWindow):
         if self.settings.contains("snap/tolerance_px"):
             from firepro3d import snap_engine
             snap_engine.SNAP_TOLERANCE_PX = self.settings.value("snap/tolerance_px", 40, type=int)
+        if self.settings.contains("snap/hysteresis_px"):
+            from firepro3d import snap_engine
+            snap_engine.SNAP_HYSTERESIS_PX = self.settings.value("snap/hysteresis_px", 3, type=int)
         if self.settings.contains("snap/grip_tolerance_px"):
             self.scene._grip_tolerance_px = self.settings.value(
                 "snap/grip_tolerance_px", 200, type=int)
