@@ -39,7 +39,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
-                       DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
+                       DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, INFERENCE_TOL_PX,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
                        SELECTION_OUTLINE_COLOR)
@@ -3795,7 +3795,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 and getattr(spr.node, "level", DEFAULT_LEVEL) == active
             }
             _was_enabled = self._snap_engine.enabled
+            _was_center = self._snap_engine.snap_center
             self._snap_engine.enabled = True
+            self._snap_engine.snap_center = True
             try:
                 result = self._snap_engine.find(
                     scene_pos, self, xform,
@@ -3803,6 +3805,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     item_filter=lambda it: it in sprinkler_nodes)
             finally:
                 self._snap_engine.enabled = _was_enabled
+                self._snap_engine.snap_center = _was_center
             if result is not None:
                 self._snap_result = result
                 self._inference_result = None
@@ -7708,15 +7711,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                            if spr.node is not None
                            and getattr(spr.node, "level", DEFAULT_LEVEL) == active}
             target_spr = None
-            _was = self._snap_engine.enabled
+            _was_enabled = self._snap_engine.enabled
+            _was_center = self._snap_engine.snap_center
             self._snap_engine.enabled = True
+            self._snap_engine.snap_center = True
             try:
                 result = self._snap_engine.find(
                     pos, self, xform,
                     only_types={"center"},
                     item_filter=lambda it: it in node_to_spr)
             finally:
-                self._snap_engine.enabled = _was
+                self._snap_engine.enabled = _was_enabled
+                self._snap_engine.snap_center = _was_center
             if result is not None:
                 target_spr = node_to_spr.get(result.source_item)
             if target_spr:

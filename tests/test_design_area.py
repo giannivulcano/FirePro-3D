@@ -362,13 +362,13 @@ class TestPickMode:
         assert sprs[4] in ms.active_design_area.sprinklers
 
     def test_miss_beyond_pick_radius(self, qapp):
-        from firepro3d.constants import DESIGN_AREA_PICK_PX
+        from firepro3d import snap_engine
         ms = _model_scene(qapp)
         sprs = _grid_3x3(ms)
         ms.set_mode("design_area")
         p = sprs[0].node.scenePos()
-        # Headless scene has no view → scale 1.0 → tolerance = PICK_PX scene units
-        miss = QPointF(p.x() + DESIGN_AREA_PICK_PX + 5, p.y())
+        # Headless scene has no view → scale 1.0 → tolerance = SNAP_TOLERANCE_PX scene units
+        miss = QPointF(p.x() + snap_engine.SNAP_TOLERANCE_PX + 5, p.y())
         ms._press_design_area(_fake_press(), miss, miss, None, None, None)
         assert ms.active_design_area is None
 
