@@ -59,6 +59,26 @@ def test_held_reemitted_when_nothing_new_but_still_in_aperture(qapp):
     assert res is not None and res.point == QPointF(0.0, 0.0)
 
 
+def test_held_reemitted_with_fields_preserved_when_no_candidate(qapp):
+    """Held snap is re-emitted (not stripped) when NO candidate is within aperture.
+
+    Geometry math (SNAP_TOLERANCE_PX=20, scale=1 → search_tol=20):
+      - held at (0,0); cursor at (12,0) → held distance = 12px < 20px (in aperture)
+      - line endpoint at (40,0); cursor distance = 28px > 20px → outside search rect
+      - Therefore ctx.best_result is None and the "best is None" branch fires.
+    Asserts source_item is preserved (was stripped before the fix).
+    """
+    scene = QGraphicsScene()
+    line = LineItem(QPointF(40.0, 0.0), QPointF(140.0, 0.0))  # nearest endpoint at (40,0)
+    scene.addItem(line)
+    eng = SnapEngine()
+    held = OsnapResult(point=QPointF(0.0, 0.0), snap_type="endpoint", source_item=line)
+    # cursor at (12,0): 12px from held (0,0) → in aperture; 28px from (40,0) → outside search rect
+    res = eng.find(QPointF(12.0, 0.0), scene, _x(), held=held)
+    assert res is not None and res.point == QPointF(0.0, 0.0)
+    assert res.source_item is line, "held re-emit must preserve source_item for the trace highlight"
+
+
 # ── Model-level integration: hysteresis wired through get_effective_position ──
 
 def test_model_hysteresis_sticky_then_reset(make_model_space):

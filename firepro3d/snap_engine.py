@@ -340,7 +340,7 @@ class SnapEngine:
         if held_d_px > aperture_px:
             return best  # cursor left the held aperture → release the hold
         if best is None:
-            return OsnapResult(point=held.point, snap_type=held.snap_type)
+            return held
         best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
         held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
         if best_prio < held_prio:
@@ -351,7 +351,7 @@ class SnapEngine:
         # came into range."
         if best_prio <= held_prio and ctx.best_dist_px < held_d_px - SNAP_HYSTERESIS_PX:
             return best  # beat the hold by the margin (same or better priority tier)
-        return OsnapResult(point=held.point, snap_type=held.snap_type)
+        return held
 
     # ── Phase methods ──────────────────────────────────────────────────────
 
