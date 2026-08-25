@@ -258,6 +258,7 @@ def test_revert_restores_hysteresis(qapp, isolated_settings):
     assert snap_engine.SNAP_HYSTERESIS_PX == 12
     pane.revert()
     assert snap_engine.SNAP_HYSTERESIS_PX == 7
+    assert pane._hyst_spin.value() == 7
 
 
 def test_revert_restores_tol(qapp, isolated_settings):
@@ -268,6 +269,75 @@ def test_revert_restores_tol(qapp, isolated_settings):
     pane.apply()
     pane.revert()
     assert snap_engine.SNAP_TOLERANCE_PX == 25
+
+
+# ── Live-scene apply / reset coverage ────────────────────────────────────────
+
+def test_apply_pushes_all_fields_to_live_scene(qapp, isolated_settings, make_model_space):
+    """apply() with a live scene+view pushes EVERY guarded field to the live objects.
+
+    This test covers the ``if self._scene is not None`` branches that the
+    headless-pane tests cannot reach — catching any "1-of-N settings didn't
+    apply live" regression.
+    """
+    from firepro3d.model_view import Model_View
+
+    ms = make_model_space()
+    view = Model_View(ms)
+
+    pane = SnappingPane(scene=ms, view=view)
+    pane.load()
+
+    # Set clearly non-default widget values
+    pane._tol_spin.setValue(25)
+    pane._hyst_spin.setValue(7)
+    pane._grip_spin.setValue(300)
+    pane._angle_spin.setValue(30)
+    pane._snap_cbs["snap_endpoint"].setChecked(False)
+    pane._align_cb.setChecked(False)
+
+    pane.apply()
+
+    # Module globals (always live)
+    assert snap_engine.SNAP_TOLERANCE_PX == 25
+    assert snap_engine.SNAP_HYSTERESIS_PX == 7
+
+    # Live scene attributes (guarded branches)
+    assert getattr(ms, "_grip_tolerance_px", None) == 300
+    assert ms._snap_angle_deg == 30
+    assert ms._snap_engine.snap_endpoint is False
+    assert ms._inference_enabled is False
+
+
+def test_reset_pushes_factory_to_live_scene(qapp, isolated_settings, make_model_space):
+    """reset_to_defaults() via apply() pushes factory values to the live engine.
+
+    Verifies that the reset path (which calls apply()) also reaches the
+    live-scene guarded branches, not just the module globals.
+    """
+    from firepro3d.model_view import Model_View
+
+    ms = make_model_space()
+    view = Model_View(ms)
+
+    # Dirty the live engine before constructing the pane
+    ms._snap_engine.snap_endpoint = False
+    ms._snap_angle_deg = 15
+    ms._grip_tolerance_px = 500
+
+    pane = SnappingPane(scene=ms, view=view)
+    pane.load()
+
+    pane.reset_to_defaults()
+
+    # Live engine must now reflect factory values
+    assert ms._snap_engine.snap_endpoint is True
+    assert ms._snap_angle_deg == _FACTORY_DEFAULTS["angle_deg"]
+    assert getattr(ms, "_grip_tolerance_px", None) == _FACTORY_DEFAULTS["grip_px"]
+
+    # Module globals also reset
+    assert snap_engine.SNAP_TOLERANCE_PX == _FACTORY_DEFAULTS["tol_px"]
+    assert snap_engine.SNAP_HYSTERESIS_PX == _FACTORY_DEFAULTS["hysteresis_px"]
 
 
 # ── Label / widget existence ──────────────────────────────────────────────────
