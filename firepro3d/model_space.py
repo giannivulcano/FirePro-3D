@@ -832,7 +832,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_index = -1
         self._grip_dragging = False
         # Inference active-item: sentinel for draw_gridline + paste/move.
-        if mode in ("draw_gridline", "paste", "move"):
+        if mode in ("draw_gridline", "paste", "move", "wall"):
             self._inference_active_item = self._PLACEMENT_SENTINEL
         else:
             self._inference_active_item = None
@@ -3723,10 +3723,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
-    def _collect_alignment_refs(self):
+    def _collect_alignment_refs(self, cursor=None, tol=None):
         """Collect alignment reference features from the scene's alignment
-        providers (currently gridlines). The InferenceEngine stays generic;
+        providers (gridlines + walls). The InferenceEngine stays generic;
         Model_Space supplies candidates from its own entity collections.
+
+        Args:
+            cursor: Optional QPointF scene position of the current cursor.
+                When provided together with *tol*, walls are spatially filtered
+                to those whose bounding box intersects a (2*tol x 2*tol) rect
+                centred on *cursor*, using the scene BSP index.
+            tol: Optional float tolerance radius (scene units). Required when
+                *cursor* is provided to enable the spatial filter.
 
         Future providers are added by iterating their own collections here,
         NOT by changing the inference engine.  Self-exclusion is applied via
@@ -3736,10 +3744,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         exclude_id = (id(self._inference_active_item)
                       if self._inference_active_item is not None else None)
         exclude_ids = self._inference_exclude_ids
-        for gl in self._gridlines:
+        for gl in self._gridlines:                       # small list — direct
             for f in gl.alignment_reference_points():
                 if f.source_id != exclude_id and f.source_id not in exclude_ids:
                     refs.append(f)
+        # Walls can be numerous (imports) — spatial-filter to the cursor rect
+        # via the scene BSP index (NOT sceneBoundingRect, NOT a full self._walls scan).
+        if cursor is not None and tol:
+            rect = QRectF(cursor.x() - tol, cursor.y() - tol, 2 * tol, 2 * tol)
+            for it in self.items(rect):
+                if isinstance(it, WallSegment):
+                    for f in it.alignment_reference_points():
+                        if f.source_id != exclude_id and f.source_id not in exclude_ids:
+                            refs.append(f)
         return refs
 
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
@@ -3806,7 +3823,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 view = views[0]
                 scale = max(abs(view.transform().m11()), 1e-9)
                 tol = INFERENCE_TOL_PX / scale
-                refs = self._collect_alignment_refs()
+                refs = self._collect_alignment_refs(scene_pos, tol)
                 res = self._inference_engine.resolve(
                     (scene_pos.x(), scene_pos.y()), refs, tol)
                 self._inference_result = res  # stored even when "free" (Task 3 reads it)
