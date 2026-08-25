@@ -48,6 +48,27 @@ SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
+
+def _safe_scale(scale: float) -> float:
+    """A view m11() scale guarded against zero/negative (→ 1.0)."""
+    return scale if scale > 0 else 1.0
+
+
+def px_to_scene(px: float, scale: float) -> float:
+    """Convert a screen-pixel distance to scene units at the given view scale.
+
+    ``scale`` is ``QGraphicsView.transform().m11()`` (pixels per scene unit).
+    This is the ONE home for the px→scene math — snap engine, design-area
+    pick, and inference all call it instead of open-coding ``px / scale``.
+    """
+    return px / _safe_scale(scale)
+
+
+def scene_to_px(scene_dist: float, scale: float) -> float:
+    """Convert a scene-unit distance to screen pixels at the given view scale."""
+    return scene_dist * _safe_scale(scale)
+
+
 # Geometry primitive epsilons (used in snap math helpers)
 _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
 _EPS_DEGENERATE: float = 1e-12  # zero-length segment / zero-radius guard
