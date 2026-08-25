@@ -105,10 +105,19 @@ def shown_model_view(qapp):
 
     view = Model_View(scene)
     view.resize(800, 600)
-    view.resetTransform()
-    view.centerOn(0, 0)
     view.show()
     QTest.qWaitForWindowExposed(view)
+    # Pin a known, deterministic transform AFTER the window is exposed so that
+    # the auto-fit-to-scene zoom (m11 ≈ 0.02) is replaced by a fixed scale.
+    # At m11=0.25 the visible range is ±1596 × ±1196 scene units (all test
+    # geometry fits), and the 20 px snap aperture equals 80 scene units so that
+    # test "empty space" positions (≥ 224 scene units from the nearest geometry)
+    # are genuinely outside the aperture.  Without this pin the auto-fit zoom
+    # collapses snap distances to 2–10 px and geometry that the tests treat as
+    # "far away" snaps unexpectedly.
+    view.resetTransform()
+    view.scale(0.25, 0.25)
+    view.centerOn(0, 0)
     view.setFocus()
     QApplication.processEvents()
 
