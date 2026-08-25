@@ -51,6 +51,7 @@ SNAP_TOLERANCE_PX = 20        # screen-pixel aperture (grab radius); was 40 (too
 # ~40 screen px. See docs/specs/snapping-engine.md §3.1 (cap is perf, not tolerance).
 SNAP_MAX_SCENE_TOL = 10000.0  # mm
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
+_ENDPOINT_PROTECTION_PX = 6  # intersection candidates within this px of an in-aperture endpoint are suppressed (spec §6.3 Change B)
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
 
 
@@ -595,8 +596,8 @@ class SnapEngine:
         # candidate are suppressed before reaching the picker, so a
         # high-priority intersection can never silently displace an
         # endpoint at (for example) a mitered wall corner.
-        # protection_r is 15% of the aperture expressed in scene units.
-        protection_r = (ctx.aperture_px / ctx.scale) * 0.15
+        # Fixed 6px, independent of the user-tunable aperture (spec §6.3 Change B).
+        protection_r = px_to_scene(_ENDPOINT_PROTECTION_PX, ctx.scale)
         protection_r_sq = protection_r * protection_r
         endpoints = list(ctx.endpoint_candidates)
 
