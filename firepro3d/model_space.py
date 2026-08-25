@@ -9054,14 +9054,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self._wall_preview_rect is not None:
                 self._wall_preview_rect.hide()
             self.push_undo_state()
-            if _close_loop:
-                # Loop closed — stop wall chain
+            if _close_loop or self._wall_primitive == "line":
+                # Line variant: one segment then re-arm fresh.
+                # Polyline: an explicit loop-close also stops the chain.
                 self._wall_anchor = None
                 self._wall_chain_start = None
                 self.instructionChanged.emit(
                     f"Pick wall start point [{self._wall_alignment}]")
             else:
-                # Chain: end of this wall becomes start of next
+                # Polyline: end of this wall becomes start of next.
                 self._wall_anchor = QPointF(tip)
                 self.instructionChanged.emit(
                     f"Pick next wall end [{self._wall_alignment}]  Shift=cycle  Esc=stop")
