@@ -567,7 +567,7 @@ Master key toggles all three simultaneously. If any are on, master-off turns all
 
 ### 10.4 Persistence **[BUILT for alignment-guides; PROPOSAL for the other two]**
 
-`inference/alignment_guides` persisted to `QSettings` on toggle and restored in `MainWindow.restore_settings`. Same pattern as the OSNAP per-type toggles; see `docs/specs/osnap-toolbar.md`.
+`inference/alignment_guides` persisted to `QSettings` on toggle and restored in `MainWindow.restore_settings`. Same pattern as the SNAP per-type toggles; see `docs/specs/snap-toolbar.md`.
 
 ---
 

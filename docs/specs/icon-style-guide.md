@@ -20,7 +20,7 @@ This spec governs every SVG icon file under `firepro3d/graphics/Ribbon/` and the
 
 It defines the authoring contract that keeps icons theme-neutral at rest and theme-correct at render time, without any per-icon theme knowledge baked into the SVG files.
 
-Out of scope: OSNAP toolbar icon conventions (owned by `specs/osnap-toolbar.md §7`), QSS colour tokens (owned by `architecture/theming.md`), ribbon button sizes and layout (owned by `specs/ribbon-bar.md §3.1`).
+Out of scope: SNAP toolbar icon conventions (owned by `specs/snap-toolbar.md §7`), QSS colour tokens (owned by `architecture/theming.md`), ribbon button sizes and layout (owned by `specs/ribbon-bar.md §3.1`).
 
 ## 2. Directory & Naming
 

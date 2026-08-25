@@ -85,7 +85,7 @@ Guides render in `Model_View.drawForeground` (model_view.py:142), following the 
 - **New "Inference" tab** in the existing snap settings dialog (`_open_snap_tolerance_dialog`), with the **Alignment Guides** toggle and room reserved for the future dynamic-input/spacing toggles (proposal).
 - **Status-bar pill** mirroring the F3 OSNAP pill (live at-a-glance state).
 - **F12** shortcut (confirmed non-conflicting at impl).
-- **QSettings** new `inference/` namespace: `inference/alignment_guides` (default `True`), restored on startup like the OSNAP per-type toggles (`osnap-toolbar.md`).
+- **QSettings** new `inference/` namespace: `inference/alignment_guides` (default `True`), restored on startup like the SNAP per-type toggles (`snap-toolbar.md`).
 
 ### A5. Array / Offset (gridline-specific)
 
