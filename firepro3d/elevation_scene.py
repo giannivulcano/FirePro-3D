@@ -890,8 +890,9 @@ class ElevationScene(QGraphicsScene):
                 # ── Along-wall endpoints in scene coords ──────────────────
                 a = wall.centerline_angle_rad()
                 half_w = op.width_scene() / 2.0
-                cx_scene = wall.pt1.x() + op._offset_along * _math.cos(a)
-                cy_scene = wall.pt1.y() + op._offset_along * _math.sin(a)
+                base = wall.centerline_pt1
+                cx_scene = base.x() + op._offset_along * _math.cos(a)
+                cy_scene = base.y() + op._offset_along * _math.sin(a)
                 dx = half_w * _math.cos(a)
                 dy = half_w * _math.sin(a)
                 p_left = (cx_scene - dx, cy_scene - dy)

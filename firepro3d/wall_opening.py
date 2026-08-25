@@ -277,10 +277,11 @@ class WallOpening(DisplayableItemMixin, QGraphicsPathItem):
             return QPointF(0, 0)
         a = self._wall.centerline_angle_rad()
         nx, ny = self._wall.normal()   # unit normal (tuple[float, float])
-        # Along-wall component (scene units)
+        # Along-wall component (scene units) — anchored on the true centerline
+        base = self._wall.centerline_pt1
         along = QPointF(
-            self._wall.pt1.x() + self._offset_along * math.cos(a),
-            self._wall.pt1.y() + self._offset_along * math.sin(a),
+            base.x() + self._offset_along * math.cos(a),
+            base.y() + self._offset_along * math.sin(a),
         )
         # Cross-wall component (convert mm → scene units)
         cross_scene = self._mm_to_scene(self._cross_offset_effective_mm())
