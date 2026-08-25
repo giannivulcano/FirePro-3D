@@ -27,8 +27,10 @@ def _main_window_singleton(qapp):
     each View3D leaked its VTK GL context; that is now fixed by View3D.cleanup()
     on MainWindow.closeEvent, so a shared singleton is an optimization, not a
     hard requirement.) Save/restore SNAP_TOLERANCE_PX so building MainWindow
-    here doesn't leak the QSettings-derived value into other test modules."""
+    here doesn't leak the QSettings-derived value into other test modules.
+    (Module-scoped, so the function-scoped conftest guard can't cover it.)"""
     saved_tol = snap_engine.SNAP_TOLERANCE_PX
+    saved_hyst = snap_engine.SNAP_HYSTERESIS_PX
     win = MainWindow()
     win.show()
     QTest.qWaitForWindowExposed(win)
@@ -36,6 +38,7 @@ def _main_window_singleton(qapp):
     win.close()
     win.deleteLater()
     snap_engine.SNAP_TOLERANCE_PX = saved_tol
+    snap_engine.SNAP_HYSTERESIS_PX = saved_hyst
 
 
 @pytest.fixture

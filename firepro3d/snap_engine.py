@@ -66,8 +66,9 @@ def px_to_scene(px: float, scale: float) -> float:
     """Convert a screen-pixel distance to scene units at the given view scale.
 
     ``scale`` is ``QGraphicsView.transform().m11()`` (pixels per scene unit).
-    This is the ONE home for the px→scene math — snap engine, design-area
-    pick, and inference all call it instead of open-coding ``px / scale``.
+    The shared home for the px→scene math on the SNAP paths (the engine's
+    aperture + the design-area / underlay routing) instead of open-coding
+    ``px / scale``. (Inference and grip-pick keep their own local guards.)
     """
     return px / _safe_scale(scale)
 

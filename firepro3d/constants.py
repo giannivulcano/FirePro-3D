@@ -74,7 +74,8 @@ UNDERLAY_MM_TO_PX_HINT = 6.0
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 
 # ── Design-area creation ─────────────────────────────────────────────────────
-DESIGN_AREA_PICK_PX = 16       # sprinkler pick radius in design_area mode (screen px, zoom-aware)
+# (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
+#  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
 # ── Inferred alignment guides (inference_engine.py) ──────────────────────────
 INFERENCE_TOL_PX = 65.0        # screen-px band to align to a ref feature; wider than OSNAP
