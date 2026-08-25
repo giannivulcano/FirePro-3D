@@ -3968,7 +3968,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_line": "line",
         "draw_gridline": "line",
         "polyline": "line",
-        "wall": "line",
+        # wall is intentionally absent — active_schema special-cases it per
+        # primitive (line/polyline → ``line``, rect → ``rectangle``), mirroring
+        # the draw_rectangle / draw_arc pattern.
         "pipe": "line",
         # draw_rectangle is intentionally absent — active_schema special-cases
         # it per step (sizing → ``rectangle``, rotate → ``rotation``), the same
@@ -4005,6 +4007,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # draw_arc is intentionally absent from _SCHEMA_FOR_MODE — active_schema
         # special-cases it per step; this router dispatches to the step applier.
         "draw_arc": "_apply_arc_dynamic_input",
+        # wall is primitive-aware (like draw_rectangle): active_schema special-
+        # cases it per primitive, and this router dispatches to the same press
+        # handlers the mouse uses.
+        "wall": "_apply_wall_dynamic_input",
     }
 
     # Mode -> ordered placement variants: (label, first-point instruction,
@@ -4121,6 +4127,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return self._rectangle_schema_for_step()
         if self.mode == "polygon":
             return self._polygon_schema_for_step()
+        if self.mode == "wall":
+            return self._wall_schema_for_primitive()
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
 
@@ -4165,6 +4173,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._draw_arc_step == 2:
             return SCHEMAS.get("arc_span")
         return None
+
+    def _wall_schema_for_primitive(self):
+        """HUD schema for the active wall primitive (line/polyline -> line; rect -> rectangle)."""
+        if self._wall_primitive == "rect":
+            return SCHEMAS.get("rectangle")
+        return SCHEMAS.get("line")
 
     def get_resolved_point(self) -> "QPointF | None":
         """Return the last point published by ``publish_placement_state``.
@@ -9009,6 +9023,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return self._move_wall_rect(*args)
         return self._move_wall(*args)
 
+    def _apply_wall_dynamic_input(self, geometry) -> bool:
+        """Commit a typed wall placement via the same builders the mouse uses.
+
+        ``geometry`` is the resolved QPointF (the line/rectangle placement
+        schemas resolve to the point a click would produce), routed through the
+        primitive's press handler for structural commit parity.
+
+        Args:
+            geometry: The scene-space target point resolved by the active schema.
+
+        Returns:
+            True always (the press handlers do not return a refusal; a too-short
+            wall emits a status message and the anchor remains armed, matching
+            mouse behaviour).
+        """
+        if self._wall_primitive == "rect":
+            self._press_wall_rect(None, geometry, geometry, None, None, None)
+        else:
+            self._press_wall(None, geometry, geometry, None, None, None)
+        return True
+
     # ── Wall drawing ──────────────────────────────────────────────────
     def _press_wall(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._wall_anchor is None:
@@ -9018,7 +9053,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.instructionChanged.emit(f"Pick wall end point [{self._wall_alignment}]  Space=align")
         else:
             tip = snapped
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event is not None and (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                 tip = self._constrain_angle(self._wall_anchor, snapped)
             # Close wall loop: if clicking near chain start → snap tip to start
             _close_loop = False

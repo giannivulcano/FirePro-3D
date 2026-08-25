@@ -17,6 +17,7 @@ from PyQt6.QtGui import QMouseEvent, QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
+from firepro3d.dynamic_input import SCHEMAS
 
 
 def _click(view, scene_pt):
@@ -167,3 +168,32 @@ def test_spacebar_ignored_while_hud_engaged(qapp, shown_model_view, monkeypatch)
     a0 = scene._wall_alignment
     _key(view, Qt.Key.Key_Space)
     assert scene._wall_alignment == a0
+
+
+# ── Task 8: primitive-aware HUD schema + typed placement applier ──────────────
+
+def test_wall_line_schema_is_line(scene):
+    scene.set_mode("wall")                       # line primitive
+    assert scene.active_schema() is SCHEMAS["line"]
+
+
+def test_wall_polyline_schema_is_line(scene):
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)            # -> polyline
+    assert scene.active_schema() is SCHEMAS["line"]
+
+
+def test_wall_rect_schema_is_rectangle(scene):
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1); scene.cycle_placement_variant(+1)  # -> rect
+    assert scene.active_schema() is SCHEMAS["rectangle"]
+
+
+def test_typed_line_wall_matches_mouse(qapp, shown_model_view):
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    _click(view, QPointF(0, 0))                  # anchor via real event
+    ok = scene._apply_wall_dynamic_input(QPointF(1000, 0))
+    assert ok is not False
+    assert len(scene._walls) == 1
+    assert scene._walls[0].pt2 == QPointF(1000, 0)
