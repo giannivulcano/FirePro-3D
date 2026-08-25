@@ -1354,6 +1354,79 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 # GeometryTemplate — pre-placement defaults for geometry tools
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Pure geometry helpers — shared by 2D-geo and wall rectangle placement
+# ─────────────────────────────────────────────────────────────────────────────
+
+def rect_sizing_points(anchor, corner, from_center):
+    """Return axis-aligned (pt1_topleft, pt2_bottomright) from two placement points.
+
+    Args:
+        anchor: First placement click (QPointF).  Corner mode: one corner of
+            the rectangle.  Centre mode: the rectangle centre.
+        corner: Second placement click (QPointF).  Corner mode: the diagonally
+            opposite corner.  Centre mode: any corner — half-extents are taken
+            as ``abs(corner - anchor)``.
+        from_center: True for centre mode, False for corner mode.
+
+    Returns:
+        ``(pt1, pt2)`` where pt1 is the top-left and pt2 the bottom-right of
+        the normalised axis-aligned bounding box.
+    """
+    if from_center:
+        hw = abs(corner.x() - anchor.x())
+        hh = abs(corner.y() - anchor.y())
+        return (QPointF(anchor.x() - hw, anchor.y() - hh),
+                QPointF(anchor.x() + hw, anchor.y() + hh))
+    r = QRectF(anchor, corner).normalized()
+    return (QPointF(r.x(), r.y()),
+            QPointF(r.x() + r.width(), r.y() + r.height()))
+
+
+def rotated_rect_corners(pt1, pt2, angle_deg, pivot):
+    """Return the four scene-space corners (TL, TR, BR, BL) of an axis-aligned
+    rect after applying a Y-up CCW rotation of ``angle_deg`` about ``pivot``.
+
+    This replicates what ``RectangleItem(pt1, pt2).set_angle(angle_deg, pivot)``
+    + ``mapToScene(local_corner)`` produces:
+
+    * ``set_angle`` calls ``setRotation(-angle_deg)`` (Y-up CCW → Qt CW negate).
+    * Qt's ``mapToScene`` with rotation ``-angle_deg`` applies the matrix:
+      ``x' = cos(a)*dx + sin(a)*dy``, ``y' = -sin(a)*dx + cos(a)*dy``
+      where ``dx = p.x() - pivot.x()``, ``dy = p.y() - pivot.y()``.
+
+    Args:
+        pt1: Top-left corner of the axis-aligned rect (QPointF).
+        pt2: Bottom-right corner of the axis-aligned rect (QPointF).
+        angle_deg: Y-up CCW angle in degrees.
+        pivot: Scene-space rotation origin (QPointF).
+
+    Returns:
+        List of four QPointF in order TL, TR, BR, BL.
+    """
+    import math as _math
+    local = [
+        QPointF(pt1.x(), pt1.y()),   # TL
+        QPointF(pt2.x(), pt1.y()),   # TR
+        QPointF(pt2.x(), pt2.y()),   # BR
+        QPointF(pt1.x(), pt2.y()),   # BL
+    ]
+    rad = _math.radians(angle_deg)
+    ca, sa = _math.cos(rad), _math.sin(rad)
+    out = []
+    for p in local:
+        dx = p.x() - pivot.x()
+        dy = p.y() - pivot.y()
+        # Qt rotation with angle -angle_deg (CW negate of Y-up angle):
+        # cos(-a) = ca, sin(-a) = -sa
+        # x' = ca*dx + sa*dy   (= cos(-a)*dx - sin(-a)*dy)
+        # y' = -sa*dx + ca*dy  (= sin(-a)*dx + cos(-a)*dy)
+        rx = ca * dx + sa * dy
+        ry = -sa * dx + ca * dy
+        out.append(QPointF(pivot.x() + rx, pivot.y() + ry))
+    return out
+
+
 class GeometryTemplate:
     """Pre-placement template for geometry tools (line, rectangle, circle, etc.).
 

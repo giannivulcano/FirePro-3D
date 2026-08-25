@@ -42,13 +42,18 @@ def test_wall_defaults_to_line_primitive(scene):
 
 
 def test_arrow_cycles_line_polyline_rect(scene):
+    """Updated for 4-variant list: Line→Polyline→Corner Rect→Center Rect→Line."""
     scene.set_mode("wall")
     assert scene.cycle_placement_variant(+1) is True
     assert scene._wall_primitive == "polyline"
     assert scene.cycle_placement_variant(+1) is True
     assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is False   # corner rect
     assert scene.cycle_placement_variant(+1) is True
-    assert scene._wall_primitive == "line"
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is True    # center rect
+    assert scene.cycle_placement_variant(+1) is True
+    assert scene._wall_primitive == "line"         # wraps back
 
 
 def test_no_cycle_past_step_zero(scene):
@@ -224,14 +229,22 @@ def test_rect_wall_hud_opens_after_first_corner(qapp, shown_model_view):
 
 
 def test_typed_rect_wall_builds_four_walls(qapp, shown_model_view):
-    """Typed rect placement must build exactly 4 wall segments."""
+    """Typed rect placement (3-step) must build exactly 4 wall segments.
+
+    Updated for the 3-step workflow: first click anchors, second typed point
+    advances to the rotate step, third typed angle commits.
+    """
     view, scene = shown_model_view
     scene.set_mode("wall")
     scene.cycle_placement_variant(+1)   # line -> polyline
-    scene.cycle_placement_variant(+1)   # polyline -> rect
+    scene.cycle_placement_variant(+1)   # polyline -> corner rect
     assert scene._wall_primitive == "rect"
-    _click(view, QPointF(0, 0))
-    scene._apply_wall_dynamic_input(QPointF(1000, 800))
+    _click(view, QPointF(0, 0))                                     # step 1: anchor
+    ok = scene._apply_wall_dynamic_input(QPointF(1000, 800))        # step 2: size → rotate step
+    assert ok is not False, "Sizing step should not refuse a valid rect"
+    assert scene._wall_rect_rotating is True, "Should now be in rotate step"
+    ok2 = scene._apply_wall_dynamic_input({"angle_deg": 0.0})       # step 3: commit at 0°
+    assert ok2 is not False
     assert len(scene._walls) == 4
 
 
@@ -268,7 +281,7 @@ def test_move_wall_publishes_placement_state(scene):
     assert abs(got.x() - 1000) < 1 and abs(got.y() - 0) < 1
 
 
-def test_move_wall_rect_publishes_placement_state(scene):
+def test_move_wall_rect_publishes_placement_state_sizing(scene):
     """_move_wall_rect must publish the resolved opposite corner.
 
     FIX 2: same gap — _move_wall_rect never called publish_placement_state,
@@ -289,3 +302,150 @@ def test_move_wall_rect_publishes_placement_state(scene):
     got = scene.get_resolved_point()
     assert got is not None, "_move_wall_rect must call publish_placement_state when anchor is set"
     assert abs(got.x() - 1000) < 1 and abs(got.y() - 800) < 1
+
+
+# ── Task N: 4-variant cycle + Corner/Center + rotate step ────────────────────
+
+
+def test_arrow_cycles_four_variants(scene):
+    """←/→ must cycle Line→Polyline→Corner Rect→Center Rect→Line (4 variants)."""
+    scene.set_mode("wall")
+    # Starting at index 0 (line)
+    assert scene._wall_primitive == "line"
+    assert scene.cycle_placement_variant(+1) is True
+    assert scene._wall_primitive == "polyline"
+    assert scene.cycle_placement_variant(+1) is True
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is False, "index 2 must be Corner Rect"
+    assert scene.cycle_placement_variant(+1) is True
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is True, "index 3 must be Center Rect"
+    assert scene.cycle_placement_variant(+1) is True
+    assert scene._wall_primitive == "line", "cycle must wrap back to Line"
+
+
+def test_center_rect_wall_centred_on_first_click(qapp, shown_model_view):
+    """Center Rect: 2 sizing clicks → 4 walls; combined bounding centre ≈ first click."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    # Cycle to Center Rect (index 3)
+    scene.cycle_placement_variant(+1)  # line -> polyline
+    scene.cycle_placement_variant(+1)  # polyline -> corner rect
+    scene.cycle_placement_variant(+1)  # corner rect -> center rect
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is True
+    centre_pt = QPointF(500, 500)
+    corner_pt = QPointF(700, 700)   # 200×200 half-extents → 400×400 full rect
+    _click(view, centre_pt)         # first click: centre
+    _click(view, corner_pt)         # second click: corner (enters rotate step)
+    # Third click to commit at ~0° rotation (click far right of pivot)
+    rotate_pt = QPointF(900, 500)   # due east → 0°
+    _click(view, rotate_pt)
+    assert len(scene._walls) == 4, f"Expected 4 walls, got {len(scene._walls)}"
+    # Compute bounding box of all wall endpoints
+    xs = [w.pt1.x() for w in scene._walls] + [w.pt2.x() for w in scene._walls]
+    ys = [w.pt1.y() for w in scene._walls] + [w.pt2.y() for w in scene._walls]
+    bx = (min(xs) + max(xs)) / 2
+    by = (min(ys) + max(ys)) / 2
+    # Centre must be within 30 mm of the first click (viewport rounding + snap)
+    assert abs(bx - centre_pt.x()) < 30, f"Bounding centre x={bx:.1f} far from {centre_pt.x()}"
+    assert abs(by - centre_pt.y()) < 30, f"Bounding centre y={by:.1f} far from {centre_pt.y()}"
+
+
+def test_corner_rect_wall_builds_four_walls_with_rotate(qapp, shown_model_view):
+    """Corner Rect: 2 sizing clicks then a ~0° rotate click → 4 walls."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)  # line -> polyline
+    scene.cycle_placement_variant(+1)  # polyline -> corner rect
+    assert scene._wall_primitive == "rect"
+    assert scene._wall_rect_from_center is False
+    _click(view, QPointF(0, 0))        # first corner
+    _click(view, QPointF(1000, 800))   # opposite corner → enters rotate step
+    # Confirm rotate step is active before third click
+    assert scene._wall_rect_rotating is True, "After 2nd click, must be in rotate step"
+    _click(view, QPointF(1200, 0))     # third click: rotate commit ~0°
+    assert len(scene._walls) == 4, f"Expected 4 walls, got {len(scene._walls)}"
+
+
+def test_rect_wall_rotate_produces_rotated_walls(qapp, shown_model_view):
+    """Corner Rect + angled third click → 4 walls, at least one not axis-aligned."""
+    view, scene = shown_model_view
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)  # -> polyline
+    scene.cycle_placement_variant(+1)  # -> corner rect
+    _click(view, QPointF(0, 0))        # first corner
+    _click(view, QPointF(800, 800))    # second corner → rotate step
+    assert scene._wall_rect_rotating is True
+    # Click at 45° from pivot (0,0): up-right → 45° Y-up
+    _click(view, QPointF(600, -600))   # NE in Qt scene (y-up 45°)
+    assert len(scene._walls) == 4, f"Expected 4 walls, got {len(scene._walls)}"
+    # At least one wall must be non-axis-aligned (both dx and dy are non-zero)
+    non_axis = [
+        w for w in scene._walls
+        if abs(w.pt2.x() - w.pt1.x()) > 1 and abs(w.pt2.y() - w.pt1.y()) > 1
+    ]
+    assert len(non_axis) >= 1, (
+        "A rotated rect must have at least one non-axis-aligned wall; "
+        f"walls: {[(w.pt1, w.pt2) for w in scene._walls]}"
+    )
+
+
+def test_wall_rect_schema_is_step_aware(scene):
+    """Rect primitive: sizing step → SCHEMAS['rectangle']; rotating → SCHEMAS['rotation']."""
+    scene.set_mode("wall")
+    scene.cycle_placement_variant(+1)  # -> polyline
+    scene.cycle_placement_variant(+1)  # -> corner rect
+    assert scene._wall_primitive == "rect"
+    # Before any anchor: active_schema returns rectangle (same as before)
+    # (anchor gate keeps HUD shut anyway, but the schema itself should be rectangle)
+    scene._wall_rect_anchor = QPointF(0, 0)   # simulate first click
+    assert scene.active_schema() is SCHEMAS["rectangle"], (
+        "Sizing step must use rectangle schema"
+    )
+    # Simulate advancing to rotate step
+    scene._wall_rect_rotating = True
+    assert scene.active_schema() is SCHEMAS["rotation"], (
+        "Rotate step must use rotation schema"
+    )
+    scene._wall_rect_rotating = False   # cleanup
+
+
+# ── Parity: rotated_rect_corners vs RectangleItem.set_angle + mapToScene ──────
+
+
+def test_rotated_rect_corners_parity_with_rectangle_item():
+    """rotated_rect_corners must reproduce RectangleItem.set_angle scene coords.
+
+    RectangleItem is the ground truth for the 2D-geo rect and by extension for
+    the wall rect rotation formula.  This test samples three angles to verify
+    the pure math helper is bit-for-bit consistent with the Qt transform path
+    the user actually sees.
+    """
+    import math
+    from PyQt6.QtCore import QPointF
+    from firepro3d.construction_geometry import RectangleItem, rotated_rect_corners
+
+    pt1 = QPointF(0.0, 0.0)
+    pt2 = QPointF(200.0, 100.0)
+    pivot = QPointF(0.0, 0.0)
+
+    for angle_deg in (0.0, 30.0, 90.0, -45.0, 135.0):
+        item = RectangleItem(pt1, pt2)
+        item.set_angle(angle_deg, pivot)
+
+        r = item.rect()
+        local_corners = [
+            QPointF(r.left(), r.top()),    # TL
+            QPointF(r.right(), r.top()),   # TR
+            QPointF(r.right(), r.bottom()), # BR
+            QPointF(r.left(), r.bottom()),  # BL
+        ]
+        expected = [item.mapToScene(c) for c in local_corners]
+        got = rotated_rect_corners(pt1, pt2, angle_deg, pivot)
+
+        for i, (e, g) in enumerate(zip(expected, got)):
+            assert abs(e.x() - g.x()) < 1e-6 and abs(e.y() - g.y()) < 1e-6, (
+                f"angle={angle_deg}° corner {i}: expected ({e.x():.6f},{e.y():.6f})"
+                f" got ({g.x():.6f},{g.y():.6f})"
+            )

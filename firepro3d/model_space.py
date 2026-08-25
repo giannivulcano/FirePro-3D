@@ -355,6 +355,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._wall_rect_anchor: "QPointF | None" = None   # first click for rect wall
         self._wall_rect_preview: "QGraphicsRectItem | None" = None
         self._wall_rect_thickness_preview: "QGraphicsPathItem | None" = None
+        # Rect-wall rotate step (mirrors 2D-geo draw_rectangle rotate step)
+        self._wall_rect_from_center: bool = False
+        self._wall_rect_rotating: bool = False
+        self._wall_rect_sized_pt1: "QPointF | None" = None
+        self._wall_rect_sized_pt2: "QPointF | None" = None
+        self._wall_rect_pivot: "QPointF | None" = None
+        self._wall_rect_ref_line0: "QGraphicsLineItem | None" = None
+        self._wall_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
         self._floor_rect_anchor: "QPointF | None" = None   # first click for rect floor
         self._floor_rect_preview: "QGraphicsRectItem | None" = None
@@ -801,8 +809,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # _apply_current_variant() does not overwrite the selection.
         if mode == "wall_rect":
             self._wall_primitive = "rect"
+            self._wall_rect_from_center = False
             if hasattr(self, "_variant_index"):
-                self._variant_index["wall"] = 2  # "Wall (Rectangle)" slot
+                self._variant_index["wall"] = 2  # "Wall (Corner Rectangle)" slot
             mode = "wall"
         # A HUD outlives neither its schema nor its anchor: leaving one open
         # across a mode switch would strand a widget whose applier belongs to
@@ -1044,6 +1053,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._floor_active = None
         if mode != "wall":
             self._wall_rect_anchor = None
+            self._wall_rect_rotating = False
+            self._wall_rect_sized_pt1 = None
+            self._wall_rect_sized_pt2 = None
+            self._wall_rect_pivot = None
+            self._clear_wall_rect_ref_lines()
             if self._wall_rect_preview is not None:
                 if self._wall_rect_preview.scene() is self:
                     self.removeItem(self._wall_rect_preview)
@@ -3958,8 +3972,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return QPointF(a) if (self._draw_arc_step in (1, 2)
                                   and a is not None) else None
         if self.mode == "wall":
-            a = (self._wall_rect_anchor if self._wall_primitive == "rect"
-                 else self._wall_anchor)
+            if self._wall_primitive == "rect":
+                # Rotate step: pivot is the anchor.
+                if self._wall_rect_rotating:
+                    p = self._wall_rect_pivot
+                    return QPointF(p) if p is not None else None
+                a = self._wall_rect_anchor
+                return QPointF(a) if a is not None else None
+            a = self._wall_anchor
             return QPointF(a) if a is not None else None
         if self.mode == "polyline":
             pl = self._polyline_active
@@ -4058,11 +4078,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             ],
             "wall": [
                 ("Wall (Line)", "Pick wall start point",
-                 lambda s: setattr(s, "_wall_primitive", "line")),
+                 lambda s: s._set_wall_primitive("line")),
                 ("Wall (Polyline)", "Pick wall start point",
-                 lambda s: setattr(s, "_wall_primitive", "polyline")),
-                ("Wall (Rectangle)", "Pick first corner",
-                 lambda s: setattr(s, "_wall_primitive", "rect")),
+                 lambda s: s._set_wall_primitive("polyline")),
+                ("Wall (Corner Rectangle)", "Pick first corner",
+                 lambda s: s._set_wall_primitive("rect", from_center=False)),
+                ("Wall (Center Rectangle)", "Pick centre point",
+                 lambda s: s._set_wall_primitive("rect", from_center=True)),
             ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
@@ -4078,7 +4100,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self.mode == "draw_rectangle":
             return self._draw_rect_anchor is None and not self._draw_rect_rotating
         if self.mode == "wall":
-            return self._wall_anchor is None and self._wall_rect_anchor is None
+            return (self._wall_anchor is None
+                    and self._wall_rect_anchor is None
+                    and not self._wall_rect_rotating)
         return False
 
     def _apply_current_variant(self) -> None:
@@ -4193,8 +4217,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return None
 
     def _wall_schema_for_primitive(self):
-        """HUD schema for the active wall primitive (line/polyline -> line; rect -> rectangle)."""
+        """HUD schema for the active wall primitive.
+
+        Line/polyline → ``line`` schema.  Rect → step-aware: sizing step uses
+        ``rectangle`` schema; rotate step uses ``rotation`` schema (mirrors
+        ``_rectangle_schema_for_step``).
+        """
         if self._wall_primitive == "rect":
+            if self._wall_rect_rotating:
+                return SCHEMAS.get("rotation")
             return SCHEMAS.get("rectangle")
         return SCHEMAS.get("line")
 
@@ -5814,6 +5845,38 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.removeItem(line)
                 setattr(self, attr, None)
 
+    def _clear_wall_rect_ref_lines(self) -> None:
+        """Remove wall-rect rotate-step reference guides from the scene."""
+        for attr in ("_wall_rect_ref_line0", "_wall_rect_ref_lineA"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
+
+    def _update_wall_rect_ref_lines(self, angle_deg) -> None:
+        """Point the two wall-rect rotate-step guides from the pivot.
+
+        Mirrors ``_update_rect_ref_lines``: a 0° datum + the live sweep line at
+        ``angle_deg``, both diagonal-length so they frame the sized rectangle.
+        A no-op until both guides and the sized rect exist.
+        """
+        piv = self._wall_rect_pivot
+        if (piv is None or self._wall_rect_ref_line0 is None
+                or self._wall_rect_ref_lineA is None
+                or self._wall_rect_sized_pt1 is None
+                or self._wall_rect_sized_pt2 is None):
+            return
+        p1, p2 = self._wall_rect_sized_pt1, self._wall_rect_sized_pt2
+        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+        rad = math.radians(angle_deg)
+        self._wall_rect_ref_line0.setLine(piv.x(), piv.y(),
+                                          piv.x() + length, piv.y())
+        self._wall_rect_ref_lineA.setLine(
+            piv.x(), piv.y(),
+            piv.x() + length * math.cos(rad),
+            piv.y() - length * math.sin(rad))   # Y-up: subtract sin
+
     def _move_draw_rectangle(self, event, snapped):
         if self._draw_rect_rotating:
             # Rotate step: the sized rect is fixed; spin the ghost to the pivot→
@@ -6224,20 +6287,45 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
 
     def _move_wall_rect(self, event, snapped):
+        """Mouse-move preview for the wall rectangle primitive.
+
+        Rotate step: spins the preview rect + updates ref guides (mirrors
+        ``_move_draw_rectangle`` rotate branch).  Sizing step: updates the
+        axis-aligned preview rect and wall-thickness overlay (existing logic,
+        now also handles centre mode via ``rect_sizing_points``).
+        """
         sm = self.scale_manager
+        if self._wall_rect_rotating:
+            # Rotate step: spin the sized preview rect about the pivot.
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._wall_rect_pivot is not None):
+                snapped = self._constrain_angle(self._wall_rect_pivot, snapped)
+            angle = self._wall_rect_rotation_angle_to(snapped)
+            if self._wall_rect_preview is not None and self._wall_rect_pivot is not None:
+                self._wall_rect_preview.setTransformOriginPoint(self._wall_rect_pivot)
+                self._wall_rect_preview.setRotation(-angle)   # Y-up CCW → Qt CW negate
+            self._update_wall_rect_ref_lines(angle)
+            self.publish_placement_state(self._wall_rect_pivot, snapped)
+            return
         if self._wall_rect_anchor is None:
             self.update_preview_node(snapped)
         else:
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._wall_rect_anchor is not None and self._wall_rect_preview is not None:
-            rect = QRectF(self._wall_rect_anchor, snapped).normalized()
+            from .construction_geometry import rect_sizing_points
+            anc = self._wall_rect_anchor
+            pt1, pt2 = rect_sizing_points(anc, snapped, self._wall_rect_from_center)
+            rect = QRectF(pt1, pt2).normalized()
             self._wall_rect_preview.setRect(rect)
             self._draw_dim_hint = (
                 f"W: {sm.scene_to_display(rect.width())}  "
                 f"H: {sm.scene_to_display(rect.height())}"
             )
-            self.publish_placement_state(self._wall_rect_anchor, snapped)
+            self.publish_placement_state(anc, snapped)
             # -- Wall thickness preview (4 quads around rectangle) --
             if rect.width() > 1.0 and rect.height() > 1.0:
                 if self._wall_rect_thickness_preview is None:
@@ -8617,24 +8705,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _rect_sizing_points(self, corner):
         """Return the axis-aligned ``(pt1, pt2)`` the sizing step produces.
 
-        The exact 2-click sizing math lifted from ``_commit_draw_rectangle_at``:
-        corner mode normalises ``QRectF(anchor, corner)`` (the drag sign chooses
-        the quadrant); from-centre takes ``abs()`` half-extents about the anchor.
-        Returns ``(None, None)`` when unarmed.
+        Delegates to ``rect_sizing_points`` (shared with wall-rect placement) so
+        the 2D-geo rect and wall rect use identical sizing math.  Returns
+        ``(None, None)`` when unarmed.
         """
+        from .construction_geometry import rect_sizing_points
         anc = self._draw_rect_anchor
         if anc is None:
             return None, None
-        if self._draw_rect_from_center:
-            hw = abs(corner.x() - anc.x())
-            hh = abs(corner.y() - anc.y())
-            pt1 = QPointF(anc.x() - hw, anc.y() - hh)
-            pt2 = QPointF(anc.x() + hw, anc.y() + hh)
-        else:
-            rect = QRectF(anc, corner).normalized()
-            pt1 = QPointF(rect.x(), rect.y())
-            pt2 = QPointF(rect.x() + rect.width(), rect.y() + rect.height())
-        return pt1, pt2
+        return rect_sizing_points(anc, corner, self._draw_rect_from_center)
 
     def _advance_rectangle_to_rotate_step(self, corner) -> bool:
         """Advance an armed rectangle from the sizing step to the rotate step.
@@ -9076,6 +9155,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f"Pick centre point  |  {self._polygon_readout()}")
 
     # ── Wall primitive routers (variant dispatch) ─────────────────────
+    def _set_wall_primitive(self, prim, from_center=False):
+        """Apply the wall primitive variant (called by _PLACEMENT_VARIANTS apply_fn).
+
+        Sets ``_wall_primitive`` and, for the rect primitives, also sets
+        ``_wall_rect_from_center`` so corner and center variants are distinct.
+        """
+        self._wall_primitive = prim
+        if prim == "rect":
+            self._wall_rect_from_center = from_center
+
     def _press_wall_router(self, *args):
         """Dispatch a wall click to the active primitive's builder."""
         if self._wall_primitive == "rect":
@@ -9104,7 +9193,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             mouse behaviour).
         """
         if self._wall_primitive == "rect":
-            self._press_wall_rect(None, geometry, geometry, None, None, None)
+            if self._wall_rect_rotating:
+                # Rotate step: geometry is a dict {"angle_deg": …}
+                return self._commit_wall_rect_rotated(geometry["angle_deg"])
+            # Sizing step: geometry is a QPointF (the far corner / second point)
+            return self._advance_wall_rect_to_rotate_step(geometry)
         else:
             self._press_wall(None, geometry, geometry, None, None, None)
         return True
@@ -9170,9 +9263,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     # ── Wall rectangle drawing ──────────────────────────────────────────
     def _press_wall_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._wall_rect_anchor is None:
+        """3-step wall-rectangle placement, mirroring ``_press_draw_rectangle``.
+
+        Step 1 (no anchor): set anchor, create dashed preview.
+        Step 2 (anchor set, not rotating): advance to rotate step via
+            ``_advance_wall_rect_to_rotate_step``.
+        Step 3 (rotating): commit 4 WallSegments at the rotation angle.
+        """
+        if self._wall_rect_rotating:
+            # Third click: commit at the pivot→cursor heading.
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._wall_rect_pivot is not None):
+                snapped = self._constrain_angle(self._wall_rect_pivot, snapped)
+            self._commit_wall_rect_rotated(
+                self._wall_rect_rotation_angle_to(snapped))
+        elif self._wall_rect_anchor is None:
+            # First click: store anchor, show dashed preview rect.
             self._wall_rect_anchor = snapped
-            self.instructionChanged.emit("Pick opposite corner for rectangular wall")
+            self.update_preview_node(snapped)
+            _instr = ("Pick corner (from centre)" if self._wall_rect_from_center
+                      else "Pick opposite corner for rectangular wall")
+            self.instructionChanged.emit(_instr)
             _tmpl = self._get_wall_template()
             _wc = QColor(_tmpl._color)
             pen = QPen(_wc, 1, Qt.PenStyle.DashLine)
@@ -9185,53 +9297,131 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._wall_rect_preview = preview
         else:
-            # Commit rectangular wall — create 4 wall segments
-            rect = QRectF(self._wall_rect_anchor, snapped).normalized()
-            corners = [
-                QPointF(rect.x(), rect.y()),                          # top-left
-                QPointF(rect.x() + rect.width(), rect.y()),           # top-right
-                QPointF(rect.x() + rect.width(), rect.y() + rect.height()),  # bottom-right
-                QPointF(rect.x(), rect.y() + rect.height()),          # bottom-left
-            ]
-            _tmpl = self._get_wall_template()
-            _rect_align = _tmpl._alignment
-            walls_created = []
-            for i in range(4):
-                p1 = corners[i]
-                p2 = corners[(i + 1) % 4]
-                wall = WallSegment(p1, p2,
-                                   thickness_mm=_tmpl._thickness_mm,
-                                   color=_tmpl._color.name())
-                wall.name = f"Wall {self._next_wall_num}"
-                self._next_wall_num += 1
-                wall._alignment = _rect_align
-                wall._fill_mode = _tmpl._fill_mode
-                wall.level = _tmpl.level if _tmpl.level else self.active_level
-                wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
-                wall._top_level = getattr(_tmpl, "_top_level", "")
-                wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
-                self._wall_alignment = _tmpl._alignment
-                self.addItem(wall)
-                self._walls.append(wall)
-                apply_category_defaults(wall)
-                walls_created.append(wall)
-            # Auto-join all walls
-            for wall in walls_created:
-                self._auto_join_wall(wall)
-                wall.setSelected(True)
-            for v in self.views():
-                v.viewport().update()
-            # Clean up preview
-            if self._wall_rect_preview is not None:
+            # Second click: size the axis-aligned rect and enter rotate step.
+            self._advance_wall_rect_to_rotate_step(snapped)
+
+    def _wall_rect_rotation_angle_to(self, cursor) -> float:
+        """Return Y-up degrees from +x (pivot → cursor).  Falls back to 0°."""
+        piv = self._wall_rect_pivot
+        if piv is None:
+            return 0.0
+        return math.degrees(math.atan2(-(cursor.y() - piv.y()),
+                                       cursor.x() - piv.x()))
+
+    def _advance_wall_rect_to_rotate_step(self, corner) -> bool:
+        """Advance armed wall rect from sizing to rotate step.
+
+        Mirrors ``_advance_rectangle_to_rotate_step``.  Computes the
+        axis-aligned pt1/pt2 via ``rect_sizing_points``, rejects extents <0.5,
+        stores state, snaps the preview rect, creates ref guides, emits
+        instruction.
+
+        Args:
+            corner: The second placement point (fully snapped QPointF).
+
+        Returns:
+            True when the step advanced, False when refused (no anchor / too-small).
+        """
+        from .construction_geometry import rect_sizing_points
+        anc = self._wall_rect_anchor
+        if anc is None:
+            return False
+        pt1, pt2 = rect_sizing_points(anc, corner, self._wall_rect_from_center)
+        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
+            self._show_status("Wall rectangle too small — skipped", timeout=2000)
+            return False
+        self._wall_rect_sized_pt1 = pt1
+        self._wall_rect_sized_pt2 = pt2
+        self._wall_rect_pivot = QPointF(anc)
+        self._wall_rect_rotating = True
+        # Snap the preview to the sized rect.
+        if self._wall_rect_preview is not None:
+            self._wall_rect_preview.setRect(QRectF(pt1, pt2).normalized())
+        # Clear thickness preview — it no longer applies during rotate step.
+        if self._wall_rect_thickness_preview is not None:
+            if self._wall_rect_thickness_preview.scene() is self:
+                self.removeItem(self._wall_rect_thickness_preview)
+            self._wall_rect_thickness_preview = None
+        # Create rotation reference guides.
+        self._clear_wall_rect_ref_lines()
+        self._wall_rect_ref_line0 = self._make_ref_line()
+        self._wall_rect_ref_lineA = self._make_ref_line()
+        self._update_wall_rect_ref_lines(0.0)
+        self.clear_placement_state()
+        self.instructionChanged.emit("Pick rotation / type angle")
+        return True
+
+    def _commit_wall_rect_rotated(self, angle_deg) -> bool:
+        """Commit the sized wall rectangle rotated to ``angle_deg`` about its pivot.
+
+        Uses ``rotated_rect_corners`` to compute the 4 scene-space corners, then
+        creates 4 ``WallSegment``s between consecutive corners (same template and
+        auto-join loop as the old 2-click commit).  Clears all rect state and
+        re-arms continuous placement.
+
+        Args:
+            angle_deg: Y-up CCW degrees from +x (the same convention as the
+                2D-geo rect ``set_angle``).
+
+        Returns:
+            True when 4 walls were committed; False when sizing state is missing.
+        """
+        from .construction_geometry import rotated_rect_corners
+        pt1 = self._wall_rect_sized_pt1
+        pt2 = self._wall_rect_sized_pt2
+        pivot = self._wall_rect_pivot
+        if pt1 is None or pt2 is None or pivot is None:
+            return False
+        corners = rotated_rect_corners(pt1, pt2, angle_deg, pivot)
+        _tmpl = self._get_wall_template()
+        _rect_align = _tmpl._alignment
+        walls_created = []
+        for i in range(4):
+            p1 = corners[i]
+            p2 = corners[(i + 1) % 4]
+            wall = WallSegment(p1, p2,
+                               thickness_mm=_tmpl._thickness_mm,
+                               color=_tmpl._color.name())
+            wall.name = f"Wall {self._next_wall_num}"
+            self._next_wall_num += 1
+            wall._alignment = _rect_align
+            wall._fill_mode = _tmpl._fill_mode
+            wall.level = _tmpl.level if _tmpl.level else self.active_level
+            wall._base_level = _tmpl._base_level if _tmpl._base_level else self.active_level
+            wall._top_level = getattr(_tmpl, "_top_level", "")
+            wall._height_mm = getattr(_tmpl, "_height_mm", 3048.0)
+            self._wall_alignment = _tmpl._alignment
+            self.addItem(wall)
+            self._walls.append(wall)
+            apply_category_defaults(wall)
+            walls_created.append(wall)
+        for wall in walls_created:
+            self._auto_join_wall(wall)
+            wall.setSelected(True)
+        for v in self.views():
+            v.viewport().update()
+        # Clean up preview + ref guides
+        if self._wall_rect_preview is not None:
+            if self._wall_rect_preview.scene() is self:
                 self.removeItem(self._wall_rect_preview)
-                self._wall_rect_preview = None
-            if self._wall_rect_thickness_preview is not None:
-                if self._wall_rect_thickness_preview.scene() is self:
-                    self.removeItem(self._wall_rect_thickness_preview)
-                self._wall_rect_thickness_preview = None
-            self._wall_rect_anchor = None
-            self.push_undo_state()
-            self.instructionChanged.emit("Pick first corner for rectangular wall")
+            self._wall_rect_preview = None
+        if self._wall_rect_thickness_preview is not None:
+            if self._wall_rect_thickness_preview.scene() is self:
+                self.removeItem(self._wall_rect_thickness_preview)
+            self._wall_rect_thickness_preview = None
+        self._clear_wall_rect_ref_lines()
+        # Reset all rect state (re-arm continuous placement)
+        _from_centre = self._wall_rect_from_center
+        self._wall_rect_anchor = None
+        self._wall_rect_rotating = False
+        self._wall_rect_sized_pt1 = None
+        self._wall_rect_sized_pt2 = None
+        self._wall_rect_pivot = None
+        self.clear_placement_state()
+        self.push_undo_state()
+        self.instructionChanged.emit(
+            "Pick centre point" if _from_centre else "Pick first corner")
+        return True
 
     # ── Floor drawing ─────────────────────────────────────────────────
     def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
