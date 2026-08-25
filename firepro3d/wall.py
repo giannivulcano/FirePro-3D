@@ -242,6 +242,39 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
             self._pt2 + off_left,    # p2 left
         )
 
+    def _centerline_offset(self) -> QPointF:
+        """Perpendicular offset from the drawn click line to the TRUE centerline.
+
+        The click line (``_pt1``/``_pt2``) is the wall's alignment reference:
+        for Center it IS the centerline; for Left/Right it is a face, and the
+        true centerline sits half a thickness toward the wall body.  Derived
+        from ``quad_points`` (k=+1 Left, -1 Right, 0 Center).
+        """
+        k = {ALIGN_CENTER: 0.0, ALIGN_LEFT: 1.0, ALIGN_RIGHT: -1.0}.get(
+            self._alignment, 0.0)
+        if k == 0.0:
+            return QPointF(0.0, 0.0)
+        nx, ny = self.normal()
+        h = self.half_thickness_scene()
+        return QPointF(nx * h * k, ny * h * k)
+
+    @property
+    def centerline_pt1(self) -> QPointF:
+        """First endpoint of the true geometric centerline (derived)."""
+        o = self._centerline_offset()
+        return QPointF(self._pt1.x() + o.x(), self._pt1.y() + o.y())
+
+    @property
+    def centerline_pt2(self) -> QPointF:
+        """Second endpoint of the true geometric centerline (derived)."""
+        o = self._centerline_offset()
+        return QPointF(self._pt2.x() + o.x(), self._pt2.y() + o.y())
+
+    def centerline_midpoint(self) -> QPointF:
+        """Midpoint of the true centerline (derived)."""
+        a, b = self.centerline_pt1, self.centerline_pt2
+        return QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
+
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
     def _rebuild_path(self):
