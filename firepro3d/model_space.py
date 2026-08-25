@@ -5339,13 +5339,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Grip drag (mode-independent, takes priority) ────────────────
         if self._grip_dragging and self._grip_item is not None:
             pos = snapped
-            # Ctrl constrains a grip-0 drag against the far endpoint (grip 1).
-            if (event.modifiers() & Qt.KeyboardModifier.ControlModifier
-                    and self._grip_index == 0
-                    and hasattr(self._grip_item, "grip_points")):
-                grips = self._grip_item.grip_points()
-                if len(grips) >= 2:
-                    pos = self._constrain_angle(grips[1], snapped)
+            # Ctrl angle-snaps an endpoint-grip drag against the opposite
+            # endpoint.  Only applied to 2-endpoint item types whose grip
+            # indices map directly to the two ends:
+            #   WallSegment / GridlineItem: grips[0]=pt1, grips[1]=pt2
+            #   LineItem:                   grips[0]=pt1, grips[2]=pt2
+            # Other item types (rect, arc, polygon, circle) use different
+            # grip layouts and must NOT be affected by this block.
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                gi = self._grip_item
+                idx = self._grip_index
+                if isinstance(gi, (WallSegment, GridlineItem)):
+                    if idx in (0, 1):
+                        grips = gi.grip_points()
+                        if len(grips) >= 2:
+                            other = grips[1] if idx == 0 else grips[0]
+                            pos = self._constrain_angle(other, snapped)
+                elif isinstance(gi, LineItem):
+                    if idx in (0, 2):
+                        grips = gi.grip_points()
+                        if len(grips) >= 3:
+                            other = grips[2] if idx == 0 else grips[0]
+                            pos = self._constrain_angle(other, snapped)
             self._drag_grip_to(pos)
             return
 
