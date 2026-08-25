@@ -25,6 +25,22 @@ def qapp():
     # process and Qt dislikes repeated QApplication creation.
 
 
+@pytest.fixture(autouse=True)
+def _preserve_snap_globals():
+    """Snapshot/restore the snap-engine tunable module globals around every
+    test so a test that mutates them (or a MainWindow that restores them from
+    QSettings) can't leak into a later test under random ordering.
+
+    These are process-wide module globals (``SNAP_TOLERANCE_PX`` /
+    ``SNAP_HYSTERESIS_PX``); without this, e.g. ``test_default_hysteresis_is_3``
+    flakes when a prior test leaves the global changed.
+    """
+    from firepro3d import snap_engine
+    saved = (snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX)
+    yield
+    snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX = saved
+
+
 @pytest.fixture
 def make_model_space(qapp):
     """Factory that builds a Model_Space with an attached QGraphicsView.
