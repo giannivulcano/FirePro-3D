@@ -93,7 +93,7 @@ class TestGetEffectivePositionInferenceHook:
         ms._inference_enabled = True
 
         # Disable OSNAP and underlay snap so the inference path is reached.
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         # Centre the view on the geometry so items(vp_rect) includes `ref`.
@@ -120,7 +120,7 @@ class TestGetEffectivePositionInferenceHook:
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(100.0, 0.0), label="B")
         ms._inference_active_item = active
         ms._inference_enabled = True
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         view = ms.views()[0]
@@ -145,7 +145,7 @@ class TestGetEffectivePositionInferenceHook:
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
         ms._inference_active_item = active
         ms._inference_enabled = False   # disabled
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
         # Also disable grid snap for a clean test.
         ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
@@ -172,7 +172,7 @@ class TestGetEffectivePositionInferenceHook:
 
         ms._inference_active_item = None  # no active item
         ms._inference_enabled = True
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         view = ms.views()[0]
@@ -197,7 +197,7 @@ class TestGetEffectivePositionInferenceHook:
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
         ms._inference_active_item = active
         ms._inference_enabled = True
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         view = ms.views()[0]
@@ -222,7 +222,7 @@ class TestGetEffectivePositionInferenceHook:
         ms._gridlines.append(active)
         ms._inference_active_item = active   # self
         ms._inference_enabled = True
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         view = ms.views()[0]
@@ -321,7 +321,7 @@ def test_inference_toggle_off_disables_snap(qapp, make_model_space):
     ms.addItem(ref); ms._gridlines.append(ref)
     active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
     ms._inference_active_item = active
-    ms._osnap_enabled = False
+    ms._snap_enabled = False
     ms._snap_to_underlay = False
     ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
 
@@ -438,7 +438,7 @@ class TestTask5PlacementAndGripWiring:
         ms._gridlines.append(ref)
 
         # Disable OSNAP/underlay so only inference runs.
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
         ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
 
@@ -476,7 +476,7 @@ class TestTask5PlacementAndGripWiring:
         ms._gridlines.append(gl)
         gl.setSelected(True)
 
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
         ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
 
@@ -493,7 +493,7 @@ class TestTask5PlacementAndGripWiring:
     def test_placement_without_refs_is_free(self, qapp, make_model_space):
         """Placement with no reference gridlines must succeed without crash."""
         ms = make_model_space()
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
@@ -509,7 +509,7 @@ class TestTask5PlacementAndGripWiring:
         """After a gridline commit (continuous mode), the previous in-progress item
         is gone and the mode stays draw_gridline (re-armed for the next one)."""
         ms = make_model_space()
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
 
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
@@ -574,7 +574,7 @@ class TestTask5PlacementAndGripWiring:
         ms._gridlines.append(gl)
         gl.setSelected(True)
 
-        ms._osnap_enabled = False
+        ms._snap_enabled = False
         ms._snap_to_underlay = False
         _setup_inference_view(ms, center_x=0.0, center_y=0.0)
 
@@ -625,14 +625,14 @@ def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
     ms.set_mode("draw_gridline")
 
     # Step 1: disable OSNAP, perform an inference snap to set a guide result.
-    ms._osnap_enabled = False
+    ms._snap_enabled = False
     ms.get_effective_position(QPointF(1002.0, 2500.0))
     assert ms._inference_result is not None and ms._inference_result.guides, (
         "Pre-condition: inference result should be set with guides before OSNAP test"
     )
 
     # Step 2: enable OSNAP and mock _snap_engine.find to return a hit.
-    ms._osnap_enabled = True
+    ms._snap_enabled = True
     snap_pt = QPointF(1000.0, 2500.0)
     fake_result = OsnapResult(point=snap_pt, snap_type="endpoint")
 
@@ -665,7 +665,7 @@ def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space
     active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
     ms._inference_active_item = active
     ms._inference_enabled = True
-    ms._osnap_enabled = False
+    ms._snap_enabled = False
     ms._snap_to_underlay = False
 
     # Place an underlay line whose p1 endpoint sits exactly at (500, 500).

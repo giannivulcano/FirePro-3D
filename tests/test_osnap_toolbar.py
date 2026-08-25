@@ -1,4 +1,4 @@
-"""Unit tests for the OSNAP toolbar (_OsnapToolbar).
+"""Unit tests for the SNAP toolbar (_SnapToolbar).
 
 These tests are intentionally lightweight: they build the toolbar against a
 fresh SnapEngine + a stub MainWindow, so they create NO real MainWindow (and
@@ -16,7 +16,7 @@ import pytest
 from PyQt6.QtCore import QSettings
 
 from firepro3d.snap_engine import SnapEngine
-from main import _OsnapToolbar
+from main import _SnapToolbar
 
 _ALL_ATTRS = [
     "snap_endpoint", "snap_midpoint", "snap_intersection", "snap_center",
@@ -38,12 +38,12 @@ class _StubMainWindow:
 
 @pytest.fixture
 def toolbar(qapp, tmp_path):
-    """A fresh _OsnapToolbar wired to an isolated SnapEngine + QSettings."""
+    """A fresh _SnapToolbar wired to an isolated SnapEngine + QSettings."""
     settings = QSettings(str(tmp_path / "settings.ini"),
                          QSettings.Format.IniFormat)
     engine = SnapEngine()
     mw = _StubMainWindow(settings)
-    tb = _OsnapToolbar(engine, mw)
+    tb = _SnapToolbar(engine, mw)
     yield tb, engine, mw, settings
     tb.deleteLater()
 
@@ -67,7 +67,7 @@ def test_toggle_persists_to_qsettings(toolbar):
 
 def test_f3_off_disables_actions(toolbar):
     tb, _engine, _mw, _settings = toolbar
-    tb._on_osnap_toggled(False)
+    tb._on_snap_toggled(False)
     assert all(not act.isEnabled() for act in tb._actions.values())
 
 
@@ -75,8 +75,8 @@ def test_f3_on_restores_actions(toolbar):
     tb, _engine, _mw, _settings = toolbar
     # Uncheck one type, then dim and undim — checked state must survive.
     tb._actions["snap_tangent"].setChecked(False)
-    tb._on_osnap_toggled(False)
-    tb._on_osnap_toggled(True)
+    tb._on_snap_toggled(False)
+    tb._on_snap_toggled(True)
     assert all(act.isEnabled() for act in tb._actions.values())
     assert tb._actions["snap_tangent"].isChecked() is False
 

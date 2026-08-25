@@ -52,14 +52,14 @@ _FACTORY_DEFAULTS: dict = {
 
 
 class SnappingPane(SettingsPane):
-    """Preferences pane for OSNAP / snap-tolerance / grid / inference settings.
+    """Preferences pane for SNAP / snap-tolerance / grid / inference settings.
 
     Ports the two existing snap dialogs in ``main.py``:
     - ``_open_snap_tolerance_dialog`` — snap radius, grip radius, 8 snap-type
       checkboxes, alignment-guides toggle.
     - ``_open_snap_settings`` — grid spacing (mm), angle-snap increment.
 
-    When constructed with live ``scene``, ``view``, and ``osnap_toolbar``
+    When constructed with live ``scene``, ``view``, and ``snap_toolbar``
     references the pane applies changes live (mirroring the old dialogs) and
     reverts them on Cancel.  Without those references only
     ``snap_engine.SNAP_TOLERANCE_PX`` is applied live; all other settings are
@@ -69,16 +69,16 @@ class SnappingPane(SettingsPane):
     Args:
         scene: The live ``Model_Space`` (or compatible) scene, or ``None``.
         view: The live ``Model_View`` (or compatible) view, or ``None``.
-        osnap_toolbar: The live OSNAP toolbar that exposes
+        snap_toolbar: The live SNAP toolbar that exposes
             ``refresh_from_engine()``, or ``None``.
         parent: Optional Qt parent widget.
     """
 
-    def __init__(self, scene=None, view=None, osnap_toolbar=None, parent=None):
+    def __init__(self, scene=None, view=None, snap_toolbar=None, parent=None):
         super().__init__("Snapping", parent)
         self._scene = scene
         self._view = view
-        self._osnap_toolbar = osnap_toolbar
+        self._snap_toolbar = snap_toolbar
         self._snapshot: dict = {}
         self._build_ui()
 
@@ -92,9 +92,9 @@ class SnappingPane(SettingsPane):
         tabs = QTabWidget()
         outer.addWidget(tabs)
 
-        # ── Tab 1: OSNAP ─────────────────────────────────────────────────────
-        osnap_tab = QWidget()
-        osnap_layout = QVBoxLayout(osnap_tab)
+        # ── Tab 1: SNAP ──────────────────────────────────────────────────────
+        snap_tab = QWidget()
+        snap_layout = QVBoxLayout(snap_tab)
 
         # Tolerance group
         tol_group = QGroupBox("Tolerance")
@@ -118,7 +118,7 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setSuffix(" px")
         tol_form.addRow("Grip handle radius:", self._grip_spin)
 
-        osnap_layout.addWidget(tol_group)
+        snap_layout.addWidget(tol_group)
 
         # Snap types group
         types_group = QGroupBox("Snap Types")
@@ -128,9 +128,9 @@ class SnappingPane(SettingsPane):
             cb = QCheckBox(label)
             types_layout.addWidget(cb)
             self._snap_cbs[attr] = cb
-        osnap_layout.addWidget(types_group)
+        snap_layout.addWidget(types_group)
 
-        tabs.addTab(osnap_tab, "OSNAP")
+        tabs.addTab(snap_tab, "SNAP")
 
         # ── Tab 2: Grid / Angle ──────────────────────────────────────────────
         grid_tab = QWidget()
@@ -288,15 +288,15 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene.set_inference_enabled(inference)
 
-        # ── OSNAP toolbar sync ────────────────────────────────────────────────
-        if self._osnap_toolbar is not None:
-            self._osnap_toolbar.refresh_from_engine()
+        # ── SNAP toolbar sync ─────────────────────────────────────────────────
+        if self._snap_toolbar is not None:
+            self._snap_toolbar.refresh_from_engine()
 
     def revert(self) -> None:
         """Restore snapshot to live objects and snap_engine (undoes any Apply).
 
         Live writes are guarded by the same ``self._scene`` / ``self._view``
-        None checks as ``apply()``.  The OSNAP toolbar is refreshed if present
+        None checks as ``apply()``.  The SNAP toolbar is refreshed if present
         so it reflects the rolled-back state.
         """
         from firepro3d import snap_engine
@@ -323,9 +323,9 @@ class SnappingPane(SettingsPane):
         if self._view is not None:
             self._view.set_grid(self._view._grid_visible, self._snapshot["grid_mm"])
 
-        # ── OSNAP toolbar sync ────────────────────────────────────────────────
-        if self._osnap_toolbar is not None:
-            self._osnap_toolbar.refresh_from_engine()
+        # ── SNAP toolbar sync ─────────────────────────────────────────────────
+        if self._snap_toolbar is not None:
+            self._snap_toolbar.refresh_from_engine()
 
         # ── Populate widgets back to snapshot values ───────────────────────────
         self._tol_spin.setValue(self._snapshot["tol_px"])

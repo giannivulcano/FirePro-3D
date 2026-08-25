@@ -1,7 +1,7 @@
 """
 snap_engine.py
 ==============
-Object Snap (OSNAP) engine for FirePro 3D.
+Object Snap (SNAP) engine for FirePro 3D.
 
 Provides nearest-snap-point resolution for all geometry types in the scene,
 returning a typed OsnapResult used by the view's foreground renderer to draw
@@ -238,7 +238,7 @@ class _SnapCtx:
 
 class SnapEngine:
     """
-    Nearest OSNAP resolver for a QGraphicsScene.
+    Nearest SNAP resolver for a QGraphicsScene.
 
     Call :meth:`find` each time the cursor moves to get the best snap point.
     Store the result on the scene so :meth:`Model_View.drawForeground` can

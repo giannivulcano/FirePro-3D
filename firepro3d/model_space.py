@@ -117,7 +117,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     numericInputRequested = pyqtSignal(str, str, str, float, float, float)  # mode, title, label, default, min, max
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
-    osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
+    snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
     inferenceToggled = pyqtSignal(bool)  # emitted whenever set_inference_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
@@ -248,10 +248,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
         self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
-        # OSNAP (Sprint H)
+        # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
-        self._osnap_enabled: bool = True
+        self._snap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
         # Inferred alignment guides (inference_engine.py)
         from .inference_engine import InferenceEngine
@@ -3815,9 +3815,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._inference_result = None
             return QPointF(scene_pos)
 
-        # OSNAP takes highest priority (disabled when no mode or select mode,
+        # SNAP takes highest priority (disabled when no mode or select mode,
         # but enabled during grip-drag even in select mode)
-        if (self._osnap_enabled
+        if (self._snap_enabled
                 and self.mode is not None
                 and (self.mode != "select" or self._grip_dragging)):
             exclude = self._grip_item if self._grip_dragging else None
@@ -3837,12 +3837,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Underlay snap — routed through the ONE snap engine, restricted to
         # underlay geometry (pixel-correct + zoom-invariant). Runs when the
-        # OSNAP block above did not fire (e.g. select mode) and the toggle is on.
+        # SNAP block above did not fire (e.g. select mode) and the toggle is on.
         if self._snap_to_underlay:
             views = self.views()
             if views:
                 # Force-enable the engine for this call: the underlay toggle is
-                # independent of the general OSNAP on/off switch.
+                # independent of the general SNAP on/off switch.
                 _was_enabled = self._snap_engine.enabled
                 self._snap_engine.enabled = True
                 try:
@@ -3857,7 +3857,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._inference_result = None
                     return result.point
 
-        # ── Inferred alignment guides (weak snap, below OSNAP) ────────────
+        # ── Inferred alignment guides (weak snap, below SNAP) ────────────
         if self._inference_enabled and self._inference_active_item is not None:
             views = self.views()
             if views:
@@ -3875,22 +3875,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._inference_result = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
-    def toggle_osnap(self, enabled: bool | None = None):
-        """Toggle or explicitly set OSNAP.  Called from F3 shortcut and
-        the status bar OSNAP indicator."""
+    def toggle_snap(self, enabled: bool | None = None):
+        """Toggle or explicitly set SNAP.  Called from F3 shortcut and
+        the status bar SNAP indicator."""
         if enabled is None:
-            self._osnap_enabled = not self._osnap_enabled
+            self._snap_enabled = not self._snap_enabled
         else:
-            self._osnap_enabled = bool(enabled)
-        self._snap_engine.enabled = self._osnap_enabled
+            self._snap_enabled = bool(enabled)
+        self._snap_engine.enabled = self._snap_enabled
         self._snap_result = None
         # Refresh foreground overlay
         for v in self.views():
             v.viewport().update()
-        self.osnapToggled.emit(self._osnap_enabled)
+        self.snapToggled.emit(self._snap_enabled)
 
     def set_inference_enabled(self, enabled: bool | None = None):
-        """Toggle or set alignment inference. Mirrors toggle_osnap()."""
+        """Toggle or set alignment inference. Mirrors toggle_snap()."""
         if enabled is None:
             self._inference_enabled = not self._inference_enabled
         else:

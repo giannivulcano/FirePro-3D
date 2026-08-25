@@ -83,7 +83,7 @@ def test_held_reemitted_with_fields_preserved_when_no_candidate(qapp):
 
 def test_model_hysteresis_sticky_then_reset(make_model_space):
     """Two close endpoints: first snap is held on second call (sticky);
-    toggle_osnap resets _snap_result to None."""
+    toggle_snap resets _snap_result to None."""
     from firepro3d.construction_geometry import LineItem
     from PyQt6.QtCore import QPointF
 
@@ -93,8 +93,8 @@ def test_model_hysteresis_sticky_then_reset(make_model_space):
     ms.addItem(LineItem(QPointF(0.0, 0.0), QPointF(100.0, 0.0)))   # endpoint A
     ms.addItem(LineItem(QPointF(18.0, 0.0), QPointF(200.0, 0.0)))  # endpoint B
 
-    # Enable OSNAP and set a placement mode so snapping is active
-    ms._osnap_enabled = True
+    # Enable SNAP and set a placement mode so snapping is active
+    ms._snap_enabled = True
     ms.set_mode("draw_line")
 
     # First call: cursor near A (at x=2) — should snap to A (0,0)
@@ -111,6 +111,6 @@ def test_model_hysteresis_sticky_then_reset(make_model_space):
         f"Expected held snap at {first_snap_pt}, got {ms._snap_result.point}"
     )
 
-    # toggle_osnap() must reset _snap_result
-    ms.toggle_osnap(False)
-    assert ms._snap_result is None, "toggle_osnap should clear _snap_result"
+    # toggle_snap() must reset _snap_result
+    ms.toggle_snap(False)
+    assert ms._snap_result is None, "toggle_snap should clear _snap_result"
