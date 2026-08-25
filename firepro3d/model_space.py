@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QImage, QPolygonF,
-                          QFontMetricsF)
+                          QFontMetricsF, QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from .node import Node
 from .pipe import Pipe
@@ -3787,25 +3787,26 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # picks have a visible target.
         if self.mode == "design_area":
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            view_scale = (self.views()[0].transform().m11()
-                          if self.views() else 1.0)
-            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
-            best_node = None
-            best_d = tol
-            for spr in self.sprinkler_system.sprinklers:
-                if not spr.node:
-                    continue
-                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
-                    continue
-                d = spr.node.distance_to(scene_pos.x(), scene_pos.y())
-                if d < best_d:
-                    best_d = d
-                    best_node = spr.node
-            if best_node is not None:
-                pt = QPointF(best_node.scenePos())
-                self._snap_result = OsnapResult(point=pt, snap_type="center")
+            views = self.views()
+            xform = views[0].transform() if views else QTransform()
+            sprinkler_nodes = {
+                spr.node for spr in self.sprinkler_system.sprinklers
+                if spr.node is not None
+                and getattr(spr.node, "level", DEFAULT_LEVEL) == active
+            }
+            _was_enabled = self._snap_engine.enabled
+            self._snap_engine.enabled = True
+            try:
+                result = self._snap_engine.find(
+                    scene_pos, self, xform,
+                    only_types={"center"},
+                    item_filter=lambda it: it in sprinkler_nodes)
+            finally:
+                self._snap_engine.enabled = _was_enabled
+            if result is not None:
+                self._snap_result = result
                 self._inference_result = None
-                return pt
+                return result.point
             self._snap_result = None
             self._inference_result = None
             return QPointF(scene_pos)
@@ -7696,24 +7697,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._da_change_committed(da)
         else:
             # Normal click: toggle the nearest sprinkler on the active level.
-            # Uses the RAW click position (not snapped) so OSNAP hits on
-            # gridlines/underlay geometry cannot drag the pick away, and a
-            # zoom-aware pixel radius so sprinklers are hittable at any zoom.
+            # Routes through SnapEngine (center-only whitelist, sprinkler nodes
+            # only) so the pick aperture stays zoom-invariant and consistent
+            # with the rest of the snap system.  OSNAP toggle is overridden so
+            # design-area picking always works regardless of the F3 setting.
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            view_scale = (self.views()[0].transform().m11()
-                          if self.views() else 1.0)
-            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
+            views = self.views()
+            xform = views[0].transform() if views else QTransform()
+            node_to_spr = {spr.node: spr for spr in self.sprinkler_system.sprinklers
+                           if spr.node is not None
+                           and getattr(spr.node, "level", DEFAULT_LEVEL) == active}
             target_spr = None
-            best_d = tol
-            for spr in self.sprinkler_system.sprinklers:
-                if not spr.node:
-                    continue
-                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
-                    continue
-                d = spr.node.distance_to(pos.x(), pos.y())
-                if d < best_d:
-                    best_d = d
-                    target_spr = spr
+            _was = self._snap_engine.enabled
+            self._snap_engine.enabled = True
+            try:
+                result = self._snap_engine.find(
+                    pos, self, xform,
+                    only_types={"center"},
+                    item_filter=lambda it: it in node_to_spr)
+            finally:
+                self._snap_engine.enabled = _was
+            if result is not None:
+                target_spr = node_to_spr.get(result.source_item)
             if target_spr:
                 da = self._ensure_editing_da(resume_spr=target_spr)
                 da.toggle_sprinkler(target_spr)
