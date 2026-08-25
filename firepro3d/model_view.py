@@ -837,6 +837,7 @@ class Model_View(QGraphicsView):
         # into one cycle tool (polyline becomes a Line variant, no own shortcut).
         Qt.Key.Key_K: "polyline",
         Qt.Key.Key_P: "polygon",
+        Qt.Key.Key_W: "wall",
     }
 
     def event(self, ev: QEvent) -> bool:

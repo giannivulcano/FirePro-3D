@@ -1558,18 +1558,10 @@ class MainWindow(QMainWindow):
         g_3d = build_page.add_group("Building")
         _wall_btn = g_3d.add_large_button(
             "Wall", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("wall_rect"),
+            lambda: self.scene.set_mode("wall"),
             checkable=True)
-        _wall_btn.setToolTip("Draw a wall segment")
-        _wall_menu = QMenu(_wall_btn)
-        _wall_rect_act = _wall_menu.addAction("Wall (Rectangle)")
-        _wall_poly_act = _wall_menu.addAction("Wall (Polyline)")
-        _wall_rect_act.triggered.connect(lambda: self.scene.set_mode("wall_rect"))
-        _wall_poly_act.triggered.connect(lambda: self.scene.set_mode("wall"))
-        _wall_btn.setMenu(_wall_menu)
-        _wall_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        _wall_btn.setToolTip("Draw a wall  (W) — ←/→ Line/Polyline/Rectangle, Space aligns")
         self._mode_buttons["wall"] = _wall_btn
-        self._mode_buttons["wall_rect"] = _wall_btn
         _floor_btn = g_3d.add_large_button(
             "Floor", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("floor_rect"),
@@ -2597,7 +2589,7 @@ class MainWindow(QMainWindow):
 
     def _on_mode_changed_template(self, mode: str):
         """Show pre-placement template properties when entering wall/floor/geometry mode."""
-        if mode in ("wall", "wall_rect"):
+        if mode == "wall":
             template = self.scene._get_wall_template()
             template._alignment = self.scene._wall_alignment
             self.prop_manager.show_properties(template)
@@ -4169,7 +4161,7 @@ class MainWindow(QMainWindow):
         # Guard against the scene's C++ object being deleted during shutdown
         try:
             # Don't override template properties during placement modes
-            if self.scene.mode in ("pipe", "sprinkler", "wall", "wall_rect",
+            if self.scene.mode in ("pipe", "sprinkler", "wall",
                                     "floor", "floor_rect", "roof", "roof_rect",
                                     "set_scale", "design_area"):
                 return

@@ -70,13 +70,14 @@ def test_undo_redo_present_on_manage(main_window):
 # ── Mode-button sync tests (Task C3) ─────────────────────────────────────────
 
 # Every mode string that must appear in _mode_buttons after the ribbon
-# restructure.  Shared-button aliases (wall/wall_rect, floor/floor_rect, …)
+# restructure.  Shared-button aliases (floor/floor_rect, …)
 # each get their own entry because _mode_buttons[alias] = same_button is the
 # invariant; clicking the shared button verifies the wiring, not the alias.
+# Note: wall_rect was removed in Task 6 (single wall button, no dropdown).
 _SURVIVING_MODES = [
     "draw_line", "draw_rectangle", "draw_circle", "polyline", "draw_arc",
     "draw_gridline", "dimension", "text",
-    "wall", "wall_rect", "floor", "floor_rect", "roof", "roof_rect",
+    "wall", "floor", "floor_rect", "roof", "roof_rect",
     "room", "room_manual", "door", "window", "detail",
     "pipe", "sprinkler", "water_supply", "design_area",
     "radiation_emitter", "radiation_receiver",

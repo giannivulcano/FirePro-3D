@@ -2,16 +2,18 @@
 
 Task 4: one ``"wall"`` scene-mode carries ``_wall_primitive ∈ {"line","polyline","rect"}``;
 ←/→ cycles the primitive via ``_PLACEMENT_VARIANTS``; ``set_mode("wall_rect")`` aliases
-into ``wall`` + ``rect`` primitive (backward-compat shim for the ribbon, Task 6 will update).
+into ``wall`` + ``rect`` primitive (backward-compat shim).
 
 Task 5: "line" primitive places ONE segment then re-arms; "polyline" chains (as before).
+
+Task 6: W key shortcut enters wall mode; ribbon button has no dropdown.
 """
 
 from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QPointF, Qt, QEvent
-from PyQt6.QtGui import QMouseEvent
+from PyQt6.QtGui import QMouseEvent, QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from firepro3d.model_space import Model_Space
@@ -120,3 +122,22 @@ def test_line_geometry_parity_with_polyline_first_segment(qapp, shown_model_view
     # pixel rounding in an empty scene with no snap targets.
     assert abs(w.pt1.x() - 0) < 20 and abs(w.pt1.y() - 0) < 20
     assert abs(w.pt2.x() - 1000) < 20 and abs(w.pt2.y() - 0) < 20
+
+
+# ── Task 6: W shortcut ────────────────────────────────────────────────────────
+
+def _key(view, key):
+    """Post a bare key press+release through the real event pipeline."""
+    vp = view.viewport()
+    for et in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(vp,
+            QKeyEvent(et, key, Qt.KeyboardModifier.NoModifier))
+
+
+def test_w_enters_wall_mode_via_focused_view(qapp, shown_model_view):
+    """W key on a focused view must enter wall mode."""
+    view, scene = shown_model_view
+    scene.set_mode("select")
+    view.setFocus()
+    _key(view, Qt.Key.Key_W)
+    assert scene.mode == "wall"
