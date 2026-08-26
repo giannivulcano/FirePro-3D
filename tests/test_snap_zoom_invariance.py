@@ -47,5 +47,5 @@ def test_endpoint_missed_just_outside_aperture_at_every_zoom(scene_with_line, sc
     assert res is None, f"snap fired beyond aperture at scale={scale}"
 
 
-def test_default_aperture_is_20():
-    assert snap_engine.SNAP_TOLERANCE_PX == 20
+def test_default_aperture_is_15():
+    assert snap_engine.SNAP_TOLERANCE_PX == 15

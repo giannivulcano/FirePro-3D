@@ -13,6 +13,8 @@ def test_find_snap_point_is_gone():
 
 @pytest.mark.parametrize("scale", [0.05, 5.0])
 def test_underlay_snap_pixel_invariant(qapp, make_model_space, scale):
+    from firepro3d import snap_engine
+    snap_engine.SNAP_TOLERANCE_PX = 20   # pin the aperture this test's px offsets assume
     ms = make_model_space()
     ms.mode = "select"                 # OSNAP gated off in select; underlay path runs
     ms._snap_to_underlay = True

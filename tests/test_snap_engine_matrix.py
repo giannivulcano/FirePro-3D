@@ -48,6 +48,16 @@ PERP_OFFSET = 12.0  # perpendicular / nearest cursor distance from segment (≤2
 ABS_TOL = 2.0       # point comparison tolerance (scene units)
 
 
+@pytest.fixture(autouse=True)
+def _pin_aperture():
+    # This file's cursor offsets are calibrated to a 20px aperture at scale=1
+    # (e.g. tangent cases sit ~18px out); pin it rather than inherit the
+    # user-tunable shipped default. conftest restores the real value afterward.
+    from firepro3d import snap_engine
+    snap_engine.SNAP_TOLERANCE_PX = 20
+    yield
+
+
 def _engine(**overrides) -> SnapEngine:
     """Create a SnapEngine with all snaps on, applying any overrides."""
     eng = SnapEngine()

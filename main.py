@@ -812,7 +812,7 @@ class MainWindow(QMainWindow):
             self.scene._snap_angle_deg = self.settings.value("snap/angle_deg", 45, type=float)
         if self.settings.contains("snap/tolerance_px"):
             from firepro3d import snap_engine
-            snap_engine.SNAP_TOLERANCE_PX = self.settings.value("snap/tolerance_px", 20, type=int)
+            snap_engine.SNAP_TOLERANCE_PX = self.settings.value("snap/tolerance_px", 15, type=int)
         if self.settings.contains("snap/hysteresis_px"):
             from firepro3d import snap_engine
             snap_engine.SNAP_HYSTERESIS_PX = self.settings.value("snap/hysteresis_px", 3, type=int)

@@ -3787,8 +3787,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # picks have a visible target.
         if self.mode == "design_area":
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            views = self.views()
-            xform = views[0].transform() if views else QTransform()
+            _view = self._snap_view()
+            xform = _view.transform() if _view is not None else QTransform()
             sprinkler_nodes = {
                 spr.node for spr in self.sprinkler_system.sprinklers
                 if spr.node is not None
@@ -3821,10 +3821,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 and self.mode is not None
                 and (self.mode != "select" or self._grip_dragging)):
             exclude = self._grip_item if self._grip_dragging else None
-            views = self.views()
-            if views:
+            _view = self._snap_view()
+            if _view is not None:
                 result = self._snap_engine.find(
-                    scene_pos, self, views[0].transform(), exclude=exclude,
+                    scene_pos, self, _view.transform(), exclude=exclude,
                     held=self._snap_result)
                 self._snap_result = result
                 if result is not None:
@@ -3839,15 +3839,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # underlay geometry (pixel-correct + zoom-invariant). Runs when the
         # SNAP block above did not fire (e.g. select mode) and the toggle is on.
         if self._snap_to_underlay:
-            views = self.views()
-            if views:
+            _view = self._snap_view()
+            if _view is not None:
                 # Force-enable the engine for this call: the underlay toggle is
                 # independent of the general SNAP on/off switch.
                 _was_enabled = self._snap_engine.enabled
                 self._snap_engine.enabled = True
                 try:
                     result = self._snap_engine.find(
-                        scene_pos, self, views[0].transform(),
+                        scene_pos, self, _view.transform(),
                         item_filter=_is_underlay_item,
                         held=self._snap_result)
                 finally:
@@ -3859,10 +3859,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # ── Inferred alignment guides (weak snap, below SNAP) ────────────
         if self._inference_enabled and self._inference_active_item is not None:
-            views = self.views()
-            if views:
-                view = views[0]
-                scale = max(abs(view.transform().m11()), 1e-9)
+            _view = self._snap_view()
+            if _view is not None:
+                scale = max(abs(_view.transform().m11()), 1e-9)
                 tol = INFERENCE_TOL_PX / scale
                 refs = self._collect_alignment_refs(scene_pos, tol)
                 res = self._inference_engine.resolve(
@@ -4554,6 +4553,29 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             attached view is visible.
         """
         return next((v for v in self.views() if v.isVisible()), None)
+
+    def _snap_view(self):
+        """The view whose zoom (``transform().m11()``) drives snap/scale reads.
+
+        Prefers the on-screen plan view (:meth:`_visible_view`); falls back to
+        the LAST-attached view so headless tests (which attach a view without
+        ``show()``) still resolve a real transform. ``views()[0]`` is
+        deliberately *not* the fallback: in the running app that is the
+        vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
+        reading it made every zoom-dependent tolerance (snap aperture,
+        design-area pick, inference band, …) collapse to a fixed *scene*
+        distance regardless of zoom.
+        """
+        v = self._visible_view()
+        if v is not None:
+            return v
+        views = self.views()
+        return views[-1] if views else None
+
+    def _active_view_scale(self) -> float:
+        """Current on-screen zoom (px per scene-unit) from the active plan view."""
+        v = self._snap_view()
+        return v.transform().m11() if v is not None else 1.0
 
     def _seed_values_for(self, schema, anchor) -> dict:
         """Return the values *schema*'s HUD should open with.
@@ -5636,7 +5658,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pl = self._polyline_active
             pts = pl._points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
                     self.update_preview_node(pts[0])
@@ -7708,8 +7730,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # with the rest of the snap system.  OSNAP toggle is overridden so
             # design-area picking always works regardless of the F3 setting.
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            views = self.views()
-            xform = views[0].transform() if views else QTransform()
+            _view = self._snap_view()
+            xform = _view.transform() if _view is not None else QTransform()
             node_to_spr = {spr.node: spr for spr in self.sprinkler_system.sprinklers
                            if spr.node is not None
                            and getattr(spr.node, "level", DEFAULT_LEVEL) == active}
@@ -8158,7 +8180,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._room_manual_active._boundary
             # Close polygon: click near first point with ≥3 points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -8177,7 +8199,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             # Click-to-delete vertex
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -8459,7 +8481,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9215,7 +9237,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Close wall loop: if clicking near chain start → snap tip to start
             _close_loop = False
             if self._wall_chain_start is not None:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 15.0 / max(scale, 1e-6)
                 d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
                                      tip.y() - self._wall_chain_start.y())
@@ -9441,7 +9463,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._floor_active._points
             # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9456,7 +9478,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -9587,7 +9609,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             pts = self._roof_active._points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9639,7 +9661,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.instructionChanged.emit("Pick first boundary point (click near first to close)")
                     return
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -9844,7 +9866,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Find FloorSlab under cursor
         for it in self.items(snapped):
             if isinstance(it, FloorSlab) and len(it._points) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 vtx_tol = 8.0 / max(scale, 1e-6)
                 # Check if near an existing vertex → delete it (min 3)
                 for vi, vpt in enumerate(it._points):

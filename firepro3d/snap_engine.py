@@ -44,7 +44,7 @@ from .wall import WallSegment
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-SNAP_TOLERANCE_PX = 20        # screen-pixel aperture (grab radius); was 40 (too grabby)
+SNAP_TOLERANCE_PX = 15        # screen-pixel aperture (grab radius); user-tuned default (was 40→20→15)
 # Perf-only ceiling on the *search rect* in scene units. It must never shrink
 # the effective aperture at a usable zoom — it only clamps below the zoom at
 # which individual features are distinguishable (~0.002 px/mm). At 20px aperture

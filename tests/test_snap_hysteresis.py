@@ -12,6 +12,15 @@ def _x(scale=1.0):
     t = QTransform(); t.scale(scale, scale); return t
 
 
+@pytest.fixture(autouse=True)
+def _pin_aperture():
+    # These tests place candidates at fixed screen-pixel distances (e.g. 16px),
+    # so pin the aperture they were written against rather than inherit the
+    # shipped default (which is user-tunable). conftest restores it afterward.
+    snap_engine.SNAP_TOLERANCE_PX = 20
+    yield
+
+
 def test_default_hysteresis_is_3():
     assert snap_engine.SNAP_HYSTERESIS_PX == 3
 

@@ -41,7 +41,7 @@ _QSETTINGS_ORG  = "GV"
 _QSETTINGS_APP  = "FirePro3D"
 
 _FACTORY_DEFAULTS: dict = {
-    "tol_px":       20,
+    "tol_px":       15,
     "hysteresis_px": 3,
     "grip_px":      200,
     "grid_mm":      10.0,
