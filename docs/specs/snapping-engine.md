@@ -5,6 +5,7 @@
 > **Date:** 2026-04-07
 > **Revision:** 1 (post grill + brainstorm session)
 > **Impl note (2026-06-25):** two intersection-snap fixes shipped + verified. **(1)** §6.1 priority-band floor (`SNAP_PRIORITY_BAND_PX = 12`) — stops intersection snapping collapsing at low user tolerance (Pain #2); regression `tests/test_snap_priority_band.py`. **(2)** §6.3 Change A now **exempts underlay-index segments** (`parent_key = None`) so crossings *within* one imported entity (e.g. a self-crossing `LWPOLYLINE`) still snap; regression `tests/test_snap_underlay_internal_intersection.py`. Roadmap §6.3 Changes A/B shipped earlier (2026-04-07).
+> **Impl note (2026-08-26 — SNAP refinement, `feat/snap-refinement`, verified-commit `a4affd8`):** shipped the constant-pixel aperture with **acceptance judged in true pixels** (§3.1, §6.1; `SNAP_TOLERANCE_PX = 15` default, user-tunable + persisted), **hysteresis** (§14.2), the **candidate-whitelist API** + "Snap to Underlay" reroute (deletes world-unit `find_snap_point`) + design-area center-only routing (§14.3), the **OSNAP→"SNAP" (Select Nearest Anchor Point)** rename, and — the load-bearing fix — the **visible-view zoom read** (§14.4): a pre-existing `views()[0]` vestigial-view bug had silently made *all* zoom-dependent tolerances world-unit. Full snap-engine suite green.
 
 ---
 
@@ -84,7 +85,7 @@ The existing `snap_engine.py` is already AutoCAD-shaped: priority-banded picker,
 | **F-key global toggle** for OSNAPs | F3 bound to a **window-level `QShortcut`** calling `Model_Space.toggle_snap` (toggles `SnapEngine.enabled`). Window-level so it fires from any ribbon tab — a `QToolButton` shortcut on a ribbon page only fires when that tab is visible. |
 | **AutoSnap marker + tooltip** as the core UX surface | Markers are present (§9). Tooltips deferred — note the named-target decision in §8 uses marker variants instead. |
 | **Marker colors carry meaning** (each snap type its own color) | Current `SNAP_COLORS` dict already follows this. Locked. |
-| **Snap tolerance is a screen-pixel constant**, not a scene-unit one | **Acceptance is judged in pixels:** `d_scene × scale ≤ aperture_px` — the engine converts the scene-space distance to pixels before comparing to the aperture. Default `SNAP_TOLERANCE_PX` = **20 px** (reduced from 40 px). `SNAP_MAX_SCENE_TOL` = **10 000 mm** is a **perf-only** ceiling on the search rect passed to `scene.items()`; it prevents an absurdly large spatial query at extreme zoom-out but never shrinks the effective pixel aperture at any usable zoom level. See §6.1 for the picker's pixel-space band arithmetic and §14 for the shared `px_to_scene`/`scene_to_px` conversion helpers. |
+| **Snap tolerance is a screen-pixel constant**, not a scene-unit one | **Acceptance is judged in pixels:** `d_scene × scale ≤ aperture_px` — the engine converts the scene-space distance to pixels before comparing to the aperture. Default `SNAP_TOLERANCE_PX` = **15 px** (was 40; user-tunable + persisted). `SNAP_MAX_SCENE_TOL` = **10 000 mm** is a **perf-only** ceiling on the search rect passed to `scene.items()`; it prevents an absurdly large spatial query at extreme zoom-out but never shrinks the effective pixel aperture at any usable zoom level. **The zoom (`scale`) MUST come from the visible plan view (§14.4), not `views()[0]`** — reading the vestigial view degenerates this to a scene-unit tolerance. See §6.1 for the picker's pixel-space band arithmetic and §14 for the shared `px_to_scene`/`scene_to_px` conversion helpers. |
 
 **AutoCAD conventions explicitly rejected:**
 
@@ -465,6 +466,12 @@ The hysteresis constant `SNAP_HYSTERESIS_PX = 3` is defined in `snap_engine.py` 
 2. **Design-area sprinkler pick** — calls `find(only_types={"center"}, item_filter=<active-level Node items>)` to force center-snap regardless of the user's per-type preferences. This ensures the pick works even if `snap_center` is toggled off in the toolbar, and avoids picking non-sprinkler geometry.
 
 These two are the only current consumers. Future contextual-snap use cases (tool-specific snap sets) should add a new `item_filter` or `only_types` call at the call site, **not** add new branches inside `find()`.
+
+### 14.4 Reading zoom: the VISIBLE view, not `views()[0]` (load-bearing invariant)
+
+The entire pixel-aperture model — and *every* other zoom-dependent tolerance (design-area pick, inference/OTRACK band, array/offset/dimension/rotate previews) — depends on reading the on-screen zoom `view.transform().m11()`. **Critical invariant:** that zoom MUST come from the **visible** plan view via `Model_Space._snap_view()` / `_active_view_scale()`, **never** `self.views()[0]`.
+
+The model scene has **N+1 attached `QGraphicsView`s**: a vestigial, never-shown `MainWindow.view` (created first at `main.py:430`, so it is *always* `views()[0]`, permanently frozen at `m11 = 1.0`) plus one `Model_View` per open plan tab (only the active tab is `isVisible()`). Reading `views()[0].transform().m11()` therefore returns `1.0` forever, which silently degenerates the pixel judgment `d_px = d_scene × m11` into a **fixed scene-unit tolerance** — world-unit snapping (huge grab zoomed in, tiny/insensitive zoomed out) regardless of the pixel aperture. This bug pre-dated the pixel-aperture work and **neutralized it entirely** until fixed (2026-08-26, `a4affd8`). `_snap_view()` returns the first `isVisible()` view, falling back to the last-attached view for headless tests — never the vestigial index-0. **Any new zoom-dependent code must use `_active_view_scale()`, not `self.views()[0]`.**
 
 ---
 
