@@ -2,7 +2,7 @@
 get_effective_position inference hook in Model_Space.
 
 TDD: tests written first; GREEN after implementation.
-See docs/specs/inferred-dimension-driven-placement.md §5.
+See docs/specs/align-placement.md §5.
 """
 from __future__ import annotations
 
@@ -89,8 +89,8 @@ class TestGetEffectivePositionInferenceHook:
 
         # Active item (not in scene — just sets the self-exclude id).
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-        ms._inference_active_item = active
-        ms._inference_enabled = True
+        ms._align_active_item = active
+        ms._align_enabled = True
 
         # Disable OSNAP and underlay snap so the inference path is reached.
         ms._snap_enabled = False
@@ -103,7 +103,7 @@ class TestGetEffectivePositionInferenceHook:
         from PyQt6.QtWidgets import QApplication
         QApplication.processEvents()
 
-        # Cursor 2 mm off the gridline — within INFERENCE_TOL_PX at scale 1.
+        # Cursor 2 mm off the gridline — within ALIGN_PATH_TOL_PX at scale 1.
         pos = ms.get_effective_position(QPointF(1002.0, 2500.0))
         assert round(pos.x(), 1) == 1000.0, (
             f"Expected x=1000.0, got x={pos.x()}"
@@ -118,8 +118,8 @@ class TestGetEffectivePositionInferenceHook:
         ms._gridlines.append(ref)
 
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(100.0, 0.0), label="B")
-        ms._inference_active_item = active
-        ms._inference_enabled = True
+        ms._align_active_item = active
+        ms._align_enabled = True
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
@@ -134,8 +134,8 @@ class TestGetEffectivePositionInferenceHook:
             f"Expected y=2000.0, got y={pos.y()}"
         )
 
-    def test_no_snap_when_inference_disabled(self, qapp, make_model_space):
-        """When _inference_enabled is False, inference is not applied."""
+    def test_no_snap_when_align_disabled(self, qapp, make_model_space):
+        """When _align_enabled is False, inference is not applied."""
         ms = make_model_space()
         ref = GridlineItem(QPointF(1000.0, -500.0), QPointF(1000.0, 5000.0),
                            label="1")
@@ -143,8 +143,8 @@ class TestGetEffectivePositionInferenceHook:
         ms._gridlines.append(ref)
 
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-        ms._inference_active_item = active
-        ms._inference_enabled = False   # disabled
+        ms._align_active_item = active
+        ms._align_enabled = False   # disabled
         ms._snap_enabled = False
         ms._snap_to_underlay = False
         # Also disable grid snap for a clean test.
@@ -163,15 +163,15 @@ class TestGetEffectivePositionInferenceHook:
         )
 
     def test_no_snap_when_no_active_item(self, qapp, make_model_space):
-        """When _inference_active_item is None, inference is not applied."""
+        """When _align_active_item is None, inference is not applied."""
         ms = make_model_space()
         ref = GridlineItem(QPointF(1000.0, -500.0), QPointF(1000.0, 5000.0),
                            label="1")
         ms.addItem(ref)
         ms._gridlines.append(ref)
 
-        ms._inference_active_item = None  # no active item
-        ms._inference_enabled = True
+        ms._align_active_item = None  # no active item
+        ms._align_enabled = True
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
@@ -186,8 +186,8 @@ class TestGetEffectivePositionInferenceHook:
             f"No active item: should not snap but got x={pos.x()}"
         )
 
-    def test_inference_result_stored(self, qapp, make_model_space):
-        """_inference_result is populated after a successful inference snap."""
+    def test_align_result_stored(self, qapp, make_model_space):
+        """_align_result is populated after a successful inference snap."""
         ms = make_model_space()
         ref = GridlineItem(QPointF(1000.0, -500.0), QPointF(1000.0, 5000.0),
                            label="1")
@@ -195,8 +195,8 @@ class TestGetEffectivePositionInferenceHook:
         ms._gridlines.append(ref)
 
         active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-        ms._inference_active_item = active
-        ms._inference_enabled = True
+        ms._align_active_item = active
+        ms._align_enabled = True
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
@@ -207,8 +207,8 @@ class TestGetEffectivePositionInferenceHook:
         QApplication.processEvents()
 
         ms.get_effective_position(QPointF(1002.0, 2500.0))
-        assert ms._inference_result is not None
-        assert ms._inference_result.priority != "free"
+        assert ms._align_result is not None
+        assert ms._align_result.priority != "free"
 
     def test_active_item_self_excluded(self, qapp, make_model_space):
         """Reference features from the active item itself must not snap to it."""
@@ -220,8 +220,8 @@ class TestGetEffectivePositionInferenceHook:
                               label="1")
         ms.addItem(active)
         ms._gridlines.append(active)
-        ms._inference_active_item = active   # self
-        ms._inference_enabled = True
+        ms._align_active_item = active   # self
+        ms._align_enabled = True
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
@@ -235,20 +235,20 @@ class TestGetEffectivePositionInferenceHook:
         pos = ms.get_effective_position(QPointF(1002.0, 2500.0))
         # With only the active item present and self-exclusion active, no
         # inference snap should occur — result falls through to grid/free snap.
-        assert ms._inference_result is not None
+        assert ms._align_result is not None
         # priority must be "free" (no external refs)
-        assert ms._inference_result.priority == "free"
+        assert ms._align_result.priority == "free"
 
-    def test_inference_new_attributes_present(self, qapp):
+    def test_align_new_attributes_present(self, qapp):
         """Model_Space must expose the three new inference attributes."""
         ms = Model_Space()
-        assert hasattr(ms, "_inference_engine")
-        assert hasattr(ms, "_inference_enabled")
-        assert hasattr(ms, "_inference_result")
-        assert hasattr(ms, "_inference_active_item")
-        assert ms._inference_enabled is True
-        assert ms._inference_result is None
-        assert ms._inference_active_item is None
+        assert hasattr(ms, "_align_engine")
+        assert hasattr(ms, "_align_enabled")
+        assert hasattr(ms, "_align_result")
+        assert hasattr(ms, "_align_active_item")
+        assert ms._align_enabled is True
+        assert ms._align_result is None
+        assert ms._align_active_item is None
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ class TestGetEffectivePositionInferenceHook:
 # ---------------------------------------------------------------------------
 
 from PyQt6.QtGui import QPixmap, QColor
-from firepro3d.constants import INFERENCE_GUIDE_COLOR
+from firepro3d.constants import ALIGN_GUIDE_COLOR
 
 
 def _render_view(view):
@@ -265,12 +265,12 @@ def _render_view(view):
 
 
 def _has_guide_color(img, tolerance=6):
-    """Return True if any pixel within a 1px stride matches INFERENCE_GUIDE_COLOR.
+    """Return True if any pixel within a 1px stride matches ALIGN_GUIDE_COLOR.
 
     Uses stride=1 because dashed cosmetic lines may be sparse (only a few
     pixels wide) and larger strides can miss them.
     """
-    target = QColor(INFERENCE_GUIDE_COLOR).getRgb()[:3]
+    target = QColor(ALIGN_GUIDE_COLOR).getRgb()[:3]
     for x in range(0, img.width(), 1):
         for y in range(0, img.height(), 1):
             rgb = QColor(img.pixel(x, y)).getRgb()[:3]
@@ -280,7 +280,7 @@ def _has_guide_color(img, tolerance=6):
 
 
 def test_guide_paints_when_result_present(qapp, make_model_space):
-    """drawForeground must paint guide-color pixels when _inference_result has guides."""
+    """drawForeground must paint guide-color pixels when _align_result has guides."""
     from firepro3d.model_view import Model_View
     ms = make_model_space()
     # Attach a real Model_View — the plain QGraphicsView from the fixture
@@ -288,9 +288,9 @@ def test_guide_paints_when_result_present(qapp, make_model_space):
     mv = Model_View(ms)
     mv.resize(400, 400)
     mv.resetTransform()
-    from firepro3d.inference_engine import InferenceResult, Guide, ReferenceFeature
+    from firepro3d.align_engine import AlignResult, Guide, ReferenceFeature
     ref = ReferenceFeature("point", 0.0, 0.0, 1, "endpoint")
-    ms._inference_result = InferenceResult(snapped=(0.0, 0.0),
+    ms._align_result = AlignResult(snapped=(0.0, 0.0),
                                            guides=[Guide("v", 0.0, ref)],
                                            priority="single-guide")
     mv.centerOn(0.0, 0.0)
@@ -299,17 +299,17 @@ def test_guide_paints_when_result_present(qapp, make_model_space):
     mv.viewport().repaint()
     img = _render_view(mv)
     assert _has_guide_color(img), (
-        "Expected guide-color pixels when _inference_result has guides"
+        "Expected guide-color pixels when _align_result has guides"
     )
     mv.hide()
 
 
 # ---------------------------------------------------------------------------
-# Step 5 (Task 4) — set_inference_enabled() functional toggle test
+# Step 5 (Task 4) — set_align_enabled() functional toggle test
 # ---------------------------------------------------------------------------
 
-def test_inference_toggle_off_disables_snap(qapp, make_model_space):
-    """set_inference_enabled(False) must suppress inference snapping.
+def test_align_toggle_off_disables_snap(qapp, make_model_space):
+    """set_align_enabled(False) must suppress inference snapping.
 
     Uses the same view-sizing pattern as the Task-2 class tests so the
     reference gridline is within the viewport.
@@ -320,7 +320,7 @@ def test_inference_toggle_off_disables_snap(qapp, make_model_space):
     ref = GridlineItem(QPointF(1000.0, -500.0), QPointF(1000.0, 5000.0), label="1")
     ms.addItem(ref); ms._gridlines.append(ref)
     active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-    ms._inference_active_item = active
+    ms._align_active_item = active
     ms._snap_enabled = False
     ms._snap_to_underlay = False
     ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
@@ -331,39 +331,39 @@ def test_inference_toggle_off_disables_snap(qapp, make_model_space):
     from PyQt6.QtWidgets import QApplication
     QApplication.processEvents()
 
-    ms.set_inference_enabled(False)
+    ms.set_align_enabled(False)
     pos = ms.get_effective_position(QPointF(1002.0, 2500.0))
     assert round(pos.x(), 1) == 1002.0, (    # NOT snapped to x=1000
-        f"set_inference_enabled(False) should prevent snap but got x={pos.x()}"
+        f"set_align_enabled(False) should prevent snap but got x={pos.x()}"
     )
-    assert ms._inference_result is None
+    assert ms._align_result is None
 def test_no_guide_paint_when_result_none(qapp, make_model_space):
-    """drawForeground must NOT paint guide-color pixels when _inference_result is None."""
+    """drawForeground must NOT paint guide-color pixels when _align_result is None."""
     from firepro3d.model_view import Model_View
     ms = make_model_space()
     mv = Model_View(ms)
     mv.resize(400, 400)
     mv.resetTransform()
-    ms._inference_result = None
+    ms._align_result = None
     mv.centerOn(0.0, 0.0)
     from PyQt6.QtWidgets import QApplication
     QApplication.processEvents()
     mv.viewport().repaint()
     img = _render_view(mv)
     assert not _has_guide_color(img), (
-        "Expected no guide-color pixels when _inference_result is None"
+        "Expected no guide-color pixels when _align_result is None"
     )
     mv.hide()
 
 
 # ---------------------------------------------------------------------------
-# Task 5 — set/clear _inference_active_item in placement + grip-drag
+# Task 5 — set/clear _align_active_item in placement + grip-drag
 # ---------------------------------------------------------------------------
 
 from types import SimpleNamespace
 
 
-def _setup_inference_view(ms, *, center_x=0.0, center_y=0.0):
+def _setup_align_view(ms, *, center_x=0.0, center_y=0.0):
     """Centre the first view on the given scene coords.
 
     The fixture view is 800×800 but the OS keeps the unshown viewport at ~786px,
@@ -385,7 +385,7 @@ def _place_click(ms, x, y):
     """Simulate one placement click in draw_gridline mode.
 
     Calls get_effective_position() on the raw cursor so the inference engine
-    runs with whatever _inference_active_item is currently set, then forwards
+    runs with whatever _align_active_item is currently set, then forwards
     the snapped position to _press_draw_line — exactly as mousePressEvent does.
     """
     raw = QPointF(x, y)
@@ -398,20 +398,20 @@ def _grip_drag(ms, gl, *, index, to):
     """Simulate an endpoint grip-drag gesture on *gl*.
 
     1. Mimics the press-handler state that sets _grip_item/_grip_dragging and
-       (per the Task-5 implementation) _inference_active_item.
+       (per the Task-5 implementation) _align_active_item.
     2. Calls get_effective_position() at the target cursor position so the
-       inference engine runs with _inference_active_item set.
+       inference engine runs with _align_active_item set.
     3. Calls apply_grip with the snapped position.
-    4. Simulates release (clears grip state + _inference_active_item).
+    4. Simulates release (clears grip state + _align_active_item).
     """
     from firepro3d.gridline import GridlineItem as _GL
     # --- press: replicate what mousePressEvent does when a grip is hit ---
     ms._grip_item = gl
     ms._grip_index = index
     ms._grip_dragging = True
-    # Implementation sets _inference_active_item here for GridlineItems.
+    # Implementation sets _align_active_item here for GridlineItems.
     if isinstance(gl, _GL):
-        ms._inference_active_item = gl
+        ms._align_active_item = gl
     # --- move: get_effective_position uses the active item for inference ---
     snapped = ms.get_effective_position(QPointF(*to))
     gl.apply_grip(index, snapped)
@@ -419,12 +419,12 @@ def _grip_drag(ms, gl, *, index, to):
     ms._grip_dragging = False
     ms._grip_item = None
     ms._grip_index = -1
-    ms._inference_active_item = None
-    ms._inference_result = None
+    ms._align_active_item = None
+    ms._align_result = None
 
 
 class TestTask5PlacementAndGripWiring:
-    """Task 5: _inference_active_item is set during placement + grip-drag."""
+    """Task 5: _align_active_item is set during placement + grip-drag."""
 
     def test_placement_second_point_snaps_to_reference(self, qapp, make_model_space):
         """2nd placement click within tol of a ref gridline must snap to it.
@@ -442,7 +442,7 @@ class TestTask5PlacementAndGripWiring:
         ms._snap_to_underlay = False
         ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
 
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         ms.set_mode("draw_gridline")
 
@@ -480,7 +480,7 @@ class TestTask5PlacementAndGripWiring:
         ms._snap_to_underlay = False
         ms._grid_snap_enabled = getattr(ms, "_grid_snap_enabled", False)
 
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         # Drag the far endpoint (index=1) to (202, 0): 2 mm off ref X=200.
         # Inference snaps X to 200; apply_grip projects along (1,0) → x=200.
@@ -496,7 +496,7 @@ class TestTask5PlacementAndGripWiring:
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         ms.set_mode("draw_gridline")
 
@@ -512,7 +512,7 @@ class TestTask5PlacementAndGripWiring:
         ms._snap_enabled = False
         ms._snap_to_underlay = False
 
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         ms.set_mode("draw_gridline")
 
@@ -527,47 +527,47 @@ class TestTask5PlacementAndGripWiring:
         )
         # In continuous mode the sentinel stays armed (inference remains active
         # for the next placement); it must NOT be None.
-        assert ms._inference_active_item is not None, (
-            "Expected _inference_active_item to remain armed (sentinel) after continuous commit"
+        assert ms._align_active_item is not None, (
+            "Expected _align_active_item to remain armed (sentinel) after continuous commit"
         )
 
     def test_active_item_cleared_on_mode_change(self, qapp, make_model_space):
-        """set_mode to anything else must clear _inference_active_item."""
+        """set_mode to anything else must clear _align_active_item."""
         ms = make_model_space()
         ms.set_mode("draw_gridline")
-        # _inference_active_item must be set while in draw_gridline.
-        assert ms._inference_active_item is not None, (
+        # _align_active_item must be set while in draw_gridline.
+        assert ms._align_active_item is not None, (
             "Expected sentinel set when entering draw_gridline mode"
         )
         ms.set_mode("select")
-        assert ms._inference_active_item is None, (
+        assert ms._align_active_item is None, (
             "Expected None after leaving draw_gridline mode"
         )
 
     def test_active_item_set_on_grip_drag_start(self, qapp, make_model_space):
-        """_inference_active_item must equal the dragged GridlineItem at drag-start."""
+        """_align_active_item must equal the dragged GridlineItem at drag-start."""
         ms = make_model_space()
         gl = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 200.0), label="1")
         ms.addItem(gl)
         ms._gridlines.append(gl)
         gl.setSelected(True)
 
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         # Simulate grip press: set grip state as mousePressEvent would.
         ms._grip_item = gl
         ms._grip_index = 1
         ms._grip_dragging = True
 
-        # Implementation sets _inference_active_item when a GridlineItem grip is hit.
+        # Implementation sets _align_active_item when a GridlineItem grip is hit.
         # We replicate the condition from the implementation to assert correctness.
         from firepro3d.gridline import GridlineItem as GL
         if isinstance(ms._grip_item, GL):
-            ms._inference_active_item = ms._grip_item
-        assert ms._inference_active_item is gl
+            ms._align_active_item = ms._grip_item
+        assert ms._align_active_item is gl
 
     def test_active_item_cleared_after_grip_release(self, qapp, make_model_space):
-        """_inference_active_item must be None after grip-drag release."""
+        """_align_active_item must be None after grip-drag release."""
         ms = make_model_space()
         gl = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 200.0), label="1")
         ms.addItem(gl)
@@ -576,24 +576,24 @@ class TestTask5PlacementAndGripWiring:
 
         ms._snap_enabled = False
         ms._snap_to_underlay = False
-        _setup_inference_view(ms, center_x=0.0, center_y=0.0)
+        _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         _grip_drag(ms, gl, index=1, to=(0.0, 300.0))
 
-        assert ms._inference_active_item is None, (
-            f"Expected None after grip release, got {ms._inference_active_item!r}"
+        assert ms._align_active_item is None, (
+            f"Expected None after grip release, got {ms._align_active_item!r}"
         )
 
 
 # ---------------------------------------------------------------------------
-# Fix I1 regression — stale _inference_result cleared when OSNAP or
+# Fix I1 regression — stale _align_result cleared when OSNAP or
 # underlay snap wins
 # ---------------------------------------------------------------------------
 
 from unittest.mock import patch
 
 
-def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
+def test_align_result_cleared_when_osnap_wins(qapp, make_model_space):
     """When OSNAP returns a hit, a previously-computed guide must not linger.
 
     Strategy: use unittest.mock.patch to inject a fake OsnapResult from
@@ -610,8 +610,8 @@ def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
     ms._gridlines.append(ref)
 
     active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-    ms._inference_active_item = active
-    ms._inference_enabled = True
+    ms._align_active_item = active
+    ms._align_enabled = True
     ms._snap_to_underlay = False
 
     view = ms.views()[0]
@@ -627,7 +627,7 @@ def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
     # Step 1: disable OSNAP, perform an inference snap to set a guide result.
     ms._snap_enabled = False
     ms.get_effective_position(QPointF(1002.0, 2500.0))
-    assert ms._inference_result is not None and ms._inference_result.guides, (
+    assert ms._align_result is not None and ms._align_result.guides, (
         "Pre-condition: inference result should be set with guides before OSNAP test"
     )
 
@@ -641,12 +641,12 @@ def test_inference_result_cleared_when_osnap_wins(qapp, make_model_space):
 
     # The OSNAP hit must have been returned and the guide cleared.
     assert returned == snap_pt, f"Expected OSNAP point {snap_pt}, got {returned}"
-    assert ms._inference_result is None, (
-        "Stale _inference_result must be cleared when OSNAP wins"
+    assert ms._align_result is None, (
+        "Stale _align_result must be cleared when OSNAP wins"
     )
 
 
-def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space):
+def test_align_result_cleared_when_underlay_snap_wins(qapp, make_model_space):
     """When underlay snap returns a hit, a previously-computed guide must not linger.
 
     Strategy: place a real DXF-underlay line item at (500, 500) so that
@@ -663,8 +663,8 @@ def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space
     ms._gridlines.append(ref)
 
     active = GridlineItem(QPointF(0.0, 0.0), QPointF(0.0, 100.0), label="2")
-    ms._inference_active_item = active
-    ms._inference_enabled = True
+    ms._align_active_item = active
+    ms._align_enabled = True
     ms._snap_enabled = False
     ms._snap_to_underlay = False
 
@@ -684,7 +684,7 @@ def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space
 
     # Step 1: perform an inference snap to set a guide result.
     ms.get_effective_position(QPointF(1002.0, 2500.0))
-    assert ms._inference_result is not None and ms._inference_result.guides, (
+    assert ms._align_result is not None and ms._align_result.guides, (
         "Pre-condition: inference result should be set with guides before underlay test"
     )
 
@@ -698,6 +698,6 @@ def test_inference_result_cleared_when_underlay_snap_wins(qapp, make_model_space
     assert (abs(returned.x() - snap_pt.x()) < 1.0
             and abs(returned.y() - snap_pt.y()) < 1.0), \
         f"Expected underlay snap near {snap_pt}, got {returned}"
-    assert ms._inference_result is None, (
-        "Stale _inference_result must be cleared when underlay snap wins"
+    assert ms._align_result is None, (
+        "Stale _align_result must be cleared when underlay snap wins"
     )

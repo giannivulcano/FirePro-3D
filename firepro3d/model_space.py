@@ -40,7 +40,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY, INFERENCE_TOL_PX,
+                       Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
                        SELECTION_OUTLINE_COLOR)
 from .fitting import Fitting
@@ -118,7 +118,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
-    inferenceToggled = pyqtSignal(bool)  # emitted whenever set_inference_enabled() runs
+    alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
     def __init__(self):
@@ -247,18 +247,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
-        self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
+        self._align_exclude_ids: set = set()  # ids self-excluded from align (move)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
         self._snap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
-        # Inferred alignment guides (inference_engine.py)
-        from .inference_engine import InferenceEngine
-        self._inference_engine: InferenceEngine = InferenceEngine()
-        self._inference_enabled: bool = True          # toggled via settings (Task 4)
-        self._inference_result = None                 # surfaced to drawForeground (Task 3)
-        self._inference_active_item = None            # item being placed/dragged (self-exclude)
+        # ALIGN tracking paths (align_engine.py)
+        from .align_engine import AlignEngine
+        self._align_engine: AlignEngine = AlignEngine()
+        self._align_enabled: bool = True              # toggled via settings (Task 4)
+        self._align_result = None                     # surfaced to drawForeground (Task 3)
+        self._align_active_item = None                # item being placed/dragged (self-exclude)
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
         self._pipe_tab_candidates: list = []
@@ -846,15 +846,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
-        # Inference active-item: sentinel for draw_gridline + paste/move.
+        # ALIGN active-item: sentinel for draw_gridline + paste/move.
         if mode in ("draw_gridline", "paste", "move", "wall"):
-            self._inference_active_item = self._PLACEMENT_SENTINEL
+            self._align_active_item = self._PLACEMENT_SENTINEL
         else:
-            self._inference_active_item = None
-            self._inference_result = None
+            self._align_active_item = None
+            self._align_result = None
         # Move self-excludes the moving gridlines from the reference set.
         if mode == "move":
-            self._inference_exclude_ids = {
+            self._align_exclude_ids = {
                 id(i) for i in (self.selectedItems() or [])
                 if isinstance(i, GridlineItem)
             } | {
@@ -862,7 +862,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if isinstance(i, GridlineItem)
             }
         else:
-            self._inference_exclude_ids = set()
+            self._align_exclude_ids = set()
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -3745,7 +3745,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _collect_alignment_refs(self, cursor=None, tol=None):
         """Collect alignment reference features from the scene's alignment
-        providers (gridlines + walls). The InferenceEngine stays generic;
+        providers (gridlines + walls). The AlignEngine stays generic;
         Model_Space supplies candidates from its own entity collections.
 
         Args:
@@ -3757,13 +3757,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 *cursor* is provided to enable the spatial filter.
 
         Future providers are added by iterating their own collections here,
-        NOT by changing the inference engine.  Self-exclusion is applied via
+        NOT by changing the align engine.  Self-exclusion is applied via
         source_id so the active item does not snap to itself.
         """
         refs = []
-        exclude_id = (id(self._inference_active_item)
-                      if self._inference_active_item is not None else None)
-        exclude_ids = self._inference_exclude_ids
+        exclude_id = (id(self._align_active_item)
+                      if self._align_active_item is not None else None)
+        exclude_ids = self._align_exclude_ids
         for gl in self._gridlines:                       # small list — direct
             for f in gl.alignment_reference_points():
                 if f.source_id != exclude_id and f.source_id not in exclude_ids:
@@ -3809,10 +3809,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._snap_engine.snap_center = _was_center
             if result is not None:
                 self._snap_result = result
-                self._inference_result = None
+                self._align_result = None
                 return result.point
             self._snap_result = None
-            self._inference_result = None
+            self._align_result = None
             return QPointF(scene_pos)
 
         # SNAP takes highest priority (disabled when no mode or select mode,
@@ -3828,7 +3828,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     held=self._snap_result)
                 self._snap_result = result
                 if result is not None:
-                    self._inference_result = None
+                    self._align_result = None
                     return result.point
             else:
                 self._snap_result = None
@@ -3854,24 +3854,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._snap_engine.enabled = _was_enabled
                 if result is not None:
                     self._snap_result = result
-                    self._inference_result = None
+                    self._align_result = None
                     return result.point
 
-        # ── Inferred alignment guides (weak snap, below SNAP) ────────────
-        if self._inference_enabled and self._inference_active_item is not None:
+        # ── ALIGN tracking paths (weak snap, below SNAP) ─────────────────
+        if self._align_enabled and self._align_active_item is not None:
             _view = self._snap_view()
             if _view is not None:
                 scale = max(abs(_view.transform().m11()), 1e-9)
-                tol = INFERENCE_TOL_PX / scale
+                tol = ALIGN_PATH_TOL_PX / scale
                 refs = self._collect_alignment_refs(scene_pos, tol)
-                res = self._inference_engine.resolve(
+                res = self._align_engine.resolve(
                     (scene_pos.x(), scene_pos.y()), refs, tol)
-                self._inference_result = res  # stored even when "free" (Task 3 reads it)
+                self._align_result = res  # stored even when "free" (Task 3 reads it)
                 if res.priority != "free":
                     return QPointF(res.snapped[0], res.snapped[1])
                 # "free" — fall through to grid snap (no position change)
         else:
-            self._inference_result = None
+            self._align_result = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
     def toggle_snap(self, enabled: bool | None = None):
@@ -3888,16 +3888,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             v.viewport().update()
         self.snapToggled.emit(self._snap_enabled)
 
-    def set_inference_enabled(self, enabled: bool | None = None):
-        """Toggle or set alignment inference. Mirrors toggle_snap()."""
+    def set_align_enabled(self, enabled: bool | None = None):
+        """Toggle or set ALIGN. Mirrors toggle_snap()."""
         if enabled is None:
-            self._inference_enabled = not self._inference_enabled
+            self._align_enabled = not self._align_enabled
         else:
-            self._inference_enabled = bool(enabled)
-        self._inference_result = None
+            self._align_enabled = bool(enabled)
+        self._align_result = None
         for v in self.views():
             v.viewport().update()
-        self.inferenceToggled.emit(self._inference_enabled)
+        self.alignToggled.emit(self._align_enabled)
 
     def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """
@@ -6979,9 +6979,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
                 self._grip_item, self._grip_index = grip_hit
                 self._grip_dragging = True
-                # Enable inference self-exclusion for gridline endpoint drags.
+                # Enable ALIGN self-exclusion for gridline endpoint drags.
                 if isinstance(self._grip_item, GridlineItem):
-                    self._inference_active_item = self._grip_item
+                    self._align_active_item = self._grip_item
                 return  # consumed by grip system
 
         # ── Gridline body click → select (no body drag, use grips) ──
@@ -9911,9 +9911,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
-            # Clear inference active item now that the drag gesture is complete.
-            self._inference_active_item = None
-            self._inference_result = None
+            # Clear ALIGN active item now that the drag gesture is complete.
+            self._align_active_item = None
+            self._align_result = None
             self.push_undo_state()
             for v in self.views():
                 v.viewport().update()

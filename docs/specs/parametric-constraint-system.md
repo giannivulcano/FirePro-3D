@@ -256,7 +256,7 @@ Lock an item's angle to exactly 0° or 90°. Simplest possible constraint — `s
 
 ### 10.2 Equal Spacing Constraint
 
-Maintain equal distances between 3+ items along a direction. Related to the inference engine's equal spacing detection (see `inferred-dimension-driven-placement.md` §7).
+Maintain equal distances between 3+ items along a direction. Related to the inference engine's equal spacing detection (see `align-placement.md` §7).
 
 ### 10.3 Tangent Constraint
 

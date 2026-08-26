@@ -3,7 +3,8 @@ status: partial
 last-verified: 2026-08-25
 verified-commit: eead762
 applies-to:
-  - firepro3d/inference_engine.py
+  - firepro3d/align_controller.py
+  - firepro3d/align_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
   - firepro3d/model_view.py
@@ -309,7 +310,7 @@ late snap cannot move the seed out from under a half-typed value.
   rotate step → `rotation` schema (Angle, Y-up CCW). The applier
   `_apply_wall_dynamic_input` routes on `_wall_primitive` and step to build the
   `WallSegment`(s) via the same finish-vs-continue branch the mouse path uses
-  (structural commit parity — `inferred-dimension-driven-placement.md §4.2`).
+  (structural commit parity — `align-placement.md §4.2`).
   `"wall"` is **no longer a parked static `_SCHEMA_FOR_MODE` entry** — it is
   handled inside `active_schema()` by `_wall_schema_for_primitive()`.
 - **Pipe — [PROPOSAL].** Pipe is schema-mapped to `line` in `_SCHEMA_FOR_MODE`

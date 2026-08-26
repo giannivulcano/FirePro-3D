@@ -46,13 +46,13 @@ _FACTORY_DEFAULTS: dict = {
     "grip_px":      200,
     "grid_mm":      10.0,
     "angle_deg":    45,
-    "inference":    True,
+    "align":        True,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
 
 class SnappingPane(SettingsPane):
-    """Preferences pane for SNAP / snap-tolerance / grid / inference settings.
+    """Preferences pane for SNAP / snap-tolerance / grid / ALIGN settings.
 
     Ports the two existing snap dialogs in ``main.py``:
     - ``_open_snap_tolerance_dialog`` — snap radius, grip radius, 8 snap-type
@@ -146,12 +146,12 @@ class SnappingPane(SettingsPane):
 
         tabs.addTab(grid_tab, "Grid / Angle")
 
-        # ── Tab 3: Inference ─────────────────────────────────────────────────
+        # ── Tab 3: ALIGN ─────────────────────────────────────────────────────
         inf_tab = QWidget()
         inf_layout = QVBoxLayout(inf_tab)
 
-        self._align_cb = QCheckBox("Alignment Guides")
-        self._align_cb.setObjectName("inference_alignment_guides")
+        self._align_cb = QCheckBox("ALIGN")
+        self._align_cb.setObjectName("align_enabled")
         inf_layout.addWidget(self._align_cb)
 
         coming_soon = QGroupBox("Dynamic Input · Equal Spacing")
@@ -163,7 +163,7 @@ class SnappingPane(SettingsPane):
         inf_layout.addWidget(coming_soon)
         inf_layout.addStretch()
 
-        tabs.addTab(inf_tab, "Inference")
+        tabs.addTab(inf_tab, "ALIGN")
 
         # ── Reset to Defaults button ──────────────────────────────────────────
         reset_btn = QPushButton("Reset to Defaults")
@@ -193,14 +193,14 @@ class SnappingPane(SettingsPane):
             eng = self._scene._snap_engine
             grip_px = int(getattr(self._scene, "_grip_tolerance_px", 200))
             angle_deg = int(self._scene._snap_angle_deg)
-            inference = bool(self._scene._inference_enabled)
+            align_on = bool(self._scene._align_enabled)
             snap_flags: dict[str, bool] = {
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
         else:
             grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
             angle_deg = s.value("snap/angle_deg", 45, type=int)
-            inference = s.value("inference/alignment_guides", True, type=bool)
+            align_on = s.value("align/enabled", True, type=bool)
             snap_flags = {}
             for _, attr in _SNAP_TYPES:
                 val = s.value(f"snap/{attr}", True)
@@ -220,7 +220,7 @@ class SnappingPane(SettingsPane):
             "grip_px":      grip_px,
             "grid_mm":      grid_mm,
             "angle_deg":    angle_deg,
-            "inference":    inference,
+            "align":        align_on,
             **snap_flags,
         }
 
@@ -230,7 +230,7 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(grip_px)
         self._grid_edit.set_value_mm(grid_mm)
         self._angle_spin.setValue(int(angle_deg))
-        self._align_cb.setChecked(inference)
+        self._align_cb.setChecked(align_on)
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(snap_flags[attr])
 
@@ -282,11 +282,11 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene._snap_angle_deg = angle_deg
 
-        # ── Inference (alignment guides) ──────────────────────────────────────
-        inference = self._align_cb.isChecked()
-        s.setValue("inference/alignment_guides", inference)
+        # ── ALIGN ─────────────────────────────────────────────────────────────
+        align_on = self._align_cb.isChecked()
+        s.setValue("align/enabled", align_on)
         if self._scene is not None:
-            self._scene.set_inference_enabled(inference)
+            self._scene.set_align_enabled(align_on)
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -314,7 +314,7 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene._grip_tolerance_px = self._snapshot["grip_px"]
             self._scene._snap_angle_deg = self._snapshot["angle_deg"]
-            self._scene.set_inference_enabled(self._snapshot["inference"])
+            self._scene.set_align_enabled(self._snapshot["align"])
             eng = self._scene._snap_engine
             for _, attr in _SNAP_TYPES:
                 setattr(eng, attr, self._snapshot[attr])
@@ -333,7 +333,7 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(self._snapshot["grip_px"])
         self._grid_edit.set_value_mm(self._snapshot["grid_mm"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
-        self._align_cb.setChecked(self._snapshot["inference"])
+        self._align_cb.setChecked(self._snapshot["align"])
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
 
@@ -345,7 +345,7 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(d["grip_px"])
         self._grid_edit.set_value_mm(d["grid_mm"])
         self._angle_spin.setValue(int(d["angle_deg"]))
-        self._align_cb.setChecked(d["inference"])
+        self._align_cb.setChecked(d["align"])
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(d[attr])
         self.apply()

@@ -879,9 +879,9 @@ class GridlineItem(QGraphicsLineItem):
         with no transform, so _origin/_far_point() and bubble.pos() are
         already in scene coordinates — consistent with grip_points().
 
-        See docs/specs/inferred-dimension-driven-placement.md §5.
+        See docs/specs/align-placement.md §5.
         """
-        from .inference_engine import ReferenceFeature
+        from .align_engine import ReferenceFeature
         # Endpoints (scene coords) — identical coordinate space as grip_points().
         p1 = QPointF(self._origin)
         p2 = self._far_point()

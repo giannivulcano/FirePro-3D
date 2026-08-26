@@ -1,9 +1,9 @@
-"""Tests for WallSegment.alignment_reference_points() — inference provider.
+"""Tests for WallSegment.alignment_reference_points() — ALIGN provider.
 
 Task 3: WallSegment emits H/V alignment references at its TRUE centerline
 (endpoints + midpoint).  Pure-logic: no scene required.
 
-Task 9: wall mode sets the inference active-item sentinel, and
+Task 9: wall mode sets the ALIGN active-item sentinel, and
 _collect_alignment_refs spatially filters walls so only near walls contribute.
 """
 from PyQt6.QtCore import QPointF
@@ -26,13 +26,13 @@ def test_provider_emits_centerline_endpoints_and_midpoint():
 # Task 9 tests
 # ---------------------------------------------------------------------------
 
-def test_wall_mode_sets_inference_active_item(qapp):
-    """set_mode('wall') must arm the inference sentinel so wall placement
+def test_wall_mode_sets_align_active_item(qapp):
+    """set_mode('wall') must arm the ALIGN sentinel so wall placement
     consumes H/V alignment guides."""
     from firepro3d.model_space import Model_Space
     scene = Model_Space()
     scene.set_mode("wall")
-    assert scene._inference_active_item is scene._PLACEMENT_SENTINEL
+    assert scene._align_active_item is scene._PLACEMENT_SENTINEL
 
 
 def test_collect_includes_near_wall_refs_only(qapp, shown_model_view):

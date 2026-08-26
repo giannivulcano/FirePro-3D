@@ -530,19 +530,19 @@ class Model_View(QGraphicsView):
             )
             painter.restore()
 
-        # ── 6. Inferred alignment guides (scene-coord dashed cosmetic lines) ──
-        infer = getattr(scene, "_inference_result", None)
-        if infer is not None and infer.guides:
-            from .constants import (INFERENCE_GUIDE_COLOR, INFERENCE_GUIDE_DASH,
-                                    INFERENCE_GLYPH_PX)
-            gpen = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+        # ── 6. ALIGN tracking paths (scene-coord dashed cosmetic lines) ──
+        align_res = getattr(scene, "_align_result", None)
+        if align_res is not None and align_res.guides:
+            from .constants import (ALIGN_GUIDE_COLOR, ALIGN_GUIDE_DASH,
+                                    ALIGN_GLYPH_PX)
+            gpen = QPen(QColor(ALIGN_GUIDE_COLOR), 1)
             gpen.setCosmetic(True)
-            gpen.setDashPattern(INFERENCE_GUIDE_DASH)
+            gpen.setDashPattern(ALIGN_GUIDE_DASH)
             painter.save()
             painter.setPen(gpen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-            for g in infer.guides:
+            for g in align_res.guides:
                 if g.orientation == "v":
                     painter.drawLine(QPointF(g.coord, rect.top()),
                                      QPointF(g.coord, rect.bottom()))
@@ -553,9 +553,9 @@ class Model_View(QGraphicsView):
             # Reference glyphs (viewport coords, like the OSNAP indicator)
             painter.save()
             painter.resetTransform()
-            painter.setPen(QPen(QColor(INFERENCE_GUIDE_COLOR), 1))
-            r = INFERENCE_GLYPH_PX
-            for g in infer.guides:
+            painter.setPen(QPen(QColor(ALIGN_GUIDE_COLOR), 1))
+            r = ALIGN_GLYPH_PX
+            for g in align_res.guides:
                 vp = self.mapFromScene(QPointF(g.ref.x, g.ref.y))
                 painter.drawLine(QPointF(vp.x() - r, vp.y()), QPointF(vp.x() + r, vp.y()))
                 painter.drawLine(QPointF(vp.x(), vp.y() - r), QPointF(vp.x(), vp.y() + r))
@@ -564,8 +564,8 @@ class Model_View(QGraphicsView):
         # ── 7. Gridline array/offset ghost preview (scene-coord dashed lines) ──
         ghost = getattr(scene, "_replicate_ghost", None)
         if ghost:
-            from .constants import INFERENCE_GUIDE_COLOR
-            gp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            from .constants import ALIGN_GUIDE_COLOR
+            gp = QPen(QColor(ALIGN_GUIDE_COLOR), 1)
             gp.setCosmetic(True)
             gp.setDashPattern([3.0, 3.0])
             painter.save()
@@ -579,8 +579,8 @@ class Model_View(QGraphicsView):
         # ── 8. Move/paste ghost silhouette (scene-coord cosmetic outline) ──
         mghost = getattr(scene, "_move_ghost", None)
         if mghost:
-            from .constants import INFERENCE_GUIDE_COLOR
-            mp = QPen(QColor(INFERENCE_GUIDE_COLOR), 1)
+            from .constants import ALIGN_GUIDE_COLOR
+            mp = QPen(QColor(ALIGN_GUIDE_COLOR), 1)
             mp.setCosmetic(True)
             painter.save()
             painter.setPen(mp)

@@ -77,14 +77,14 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 # (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
-# ── Inferred alignment guides (inference_engine.py) ──────────────────────────
-INFERENCE_TOL_PX = 65.0        # screen-px band to align to a ref feature; wider than OSNAP
-                               # (SNAP_TOLERANCE_PX=40) per inferred-placement spec §5.4 (weak snap)
+# ── ALIGN tracking paths (align_engine.py) ───────────────────────────────────
+ALIGN_PATH_TOL_PX = 65.0       # screen-px band to align to a ref feature; wider than OSNAP
+                               # (SNAP_TOLERANCE_PX=40) per align-placement spec §5.4 (weak snap)
 
-# ── Inferred-placement alignment guide overlay ────────────────────────────────
-INFERENCE_GUIDE_COLOR = "#00c8ff"      # cyan — alignment-guide line + glyph (theming.md)
-INFERENCE_GUIDE_DASH = [4.0, 4.0]      # cosmetic dash pattern (px)
-INFERENCE_GLYPH_PX = 7.0               # reference-point glyph size (screen px)
+# ── ALIGN tracking-path overlay ───────────────────────────────────────────────
+ALIGN_GUIDE_COLOR = "#00c8ff"          # cyan — alignment-guide line + glyph (theming.md)
+ALIGN_GUIDE_DASH = [4.0, 4.0]          # cosmetic dash pattern (px)
+ALIGN_GLYPH_PX = 7.0                   # reference-point glyph size (screen px)
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
 
 # ── Design-criteria badge (model-space mm; tuned at 2026-07-14 mockup gate) ──

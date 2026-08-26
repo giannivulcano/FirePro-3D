@@ -101,19 +101,19 @@ deliberately theme-independent (CAD selection blue reads on both themes):
   paper-only). The gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) is
   the first model-space conformer.
 
-### Inferred-placement alignment guide
+### ALIGN alignment guide
 
-The `InferenceEngine` overlay (dashed alignment guide line + reference glyph,
+The `AlignEngine` overlay (dashed alignment guide line + reference glyph,
 drawn in `model_view.drawForeground`) has its own dedicated style so it reads
-as *inference* rather than geometry or OSNAP:
+as *ALIGN* rather than geometry or OSNAP:
 
-- **Color** — `INFERENCE_GUIDE_COLOR` (`constants.py`, cyan `#00c8ff`), distinct
+- **Color** — `ALIGN_GUIDE_COLOR` (`constants.py`, cyan `#00c8ff`), distinct
   from gridline blue and OSNAP marker colors.
-- **Line** — cosmetic dashed pen, pattern `INFERENCE_GUIDE_DASH`.
-- **Glyph** — a crosshair of `INFERENCE_GLYPH_PX` (screen px) on the reference
+- **Line** — cosmetic dashed pen, pattern `ALIGN_GUIDE_DASH`.
+- **Glyph** — a crosshair of `ALIGN_GLYPH_PX` (screen px) on the reference
   point being aligned to.
 
-Reuse this token for all future inferred-placement clients (walls, pipes,
+Reuse this token for all future ALIGN clients (walls, pipes,
 sprinklers) — do not re-derive an alignment-guide color per tool.
 
 - **Pill buttons** — compact rounded action buttons (`border-radius` ≈ half the

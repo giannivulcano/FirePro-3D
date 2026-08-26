@@ -69,12 +69,12 @@ class _StubScene:
         self._snap_engine        = _StubEngine()
         self._grip_tolerance_px  = 200  # within spinbox range (100–1000)
         self._snap_angle_deg     = 45
-        self._inference_enabled  = True
-        self._inference          = True  # mirrors set_inference_enabled result
+        self._align_enabled  = True
+        self._align              = True  # mirrors set_align_enabled result
 
-    def set_inference_enabled(self, v):
-        self._inference_enabled = v
-        self._inference = v
+    def set_align_enabled(self, v):
+        self._align_enabled = v
+        self._align = v
 
 
 class _StubView:

@@ -244,8 +244,8 @@ class _GuidesIndicatorLabel(QLabel):
     clicked = pyqtSignal()
 
     def __init__(self, parent=None):
-        super().__init__("GUIDES", parent)
-        self.setToolTip("Toggle Alignment Guides (F12)")
+        super().__init__("ALIGN", parent)
+        self.setToolTip("Toggle ALIGN (F11)")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumWidth(80)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -654,12 +654,12 @@ class MainWindow(QMainWindow):
         status_bar.addPermanentWidget(self.snap_indicator)
         self.scene.snapToggled.connect(self._update_snap_indicator)
         self._update_snap_indicator(self.scene._snap_enabled)
-        # GUIDES status-bar indicator — mirrors SNAP pill for inference state.
+        # ALIGN status-bar indicator — mirrors SNAP pill for ALIGN state.
         self.guides_indicator = _GuidesIndicatorLabel(self)
-        self.guides_indicator.clicked.connect(self.scene.set_inference_enabled)
+        self.guides_indicator.clicked.connect(self.scene.set_align_enabled)
         status_bar.addPermanentWidget(self.guides_indicator)
-        self.scene.inferenceToggled.connect(self._update_guides_indicator)
-        self._update_guides_indicator(self.scene._inference_enabled)
+        self.scene.alignToggled.connect(self._update_guides_indicator)
+        self._update_guides_indicator(self.scene._align_enabled)
         # Pipe-mode node snap readout (between SNAP and coordinates)
         self.node_snap_label = QLabel("")
         self.node_snap_label.setStyleSheet(
@@ -728,9 +728,9 @@ class MainWindow(QMainWindow):
         # the ribbon button, status-bar pill, and SNAP toolbar.
         self._f3_shortcut = QShortcut(QKeySequence("F3"), self)
         self._f3_shortcut.activated.connect(self.scene.toggle_snap)
-        # F12 global alignment-guides toggle — mirrors F3 / SNAP pattern.
-        self._f12_shortcut = QShortcut(QKeySequence("F12"), self)
-        self._f12_shortcut.activated.connect(self.scene.set_inference_enabled)
+        # F11 global ALIGN toggle — mirrors F3 / SNAP pattern.
+        self._f11_shortcut = QShortcut(QKeySequence("F11"), self)
+        self._f11_shortcut.activated.connect(self.scene.set_align_enabled)
         QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.open_file)
         QShortcut(QKeySequence("Ctrl+N"), self).activated.connect(self.new_file)
         QShortcut(QKeySequence("Delete"), self).activated.connect(
@@ -789,6 +789,19 @@ class MainWindow(QMainWindow):
         if self._splash is not None:
             self._splash.set_progress(value, message)
 
+    def _migrate_inference_to_align(self) -> None:
+        """One-time QSettings rename inference/* → align/* (behavior-neutral).
+
+        Copies any legacy inference/* key to align/* when the new key is absent,
+        then reads align/* everywhere. Safe to run every startup: it only writes
+        when the new key is missing and the old one exists.
+        """
+        s = self.settings
+        legacy = {"inference/alignment_guides": "align/enabled"}
+        for old, new in legacy.items():
+            if s.contains(old) and not s.contains(new):
+                s.setValue(new, s.value(old, type=bool))
+
     def restore_settings(self):
         geom = self.settings.value("geometry", b"")
         if geom:
@@ -831,10 +844,11 @@ class MainWindow(QMainWindow):
                 setattr(self.scene._snap_engine, attr, bool(val))
         # Reflect the just-restored per-type snap state on the toolbar.
         self.snap_toolbar.refresh_from_engine()
-        # Restore alignment-guides inference toggle
-        inference_on = self.settings.value(
-            "inference/alignment_guides", True, type=bool)
-        self.scene.set_inference_enabled(inference_on)
+        # Restore ALIGN toggle (migrating legacy inference/* key if present)
+        self._migrate_inference_to_align()
+        align_on = self.settings.value(
+            "align/enabled", True, type=bool)
+        self.scene.set_align_enabled(align_on)
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
@@ -2343,17 +2357,17 @@ class MainWindow(QMainWindow):
         snap_layout.addWidget(types_group)
         tabs.addTab(snap_tab, "SNAP")
 
-        # ── Tab 2: Inference ─────────────────────────────────────────
+        # ── Tab 2: ALIGN ─────────────────────────────────────────────
         inf_tab = QWidget()
         inf_layout = QVBoxLayout(inf_tab)
 
-        align_cb = QCheckBox("Alignment Guides")
-        align_cb.setObjectName("inference_alignment_guides")
-        align_cb.setChecked(self.scene._inference_enabled)
+        align_cb = QCheckBox("ALIGN")
+        align_cb.setObjectName("align_enabled")
+        align_cb.setChecked(self.scene._align_enabled)
         align_cb.toggled.connect(
             lambda checked: (
-                self.scene.set_inference_enabled(checked),
-                QSettings().setValue("inference/alignment_guides", checked),
+                self.scene.set_align_enabled(checked),
+                QSettings().setValue("align/enabled", checked),
             )
         )
         inf_layout.addWidget(align_cb)
@@ -2367,7 +2381,7 @@ class MainWindow(QMainWindow):
         inf_layout.addWidget(coming_soon_group)
         inf_layout.addStretch()
 
-        tabs.addTab(inf_tab, "Inference")
+        tabs.addTab(inf_tab, "ALIGN")
 
         # ── Buttons ──────────────────────────────────────────────────
         buttons = QDialogButtonBox(
@@ -2384,7 +2398,7 @@ class MainWindow(QMainWindow):
         old_tol = snap_engine.SNAP_TOLERANCE_PX
         old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
         old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        old_inference = self.scene._inference_enabled
+        old_inference = self.scene._align_enabled
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # Persist SNAP settings
@@ -2393,16 +2407,16 @@ class MainWindow(QMainWindow):
                                   getattr(self.scene, "_grip_tolerance_px", 200))
             for _, attr in checkboxes:
                 self.settings.setValue(f"snap/{attr}", getattr(eng, attr))
-            # Inference setting already saved live via the checkbox toggled signal
+            # ALIGN setting already saved live via the checkbox toggled signal
         else:
             # Revert SNAP
             snap_engine.SNAP_TOLERANCE_PX = old_tol
             self.scene._grip_tolerance_px = old_grip
             for attr, val in old_flags.items():
                 setattr(eng, attr, val)
-            # Revert inference
-            self.scene.set_inference_enabled(old_inference)
-            QSettings().setValue("inference/alignment_guides", old_inference)
+            # Revert ALIGN
+            self.scene.set_align_enabled(old_inference)
+            QSettings().setValue("align/enabled", old_inference)
 
         # Keep the SNAP toolbar in sync with whatever the dialog left set.
         self.snap_toolbar.refresh_from_engine()
@@ -2657,7 +2671,7 @@ class MainWindow(QMainWindow):
             btn.blockSignals(False)
 
     def _update_guides_indicator(self, enabled: bool) -> None:
-        """Restyle the GUIDES status-bar pill. Mirrors _update_snap_indicator."""
+        """Restyle the ALIGN status-bar pill. Mirrors _update_snap_indicator."""
         self.guides_indicator.setGuidesOn(enabled)
 
     def _update_node_snap_readout(self, text: str):

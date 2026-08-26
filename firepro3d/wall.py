@@ -282,7 +282,7 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         (mirrors ``GridlineItem.alignment_reference_points``).  Keyed off the
         derived centerline so Left/Right walls reference their real center.
         """
-        from .inference_engine import ReferenceFeature
+        from .align_engine import ReferenceFeature
         sid = id(self)
         a = self.centerline_pt1
         b = self.centerline_pt2

@@ -1,9 +1,9 @@
-# firepro3d/inference_engine.py
+# firepro3d/align_engine.py
 """Generic inferred-placement engine (first slice: H/V alignment guides).
 
 Entity-agnostic. Consumers supply candidate reference features; the engine
 returns a snapped position + the active guides + the winning priority band.
-See docs/specs/inferred-dimension-driven-placement.md.
+See docs/specs/align-placement.md.
 """
 from __future__ import annotations
 
@@ -28,17 +28,17 @@ class Guide:
 
 
 @dataclass
-class InferenceResult:
+class AlignResult:
     snapped: tuple[float, float]
     guides: list[Guide] = field(default_factory=list)
     priority: str = "free"   # "guide-intersection" | "single-guide" | "free"
 
 
-class InferenceEngine:
+class AlignEngine:
     """Pure geometry. No Qt, no scene knowledge. Model_Space owns one."""
 
     def resolve(self, cursor: tuple[float, float],
-                refs: list[ReferenceFeature], tol: float) -> InferenceResult:
+                refs: list[ReferenceFeature], tol: float) -> AlignResult:
         cx, cy = cursor
         # Nearest vertical (shared X) and horizontal (shared Y) candidate within tol.
         best_v = self._nearest(refs, key=lambda r: abs(r.x - cx), tol=tol)
@@ -57,7 +57,7 @@ class InferenceEngine:
             priority = "single-guide"
         else:
             priority = "free"
-        return InferenceResult(snapped=(sx, sy), guides=guides, priority=priority)
+        return AlignResult(snapped=(sx, sy), guides=guides, priority=priority)
 
     @staticmethod
     def _nearest(refs, key, tol):

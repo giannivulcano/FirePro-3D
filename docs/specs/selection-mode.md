@@ -53,7 +53,7 @@ Several planned features (inferred placement, section views, OSNAP toolbar) depe
 | `grid-system.md` | Gridline click/selection behavior defers to this spec. Grid spec owns grip catalog (pull-tab, reposition) and spacing dimensions. |
 | `underlay-workflow.md` | Underlay selectability rules defined here. Underlay spec owns browser tree management, layer visibility, context menu contents. |
 | `wall-room-floor-system.md` | Wall/room/floor selection highlight and grip behavior defers to this spec for protocol. Entity spec owns grip catalog and visual treatment. |
-| `inferred-dimension-driven-placement.md` | Selection dimensions (post-placement spacing edit) triggered by selection state defined here. Inferred spec owns the dimension behavior itself. |
+| `align-placement.md` | Selection dimensions (post-placement spacing edit) triggered by selection state defined here. Inferred spec owns the dimension behavior itself. |
 
 ### 2.4 Absorbs
 

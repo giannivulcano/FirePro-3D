@@ -154,7 +154,7 @@ Zero-thickness "room separation lines" are a distinct concept requiring a future
 
 ### 4.4 Wall Placement Workflow
 
-Wall placement is a first-class client of the unified 2D-geometry placement dispatch (see `inferred-dimension-driven-placement.md §4` and `2d-geometry.md §4` for shared machinery — not restated here).
+Wall placement is a first-class client of the unified 2D-geometry placement dispatch (see `align-placement.md §4` and `2d-geometry.md §4` for shared machinery — not restated here).
 
 **Single `"wall"` scene-mode** carries `_wall_primitive ∈ {"line", "polyline", "rect"}` and `_wall_rect_from_center: bool`. The old separate `"wall_rect"` mode is **retired**; `set_mode("wall_rect")` is a backward-compat alias that folds to `wall + rect primitive`.
 
@@ -187,7 +187,7 @@ Wall placement is a first-class client of the unified 2D-geometry placement disp
 - `_wall_primitive == "rect"`, sizing step → `rectangle` schema (X, Y signed)
 - `_wall_primitive == "rect"`, rotate step → `rotation` schema (Angle)
 
-Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse placement produce identical geometry (structural commit parity per `inferred-dimension-driven-placement.md §4.2`).
+Typed placement is handled by `_apply_wall_dynamic_input`; typed and mouse placement produce identical geometry (structural commit parity per `align-placement.md §4.2`).
 
 **Template:** A hidden `WallSegment` instance stores the active wall properties (thickness, alignment, colour, fill mode, base/top level). Set before placement via the property panel or by cycling with Spacebar.
 
