@@ -5,6 +5,7 @@
 > **Date:** 2026-04-07
 > **Revision:** 1 (post grill + brainstorm session)
 > **Impl note (2026-06-25):** two intersection-snap fixes shipped + verified. **(1)** §6.1 priority-band floor (`SNAP_PRIORITY_BAND_PX = 12`) — stops intersection snapping collapsing at low user tolerance (Pain #2); regression `tests/test_snap_priority_band.py`. **(2)** §6.3 Change A now **exempts underlay-index segments** (`parent_key = None`) so crossings *within* one imported entity (e.g. a self-crossing `LWPOLYLINE`) still snap; regression `tests/test_snap_underlay_internal_intersection.py`. Roadmap §6.3 Changes A/B shipped earlier (2026-04-07).
+> **Impl note (2026-08-26 — SNAP refinement, `feat/snap-refinement`, verified-commit `a4affd8`):** shipped the constant-pixel aperture with **acceptance judged in true pixels** (§3.1, §6.1; `SNAP_TOLERANCE_PX = 15` default, user-tunable + persisted), **hysteresis** (§14.2), the **candidate-whitelist API** + "Snap to Underlay" reroute (deletes world-unit `find_snap_point`) + design-area center-only routing (§14.3), the **OSNAP→"SNAP" (Select Nearest Anchor Point)** rename, and — the load-bearing fix — the **visible-view zoom read** (§14.4): a pre-existing `views()[0]` vestigial-view bug had silently made *all* zoom-dependent tolerances world-unit. Full snap-engine suite green.
 
 ---
 
@@ -12,7 +13,7 @@
 
 ### 1.1 Goal
 
-Define a coherent, polished, AutoCAD-style Object Snap (OSNAP) subsystem for FirePro3D, document the gap between today's `snap_engine.py` and that target, and decompose the gap into a prioritized roadmap of focused follow-up tasks.
+Define a coherent, polished SNAP (Select Nearest Anchor Point) subsystem for FirePro3D — modelled on AutoCAD's OSNAP conventions — document the gap between today's `snap_engine.py` and that target, and decompose the gap into a prioritized roadmap of focused follow-up tasks.
 
 ### 1.2 Primary objective: recall first
 
@@ -32,7 +33,7 @@ Rationale: a *missed* snap breaks flow (the user has to zoom, hunt, or place fre
 
 ### 1.4 Why now
 
-The snapping engine has a disproportionate impact on drafting throughput. Pain #1 has been observed reproducibly (wall-corner case study, hatch-noise case study — see §7). The engine has accreted feature-by-feature without a written reference, and the next planned subsystems (inferred placement, snap-from, apparent intersection — see §2) all assume a stable OSNAP foundation. Specing now produces a foundation; deferring guarantees the next subsystem inherits the same pain.
+The snapping engine has a disproportionate impact on drafting throughput. Pain #1 has been observed reproducibly (wall-corner case study, hatch-noise case study — see §7). The engine has accreted feature-by-feature without a written reference, and the next planned subsystems (inferred placement, snap-from, apparent intersection — see §2) all assume a stable SNAP foundation. Specing now produces a foundation; deferring guarantees the next subsystem inherits the same pain.
 
 ---
 
@@ -40,7 +41,7 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 
 ### 2.1 In scope (this spec)
 
-- The OSNAP subsystem: object snap to features of existing scene geometry.
+- The SNAP subsystem: object snap to features of existing scene geometry.
 - Audit of which item types should and should not contribute snap candidates.
 - Description of the current pick algorithm and the target pick algorithm.
 - **Named/semantic snap targets** on complex objects (walls now, pipes-with-fittings near-term) — borrowed from Revit.
@@ -49,7 +50,7 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 
 ### 2.2 Adjacent (named, lightly described, not specced)
 
-- **Ortho mode** — currently implemented inside `Node.snap_point_45` and orthogonal-constraint logic in `model_space.py`, separate from `snap_engine.py`. Shares the F-key UX surface and the user can't always tell ortho from OSNAP in practice. Mentioned in §9 so the keyboard contract is internally consistent; not redesigned here.
+- **Ortho mode** — currently implemented inside `Node.snap_point_45` and orthogonal-constraint logic in `model_space.py`, separate from `snap_engine.py`. Shares the F-key UX surface and the user can't always tell ortho from SNAP in practice. Mentioned in §9 so the keyboard contract is internally consistent; not redesigned here.
 
 ### 2.3 Deferred (out of scope, with reason — each is a candidate future spec)
 
@@ -57,7 +58,7 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 |---|---|
 | Tolerance auto-tuning UX | Pain #2; meaningful only after recall is fixed. Future spec inherits a dataset from this work — see §13. |
 | New snap types (parallel, extension, from, apparent intersection) | Feature work, not review work. Belongs in subsystem-specific specs. |
-| OSNAP toolbar UI for per-type toggles | UX feature. The keyboard/marker contract here gave the toolbar a target. **Delivered 2026-06-22 — see `docs/specs/osnap-toolbar.md`.** |
+| SNAP toolbar UI for per-type toggles | UX feature. The keyboard/marker contract here gave the toolbar a target. **Delivered 2026-06-22 — see `docs/specs/snap-toolbar.md`.** |
 | Performance / O(n²) intersection scans | Only address if profiling reveals it as a *recall* bottleneck. Premature otherwise. |
 | 3D / multi-level snap behavior | Belongs in the views-relationship spec (separate P1 task). |
 | Polar tracking | Separate subsystem; AutoCAD treats it independently of OSNAP. |
@@ -79,12 +80,12 @@ The existing `snap_engine.py` is already AutoCAD-shaped: priority-banded picker,
 
 | Convention | How it lands in FirePro3D |
 |---|---|
-| **Running OSNAPs**, persistent until toggled | Per-type instance booleans on `SnapEngine` (already present). **UI toggle surface delivered (2026-06-22):** the OSNAP toolbar + Snap Settings dialog toggle them, persisted to `QSettings`. See `docs/specs/osnap-toolbar.md`. |
+| **Running OSNAPs**, persistent until toggled | Per-type instance booleans on `SnapEngine` (already present). **UI toggle surface delivered (2026-06-22):** the SNAP toolbar + Snap Settings dialog toggle them, persisted to `QSettings`. See `docs/specs/snap-toolbar.md`. |
 | **Single-key one-shot overrides** (`END`, `MID`, `INT`, `CEN`, `NEA`, `PER`, `TAN`, `QUA`) | Reserved as a future keybinding addition. Not delivered by this spec, but the snap-type names in §4 must match the AutoCAD short names so the future bindings are unambiguous. |
-| **F-key global toggle** for OSNAPs | F3 bound to a **window-level `QShortcut`** calling `Model_Space.toggle_osnap` (toggles `SnapEngine.enabled`). Window-level so it fires from any ribbon tab — a `QToolButton` shortcut on a ribbon page only fires when that tab is visible. |
+| **F-key global toggle** for OSNAPs | F3 bound to a **window-level `QShortcut`** calling `Model_Space.toggle_snap` (toggles `SnapEngine.enabled`). Window-level so it fires from any ribbon tab — a `QToolButton` shortcut on a ribbon page only fires when that tab is visible. |
 | **AutoSnap marker + tooltip** as the core UX surface | Markers are present (§9). Tooltips deferred — note the named-target decision in §8 uses marker variants instead. |
 | **Marker colors carry meaning** (each snap type its own color) | Current `SNAP_COLORS` dict already follows this. Locked. |
-| **Snap tolerance is a screen-pixel constant**, not a scene-unit one | Current `SNAP_TOLERANCE_PX = 40` follows this. Locked, even though tuning is deferred. |
+| **Snap tolerance is a screen-pixel constant**, not a scene-unit one | **Acceptance is judged in pixels:** `d_scene × scale ≤ aperture_px` — the engine converts the scene-space distance to pixels before comparing to the aperture. Default `SNAP_TOLERANCE_PX` = **15 px** (was 40; user-tunable + persisted). `SNAP_MAX_SCENE_TOL` = **10 000 mm** is a **perf-only** ceiling on the search rect passed to `scene.items()`; it prevents an absurdly large spatial query at extreme zoom-out but never shrinks the effective pixel aperture at any usable zoom level. **The zoom (`scale`) MUST come from the visible plan view (§14.4), not `views()[0]`** — reading the vestigial view degenerates this to a scene-unit tolerance. See §6.1 for the picker's pixel-space band arithmetic and §14 for the shared `px_to_scene`/`scene_to_px` conversion helpers. |
 
 **AutoCAD conventions explicitly rejected:**
 
@@ -175,18 +176,17 @@ Rows are item types currently handled by `SnapEngine._collect()` (and adjacent p
 3. **Phase 3 — Gridline static + perpendicular snaps.** Calls `_collect()` and `_geometric_snaps()` for each visible gridline (gridlines have a bubbles-only `shape()` so they're missed by `scene.items(search_rect)`).
 4. **Phase 4 — Geometry×geometry intersections.** Re-iterates `scene.items(search_rect, IntersectsItemBoundingRect)` via `_phase4_items()`, which uses a dual-path strategy for underlay groups: **(a) Snap index path (main scene):** when the group carries an `UnderlaySnapIndex`, child items are skipped by `_phase4_items()` and segments are instead queried from the index in a separate pass (mapped from group-local to scene coordinates). **(b) Direct child path (import dialog):** when no snap index exists, `_phase4_items()` yields the invisible child items directly for segment extraction. Non-underlay items are yielded unconditionally. Extracts segments from `ConstructionLine`, `QGraphicsLineItem`, `PolylineItem`, `RectangleItem`, `WallSegment`, `QGraphicsPathItem` (DXF geometry — filtered per-segment against search rect to avoid polyline bounding-box blowup), and circles from `CircleItem`. Bails out if total segments exceed `_PHASE4_MAX_SEGMENTS` (256). Pairs remaining segments and emits `intersection` candidates for any crossing within tolerance. Each intersection candidate carries both source items (`source_item`, `source_item2`) and the actual segment geometry (`source_lines`) for per-segment highlighting.
 
-The **picker** (`_SnapCtx.check()`) uses a "priority band":
+The **picker** (`_SnapCtx.check()`) uses a "priority band" applied entirely in **pixels** against `best_dist_px` (the running best candidate's screen-pixel distance):
 
 ```
-band = max(tolerance × 0.3, min(tolerance, SNAP_PRIORITY_BAND_PX))
-       # SNAP_PRIORITY_BAND_PX = 12px ⇒ band = 12px at the 40px default
+band = SNAP_PRIORITY_BAND_PX   # fixed pixel constant — NOT derived from tolerance
 
 A candidate becomes the new best if:
-  • it's strictly closer than (best_dist − band), OR
-  • it's within (best_dist + band) AND has higher priority (lower number)
+  • its d_px is strictly less than (best_dist_px − band), OR
+  • its d_px is within (best_dist_px + band) AND it has higher priority (lower number)
 ```
 
-The `SNAP_PRIORITY_BAND_PX` floor (capped at the tolerance) keeps high-priority snaps — notably `intersection` (priority 0) — winning near a crossing even when the user lowers the snap tolerance. With the bare `tolerance × 0.3` band the window collapsed (~1.5px at a 5px tolerance) and `intersection` lost to the *closer* `nearest`/`perpendicular` foot on one of the crossing lines, so intersection snapping appeared broken at low tolerance (Pain #2). Behaviour is unchanged at or above the 40px default, where `tolerance × 0.3 ≥ 12px`. Regression: `tests/test_snap_priority_band.py`.
+`SNAP_PRIORITY_BAND_PX` is a **fixed pixel constant** (not scaled from the scene-unit tolerance), so the priority band is stable regardless of what tolerance the user sets or what zoom level is active. This replaces the earlier `max(tolerance × 0.3, min(tolerance, SNAP_PRIORITY_BAND_PX))` formula, which collapsed at low user tolerance (Pain #2). The endpoint protection band that suppresses intersection candidates near an endpoint is a fixed `_ENDPOINT_PROTECTION_PX = 6` px constant (§6.3 Change B). Regression: `tests/test_snap_priority_band.py`.
 
 Priorities (`SNAP_PRIORITY` dict): `intersection=0`, `endpoint=1`, `midpoint=2`, `center=3`, `perpendicular=4`, `quadrant=5`, `tangent=6`, `nearest=7`.
 
@@ -319,20 +319,20 @@ Keyboard bindings (F3 is now bound — see below; the one-shot overrides remain 
 
 | Key | Function | Notes |
 |---|---|---|
-| **F3** | Toggle all OSNAPs on/off (matches AutoCAD) | **Bound 2026-06-22** as a window-level `QShortcut` (a ribbon-button shortcut would be tab-scoped); drives `Model_Space.toggle_osnap` |
-| **`END`, `MID`, `INT`, `CEN`, `QUA`, `PER`, `TAN`, `NEA`** typed at the command prompt | One-shot snap override for the next pick | Deferred to the future OSNAP toolbar / command-line spec |
+| **F3** | Toggle all snap types on/off (matches AutoCAD's OSNAP F3 binding) | **Bound 2026-06-22** as a window-level `QShortcut` (a ribbon-button shortcut would be tab-scoped); drives `Model_Space.toggle_snap` |
+| **`END`, `MID`, `INT`, `CEN`, `QUA`, `PER`, `TAN`, `NEA`** typed at the command prompt | One-shot snap override for the next pick | Deferred to the future SNAP toolbar / command-line spec |
 
 ### 9.5 Status bar
 
-A future OSNAP toolbar (deferred — §2.3) is the natural home for per-type toggle indication. This spec only commits to: the status bar must, at minimum, show whether OSNAPs are globally on or off when F3 is bound.
+A future SNAP toolbar (deferred — §2.3) is the natural home for per-type toggle indication. This spec only commits to: the status bar must, at minimum, show whether snap types are globally on or off when F3 is bound.
 
-**Delivered (2026-06-22):** the OSNAP toolbar now provides per-type toggle indication; the status-bar pill shows global on/off and stays in sync with F3 and the ribbon OSNAP button via the `osnapToggled` signal. See `docs/specs/osnap-toolbar.md`.
+**Delivered (2026-06-22):** the SNAP toolbar now provides per-type toggle indication; the status-bar pill shows global on/off and stays in sync with F3 and the ribbon SNAP button via the `snapToggled` signal. See `docs/specs/snap-toolbar.md`.
 
-**2026-04-08 finding (roadmap item 12):** A code search of the project confirmed that no UI surface currently toggles the per-type `SnapEngine` booleans (`snap_endpoint`, `snap_midpoint`, `snap_intersection`, `snap_center`, `snap_quadrant`, `snap_nearest`, `snap_perpendicular`, `snap_tangent`). They remain reachable only by direct attribute access. The per-type toggle UI is therefore formally deferred to a dedicated OSNAP-toolbar spec session, which has been promoted from "deferred" to a P1 backlog task. The persistent OSNAP status-bar indicator delivered alongside this finding is the anchor the toolbar will later integrate with. **Update (2026-06-22):** that OSNAP-toolbar spec was written and implemented — the per-type flags are now toggled by both the toolbar and the Snap Settings dialog, and the toolbar integrates with this status-bar pill via `osnapToggled`.
+**2026-04-08 finding (roadmap item 12):** A code search of the project confirmed that no UI surface currently toggles the per-type `SnapEngine` booleans (`snap_endpoint`, `snap_midpoint`, `snap_intersection`, `snap_center`, `snap_quadrant`, `snap_nearest`, `snap_perpendicular`, `snap_tangent`). They remain reachable only by direct attribute access. The per-type toggle UI is therefore formally deferred to a dedicated SNAP-toolbar spec session, which has been promoted from "deferred" to a P1 backlog task. The persistent snap status-bar indicator delivered alongside this finding is the anchor the toolbar will later integrate with. **Update (2026-06-22):** that SNAP-toolbar spec was written and implemented — the per-type flags are now toggled by both the toolbar and the Snap Settings dialog, and the toolbar integrates with this status-bar pill via `snapToggled`.
 
 ### 9.6 Settings persistence
 
-Per-type toggle state is held in `SnapEngine` instance attributes. **Delivered (2026-06-22):** the 8 `snap_*` flags persist to `QSettings` under `snap/{attr}` — written by the OSNAP toolbar and the Snap Settings dialog, restored on startup in `MainWindow.restore_settings`. (Originally out of scope for this spec; see `docs/specs/osnap-toolbar.md`.)
+Per-type toggle state is held in `SnapEngine` instance attributes. **Delivered (2026-06-22):** the 8 `snap_*` flags persist to `QSettings` under `snap/{attr}` — written by the SNAP toolbar and the Snap Settings dialog, restored on startup in `MainWindow.restore_settings`. (Originally out of scope for this spec; see `docs/specs/snap-toolbar.md`.)
 
 ---
 
@@ -379,7 +379,7 @@ Single-line current-vs-target for each major section:
 - **§6 picker:** Priority-banded picker with `intersection=0` suppressing endpoints; no documentation → target algorithm specified (Changes A + B); current algorithm explicitly described as the root cause of §7 bugs.
 - **§7 case studies:** Two reproducible bugs, one with an actively misleading hypothesis → both reframed with shared root cause; misdiagnosis explicitly corrected.
 - **§8 named targets:** All wall corners and centerline ends render as identical yellow squares → glyph-variant scheme defined for walls; pipes-with-fittings flagged as a future spec.
-- **§9 UX surface:** Marker rendering only; no F-key, no tooltips, no toolbar → marker variants extended; **F3 bound (window-level shortcut, 2026-06-22)**; tooltip text deferred; **OSNAP toolbar delivered (2026-06-22, `docs/specs/osnap-toolbar.md`)**.
+- **§9 UX surface:** Marker rendering only; no F-key, no tooltips, no toolbar → marker variants extended; **F3 bound (window-level shortcut, 2026-06-22)**; tooltip text deferred; **SNAP toolbar delivered (2026-06-22, `docs/specs/snap-toolbar.md`)**.
 - **§10 test strategy:** Zero automated tests for `snap_engine.py` → three-layer test pyramid described (primitives, matrix fixtures, case-study regressions).
 - **§13 deferred subsystems:** Tolerance, OTRACK, inferred placement, snap-from, apparent intersection — all in the user's head, none written down → all named in §2.3 with deferral reasons; "next priority" identified as inferred/dimension-driven placement.
 
@@ -401,8 +401,8 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 | 8 | **P2** | Geometric primitive unit tests (§10.1) | `_line_line_intersect`, `_line_circle_intersect`, `_project_to_segment` covered by tests for every case in §10.1 tables | `[ref:snap-spec§10.1]` |
 | 9 | **P2** | Matrix fixture test harness (§10.2) | One headless `QGraphicsScene` fixture test per ✓-cell in §5; harness pattern documented for future cells | `[ref:snap-spec§10.2]` |
 | 10 | ~~done~~ | Case-study regression tests (§10.3) | Two regression tests pinned to §7.1 and §7.2 (in addition to the fixtures from item 1) | `[ref:snap-spec§10.3]` |
-| 11 | ~~done~~ | Bind F3 to global OSNAP on/off and surface state in status bar | F3 toggles `SnapEngine.enabled`; status bar reflects current state. **Reworked 2026-06-22** into a window-level `QShortcut` (fires from any ribbon tab) with the ribbon OSNAP button synced via `osnapToggled` | `[ref:snap-spec§9.4-§9.5]` `[done:2026-04-08]` |
-| 12 | ~~done~~ | Confirm and (if absent) expose per-type OSNAP toggle UI surface | Verified absent; §9.5 amended and OSNAP toolbar spec promoted to P1 backlog task. **OSNAP toolbar implemented 2026-06-22** (`docs/specs/osnap-toolbar.md`) | `[ref:snap-spec§9.5]` `[done:2026-04-08]` |
+| 11 | ~~done~~ | Bind F3 to global snap on/off and surface state in status bar | F3 toggles `SnapEngine.enabled`; status bar reflects current state. **Reworked 2026-06-22** into a window-level `QShortcut` (fires from any ribbon tab) with the ribbon SNAP button synced via `snapToggled` | `[ref:snap-spec§9.4-§9.5]` `[done:2026-04-08]` |
+| 12 | ~~done~~ | Confirm and (if absent) expose per-type SNAP toggle UI surface | Verified absent; §9.5 amended and SNAP toolbar spec promoted to P1 backlog task. **SNAP toolbar implemented 2026-06-22** (`docs/specs/snap-toolbar.md`) | `[ref:snap-spec§9.5]` `[done:2026-04-08]` |
 | 13 | **P2 spec** | Spec session: pipe-with-fitting named targets | Design doc for `Pipe`/`Fitting` named-target glyphs and `_collect()` emission rules; brainstorm session conducted | `[ref:snap-spec§8.3]` |
 | 14 | **P1 spec** | Spec session: inferred / dimension-driven placement (Revit subsystem) | Design doc for the next subsystem flagged in §2.3 as "next priority" | `[ref:snap-spec§2.3]` |
 
@@ -412,7 +412,7 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 
 ## 13. Open questions
 
-1. ~~**Per-type toggle UI surface.**~~ **Resolved (2026-06-22):** the Snap Settings dialog and the OSNAP toolbar both toggle the per-type `SnapEngine` flags, persisted to `QSettings`. See `docs/specs/osnap-toolbar.md`.
+1. ~~**Per-type toggle UI surface.**~~ **Resolved (2026-06-22):** the Snap Settings dialog and the SNAP toolbar both toggle the per-type `SnapEngine` flags, persisted to `QSettings`. See `docs/specs/snap-toolbar.md`.
 
 2. ~~**DXF underlay child item recall.**~~ **Resolved.** Both phases handle DXF/PDF underlay geometry via a dual-path strategy: in the main scene, the `UnderlaySnapIndex` is queried directly (no child-item descent); in the import dialog (no snap index), phases 1 and 4 fall back to processing invisible child items directly.
 
@@ -421,6 +421,57 @@ Each item is sized for one focused work session (1–4 hours), closes at least o
 4. **Multi-level visibility filtering.** When the active view shows only one level, should items on hidden levels still contribute snap candidates? Today the answer is implicit (whatever `scene.items()` returns is whatever is visible to QGraphics). The views-relationship spec (separate P1 task) is the right place to settle this — flagged here so that spec inherits the question, not this one.
 
 5. **Marker variant proliferation.** §8 introduces 2 new glyph variants for walls. Pipes-with-fittings (item 13) will introduce more. At what point does the user stop being able to memorize the variant rules at a glance? Open question for the pipe spec — this spec commits only to the wall variants and notes the question.
+
+---
+
+## 14. Hysteresis, whitelist API & the shared conversion helper
+
+*(Added 2026-08-25 to document the SNAP-refinement shipped on this date. Cross-references: §3.1 for the pixel-aperture model, §6.1 for the pixel-band picker.)*
+
+### 14.1 Shared px↔scene conversion helpers
+
+The module-level helpers `px_to_scene(px, scale)` and `scene_to_px(scene, scale)` (with an internal `_safe_scale()` guard against zero/None scale) are the **single home** for pixel↔scene-unit conversion in `snap_engine.py`. They are consumed by:
+
+- `SnapEngine.find()` — converts the pixel aperture to a scene-unit search rect cap and converts candidate distances to pixels for acceptance judgment (`d_scene × scale ≤ aperture_px`).
+- The design-area pick path — converts the aperture for the center-only sprinkler pick (§14.3).
+- The inference engine — consumes the same helpers for any snap-adjacent distance comparison.
+
+No other code in the snap subsystem should perform px↔scene arithmetic; route all conversions through these helpers.
+
+### 14.2 Hysteresis
+
+`SnapEngine.find()` accepts an optional `held: OsnapResult | None` argument (the last committed snap result from the caller). When `held` is provided the engine applies a **hold rule** before returning:
+
+1. **Aperture check first:** if the cursor has left the pixel aperture (`d_px > aperture_px`) for the held result's point, the hold is released and normal candidate selection proceeds.
+2. **Strictly-higher-priority candidate breaks the hold immediately** (recall-first: a higher-priority type always wins, no distance comparison needed).
+3. **Same-or-lower-priority candidate must beat the held result by ≥ `SNAP_HYSTERESIS_PX` px** (`SNAP_HYSTERESIS_PX = 3`) to displace it.
+4. **WYSIWYG guarantee:** when the hold is retained, the *held result object is re-emitted whole* — the marker position and source trace shown to the user exactly match the point that will be committed on click.
+5. **Hold resets** on commit (caller passes `held=None`), mode change, Esc, or any frame where no candidate falls within the aperture (miss).
+
+The hysteresis constant `SNAP_HYSTERESIS_PX = 3` is defined in `snap_engine.py` alongside `SNAP_TOLERANCE_PX` and `SNAP_PRIORITY_BAND_PX`.
+
+### 14.3 Candidate-whitelist API
+
+`SnapEngine.find()` accepts two optional filter arguments:
+
+| Argument | Type | Semantics |
+|---|---|---|
+| `only_types` | `set[str] \| None` | If provided, only candidates whose `snap_type` is in this set are considered. All other type-filter logic (per-type engine flags) is bypassed. |
+| `item_filter` | `Callable[[QGraphicsItem], bool] \| None` | If provided, scene items for which the callable returns `False` are skipped before any snap computation. Applied in phase 1 and phase 4. |
+
+**Current consumers:**
+
+1. **"Snap to Underlay" toggle** — when the toggle is on, `Model_Space` calls `find(item_filter=<underlay-only predicate>)` so only geometry from underlay groups contributes snap candidates. The old world-unit `find_snap_point()` method (which previously served this path) has been **deleted**; all callers now route through the unified `find()`.
+
+2. **Design-area sprinkler pick** — calls `find(only_types={"center"}, item_filter=<active-level Node items>)` to force center-snap regardless of the user's per-type preferences. This ensures the pick works even if `snap_center` is toggled off in the toolbar, and avoids picking non-sprinkler geometry.
+
+These two are the only current consumers. Future contextual-snap use cases (tool-specific snap sets) should add a new `item_filter` or `only_types` call at the call site, **not** add new branches inside `find()`.
+
+### 14.4 Reading zoom: the VISIBLE view, not `views()[0]` (load-bearing invariant)
+
+The entire pixel-aperture model — and *every* other zoom-dependent tolerance (design-area pick, inference/OTRACK band, array/offset/dimension/rotate previews) — depends on reading the on-screen zoom `view.transform().m11()`. **Critical invariant:** that zoom MUST come from the **visible** plan view via `Model_Space._snap_view()` / `_active_view_scale()`, **never** `self.views()[0]`.
+
+The model scene has **N+1 attached `QGraphicsView`s**: a vestigial, never-shown `MainWindow.view` (created first at `main.py:430`, so it is *always* `views()[0]`, permanently frozen at `m11 = 1.0`) plus one `Model_View` per open plan tab (only the active tab is `isVisible()`). Reading `views()[0].transform().m11()` therefore returns `1.0` forever, which silently degenerates the pixel judgment `d_px = d_scene × m11` into a **fixed scene-unit tolerance** — world-unit snapping (huge grab zoomed in, tiny/insensitive zoomed out) regardless of the pixel aperture. This bug pre-dated the pixel-aperture work and **neutralized it entirely** until fixed (2026-08-26, `a4affd8`). `_snap_view()` returns the first `isVisible()` view, falling back to the last-attached view for headless tests — never the vestigial index-0. **Any new zoom-dependent code must use `_active_view_scale()`, not `self.views()[0]`.**
 
 ---
 

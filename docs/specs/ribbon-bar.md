@@ -14,7 +14,7 @@ source-tasks: "TODO.md §B follow-up: Draft-tab migration + Font ribbon group (o
 # Ribbon Bar — Governing Spec
 
 **Date forged:** 2026-07-16 (Phase 1b orphan gate — reverse-engineered from as-built code)
-**Adjacent docs:** `specs/osnap-toolbar.md` (Snap group + OSNAP toolbar toggle — owns that surface), `architecture/theming.md` (QSS ownership), `specs/paper-space.md` §17.4 (paper undo dispatch contract), `specs/property-panel.md` (the panel the ribbon must not bypass — see D2), `specs/icon-style-guide.md` (icon authoring contract — owns all icon token/color/naming facts)
+**Adjacent docs:** `specs/snap-toolbar.md` (Snap group + SNAP toolbar toggle — owns that surface), `architecture/theming.md` (QSS ownership), `specs/paper-space.md` §17.4 (paper undo dispatch contract), `specs/property-panel.md` (the panel the ribbon must not bypass — see D2), `specs/icon-style-guide.md` (icon authoring contract — owns all icon token/color/naming facts)
 
 ## 1. Goal
 
@@ -50,7 +50,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 
 ### 3.3 Shortcut scoping (the trap)
 
-`shortcut=` calls `QToolButton.setShortcut`, and a button on a hidden `QStackedWidget` page **does not fire** — ribbon-button shortcuts are effectively tab-scoped. Global hotkeys must be window-level `QShortcut`s or view `keyPressEvent`/`ShortcutOverride` handling instead (F3 precedent: `osnap-toolbar.md`; Ctrl+Z/Y in paper space: `paper-space.md` §17.4). As-built consequences: the Manage-tab Undo/Redo `shortcut="Ctrl+Z"/"Ctrl+Y"` and Sprinkler Systems-tab `F5`/`F6` only fire while their tab is current — the real global routes live elsewhere (scene/view key handling).
+`shortcut=` calls `QToolButton.setShortcut`, and a button on a hidden `QStackedWidget` page **does not fire** — ribbon-button shortcuts are effectively tab-scoped. Global hotkeys must be window-level `QShortcut`s or view `keyPressEvent`/`ShortcutOverride` handling instead (F3 precedent: `snap-toolbar.md`; Ctrl+Z/Y in paper space: `paper-space.md` §17.4). As-built consequences: the Manage-tab Undo/Redo `shortcut="Ctrl+Z"/"Ctrl+Y"` and Sprinkler Systems-tab `F5`/`F6` only fire while their tab is current — the real global routes live elsewhere (scene/view key handling).
 
 ### 3.4 Content ownership (`main.py`)
 
@@ -83,7 +83,7 @@ Checkable tool buttons that enter a scene mode register in `self._mode_buttons[m
 - **Contextual tab show/hide:** `scene.selectionChanged → _on_selection_changed_contextual` (§3.8). Supersedes the old Modify auto-switch (`_on_selection_changed_modify` — removed).
 - **Contextual Text group (legacy — NoteAnnotation only):** the old Modify → Text group was removed. Model-space text formatting is now routed through the contextual Annotation tab's Edit group (and the property panel for full formatting).
 - **Undo/Redo dispatch:** ribbon Undo/Redo buttons (Manage → Edit) call `_dispatch_undo/_dispatch_redo`, which route on `central_tabs.currentWidget()` — `PaperSpaceWidget` → its `paper_scene.undo_stack`, else model-space `scene.undo()/redo()` (contract owned by `paper-space.md` §17.4).
-- **OSNAP surface:** the Manage → Snap group and the OSNAP toolbar toggle are owned by `osnap-toolbar.md` — link, don't restate.
+- **SNAP surface:** the Manage → Snap group and the SNAP toolbar toggle are owned by `snap-toolbar.md` — link, don't restate.
 
 ### 3.7 Theming
 

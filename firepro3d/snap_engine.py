@@ -1,7 +1,7 @@
 """
 snap_engine.py
 ==============
-Object Snap (OSNAP) engine for FirePro 3D.
+Object Snap (SNAP) engine for FirePro 3D.
 
 Provides nearest-snap-point resolution for all geometry types in the scene,
 returning a typed OsnapResult used by the view's foreground renderer to draw
@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Callable
 
 from PyQt6.QtCore  import QLineF, QPointF, QRectF, Qt
 from PyQt6.QtGui   import QPainterPath, QTransform
@@ -43,10 +44,39 @@ from .wall import WallSegment
 # Constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-SNAP_TOLERANCE_PX = 40      # screen-pixel search radius
-SNAP_MAX_SCENE_TOL = 200.0  # cap search radius in scene units (mm) at low zoom
+SNAP_TOLERANCE_PX = 15        # screen-pixel aperture (grab radius); user-tuned default (was 40→20→15)
+# Perf-only ceiling on the *search rect* in scene units. It must never shrink
+# the effective aperture at a usable zoom — it only clamps below the zoom at
+# which individual features are distinguishable (~0.002 px/mm). At 20px aperture
+# this equals a 10 m search radius, reached only when a whole building fits in
+# ~40 screen px. See docs/specs/snapping-engine.md §3.1 (cap is perf, not tolerance).
+SNAP_MAX_SCENE_TOL = 10000.0  # mm
 SNAP_PRIORITY_BAND_PX = 12  # priority-override window (px); see find() / §6.1
+SNAP_HYSTERESIS_PX = 3       # hold the current snap until another beats it by this many px
+_ENDPOINT_PROTECTION_PX = 6  # intersection candidates within this px of an in-aperture endpoint are suppressed (spec §6.3 Change B)
 _PHASE4_MAX_SEGMENTS = 256  # skip O(n²) pairing when segment count exceeds this
+
+
+def _safe_scale(scale: float) -> float:
+    """A view m11() scale guarded against zero/negative (→ 1.0)."""
+    return scale if scale > 0 else 1.0
+
+
+def px_to_scene(px: float, scale: float) -> float:
+    """Convert a screen-pixel distance to scene units at the given view scale.
+
+    ``scale`` is ``QGraphicsView.transform().m11()`` (pixels per scene unit).
+    The shared home for the px→scene math on the SNAP paths (the engine's
+    aperture + the design-area / underlay routing) instead of open-coding
+    ``px / scale``. (Inference and grip-pick keep their own local guards.)
+    """
+    return px / _safe_scale(scale)
+
+
+def scene_to_px(scene_dist: float, scale: float) -> float:
+    """Convert a scene-unit distance to screen pixels at the given view scale."""
+    return scene_dist * _safe_scale(scale)
+
 
 # Geometry primitive epsilons (used in snap math helpers)
 _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
@@ -152,16 +182,19 @@ class OsnapResult:
 
 class _SnapCtx:
     """Mutable snap-tracking context passed between find() phases."""
-    __slots__ = ("cursor", "tol", "priority_band",
-                 "best_dist", "best_prio", "best_result",
-                 "endpoint_candidates", "underlay_geoms")
+    __slots__ = ("cursor", "scale", "aperture_px", "priority_band_px",
+                 "best_dist_px", "best_prio", "best_result",
+                 "endpoint_candidates", "underlay_geoms", "only_types")
 
-    def __init__(self, cursor: QPointF, tol: float, priority_band: float):
+    def __init__(self, cursor: QPointF, scale: float,
+                 aperture_px: float, priority_band_px: float,
+                 only_types: "set[str] | None" = None):
         self.cursor = cursor
-        self.tol = tol
-        self.priority_band = priority_band
-        self.best_dist: float = tol
-        self.best_prio: int = 999
+        self.scale = _safe_scale(scale)
+        self.aperture_px = aperture_px
+        self.priority_band_px = priority_band_px
+        self.best_dist_px: float = aperture_px
+        self.best_prio: int = 99
         self.best_result: OsnapResult | None = None
         # Scene-coord points of in-tolerance endpoint candidates seen so
         # far. Phase 4 uses this to suppress intersection candidates
@@ -171,19 +204,27 @@ class _SnapCtx:
         # id(group). Phase 1 fills it; Phase 4 reuses it so each group
         # is queried once per find(), not twice per mousemove.
         self.underlay_geoms: dict[int, list[dict]] = {}
+        # Whitelist of snap types that may be returned (None = no restriction)
+        self.only_types: "set[str] | None" = only_types
 
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
               name: str | None = None, *,
               src_item2: QGraphicsItem | None = None,
               source_lines: list | None = None):
-        """Compare a candidate snap against the current best."""
-        d = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
-        if snap_type == "endpoint" and d <= self.tol:
+        """Compare a candidate snap against the current best, judged in PIXELS."""
+        if self.only_types is not None and snap_type not in self.only_types:
+            return
+        d_scene = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
+        d_px = d_scene * self.scale
+        if d_px > self.aperture_px:
+            return  # hard pixel aperture — zoom-invariant grab radius
+        if snap_type == "endpoint":
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
-        if (d < self.best_dist - self.priority_band or
-                (d < self.best_dist + self.priority_band and prio < self.best_prio)):
-            self.best_dist = d
+        band = self.priority_band_px
+        if (d_px < self.best_dist_px - band or
+                (d_px < self.best_dist_px + band and prio < self.best_prio)):
+            self.best_dist_px = d_px
             self.best_prio = prio
             self.best_result = OsnapResult(
                 point=pt, snap_type=snap_type,
@@ -198,7 +239,7 @@ class _SnapCtx:
 
 class SnapEngine:
     """
-    Nearest OSNAP resolver for a QGraphicsScene.
+    Nearest SNAP resolver for a QGraphicsScene.
 
     Call :meth:`find` each time the cursor moves to get the best snap point.
     Store the result on the scene so :meth:`Model_View.drawForeground` can
@@ -226,44 +267,59 @@ class SnapEngine:
         scene:          QGraphicsScene,
         view_transform: QTransform,
         exclude:        QGraphicsItem | None = None,
+        only_types:     "set[str] | None" = None,
+        item_filter:    "Callable[[QGraphicsItem], bool] | None" = None,
+        held:           "OsnapResult | None" = None,
     ) -> OsnapResult | None:
-        """Return the nearest snappable point within tolerance, or *None*."""
+        """Return the nearest snappable point within tolerance, or *None*.
+
+        Args:
+            cursor_scene: Cursor position in scene coordinates.
+            scene: The QGraphicsScene to search.
+            view_transform: Current view transform (m11() gives px/scene scale).
+            exclude: Optional single item to skip entirely.
+            only_types: Optional whitelist of snap type strings (e.g. ``{"center"}``).
+                If provided, only candidates whose snap_type is in this set are
+                returned.  ``None`` (default) imposes no restriction.
+            item_filter: Optional predicate — ``item_filter(item)`` must return
+                True for an item to contribute snap candidates.  ``None``
+                (default) allows all items.
+            held: Previously-committed snap result (hysteresis anchor).  When
+                provided, the engine holds this point unless another candidate
+                beats it by ``SNAP_HYSTERESIS_PX`` OR the cursor leaves the
+                aperture OR a strictly-higher-priority candidate appears.
+                ``None`` (default) means no hysteresis — existing callers are
+                unaffected.
+        """
         if not self.enabled:
             return None
 
-        # Convert tolerance from screen pixels to scene units, capped to
-        # prevent huge search rects at low zoom (O(n²) phase-4 cost).
+        # Aperture is a screen-pixel constant (zoom-invariant). Convert to a
+        # scene-unit SEARCH radius, clamped to a perf-only ceiling that never
+        # bites at a usable zoom. Acceptance is judged in pixels (see _SnapCtx).
         scale = view_transform.m11()
-        if scale <= 0:
-            scale = 1.0
-        tol = min(SNAP_TOLERANCE_PX / scale, SNAP_MAX_SCENE_TOL)
+        aperture_px = float(SNAP_TOLERANCE_PX)
+        search_tol = min(px_to_scene(aperture_px, scale), SNAP_MAX_SCENE_TOL)
 
         search_rect = QRectF(
-            cursor_scene.x() - tol, cursor_scene.y() - tol,
-            tol * 2, tol * 2,
+            cursor_scene.x() - search_tol, cursor_scene.y() - search_tol,
+            search_tol * 2, search_tol * 2,
         )
 
-        # Priority-override band — how much farther a higher-priority snap may
-        # sit and still beat a closer lower-priority one. Historically this was
-        # tol*0.3, which collapses when the user lowers the snap tolerance: at
-        # 5px the band shrinks to ~1.5 units and an intersection (priority 0)
-        # loses to the closer nearest/perpendicular foot near a crossing. Floor
-        # it at a fixed pixel constant (capped at the tolerance) so it never
-        # drops below ~12px, while keeping the original value wherever it is
-        # already larger — i.e. behaviour only changes below the 40px default.
-        # See docs/specs/snapping-engine.md §6.1 (and Pain #2, tolerance UX).
-        priority_band = max(tol * 0.3, min(tol, SNAP_PRIORITY_BAND_PX / scale))
+        priority_band_px = float(SNAP_PRIORITY_BAND_PX)
 
         # Mutable snap-tracking state shared across phases
-        ctx = _SnapCtx(cursor=cursor_scene, tol=tol,
-                        priority_band=priority_band)
+        ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
+                       aperture_px=aperture_px, priority_band_px=priority_band_px,
+                       only_types=only_types)
 
         # Phase 1 — Scene items (endpoints, midpoints, perpendicular, etc.)
-        self._check_scene_items(ctx, scene, search_rect, exclude)
+        self._check_scene_items(ctx, scene, search_rect, exclude, item_filter)
 
         # Phase 2 — Gridline-to-gridline intersections
         gl_items = [gl for gl in getattr(scene, "_gridlines", [])
-                     if gl.isVisible() and (exclude is None or gl is not exclude)]
+                     if gl.isVisible() and (exclude is None or gl is not exclude)
+                     and (item_filter is None or item_filter(gl))]
         if self.snap_intersection:
             self._check_gridline_intersections(ctx, gl_items)
 
@@ -273,15 +329,37 @@ class SnapEngine:
         # Phase 4 — Geometry-to-geometry intersections
         # (_PHASE4_MAX_SEGMENTS inside the method caps the O(n²) pairing)
         if self.snap_intersection:
-            self._check_geometry_intersections(ctx, scene, search_rect, exclude, gl_items)
+            self._check_geometry_intersections(ctx, scene, search_rect, exclude,
+                                               gl_items, item_filter)
 
-        return ctx.best_result
+        best = ctx.best_result
+        if held is None:
+            return best
+        held_d_px = scene_to_px(
+            math.hypot(held.point.x() - cursor_scene.x(),
+                       held.point.y() - cursor_scene.y()), scale)
+        if held_d_px > aperture_px:
+            return best  # cursor left the held aperture → release the hold
+        if best is None:
+            return held
+        best_prio = SNAP_PRIORITY.get(best.snap_type, 6)
+        held_prio = SNAP_PRIORITY.get(held.snap_type, 6)
+        if best_prio < held_prio:
+            return best  # strictly higher priority always breaks the hold (recall-first)
+        # Margin release only fires when best has equal or better priority than held.
+        # A lower-priority candidate (worse number) never displaces a held higher-priority
+        # snap, regardless of distance — "recall-first: never hide an endpoint that just
+        # came into range."
+        if best_prio <= held_prio and ctx.best_dist_px < held_d_px - SNAP_HYSTERESIS_PX:
+            return best  # beat the hold by the margin (same or better priority tier)
+        return held
 
     # ── Phase methods ──────────────────────────────────────────────────────
 
     def _check_scene_items(self, ctx: "_SnapCtx", scene: QGraphicsScene,
                            search_rect: QRectF,
-                           exclude: QGraphicsItem | None):
+                           exclude: QGraphicsItem | None,
+                           item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 1: Check all scene items in the search rect for basic snaps."""
         _skip_types = (DimensionAnnotation, NoteAnnotation)
 
@@ -310,6 +388,8 @@ class SnapEngine:
                     else:
                         # No snap index (import dialog) — process
                         # invisible child items directly
+                        if item_filter is not None and not item_filter(item):
+                            continue
                         for snap_type, scene_pt, name in self._collect(
                                 item):
                             ctx.check(snap_type, scene_pt, item, name)
@@ -336,6 +416,9 @@ class SnapEngine:
                     self._query_underlay_snaps(ctx, item, search_rect)
                 continue
 
+            if item_filter is not None and not item_filter(item):
+                continue
+
             for snap_type, pt, name in self._collect(item):
                 ctx.check(snap_type, pt, item, name)
             for snap_type, pt in self._geometric_snaps(ctx.cursor, item):
@@ -354,11 +437,8 @@ class SnapEngine:
                 b2 = g2.mapToScene(l2.p2())
                 ix = self._line_line_intersect(a1, a2, b1, b2)
                 if ix is not None:
-                    d = math.hypot(ix.x() - ctx.cursor.x(),
-                                   ix.y() - ctx.cursor.y())
-                    if d <= ctx.tol:
-                        ctx.check("intersection", ix, g1,
-                                  src_item2=g2)
+                    ctx.check("intersection", ix, g1,
+                              src_item2=g2)
 
     def _check_gridline_snaps(self, ctx: "_SnapCtx", gl_items: list):
         """Phase 3: Gridline point + edge snaps (shape is bubbles-only)."""
@@ -372,7 +452,8 @@ class SnapEngine:
                                        scene: QGraphicsScene,
                                        search_rect: QRectF,
                                        exclude: QGraphicsItem | None,
-                                       gl_items: list):
+                                       gl_items: list,
+                                       item_filter: "Callable[[QGraphicsItem], bool] | None" = None):
         """Phase 4: Line-line and line-circle intersection snaps."""
         # Each segment is (p1, p2, src_item, parent_key). ``src_item`` is the
         # QGraphicsItem traced for highlighting; ``parent_key`` drives
@@ -410,10 +491,14 @@ class SnapEngine:
                             and parent.data(0) in _underlay_tags):
                         if isinstance(parent.data(4), UnderlaySnapIndex):
                             continue  # segments from index below
+                        if item_filter is not None and not item_filter(item):
+                            continue
                         yield item  # no index — process directly
                     continue
                 if (isinstance(item, QGraphicsItemGroup)
                         and item.data(0) in _underlay_tags):
+                    continue
+                if item_filter is not None and not item_filter(item):
                     continue
                 yield item
 
@@ -575,7 +660,8 @@ class SnapEngine:
         # candidate are suppressed before reaching the picker, so a
         # high-priority intersection can never silently displace an
         # endpoint at (for example) a mitered wall corner.
-        protection_r = ctx.tol * 0.15
+        # Fixed 6px, independent of the user-tunable aperture (spec §6.3 Change B).
+        protection_r = px_to_scene(_ENDPOINT_PROTECTION_PX, ctx.scale)
         protection_r_sq = protection_r * protection_r
         endpoints = list(ctx.endpoint_candidates)
 
@@ -597,22 +683,17 @@ class SnapEngine:
                 if pk1 is not None and pk1 is pk2:
                     continue
                 ix = self._line_line_intersect(sa1, sa2, sb1, sb2)
-                if ix is not None:
-                    d = math.hypot(ix.x() - ctx.cursor.x(),
-                                   ix.y() - ctx.cursor.y())
-                    if d <= ctx.tol and not _protected(ix):
-                        ctx.check("intersection", ix, src1,
-                                  src_item2=src2,
-                                  source_lines=[QLineF(sa1, sa2),
-                                                QLineF(sb1, sb2)])
+                if ix is not None and not _protected(ix):
+                    ctx.check("intersection", ix, src1,
+                              src_item2=src2,
+                              source_lines=[QLineF(sa1, sa2),
+                                            QLineF(sb1, sb2)])
 
         # Segment–circle intersections
         for center, radius, c_item in _circles:
             for sa1, sa2, src, _pk in _segments:
                 for ix in self._line_circle_intersect(sa1, sa2, center, radius):
-                    d = math.hypot(ix.x() - ctx.cursor.x(),
-                                   ix.y() - ctx.cursor.y())
-                    if d <= ctx.tol and not _protected(ix):
+                    if not _protected(ix):
                         ctx.check("intersection", ix, src,
                                   src_item2=c_item,
                                   source_lines=[QLineF(sa1, sa2)])

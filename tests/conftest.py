@@ -25,6 +25,55 @@ def qapp():
     # process and Qt dislikes repeated QApplication creation.
 
 
+@pytest.fixture(autouse=True)
+def _preserve_snap_globals():
+    """Snapshot/restore the snap-engine tunable module globals around every
+    test so a test that mutates them (or a MainWindow that restores them from
+    QSettings) can't leak into a later test under random ordering.
+
+    These are process-wide module globals (``SNAP_TOLERANCE_PX`` /
+    ``SNAP_HYSTERESIS_PX``); without this, e.g. ``test_default_hysteresis_is_3``
+    flakes when a prior test leaves the global changed.
+    """
+    from firepro3d import snap_engine
+    saved = (snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX)
+    yield
+    snap_engine.SNAP_TOLERANCE_PX, snap_engine.SNAP_HYSTERESIS_PX = saved
+
+
+@pytest.fixture
+def make_model_space(qapp):
+    """Factory that builds a Model_Space with an attached QGraphicsView.
+
+    The view is sized 800×800 at identity transform (m11==1.0) and centred
+    on the origin so that scene coords in the range ~(-400,400) are in the
+    viewport.  Tests requiring wider coverage or a different transform call
+    ``view.setTransform(...)`` or ``view.centerOn(...)`` on the returned
+    scene's first view after construction.
+
+    Mirrors the fixture in ``test_gridline_alignment_snap.py``.
+    """
+    from firepro3d.model_space import Model_Space
+    from PyQt6.QtWidgets import QGraphicsView
+
+    created: list[tuple[Model_Space, QGraphicsView]] = []
+
+    def _factory() -> Model_Space:
+        ms = Model_Space()
+        view = QGraphicsView(ms)
+        view.resize(800, 800)
+        view.resetTransform()
+        view.centerOn(0.0, 0.0)
+        QApplication.processEvents()
+        created.append((ms, view))
+        return ms
+
+    yield _factory
+
+    for ms, view in created:
+        view.hide()
+
+
 @pytest.fixture
 def model_scene(qapp):
     """Factory fixture that returns a callable producing a fresh Model_Space
@@ -72,10 +121,19 @@ def shown_model_view(qapp):
 
     view = Model_View(scene)
     view.resize(800, 600)
-    view.resetTransform()
-    view.centerOn(0, 0)
     view.show()
     QTest.qWaitForWindowExposed(view)
+    # Pin a known, deterministic transform AFTER the window is exposed so that
+    # the auto-fit-to-scene zoom (m11 ≈ 0.02) is replaced by a fixed scale.
+    # At m11=0.25 the visible range is ±1596 × ±1196 scene units (all test
+    # geometry fits), and the 20 px snap aperture equals 80 scene units so that
+    # test "empty space" positions (≥ 224 scene units from the nearest geometry)
+    # are genuinely outside the aperture.  Without this pin the auto-fit zoom
+    # collapses snap distances to 2–10 px and geometry that the tests treat as
+    # "far away" snaps unexpectedly.
+    view.resetTransform()
+    view.scale(0.25, 0.25)
+    view.centerOn(0, 0)
     view.setFocus()
     QApplication.processEvents()
 

@@ -48,7 +48,7 @@ def _scene() -> QGraphicsScene:
 
 def _find(engine: SnapEngine, scene: QGraphicsScene,
           cursor: QPointF):
-    """Run find() with identity transform (scale=1, tol=40 scene units)."""
+    """Run find() with identity transform (scale=1, tol=20 scene units)."""
     return engine.find(cursor, scene, QTransform())
 
 
@@ -152,8 +152,9 @@ class TestPhase1NoIndex:
         _make_underlay_group_with_items(scene)
         engine = _engine()
 
-        # Cursor above the line at x=50 — perpendicular foot is (50, 0)
-        result = _find(engine, scene, QPointF(50, 30))
+        # Cursor above the line at x=50 — perpendicular foot is (50, 0).
+        # 12 scene units offset, within 20px aperture at scale=1.
+        result = _find(engine, scene, QPointF(50, 12))
         assert result is not None
         assert result.snap_type == "perpendicular"
         assert abs(result.point.x() - 50) < ABS_TOL

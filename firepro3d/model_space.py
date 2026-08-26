@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QImage, QPolygonF,
-                          QFontMetricsF)
+                          QFontMetricsF, QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from .node import Node
 from .pipe import Pipe
@@ -39,7 +39,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
-                       DESIGN_AREA_PICK_PX, DESIGN_AREA_HL_RADIUS_PX,
+                       DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, INFERENCE_TOL_PX,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
                        SELECTION_OUTLINE_COLOR)
@@ -58,6 +58,12 @@ import os
 
 from .scene_io import SceneIOMixin
 from .scene_tools import SceneToolsMixin
+
+
+def _is_underlay_item(it) -> bool:
+    """True if a scene item is a child of a DXF/PDF underlay group."""
+    p = it.parentItem()
+    return p is not None and p.data(0) in ("DXF Underlay", "PDF Underlay")
 
 
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
@@ -111,7 +117,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     numericInputRequested = pyqtSignal(str, str, str, float, float, float)  # mode, title, label, default, min, max
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
-    osnapToggled = pyqtSignal(bool)    # emitted whenever toggle_osnap() runs
+    snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
     inferenceToggled = pyqtSignal(bool)  # emitted whenever set_inference_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
@@ -242,10 +248,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
         self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
-        # OSNAP (Sprint H)
+        # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
-        self._osnap_enabled: bool = True
+        self._snap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
         # Inferred alignment guides (inference_engine.py)
         from .inference_engine import InferenceEngine
@@ -3781,39 +3787,45 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # picks have a visible target.
         if self.mode == "design_area":
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            view_scale = (self.views()[0].transform().m11()
-                          if self.views() else 1.0)
-            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
-            best_node = None
-            best_d = tol
-            for spr in self.sprinkler_system.sprinklers:
-                if not spr.node:
-                    continue
-                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
-                    continue
-                d = spr.node.distance_to(scene_pos.x(), scene_pos.y())
-                if d < best_d:
-                    best_d = d
-                    best_node = spr.node
-            if best_node is not None:
-                pt = QPointF(best_node.scenePos())
-                self._snap_result = OsnapResult(point=pt, snap_type="center")
+            _view = self._snap_view()
+            xform = _view.transform() if _view is not None else QTransform()
+            sprinkler_nodes = {
+                spr.node for spr in self.sprinkler_system.sprinklers
+                if spr.node is not None
+                and getattr(spr.node, "level", DEFAULT_LEVEL) == active
+            }
+            _was_enabled = self._snap_engine.enabled
+            _was_center = self._snap_engine.snap_center
+            self._snap_engine.enabled = True
+            self._snap_engine.snap_center = True
+            try:
+                result = self._snap_engine.find(
+                    scene_pos, self, xform,
+                    only_types={"center"},
+                    item_filter=lambda it: it in sprinkler_nodes,
+                    held=self._snap_result)
+            finally:
+                self._snap_engine.enabled = _was_enabled
+                self._snap_engine.snap_center = _was_center
+            if result is not None:
+                self._snap_result = result
                 self._inference_result = None
-                return pt
+                return result.point
             self._snap_result = None
             self._inference_result = None
             return QPointF(scene_pos)
 
-        # OSNAP takes highest priority (disabled when no mode or select mode,
+        # SNAP takes highest priority (disabled when no mode or select mode,
         # but enabled during grip-drag even in select mode)
-        if (self._osnap_enabled
+        if (self._snap_enabled
                 and self.mode is not None
                 and (self.mode != "select" or self._grip_dragging)):
             exclude = self._grip_item if self._grip_dragging else None
-            views = self.views()
-            if views:
+            _view = self._snap_view()
+            if _view is not None:
                 result = self._snap_engine.find(
-                    scene_pos, self, views[0].transform(), exclude=exclude)
+                    scene_pos, self, _view.transform(), exclude=exclude,
+                    held=self._snap_result)
                 self._snap_result = result
                 if result is not None:
                     self._inference_result = None
@@ -3823,19 +3835,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             self._snap_result = None
 
-        # Underlay snap
+        # Underlay snap — routed through the ONE snap engine, restricted to
+        # underlay geometry (pixel-correct + zoom-invariant). Runs when the
+        # SNAP block above did not fire (e.g. select mode) and the toggle is on.
         if self._snap_to_underlay:
-            snap_pt = self.find_snap_point(scene_pos)
-            if snap_pt is not None:
-                self._inference_result = None
-                return snap_pt
+            _view = self._snap_view()
+            if _view is not None:
+                # Force-enable the engine for this call: the underlay toggle is
+                # independent of the general SNAP on/off switch.
+                _was_enabled = self._snap_engine.enabled
+                self._snap_engine.enabled = True
+                try:
+                    result = self._snap_engine.find(
+                        scene_pos, self, _view.transform(),
+                        item_filter=_is_underlay_item,
+                        held=self._snap_result)
+                finally:
+                    self._snap_engine.enabled = _was_enabled
+                if result is not None:
+                    self._snap_result = result
+                    self._inference_result = None
+                    return result.point
 
-        # ── Inferred alignment guides (weak snap, below OSNAP) ────────────
+        # ── Inferred alignment guides (weak snap, below SNAP) ────────────
         if self._inference_enabled and self._inference_active_item is not None:
-            views = self.views()
-            if views:
-                view = views[0]
-                scale = max(abs(view.transform().m11()), 1e-9)
+            _view = self._snap_view()
+            if _view is not None:
+                scale = max(abs(_view.transform().m11()), 1e-9)
                 tol = INFERENCE_TOL_PX / scale
                 refs = self._collect_alignment_refs(scene_pos, tol)
                 res = self._inference_engine.resolve(
@@ -3848,22 +3874,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._inference_result = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
-    def toggle_osnap(self, enabled: bool | None = None):
-        """Toggle or explicitly set OSNAP.  Called from F3 shortcut and
-        the status bar OSNAP indicator."""
+    def toggle_snap(self, enabled: bool | None = None):
+        """Toggle or explicitly set SNAP.  Called from F3 shortcut and
+        the status bar SNAP indicator."""
         if enabled is None:
-            self._osnap_enabled = not self._osnap_enabled
+            self._snap_enabled = not self._snap_enabled
         else:
-            self._osnap_enabled = bool(enabled)
-        self._snap_engine.enabled = self._osnap_enabled
+            self._snap_enabled = bool(enabled)
+        self._snap_engine.enabled = self._snap_enabled
         self._snap_result = None
         # Refresh foreground overlay
         for v in self.views():
             v.viewport().update()
-        self.osnapToggled.emit(self._osnap_enabled)
+        self.snapToggled.emit(self._snap_enabled)
 
     def set_inference_enabled(self, enabled: bool | None = None):
-        """Toggle or set alignment inference. Mirrors toggle_osnap()."""
+        """Toggle or set alignment inference. Mirrors toggle_snap()."""
         if enabled is None:
             self._inference_enabled = not self._inference_enabled
         else:
@@ -3872,44 +3898,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         for v in self.views():
             v.viewport().update()
         self.inferenceToggled.emit(self._inference_enabled)
-
-    def find_snap_point(self, pos: QPointF) -> QPointF | None:
-        """Find the nearest DXF underlay snap point within tolerance."""
-        sm = self.scale_manager
-        tolerance = sm.paper_to_scene(2.0) if sm.is_calibrated else 15.0
-        search_rect = QRectF(pos.x() - tolerance, pos.y() - tolerance,
-                             tolerance * 2, tolerance * 2)
-        best_dist = tolerance
-        best_pt = None
-        for item in self.items(search_rect):
-            parent = item.parentItem()
-            if parent is None or not isinstance(parent, QGraphicsItemGroup):
-                continue
-            for pt in self._item_snap_points(item):
-                d = math.hypot(pos.x() - pt.x(), pos.y() - pt.y())
-                if d < best_dist:
-                    best_dist = d
-                    best_pt = pt
-        return best_pt
-
-    def _item_snap_points(self, item) -> list:
-        """Return scene-coordinate snap points for a QGraphicsItem."""
-        pts = []
-        if isinstance(item, QGraphicsLineItem):
-            line = item.line()
-            pts.append(item.mapToScene(line.p1()))
-            pts.append(item.mapToScene(line.p2()))
-            pts.append(item.mapToScene(
-                QPointF((line.x1() + line.x2()) / 2, (line.y1() + line.y2()) / 2)
-            ))
-        elif isinstance(item, QGraphicsEllipseItem):
-            pts.append(item.mapToScene(item.boundingRect().center()))
-        elif isinstance(item, QGraphicsPathItem):
-            path = item.path()
-            for i in range(min(path.elementCount(), 256)):   # cap to avoid spam on splines
-                elem = path.elementAt(i)
-                pts.append(item.mapToScene(QPointF(elem.x, elem.y)))
-        return pts
 
     def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """
@@ -4565,6 +4553,29 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             attached view is visible.
         """
         return next((v for v in self.views() if v.isVisible()), None)
+
+    def _snap_view(self):
+        """The view whose zoom (``transform().m11()``) drives snap/scale reads.
+
+        Prefers the on-screen plan view (:meth:`_visible_view`); falls back to
+        the LAST-attached view so headless tests (which attach a view without
+        ``show()``) still resolve a real transform. ``views()[0]`` is
+        deliberately *not* the fallback: in the running app that is the
+        vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
+        reading it made every zoom-dependent tolerance (snap aperture,
+        design-area pick, inference band, …) collapse to a fixed *scene*
+        distance regardless of zoom.
+        """
+        v = self._visible_view()
+        if v is not None:
+            return v
+        views = self.views()
+        return views[-1] if views else None
+
+    def _active_view_scale(self) -> float:
+        """Current on-screen zoom (px per scene-unit) from the active plan view."""
+        v = self._snap_view()
+        return v.transform().m11() if v is not None else 1.0
 
     def _seed_values_for(self, schema, anchor) -> dict:
         """Return the values *schema*'s HUD should open with.
@@ -5647,7 +5658,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pl = self._polyline_active
             pts = pl._points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 if math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y()) <= tol:
                     self.update_preview_node(pts[0])
@@ -7714,24 +7725,31 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._da_change_committed(da)
         else:
             # Normal click: toggle the nearest sprinkler on the active level.
-            # Uses the RAW click position (not snapped) so OSNAP hits on
-            # gridlines/underlay geometry cannot drag the pick away, and a
-            # zoom-aware pixel radius so sprinklers are hittable at any zoom.
+            # Routes through SnapEngine (center-only whitelist, sprinkler nodes
+            # only) so the pick aperture stays zoom-invariant and consistent
+            # with the rest of the snap system.  OSNAP toggle is overridden so
+            # design-area picking always works regardless of the F3 setting.
             active = getattr(self, "active_level", DEFAULT_LEVEL)
-            view_scale = (self.views()[0].transform().m11()
-                          if self.views() else 1.0)
-            tol = DESIGN_AREA_PICK_PX / max(view_scale, 1e-9)
+            _view = self._snap_view()
+            xform = _view.transform() if _view is not None else QTransform()
+            node_to_spr = {spr.node: spr for spr in self.sprinkler_system.sprinklers
+                           if spr.node is not None
+                           and getattr(spr.node, "level", DEFAULT_LEVEL) == active}
             target_spr = None
-            best_d = tol
-            for spr in self.sprinkler_system.sprinklers:
-                if not spr.node:
-                    continue
-                if getattr(spr.node, "level", DEFAULT_LEVEL) != active:
-                    continue
-                d = spr.node.distance_to(pos.x(), pos.y())
-                if d < best_d:
-                    best_d = d
-                    target_spr = spr
+            _was_enabled = self._snap_engine.enabled
+            _was_center = self._snap_engine.snap_center
+            self._snap_engine.enabled = True
+            self._snap_engine.snap_center = True
+            try:
+                result = self._snap_engine.find(
+                    pos, self, xform,
+                    only_types={"center"},
+                    item_filter=lambda it: it in node_to_spr)
+            finally:
+                self._snap_engine.enabled = _was_enabled
+                self._snap_engine.snap_center = _was_center
+            if result is not None:
+                target_spr = node_to_spr.get(result.source_item)
             if target_spr:
                 da = self._ensure_editing_da(resume_spr=target_spr)
                 da.toggle_sprinkler(target_spr)
@@ -8162,7 +8180,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._room_manual_active._boundary
             # Close polygon: click near first point with ≥3 points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -8181,7 +8199,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             # Click-to-delete vertex
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -8463,7 +8481,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._polyline_active._points
             # Close-on-start: ≥3 vertices and click within tolerance of pts[0].
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9219,7 +9237,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Close wall loop: if clicking near chain start → snap tip to start
             _close_loop = False
             if self._wall_chain_start is not None:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 15.0 / max(scale, 1e-6)
                 d_start = math.hypot(tip.x() - self._wall_chain_start.x(),
                                      tip.y() - self._wall_chain_start.y())
@@ -9445,7 +9463,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pts = self._floor_active._points
             # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9460,7 +9478,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
             # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -9591,7 +9609,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         else:
             pts = self._roof_active._points
             if len(pts) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 d0 = math.hypot(snapped.x() - pts[0].x(), snapped.y() - pts[0].y())
                 if d0 <= tol:
@@ -9643,7 +9661,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.instructionChanged.emit("Pick first boundary point (click near first to close)")
                     return
             if len(pts) >= 2:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
                 for vi in range(len(pts)):
                     dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
@@ -9848,7 +9866,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # Find FloorSlab under cursor
         for it in self.items(snapped):
             if isinstance(it, FloorSlab) and len(it._points) >= 3:
-                scale = self.views()[0].transform().m11() if self.views() else 1.0
+                scale = self._active_view_scale()
                 vtx_tol = 8.0 / max(scale, 1e-6)
                 # Check if near an existing vertex → delete it (min 3)
                 for vi, vpt in enumerate(it._points):

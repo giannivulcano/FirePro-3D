@@ -43,9 +43,19 @@ from firepro3d.wall import WallSegment
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 OFFSET = 5.0        # cursor offset from expected point (within tolerance)
-PERP_OFFSET = 30.0  # perpendicular / nearest cursor distance from segment
+PERP_OFFSET = 12.0  # perpendicular / nearest cursor distance from segment (≤20px aperture at scale=1)
 
 ABS_TOL = 2.0       # point comparison tolerance (scene units)
+
+
+@pytest.fixture(autouse=True)
+def _pin_aperture():
+    # This file's cursor offsets are calibrated to a 20px aperture at scale=1
+    # (e.g. tangent cases sit ~18px out); pin it rather than inherit the
+    # user-tunable shipped default. conftest restores the real value afterward.
+    from firepro3d import snap_engine
+    snap_engine.SNAP_TOLERANCE_PX = 20
+    yield
 
 
 def _engine(**overrides) -> SnapEngine:
@@ -66,7 +76,7 @@ def _scene() -> QGraphicsScene:
 
 def _find(engine: SnapEngine, scene: QGraphicsScene,
           cursor: QPointF):
-    """Run find() with identity transform (scale=1, tol=40 scene units)."""
+    """Run find() with identity transform (scale=1, tol=20 scene units)."""
     return engine.find(cursor, scene, QTransform())
 
 
@@ -235,7 +245,7 @@ class TestRectangleItem:
     def setup(self, qapp):
         self.scene = _scene()
         # Use a small rectangle (60x60) so the center at (30,30)
-        # is within the search tolerance (40) of every edge,
+        # is within the search tolerance (20) of every edge,
         # ensuring scene.items() always finds the item even when
         # the cursor is near the interior center point.
         self.item = RectangleItem(QPointF(0, 0), QPointF(60, 60))
@@ -432,19 +442,21 @@ class TestFullCircle:
         _assert_snap(result, "intersection", QPointF(100, 50))
 
     def test_perpendicular(self):
-        # Cursor outside circle, closest point on circumference
+        # Cursor outside circle, closest point on circumference.
+        # 65 units from center → 15 units outside radius=50, within 20px aperture.
         result = _find(
             _engine(snap_center=False, snap_quadrant=False),
-            self.scene, QPointF(100 + 80, 100))
+            self.scene, QPointF(100 + 65, 100))
         _assert_snap(result, "perpendicular", QPointF(150, 100),
                      tol=self.BR_TOL)
 
     def test_tangent(self):
         # Cursor must be outside the circle radius but close enough that
-        # the tangent point falls within the snap tolerance (40 scene
-        # units).  With BR-derived radius ~53 and tol=40, the cursor
-        # must satisfy sqrt(d^2 - r^2) < 40 → d < ~66.
-        cursor = QPointF(160, 100)  # d=60, tangent dist ≈ 28
+        # the tangent point falls within the snap tolerance (20 scene
+        # units).  With BR-derived radius ~53 and tol=20, the cursor
+        # must satisfy sqrt(d^2 - r^2) < 20 → d < ~56.
+        # d=56 → tangent dist = sqrt(56^2 - 53^2) ≈ 18.1, within aperture.
+        cursor = QPointF(156, 100)  # d=56 from center, tangent dist ≈ 18 < 20px
         result = _find(
             _engine(snap_center=False, snap_quadrant=False,
                     snap_perpendicular=False, snap_nearest=False),
@@ -460,10 +472,11 @@ class TestFullCircle:
         )
 
     def test_nearest(self):
+        # 65 units from center → 15 units outside radius=50, within 20px aperture.
         result = _find(
             _engine(snap_center=False, snap_quadrant=False,
                     snap_perpendicular=False),
-            self.scene, QPointF(100 + 80, 100))
+            self.scene, QPointF(100 + 65, 100))
         _assert_snap(result, "nearest", QPointF(150, 100),
                      tol=self.BR_TOL)
 
@@ -623,12 +636,18 @@ class TestArcItem:
         _assert_snap(result, "midpoint", QPointF(mid_x, mid_y))
 
     def test_center(self):
-        """Center at (0, 0) — cursor near start endpoint on the arc."""
+        """Center at (0, 0) — cursor inside the arc chord, within 20px of center.
+
+        With R=30 and aperture=20, a cursor on the arc path (radius=30) is 30
+        scene units from the center — outside the aperture.  Place the cursor at
+        (10, -10) instead: distance to center ≈14.1 < 20px, and the search rect
+        overlaps the arc bounding rect so scene.items() finds the item.
+        """
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False,
                     snap_quadrant=False, snap_perpendicular=False,
                     snap_nearest=False),
-            self.scene, QPointF(self.R, OFFSET))
+            self.scene, QPointF(10, -10))
         _assert_snap(result, "center", QPointF(0, 0))
 
     def test_quadrant_0deg(self):
@@ -665,9 +684,13 @@ class TestArcItem:
         _assert_snap(result, "perpendicular", QPointF(self.R, 0))
 
     def test_tangent(self):
-        """Cursor outside the arc radius — tangent point on the visible arc."""
-        # Cursor at (30+8, 0) — outside radius=30, within tol of arc path
-        cursor = QPointF(self.R + 8, 0)
+        """Cursor outside the arc radius — tangent point on the visible arc.
+
+        Tangent distance = sqrt(d^2 - r^2).  With r=30 and aperture=20px:
+        need d <= sqrt(30^2 + 20^2) ≈ 36.  Use d=35: tangent dist ≈ 18 < 20px.
+        """
+        # Cursor at (35, 0) — outside radius=30, tangent dist ≈ 18 within aperture
+        cursor = QPointF(35, 0)
         result = _find(
             _engine(snap_endpoint=False, snap_midpoint=False,
                     snap_center=False, snap_quadrant=False,

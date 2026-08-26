@@ -40,16 +40,26 @@ _SNAP_TYPES: list[tuple[str, str]] = [
 _QSETTINGS_ORG  = "GV"
 _QSETTINGS_APP  = "FirePro3D"
 
+_FACTORY_DEFAULTS: dict = {
+    "tol_px":       15,
+    "hysteresis_px": 3,
+    "grip_px":      200,
+    "grid_mm":      10.0,
+    "angle_deg":    45,
+    "inference":    True,
+    **{attr: True for _, attr in _SNAP_TYPES},
+}
+
 
 class SnappingPane(SettingsPane):
-    """Preferences pane for OSNAP / snap-tolerance / grid / inference settings.
+    """Preferences pane for SNAP / snap-tolerance / grid / inference settings.
 
     Ports the two existing snap dialogs in ``main.py``:
     - ``_open_snap_tolerance_dialog`` — snap radius, grip radius, 8 snap-type
       checkboxes, alignment-guides toggle.
     - ``_open_snap_settings`` — grid spacing (mm), angle-snap increment.
 
-    When constructed with live ``scene``, ``view``, and ``osnap_toolbar``
+    When constructed with live ``scene``, ``view``, and ``snap_toolbar``
     references the pane applies changes live (mirroring the old dialogs) and
     reverts them on Cancel.  Without those references only
     ``snap_engine.SNAP_TOLERANCE_PX`` is applied live; all other settings are
@@ -59,16 +69,16 @@ class SnappingPane(SettingsPane):
     Args:
         scene: The live ``Model_Space`` (or compatible) scene, or ``None``.
         view: The live ``Model_View`` (or compatible) view, or ``None``.
-        osnap_toolbar: The live OSNAP toolbar that exposes
+        snap_toolbar: The live SNAP toolbar that exposes
             ``refresh_from_engine()``, or ``None``.
         parent: Optional Qt parent widget.
     """
 
-    def __init__(self, scene=None, view=None, osnap_toolbar=None, parent=None):
+    def __init__(self, scene=None, view=None, snap_toolbar=None, parent=None):
         super().__init__("Snapping", parent)
         self._scene = scene
         self._view = view
-        self._osnap_toolbar = osnap_toolbar
+        self._snap_toolbar = snap_toolbar
         self._snapshot: dict = {}
         self._build_ui()
 
@@ -82,9 +92,9 @@ class SnappingPane(SettingsPane):
         tabs = QTabWidget()
         outer.addWidget(tabs)
 
-        # ── Tab 1: OSNAP ─────────────────────────────────────────────────────
-        osnap_tab = QWidget()
-        osnap_layout = QVBoxLayout(osnap_tab)
+        # ── Tab 1: SNAP ──────────────────────────────────────────────────────
+        snap_tab = QWidget()
+        snap_layout = QVBoxLayout(snap_tab)
 
         # Tolerance group
         tol_group = QGroupBox("Tolerance")
@@ -94,7 +104,13 @@ class SnappingPane(SettingsPane):
         self._tol_spin.setRange(5, 1000)
         self._tol_spin.setSingleStep(5)
         self._tol_spin.setSuffix(" px")
-        tol_form.addRow("Snap radius:", self._tol_spin)
+        tol_form.addRow("Snap aperture:", self._tol_spin)
+
+        self._hyst_spin = QSpinBox()
+        self._hyst_spin.setRange(0, 50)
+        self._hyst_spin.setSingleStep(1)
+        self._hyst_spin.setSuffix(" px")
+        tol_form.addRow("Hysteresis:", self._hyst_spin)
 
         self._grip_spin = QSpinBox()
         self._grip_spin.setRange(100, 1000)
@@ -102,7 +118,7 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setSuffix(" px")
         tol_form.addRow("Grip handle radius:", self._grip_spin)
 
-        osnap_layout.addWidget(tol_group)
+        snap_layout.addWidget(tol_group)
 
         # Snap types group
         types_group = QGroupBox("Snap Types")
@@ -112,9 +128,9 @@ class SnappingPane(SettingsPane):
             cb = QCheckBox(label)
             types_layout.addWidget(cb)
             self._snap_cbs[attr] = cb
-        osnap_layout.addWidget(types_group)
+        snap_layout.addWidget(types_group)
 
-        tabs.addTab(osnap_tab, "OSNAP")
+        tabs.addTab(snap_tab, "SNAP")
 
         # ── Tab 2: Grid / Angle ──────────────────────────────────────────────
         grid_tab = QWidget()
@@ -149,6 +165,11 @@ class SnappingPane(SettingsPane):
 
         tabs.addTab(inf_tab, "Inference")
 
+        # ── Reset to Defaults button ──────────────────────────────────────────
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.clicked.connect(self.reset_to_defaults)
+        outer.addWidget(reset_btn)
+
     # ── SettingsPane protocol ─────────────────────────────────────────────────
 
     def load(self) -> None:
@@ -164,8 +185,9 @@ class SnappingPane(SettingsPane):
 
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
-        # Always from the module global
+        # Always from the module globals
         tol_px = snap_engine.SNAP_TOLERANCE_PX
+        hyst_px = snap_engine.SNAP_HYSTERESIS_PX
 
         if self._scene is not None:
             eng = self._scene._snap_engine
@@ -193,16 +215,18 @@ class SnappingPane(SettingsPane):
 
         # Build snapshot before touching widgets
         self._snapshot = {
-            "tol_px":    tol_px,
-            "grip_px":   grip_px,
-            "grid_mm":   grid_mm,
-            "angle_deg": angle_deg,
-            "inference": inference,
+            "tol_px":       tol_px,
+            "hysteresis_px": hyst_px,
+            "grip_px":      grip_px,
+            "grid_mm":      grid_mm,
+            "angle_deg":    angle_deg,
+            "inference":    inference,
             **snap_flags,
         }
 
         # Populate widgets
         self._tol_spin.setValue(tol_px)
+        self._hyst_spin.setValue(hyst_px)
         self._grip_spin.setValue(grip_px)
         self._grid_edit.set_value_mm(grid_mm)
         self._angle_spin.setValue(int(angle_deg))
@@ -224,6 +248,10 @@ class SnappingPane(SettingsPane):
         # ── Module-level snap tolerance (always live) ─────────────────────────
         snap_engine.SNAP_TOLERANCE_PX = self._tol_spin.value()
         s.setValue("snap/tolerance_px", snap_engine.SNAP_TOLERANCE_PX)
+
+        # ── Hysteresis (always live) ──────────────────────────────────────────
+        snap_engine.SNAP_HYSTERESIS_PX = self._hyst_spin.value()
+        s.setValue("snap/hysteresis_px", snap_engine.SNAP_HYSTERESIS_PX)
 
         # ── Grip tolerance ────────────────────────────────────────────────────
         grip_px = self._grip_spin.value()
@@ -260,15 +288,15 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene.set_inference_enabled(inference)
 
-        # ── OSNAP toolbar sync ────────────────────────────────────────────────
-        if self._osnap_toolbar is not None:
-            self._osnap_toolbar.refresh_from_engine()
+        # ── SNAP toolbar sync ─────────────────────────────────────────────────
+        if self._snap_toolbar is not None:
+            self._snap_toolbar.refresh_from_engine()
 
     def revert(self) -> None:
         """Restore snapshot to live objects and snap_engine (undoes any Apply).
 
         Live writes are guarded by the same ``self._scene`` / ``self._view``
-        None checks as ``apply()``.  The OSNAP toolbar is refreshed if present
+        None checks as ``apply()``.  The SNAP toolbar is refreshed if present
         so it reflects the rolled-back state.
         """
         from firepro3d import snap_engine
@@ -278,6 +306,9 @@ class SnappingPane(SettingsPane):
 
         # ── Module-level snap tolerance (always) ──────────────────────────────
         snap_engine.SNAP_TOLERANCE_PX = self._snapshot["tol_px"]
+
+        # ── Hysteresis (always) ───────────────────────────────────────────────
+        snap_engine.SNAP_HYSTERESIS_PX = self._snapshot["hysteresis_px"]
 
         # ── Live scene objects ─────────────────────────────────────────────────
         if self._scene is not None:
@@ -292,18 +323,32 @@ class SnappingPane(SettingsPane):
         if self._view is not None:
             self._view.set_grid(self._view._grid_visible, self._snapshot["grid_mm"])
 
-        # ── OSNAP toolbar sync ────────────────────────────────────────────────
-        if self._osnap_toolbar is not None:
-            self._osnap_toolbar.refresh_from_engine()
+        # ── SNAP toolbar sync ─────────────────────────────────────────────────
+        if self._snap_toolbar is not None:
+            self._snap_toolbar.refresh_from_engine()
 
         # ── Populate widgets back to snapshot values ───────────────────────────
         self._tol_spin.setValue(self._snapshot["tol_px"])
+        self._hyst_spin.setValue(self._snapshot["hysteresis_px"])
         self._grip_spin.setValue(self._snapshot["grip_px"])
         self._grid_edit.set_value_mm(self._snapshot["grid_mm"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
         self._align_cb.setChecked(self._snapshot["inference"])
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
+
+    def reset_to_defaults(self) -> None:
+        """Set every SNAP-pane widget to factory defaults and apply live."""
+        d = _FACTORY_DEFAULTS
+        self._tol_spin.setValue(d["tol_px"])
+        self._hyst_spin.setValue(d["hysteresis_px"])
+        self._grip_spin.setValue(d["grip_px"])
+        self._grid_edit.set_value_mm(d["grid_mm"])
+        self._angle_spin.setValue(int(d["angle_deg"]))
+        self._align_cb.setChecked(d["inference"])
+        for attr, cb in self._snap_cbs.items():
+            cb.setChecked(d[attr])
+        self.apply()
 
 
 # Ordered list of (label, DisplayUnit value-string) for the unit combo.

@@ -34,12 +34,21 @@ def scene(qapp):
 
 @pytest.fixture
 def view(scene):
-    """A real, **shown** view — the HUD is parented to the first visible one."""
+    """A real, **shown** view — the HUD is parented to the first visible one.
+
+    Transform is pinned to m11=0.25 AFTER qWaitForWindowExposed to override
+    the auto-fit zoom (m11≈0.02) that collapses snap distances to 2–10 px and
+    makes scene coords the tests treat as empty space snap unexpectedly.  At
+    m11=0.25 the 20 px aperture covers 80 scene units; the draw_line anchor at
+    (0,0) and the commit click at (1000,0) are 250 px apart — well clear.
+    """
     v = Model_View(scene)
     v.resize(800, 600)
-    v.resetTransform()
     v.show()
     QTest.qWaitForWindowExposed(v)
+    v.resetTransform()
+    v.scale(0.25, 0.25)
+    v.centerOn(0, 0)
     yield v
     v.close()
 

@@ -1,15 +1,17 @@
-# OSNAP Toolbar — Design Spec
+# SNAP Toolbar — Design Spec
 
 **Date:** 2026-04-28
 **Complexity:** Large
-**Status:** Implemented (2026-06-22) — see §6.4 / §10 for as-built deviations
-**Source tasks:** TODO.md — "Spec session: OSNAP toolbar — per-type toggle UI, dockable placement, indicator layout, interaction with status bar pill [ref:snap-spec§9.5]"
+**Status:** Implemented (2026-06-22) — see §6.4 / §10 for as-built deviations; class renamed `_OsnapToolbar` → `_SnapToolbar` (2026-08-25)
+**Source tasks:** TODO.md — "Spec session: SNAP toolbar — per-type toggle UI, dockable placement, indicator layout, interaction with status bar pill [ref:snap-spec§9.5]"
+
+> **Rename note (2026-08-25):** The product feature was renamed from "OSNAP" to "SNAP" (Select Nearest Anchor Point). The class `_OsnapToolbar` was renamed to `_SnapToolbar` and the signal `osnapToggled` / method `toggle_osnap` was renamed to `snapToggled` / `toggle_snap`. The QSettings persistence keys remain unchanged under the `snap/*` namespace.
 
 ---
 
 ## 1. Goal
 
-Provide a dockable toolbar with one-click toggle buttons for the 8 OSNAP snap types, giving CAD users immediate visual control over which snap types are active without opening the Snap Settings dialog.
+Provide a dockable toolbar with one-click toggle buttons for the 8 SNAP types, giving CAD users immediate visual control over which snap types are active without opening the Snap Settings dialog.
 
 ## 2. Motivation
 
@@ -36,11 +38,11 @@ Dialog checkbox toggle
 
 ### 3.3 F3 global override
 
-`toggle_osnap()` (`model_space.py:3188-3200`) sets `SnapEngine.enabled` and emits `osnapToggled(bool)`. It does **not** touch the per-type flags. The toolbar connects to `osnapToggled` and dims/restores its buttons accordingly.
+`toggle_snap()` (`model_space.py`) sets `SnapEngine.enabled` and emits `snapToggled(bool)`. It does **not** touch the per-type flags. The toolbar connects to `snapToggled` and dims/restores its buttons accordingly.
 
 ### 3.4 Constraints
 
-- No new signals on `SnapEngine` or `ModelSpace` — the existing `osnapToggled` signal is sufficient.
+- No new signals on `SnapEngine` or `ModelSpace` — the existing `snapToggled` signal is sufficient.
 - The toolbar is the first `QToolBar` in the app (existing UI uses a ribbon bar and dock widgets).
 - `_STATE_VERSION` must be bumped from 4 → 5 (`main.py:2816`) so `restoreState()` picks up the new toolbar's dock position.
 
@@ -50,17 +52,19 @@ Dialog checkbox toggle
 |---|---|---|
 | Widget type | Dockable `QToolBar` | Standard Qt pattern, users can float/dock/hide. Matches AutoCAD. |
 | Content | 8 snap-type toggles only | Clean separation: toolbar for toggles, dialog for tolerances. F3/pill handle global state. |
-| Default dock | Bottom edge | Near the OSNAP status bar pill — keeps snap controls in the same visual zone. |
+| Default dock | Bottom edge | Near the SNAP status bar pill — keeps snap controls in the same visual zone. |
 | Button style | SVG icon + 3-letter abbreviation | Most discoverable — icons give visual identity, text eliminates guessing. |
 | F3 interaction | Dim but preserve checked state | AutoCAD pattern. F3 is a master override, not a reset. |
 | Existing dialog | Keep synced | Two access points to the same state. Dialog still needed for tolerance controls. |
 | Bulk toggle | Right-click context menu | Enable All / Disable All / Snap Settings... — keeps toolbar compact. |
-| Default visibility | **Hidden on first launch** *(as-built deviation, 2026-06-22)* | User preference — toolbar is opt-in via the Snap ribbon group's "OSNAP Bar" toggle button. The spec originally specced visible-on-first-launch, but the app has no menu bar (ribbon UI), so Qt's automatic View-menu toggle isn't available; an explicit ribbon toggle button is provided instead. |
-| Persistence | Existing `saveState()` + existing QSettings keys | No new persistence mechanism needed. |
+| Default visibility | **Hidden on first launch** *(as-built deviation, 2026-06-22)* | User preference — toolbar is opt-in via the Snap ribbon group's "SNAP Bar" toggle button. The spec originally specced visible-on-first-launch, but the app has no menu bar (ribbon UI), so Qt's automatic View-menu toggle isn't available; an explicit ribbon toggle button is provided instead. |
+| Persistence | Existing `saveState()` + existing QSettings keys | No new persistence mechanism needed. QSettings keys remain under `snap/*` namespace. |
 
 ## 5. Widget Structure
 
-### 5.1 Class: `_OsnapToolbar(QToolBar)`
+### 5.1 Class: `_SnapToolbar(QToolBar)`
+
+*(Renamed from `_OsnapToolbar` on 2026-08-25.)*
 
 Defined in `main.py`, alongside `_OsnapIndicatorLabel`.
 
@@ -101,9 +105,9 @@ Override `contextMenuEvent()` to show:
 
 Public method that reads all 8 `SnapEngine` attributes and updates button checked states. Blocks signals on each `QAction` during update to prevent re-triggering the toggle handler.
 
-### 5.5 `_on_osnap_toggled(enabled: bool)`
+### 5.5 `_on_snap_toggled(enabled: bool)`
 
-Connected to `ModelSpace.osnapToggled`. Calls `setEnabled(enabled)` on each of the 8 `QAction`s. Qt handles the visual dimming automatically.
+Connected to `ModelSpace.snapToggled`. Calls `setEnabled(enabled)` on each of the 8 `QAction`s. Qt handles the visual dimming automatically.
 
 ## 6. MainWindow Integration
 
@@ -112,9 +116,9 @@ Connected to `ModelSpace.osnapToggled`. Calls `setEnabled(enabled)` on each of t
 After the status bar setup (~`main.py:433`):
 
 ```python
-self.osnap_toolbar = _OsnapToolbar(self.scene._snap_engine, self)
-self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.osnap_toolbar)
-self.scene.osnapToggled.connect(self.osnap_toolbar._on_osnap_toggled)
+self.snap_toolbar = _SnapToolbar(self.scene._snap_engine, self)
+self.addToolBar(Qt.ToolBarArea.BottomToolBarArea, self.snap_toolbar)
+self.scene.snapToggled.connect(self.snap_toolbar._on_snap_toggled)
 ```
 
 ### 6.2 Dialog sync
@@ -122,7 +126,7 @@ self.scene.osnapToggled.connect(self.osnap_toolbar._on_osnap_toggled)
 At the end of `_open_snap_tolerance_dialog()` (~`main.py:1779`), after the accept/cancel logic:
 
 ```python
-self.osnap_toolbar.refresh_from_engine()
+self.snap_toolbar.refresh_from_engine()
 ```
 
 ### 6.3 State version bump
@@ -133,9 +137,9 @@ self.osnap_toolbar.refresh_from_engine()
 
 **As-built (2026-06-22):** The toolbar is hidden on first launch. Because the
 app uses a ribbon (no `QMenuBar`), Qt's automatic View-menu toggle action is
-not surfaced, so a dedicated checkable **"OSNAP Bar"** button is added to the
-Manage → Snap ribbon group. Its `toggled` handler (`_toggle_osnap_bar`) calls
-`osnap_toolbar.setVisible()`, and `osnap_toolbar.visibilityChanged` is connected
+not surfaced, so a dedicated checkable **"SNAP Bar"** button is added to the
+Manage → Snap ribbon group. Its `toggled` handler (`_toggle_snap_bar`) calls
+`snap_toolbar.setVisible()`, and `snap_toolbar.visibilityChanged` is connected
 back to the button's `setChecked` so the two stay in sync (including after
 `restoreState()` re-applies the user's saved visibility).
 
@@ -180,7 +184,7 @@ Dialog is modal — user can't interact with toolbar while it's open. The dialog
 
 ### 8.4 All types disabled
 
-Valid state. `SnapEngine.find()` returns no candidates when all per-type flags are off. The OSNAP pill stays green (global is still "on" — nothing matches). No special handling needed.
+Valid state. `SnapEngine.find()` returns no candidates when all per-type flags are off. The SNAP pill stays green (global is still "on" — nothing matches). No special handling needed.
 
 ### 8.5 Toolbar hidden by user
 
@@ -195,7 +199,7 @@ Valid state. `SnapEngine.find()` returns no candidates when all per-type flags a
 
 ## 10. Acceptance Criteria
 
-- [x] `_OsnapToolbar(QToolBar)` with 8 checkable toggle buttons docks at the bottom (hidden on first launch — see §6.4 as-built; shown via the Snap-group "OSNAP Bar" button)
+- [x] `_SnapToolbar(QToolBar)` with 8 checkable toggle buttons docks at the bottom (hidden on first launch — see §6.4 as-built; shown via the Snap-group "SNAP Bar" button)
 - [x] Each button shows an SVG icon and 3-letter abbreviation with tooltip for full name
 - [x] Toggling a button immediately updates `SnapEngine.snap_*` attribute and persists to QSettings
 - [x] Snap Settings dialog checkboxes reflect toolbar state and vice versa (bidirectional sync)
@@ -204,7 +208,7 @@ Valid state. `SnapEngine.find()` returns no candidates when all per-type flags a
 - [x] Toolbar position and visibility persists across sessions via `saveState()` / `restoreState()`
 - [x] 8 SVG icons created following §7 conventions
 - [x] `_STATE_VERSION` bumped from 4 → 5
-- [x] **(as-built)** "OSNAP Bar" ribbon toggle button shows/hides the toolbar and stays in sync with its visibility
+- [x] **(as-built)** "SNAP Bar" ribbon toggle button shows/hides the toolbar and stays in sync with its visibility
 
 ## 11. Test Strategy
 
@@ -214,8 +218,8 @@ All tests headless (no GUI event loop required).
 |---|---|
 | `test_toggle_updates_engine` | Action toggle → `SnapEngine.snap_*` attribute changes |
 | `test_toggle_persists_to_qsettings` | Action toggle → QSettings key written |
-| `test_f3_off_disables_actions` | `osnapToggled(False)` → all actions `isEnabled() == False` |
-| `test_f3_on_restores_actions` | `osnapToggled(True)` → actions re-enabled, checked state preserved |
+| `test_f3_off_disables_actions` | `snapToggled(False)` → all actions `isEnabled() == False` |
+| `test_f3_on_restores_actions` | `snapToggled(True)` → actions re-enabled, checked state preserved |
 | `test_enable_all` | Context menu Enable All → all 8 engine attrs `True` |
 | `test_disable_all` | Context menu Disable All → all 8 engine attrs `False` |
 | `test_refresh_from_engine` | Mutate engine attrs directly → `refresh_from_engine()` → button states match |
@@ -235,10 +239,10 @@ All tests headless (no GUI event loop required).
 | Component | File | Lines | Role |
 |---|---|---|---|
 | Per-type toggles | `snap_engine.py` | 194-201 | 8 boolean attributes (source of truth) |
-| OSNAP ribbon button | `main.py` | init_ribbon (Snap group) | Checkable OSNAP button driving `_toggle_osnap`. **As-built 2026-06-22:** F3 moved off this button to a window-level `QShortcut` (a ribbon-button shortcut was tab-scoped); the button now syncs from `osnapToggled`. |
-| Toggle handler | `main.py` | 1951-1953 | Routes to `scene.toggle_osnap()` |
-| Core toggle logic | `model_space.py` | 3188-3200 | Sets `enabled`, emits `osnapToggled` |
-| `osnapToggled` signal | `model_space.py` | 71 | `pyqtSignal(bool)` |
+| SNAP ribbon button | `main.py` | init_ribbon (Snap group) | Checkable SNAP button driving `_toggle_snap`. **As-built 2026-06-22:** F3 moved off this button to a window-level `QShortcut` (a ribbon-button shortcut was tab-scoped); the button now syncs from `snapToggled`. |
+| Toggle handler | `main.py` | — | Routes to `scene.toggle_snap()` |
+| Core toggle logic | `model_space.py` | — | Sets `enabled`, emits `snapToggled` |
+| `snapToggled` signal | `model_space.py` | — | `pyqtSignal(bool)` |
 | Status bar pill | `main.py` | 159-197 | `_OsnapIndicatorLabel` — green/grey |
 | Pill integration | `main.py` | 429-433 | Signal wiring, click handler |
 | Snap Settings dialog | `main.py` | 1675-1779 | Modal dialog with checkboxes + tolerances |
