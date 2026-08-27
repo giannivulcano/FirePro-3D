@@ -285,6 +285,55 @@ class TestRoomPaperNoFill:
         )
 
 
+class TestRoomLabelPaperHeight:
+    """Room tag labels plot at a fixed on-paper cap height (§9.9), not the
+    model-unit size that shrinks to invisible at architectural plot scale."""
+
+    @pytest.fixture
+    def scene_with_room(self, qapp):
+        from firepro3d.room import Room
+        scene = QGraphicsScene()
+        pts = [QPointF(0, 0), QPointF(6000, 0),
+               QPointF(6000, 4000), QPointF(0, 4000)]
+        room = Room(boundary=pts, color="#4488cc")
+        room._tag = "R101"
+        room._show_label = True
+        scene.addItem(room)
+        if hasattr(room, "_update_label"):
+            room._update_label()
+        return scene, room
+
+    def test_room_category_has_label_height(self):
+        assert FACTORY_PAPER_CATEGORIES["Room"].get("label_height_mm") == 2.5
+
+    def test_label_font_scaled_to_paper_then_restored(self, scene_with_room):
+        scene, room = scene_with_room
+        orig = room._label_font_size
+        # 1:100 viewport → paper_scale 0.01. A 2.5 mm paper cap must map to a
+        # model font of 2.5 / 0.01 = 250 units so it renders at 2.5 mm on paper.
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_size == pytest.approx(2.5 / 0.01)
+        assert room._label_font_size > orig, (
+            "at plot scale the paper-height font must be larger than the "
+            "model-unit font (otherwise it shrinks to sub-pixel)"
+        )
+        restore_model_display(saved)
+        assert room._label_font_size == pytest.approx(orig), (
+            "the model-unit font size must be restored after the render"
+        )
+
+    def test_label_paper_height_independent_of_scale(self, scene_with_room):
+        """The on-paper size (font × paper_scale) is constant across scales."""
+        scene, room = scene_with_room
+        for S in (0.005, 0.01, 0.05):
+            saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                          paper_scale=S)
+            on_paper = room._label_font_size * S
+            assert on_paper == pytest.approx(2.5, abs=1e-6)
+            restore_model_display(saved)
+
+
 class TestResolveLineWeight:
     def test_known_weight(self):
         mm = resolve_line_weight_mm("Medium")

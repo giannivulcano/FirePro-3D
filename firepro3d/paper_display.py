@@ -147,6 +147,10 @@ def _make_factory_category(key: str) -> dict:
     }
     if key == "Grid Line":
         cat["bubble_label_height_mm"] = 3.0
+    if key == "Room":
+        # Fixed ON-PAPER cap height for the room tag label (§9.9). Without this
+        # the label is model-unit sized and shrinks to sub-pixel at plot scale.
+        cat["label_height_mm"] = 2.5
     return cat
 
 
@@ -365,6 +369,24 @@ def _apply_generic(item, cat, color_mode, lw_mm):
         item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)
     item.update()
+
+
+def _apply_room_label_paper_height(room, cat, paper_scale, entry):
+    """Size the room tag label to a fixed ON-PAPER cap height (§9.9).
+
+    The label font is stored in model (scene) units and rendered through the
+    viewport at ``paper_scale`` (paper mm per model mm), so a raw model size
+    plots at ``size × paper_scale`` — shrinking to sub-pixel at architectural
+    scales. Dividing the target paper height by ``paper_scale`` makes the label
+    render at a constant on-paper size regardless of viewport scale (the same
+    true-scale trick as gridline bubbles). The original size is saved on
+    *entry* and restored by ``restore_model_display``.
+    """
+    S = max(paper_scale, 1e-9)
+    cap_mm = cat.get("label_height_mm", 2.5)
+    entry["room_label_font_size"] = room._label_font_size
+    room._label_font_size = cap_mm / S
+    room._update_label()
 
 
 def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
@@ -618,6 +640,11 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 if isinstance(item, _WallOpening):
                     from PyQt6.QtGui import QColor as _QColor
                     item._paper_gap_color = _QColor("#ffffff")
+                # Room tag label: size to a fixed ON-PAPER height (§9.9) so it
+                # plots readably at any viewport scale instead of shrinking.
+                from .room import Room as _Room
+                if isinstance(item, _Room):
+                    _apply_room_label_paper_height(item, cat, paper_scale, entry)
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -809,6 +836,10 @@ def restore_model_display(saved: list[dict]):
                 del item._paper_fill_opaque
             if hasattr(item, "_paper_no_fill"):
                 del item._paper_no_fill
+            # Restore the room label's model-unit font size (§9.9 paper-height).
+            if "room_label_font_size" in entry:
+                item._label_font_size = entry["room_label_font_size"]
+                item._update_label()
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →
