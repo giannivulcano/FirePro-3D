@@ -20,13 +20,40 @@ from PyQt6.QtGui import (
     QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF,
 )
 
-from .constants import DEFAULT_LEVEL
+from .constants import DEFAULT_LEVEL, MIN_FLOOR_THICKNESS_MM
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
 DEFAULT_THICKNESS_MM = 152.4   # 6 inches
 _FILL_ALPHA = 50               # semi-transparent fill in 2D
 _SELECTION_COLOR = QColor("red")
+
+
+# ── Pure Z-resolver (no Qt dependency) ────────────────────────────────────────
+
+def _resolve_boundary_z(mode, level, offset_mm, abs_z_mm, level_manager):
+    """Resolve one floor boundary to a world-mm Z, or None if unresolvable.
+
+    Args:
+        mode: "absolute" (use ``abs_z_mm``) or anything else (level-relative).
+        level: level name to look up when ``mode`` is level-relative.
+        offset_mm: signed offset added to the level elevation.
+        abs_z_mm: absolute world-mm Z, used when ``mode == "absolute"``.
+        level_manager: object exposing ``get(name) -> level | None`` where the
+            returned level exposes an ``elevation`` (mm).
+
+    Returns:
+        The resolved world-mm Z, or ``None`` if the level is missing or no
+        level manager is available (level-relative modes only).
+    """
+    if mode == "absolute":
+        return float(abs_z_mm)
+    if level_manager is None:
+        return None
+    lvl = level_manager.get(level)
+    if lvl is None:
+        return None
+    return lvl.elevation + float(offset_mm)
 
 
 def _scene_hit_width(item) -> float:
@@ -56,8 +83,22 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         super().__init__()
         self._points: list[QPointF] = [QPointF(p) for p in (points or [])]
         self._color = QColor(color) if isinstance(color, str) else QColor(color)
+
+        # ── Two-boundary vertical extent (top + bottom, each with a ref mode) ──
+        # Top boundary: "level" | "absolute"
+        self._top_mode: str = "level"
+        self._top_level: str = DEFAULT_LEVEL
+        self._top_offset_mm: float = 0.0
+        self._top_abs_z_mm: float = 0.0
+        # Bottom boundary: "level" | "absolute" | "thickness"
+        self._bottom_mode: str = "thickness"
+        self._bottom_level: str = DEFAULT_LEVEL
+        self._bottom_offset_mm: float = 0.0
+        self._bottom_abs_z_mm: float = 0.0
+        # Thickness input — consumed only in the "thickness" bottom mode.
         self._thickness_mm: float = DEFAULT_THICKNESS_MM
-        self._level_offset_mm: float = 0.0  # vertical offset from level elevation
+        # Consumed by level_manager in a later task; visibility is pure z-range.
+        self._visibility_by_zrange: bool = True
 
         self.init_displayable()
         self.name: str = ""
@@ -68,18 +109,42 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         if len(self._points) >= 3:
             self._rebuild_path()
 
+    # ── Level-manager access + Z-range resolution ────────────────────────────
+
+    def _level_manager(self):
+        """Return the scene's ``_level_manager`` via the live scene or test hook."""
+        sc = getattr(self, "_scene", None) or (self.scene() if self.scene() else None)
+        return getattr(sc, "_level_manager", None) if sc else None
+
+    def _z_range_with_lm(self, lm) -> tuple[float, float] | None:
+        """Resolve (bot, top) world-mm Z using an explicit level manager.
+
+        Returns an ordered tuple, or ``None`` if either boundary is
+        unresolvable (missing level / no manager for a level-relative mode).
+        """
+        top_z = _resolve_boundary_z(
+            self._top_mode, self._top_level,
+            self._top_offset_mm, self._top_abs_z_mm, lm)
+        if top_z is None:
+            return None
+        if self._bottom_mode == "thickness":
+            bot_z = top_z - self._thickness_mm
+        else:
+            bot_z = _resolve_boundary_z(
+                self._bottom_mode, self._bottom_level,
+                self._bottom_offset_mm, self._bottom_abs_z_mm, lm)
+            if bot_z is None:
+                return None
+        return (min(bot_z, top_z), max(bot_z, top_z))
+
     def z_range_mm(self) -> tuple[float, float] | None:
-        """Slab top is at level elevation, bottom is elevation - thickness."""
-        sc = self.scene()
-        lm = getattr(sc, "_level_manager", None) if sc else None
-        if lm is None:
-            return None
-        lvl = lm.get(getattr(self, "level", None))
-        if lvl is None:
-            return None
-        top_z = lvl.elevation + self._level_offset_mm
-        bot_z = top_z - self._thickness_mm
-        return (bot_z, top_z)
+        """Resolved (bot, top) world-mm Z for the slab, or None if unresolvable."""
+        return self._z_range_with_lm(self._level_manager())
+
+    def effective_thickness_mm(self) -> float | None:
+        """Resolved slab thickness (top − bottom), or None if unresolvable."""
+        zr = self.z_range_mm()
+        return None if zr is None else zr[1] - zr[0]
 
     # ── Point management ─────────────────────────────────────────────────────
 
@@ -236,12 +301,13 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     # ── Properties API ───────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
+        # NOTE: the two-boundary elevation panel (Top/Bottom reference rows) is
+        # built in a later task; for now expose the surviving editable fields so
+        # the panel keeps working. Thickness edits the "thickness" bottom mode.
         return {
             "Type":          {"type": "label",     "value": "Floor Slab"},
             "Name":          {"type": "string",    "value": self.name},
             "Level":         {"type": "level_ref", "value": self.level},
-            "Level Offset":  {"type": "dimension", "value": self._fmt(self._level_offset_mm),
-                              "value_mm": self._level_offset_mm},
             "Colour":        {"type": "color",     "value": self._color.name()},
             "Thickness":     {"type": "dimension", "value": self._fmt(self._thickness_mm),
                               "value_mm": self._thickness_mm},
@@ -274,10 +340,6 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             self.name = str(value)
         elif key == "Level":
             self.level = str(value)
-        elif key == "Level Offset":
-            parsed = self._parse_dim(value)
-            if parsed is not None:
-                self._level_offset_mm = parsed
         elif key == "Colour":
             self._color = QColor(value)
             self.update()
@@ -289,6 +351,10 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
+        # NOTE: Task 1 round-trips the two-boundary fields minimally so the
+        # module imports and existing suites don't crash. The byte-exact
+        # schema + legacy migration (both scene_io and _capture_network) is
+        # Task 2 (design D9).
         d = {
             "type":              "floor_slab",
             "points":            [[p.x(), p.y()] for p in self._points],
@@ -296,9 +362,16 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "thickness_mm":      self._thickness_mm,
             "level":             self.level,
             "name":              self.name,
+            # Two-boundary elevation model
+            "top_mode":          self._top_mode,
+            "top_level":         self._top_level,
+            "top_offset_mm":     self._top_offset_mm,
+            "top_abs_z_mm":      self._top_abs_z_mm,
+            "bottom_mode":       self._bottom_mode,
+            "bottom_level":      self._bottom_level,
+            "bottom_offset_mm":  self._bottom_offset_mm,
+            "bottom_abs_z_mm":   self._bottom_abs_z_mm,
         }
-        if self._level_offset_mm != 0.0:
-            d["level_offset_mm"] = self._level_offset_mm
         return d
 
     @classmethod
@@ -312,27 +385,46 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._thickness_mm = data.get("thickness_ft", DEFAULT_THICKNESS_MM / 304.8) * 304.8
         slab.level = data.get("level", DEFAULT_LEVEL)
         slab.name = data.get("name", "")
-        slab._level_offset_mm = data.get("level_offset_mm", 0.0)
+
+        # Two-boundary fields. When absent (legacy files), fall back to the
+        # single-datum model: top = level + level_offset_mm, bottom = thickness.
+        # (Full lossless migration across both serialization paths is Task 2.)
+        slab._top_mode = data.get("top_mode", "level")
+        slab._top_level = data.get("top_level", slab.level)
+        slab._top_offset_mm = data.get("top_offset_mm",
+                                       data.get("level_offset_mm", 0.0))
+        slab._top_abs_z_mm = data.get("top_abs_z_mm", 0.0)
+        slab._bottom_mode = data.get("bottom_mode", "thickness")
+        slab._bottom_level = data.get("bottom_level", slab.level)
+        slab._bottom_offset_mm = data.get("bottom_offset_mm", 0.0)
+        slab._bottom_abs_z_mm = data.get("bottom_abs_z_mm", 0.0)
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
 
     def get_3d_mesh(self, level_manager=None) -> dict | None:
-        """Return vertices and faces for the flat slab.
+        """Return vertices and faces for the slab, or None if degenerate.
 
-        The slab sits at the level elevation and extends downward
-        by ``thickness_ft``. Uses ear-clipping triangulation for the polygon.
+        The vertical extent is resolved from the two-boundary elevation model
+        (top + bottom). Returns None when the range is unresolvable or the
+        resolved height is below MIN_FLOOR_THICKNESS_MM (prevents inverted
+        winding). Uses ear-clipping triangulation for the polygon.
         """
         if len(self._points) < 3:
             return None
 
-        # Level elevation (mm) + offset
-        top_z = 0.0
-        if level_manager is not None:
-            lvl = level_manager.get(self.level)
-            if lvl:
-                top_z = lvl.elevation + self._level_offset_mm
-        bot_z = top_z - self._thickness_mm
+        # Resolve the vertical extent via the shared pure resolver. When a
+        # manager is passed explicitly (3D pipeline) use it; otherwise fall
+        # back to the scene's manager.
+        zr = (self._z_range_with_lm(level_manager)
+              if level_manager is not None else self.z_range_mm())
+        if zr is None:
+            return None
+        bot_z, top_z = zr
+        # Anti-degeneracy: no mesh for zero/inverted-height slabs (prevents
+        # inverted winding). Not an architectural minimum.
+        if (top_z - bot_z) < MIN_FLOOR_THICKNESS_MM:
+            return None
 
         sc = self.scene()
         sm = sc.scale_manager if sc and hasattr(sc, "scale_manager") else None

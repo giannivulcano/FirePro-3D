@@ -73,6 +73,11 @@ UNDERLAY_MM_TO_PX_HINT = 6.0
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 
+# ── Floor slab elevation model (docs/specs/wall-room-floor-system.md §11) ────
+MIN_FLOOR_THICKNESS_MM = 1.0        # anti-degeneracy floor, not architectural minimum
+FLOOR_TOP_MODES = ("level", "absolute")
+FLOOR_BOTTOM_MODES = ("level", "absolute", "thickness")
+
 # ── Design-area creation ─────────────────────────────────────────────────────
 # (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
