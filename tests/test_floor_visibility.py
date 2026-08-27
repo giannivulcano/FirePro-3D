@@ -10,6 +10,13 @@ These tests build a REAL ``LevelManager`` + ``Model_Space`` (mirroring
 by z-range only (never by ``.level``).
 
 They also cover rename remap of a floor's boundary level refs.
+
+Decoupling proof: the *visibility* assertions here do NOT discriminate the
+new z-range routing from the old ``.level`` routing (``_apply_z_filter`` runs
+in both paths, so every scenario is green under both). The load-bearing proof
+that floors are decoupled from ``.level`` is ``test_rename_does_not_touch_floor_dot_level``
+(+ ``test_rename_remaps_boundary_levels``), which fail under the old code that
+rewrote a floor's owning ``.level`` through the generic rename loop.
 """
 
 import pytest
@@ -69,9 +76,22 @@ def test_floor_hidden_when_zrange_above_view(qapp):
     assert slab.isVisible() is False
 
 
-def test_floor_visible_regardless_of_dot_level(qapp):
+def test_floor_visible_when_zrange_intersects_even_with_foreign_dot_level(qapp):
     """A slab whose z-range intersects the view is visible even when its
-    ``.level`` names a non-active level — proving ``.level`` is ignored."""
+    ``.level`` names a non-active level.
+
+    HONESTY NOTE — this asserts z-range visibility, NOT decoupling.
+    It does *not* discriminate the new carve-out from the old ``.level``
+    path: under the OLD code a foreign-``.level`` floor whose z-range
+    intersects the view was shown anyway (non-active branch → ``_z_intersects``
+    true → visible), so this scenario is green under both. In fact NO
+    visibility scenario discriminates old-vs-new, because ``_apply_z_filter``
+    runs in both the old ``.level==active`` fast-path and the new
+    ``_visibility_by_zrange`` carve-out (verified by inspection of
+    ``LevelManager._set_level_vis``). The genuine decoupling proof lives in
+    the rename tests below (``test_rename_does_not_touch_floor_dot_level``),
+    which fail under the old code that rewrote a floor's owning ``.level``.
+    """
     s = _scene(qapp)
     slab = _add_slab(s)
     slab.level = "Some Other Level"  # NOT the active level, NOT a real level
