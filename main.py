@@ -28,6 +28,7 @@ from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import (
     PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
     PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
+    SheetViewport, ViewportProperties,
     text_template_to_settings, apply_template_settings,
     native_orientation_from_dims, sheet_page_mm,
 )
@@ -1143,8 +1144,39 @@ class MainWindow(QMainWindow):
         if tab_text.startswith("Elevation: "):
             direction = tab_text[len("Elevation: "):].lower()
             self.elevation_manager._views.pop(direction, None)
-        if widget is not None:
+        # The paper tab is a persistent singleton (self.paper_space_widget,
+        # re-added on demand by _activate_paper_sheet) — like the protected
+        # "3D Model" tab. removeTab reparents it out; deleting it here would
+        # destroy the C++ object while self.paper_space_widget still points at
+        # it, so the next paper access (indexOf) raises "wrapped C/C++ object
+        # ... has been deleted". Only dispose genuinely disposable view tabs.
+        if widget is not None and widget is not self.paper_space_widget:
             widget.deleteLater()
+
+    def _close_stale_view_tabs(self):
+        """Remove all Plan/Elevation/Detail view tabs left from a prior project.
+
+        These are per-project, disposable Model_View widgets (each its own
+        widget over the shared scene). On project load/new they must not carry
+        over — otherwise a 'Plan: Level 1' tab lingers after opening a project
+        that has no Level 1. Core singleton tabs (3D Model, paper) are
+        preserved. Signals are blocked so _on_tab_changed doesn't churn
+        mid-clear; the caller opens the new project's plan view immediately
+        after. Mirrors _on_tab_close_requested's disposal.
+        """
+        self.central_tabs.blockSignals(True)
+        try:
+            for i in range(self.central_tabs.count() - 1, -1, -1):
+                title = self.central_tabs.tabText(i)
+                if title.startswith(("Plan: ", "Elevation: ", "Detail: ")):
+                    w = self.central_tabs.widget(i)
+                    self.central_tabs.removeTab(i)
+                    if w is not None and w is not self.paper_space_widget:
+                        w.deleteLater()
+        finally:
+            self.central_tabs.blockSignals(False)
+        # Elevation view tracking referenced the now-removed tabs.
+        self.elevation_manager._views.clear()
 
     def _apply_plan_level(self, level_name: str):
         """Set the active level and refresh visibility for a plan view."""
@@ -3590,11 +3622,18 @@ class MainWindow(QMainWindow):
         self._create_elevation_markers()
         # Refresh detail views in project browser
         self._refresh_detail_browser()
+        # Drop the previous project's view tabs before opening this project's
+        # active plan view — otherwise a stale 'Plan: <old level>' lingers when
+        # the opened project has no such level (and old Elevation/Detail tabs
+        # carry over too).
+        self._close_stale_view_tabs()
         # Re-apply level visibility — activate the saved level's plan tab
         # so view_height/view_depth are applied from the loaded PlanView data.
         active = getattr(self.scene, "active_level", None)
-        if active:
-            self._activate_plan_view(active)
+        if not active:
+            from firepro3d.constants import DEFAULT_LEVEL
+            active = DEFAULT_LEVEL
+        self._activate_plan_view(active)
         # Override display unit and precision with user's persistent preference
         self._apply_persistent_unit_prefs()
         # Restore sheet from loaded project, resolver first so rebuilt
@@ -3754,6 +3793,12 @@ class MainWindow(QMainWindow):
         self.scene._clear_scene()
         self.level_widget.populate()
         pass  # level indicator removed
+        # Drop the previous project's view tabs, then open the fresh project's
+        # default plan view (otherwise stale 'Plan: <old level>' tabs persist).
+        from firepro3d.constants import DEFAULT_LEVEL
+        self._close_stale_view_tabs()
+        self._activate_plan_view(
+            getattr(self.scene, "active_level", None) or DEFAULT_LEVEL)
 
         # Place a default 3 × 3 grid (3 vertical + 3 horizontal)
         self._place_default_gridlines()
@@ -4146,14 +4191,24 @@ class MainWindow(QMainWindow):
         try:
             # T9: TitleBlockTemplateItem is now non-selectable; this filter
             # already excluded it, so no change needed here.
-            items = [it for it in w.paper_scene.selectedItems()
-                     if isinstance(it, TextAnnotationItem)]
+            selected = w.paper_scene.selectedItems()
         except RuntimeError:
+            return
+        items = [it for it in selected if isinstance(it, TextAnnotationItem)]
+        if items:
+            self.prop_manager.show_properties(items)
+            return
+        # A single selected viewport populates the panel (supersedes the
+        # double-click SheetViewPropertiesDialog — spec §19.4).
+        vps = [it for it in selected if isinstance(it, SheetViewport)]
+        if len(vps) == 1:
+            self.prop_manager.show_properties(
+                ViewportProperties(w.paper_scene, vps[0]))
             return
         # §19.4: the paper panel is never blank — empty selection falls back
         # to the active sheet's properties.
         self.prop_manager.show_properties(
-            items if items else self._sheet_props_adapter(self._sheet))
+            self._sheet_props_adapter(self._sheet))
 
     def _on_add_text_mode_toggled(self, checked: bool):
         """Show the text template pre-placement; restore selection view after."""

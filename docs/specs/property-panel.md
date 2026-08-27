@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-07-20
-verified-commit: 252b849
+last-verified: 2026-08-27
+verified-commit: 3865f77
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -31,6 +31,8 @@ The panel renders anything exposing:
 - `set_property(key, value)` — write-back; the *entity* owns coercion/side-effects.
 
 The panel never imports entity modules for rendering decisions except the special cases in §3.4. Objects without `get_properties` render nothing (empty panel, no error).
+
+Non-entity **adapter clients** implement this protocol as plain objects (not `QGraphicsItem`s): `SheetProperties` (per-sheet metadata) and `ViewportProperties` (a selected `SheetViewport` — Title/Scale/Show Border/Position/read-only derived size), both in `paper_space.py` and routing writes through the paper `QUndoStack` (see `paper-space.md §19.4`). Adapters are the pattern for surfacing anything editable without a modal dialog.
 
 ### 3.2 Widget-per-type registry (as-built: if/elif chain)
 

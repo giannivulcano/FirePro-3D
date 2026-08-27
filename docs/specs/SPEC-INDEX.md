@@ -31,6 +31,7 @@
 | **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py`, `paper_export.py`, `paper_export_dialog.py`, `paper_display.py`, `paper_commands.py` | **partial** (Phase-1 + plot + text annotations + multi-sheet management built; remaining annotation types / layer overrides pending) |
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |
+| Model Browser (entity tree / selection sync / delete) | `specs/model-browser.md` | `model_browser.py` | current (forged 2026-08-27 on first touch — delete feature) |
 
 ## Orphans — no governing spec (forge on first touch)
 

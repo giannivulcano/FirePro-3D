@@ -235,6 +235,127 @@ class TestApplyRestore:
         assert pipe.opacity() == original_opacity
 
 
+class TestRoomPaperNoFill:
+    """Rooms plot as boundary + tag only — no fill — in paper viewports (#1)."""
+
+    @pytest.fixture
+    def scene_with_room(self, qapp):
+        from firepro3d.room import Room
+        scene = QGraphicsScene()
+        pts = [QPointF(0, 0), QPointF(1000, 0),
+               QPointF(1000, 1000), QPointF(0, 1000)]
+        room = Room(boundary=pts, color="#4488cc")
+        scene.addItem(room)
+        return scene, room
+
+    def test_apply_sets_no_fill_flag_and_restore_clears(self, scene_with_room):
+        scene, room = scene_with_room
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 1000, 1000))
+        assert getattr(room, "_paper_no_fill", False) is True, (
+            "apply_paper_overrides must flag rooms as no-fill for paper"
+        )
+        restore_model_display(saved)
+        assert not hasattr(room, "_paper_no_fill"), (
+            "_paper_no_fill must be cleaned up on restore (round-trip)"
+        )
+
+    def _render_interior_pixel(self, scene):
+        from PyQt6.QtGui import QImage, QPainter
+        img = QImage(100, 100, QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img)
+        scene.render(p, target=QRectF(0, 0, 100, 100),
+                     source=QRectF(0, 0, 1000, 1000))
+        p.end()
+        # (25,25) px → model (250,250): room interior, clear of the centroid tag.
+        return img.pixelColor(25, 25)
+
+    def test_room_interior_unfilled_in_paper(self, scene_with_room):
+        scene, room = scene_with_room
+        room._paper_no_fill = True
+        assert self._render_interior_pixel(scene) == QColor("white"), (
+            "room interior must render unfilled (background) in paper viewports"
+        )
+
+    def test_room_interior_filled_on_model_canvas(self, scene_with_room):
+        scene, room = scene_with_room
+        # No flag = model canvas: the alpha-50 wash tints the interior.
+        assert self._render_interior_pixel(scene) != QColor("white"), (
+            "room interior must stay filled on the model canvas (no regression)"
+        )
+
+
+class TestRoomLabelPaperHeight:
+    """Room tag labels plot at a fixed on-paper cap height (§9.9), not the
+    model-unit size that shrinks to invisible at architectural plot scale."""
+
+    @pytest.fixture
+    def scene_with_room(self, qapp):
+        from firepro3d.room import Room
+        scene = QGraphicsScene()
+        pts = [QPointF(0, 0), QPointF(6000, 0),
+               QPointF(6000, 4000), QPointF(0, 4000)]
+        room = Room(boundary=pts, color="#4488cc")
+        room._tag = "R101"
+        room._show_label = True
+        scene.addItem(room)
+        if hasattr(room, "_update_label"):
+            room._update_label()
+        return scene, room
+
+    def test_room_category_has_label_height(self):
+        assert FACTORY_PAPER_CATEGORIES["Room"].get("label_height_mm") == 2.5
+
+    def test_label_font_scaled_to_paper_then_restored(self, scene_with_room):
+        scene, room = scene_with_room
+        orig = room._label_font_size
+        # 1:100 viewport → paper_scale 0.01. A 2.5 mm paper cap must map to a
+        # model font of 2.5 / 0.01 = 250 units so it renders at 2.5 mm on paper.
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_size == pytest.approx(2.5 / 0.01)
+        assert room._label_font_size > orig, (
+            "at plot scale the paper-height font must be larger than the "
+            "model-unit font (otherwise it shrinks to sub-pixel)"
+        )
+        restore_model_display(saved)
+        assert room._label_font_size == pytest.approx(orig), (
+            "the model-unit font size must be restored after the render"
+        )
+
+    def test_label_paper_height_independent_of_scale(self, scene_with_room):
+        """The on-paper size (font × paper_scale) is constant across scales."""
+        scene, room = scene_with_room
+        for S in (0.005, 0.01, 0.05):
+            saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                          paper_scale=S)
+            on_paper = room._label_font_size * S
+            assert on_paper == pytest.approx(2.5, abs=1e-6)
+            restore_model_display(saved)
+
+    def test_light_label_forced_dark_on_bw_paper_then_restored(self, scene_with_room):
+        """A light model label colour (readable on the dark canvas) must become
+        the paper category colour on B&W paper — else it's white-on-white."""
+        scene, room = scene_with_room
+        room._label_font_color = "#ffffff"   # light model colour
+        save_paper_color_mode(PaperColorMode.BW)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_color == FACTORY_PAPER_CATEGORIES["Room"]["color"]
+        assert str(room._label_font_color).lstrip("#").lower() == "000000"
+        restore_model_display(saved)
+        assert room._label_font_color == "#ffffff", "model label colour not restored"
+
+    def test_fullcolor_keeps_authored_label_color(self, scene_with_room):
+        scene, room = scene_with_room
+        room._label_font_color = "#123456"
+        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_color == "#123456", "full-colour must keep authored colour"
+        restore_model_display(saved)
+
+
 class TestResolveLineWeight:
     def test_known_weight(self):
         mm = resolve_line_weight_mm("Medium")

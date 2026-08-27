@@ -410,15 +410,22 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     def paint(self, painter, option, widget=None):
         option.state &= ~QStyle.StateFlag.State_Selected
 
-        fill_col = QColor(self._display_fill_color or self._color.name())
-        if not getattr(self, "_paper_fill_opaque", False):
-            fill_col.setAlpha(50)
         line_col = QColor(self._display_color or self._color.name())
 
         pen = QPen(line_col, 1, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         painter.setPen(pen)
-        painter.setBrush(QBrush(fill_col))
+        # In paper viewports rooms render as boundary + tag only — no fill
+        # (_paper_no_fill set by paper_display.apply_paper_overrides). On the
+        # model canvas the fill stays (opaque under _paper_fill_opaque, else
+        # the model alpha-50 wash).
+        if getattr(self, "_paper_no_fill", False):
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        else:
+            fill_col = QColor(self._display_fill_color or self._color.name())
+            if not getattr(self, "_paper_fill_opaque", False):
+                fill_col.setAlpha(50)
+            painter.setBrush(QBrush(fill_col))
         painter.drawPolygon(self.polygon())
 
         # Selection highlight

@@ -208,9 +208,9 @@ def test_scale_change_keeps_crop_recomputes_size(qapp):
     assert data.h == pytest.approx(crop_before.height() * 0.2, abs=0.5)
 
 
-def test_scale_change_via_properties_keeps_crop(qapp, monkeypatch):
-    """Changing scale via the properties dialog preserves a non-default crop."""
-    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem, QDialog
+def test_scale_change_via_properties_keeps_crop(qapp):
+    """Changing scale (via the shared commit_viewport_edit) preserves a non-default crop."""
+    from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
     from PyQt6.QtCore import QRectF
     from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
 
@@ -225,18 +225,7 @@ def test_scale_change_via_properties_keeps_crop(qapp, monkeypatch):
     sub_crop = QRectF(100, 100, 400, 200)
     data.crop_rect = sub_crop
 
-    # Stub the dialog so it returns scale=0.2 without exec-ing a modal.
-    class _StubDlg:
-        def __init__(self, source_view_name, d): self._d = d
-        def exec(self): return QDialog.DialogCode.Accepted
-        def get_title(self): return self._d.title
-        def get_show_border(self): return self._d.show_border
-        def get_scale(self): return 0.2
-        def get_position(self): return None
-        def get_size(self): return None
-
-    monkeypatch.setattr("firepro3d.paper_space.SheetViewPropertiesDialog", _StubDlg)
-    scene._on_viewport_properties(vp)
+    scene.commit_viewport_edit(vp, scale=0.2)
 
     # Crop must be unchanged; size must be crop × new_scale.
     assert data.crop_rect == sub_crop

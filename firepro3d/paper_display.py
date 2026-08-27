@@ -147,6 +147,10 @@ def _make_factory_category(key: str) -> dict:
     }
     if key == "Grid Line":
         cat["bubble_label_height_mm"] = 3.0
+    if key == "Room":
+        # Fixed ON-PAPER cap height for the room tag label (§9.9). Without this
+        # the label is model-unit sized and shrinks to sub-pixel at plot scale.
+        cat["label_height_mm"] = 2.5
     return cat
 
 
@@ -353,6 +357,11 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     # Items like FloorSlab/Room use alpha 50 in model-space paint(); setting
     # _paper_fill_opaque tells them to skip the alpha reduction.
     item._paper_fill_opaque = True
+    # Rooms plot as boundary + tag only — suppress the fill entirely in
+    # viewports (a filled room reads as a solid blob on the sheet).
+    from .room import Room
+    if isinstance(item, Room):
+        item._paper_no_fill = True
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         pen.setWidthF(lw_mm)
@@ -360,6 +369,33 @@ def _apply_generic(item, cat, color_mode, lw_mm):
         item.setPen(pen)
     item.setOpacity(cat["opacity"] / 100.0)
     item.update()
+
+
+def _apply_room_label_paper_height(room, cat, color_mode, paper_scale, entry):
+    """Size + colour the room tag label for paper (§9.9).
+
+    Size: the label font is stored in model (scene) units and rendered through
+    the viewport at ``paper_scale`` (paper mm per model mm), so a raw model size
+    plots at ``size × paper_scale`` — shrinking to sub-pixel at architectural
+    scales. Dividing the target paper height by ``paper_scale`` makes the label
+    render at a constant on-paper size regardless of viewport scale (the same
+    true-scale trick as gridline bubbles).
+
+    Colour: the model label colour comes from the *model* Display Manager "Room"
+    colour, which is light for readability on the dark canvas — invisible on
+    white paper (white-on-white). In B&W / custom modes force the paper "Room"
+    category colour (black by default) so the tag reads; full-colour keeps the
+    authored colour. Original size + colour are saved on *entry* and restored by
+    ``restore_model_display``.
+    """
+    S = max(paper_scale, 1e-9)
+    cap_mm = cat.get("label_height_mm", 2.5)
+    entry["room_label_font_size"] = room._label_font_size
+    entry["room_label_font_color"] = room._label_font_color
+    room._label_font_size = cap_mm / S
+    if color_mode != PaperColorMode.FULL_COLOR:
+        room._label_font_color = cat["color"]
+    room._update_label()
 
 
 def _apply_construction(item, cat, color_mode, lw_mm, paper_scale):
@@ -613,6 +649,12 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 if isinstance(item, _WallOpening):
                     from PyQt6.QtGui import QColor as _QColor
                     item._paper_gap_color = _QColor("#ffffff")
+                # Room tag label: size to a fixed ON-PAPER height (§9.9) so it
+                # plots readably at any viewport scale instead of shrinking.
+                from .room import Room as _Room
+                if isinstance(item, _Room):
+                    _apply_room_label_paper_height(
+                        item, cat, color_mode, paper_scale, entry)
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -802,6 +844,14 @@ def restore_model_display(saved: list[dict]):
                 item._display_section_color = entry.get("display_section_color")
             if hasattr(item, "_paper_fill_opaque"):
                 del item._paper_fill_opaque
+            if hasattr(item, "_paper_no_fill"):
+                del item._paper_no_fill
+            # Restore the room label's model-unit font size + colour (§9.9).
+            if "room_label_font_size" in entry:
+                item._label_font_size = entry["room_label_font_size"]
+                if "room_label_font_color" in entry:
+                    item._label_font_color = entry["room_label_font_color"]
+                item._update_label()
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →
