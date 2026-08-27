@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
 last-verified: 2026-08-27
-verified-commit: 987f560
+verified-commit: 3865f77
 applies-to:
   - firepro3d/model_browser.py
 source-tasks: "TODO.md: model browser right-click / Delete-key entity deletion (orphan-gate spec forged on first touch, 2026-08-27)"
