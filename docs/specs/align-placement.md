@@ -1,683 +1,551 @@
 ---
 status: partial
-last-verified: 2026-08-25
-verified-commit: eead762
+last-verified: 2026-08-26
+verified-commit: 567602e
 applies-to:
-  - firepro3d/align_controller.py
   - firepro3d/align_engine.py
+  - firepro3d/align_controller.py
+  - firepro3d/snap_engine.py
   - firepro3d/dynamic_input.py
   - firepro3d/model_space.py
   - firepro3d/model_view.py
+  - firepro3d/preferences_dialog.py
+  - firepro3d/main.py
+  - firepro3d/constants.py
   - firepro3d/gridline.py
   - firepro3d/wall.py
-  - firepro3d/construction_geometry.py
-  - firepro3d/constants.py
 source-tasks:
-  - "TODO.md — gridline follow-up: placement alignment snapping"
-  - "docs/superpowers/plans/2026-08-16-dynamic-input-hud.md — §4 rewrite (T22)"
-  - "docs/superpowers/specs/2026-08-20-placement-ux-overhaul-design.md — arc/rect variants + ghost-on-commit"
-  - "docs/superpowers/specs/2026-08-24-wall-placement-workflow-design.md — wall as HUD + inference client"
+  - "TODO.md — Inference at range: acquire-based tracking (AutoCAD OTRACK) + band queries — SHIPPED as ALIGN"
+  - "TODO.md — Compose inference guides as transient SNAP sources (OTRACK follow-up) — SHIPPED (find(align_paths=…))"
+  - "docs/superpowers/specs/2026-08-26-align-tracking-design.md — governing design contract (decisions D1–D7, rationale)"
+  - "docs/superpowers/plans/2026-08-16-dynamic-input-hud.md — §4 Dynamic Input HUD (Navigate component)"
 ---
 
-# Inferred / Dimension-Driven Placement Specification
+# ALIGN — Acquire-and-Track Alignment & Dimension-Driven Placement
 
-**Date:** 2026-04-28 (first slice built 2026-08-14)
-**Depends on:** [Snapping Engine Spec](snapping-engine.md) (§2.3 flagged this as next-priority subsystem)
+**Governing design doc:** [`docs/superpowers/specs/2026-08-26-align-tracking-design.md`](../superpowers/specs/2026-08-26-align-tracking-design.md)
+(decisions D1–D7, rejected-alternatives history, motivation). This spec is the
+governing summary of **what the code does today**; the design doc holds the *why*.
+**Depends on:** [Snapping Engine Spec](snapping-engine.md) (§2.3 flagged OTRACK +
+inferred placement as next-priority subsystems; both now **delivered here**).
+
+> **Rename note (2026-08-26):** this file was `inferred-dimension-driven-placement.md`.
+> The auto-proximity inference/GUIDES subsystem it originally described was
+> **replaced** by ALIGN (AutoCAD-OTRACK-style acquire-and-track). The old
+> Dynamic Input HUD (former §4) is retained **as the Navigate component** of ALIGN
+> (§5). Equal-Spacing (§7) and Selection-Dimensions (§8) remain **proposal**.
 
 ---
 
-## 0. First Implemented Slice (2026-08-14)
+## 0. Status at a glance
 
-Gridlines are the **first client** of the inference engine. The built slice delivers:
+**BUILT (ALIGN acquire → lock → infer → guide → navigate, commit `567602e`):**
 
-**BUILT (as of 2026-08-14, commit de2b12a):**
-- `InferenceEngine` core in `firepro3d/inference_engine.py` — entity-agnostic (no Qt, no firepro3d imports). Dataclasses `ReferenceFeature(kind, x, y, source_id, label)`, `Guide(orientation, coord, ref)`, `InferenceResult(snapped, guides, priority)`. `InferenceEngine.resolve(cursor, refs, tol) -> InferenceResult`.
-- `Model_Space.get_effective_position` integration hook — consults the engine only after OSNAP/underlay miss, only when `_inference_enabled` and `_inference_active_item` is set. Active item is a `_PlacementSentinel` during `draw_gridline` placement (both points), or the dragged `GridlineItem` during endpoint grip-drag.
-- `_collect_alignment_refs` — iterates `self._gridlines` only (not the full scene), calling duck-typed `alignment_reference_points()`, self-excluding by `source_id`.
-- `GridlineItem.alignment_reference_points()` — returns 4 `ReferenceFeature`s: both endpoints and both bubble centres.
-- H/V alignment guides only; priority hierarchy: `OSNAP > guide-intersection > single-guide > free`.
-- `model_view.drawForeground` guide rendering — cyan dashed cosmetic line (`INFERENCE_GUIDE_COLOR`, `INFERENCE_GUIDE_DASH`) + crosshair glyph (`INFERENCE_GLYPH_PX`) at the reference point; no scene-items; reads `scene._inference_result`; auto-clears on empty result.
-- Single **alignment-guides toggle**: "Inference" tab in the snap settings dialog + "GUIDES" status-bar pill + F12 shortcut; `QSettings` key `inference/alignment_guides` (default `True`), restored on startup.
-- Tolerance `INFERENCE_TOL_PX` = 65 px — wider than OSNAP (40 px), as specified (weak snap, visual hint).
+- Pure ray/intersection engine (`align_engine.py`) — `Ray`, `AcquiredRef`,
+  `rays_for_acquired`, `path_x_path`, `path_x_segment`, `project_to_ray`,
+  `point_along_ray`. No Qt, no firepro3d imports.
+- Acquire state machine (`align_controller.py`) — dwell-to-acquire (elapsed told
+  in), two acquire flavors, cap-evict, re-hover-release, active-anchor
+  auto-acquire, per-direction ray gating, `build_rays`, `acquired_points`.
+- One-picker integration (`snap_engine.py`) — `find(align_paths=…,
+  align_aperture_px=…)` feeds ALIGN candidates (`align_intersection` prio 20,
+  `align_path` prio 30) into the **existing** priority-band picker below real
+  snaps, judged at their own ALIGN aperture.
+- Model_Space seam — dwell feed on move, ALIGN tier in `get_effective_position`,
+  universal placement-mode scope (`_ALIGN_PLACEMENT_MODES`), on-path `track`
+  schema swap, lifecycle clears.
+- Rendering (`model_view.drawForeground`) — `+` acquired markers + dashed
+  viewport-spanning tracking vectors, gated on the master ALIGN toggle.
+- Navigate = the Dynamic Input HUD (`dynamic_input.py`) + the new `track`
+  distance-along-path schema (§5).
+- Preferences SNAP-pane ALIGN knobs + F11 master toggle + `align/*` persistence
+  (§6).
 
-**BUILT (extended 2026-08-14, commit 41ed103):**
-- **Move/paste as inference clients.** Both pick points of the AutoCAD-style move/copy flow (`_press_paste_move`) run OSNAP + alignment inference (`_inference_active_item` set for `paste`/`move` in `set_mode`). **Move self-excludes the moving gridlines** from the reference set via `_inference_exclude_ids` (honored in `_collect_alignment_refs`), so a mover never aligns to its own current position; paste excludes nothing. A cosmetic scene-coord **silhouette ghost** of the affected geometry rides the cursor (owned by `grid-system.md §5.7`-adjacent move/paste sections; rendered in `Model_View.drawForeground` block 8).
-- **Dynamic Input HUD (§4) — shipped 2026-08-19.** The modal `_DynInput` was
-  replaced by the on-canvas `DynamicInputHud` (`dynamic_input.py`), organised by
-  geometric primitive, live for the whole placement (readout ⇄ editor). Built
-  clients: `draw_line`, `draw_gridline`, `polyline`, `draw_rectangle`,
-  `draw_circle`, `move`, `gridline_offset`, `gridline_array`. Type-to-seed and
-  Tab both engage it.
-
-**BUILT (Placement-UX Overhaul, 2026-08-21, commit 9b0f285):**
-- **Arc as a step-aware Dynamic Input client** (§4.7). Two ←/→-cycled variants
-  (centre-first / start-first); step 2 reuses the `line` schema (Radius + Start°),
-  step 3 is the new `arc_span` transform schema (Span° ⇄ Arc-length coupled). HUD
-  drives the readout + preview; block-4 `_draw_dim_hint` retired for arc.
-- **Rectangle rotate step.** Corner/centre variants keep their 2-click sizing, then
-  a third **rotate** step: `RectangleItem` gains a stored `angle` (native Qt
-  transform; grips/snap/serialization all rotation-aware), driven by the new
-  `rotation` transform schema.
-- **Ghost updates on field commit (§4.9).** Each Tab field-commit redraws the live
-  preview from the current HUD values (typed + still-seeded), for all HUD clients.
-- **Generic placement-variant cycle (§4.8).** `_PLACEMENT_VARIANTS` registry +
-  ←/→ at step 0, session-sticky; `<label> (←/→ to change): …` readout.
-- **Ctrl angle-snap** during arc placement (centre→cursor bearing) and the rect
-  rotate step, via the shared `_constrain_angle`.
-- **Angle reference guides** — protractor lines from the pivot/centre during the
-  rect rotate step (0° datum + live sweep) and the arc span step (0° datum + start
-  radial + live sweep radial).
-- **Single-key tool shortcuts** L/R/C/A/G (+ K placeholder for polyline), scene-focus
-  gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the visible view
-  so step-0 keyboard reaches the scene.
-
-**STILL PROPOSAL (below):** wall-proximity, extension-line, and equal-spacing guide types; node/sprinkler reference sources; **pipe** placement as Dynamic Input + inference client; general body-drag (non-wall) as inference client (move/paste pick-point inference is built, but *moved-geometry key-point* snapping is not); per-guide distance labels; Selection Dimensions (§8); angled Wall-Parallel/Wall-Perpendicular guides + at-range/acquire tracking (filed in TODO.md follow-ups); the full three-toggle + master-key system (§10).
-
-**BUILT 2026-08-25 (commit eead762):** wall placement is a full HUD client (primitive-aware `active_schema`: `line`/`polyline` → `line` schema, rect sizing → `rectangle` schema, rect rotate step → `rotation` schema; applier `_apply_wall_dynamic_input`); wall provides H/V references (`WallSegment.alignment_reference_points()` at the true centerline endpoints + midpoint) and consumes them during placement (`_inference_active_item` set for `"wall"`); the wall provider pass in `_collect_alignment_refs` is spatial-filtered via `scene.items(rect)` (no unbounded scan — see §5.3).
+**STILL PROPOSAL:** Equal-Spacing inference (§7); Selection-Dimensions (§8);
+polar-increment angles; paper-space ALIGN; apparent-intersection / multi-level.
+See §9 for the divergences and accepted v1 narrowings.
 
 ---
 
 ## Table of Contents
 
-1. [Goal](#1-goal)
-2. [Motivation](#2-motivation)
-3. [Architecture](#3-architecture)
-4. [Dynamic Input](#4-dynamic-input)
-5. [Alignment Guides](#5-alignment-guides)
-6. [Guide Snap Integration](#6-guide-snap-integration)
-7. [Equal Spacing Inference](#7-equal-spacing-inference)
-8. [Selection Dimensions](#8-selection-dimensions)
-9. [Performance](#9-performance)
-10. [Toggle System](#10-toggle-system)
-11. [Testing Strategy](#11-testing-strategy)
-12. [Acceptance Criteria](#12-acceptance-criteria)
-13. [Verification Checklist](#13-verification-checklist)
+1. [Overview — the acquire-and-track model](#1-overview-the-acquire-and-track-model)
+2. [Acquire](#2-acquire)
+3. [Lock & Guide — one-picker composition](#3-lock-guide-one-picker-composition)
+4. [Rendering](#4-rendering)
+5. [Navigate — the Dynamic Input HUD](#5-navigate-the-dynamic-input-hud)
+6. [Settings](#6-settings)
+7. [Equal Spacing Inference](#7-equal-spacing-inference-proposal)
+8. [Selection Dimensions](#8-selection-dimensions-proposal)
+9. [Divergences & accepted v1 narrowings](#9-divergences-accepted-v1-narrowings)
+10. [Testing Strategy](#10-testing-strategy)
 
 ---
 
-## 1. Goal
+## 1. Overview — the acquire-and-track model
 
-Define an inferred placement and dimension-driven editing subsystem for FirePro3D: floating dimension input during placement, automatic alignment guides with weak-snap behavior, equal spacing inference, and post-placement selection dimensions with inline editing.
+ALIGN is **pure-acquire**: nothing tracks until the user deliberately acquires a
+reference. The user hover-**dwells** on a live SNAP marker to *acquire* it (a green
+`+`); each acquired reference spawns transient tracking **rays** that the SnapEngine
+treats as snappable sources. The user then places relative to those rays — clicking
+on a path, clicking a path×path / path×geometry crossing, or typing a signed
+distance along a single path. The active placement anchor **auto-acquires** (its own
+H/V, plus its extension when it sits on a directional object), so the common
+"line up with where I started" case needs no explicit dwell.
 
-## 2. Motivation
+This replaces the retired auto-proximity inference/GUIDES subsystem, which fired
+H/V guides automatically whenever the cursor lined up with any nearby reference —
+no intent — the "grabby during Move" behavior that motivated the rewrite. See §9.
 
-Without this system, precise placement requires pre-existing geometry to snap to. Users cannot:
+**Model:** **A**cquire → **L**ock → **I**nfer → **G**uide → **N**avigate.
 
-- Type an exact pipe length during drawing
-- See alignment relationships to other items as they draw
-- Maintain equal sprinkler spacing without manual measurement
-- Edit node positions by typing exact distances to neighbors
+**Scope:** model-space only. No ALIGN in paper-space (§9).
 
-These are the capabilities that make Revit feel "smart" during drafting. OSNAP handles "snap to what exists" — this system handles "place precisely where nothing exists yet."
+### 1.1 Three units, clean boundaries
 
-### 2.1 Three Capabilities
-
-1. **Dynamic Input** — floating dimension fields at cursor during placement; type to override cursor position
-2. **Alignment Guides** — automatic inference lines showing alignment, wall proximity, extension, and equal spacing relationships
-3. **Selection Dimensions** — post-placement editing via temporary dimensions on selected nodes
-
-These share visual language (temporary dimensions), input mechanism (type a value to override), and unit-conversion pipeline (ScaleManager). They are designed as a unified subsystem with independent toggles.
-
-## 3. Architecture
-
-### 3.1 Module Map
-
-```
-┌──────────────────────────────────────────────────────┐
-│  InferenceEngine (central coordinator)               │
-│  ├─ DynamicInputHud  [BUILT — dynamic_input.py]      │
-│  │   on-canvas editable HUD; schemas by primitive    │
-│  ├─ AlignmentGuides (dashed inference lines)         │
-│  │   ├─ H/V alignment (blue)                        │
-│  │   ├─ Wall proximity (orange)                      │
-│  │   ├─ Extension lines (blue)                       │
-│  │   └─ Equal spacing (green)                        │
-│  ├─ SelectionDimensions (post-placement editing)     │
-│  └─ GuideSnap (weak snap points from guides)         │
-├──────────────────────────────────────────────────────┤
-│  Integrations:                                       │
-│  ├─ SnapEngine (priority below OSNAP)                │
-│  ├─ ScaleManager (unit display/parsing; angle fns)   │
-│  ├─ 45° constraint (pipe: relative, editable — §4.7) │
-│  └─ Model_Space (placement modes, drag handling)     │
-└──────────────────────────────────────────────────────┘
-```
-
-The Dynamic Input HUD lives in its own module, `firepro3d/dynamic_input.py`
-(`FieldKind`, `FieldSpec`, `Schema`, the pure `resolve_*`/`seed_*` functions,
-and the `DynamicInputHud` widget — no `QGraphicsScene` knowledge). `Model_Space`
-owns the seam (§4).
-
-### 3.2 Toggle System Overview
-
-| Toggle | Controls | Default |
+| Unit | Role | Qt? |
 |---|---|---|
-| Dynamic Input | Floating length/angle fields at cursor | On |
-| Alignment Guides | Inference lines during placement and drag | On |
-| Spacing Inference | Equal spacing detection and guides | On |
+| `align_engine.py` | **Pure geometry.** `Ray`, `AcquiredRef`, ray builders, path×path / path×segment, projection, distance-along-ray. Imports no Qt, no firepro3d. | No |
+| `align_controller.py` | **Stateful acquire machine.** Acquired set, dwell decision (told, not polled), cap-evict, re-hover-release, active-anchor auto-acquire, per-direction gating, per-frame ray build. | Minimal |
+| `model_space.py` (seam) | Holds one `AlignController`; feeds the dwell on move, builds `[Ray]` and calls `find(align_paths=…)` in the ALIGN tier of `get_effective_position`, arms the `track` schema, renders via `drawForeground`, clears on lifecycle. | Yes |
 
-Master key (e.g. F12) toggles all three simultaneously.
+**Constraint — dwell is told, not polled.** The controller decides "acquired" from
+elapsed-since-cursor-stopped **passed in** on each move (`AlignController.on_move(...,
+elapsed_ms)`), never from a live `QTimer`. The live app feeds real time; tests feed
+synthetic elapsed → deterministic state-machine tests.
 
-### 3.3 Active Modes
+**Constraint — one picker.** ALIGN candidates enter the **existing**
+`SnapEngine.find()` priority-band picker; there is no second resolution path (§3).
 
-All placement modes (pipe, sprinkler, wall, construction geometry) and drag repositioning of existing items.
+### 1.2 Data model (`align_engine.py`)
+
+`Ray(origin, direction, kind, source_id)` — a transient tracking vector; `kind` is
+`"hv" | "extension" | "parallel"`; `source_id` carries provenance for self-exclusion
+and render grouping. `AcquiredRef(point, direction, flavor, snap_type, source_id)` —
+one acquisition snapshot; `point` is `None` for a pure direction-acquire; `flavor`
+is `"point" | "direction"`. `AcquiredRef` is a **coordinate/direction snapshot** —
+independent of whether the source item later moves or is deleted (acquisitions are
+transient, cleared at command end regardless). Field details are owned by
+`align_engine.py` (Rule A — not restated here).
 
 ---
 
-## 4. Dynamic Input
+## 2. Acquire
 
-Shipped 2026-08-19 as `DynamicInputHud` in `firepro3d/dynamic_input.py` — an
-on-canvas, **non-modal** HUD that both reads out the live geometry of an
-in-progress placement and accepts typed values to drive it precisely. It
-replaced the modal `_DynInput` `QDialog` (deleted). Schemas are organised by
-**geometric primitive, not entity type**, so one schema serves many clients.
+### 2.1 Dwell mechanics
+
+`AlignController.on_move(cursor, snap, elapsed_ms)` advances the dwell machine for
+one mouse-move. `snap` is the current SNAP result (`{"point", "snap_type",
+"source_id", "direction"}`) or `None` when the cursor is over nothing. The controller
+tracks *which source* it has been resting on and *for how long*:
+
+- Resting on a **new** source restarts the dwell clock.
+- Resting on the **same** source accumulates `elapsed_ms`.
+- When the running dwell crosses `dwell_ms` (default `ALIGN_DWELL_MS`), that source
+  is acquired — or, if already acquired, **released** (re-hover-release, §2.4).
+- The crossing **latches** (dwell reset to 0) so acquire/release fires once, not
+  every subsequent resting frame.
+
+The seam (`Model_Space`) feeds `on_move` only when ALIGN is enabled and a placement
+mode is armed (`_align_active_item is not None`), so dwell never runs outside a
+point-asking command.
+
+**Trackable = any SNAP candidate.** Whatever the SnapEngine grabs under the cursor is
+acquirable — endpoint/midpoint/center/quadrant/intersection/node (→ point-acquire),
+or nearest/perpendicular on a line-like body (→ direction-acquire). The two
+snap-type sets are `_POINT_SNAPS` / `_DIRECTION_SNAPS` in `align_controller.py`.
+
+### 2.2 Two acquire flavors (decided by the dwell's snap type — no modifier, no mode)
+
+- **Point-acquire** — dwell on a discrete point. Emits an **H ray + a V ray** from
+  the point; if the source carried a direction (an endpoint/vertex of a directional
+  object), also emits an **Extension** ray along that captured direction. Built by
+  `rays_for_acquired` for `flavor == "point"`.
+- **Direction-acquire (Parallel)** — dwell on a nearest/perpendicular hit of a
+  line-like body (cursor over the edge, not a vertex). Captures the edge direction;
+  a **Parallel** ray is rebuilt each frame anchored at the **current active
+  placement point** (origin moves with the drawing point, direction fixed). Built by
+  `rays_for_acquired` for `flavor == "direction"`.
+
+### 2.3 Active-anchor auto-acquire
+
+`AlignController.set_active_anchor(point, direction)` seeds a synthetic
+point-acquire (`source_id = -1`, `snap_type = "anchor"`) for the current placement
+anchor, so its H/V (and its own extension when the anchor sits on a directional
+object) track without an explicit dwell. Cleared with `point=None`. The seam calls
+it each frame from the ALIGN tier before building rays.
+
+### 2.4 Cap, release, clear
+
+- **Cap** = `max_points` (default `ALIGN_MAX_POINTS`). Acquiring past the cap evicts
+  the **oldest** acquisition.
+- **Re-hover-release.** Dwelling again on an already-acquired source **removes** that
+  one acquisition (`_toggle_acquire`).
+- **Clear.** `AlignController.clear()` drops all acquisitions + the auto-anchor +
+  the dwell state. The seam calls it on mode start/end (`set_mode`), Esc, and commit
+  (lifecycle clears).
+
+---
+
+## 3. Lock & Guide — one-picker composition
+
+ALIGN does **not** resolve positions in a parallel tier. Each frame the seam asks the
+controller for the current `[Ray]` set (`build_rays(active_point)` — acquired refs +
+auto-anchor + any parallel direction re-anchored at the active point) and passes them
+**into** the existing picker:
+
+```
+SnapEngine.find(cursor, scene, view_transform, ...,
+                align_paths=rays, align_aperture_px=..., held=self._align_result)
+```
+
+### 3.1 Candidate families & priority
+
+When `align_paths` is provided, `find()` adds three ALIGN candidate families to the
+same `_SnapCtx` picker that ranks real snaps:
+
+| ALIGN candidate | Built from | Priority |
+|---|---|---|
+| path × path crossing | pairwise `Ray`×`Ray` (`path_x_path`) | `align_intersection` = 20 |
+| path × geometry crossing | `Ray` × nearby scene/underlay segments (`path_x_segment`) | `align_intersection` = 20 |
+| single-path projection | cursor foot on a `Ray` (`project_to_ray`) | `align_path` = 30 |
+
+Real SNAP candidates keep priorities **0–7** (lower is stronger; owned by
+`snap_engine.py` `_SNAP_PRIORITY`). Final ranking: **real SNAP > align_intersection
+> align_path > free**. The winning `OsnapResult` carries the participating ray(s) as
+`source_lines`, so `drawForeground` lights the tracking vector(s) (§4). This extends
+the SNAP picker's priority-band model (`snapping-engine.md §6.1`) — same hysteresis,
+same `_active_view_scale()` px judgment, no second merge pass.
+
+### 3.2 The separate ALIGN aperture
+
+ALIGN candidates are judged at their **own** px grab-radius, not the 15px real-snap
+aperture. `find()` takes `align_aperture_px` (default `ALIGN_PATH_TOL_PX`, wider);
+each ALIGN `ctx.check(...)` passes `aperture_px=align_aperture` to override the
+per-candidate cutoff, so a path soft-snaps from farther out **without** widening the
+real-snap grab. A **held** ALIGN result is released at the ALIGN aperture (not the
+tighter real-snap one), so an on-path hold isn't dropped prematurely. Path-tol is
+judged in true pixels via the shared `px_to_scene`/`scene_to_px` helpers +
+`_active_view_scale()` — zoom-invariant (see `snapping-engine.md §14.1`, §14.4).
+
+### 3.3 Path × geometry — nearby-segment extraction
+
+`SnapEngine._align_geometry_segments` yields near-cursor scene/underlay segments for
+the ray×geometry crossings, reusing the phase-4 segment generator
+(`_iter_geometry_segments`) and the same per-move `underlay_geoms` cache the real-snap
+phases populate (no redundant underlay query). It respects `_PHASE4_MAX_SEGMENTS`.
+See §9 for the accepted 15-vs-20px underlay-band narrowing this cache reuse implies.
+
+---
+
+## 4. Rendering
+
+`Model_View.drawForeground` paints the ALIGN overlay, **gated on the master ALIGN
+toggle AND the controller's existence** — `set_align_enabled(False)` clears
+`_align_result` (vectors stop) but not `_align_controller.acquired`, so the gate
+prevents orphaned `+` markers:
+
+- **`+` acquired markers** — a cosmetic cross at each `AlignController.acquired_points()`,
+  in `ALIGN_ACQUIRE_COLOR` (green, distinct from snap glyphs), sized `ALIGN_GLYPH_PX`.
+- **Tracking vectors** — the held result's `source_lines` drawn as dashed
+  viewport-spanning cosmetic lines (`ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`).
+- The path-snap point itself renders via the normal snap marker (it is an
+  `OsnapResult` in the picker).
+
+Constants (`ALIGN_*`) live in `constants.py` (Rule A — values not restated).
+
+---
+
+## 5. Navigate — the Dynamic Input HUD
+
+The on-canvas Dynamic Input HUD (`dynamic_input.py`) **is the Navigate component of
+ALIGN**. It reads out the live geometry of an in-progress placement and accepts typed
+values to drive it precisely — including, while soft-snapped to a single ALIGN path,
+a signed **distance along that path** (the `track` schema, §5.7). The rest of this
+section documents the HUD as-built; it was shipped 2026-08-19 and is unchanged by the
+ALIGN rewrite except for the added `track` schema.
 
 > **Design source:** `docs/superpowers/specs/2026-08-16-dynamic-input-hud-design.md`
-> and the plan `docs/superpowers/plans/2026-08-16-dynamic-input-hud.md` (decisions
-> S1–S3, D1–D3, findings ledger). This section is the governing summary of **what
-> the code does**; the design doc holds the rejected-alternatives history.
+> + plan `docs/superpowers/plans/2026-08-16-dynamic-input-hud.md` (decisions S1–S3,
+> D1–D3). This section is the governing summary of **what the code does**; the design
+> docs hold rejected-alternatives history.
 
-### 4.1 One HUD, two exclusive states (decision S1)
+### 5.1 One HUD, two exclusive states (decision S1)
 
-The HUD is created when a placement **anchor is armed** (first click / mode arm)
-and lives for the whole placement — there is no second painted readout for the
-modes it serves. `Model_Space._sync_dynamic_input` is the single owner of its
-existence (called after the mode handler on move and after the press dispatch).
-It is always in one of:
+The HUD is created when a placement **anchor is armed** (first click / mode arm) and
+lives for the whole placement — no second painted readout. `Model_Space._sync_dynamic_input`
+is the single owner of its existence (called after the mode handler on move and after
+the press dispatch). It is always in one of:
 
-- **Disengaged** — a passive readout. Follows the cursor, is reseeded from the
-  live geometry every frame, and is **transparent to the mouse** (self + every
-  child), so a click meant for the canvas is never swallowed.
-- **Engaged** — an editor. A field holds the keyboard, the cursor is inert.
+- **Disengaged** — a passive readout. Follows the cursor, reseeded from live geometry
+  every frame, and **transparent to the mouse** (self + every child), so a click meant
+  for the canvas is never swallowed.
+- **Engaged** — an editor. A field holds the keyboard; the cursor is inert.
 
-`Model_Space.is_input_mode()` is exactly `hud.is_engaged()` — *not* "a HUD
-exists". Everything that makes the mouse inert keys off engagement. Engagement is
-an explicit flag, not a live `hasFocus()` poll (which is False whenever the app
-window is inactive).
+`Model_Space.is_input_mode()` is exactly `hud.is_engaged()` — *not* "a HUD exists".
+Engagement is an explicit flag, not a live `hasFocus()` poll (which is False whenever
+the app window is inactive).
 
-**Engage set** — `ENGAGE_CHARS = "0123456789.-"` (typing one opens the HUD seeded
-with that character), or **Tab** (opens without contributing a character).
-`Escape` rung 0 **disengages** to the passive readout without closing; a second
-Escape cancels the placement. Tab inside the HUD cycles its fields.
+**Engage set** — `ENGAGE_CHARS = "0123456789.-"` (typing one opens the HUD seeded with
+that character), or **Tab** (opens without a character). `Escape` rung 0 **disengages**
+to the passive readout without closing; a second Escape cancels the placement. Tab
+inside the HUD cycles fields.
 
-### 4.2 Schemas (organised by primitive)
+### 5.2 Schemas (organised by primitive)
 
 `Schema` = a field set + pure `resolve(anchor, values)` / `seed(anchor, point)`
-functions that know nothing about `QGraphicsScene`. A **placement** schema
-resolves to the single `QPointF` a mouse click would have produced, which the
-existing click-commit path (`_commit_*_at`) then consumes — so commit parity is
-structural, not asserted. A **transform** schema resolves to a plain dict handled
-by its own small applier.
+functions that know nothing about `QGraphicsScene`. A **placement** schema resolves to
+the single `QPointF` a mouse click would have produced, which the existing
+click-commit path (`_commit_*_at`) then consumes — so commit parity is structural, not
+asserted. A **transform** schema resolves to a plain dict handled by its own applier.
 
 | Schema | Fields | `resolve` → | Built clients (`_APPLIER_FOR_MODE`) |
 |---|---|---|---|
-| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2** |
-| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` (sizing step) |
+| `line` | Length, Angle | `QPointF` | `draw_line`, `draw_gridline`, `polyline`, **`draw_arc` step 2**, **`wall` (line/polyline)** |
+| `rectangle` | X, Y (signed) | `QPointF` | `draw_rectangle` (sizing step), **`wall` (rect sizing)** |
 | `circle` | Radius | `QPointF` | `draw_circle` |
 | `arc_span` | Span (SPAN), Arc-length | `{"span_deg": float}` | `draw_arc` step 3 |
-| `rotation` | Angle | `{"angle_deg": float}` | `draw_rectangle` (rotate step) |
+| `rotation` | Angle | `{"angle_deg": float}` | `draw_rectangle` / `wall` (rotate step) |
 | `displacement` | dX, dY | `{"offset": QPointF}` | `move` |
 | `distance` | Distance | `{"distance": float}` | `gridline_offset` |
 | `spacing_count` | Spacing, Count | `{"spacing", "count"}` | `gridline_array` |
+| **`track`** | **Distance** (signed) | **`QPointF`** | **ALIGN on-path (§5.7)** |
 
-Angles are **Y-up** (0° = right, 90° = up; scene Y is down, so
-`y = anchor.y() − length·sin θ`). Rectangle X/Y are **signed** (a left/down drag
-is a negative extent, and in corner mode that sign *is* the geometry).
+Angles are **Y-up** (0° = right, 90° = up; scene Y is down). Rectangle X/Y are
+**signed**. `arc`/`rectangle`/`wall` are **step-aware**: `active_schema()` returns a
+different schema per placement step and the existing `_sync_dynamic_input` rebuild
+swaps the HUD's field set. `arc_span` uses `FieldKind.SPAN` (unsigned 0–360°,
+non-normalising) so a reflex sweep reads 270°; its Arc-length field is a derived view
+coupled through the seeded radius (`set_coupling_radius`, in mm). The `rotation` angle
+is Y-up (CCW+) and negated at Qt's `setRotation` (CW+ on the Y-down scene).
 
-`arc`/`rectangle` are **step-aware**: `active_schema()` returns a different schema
-per placement step (`_draw_arc_step`; the rect rotate flag), and the existing
-`_sync_dynamic_input` schema-change rebuild swaps the HUD's field set. `arc_span`
-uses a dedicated **`FieldKind.SPAN`** (unsigned 0–360° magnitude, non-normalising)
-so a reflex sweep reads 270°, not −90°; its Arc-length field is a derived view
-coupled through the seeded radius (`set_coupling_radius`, in mm). The `rotation`
-angle is **Y-up (CCW+)** and is negated at Qt's `setRotation` (CW+ on the Y-down
-scene) so the rect turns the way the readout says.
+**Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`) decides
+whether the HUD may open without a placement anchor. Every placement requires one;
+`move` also requires one (its base point). The gridline transforms (`distance`,
+`spacing_count`) are genuinely anchorless.
 
-**Anchor gating.** `Schema.requires_anchor` (= `returns_point or needs_anchor`)
-decides whether the HUD may open without a placement anchor. Every placement
-requires one; `move` is a transform that *also* requires one (its base point),
-so it carries `needs_anchor=True` and stays shut until the base point is picked.
-The gridline transforms (`distance`, `spacing_count`) are genuinely anchorless
-and open as soon as their source is armed.
+### 5.3 Seeding invariant (WYSIWYG)
 
-> A mode appears in `_SCHEMA_FOR_MODE` (forward declaration) before it appears in
-> `_APPLIER_FOR_MODE` (the gate that actually opens a HUD). `wall` and `pipe` are
-> schema-mapped to `line` but have **no applier yet** — they are **[PROPOSAL]**
-> (§4.7), parked as new clients. `arc` and `draw_rectangle` are **step-aware**
-> (their `active_schema()` is keyed on the placement step, not a static
-> `_SCHEMA_FOR_MODE` row). `sprinkler` and `construction_line` are not
-> schema-mapped at all.
+The HUD seeds from the **resolved** point — the fully constrained position drawn on
+screen after real SNAP → ALIGN → Ctrl → 45° snap — never from the raw cursor, so the
+numbers shown are the ones the user is looking at. `Model_Space.publish_placement_state`
+is the single source for both the passive readout and the engage-time seed. (Never
+truthiness-test the `QPointF`: `QPointF(0,0)` is a legitimate SNAP result.)
 
-### 4.3 Seeding invariant (WYSIWYG)
+### 5.4 Unit handling
 
-The HUD seeds from the **resolved** point — the fully constrained position drawn
-on screen after OSNAP → inference → Ctrl → 45° snap — never from the raw cursor,
-so the numbers shown are the ones the user is looking at.
-`Model_Space.publish_placement_state` is the single source for both the passive
-readout and the engage-time seed, so the two cannot disagree. (Never
-truthiness-test the `QPointF`: `QPointF(0,0)` is a legitimate OSNAP result.)
+Each field is a `DimensionEdit` (three `FieldKind` configurations of the one widget).
+Schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
 
-### 4.4 Unit handling
-
-Each field is a `DimensionEdit` (three `FieldKind` configurations of the one
-widget, so the house parser/formatter and revert-to-last-valid come along). The
-schemas work in **scene units**; `DimensionEdit` stores **millimetres**:
-
-- **DIMENSION** fields convert at the HUD boundary (`set_values`/`values`),
-  **guarded on calibration** — uncalibrated (the default) treats 1 scene unit as
-  1 mm, matching the on-canvas readout; a calibrated drawing routes through
-  `ScaleManager.scene_to_mm`/`mm_to_scene`. The conversion lives in the HUD, not
-  in the schemas (which stay pure geometry) nor in `DimensionEdit` (mm-native).
-- **ANGLE** fields are dimensionless — see the angle convention in
-  [units-and-formatting.md](units-and-formatting.md) (owned by
-  `ScaleManager.normalize_angle`/`format_angle`/`parse_angle`), not restated here.
+- **DIMENSION** fields convert at the HUD boundary (`set_values`/`values`), **guarded
+  on calibration** — uncalibrated treats 1 scene unit as 1 mm; a calibrated drawing
+  routes through `ScaleManager.scene_to_mm`/`mm_to_scene`.
+- **ANGLE** fields are dimensionless — angle convention owned by
+  [units-and-formatting.md](units-and-formatting.md) (`ScaleManager.normalize_angle`/
+  `format_angle`/`parse_angle`), not restated here.
 - **COUNT** fields are bare integers (rounded, floored at 1).
 
-### 4.5 Interaction with OSNAP / inference
+### 5.5 Interaction with SNAP / ALIGN
 
-The seed is the resolved point (§4.3), so an active OSNAP or alignment guide is
-already baked into the readout. A typed value **overrides** it — while a field
-holds focus the cursor is inert and `publish_placement_state` is a no-op, so a
-late snap cannot move the seed out from under a half-typed value.
+The seed is the resolved point (§5.3), so an active SNAP or ALIGN result is already
+baked into the readout. A typed value **overrides** it — while a field holds focus the
+cursor is inert and `publish_placement_state` is a no-op, so a late snap cannot move
+the seed out from under a half-typed value.
 
-### 4.6 Error handling — two layers
+### 5.6 Error handling — two layers
 
-- **Field level:** an unparseable entry reverts to the last valid value with no
-  signal (kills the old `_DynInput.value() → 0.0` bug); a rejected value gets a
-  red border. `has_invalid_field()` is sticky so a second Enter cannot slip
-  reverted geometry through.
-- **Applier verdict (decision D2):** the too-short / too-small / count floors
-  live in the commit path, not mirrored into the schema. An applier returns
-  `bool`; on `False` `_on_dynamic_input_committed` **keeps the HUD open** with
-  every DIMENSION field flagged and the placement fully live, so the user simply
-  retypes — instead of the value vanishing into a status message after the HUD
-  has closed.
+- **Field level:** an unparseable entry reverts to the last valid value with no signal;
+  a rejected value gets a red border. `has_invalid_field()` is sticky so a second Enter
+  cannot slip reverted geometry through.
+- **Applier verdict (decision D2):** too-short / too-small / count floors live in the
+  commit path, not mirrored into the schema. An applier returns `bool`; on `False`,
+  `_on_dynamic_input_committed` **keeps the HUD open** with every DIMENSION field
+  flagged and the placement fully live, so the user simply retypes.
 
-### 4.7 HUD clients — arc **[BUILT]**, wall **[BUILT 2026-08-25]**, pipe **[PROPOSAL]**
+### 5.7 The `track` schema — distance along an ALIGN path (decision D4)
 
-- **Arc — [BUILT 2026-08-21].** Two ←/→-cycled variants (`_arc_variant`:
-  centre-first / start-first). Step 1 is the anchor click; step 2 reuses the
-  `line` schema and `_commit_draw_arc_rim_at` (variant-aware: the second point is
-  the rim in centre-first, the centre in start-first) to fix radius + start°;
-  step 3 is the `arc_span` transform, whose applier `_commit_draw_arc_at` sweeps
-  the stored centre/radius/start to the resolved end point. `_apply_arc_dynamic_input`
-  routes by step. The HUD is the readout + preview (`_preview_from_arc`), so arc
-  no longer paints `_draw_dim_hint` (block 4 survives for the other non-HUD modes).
-- **Wall — [BUILT 2026-08-25, commit eead762].** `active_schema()` is
-  **primitive-aware** for `"wall"` (same step-aware pattern as rect/arc): `line`
-  and `polyline` primitives → `line` schema (Length + Angle); `rect` primitive at
-  the sizing step → `rectangle` schema (signed X, Y); `rect` primitive at the
-  rotate step → `rotation` schema (Angle, Y-up CCW). The applier
-  `_apply_wall_dynamic_input` routes on `_wall_primitive` and step to build the
-  `WallSegment`(s) via the same finish-vs-continue branch the mouse path uses
-  (structural commit parity — `align-placement.md §4.2`).
-  `"wall"` is **no longer a parked static `_SCHEMA_FOR_MODE` entry** — it is
-  handled inside `active_schema()` by `_wall_schema_for_primitive()`.
-- **Pipe — [PROPOSAL].** Pipe is schema-mapped to `line` in `_SCHEMA_FOR_MODE`
-  but has no applier, so no HUD opens; it still places through its own handlers.
-  When pipe lands, its angle field is intended to be **editable and validated**,
-  *not* read-only: the 45° constraint is **relative to the reference pipe and only
-  when connected** (a free pipe soft-snaps within 7.5°), so a typed angle is
-  accepted when it yields a valid fitting rather than forbidden outright.
-  *(This corrects the earlier proposal, which called the pipe angle "read-only
-  / non-overridable" and "locked to 45° at all times".)*
-- **`construction_line` is out of scope** — its Length field was a visual no-op
-  (the drawn line extends past both defining points), so it is deliberately
-  absent from `get_placement_anchor` and the schema tables.
+While the cursor is soft-snapped to a **single** ALIGN path (`align_path`, not a fixed
+crossing), the seam swaps the primitive's schema for `track` via the same step-aware
+`active_schema()` rebuild, and swaps back on leaving the path. The `track` schema has
+one **signed Distance** field; the path's **origin + direction** are injected at
+engage/seed time via `DynamicInputHud.set_track_direction` (stored under the reserved
+`"__dir__"` key so `resolve_track` stays a pure `(anchor, values) → QPointF`).
+`resolve_track` → `origin + Distance·direction`, flowing through the existing
+click-commit path (structural commit parity, §5.2). Distance is signed from the
+tracking **origin** and **replaces** the primitive Length/Angle readout while on-path.
 
-### 4.8 Placement-variant cycle **[BUILT]**
+Seam plumbing: the ALIGN tier recovers the winning single-path `Ray` from the built
+ray set (the picker returns the foot point but not the ray) by lowest perpendicular
+error — `Model_Space._arm_align_track` — and stores it as `_align_track_ray`;
+`_align_track_active` / `_align_track_schema` gate the swap; `_arm_track_direction`
+injects the direction into the HUD. A path×path / path×geometry **intersection** is a
+fixed point with no single direction → no distance field (the arm is cleared, the
+primitive schema stays live).
 
-`_PLACEMENT_VARIANTS: dict[mode → list[(label, first-point instruction, apply_fn)]]`
-(a data table beside `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`) with a session-sticky
-`_variant_index`. `cycle_placement_variant(±1)` — wired to `←`/`→` in
-`Model_Space.keyPressEvent` — flips the variant **only at step 0** (`_at_placement_step_zero`)
-and while no HUD field is engaged; otherwise it returns False so the arrow reaches
-the view's default scroll. `set_mode` applies the sticky variant on entry and emits
-the `<label> (←/→ to change): <instruction>` readout; the first press handler emits
-the plain next-step instruction, so the hint disappears once a point is placed.
-Orthogonal to the Left-Shift-tap `cycle_placement_ambiguity` (a different axis).
+### 5.8 Other HUD behaviors (as-built, unchanged by ALIGN)
 
-Registered variants: `draw_arc` (Centre Point / Start Point → `_arc_variant`),
-`draw_rectangle` (Corner / Centre → `_draw_rect_from_center`),
-`wall` (Line / Polyline / Corner Rectangle / Center Rectangle → `_wall_primitive` + `_wall_rect_from_center`).
-
-**Ribbon/keyboard.** The Line and Rectangle ribbon split-menus were retired (corner/
-centre and line/construction-line are cycle variants now). Single-key tool shortcuts
-live in `Model_View.keyPressEvent` (scene-focus-gated, bare-key only): L/R/C/A/G →
-line/rect/circle/arc/gridline, plus a **placeholder K → polyline** (removed when
-Line+Polyline merge into one cycle tool). `set_mode` returns keyboard focus to the
-visible view so step-0 keys (the cycle arrows) reach the scene after a ribbon click.
-
-### 4.9 Ghost updates on field commit **[BUILT]**
-
-While a field is engaged the cursor is inert (§4.5), so the live preview would sit
-frozen at its engage-time seed. `DynamicInputHud.fieldCommitted` fires on each Tab
-field-commit; `Model_Space._on_dynamic_input_field_committed` reads the current
-values **non-destructively** (`current_values()` — no force-commit, no flag
-mutation), `resolve`s them, and drives the same per-mode preview the mouse uses
-(`_preview_from_resolved` / `_PREVIEW_DISPATCH`, extracted from the `_move_*`
-tails). Placement schemas resolve to a point; the `move` transform and arc's
-`arc_span` resolve via `_transform_preview_point` (offset→target / span→endpoint);
-the rect `rotation` drives its own angle-based `_preview_rectangle_rotation`.
-
-### 4.10 Angle-snap and reference guides **[BUILT]**
-
-**Ctrl** angle-snaps to `_snap_angle_deg` (45°) via the shared `_constrain_angle`
-during arc placement (centre→cursor bearing, both steps) and the rect rotate step
-(pivot→cursor), on both the move preview and the committing click. **Reference
-guides** (dashed cosmetic lines) render as a protractor: the rect rotate step shows
-a 0° datum + a live sweep from the pivot; the arc span step shows a 0° datum + the
-fixed start radial + a live sweep radial from the centre. Created on entering the
-step, cleared on commit and mode-exit.
+- **Placement-variant ←/→ cycle** — `_PLACEMENT_VARIANTS` registry, session-sticky
+  `_variant_index`, flipped only at step 0; `<label> (←/→ to change): …` readout.
+  Registered for `draw_arc`, `draw_rectangle`, `wall`.
+- **Ghost updates on field commit** — `DynamicInputHud.fieldCommitted` redraws the
+  live preview from current HUD values on each Tab field-commit, for all clients.
+- **Ctrl angle-snap + reference guides** — 45° constrain during arc / rect-rotate
+  steps, with protractor datum/sweep guides.
+- **Single-key tool shortcuts** — L/R/C/A/G (+ K placeholder for polyline),
+  scene-focus-gated in `Model_View.keyPressEvent`; `set_mode` returns focus to the
+  visible view so step-0 keys reach the scene.
+- **Wall / arc / rectangle** are full step-aware HUD clients; **pipe** is
+  schema-mapped to `line` but has **no applier** (still places through its own
+  handlers) — a parked proposal. `construction_line` is deliberately out of scope
+  (its Length field was a visual no-op).
 
 ---
 
-## 5. Alignment Guides
+## 6. Settings
 
-### 5.1 Guide Types
+Five ALIGN knobs live in the Preferences **SNAP** pane (`preferences_dialog.py`, the
+"ALIGN" tab) plus the F11 master toggle. All live-apply (into the live `Model_Space` +
+its `AlignController`), persist to `QSettings` under `align/*`, and are covered by
+Reset-to-Defaults:
 
-**H/V alignment from gridline references — [BUILT]**. All other guide types — [PROPOSAL]:
-
-| Type | Trigger | Visual | Color | Status |
-|---|---|---|---|---|
-| H/V Alignment | Cursor X or Y matches a gridline endpoint or bubble centre within tolerance | Dashed vertical or horizontal line through cursor and aligned item | Cyan (`INFERENCE_GUIDE_COLOR`) | **BUILT** (gridline refs only) |
-| Wall Parallel | Cursor position projects onto a wall face line within tolerance | Dashed line parallel to wall face, through cursor | Orange | PROPOSAL |
-| Wall Perpendicular | Cursor-to-wall perpendicular distance is within a threshold | Dashed line perpendicular from wall face to cursor, with distance label | Orange | PROPOSAL |
-| Extension Line | Cursor aligns with the direction of an existing pipe endpoint or wall face edge | Dashed line extending from the endpoint through cursor | Blue | PROPOSAL |
-| Equal Spacing | Distance from cursor to nearest item matches an existing spacing pattern (2+ items) | Dashed line at the inferred position, with spacing dimension label | Green | PROPOSAL |
-
-### 5.2 Active During **[PARTIAL]**
-
-**BUILT:** `draw_gridline` placement (both points), gridline endpoint grip-drag, the **move/paste pick points** (both clicks; move self-excludes the movers), and **`"wall"` placement** (all primitives and steps; provider + consumer — see §5.3 and §0 built note above).
-
-**PROPOSAL:** `pipe`, `sprinkler`, and other construction-geometry placement modes as consumers; moved-geometry key-point snapping (non-wall); drag repositioning of non-wall entity types.
-
-### 5.3 Detection Algorithm **[PARTIAL]**
-
-**As built (gridline + wall slice):** `_collect_alignment_refs(cursor, tol)` now runs two passes:
-
-1. **Gridlines** — iterates `self._gridlines` directly (small list, no spatial filter needed).
-2. **Walls** — spatial-filter via `scene.items(rect)` (inflated cursor rect using `INFERENCE_TOL_PX` mapped to scene units), type-filtered to `WallSegment`, then `alignment_reference_points()` on the survivors. This uses the scene BSP index (`scene.items(rect)`, **not** `sceneBoundingRect`), bounding per-frame cost to walls near the cursor independent of total wall count.
-
-Both providers are duck-typed (`alignment_reference_points()`); self-exclusion via `source_id` and `_inference_exclude_ids` is applied to all collected refs.
-
-**PROPOSAL (for future multi-entity providers):** node/sprinkler/pipe providers slotting in by iterating their own collections; cursor-move cache threshold (§9.5).
-
-### 5.4 Tolerance **[BUILT]**
-
-`INFERENCE_TOL_PX` = 65 px — separate from and wider than OSNAP (`SNAP_TOLERANCE_PX` = 40 px); implemented in `constants.py`.
-
-### 5.5 Dimension Labels **[PROPOSAL]**
-
-Per-guide distance labels are unbuilt. The first slice emits no distance label on guides.
-
-### 5.6 Wall Clearance Scope **[PROPOSAL]**
-
-Wall distance guides show for all walls within `2 × max_coverage_spacing` of cursor. In corners, multiple wall distance guides appear simultaneously (one per nearby wall). This supports NFPA 13 wall clearance verification during sprinkler placement.
-
----
-
-## 6. Guide Snap Integration **[BUILT]**
-
-### 6.1 Priority Hierarchy
-
-Snap candidates are evaluated in priority order:
-
-| Priority | Source | Example |
+| Knob | QSettings key | Live target |
 |---|---|---|
-| 1 (highest) | OSNAP | Endpoint, midpoint, intersection of existing geometry |
-| 2 | Guide intersection | Two guides crossing (e.g. H-align + V-align) |
-| 3 | Single guide | Cursor projected onto alignment line |
-| 4 (lowest) | Free cursor | No snap, raw cursor position |
+| Master ALIGN on/off (also F11 + status pill) | `align/enabled` | `Model_Space.set_align_enabled` |
+| Path snap aperture (px) | `align/path_tol_px` | `Model_Space._align_path_tol_px` |
+| Acquire dwell (ms) | `align/dwell_ms` | `AlignController.dwell_ms` |
+| Max acquired points | `align/max_points` | `AlignController.max_points` |
+| Per-direction toggles (H/V · Extension · Parallel) | `align/dir_hv` · `align/dir_extension` · `align/dir_parallel` | `AlignController.set_direction_flags` |
 
-### 6.2 Guide Intersection Snap
-
-When two or more guides intersect, the intersection point becomes a snap candidate at priority 2. This is the most powerful inferred position — "aligned with A horizontally AND B vertically."
-
-Detection: for each pair of active guides, compute line-line intersection. If the intersection falls within the viewport, register it as a snap candidate.
-
-### 6.3 Single Guide Snap
-
-Each active guide contributes a snap point: the cursor projected onto the guide line (nearest point on the guide to the raw cursor position). Priority 3 — only used when no OSNAP or guide intersection is available.
-
-### 6.4 Snap Marker **[PARTIAL]**
-
-The crosshair glyph (`INFERENCE_GLYPH_PX`) renders at the reference point being aligned to. A distinct snap-point shape (e.g. diamond) separate from the OSNAP markers is **PROPOSAL**.
+Factory defaults are `ALIGN_*` constants in `constants.py` (Rule A — values not
+restated). Per-direction toggles drop whole ray **kinds** in `build_rays` so a disabled
+kind never reaches the picker. The F11 shortcut and the "ALIGN" status-bar pill are
+wired window-level in `main.py` (mirrors the F3/SNAP pattern). A one-time startup
+migration copies any legacy `inference/*` key to `align/*` (`_migrate_inference_to_align`).
 
 ---
 
 ## 7. Equal Spacing Inference **[PROPOSAL]**
 
+*(Unbuilt. Retained as the design target for a future ALIGN capability.)*
+
 ### 7.1 Pattern Detection
 
-Minimum pattern: 2 existing items define a spacing. The system detects spacing patterns among:
-- Nodes on the same pipe run (connected via pipes)
-- Sprinklers on the same branch line
-- Parallel pipe runs at consistent separation
+Minimum pattern: 2 existing items define a spacing. Detect patterns among nodes on the
+same pipe run, sprinklers on the same branch line, or parallel pipe runs at consistent
+separation.
 
 ### 7.2 Inference Algorithm
 
-1. Find items of the same type near the cursor (spatial + type filter)
-2. Compute spacings between adjacent pairs
-3. If 2+ items exist with consistent spacing (within tolerance), infer the pattern
-4. Project the next repetition point from the last item in the pattern
-5. If cursor is near the projected point, activate the equal spacing guide
+1. Find items of the same type near the cursor (spatial + type filter).
+2. Compute spacings between adjacent pairs.
+3. If 2+ items exist with consistent spacing (within tolerance), infer the pattern.
+4. Project the next repetition point from the last item in the pattern.
+5. If cursor is near the projected point, activate the equal-spacing guide.
 
 ### 7.3 Visual
 
-Green dashed line at the inferred position, with dimension label showing the spacing value. Small tick marks on the guide indicate the pattern positions (existing items + the proposed next position).
+Green dashed line at the inferred position, with a dimension label showing the spacing
+value. Small tick marks indicate the pattern positions.
 
 ### 7.4 Multiple Patterns
 
-If multiple spacing patterns are detectable (e.g. S-spacing along a branch AND L-spacing between branches), show up to 2 spacing guides simultaneously. Nearest pattern takes visual priority.
+If multiple spacing patterns are detectable, show up to 2 spacing guides simultaneously;
+nearest pattern takes visual priority.
 
 ---
 
 ## 8. Selection Dimensions **[PROPOSAL]**
 
+*(Unbuilt. Retained as the design target.)*
+
 ### 8.1 Scope
 
-Nodes and sprinklers. When selected, temporary dimension lines appear showing distances to adjacent nodes connected via pipes. Same UX pattern as gridline on-selection spacing dimensions.
+Nodes and sprinklers. When selected, temporary dimension lines appear showing distances
+to adjacent nodes connected via pipes. Same UX pattern as gridline on-selection spacing
+dimensions.
 
 ### 8.2 Visual
 
-- Thin dimension lines with witness lines connecting to adjacent nodes
-- Distance label at midpoint of the dimension line
-- Formatted via `ScaleManager.format_length()`
-- Same visual style as gridline spacing dimensions (existing convention)
+Thin dimension lines with witness lines to adjacent nodes; distance label at midpoint,
+formatted via `ScaleManager.format_length()`; same style as gridline spacing dimensions.
 
 ### 8.3 Editing
 
-Double-click a dimension label → inline text field opens on the dimension. User types a new spacing value in display units (parsed via `parse_dimension()`).
-
-**On confirm (Enter):**
-- The selected node slides along the pipe direction to satisfy the new spacing
-- Adjacent pipe segments stretch/shrink accordingly
-- Downstream nodes stay fixed (only the edited segment changes length)
-- Fittings auto-update on affected nodes
-
-**On cancel (Escape):** revert to original position.
+Double-click a dimension label → inline field opens. User types a new spacing (parsed
+via `parse_dimension()`). **On confirm:** the selected node slides along the pipe
+direction to satisfy the new spacing; adjacent segments stretch/shrink; downstream
+nodes stay fixed; fittings auto-update. **On cancel:** revert.
 
 ### 8.4 Multi-Selection
 
-When multiple nodes are selected:
-- Dimensions shown between consecutive selected nodes AND between selection boundary and nearest unselected neighbor
-- Editing a dimension moves all selected nodes as a rigid group (preserving relative spacing within the selection)
-- Unselected anchor neighbor stays fixed
+Dimensions shown between consecutive selected nodes and between the selection boundary
+and the nearest unselected neighbor; editing moves selected nodes as a rigid group
+(preserving relative spacing); the unselected anchor stays fixed.
 
 ### 8.5 Constraints
 
-- Node can only slide along pipe direction (no free 2D movement via dimension edit)
-- Minimum pipe length enforced (node cannot be pushed past adjacent nodes)
-- If node has pipes in multiple directions, the dimension edit applies to the pipe segment that owns the edited dimension
+Node slides only along pipe direction; minimum pipe length enforced; multi-direction
+nodes apply the edit to the segment that owns the edited dimension.
 
 ---
 
-## 9. Performance
+## 9. Divergences & accepted v1 narrowings
 
-### 9.1 Scan Budget
+**Auto-proximity guides REMOVED by design.** The old inference/GUIDES subsystem fired
+H/V alignment guides automatically whenever the cursor lined up (within
+`INFERENCE_TOL_PX`) with any gridline/wall reference point — no acquisition, no intent.
+`InferenceEngine.resolve()`, `_collect_alignment_refs`, the gridline/wall
+`alignment_reference_points()` providers, and `Guide(orientation∈{h,v})` are gone.
 
-The inference engine runs on every mouse move during active placement/drag. Target: complete scan + render in < 5ms to maintain 60fps responsiveness.
+*Parity note (what the old auto H/V did → its ALIGN replacement):*
 
-### 9.2 Collector strategy (as-built for gridline slice) **[BUILT]**
-
-For the gridline slice, `_collect_alignment_refs` iterates `self._gridlines` directly — the provider list is small enough that no spatial index or cursor-move cache is needed. The engine itself is generic; future providers (walls, pipes, nodes) slot in by iterating their own collections, keeping per-frame cost bounded without a global scene traversal.
-
-### 9.3 Spatial-index path (for future large-provider scenarios) **[PROPOSAL]**
-
-If the aggregate provider list grows large (e.g. node/sprinkler providers over dense scenes), filter via `scene.items(rect)` spatial index before dispatching to `alignment_reference_points()`. Type-filter per guide type as below; no O(n²) iteration of the full scene.
-
-| Guide type | Scan items |
+| Old auto behavior | ALIGN replacement |
 |---|---|
-| H/V alignment | Nodes with sprinklers, plain nodes on calc paths |
-| Wall proximity | WallSegment items |
-| Extension | Pipe endpoints (node.pipes), wall face edges |
-| Equal spacing | Nodes on connected pipe runs |
+| Auto H/V guide when cursor X or Y matched a nearby gridline/wall reference | Dwell-**acquire** that point → H + V rays (§2.2); active anchor auto-acquires its own H/V (§2.3) |
+| Guide×guide intersection snap (priority 2) | path×path `align_intersection` (priority 20, §3.1) |
+| Single-guide projection snap (priority 3) | single-path `align_path` (priority 30, §3.1) |
+| Auto extension along a wall/pipe endpoint direction (proposal, mostly unbuilt) | Extension ray from a point-acquire on a directional object (§2.2) |
+| Cyan dashed guide + crosshair glyph | Dashed tracking vector + green `+` acquired marker (§4) |
+| Scene-wide, no intent (the "grabby during Move" complaint) | Pure-acquire: nothing tracks without a deliberate dwell (§1) |
 
-### 9.4 Display Cap **[PROPOSAL]**
+**ALIGN path×underlay 15-vs-20px band narrowing (accepted).** The per-group
+`underlay_geoms` cache in `snap_engine.py` is keyed on group id alone and is populated
+by the real-snap phases at the 15px `SNAP_TOLERANCE_PX` search rect. When
+`_align_geometry_segments` reuses that cache (passing the wider ~20px ALIGN aperture),
+an underlay group already cached at 15px is **not** re-queried at 20px — so ALIGN
+path×**underlay** crossings only see underlay segments within the 15px rect, a ≤5px
+sliver short of the full ALIGN band. Native scene items are re-queried fresh each frame
+and are unaffected. Keying on `(gid, aperture)` was deliberately rejected: it would
+re-introduce the double underlay query per mousemove that this cache removed.
 
-Maximum 6 guides visible simultaneously. When more candidates exist, rank by proximity to cursor and show the nearest. Guide intersections count as 1 toward the cap (not 2).
+**Deferred.** Polar-increment angles; paper-space ALIGN; apparent-intersection /
+multi-level snap. Equal-Spacing (§7) and Selection-Dimensions (§8) remain proposal.
 
-### 9.5 Cursor-move cache **[PROPOSAL]**
-
-Cache the spatial query results per frame. If the cursor hasn't moved beyond a threshold (e.g. 2px), reuse the previous guide set without recomputing. Not needed for the gridline slice.
+See the governing design doc for the decision rationale behind each of these.
 
 ---
 
-## 10. Toggle System
+## 10. Testing Strategy
 
-### 10.1 Alignment Guides toggle **[BUILT]**
+**ALIGN acquire/track (built):**
 
-Single "Alignment Guides" toggle — "Inference" tab in the snap settings dialog, "GUIDES" status-bar pill, F12 shortcut. `QSettings` key `inference/alignment_guides` (default `True`), restored on startup. Toggling off immediately silences guides and guide-snap; OSNAP/free cursor unaffected.
+- **Pure engine math** (`align_engine`, no Qt) — ray build, path×path, path×segment,
+  projection, distance-along-ray; ground truth (`H-ray(M) × V-ray(N) == (Nx, My)`).
+- **State machine** (`align_controller`, driven directly) — dwell acquires,
+  re-hover releases, cap evicts oldest, clear drops all, per-direction gating drops
+  ray kinds.
+- **Real-entry-point seam** — posted `QMouseEvent` dwell (elapsed-fed) on a shown +
+  activated view acquires/releases/evicts/clears; ALIGN candidates enter `find()` and
+  real SNAP always outranks them; the `track` schema swaps in on-path and back off.
+- **Zoom-invariance** — aperture + path-tol judged in true px at multiple `m11`
+  (identical accept/miss).
+- **Per-knob settings round-trip** — each ALIGN knob live-applies + `align/*`
+  round-trips + Reset restores factory.
 
-### 10.2 Three Independent Toggles + Master Key **[PROPOSAL]**
+**Navigate / Dynamic Input HUD (built)** — three layers mirroring the module boundary:
+schema layer (no Qt, `tests/test_dynamic_input_schema.py`), widget layer
+(`tests/test_dynamic_input_widget.py`), commit parity (`tests/test_dynamic_input_parity.py`);
+seam behavior in `tests/test_dynamic_input_seam.py` / `_lifecycle` / `_multiview` /
+`test_placement_cycle_shift.py`.
 
-The full three-toggle + master system below is unbuilt. F12 currently maps to the single alignment-guides toggle (§10.1).
-
-| Toggle | Key | Scope | Default |
-|---|---|---|---|
-| Dynamic Input | TBD | Floating length/angle fields | On |
-| Alignment Guides | F12 (built, §10.1) | Inference lines during placement/drag | On |
-| Spacing Inference | TBD | Equal spacing detection | On |
-
-Master key toggles all three simultaneously. If any are on, master-off turns all off. If all are off, master-on restores previous individual states.
-
-### 10.3 Status Bar **[PARTIAL]**
-
-"GUIDES" pill is built (§10.1). Multiple-state pill showing Dynamic Input + Spacing Inference state is PROPOSAL.
-
-### 10.4 Persistence **[BUILT for alignment-guides; PROPOSAL for the other two]**
-
-`inference/alignment_guides` persisted to `QSettings` on toggle and restored in `MainWindow.restore_settings`. Same pattern as the SNAP per-type toggles; see `docs/specs/snap-toolbar.md`.
-
----
-
-## 11. Testing Strategy
-
-### 11.1 Dynamic Input **[BUILT]**
-
-Three layers, mirroring the module boundary:
-
-- **(a) Schema layer — no Qt** (`tests/test_dynamic_input_schema.py`): `resolve_*`
-  / `seed_*` round-trips, Y-up sign, signed rectangle extents, `requires_anchor`
-  (placements + `move`, not the anchorless transforms), `spacing_count` integer
-  flooring. Angle format/parse/normalize in `tests/test_scale_manager_angle.py`.
-- **(b) Widget layer — HUD-driven** (`tests/test_dynamic_input_widget.py`):
-  seeding, value reads, grow-only field width, sticky invalid styling + red
-  border, session undo, engage/disengage, mouse-transparency, numpad Enter.
-- **(c) Commit parity — mouse vs HUD** (`tests/test_dynamic_input_parity.py`):
-  a typed value and the same value dragged produce identical geometry, for line,
-  rectangle, circle, polyline, gridline offset/array and move; applier-rejection
-  keeps the HUD open (D2); the `GridlineItem.translate` regression.
-
-Seam-level (`Model_Space`) behaviour — anchor gating, engage refusal, input-mode
-inertness, the Left-Shift-tap placement cycle — lives in
-`tests/test_dynamic_input_seam.py`, `tests/test_dynamic_input_lifecycle.py`,
-`tests/test_dynamic_input_multiview.py` and `tests/test_placement_cycle_shift.py`.
-
-| Example assertion | Where |
-|---|---|
-| `resolve_line` is Y-up; `seed_line` round-trips | (a) |
-| Typed length overrides cursor; commit matches the mouse click | (c) |
-| Unparseable entry reverts to last valid, nothing placed at zero | (b) |
-| A refused too-short commit keeps the HUD open, field flagged | (c) |
-| Tab cycles HUD fields; digit/`.`/`-` opens+seeds; numpad Enter commits | (b) |
-
-### 11.2 Alignment Guides
-
-| Test | Assertion |
-|---|---|
-| H/V detection | Cursor at same Y as existing node (within tolerance) → horizontal guide fires |
-| Wall perpendicular | Cursor 3' from wall → orange guide with "3'-0"" label |
-| Extension line | Cursor along pipe direction from endpoint → blue extension guide |
-| Tolerance boundary | Cursor 1px outside tolerance → no guide. 1px inside → guide fires |
-| Display cap | 8 potential guides → only 6 nearest shown |
-| Multi-wall corner | Cursor near corner of two walls → two orange guides showing distance to each wall |
-
-### 11.3 Guide Snap
-
-| Test | Assertion |
-|---|---|
-| OSNAP wins over guide | OSNAP endpoint and guide alignment both in range → OSNAP snap point used |
-| Guide intersection wins over single guide | Two guides crossing near cursor → snap to intersection, not to individual guide |
-| Single guide catches cursor | No OSNAP nearby, one guide active → cursor snaps to guide |
-| No guides, no OSNAP | Cursor at raw position |
-
-### 11.4 Equal Spacing
-
-| Test | Assertion |
-|---|---|
-| 2-item pattern | Two sprinklers 10' apart → cursor near 10' from second → green guide at projected position |
-| Pattern tolerance | Sprinklers at 10' and 10'-2" → pattern detected (within tolerance) |
-| No pattern | Sprinklers at 10' and 7' → no equal spacing guide |
-| Multiple patterns | S-spacing and L-spacing both detectable → up to 2 spacing guides shown |
-
-### 11.5 Selection Dimensions
-
-| Test | Assertion |
-|---|---|
-| Select node → dimensions appear | Selecting a pipe-connected node shows distance to adjacent nodes |
-| Edit dimension → node slides | Double-click, type "8'", Enter → node repositions to 8' from neighbor along pipe direction |
-| Multi-select rigid move | Select 2 nodes, edit outer dimension → both move together, relative spacing preserved |
-| Minimum length | Cannot edit dimension to push node past adjacent node |
-| Deselect → dimensions disappear | Clicking away removes temporary dimensions |
-
----
-
-## 12. Acceptance Criteria
-
-1. User can type an exact pipe length during placement via floating input field and the pipe is placed at that precise length.
-2. Angle field is read-only for pipes — 45° constraint is non-overridable.
-3. Dynamic input works for all placement tools: pipe, wall, line, circle, arc, rectangle.
-4. Alignment guides appear during placement and drag showing H/V alignment, wall proximity, extension lines, and equal spacing with color coding (blue, orange, green).
-5. Guide snap produces snap points at guide lines (priority 3) and guide intersections (priority 2), both below OSNAP (priority 1).
-6. Equal spacing inference detects patterns from 2+ items and offers the next repetition.
-7. Selecting a node shows temporary dimensions to adjacent connected nodes; double-clicking a dimension allows inline editing that repositions the node along the pipe.
-8. Multi-select dimension editing moves selected nodes as a rigid group.
-9. All dimension display and input uses ScaleManager for unit conversion.
-10. Performance: guide computation completes within 5ms per frame with max 6 visible guides.
-11. Three independent toggles + master key, persisted to QSettings, reflected in status bar.
-
-## 13. Verification Checklist
-
-- [ ] Dynamic input appears after first click in all placement modes (pipe, wall, line, circle, arc, rectangle)
-- [ ] Length field accepts typed input; Enter confirms at typed length
-- [ ] Angle field is read-only for pipes (45° constraint non-overridable)
-- [ ] Tab cycles between editable fields (radius/sweep for arc, width/height for rectangle)
-- [ ] H/V alignment guides fire when cursor aligns with existing node X or Y
-- [ ] Wall perpendicular guides show distance to nearby walls (within 2× max coverage spacing)
-- [ ] Wall parallel guides fire when cursor aligns with wall face direction
-- [ ] Extension guides fire along pipe endpoint and wall face directions
-- [ ] Equal spacing guides fire with 2+ item pattern (green dashed line + spacing label)
-- [ ] Guide intersections produce snap points at priority 2 (above single guide, below OSNAP)
-- [ ] OSNAP (priority 1) always wins over guide snap
-- [ ] Guide snap points use distinct marker shape (diamond) from OSNAP markers
-- [ ] Max 6 guides visible simultaneously
-- [ ] Color coding: blue (alignment/extension), green (spacing), orange (wall proximity)
-- [ ] Selection dimensions appear on node select, showing distances to adjacent pipe-connected nodes
-- [ ] Double-click dimension → inline edit → node slides along pipe direction
-- [ ] Multi-select dimension edit moves selection as rigid group preserving relative spacing
-- [ ] Downstream nodes stay fixed during dimension edit (only edited segment changes)
-- [ ] Three toggles (dynamic input, guides, spacing) + master key, persisted to QSettings
-- [ ] Status bar shows toggle states alongside OSNAP indicator (F3 pill)
-- [ ] Guide computation < 5ms per frame; spatial + type filtering; 2px cursor cache threshold
+**Equal Spacing (§7) / Selection Dimensions (§8)** — proposal; tests TBD when built.

@@ -63,9 +63,9 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 | 3D / multi-level snap behavior | Belongs in the views-relationship spec (separate P1 task). |
 | Polar tracking | Separate subsystem; AutoCAD treats it independently of OSNAP. |
 | Grid snap (snap to a regular spacing independent of objects) | Separate subsystem; FirePro3D currently uses gridlines as objects, not as a spacing constraint. |
-| Object snap tracking (OTRACK) | AutoCAD's killer feature for offset placement; deserves its own spec. |
-| **Inferred / dimension-driven placement** (Revit's spine) | **Flagged as the next priority spec after this one.** |
-| Snap-from / temporary tracking | Subsystem of OTRACK family. |
+| Object snap tracking (OTRACK) | **DELIVERED → [`align-placement.md`](align-placement.md)** (ALIGN acquire-and-track; candidates enter `find()` at priority 20/30 — see §14.5). |
+| **Inferred / dimension-driven placement** (Revit's spine) | **DELIVERED → [`align-placement.md`](align-placement.md)** (the auto-proximity variant was retired and replaced by ALIGN's deliberate-acquire model). |
+| Snap-from / temporary tracking | Subsystem of OTRACK family — folded into ALIGN acquire (`align-placement.md`). |
 | Apparent intersection | 3D feature; couples to multi-level snap. |
 
 ---
@@ -472,6 +472,12 @@ These two are the only current consumers. Future contextual-snap use cases (tool
 The entire pixel-aperture model — and *every* other zoom-dependent tolerance (design-area pick, inference/OTRACK band, array/offset/dimension/rotate previews) — depends on reading the on-screen zoom `view.transform().m11()`. **Critical invariant:** that zoom MUST come from the **visible** plan view via `Model_Space._snap_view()` / `_active_view_scale()`, **never** `self.views()[0]`.
 
 The model scene has **N+1 attached `QGraphicsView`s**: a vestigial, never-shown `MainWindow.view` (created first at `main.py:430`, so it is *always* `views()[0]`, permanently frozen at `m11 = 1.0`) plus one `Model_View` per open plan tab (only the active tab is `isVisible()`). Reading `views()[0].transform().m11()` therefore returns `1.0` forever, which silently degenerates the pixel judgment `d_px = d_scene × m11` into a **fixed scene-unit tolerance** — world-unit snapping (huge grab zoomed in, tiny/insensitive zoomed out) regardless of the pixel aperture. This bug pre-dated the pixel-aperture work and **neutralized it entirely** until fixed (2026-08-26, `a4affd8`). `_snap_view()` returns the first `isVisible()` view, falling back to the last-attached view for headless tests — never the vestigial index-0. **Any new zoom-dependent code must use `_active_view_scale()`, not `self.views()[0]`.**
+
+### 14.5 ALIGN candidates enter the picker (`align_paths=` / `align_aperture_px=`)
+
+*(Added 2026-08-26 — the ALIGN acquire-and-track subsystem is governed by [`align-placement.md`](align-placement.md); this note documents only its `find()` seam.)*
+
+`SnapEngine.find()` accepts two optional ALIGN arguments: `align_paths` (a list of ALIGN `align_engine.Ray` tracking vectors) and `align_aperture_px` (their separate px grab-radius, default `ALIGN_PATH_TOL_PX`). When `align_paths` is provided, `find()` adds three candidate families to the **same** `_SnapCtx` priority-band picker — path×path and path×geometry crossings as `align_intersection` (priority **20**) and single-path projections as `align_path` (priority **30**) — so they rank **below every real snap** (priorities 0–7). ALIGN candidates are judged at `align_aperture_px` via a per-candidate `ctx.check(..., aperture_px=…)` override (not the 15px real-snap aperture), and a held ALIGN result is released at that wider aperture. Real-snap acceptance is never affected. The picker/hysteresis (§6.1, §14.2) and px judgment (§14.1) are unchanged — ALIGN is one more candidate source, not a second resolution path.
 
 ---
 
