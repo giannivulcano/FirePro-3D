@@ -4121,6 +4121,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._align_track_schema() is not None:
             ox, oy = self._align_track_ray.origin
             return QPointF(ox, oy)
+        return self._mode_placement_anchor()
+
+    def _mode_placement_anchor(self) -> "QPointF | None":
+        """The mode's *own* placement anchor, ignoring any on-path track swap.
+
+        Split out of :meth:`get_placement_anchor` so the commit path can ask
+        "does the current mode already have a first-point anchor armed?" without
+        the ``track`` schema substituting the tracking ray's origin (which is
+        non-None even at the first-point step, and is exactly what would mask a
+        first point as a second point — BUG A).  ``get_placement_anchor``
+        returns the track-ray origin while the swap is live; this returns the
+        real per-mode anchor (``None`` at the first-point step).
+        """
         if self.mode in ("draw_line", "draw_gridline"):
             a = self._draw_line_anchor
             return QPointF(a) if a is not None else None
@@ -5009,12 +5022,55 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         hud = self.dynamic_input
         geometry = schema.resolve(anchor, values)
+        # On-path Navigate at the FIRST point (BUG A): the ``track`` schema is a
+        # placement schema, so ``get_placement_anchor`` hands back the tracking
+        # ray's ORIGIN even before the mode's own first click — non-None — which
+        # satisfies the anchor gate above.  But the mode's commit-only appliers
+        # (``_commit_draw_line_at`` / ``_commit_draw_circle_at``) refuse when no
+        # per-mode anchor is armed, and a False verdict becomes a red field.  A
+        # typed Distance on a path at the first point is really "click here to
+        # arm the first point", so route the resolved point through the mode's
+        # PRESS handler (the arm-or-commit entry a real first click takes),
+        # exactly as ``_apply_wall_dynamic_input`` already does for walls.  With
+        # a per-mode anchor armed (second point), this branch is skipped and the
+        # segment commits through the normal applier as before.
+        if (schema.name == "track"
+                and self._mode_placement_anchor() is None
+                and self._commit_track_first_point(geometry)):
+            self.end_dynamic_input()
+            return
         if self.apply_dynamic_input(geometry):
             # An applier may have torn the HUD down itself (e.g. by calling
             # set_mode); end_dynamic_input is a no-op in that case.
             self.end_dynamic_input()
         elif hud is not None and hud is self.dynamic_input:
             hud.reject_commit()
+
+    def _commit_track_first_point(self, point) -> bool:
+        """Arm the mode's first point at *point* via its press handler.
+
+        The on-path Navigate first-point path (BUG A): a typed Distance on a
+        tracking path at the first-point step must arm the mode's placement
+        anchor the same way a real first click on the path does, not run the
+        commit-only applier (which refuses without an anchor).  Dispatches a
+        synthetic press — ``event=None`` (the arming branch of every placement
+        press handler touches only ``snapped``; ``event.modifiers()`` is read
+        only in the second-point/commit branch, which cannot run here because
+        the anchor is None) — through ``_PRESS_DISPATCH`` for the current mode.
+
+        Args:
+            point: The resolved scene-space point (``origin + Distance·dir``).
+
+        Returns:
+            True when the mode has a press handler and the first point was
+            armed; False when no handler exists (caller falls back to the
+            normal applier / rejection path).
+        """
+        handler_name = self._PRESS_DISPATCH.get(self.mode)
+        if handler_name is None:
+            return False
+        getattr(self, handler_name)(None, point, point, None, None, None)
+        return True
 
     def apply_dynamic_input(self, geometry):
         """Apply resolved *geometry* through the current mode's commit path.
