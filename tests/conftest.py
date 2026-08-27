@@ -42,6 +42,34 @@ def _preserve_snap_globals():
 
 
 @pytest.fixture
+def tmp_settings(tmp_path):
+    """A QSettings pinned to an INI file under ``tmp_path`` (no registry writes).
+
+    Used by ALIGN-settings tests to round-trip ``align/*`` keys without touching
+    the real Windows registry.  Pair with monkeypatching
+    ``preferences_dialog.QSettings`` when a pane's internal
+    ``QSettings(org, app)`` calls must be redirected here.
+    """
+    from PyQt6.QtCore import QSettings
+
+    ini_path = str(tmp_path / "align_test.ini")
+    return QSettings(ini_path, QSettings.Format.IniFormat)
+
+
+@pytest.fixture
+def model_space(qapp):
+    """A bare ``Model_Space`` carrying an ``AlignController`` (for ALIGN tests).
+
+    Constructed with no view/level manager — sufficient to exercise the ALIGN
+    knob seam (``_align_controller`` dwell/max-points/direction flags and
+    ``_align_path_tol_px``) which the SnappingPane live-applies.
+    """
+    from firepro3d.model_space import Model_Space
+
+    return Model_Space()
+
+
+@pytest.fixture
 def make_model_space(qapp):
     """Factory that builds a Model_Space with an attached QGraphicsView.
 

@@ -231,13 +231,22 @@ class _SnapCtx:
     def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
               src_item2: QGraphicsItem | None = None,
-              source_lines: list | None = None):
-        """Compare a candidate snap against the current best, judged in PIXELS."""
+              source_lines: list | None = None,
+              aperture_px: float | None = None):
+        """Compare a candidate snap against the current best, judged in PIXELS.
+
+        ``aperture_px`` optionally overrides the hard grab-radius cutoff for
+        THIS candidate only (ALIGN candidates ride their own wider
+        ``ALIGN_PATH_TOL_PX`` band without widening the real-snap aperture).
+        The priority-band picker arithmetic is unchanged — a closer real snap
+        still wins by priority — so real-snap acceptance never regresses.
+        """
         if self.only_types is not None and snap_type not in self.only_types:
             return
         d_scene = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
         d_px = d_scene * self.scale
-        if d_px > self.aperture_px:
+        cutoff = self.aperture_px if aperture_px is None else aperture_px
+        if d_px > cutoff:
             return  # hard pixel aperture — zoom-invariant grab radius
         if snap_type == "endpoint":
             self.endpoint_candidates.append(pt)
@@ -292,6 +301,7 @@ class SnapEngine:
         item_filter:    "Callable[[QGraphicsItem], bool] | None" = None,
         held:           "OsnapResult | None" = None,
         align_paths:    "list | None" = None,
+        align_aperture_px: float | None = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -321,15 +331,27 @@ class SnapEngine:
                 snap in range always wins. Candidates ride the identical pixel
                 aperture + hysteresis arithmetic (zoom-invariant). ``None``
                 (default) skips the pass entirely — existing callers unaffected.
+            align_aperture_px: Optional px grab-radius for ALIGN candidates only.
+                ALIGN paths soft-snap at their OWN wider band
+                (``ALIGN_PATH_TOL_PX``), separate from the 15px real-snap
+                aperture, so a cursor can reach a tracking path from farther away
+                without loosening real snaps. ``None`` (default) falls back to
+                ``ALIGN_PATH_TOL_PX``. Real-snap acceptance is never affected.
         """
         if not self.enabled:
             return None
+
+        from .constants import ALIGN_PATH_TOL_PX
+        align_aperture = (float(ALIGN_PATH_TOL_PX) if align_aperture_px is None
+                          else float(align_aperture_px))
 
         # Aperture is a screen-pixel constant (zoom-invariant). Convert to a
         # scene-unit SEARCH radius, clamped to a perf-only ceiling that never
         # bites at a usable zoom. Acceptance is judged in pixels (see _SnapCtx).
         scale = view_transform.m11()
         aperture_px = float(SNAP_TOLERANCE_PX)
+        # ALIGN candidates search a wider rect (their own aperture) — but the
+        # real-snap search rect stays at the 15px aperture below.
         search_tol = min(px_to_scene(aperture_px, scale), SNAP_MAX_SCENE_TOL)
 
         search_rect = QRectF(
@@ -377,21 +399,24 @@ class SnapEngine:
                     if p is not None:
                         ctx.check("align_intersection", QPointF(*p), None,
                                   source_lines=[_ray_line(align_paths[i]),
-                                                _ray_line(align_paths[j])])
+                                                _ray_line(align_paths[j])],
+                                  aperture_px=align_aperture)
             # path × nearby geometry (priority align_intersection = 20)
             for seg in self._align_geometry_segments(scene, cursor_scene,
                                                      view_transform, item_filter,
-                                                     ctx):
+                                                     ctx, align_aperture):
                 for ray in align_paths:
                     p = path_x_segment(ray, seg[0], seg[1])
                     if p is not None:
                         ctx.check("align_intersection", QPointF(*p), None,
-                                  source_lines=[_ray_line(ray)])
+                                  source_lines=[_ray_line(ray)],
+                                  aperture_px=align_aperture)
             # single-path projection (priority align_path = 30)
             for ray in align_paths:
                 foot, _ = project_to_ray(cur, ray)
                 ctx.check("align_path", QPointF(*foot), None,
-                          source_lines=[_ray_line(ray)])
+                          source_lines=[_ray_line(ray)],
+                          aperture_px=align_aperture)
 
         best = ctx.best_result
         if held is None:
@@ -399,7 +424,12 @@ class SnapEngine:
         held_d_px = scene_to_px(
             math.hypot(held.point.x() - cursor_scene.x(),
                        held.point.y() - cursor_scene.y()), scale)
-        if held_d_px > aperture_px:
+        # A held ALIGN result is released at the ALIGN aperture, not the tighter
+        # real-snap aperture, so an on-path hold isn't dropped prematurely.
+        held_aperture = (align_aperture
+                         if held.snap_type in ("align_intersection", "align_path")
+                         else aperture_px)
+        if held_d_px > held_aperture:
             return best  # cursor left the held aperture → release the hold
         if best is None:
             return held
@@ -814,7 +844,8 @@ class SnapEngine:
                                  cursor_scene: QPointF,
                                  view_transform: QTransform,
                                  item_filter: "Callable[[QGraphicsItem], bool] | None",
-                                 ctx: "_SnapCtx"):
+                                 ctx: "_SnapCtx",
+                                 aperture_px: float | None = None):
         """Yield (p1, p2) scene-space segments near the cursor for ALIGN.
 
         Path×geometry crossings project ALIGN rays against nearby real geometry.
@@ -830,7 +861,12 @@ class SnapEngine:
         iteration; matters on DXF-heavy scenes when ALIGN is active).
         """
         scale = view_transform.m11()
-        aperture_px = float(SNAP_TOLERANCE_PX)
+        # ALIGN path×geometry crossings use the ALIGN aperture for the search
+        # rect (wider than the 15px real-snap aperture) so a ray can cross real
+        # geometry that lies just outside the real-snap grab radius.
+        if aperture_px is None:
+            from .constants import ALIGN_PATH_TOL_PX
+            aperture_px = float(ALIGN_PATH_TOL_PX)
         search_tol = min(px_to_scene(aperture_px, scale), SNAP_MAX_SCENE_TOL)
         search_rect = QRectF(
             cursor_scene.x() - search_tol, cursor_scene.y() - search_tol,

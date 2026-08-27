@@ -849,6 +849,29 @@ class MainWindow(QMainWindow):
         align_on = self.settings.value(
             "align/enabled", True, type=bool)
         self.scene.set_align_enabled(align_on)
+        # Restore the ALIGN tunables (path-tol / dwell / max-points / per-
+        # direction toggles), mirroring the SNAP per-type restore above. Push
+        # each into the live Model_Space + its AlignController so a saved
+        # preference is in effect immediately (not just on next Preferences open).
+        from firepro3d.constants import (
+            ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
+            ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT,
+            ALIGN_DIR_PARALLEL_DEFAULT,
+        )
+        self.scene._align_path_tol_px = float(self.settings.value(
+            "align/path_tol_px", int(ALIGN_PATH_TOL_PX), type=int))
+        _ctrl = self.scene._align_controller
+        _ctrl.dwell_ms = self.settings.value(
+            "align/dwell_ms", ALIGN_DWELL_MS, type=int)
+        _ctrl.max_points = self.settings.value(
+            "align/max_points", ALIGN_MAX_POINTS, type=int)
+        _ctrl.set_direction_flags(
+            hv=self.settings.value("align/dir_hv",
+                                   ALIGN_DIR_HV_DEFAULT, type=bool),
+            extension=self.settings.value("align/dir_extension",
+                                          ALIGN_DIR_EXTENSION_DEFAULT, type=bool),
+            parallel=self.settings.value("align/dir_parallel",
+                                         ALIGN_DIR_PARALLEL_DEFAULT, type=bool))
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings

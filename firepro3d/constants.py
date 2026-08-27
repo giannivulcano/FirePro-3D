@@ -78,12 +78,16 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
 # ── ALIGN tracking paths (align_engine.py) ───────────────────────────────────
-ALIGN_PATH_TOL_PX = 65.0       # screen-px band to align to a ref feature; wider than OSNAP
-                               # (SNAP_TOLERANCE_PX=40) per align-placement spec §5.4 (weak snap)
+ALIGN_PATH_TOL_PX = 20.0       # screen-px cursor→path soft-snap aperture; wider than the
+                               # 15px real-snap aperture but its OWN band (align-placement D7)
 
 # ── ALIGN acquire machine (align_controller.py) ──────────────────────────────
 ALIGN_DWELL_MS = 400           # hover-dwell to acquire a snap point (ms)
 ALIGN_MAX_POINTS = 5           # acquired-point cap (evict oldest)
+# Per-direction ray-kind gating defaults (SnappingPane toggles; controller flags).
+ALIGN_DIR_HV_DEFAULT = True         # emit horizontal/vertical rays from point-acquires
+ALIGN_DIR_EXTENSION_DEFAULT = True  # emit collinear extension rays from directional points
+ALIGN_DIR_PARALLEL_DEFAULT = True   # emit parallel rays from direction-acquires
 
 # ── ALIGN tracking-path overlay ───────────────────────────────────────────────
 ALIGN_GUIDE_COLOR = "#00c8ff"          # cyan — alignment-guide line + glyph (theming.md)

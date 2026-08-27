@@ -260,6 +260,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dwell_ms=ALIGN_DWELL_MS, max_points=ALIGN_MAX_POINTS)
         self._align_last_move_ns = None               # elapsed-ms clock between moves
         self._align_enabled: bool = True              # toggled via settings / F11
+        # ALIGN path soft-snap aperture (px) — ALIGN's OWN grab band, separate
+        # from the 15px real-snap aperture. Live-applied by the SnappingPane and
+        # restored from QSettings; threaded into find(align_aperture_px=…).
+        self._align_path_tol_px: float = float(ALIGN_PATH_TOL_PX)
         self._align_result = None                     # surfaced to drawForeground
         # On-path Navigate (Task 6 follow-up): the winning single-path Ray + the
         # cursor's signed distance along it, recovered in get_effective_position
@@ -3844,7 +3848,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if rays:
                     res = self._snap_engine.find(
                         scene_pos, self, _view.transform(),
-                        align_paths=rays, held=self._align_result)
+                        align_paths=rays, held=self._align_result,
+                        align_aperture_px=self._align_path_tol_px)
                     self._align_result = res
                     if (res is not None
                             and res.snap_type in ("align_intersection",
