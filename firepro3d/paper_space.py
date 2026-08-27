@@ -588,7 +588,7 @@ class SheetProperties:
     The on_change callback lets MainWindow push UI refreshes + the dirty flag.
     """
 
-    _TB_KEYS = ("Rev", "Date")
+    _TB_KEYS = ("Rev", "Date", "Drawn By", "Checked By")
 
     def __init__(self, sheet: "Sheet", manager: "SheetManager",
                  on_change=None, on_reject=None, scene_getter=None):
@@ -609,6 +609,12 @@ class SheetProperties:
                     "value": self._sheet.title_block_fields.get("Rev", "")},
             "Date": {"type": "string",
                      "value": self._sheet.title_block_fields.get("Date", "")},
+            "Drawn By": {"type": "string",
+                         "value": self._sheet.title_block_fields.get(
+                             "Drawn By", "")},
+            "Checked By": {"type": "string",
+                           "value": self._sheet.title_block_fields.get(
+                               "Checked By", "")},
             "": {"type": "button", "value": "Edit Revisions…",
                  "callback": self._open_revisions},
         }

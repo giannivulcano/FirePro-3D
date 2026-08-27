@@ -82,6 +82,43 @@ def test_rev_edit_is_undoable(qapp):
     assert sheet.title_block_fields.get("Rev") != "B", "Rev not reverted after undo"
 
 
+def test_sheet_properties_exposes_drawn_and_checked_by(qapp):
+    """Drawn By / Checked By must be editable per-sheet rows in the panel."""
+    from firepro3d.paper_space import SheetProperties
+
+    scene = _scene_with_template()
+    sp = SheetProperties(scene._sheet, None, scene_getter=lambda: scene)
+    props = sp.get_properties()
+    for key in ("Drawn By", "Checked By"):
+        assert key in props, f"{key} row missing from SheetProperties"
+        assert props[key]["type"] == "string", f"{key} must be an editable string"
+
+
+def test_drawn_by_edit_is_undoable_and_written(qapp):
+    """Drawn By writes to title_block_fields (feeding the @[Drawn By] token) and undoes."""
+    from firepro3d.paper_space import SheetProperties
+
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    sp.set_property("Drawn By", "GV")
+    assert sheet.title_block_fields.get("Drawn By") == "GV"
+    scene.undo_stack.undo()
+    assert sheet.title_block_fields.get("Drawn By") != "GV"
+
+
+def test_checked_by_edit_is_undoable(qapp):
+    from firepro3d.paper_space import SheetProperties
+
+    scene = _scene_with_template()
+    sheet = scene._sheet
+    sp = SheetProperties(sheet, None, scene_getter=lambda: scene)
+    sp.set_property("Checked By", "AB")
+    assert sheet.title_block_fields.get("Checked By") == "AB"
+    scene.undo_stack.undo()
+    assert sheet.title_block_fields.get("Checked By") != "AB"
+
+
 def test_sheet_properties_types_are_string_button_or_label(qapp):
     from firepro3d.paper_space import SheetProperties
     scene = _scene_with_template()
