@@ -228,7 +228,7 @@ class _SnapCtx:
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
 
-    def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
+    def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
               src_item2: QGraphicsItem | None = None,
               source_lines: list | None = None):
@@ -380,7 +380,8 @@ class SnapEngine:
                                                 _ray_line(align_paths[j])])
             # path × nearby geometry (priority align_intersection = 20)
             for seg in self._align_geometry_segments(scene, cursor_scene,
-                                                     view_transform, item_filter):
+                                                     view_transform, item_filter,
+                                                     ctx):
                 for ray in align_paths:
                     p = path_x_segment(ray, seg[0], seg[1])
                     if p is not None:
@@ -547,7 +548,7 @@ class SnapEngine:
         # Bail out if segment extraction exploded (batched DXF paths
         # have hundreds of segments per item; O(n²) pairing on 3000+
         # segments freezes the UI).
-        if _overflow or len(_segments) > _PHASE4_MAX_SEGMENTS:
+        if _overflow:
             return
 
         # Endpoint protection band — §6.3 Change B. Intersection
@@ -812,7 +813,8 @@ class SnapEngine:
     def _align_geometry_segments(self, scene: QGraphicsScene,
                                  cursor_scene: QPointF,
                                  view_transform: QTransform,
-                                 item_filter: "Callable[[QGraphicsItem], bool] | None"):
+                                 item_filter: "Callable[[QGraphicsItem], bool] | None",
+                                 ctx: "_SnapCtx"):
         """Yield (p1, p2) scene-space segments near the cursor for ALIGN.
 
         Path×geometry crossings project ALIGN rays against nearby real geometry.
@@ -821,6 +823,11 @@ class SnapEngine:
         geometry phase-4 does. Respects ``_PHASE4_MAX_SEGMENTS`` (stops past the
         cap). No gridlines are threaded in (ALIGN passes an empty ``gl_items``);
         gridline crossings already surface as real ``intersection`` snaps.
+
+        The MAIN ``find()`` ctx is threaded in so its ``underlay_geoms`` cache —
+        already populated by phase 1/4 this same call — is reused here instead of
+        re-querying the underlay snap indices (spec: no redundant underlay
+        iteration; matters on DXF-heavy scenes when ALIGN is active).
         """
         scale = view_transform.m11()
         aperture_px = float(SNAP_TOLERANCE_PX)
@@ -829,12 +836,9 @@ class SnapEngine:
             cursor_scene.x() - search_tol, cursor_scene.y() - search_tol,
             search_tol * 2, search_tol * 2,
         )
-        # Reuse an ephemeral ctx solely for its per-group underlay-query cache.
-        _ctx = _SnapCtx(cursor=cursor_scene, scale=scale,
-                        aperture_px=aperture_px, priority_band_px=0.0)
         _count = 0
         for rec in self._iter_geometry_segments(scene, search_rect, None,
-                                               [], item_filter, _ctx):
+                                               [], item_filter, ctx):
             if rec[0] != "seg":
                 continue  # circles have no path×segment crossing here
             p1, p2, _src, _pk = rec[1]
