@@ -28,6 +28,7 @@ from firepro3d.level_widget import LevelWidget
 from firepro3d.paper_space import (
     PaperSpaceWidget, Sheet, SheetManager, SheetProperties, ViewResolver,
     PAPER_SIZES, TextAnnotationData, TextAnnotationItem,
+    SheetViewport, ViewportProperties,
     text_template_to_settings, apply_template_settings,
     native_orientation_from_dims, sheet_page_mm,
 )
@@ -4152,14 +4153,24 @@ class MainWindow(QMainWindow):
         try:
             # T9: TitleBlockTemplateItem is now non-selectable; this filter
             # already excluded it, so no change needed here.
-            items = [it for it in w.paper_scene.selectedItems()
-                     if isinstance(it, TextAnnotationItem)]
+            selected = w.paper_scene.selectedItems()
         except RuntimeError:
+            return
+        items = [it for it in selected if isinstance(it, TextAnnotationItem)]
+        if items:
+            self.prop_manager.show_properties(items)
+            return
+        # A single selected viewport populates the panel (supersedes the
+        # double-click SheetViewPropertiesDialog — spec §19.4).
+        vps = [it for it in selected if isinstance(it, SheetViewport)]
+        if len(vps) == 1:
+            self.prop_manager.show_properties(
+                ViewportProperties(w.paper_scene, vps[0]))
             return
         # §19.4: the paper panel is never blank — empty selection falls back
         # to the active sheet's properties.
         self.prop_manager.show_properties(
-            items if items else self._sheet_props_adapter(self._sheet))
+            self._sheet_props_adapter(self._sheet))
 
     def _on_add_text_mode_toggled(self, checked: bool):
         """Show the text template pre-placement; restore selection view after."""

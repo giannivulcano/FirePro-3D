@@ -672,6 +672,63 @@ class SheetProperties:
                 self._on_change()
 
 
+class ViewportProperties:
+    """Property-panel adapter for a SheetViewport (spec §19.4).
+
+    Duck-typed (get_properties/set_property) like SheetProperties. Supersedes
+    the double-click SheetViewPropertiesDialog: every edit routes through
+    PaperScene.commit_viewport_edit → ChangeViewportPropertiesCommand, so the
+    panel shares the dialog's crop×scale derivation and is fully undoable.
+    Width/Height are derived (crop × scale) and shown read-only.
+    """
+
+    def __init__(self, scene, viewport):
+        self._scene = scene
+        self._vp = viewport
+
+    def get_properties(self) -> dict:
+        d = self._vp.data
+        scale_val = "NTS" if not d.scale else float_to_scale_str(d.scale)
+        scale_opts = ["NTS"] + [label for label, _ in SCALE_PRESETS]
+        if scale_val not in scale_opts:            # non-preset custom scale
+            scale_opts = [scale_val] + scale_opts
+        return {
+            "View": {"type": "label",
+                     "value": d.title or d.source_view_name},
+            "Title": {"type": "string", "value": d.title},
+            "Scale": {"type": "enum", "value": scale_val,
+                      "options": scale_opts},
+            "Show Border": {"type": "bool", "value": d.show_border},
+            "Position X": {"type": "string", "value": f"{d.x:.1f}"},
+            "Position Y": {"type": "string", "value": f"{d.y:.1f}"},
+            "Width": {"type": "label", "value": f"{d.w:.1f} mm"},
+            "Height": {"type": "label", "value": f"{d.h:.1f} mm"},
+        }
+
+    def set_property(self, key: str, value) -> None:
+        d = self._vp.data
+        if key == "Title":
+            self._scene.commit_viewport_edit(self._vp, title=str(value))
+        elif key == "Scale":
+            s = (0.0 if str(value).upper() == "NTS"
+                 else scale_to_float(str(value)))
+            self._scene.commit_viewport_edit(self._vp, scale=s)
+        elif key == "Show Border":
+            self._scene.commit_viewport_edit(self._vp, show_border=bool(value))
+        elif key == "Position X":
+            try:
+                x = float(value)
+            except (TypeError, ValueError):
+                return
+            self._scene.commit_viewport_edit(self._vp, pos=(x, d.y))
+        elif key == "Position Y":
+            try:
+                y = float(value)
+            except (TypeError, ValueError):
+                return
+            self._scene.commit_viewport_edit(self._vp, pos=(d.x, y))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ViewResolver — bridges source view managers to (scene, source_rect) pairs
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3743,24 +3800,35 @@ class PaperScene(QGraphicsScene):
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(0, lambda vp=viewport: self.remove_viewport(vp))
 
-    def _on_viewport_properties(self, viewport):
+    def commit_viewport_edit(self, viewport, *, title=None, show_border=None,
+                             scale=None, pos=None) -> bool:
+        """Push a ChangeViewportPropertiesCommand for one or more field edits.
+
+        Any keyword left ``None`` keeps the viewport's current value. On-paper
+        size (``w``/``h``) is always **derived** from crop × scale (concern 5)
+        and never set directly — a stale W/H silently defeats scale changes.
+        This is the single home for that derivation, shared by the double-click
+        dialog and the property panel (spec §19.4).
+
+        Args:
+            viewport: The SheetViewport being edited.
+            title: New title, or None to keep.
+            show_border: New border flag, or None to keep.
+            scale: New scale (0.0 = NTS), or None to keep.
+            pos: New (x, y) on-paper position, or None to keep.
+
+        Returns:
+            True if a command was pushed (values actually changed).
+        """
         data = viewport.data
-        dlg = SheetViewPropertiesDialog(data.source_view_name, data)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        # Snapshot the fields the dialog mutates (incl. derived w/h) BEFORE
-        # applying, then compute the new values without touching the data
-        # object — the command applies/reverts them. The ordering below
-        # (scale-derived w/h first, then explicit size override) preserves the
-        # original inline behaviour exactly.
         old_fields = {
             "title": data.title, "show_border": data.show_border,
             "scale": data.scale, "x": data.x, "y": data.y,
             "w": data.w, "h": data.h,
         }
-        new_title = dlg.get_title()
-        new_show_border = dlg.get_show_border()
-        new_scale = dlg.get_scale()
+        new_title = data.title if title is None else title
+        new_show_border = data.show_border if show_border is None else show_border
+        new_scale = data.scale if scale is None else scale
         new_x, new_y = data.x, data.y
         new_w, new_h = data.w, data.h
         if new_scale != data.scale and new_scale != 0.0:
@@ -3769,13 +3837,8 @@ class PaperScene(QGraphicsScene):
             if crop is not None and not crop.isEmpty():
                 new_w = crop.width() * new_scale
                 new_h = crop.height() * new_scale
-        pos = dlg.get_position()
-        if pos:
+        if pos is not None:
             new_x, new_y = pos
-        # Concern 5: on-paper size is DERIVED from crop × scale (computed above).
-        # The dialog's W/H fields are read-only and must never override it — a
-        # stale field value here silently defeated scale changes (the viewport
-        # never resized). Size follows scale; only position is user-settable.
         new_fields = {
             "title": new_title, "show_border": new_show_border,
             "scale": new_scale, "x": new_x, "y": new_y,
@@ -3784,6 +3847,21 @@ class PaperScene(QGraphicsScene):
         if new_fields != old_fields:
             self._undo_stack.push(
                 ChangeViewportPropertiesCommand(self, data, old_fields, new_fields))
+            return True
+        return False
+
+    def _on_viewport_properties(self, viewport):
+        data = viewport.data
+        dlg = SheetViewPropertiesDialog(data.source_view_name, data)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.commit_viewport_edit(
+            viewport,
+            title=dlg.get_title(),
+            show_border=dlg.get_show_border(),
+            scale=dlg.get_scale(),
+            pos=dlg.get_position(),
+        )
 
     # ── Annotation management ────────────────────────────────────────────
 
