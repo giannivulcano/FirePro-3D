@@ -1187,6 +1187,19 @@ class MainWindow(QMainWindow):
             "plan", f"Plan: {level_name}") if resolver is not None else None
         if ctx is not None:
             _lvl, vh, vd = ctx
+            # Auto upper bound: when the user hasn't pinned an explicit
+            # view_height, derive it from the actual floor above at activation
+            # (a thick spanning floor would otherwise bleed into this plan).
+            # We pass the computed value into this render only — never write it
+            # back onto the cached PlanView, which would defeat the flag on the
+            # next load. NOTE: paper-space SheetViewport rendering still uses
+            # the cached pv.view_height via the resolver; dynamic parity there
+            # is a separate follow-up ("paper-viewport dynamic view-height").
+            pv = self.plan_view_mgr.get(f"Plan: {level_name}")
+            if pv is not None and not getattr(pv, "view_height_explicit", False):
+                dyn = self.level_mgr.compute_view_height(self.scene, level_name)
+                if dyn is not None:
+                    vh = dyn
             self.level_mgr.apply_to_scene(self.scene, level_name,
                                           view_height=vh, view_depth=vd)
         else:
@@ -1218,11 +1231,15 @@ class MainWindow(QMainWindow):
             from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
-                self.scene.scale_manager, parent=self)
+                self.scene.scale_manager, parent=self, scene=self.scene)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 vh, vd = dlg.get_values()
                 pv.view_height = vh
                 pv.view_depth = vd
+                # Respect the dialog's override intent: a manual height edit
+                # pins it (True); Reset-to-Defaults opts back into the dynamic
+                # auto-derived upper bound (False).
+                pv.view_height_explicit = dlg.is_explicit()
                 current_text = self.central_tabs.tabText(
                     self.central_tabs.currentIndex())
                 if current_text == tab_text:
@@ -1249,7 +1266,7 @@ class MainWindow(QMainWindow):
             from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
-                self.scene.scale_manager, parent=self)
+                self.scene.scale_manager, parent=self, scene=self.scene)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 vh, vd = dlg.get_values()
                 marker.view_height = vh
@@ -4307,6 +4324,9 @@ class MainWindow(QMainWindow):
             vh, vd = dlg.get_values()
             pv.view_height = vh
             pv.view_depth = vd
+            # Respect the dialog's override intent: a manual height edit pins it
+            # (True); Reset-to-Defaults opts back into the dynamic upper bound.
+            pv.view_height_explicit = dlg.is_explicit()
             current_text = self.central_tabs.tabText(
                 self.central_tabs.currentIndex())
             if current_text == tab_text:

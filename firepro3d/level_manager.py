@@ -108,6 +108,10 @@ class PlanView:
     level_name:  str            # which level this plan view shows
     view_height: float = 0.0   # mm, absolute elevation of the cut plane
     view_depth:  float = 0.0   # mm, absolute elevation of the bottom limit
+    # When False the upper bound (view_height) is auto-derived from the actual
+    # floor above at activation (see LevelManager.compute_view_height); when
+    # True the user pinned it via the View Range dialog and it is respected.
+    view_height_explicit: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -115,6 +119,7 @@ class PlanView:
             "level_name":  self.level_name,
             "view_height": self.view_height,
             "view_depth":  self.view_depth,
+            "view_height_explicit": self.view_height_explicit,
         }
 
     @classmethod
@@ -124,6 +129,10 @@ class PlanView:
             level_name  = d["level_name"],
             view_height = d.get("view_height", 0.0),
             view_depth  = d.get("view_depth",  0.0),
+            # BACK-COMPAT: an OLD project file has no flag → treat the saved
+            # view_height as explicit so we never stomp a possibly-deliberate
+            # user setting we can't distinguish from an auto default.
+            view_height_explicit = d.get("view_height_explicit", True),
         )
 
 
@@ -167,6 +176,7 @@ class PlanViewInfo:
 
 
 _DEFAULT_SLAB_THICKNESS_MM = 152.4  # 6 inches — used to compute default view_height
+_VIEW_TOP_TOL_MM = 50.0  # a floor "belongs to the level above" if its top-z is within this of that datum
 
 
 class PlanViewManager:
@@ -341,6 +351,39 @@ class LevelManager:
         self._levels = [Level(**vars(l)) for l in DEFAULT_LEVELS]
 
     # ── Elevation helpers ───────────────────────────────────────────────────
+
+    def compute_view_height(self, scene, level_name) -> float | None:
+        """Auto upper bound for a level's plan view.
+
+        Prefers the bottom-z of the actual floor above (a slab whose resolved
+        top-z sits within ``_VIEW_TOP_TOL_MM`` of the next level's datum); this
+        keeps a thick spanning floor from dipping below the cut plane and
+        bleeding into the current plan. Falls back to
+        ``next_datum - _DEFAULT_SLAB_THICKNESS_MM`` when no such floor exists,
+        and to ``this level + view_top`` when there is no level above.
+
+        Returns ``None`` if *level_name* is unknown.
+        """
+        lvl = self.get(level_name)
+        if lvl is None:
+            return None
+        nxt = None
+        for l in sorted(self._levels, key=lambda x: x.elevation):
+            if l.elevation > lvl.elevation:
+                nxt = l
+                break
+        if nxt is None:
+            return lvl.elevation + lvl.view_top
+        best = None
+        for slab in getattr(scene, "_floor_slabs", []):
+            zr = slab.z_range_mm() if hasattr(slab, "z_range_mm") else None
+            if zr is None:
+                continue
+            bot, top = zr
+            if abs(top - nxt.elevation) <= _VIEW_TOP_TOL_MM:
+                best = bot if best is None else min(best, bot)
+        return best if best is not None else (
+            nxt.elevation - _DEFAULT_SLAB_THICKNESS_MM)
 
     def update_elevations(self, scene):
         """Recompute z_pos for all nodes using ceiling_level + ceiling_offset."""

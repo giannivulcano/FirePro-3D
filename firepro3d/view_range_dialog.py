@@ -21,7 +21,7 @@ class ViewRangeDialog(QDialog):
 
     def __init__(self, plan_view: PlanView, level_manager: LevelManager,
                  plan_view_manager: PlanViewManager, scale_manager,
-                 parent=None):
+                 parent=None, scene=None):
         super().__init__(parent)
         self.setWindowTitle(f"View Range \u2014 {plan_view.name}")
         self.setMinimumWidth(420)
@@ -29,7 +29,12 @@ class ViewRangeDialog(QDialog):
         self._lm = level_manager
         self._pvm = plan_view_manager
         self._sm = scale_manager
+        self._scene = scene  # used to auto-derive the default upper bound
         self._updating = False  # guard against re-entrant updates
+        # Override intent: True once the user manually edits the cut-plane
+        # height (pin it), False after Reset-to-Defaults (opt into dynamic).
+        # Seeded from the PlanView's current state.
+        self._explicit = bool(getattr(plan_view, "view_height_explicit", True))
 
         layout = QVBoxLayout(self)
 
@@ -144,6 +149,9 @@ class ViewRangeDialog(QDialog):
         """Level + offset changed → update the absolute DimensionEdit."""
         if self._updating:
             return
+        if which == "height":
+            # User-driven height edit → pin as explicit override.
+            self._explicit = True
         self._updating = True
         try:
             if which == "height":
@@ -162,6 +170,9 @@ class ViewRangeDialog(QDialog):
         """Absolute DimensionEdit changed → update level + offset."""
         if self._updating:
             return
+        if which == "height":
+            # User-driven height edit → pin as explicit override.
+            self._explicit = True
         self._updating = True
         try:
             if which == "height":
@@ -176,11 +187,21 @@ class ViewRangeDialog(QDialog):
             self._updating = False
 
     def _reset_defaults(self):
-        """Recompute smart defaults from level spacing."""
+        """Recompute smart defaults and opt back into the dynamic upper bound.
+
+        Resetting clears the explicit-override flag so the plan's upper bound
+        auto-derives from the actual floor above on the next activation. The
+        shown default prefers ``LevelManager.compute_view_height`` (the same
+        auto value used at activation), falling back to the old spacing formula
+        when it can't be computed (e.g. no scene / unknown level)."""
         lvl = self._lm.get(self._pv.level_name)
         if lvl is None:
             return
         elev = lvl.elevation
+
+        # Opt back into dynamic upper bound. The commit path reads
+        # is_explicit() and writes this onto the shared PlanView on Accept.
+        self._explicit = False
 
         levels_sorted = sorted(self._lm.levels, key=lambda l: l.elevation)
         next_lvl = None
@@ -190,10 +211,15 @@ class ViewRangeDialog(QDialog):
                 break
 
         from .level_manager import _DEFAULT_SLAB_THICKNESS_MM
-        if next_lvl is not None:
-            view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
-        else:
-            view_height = elev + lvl.view_top
+        view_height = None
+        if self._scene is not None:
+            view_height = self._lm.compute_view_height(
+                self._scene, self._pv.level_name)
+        if view_height is None:
+            if next_lvl is not None:
+                view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
+            else:
+                view_height = elev + lvl.view_top
 
         view_depth = elev + lvl.view_bottom
 
@@ -214,3 +240,12 @@ class ViewRangeDialog(QDialog):
     def get_values(self) -> tuple[float, float]:
         """Return (view_height, view_depth) in mm."""
         return (self._height_edit.value_mm(), self._depth_edit.value_mm())
+
+    def is_explicit(self) -> bool:
+        """Whether the user pinned an explicit cut-plane height.
+
+        True if the height field was manually edited, False after
+        Reset-to-Defaults (opt into the dynamic auto-derived upper bound).
+        Commit paths write this onto the shared PlanView on Accept.
+        """
+        return self._explicit
