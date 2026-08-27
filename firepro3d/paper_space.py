@@ -841,7 +841,6 @@ class SheetViewport(QGraphicsObject):
 
     navigate_requested = pyqtSignal(str, str)
     delete_requested = pyqtSignal(object)
-    properties_requested = pyqtSignal(object)
 
     def __init__(self, data: SheetViewData, resolver: ViewResolver, parent=None):
         super().__init__(parent)
@@ -1305,7 +1304,8 @@ class SheetViewport(QGraphicsObject):
 
     def contextMenuEvent(self, event: QGraphicsSceneContextMenuEvent):
         menu = QMenu()
-        props_action = menu.addAction("Properties...")
+        # Viewport properties are edited in the property panel (select the
+        # viewport — spec §19.4); the old "Properties..." dialog entry is gone.
         goto_action = menu.addAction("Go to View")
         menu.addSeparator()
         delete_action = menu.addAction("Delete")
@@ -1327,9 +1327,7 @@ class SheetViewport(QGraphicsObject):
                     detail_actions[act] = nm
 
         action = menu.exec(event.screenPos())
-        if action == props_action:
-            self.properties_requested.emit(self)
-        elif action == goto_action:
+        if action == goto_action:
             self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
         elif action == delete_action:
             self.delete_requested.emit(self)
@@ -3645,7 +3643,6 @@ class PaperScene(QGraphicsScene):
         vp = SheetViewport(data, self._resolver)
         vp.navigate_requested.connect(self._on_navigate)
         vp.delete_requested.connect(self._on_delete_viewport)
-        vp.properties_requested.connect(self._on_viewport_properties)
         self.addItem(vp)
         self._viewports.append(vp)
         return vp
@@ -3849,19 +3846,6 @@ class PaperScene(QGraphicsScene):
                 ChangeViewportPropertiesCommand(self, data, old_fields, new_fields))
             return True
         return False
-
-    def _on_viewport_properties(self, viewport):
-        data = viewport.data
-        dlg = SheetViewPropertiesDialog(data.source_view_name, data)
-        if dlg.exec() != QDialog.DialogCode.Accepted:
-            return
-        self.commit_viewport_edit(
-            viewport,
-            title=dlg.get_title(),
-            show_border=dlg.get_show_border(),
-            scale=dlg.get_scale(),
-            pos=dlg.get_position(),
-        )
 
     # ── Annotation management ────────────────────────────────────────────
 

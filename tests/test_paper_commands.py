@@ -368,42 +368,6 @@ def test_viewport_geometry_push_guard(qapp):
 _SRC_RECT = QRectF(0, 0, 10000, 8000)
 
 
-class _StubVPDialog:
-    """Stand-in for SheetViewPropertiesDialog mirroring its caller-read API.
-
-    _on_viewport_properties constructs it as ``Dialog(source_view_name, data)``
-    and reads exec()/get_title/get_show_border/get_scale/get_position/get_size.
-    Configured values are injected by the monkeypatched factory.
-    """
-    title = None
-    show_border = None
-    scale = None
-    position = None
-    size = None
-
-    def __init__(self, source_view_name, data):
-        self._data = data
-
-    def exec(self):
-        return QDialog.DialogCode.Accepted
-
-    def get_title(self):
-        return self.title if self.title is not None else self._data.title
-
-    def get_show_border(self):
-        return (self.show_border if self.show_border is not None
-                else self._data.show_border)
-
-    def get_scale(self):
-        return self.scale if self.scale is not None else self._data.scale
-
-    def get_position(self):
-        return self.position
-
-    def get_size(self):
-        return self.size
-
-
 def _resolving_scene():
     """PaperScene whose resolver returns a real (scene, _SRC_RECT) source."""
     src = QGraphicsScene()
@@ -413,50 +377,41 @@ def _resolving_scene():
     return PaperScene(Sheet.create_default(), resolver)
 
 
-def _patch_vp_dialog(monkeypatch, **cfg):
-    """Patch SheetViewPropertiesDialog with a preconfigured _StubVPDialog."""
-    stub = type("_VPDlg", (_StubVPDialog,), cfg)
-    monkeypatch.setattr(
-        "firepro3d.paper_space.SheetViewPropertiesDialog", stub)
+def test_viewport_properties_scale_rederives_wh(qapp):
+    """Changing only the scale re-derives w/h from source_rect × new scale.
 
-
-def test_viewport_properties_scale_rederives_wh(qapp, monkeypatch):
-    """Changing only the scale re-derives w/h from source_rect × new scale."""
+    Drives PaperScene.commit_viewport_edit — the shared helper the property
+    panel routes through (the right-click Properties dialog was removed).
+    """
     scene = _resolving_scene()
     data = _vp_data(scale=0.01, w=400.0, h=300.0)
     scene._do_add_viewport(data)
-    _patch_vp_dialog(monkeypatch, scale=0.02)   # no explicit position/size
 
     vp = _find_viewport(scene, data)
-    scene._on_viewport_properties(vp)
+    scene.commit_viewport_edit(vp, scale=0.02)
 
     assert scene.undo_stack.count() == 1
-    # redo() applied new_fields synchronously → derived from _SRC_RECT × 0.02.
     assert data.scale == 0.02
     assert data.w == pytest.approx(_SRC_RECT.width() * 0.02)   # 200.0
     assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160.0
 
 
-def test_viewport_properties_size_follows_scale_ignoring_stale_fields(qapp, monkeypatch):
-    """Concern 5: on-paper size is derived from crop × scale; a stale W/H value
-    from the (now read-only) dialog fields must NOT override it.
+def test_viewport_properties_size_follows_scale(qapp):
+    """Concern 5: on-paper size is always derived from crop × scale.
 
-    Regression for the smoke-test bug where changing scale never resized the
-    viewport because get_size() returned the still-populated W/H fields and
-    clobbered the scale-derived size.
+    commit_viewport_edit takes no size argument, so a scale change can never be
+    clobbered by a stale W/H (the panel/dialog W/H are read-only).
     """
     scene = _resolving_scene()
     data = _vp_data(scale=0.01, w=400.0, h=300.0)
     scene._do_add_viewport(data)
-    # Even if the dialog hands back an explicit size, it is ignored now.
-    _patch_vp_dialog(monkeypatch, scale=0.02, size=(123.0, 45.0))
 
     vp = _find_viewport(scene, data)
-    scene._on_viewport_properties(vp)
+    scene.commit_viewport_edit(vp, scale=0.02)
 
     assert scene.undo_stack.count() == 1
-    assert data.w == pytest.approx(_SRC_RECT.width() * 0.02)   # 200, NOT 123
-    assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160, NOT 45
+    assert data.w == pytest.approx(_SRC_RECT.width() * 0.02)   # 200
+    assert data.h == pytest.approx(_SRC_RECT.height() * 0.02)  # 160
 
 
 def test_update_from_sheet_clears_undo_stack(qapp):

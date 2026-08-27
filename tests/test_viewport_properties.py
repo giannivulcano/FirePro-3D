@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtCore import QRectF
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem, QDialog
+from PyQt6.QtWidgets import QGraphicsScene, QGraphicsRectItem
 
 from firepro3d.paper_space import (
     PaperScene, Sheet, SheetViewData, ViewResolver, ViewportProperties,
@@ -125,34 +125,16 @@ def test_commit_viewport_edit_noop_returns_false(scene_and_vp):
     assert scene.undo_stack.count() == count
 
 
-def test_dialog_path_routes_through_shared_helper(scene_and_vp, monkeypatch):
-    """_on_viewport_properties (double-click) now shares commit_viewport_edit."""
-    scene, vp = scene_and_vp
+def test_viewport_properties_dialog_path_removed(scene_and_vp):
+    """The right-click properties dialog is gone — panel supersedes it.
 
-    class _FakeDlg:
-        def __init__(self, name, data, parent=None):
-            pass
-
-        def exec(self):
-            return QDialog.DialogCode.Accepted
-
-        def get_title(self):
-            return "PLAN X"
-
-        def get_show_border(self):
-            return False
-
-        def get_scale(self):
-            return 0.2
-
-        def get_position(self):
-            return (vp.data.x, vp.data.y)
-
-    monkeypatch.setattr(
-        "firepro3d.paper_space.SheetViewPropertiesDialog", _FakeDlg)
-    scene._on_viewport_properties(vp)
-    assert vp.data.title == "PLAN X"
-    assert vp.data.show_border is False
-    assert vp.data.scale == pytest.approx(0.2)
-    # Same crop×scale derivation as the panel.
-    assert vp.data.w == pytest.approx(1000 * 0.2, abs=0.5)
+    Both the signal (nothing can request the dialog) and the scene handler
+    are removed; editing happens by selecting the viewport (ViewportProperties).
+    """
+    from firepro3d.paper_space import SheetViewport, PaperScene
+    assert not hasattr(SheetViewport, "properties_requested"), (
+        "SheetViewport.properties_requested signal must be removed"
+    )
+    assert not hasattr(PaperScene, "_on_viewport_properties"), (
+        "PaperScene._on_viewport_properties handler must be removed"
+    )
