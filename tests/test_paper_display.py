@@ -333,6 +333,28 @@ class TestRoomLabelPaperHeight:
             assert on_paper == pytest.approx(2.5, abs=1e-6)
             restore_model_display(saved)
 
+    def test_light_label_forced_dark_on_bw_paper_then_restored(self, scene_with_room):
+        """A light model label colour (readable on the dark canvas) must become
+        the paper category colour on B&W paper — else it's white-on-white."""
+        scene, room = scene_with_room
+        room._label_font_color = "#ffffff"   # light model colour
+        save_paper_color_mode(PaperColorMode.BW)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_color == FACTORY_PAPER_CATEGORIES["Room"]["color"]
+        assert str(room._label_font_color).lstrip("#").lower() == "000000"
+        restore_model_display(saved)
+        assert room._label_font_color == "#ffffff", "model label colour not restored"
+
+    def test_fullcolor_keeps_authored_label_color(self, scene_with_room):
+        scene, room = scene_with_room
+        room._label_font_color = "#123456"
+        save_paper_color_mode(PaperColorMode.FULL_COLOR)
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 6000, 4000),
+                                      paper_scale=0.01)
+        assert room._label_font_color == "#123456", "full-colour must keep authored colour"
+        restore_model_display(saved)
+
 
 class TestResolveLineWeight:
     def test_known_weight(self):

@@ -371,21 +371,30 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     item.update()
 
 
-def _apply_room_label_paper_height(room, cat, paper_scale, entry):
-    """Size the room tag label to a fixed ON-PAPER cap height (§9.9).
+def _apply_room_label_paper_height(room, cat, color_mode, paper_scale, entry):
+    """Size + colour the room tag label for paper (§9.9).
 
-    The label font is stored in model (scene) units and rendered through the
-    viewport at ``paper_scale`` (paper mm per model mm), so a raw model size
+    Size: the label font is stored in model (scene) units and rendered through
+    the viewport at ``paper_scale`` (paper mm per model mm), so a raw model size
     plots at ``size × paper_scale`` — shrinking to sub-pixel at architectural
     scales. Dividing the target paper height by ``paper_scale`` makes the label
     render at a constant on-paper size regardless of viewport scale (the same
-    true-scale trick as gridline bubbles). The original size is saved on
-    *entry* and restored by ``restore_model_display``.
+    true-scale trick as gridline bubbles).
+
+    Colour: the model label colour comes from the *model* Display Manager "Room"
+    colour, which is light for readability on the dark canvas — invisible on
+    white paper (white-on-white). In B&W / custom modes force the paper "Room"
+    category colour (black by default) so the tag reads; full-colour keeps the
+    authored colour. Original size + colour are saved on *entry* and restored by
+    ``restore_model_display``.
     """
     S = max(paper_scale, 1e-9)
     cap_mm = cat.get("label_height_mm", 2.5)
     entry["room_label_font_size"] = room._label_font_size
+    entry["room_label_font_color"] = room._label_font_color
     room._label_font_size = cap_mm / S
+    if color_mode != PaperColorMode.FULL_COLOR:
+        room._label_font_color = cat["color"]
     room._update_label()
 
 
@@ -644,7 +653,8 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
                 # plots readably at any viewport scale instead of shrinking.
                 from .room import Room as _Room
                 if isinstance(item, _Room):
-                    _apply_room_label_paper_height(item, cat, paper_scale, entry)
+                    _apply_room_label_paper_height(
+                        item, cat, color_mode, paper_scale, entry)
 
         # --- Fittings (wrappers, not QGraphicsItems) ---
         if hasattr(scene, "sprinkler_system"):
@@ -836,9 +846,11 @@ def restore_model_display(saved: list[dict]):
                 del item._paper_fill_opaque
             if hasattr(item, "_paper_no_fill"):
                 del item._paper_no_fill
-            # Restore the room label's model-unit font size (§9.9 paper-height).
+            # Restore the room label's model-unit font size + colour (§9.9).
             if "room_label_font_size" in entry:
                 item._label_font_size = entry["room_label_font_size"]
+                if "room_label_font_color" in entry:
+                    item._label_font_color = entry["room_label_font_color"]
                 item._update_label()
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
