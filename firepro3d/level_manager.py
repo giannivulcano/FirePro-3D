@@ -291,8 +291,16 @@ class LevelManager:
             return
         self._levels = [l for l in self._levels if l.name != name]
 
-    def rename_level(self, old_name: str, new_name: str, items) -> bool:
-        """Rename a level and update all items that referenced the old name."""
+    def rename_level(self, old_name: str, new_name: str, items,
+                     scene=None) -> bool:
+        """Rename a level and update all items that referenced the old name.
+
+        Regular items are remapped via their owning ``.level`` attribute.
+        Floors no longer carry a meaningful owning level (visibility is pure
+        z-range), so they are *not* in the generic ``.level`` loop; instead
+        their two boundary references (``_top_level`` / ``_bottom_level``)
+        are remapped when *scene* is supplied.
+        """
         if not new_name or (self.get(new_name) is not None
                            and new_name != old_name):
             return False
@@ -301,8 +309,20 @@ class LevelManager:
             return False
         lvl.name = new_name
         for item in items:
+            # Floors (pure z-range visibility) have no meaningful owning
+            # level — never rewrite their .level; their boundary refs are
+            # remapped below instead.
+            if getattr(item, "_visibility_by_zrange", False):
+                continue
             if getattr(item, "level", None) == old_name:
                 item.level = new_name
+        # Floors: remap boundary level refs (they're excluded from the
+        # generic .level loop above — their owning .level is obsolete).
+        for slab in getattr(scene, "_floor_slabs", []):
+            if getattr(slab, "_top_level", None) == old_name:
+                slab._top_level = new_name
+            if getattr(slab, "_bottom_level", None) == old_name:
+                slab._bottom_level = new_name
         return True
 
     # ── Serialisation ─────────────────────────────────────────────────────────
@@ -389,6 +409,20 @@ class LevelManager:
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
+
+            # Pure z-range items (floors) ignore .level entirely: their
+            # vertical extent alone drives visibility + section-cut.
+            if getattr(item, "_visibility_by_zrange", False):
+                if has_view_range:
+                    item.setVisible(True)
+                    item.setOpacity(1.0)
+                    item.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
+                    )
+                    _apply_z_filter(item, view_height, view_depth)
+                else:
+                    item.setVisible(True)
+                return
 
             lvl_name = getattr(item, "level", DEFAULT_LEVEL)
 

@@ -211,7 +211,8 @@ class LevelWidget(QWidget):
             old_name = item.data(Qt.ItemDataRole.UserRole) or lvl.name
             if new_name and new_name != lvl.name:
                 ok = self.manager.rename_level(
-                    lvl.name, new_name, self._all_scene_items())
+                    lvl.name, new_name, self._all_scene_items(),
+                    scene=self.scene)
                 if not ok:
                     self._building = True
                     item.setText(lvl.name)
