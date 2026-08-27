@@ -183,8 +183,21 @@ band = SNAP_PRIORITY_BAND_PX   # fixed pixel constant — NOT derived from toler
 
 A candidate becomes the new best if:
   • its d_px is strictly less than (best_dist_px − band), OR
-  • its d_px is within (best_dist_px + band) AND it has higher priority (lower number)
+  • its d_px is within (best_dist_px + band) AND it has higher priority (lower number), OR
+  • its d_px is strictly less than best_dist_px AND it has EQUAL priority (same number)
 ```
+
+The **third clause** (same-priority closest-wins) was added by a bugfix. Within
+the band, an equal-priority candidate that is *strictly closer* in px displaces the
+running best (`d_px < best_dist_px and prio == best_prio`). It was needed because an
+acquired point's H/V tracking rays and its extension ray are all `align_path` (equal
+priority, §3.1) and the H/V rays are checked *first* — without this clause a closer
+extension foot could never beat a farther H/V foot that was already the incumbent, so
+extension tracking silently failed for every non-axis-aligned source ("extension only
+works axis-aligned" bug). The strict `<` keeps the pick **order-independent** (a
+farther equal-priority candidate checked later can never displace a closer incumbent),
+and the clause does **not** touch the higher-priority-override band (clause 2,
+`prio < best_prio`). Regression: `tests/test_align_extension_angled.py`.
 
 `SNAP_PRIORITY_BAND_PX` is a **fixed pixel constant** (not scaled from the scene-unit tolerance), so the priority band is stable regardless of what tolerance the user sets or what zoom level is active. This replaces the earlier `max(tolerance × 0.3, min(tolerance, SNAP_PRIORITY_BAND_PX))` formula, which collapsed at low user tolerance (Pain #2). The endpoint protection band that suppresses intersection candidates near an endpoint is a fixed `_ENDPOINT_PROTECTION_PX = 6` px constant (§6.3 Change B). Regression: `tests/test_snap_priority_band.py`.
 

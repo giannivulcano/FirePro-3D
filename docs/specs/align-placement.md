@@ -1,7 +1,7 @@
 ---
 status: partial
 last-verified: 2026-08-26
-verified-commit: 567602e
+verified-commit: d235ab6
 applies-to:
   - firepro3d/align_engine.py
   - firepro3d/align_controller.py
@@ -517,6 +517,37 @@ path×**underlay** crossings only see underlay segments within the 15px rect, a 
 sliver short of the full ALIGN band. Native scene items are re-queried fresh each frame
 and are unaffected. Keying on `(gid, aperture)` was deliberately rejected: it would
 re-introduce the double underlay query per mousemove that this cache removed.
+
+### 9.1 As-built refinements (2026-08-26 smoke test)
+
+The smoke round produced these behavior changes; the spec is stamped to match shipped
+behavior (`verified-commit: d235ab6`). Values live in `constants.py` — linked, not
+restated (Rule A).
+
+- **(a) First-point distance-typing routes through the mode's arm path.** Typing a
+  signed distance along a path for the *first* click commits via the mode's own
+  arm path (`_commit_track_first_point`), not a separate placement branch.
+- **(b) Extension / perpendicular snap at ANY angle.** Tracking rays snap correctly
+  at any orientation, not only axis-aligned — enabled by the picker's same-priority
+  closest-wins clause (snapping-engine §6.1, Task 1); without it the H/V ray (checked
+  first, equal `align_path` priority) pinned the pick and a closer angled extension
+  foot never won.
+- **(c) Auto-acquired anchor inherits its object's direction.** The active-anchor
+  auto-acquire on a directional object extends **end-to-end at that object's angle**
+  (not H/V only) and reads the **RAW mode anchor**, not the track-ray origin — which
+  kills a stray cursor-pinned H/V ray that otherwise appeared.
+- **(d) Per-placement reset on `push_undo_state`.** Acquired references and tracking
+  state reset per placement, hung off the undo-state push, so alignment context does
+  not leak across placements.
+- **(e) Navigate field labelled "L".** The distance-along-path `track` HUD field is
+  labelled **"L"** (§5).
+- **(f) A 4th per-direction toggle "Perpendicular".** The SNAP-pane per-direction
+  gating grew a fourth toggle, **Perpendicular** (§6), alongside the existing set.
+- **(g) Direction-Parallel defaulted OFF.** The direction-acquire "Parallel" guide
+  ships **defaulted OFF** (`ALIGN_DIR_PARALLEL_DEFAULT`, `constants.py`); it is
+  superseded by the planned perpendicular-**OFFSET** follow-up (a typed perpendicular
+  offset from a reference line — filed in `TODO.md`), which is the behavior actually
+  wanted. Parallel remains available but off by default.
 
 **Deferred.** Polar-increment angles; paper-space ALIGN; apparent-intersection /
 multi-level snap. Equal-Spacing (§7) and Selection-Dimensions (§8) remain proposal.
