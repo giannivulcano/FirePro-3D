@@ -252,8 +252,23 @@ class _SnapCtx:
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
         band = self.priority_band_px
+        # Acceptance rules (all judged in px):
+        #  1. strictly closer beyond the band  → always win;
+        #  2. within the band + higher priority → win (priority-override,
+        #     "recall-first": e.g. an intersection beats a closer perpendicular);
+        #  3. within the band + EQUAL priority + strictly closer → win.
+        # Rule 3 is load-bearing for ALIGN: the acquired point's H/V rays and its
+        # extension ray are all ``align_path`` (equal priority) and the H/V rays
+        # are always checked first, so without a same-priority closest-wins rule
+        # a closer extension foot (2 px) could never displace a farther H/V foot
+        # (10 px) once it was the incumbent — extension tracking then silently
+        # failed for every non-axis-aligned source (BUG B) while H/V "worked"
+        # only because its ray coincides with the extension for axis-aligned
+        # geometry.  ``< best_dist_px`` (strict) means a farther equal-priority
+        # candidate checked later can never displace a closer incumbent.
         if (d_px < self.best_dist_px - band or
-                (d_px < self.best_dist_px + band and prio < self.best_prio)):
+                (d_px < self.best_dist_px + band and prio < self.best_prio) or
+                (d_px < self.best_dist_px and prio == self.best_prio)):
             self.best_dist_px = d_px
             self.best_prio = prio
             self.best_result = OsnapResult(
