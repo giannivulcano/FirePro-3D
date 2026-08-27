@@ -20,7 +20,7 @@ class Ray:
     """A transient tracking vector (origin + unit direction) in scene units."""
     origin: tuple[float, float]
     direction: tuple[float, float]   # unit vector
-    kind: str                        # "hv" | "extension" | "parallel"
+    kind: str                        # "hv" | "extension" | "parallel" | "perpendicular"
     source_id: int
 
 
@@ -46,8 +46,9 @@ def rays_for_acquired(acquired: list[AcquiredRef],
     """Build the transient tracking rays for the current acquired set.
 
     point-acquire → H + V rays from the point; + an extension ray along its
-    captured direction when present. direction-acquire → a parallel ray in the
-    captured direction anchored at *active_point*.
+    captured direction and a perpendicular ray (that direction rotated 90°) when
+    present. direction-acquire → a parallel ray in the captured direction
+    anchored at *active_point*.
     """
     rays: list[Ray] = []
     for a in acquired:
@@ -58,6 +59,10 @@ def rays_for_acquired(acquired: list[AcquiredRef],
                 u = _unit(*a.direction)
                 if u is not None:
                     rays.append(Ray(a.point, u, "extension", a.source_id))
+                    # Perpendicular: object direction rotated 90° ((-uy, ux)),
+                    # so the user can draw ACROSS the object through its endpoint.
+                    perp = (-u[1], u[0])
+                    rays.append(Ray(a.point, perp, "perpendicular", a.source_id))
         elif a.flavor == "direction" and a.direction is not None:
             u = _unit(*a.direction)
             if u is not None:

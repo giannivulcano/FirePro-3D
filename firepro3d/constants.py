@@ -88,6 +88,7 @@ ALIGN_MAX_POINTS = 5           # acquired-point cap (evict oldest)
 ALIGN_DIR_HV_DEFAULT = True         # emit horizontal/vertical rays from point-acquires
 ALIGN_DIR_EXTENSION_DEFAULT = True  # emit collinear extension rays from directional points
 ALIGN_DIR_PARALLEL_DEFAULT = True   # emit parallel rays from direction-acquires
+ALIGN_DIR_PERPENDICULAR_DEFAULT = True  # emit perpendicular rays (dir rotated 90°) from directional points
 
 # ── ALIGN tracking-path overlay ───────────────────────────────────────────────
 ALIGN_GUIDE_COLOR = "#00c8ff"          # cyan — alignment-guide line + glyph (theming.md)

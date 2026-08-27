@@ -19,6 +19,7 @@ from firepro3d.preferences_dialog import SnappingPane
 from firepro3d.constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
+    ALIGN_DIR_PERPENDICULAR_DEFAULT,
 )
 
 
@@ -158,6 +159,25 @@ def test_parallel_toggle_reset_restores_factory(qapp, pane, model_space):
     pane.reset_to_defaults()
     assert (model_space._align_controller.dir_parallel_enabled
             is ALIGN_DIR_PARALLEL_DEFAULT)
+
+
+def test_perpendicular_toggle_live_applies(qapp, pane, model_space):
+    pane.set_align_perpendicular_enabled(False)
+    pane.apply()
+    assert model_space._align_controller.dir_perpendicular_enabled is False
+
+
+def test_perpendicular_toggle_roundtrips(qapp, pane, patched_qsettings):
+    pane.set_align_perpendicular_enabled(False)
+    pane.apply()
+    assert patched_qsettings.value("align/dir_perpendicular", type=bool) is False
+
+
+def test_perpendicular_toggle_reset_restores_factory(qapp, pane, model_space):
+    pane.set_align_perpendicular_enabled(False)
+    pane.reset_to_defaults()
+    assert (model_space._align_controller.dir_perpendicular_enabled
+            is ALIGN_DIR_PERPENDICULAR_DEFAULT)
 
 
 # ── master ALIGN on/off ────────────────────────────────────────────────────────

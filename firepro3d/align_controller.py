@@ -23,7 +23,8 @@ class AlignController:
     def __init__(self, dwell_ms: int = 400, max_points: int = 5,
                  dir_hv_enabled: bool = True,
                  dir_extension_enabled: bool = True,
-                 dir_parallel_enabled: bool = True):
+                 dir_parallel_enabled: bool = True,
+                 dir_perpendicular_enabled: bool = True):
         self.dwell_ms = dwell_ms
         self.max_points = max_points
         # Per-direction ray-kind gating (SnappingPane knobs, live-applied). A
@@ -32,6 +33,7 @@ class AlignController:
         self.dir_hv_enabled = dir_hv_enabled
         self.dir_extension_enabled = dir_extension_enabled
         self.dir_parallel_enabled = dir_parallel_enabled
+        self.dir_perpendicular_enabled = dir_perpendicular_enabled
         self.acquired: list[AcquiredRef] = []
         self._anchor: AcquiredRef | None = None
         # Dwell tracking: the source we have been resting on and for how long.
@@ -112,7 +114,8 @@ class AlignController:
 
     def set_direction_flags(self, *, hv: bool | None = None,
                             extension: bool | None = None,
-                            parallel: bool | None = None) -> None:
+                            parallel: bool | None = None,
+                            perpendicular: bool | None = None) -> None:
         """Live-update the per-direction ray gating (SnappingPane apply()).
 
         Only the kwargs supplied are changed; ``None`` leaves a flag as-is.
@@ -123,26 +126,30 @@ class AlignController:
             self.dir_extension_enabled = bool(extension)
         if parallel is not None:
             self.dir_parallel_enabled = bool(parallel)
+        if perpendicular is not None:
+            self.dir_perpendicular_enabled = bool(perpendicular)
 
     def build_rays(self, active_point: tuple[float, float]) -> list[Ray]:
         """Return the enabled transient tracking rays (anchor + acquired set).
 
         Per-direction gating (``dir_hv_enabled`` / ``dir_extension_enabled`` /
-        ``dir_parallel_enabled``) drops whole ray KINDS: ``hv`` rays come from
-        point-acquires, ``extension`` rays from directional points, ``parallel``
-        rays from direction-acquires. A disabled kind never reaches the picker.
+        ``dir_parallel_enabled`` / ``dir_perpendicular_enabled``) drops whole ray
+        KINDS: ``hv`` rays come from point-acquires, ``extension`` and
+        ``perpendicular`` rays from directional points, ``parallel`` rays from
+        direction-acquires. A disabled kind never reaches the picker.
         """
         refs = list(self.acquired)
         if self._anchor is not None:
             refs = [self._anchor] + refs
         rays = rays_for_acquired(refs, active_point)
         if (self.dir_hv_enabled and self.dir_extension_enabled
-                and self.dir_parallel_enabled):
+                and self.dir_parallel_enabled and self.dir_perpendicular_enabled):
             return rays
         return [r for r in rays if (
             (r.kind != "hv" or self.dir_hv_enabled)
             and (r.kind != "extension" or self.dir_extension_enabled)
             and (r.kind != "parallel" or self.dir_parallel_enabled)
+            and (r.kind != "perpendicular" or self.dir_perpendicular_enabled)
         )]
 
     def acquired_points(self) -> list[tuple[float, float]]:

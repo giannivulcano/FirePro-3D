@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 from .constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
+    ALIGN_DIR_PERPENDICULAR_DEFAULT,
 )
 
 
@@ -59,6 +60,7 @@ _FACTORY_DEFAULTS: dict = {
     "align_dir_hv":        ALIGN_DIR_HV_DEFAULT,
     "align_dir_extension": ALIGN_DIR_EXTENSION_DEFAULT,
     "align_dir_parallel":  ALIGN_DIR_PARALLEL_DEFAULT,
+    "align_dir_perpendicular": ALIGN_DIR_PERPENDICULAR_DEFAULT,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
@@ -195,7 +197,9 @@ class SnappingPane(SettingsPane):
         self._align_hv_cb = QCheckBox("Horizontal / Vertical")
         self._align_ext_cb = QCheckBox("Extension (collinear)")
         self._align_par_cb = QCheckBox("Parallel")
-        for cb in (self._align_hv_cb, self._align_ext_cb, self._align_par_cb):
+        self._align_perp_cb = QCheckBox("Perpendicular")
+        for cb in (self._align_hv_cb, self._align_ext_cb, self._align_par_cb,
+                   self._align_perp_cb):
             dir_layout.addWidget(cb)
         inf_layout.addWidget(dir_group)
         inf_layout.addStretch()
@@ -247,6 +251,12 @@ class SnappingPane(SettingsPane):
     def align_parallel_enabled(self) -> bool:
         return self._align_par_cb.isChecked()
 
+    def set_align_perpendicular_enabled(self, on: bool) -> None:
+        self._align_perp_cb.setChecked(bool(on))
+
+    def align_perpendicular_enabled(self) -> bool:
+        return self._align_perp_cb.isChecked()
+
     def set_align_master(self, on: bool) -> None:
         self._align_cb.setChecked(bool(on))
 
@@ -289,6 +299,8 @@ class SnappingPane(SettingsPane):
                                      ALIGN_DIR_EXTENSION_DEFAULT))
             align_par = bool(getattr(ctrl, "dir_parallel_enabled",
                                      ALIGN_DIR_PARALLEL_DEFAULT))
+            align_perp = bool(getattr(ctrl, "dir_perpendicular_enabled",
+                                      ALIGN_DIR_PERPENDICULAR_DEFAULT))
             snap_flags: dict[str, bool] = {
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
@@ -304,6 +316,8 @@ class SnappingPane(SettingsPane):
                                 ALIGN_DIR_EXTENSION_DEFAULT, type=bool)
             align_par = s.value("align/dir_parallel",
                                 ALIGN_DIR_PARALLEL_DEFAULT, type=bool)
+            align_perp = s.value("align/dir_perpendicular",
+                                 ALIGN_DIR_PERPENDICULAR_DEFAULT, type=bool)
             snap_flags = {}
             for _, attr in _SNAP_TYPES:
                 val = s.value(f"snap/{attr}", True)
@@ -330,6 +344,7 @@ class SnappingPane(SettingsPane):
             "align_dir_hv":        align_hv,
             "align_dir_extension": align_ext,
             "align_dir_parallel":  align_par,
+            "align_dir_perpendicular": align_perp,
             **snap_flags,
         }
 
@@ -346,6 +361,7 @@ class SnappingPane(SettingsPane):
         self._align_hv_cb.setChecked(bool(align_hv))
         self._align_ext_cb.setChecked(bool(align_ext))
         self._align_par_cb.setChecked(bool(align_par))
+        self._align_perp_cb.setChecked(bool(align_perp))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(snap_flags[attr])
 
@@ -410,12 +426,14 @@ class SnappingPane(SettingsPane):
         align_hv = self._align_hv_cb.isChecked()
         align_ext = self._align_ext_cb.isChecked()
         align_par = self._align_par_cb.isChecked()
+        align_perp = self._align_perp_cb.isChecked()
         s.setValue("align/path_tol_px", align_tol)
         s.setValue("align/dwell_ms", align_dwell)
         s.setValue("align/max_points", align_maxpts)
         s.setValue("align/dir_hv", align_hv)
         s.setValue("align/dir_extension", align_ext)
         s.setValue("align/dir_parallel", align_par)
+        s.setValue("align/dir_perpendicular", align_perp)
         if self._scene is not None:
             self._scene._align_path_tol_px = float(align_tol)
             ctrl = getattr(self._scene, "_align_controller", None)
@@ -423,7 +441,8 @@ class SnappingPane(SettingsPane):
                 ctrl.dwell_ms = align_dwell
                 ctrl.max_points = align_maxpts
                 ctrl.set_direction_flags(hv=align_hv, extension=align_ext,
-                                         parallel=align_par)
+                                         parallel=align_par,
+                                         perpendicular=align_perp)
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -461,7 +480,8 @@ class SnappingPane(SettingsPane):
                 ctrl.set_direction_flags(
                     hv=self._snapshot["align_dir_hv"],
                     extension=self._snapshot["align_dir_extension"],
-                    parallel=self._snapshot["align_dir_parallel"])
+                    parallel=self._snapshot["align_dir_parallel"],
+                    perpendicular=self._snapshot["align_dir_perpendicular"])
             eng = self._scene._snap_engine
             for _, attr in _SNAP_TYPES:
                 setattr(eng, attr, self._snapshot[attr])
@@ -487,6 +507,8 @@ class SnappingPane(SettingsPane):
         self._align_hv_cb.setChecked(bool(self._snapshot["align_dir_hv"]))
         self._align_ext_cb.setChecked(bool(self._snapshot["align_dir_extension"]))
         self._align_par_cb.setChecked(bool(self._snapshot["align_dir_parallel"]))
+        self._align_perp_cb.setChecked(
+            bool(self._snapshot["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
 
@@ -505,6 +527,7 @@ class SnappingPane(SettingsPane):
         self._align_hv_cb.setChecked(bool(d["align_dir_hv"]))
         self._align_ext_cb.setChecked(bool(d["align_dir_extension"]))
         self._align_par_cb.setChecked(bool(d["align_dir_parallel"]))
+        self._align_perp_cb.setChecked(bool(d["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(d[attr])
         self.apply()

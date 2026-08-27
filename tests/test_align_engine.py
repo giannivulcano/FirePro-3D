@@ -25,6 +25,37 @@ def test_endpoint_with_direction_also_emits_extension():
     assert math.isclose(d[0], 1 / math.sqrt(2)) and math.isclose(d[1], 1 / math.sqrt(2))
 
 
+def test_endpoint_with_direction_also_emits_perpendicular():
+    # direction=(1,0) → perpendicular unit is (0, ±1). Extension is still emitted.
+    ref = AcquiredRef(point=(0.0, 0.0), direction=(1.0, 0.0),
+                      flavor="point", snap_type="endpoint", source_id=2)
+    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    perp = [r for r in rays if r.kind == "perpendicular"]
+    ext = [r for r in rays if r.kind == "extension"]
+    assert len(perp) == 1
+    assert len(ext) == 1                      # extension STILL present alongside
+    d = perp[0].direction
+    assert math.isclose(d[0], 0.0, abs_tol=1e-9)
+    assert math.isclose(abs(d[1]), 1.0)       # (0, +1) or (0, -1)
+    # Ground truth: perpendicular is orthogonal to the source direction.
+    assert math.isclose(d[0] * 1.0 + d[1] * 0.0, 0.0, abs_tol=1e-9)
+    assert perp[0].origin == (0.0, 0.0)
+
+
+def test_perpendicular_of_45deg_is_135deg():
+    # direction=(1,1) (45°) → perpendicular unit ±(-1/√2, 1/√2).
+    ref = AcquiredRef(point=(0.0, 0.0), direction=(1.0, 1.0),
+                      flavor="point", snap_type="endpoint", source_id=7)
+    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    perp = [r for r in rays if r.kind == "perpendicular"]
+    assert len(perp) == 1
+    d = perp[0].direction
+    inv = 1 / math.sqrt(2)
+    # Up to sign (bidirectional): |components| == 1/√2 and orthogonal to (1,1).
+    assert math.isclose(abs(d[0]), inv) and math.isclose(abs(d[1]), inv)
+    assert math.isclose(d[0] * 1.0 + d[1] * 1.0, 0.0, abs_tol=1e-9)
+
+
 def test_direction_acquire_emits_parallel_anchored_at_active_point():
     ref = AcquiredRef(point=None, direction=(1.0, 0.0),
                       flavor="direction", snap_type="nearest", source_id=3)

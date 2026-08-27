@@ -856,7 +856,7 @@ class MainWindow(QMainWindow):
         from firepro3d.constants import (
             ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
             ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT,
-            ALIGN_DIR_PARALLEL_DEFAULT,
+            ALIGN_DIR_PARALLEL_DEFAULT, ALIGN_DIR_PERPENDICULAR_DEFAULT,
         )
         self.scene._align_path_tol_px = float(self.settings.value(
             "align/path_tol_px", int(ALIGN_PATH_TOL_PX), type=int))
@@ -871,7 +871,10 @@ class MainWindow(QMainWindow):
             extension=self.settings.value("align/dir_extension",
                                           ALIGN_DIR_EXTENSION_DEFAULT, type=bool),
             parallel=self.settings.value("align/dir_parallel",
-                                         ALIGN_DIR_PARALLEL_DEFAULT, type=bool))
+                                         ALIGN_DIR_PARALLEL_DEFAULT, type=bool),
+            perpendicular=self.settings.value("align/dir_perpendicular",
+                                              ALIGN_DIR_PERPENDICULAR_DEFAULT,
+                                              type=bool))
         # Restore display unit and precision from user preference
         self._apply_persistent_unit_prefs()
         # Restore pipe and sprinkler template settings
