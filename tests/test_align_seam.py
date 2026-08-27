@@ -62,3 +62,24 @@ def test_acquired_points_clear_after_placement_commit(shown_model_view):
 
     scene.push_undo_state()      # a placement commit landed
     assert scene._align_controller.acquired == []
+
+
+def test_auto_anchor_reads_raw_mode_anchor_not_track_ray(shown_model_view):
+    """The auto-acquired anchor is the RAW placement from-point, never the track
+    ray origin — so a cursor-following parallel preview (which self-snaps →
+    activates the track schema → get_placement_anchor returns the ray origin)
+    cannot pin stray H/V rays to the cursor before a first point exists
+    (smoke-test regression, 2026-08-26).
+    """
+    from PyQt6.QtCore import QPointF
+    from firepro3d.align_engine import Ray
+    view, scene = shown_model_view
+    scene.set_mode("draw_line")
+    # No first click yet: even with a track ray armed (as a self-snapped
+    # parallel preview would), the auto-anchor stays None.
+    scene._align_track_ray = Ray((999.0, 999.0), (1.0, 0.0), "parallel", 1)
+    assert scene._mode_placement_anchor() is None
+    assert scene._align_anchor_point() is None
+    # After the first click, it is the real from-point.
+    scene._draw_line_anchor = QPointF(10.0, 20.0)
+    assert scene._align_anchor_point() == (10.0, 20.0)

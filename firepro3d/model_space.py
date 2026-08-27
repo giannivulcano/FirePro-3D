@@ -3912,14 +3912,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
     def _align_anchor_point(self):
-        """The current placement anchor as an (x, y) tuple, or None.
+        """The current placement FROM-point as an (x, y) tuple, or None.
 
         The active placement anchor auto-acquires an H/V pair (design spec D3):
         it is the point the user is drawing *from*, so lining up with it is
-        always wanted.  Delegates to :meth:`get_placement_anchor` (the one home
-        for the per-mode anchor).
+        always wanted.  Uses :meth:`_mode_placement_anchor` (the *raw* per-mode
+        anchor), NOT :meth:`get_placement_anchor` — the latter is masked by the
+        ``track`` schema to return the tracking ray's origin, which is non-None
+        even before a first point is placed.  Feeding that to the auto-anchor
+        would pin an H/V pair to the moving cursor (a parallel preview trivially
+        self-snaps → track swap → ray origin = cursor), painting stray H/V lines
+        anchored to nothing real.  The auto-anchor is the *real* from-point:
+        None until the first click, then the clicked point.
         """
-        a = self.get_placement_anchor()
+        a = self._mode_placement_anchor()
         return None if a is None else (a.x(), a.y())
 
     def _align_anchor_direction(self):
