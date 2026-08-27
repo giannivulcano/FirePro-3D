@@ -338,8 +338,10 @@ SCHEMAS: dict[str, Schema] = {
         name="track",
         fields=(
             # Signed distance along the path (negative = behind the origin), so
-            # no 0.0 minimum — like rectangle's signed extents.
-            FieldSpec("Distance", "Dist", FieldKind.DIMENSION),
+            # no 0.0 minimum — like rectangle's signed extents.  Labelled "L"
+            # (not "Dist") so the on-path readout matches the line/wall/gridline
+            # placement HUD — the field the user sees before snapping onto a path.
+            FieldSpec("Distance", "L", FieldKind.DIMENSION),
         ),
         resolve=resolve_track,
         seed=None,          # seeded from the on-path projection by the seam
