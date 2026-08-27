@@ -535,8 +535,14 @@ class Model_View(QGraphicsView):
         # participating rays carried on ``source_lines``) and the acquired-set
         # ``+`` markers.  Both paint in VIEWPORT coords like the OSNAP glyph
         # block so the dash + glyph size stay pixel-constant at any zoom.
+        # Gated on the master ALIGN toggle as well as the controller's
+        # existence: set_align_enabled(False) clears ``_align_result`` (vectors
+        # stop) but NOT ``_align_controller.acquired``, so without this gate an
+        # F11-off with points already acquired would strand the ``+`` markers on
+        # screen until the next mode change.  The gate also cheaply short-circuits
+        # the (already-empty) vectors path.
         ctrl = getattr(scene, "_align_controller", None)
-        if ctrl is not None:
+        if ctrl is not None and getattr(scene, "_align_enabled", True):
             from .constants import (ALIGN_GUIDE_COLOR, ALIGN_GUIDE_DASH,
                                     ALIGN_GLYPH_PX, ALIGN_ACQUIRE_COLOR)
             align_res = getattr(scene, "_align_result", None)

@@ -789,6 +789,18 @@ class SnapEngine:
 
             # Reuse Phase 1's query result for this group (same
             # search_rect) instead of querying twice per mousemove.
+            #
+            # ACCEPTED v1 NARROWING (ALIGN path×underlay): this per-group cache
+            # is keyed on gid alone and populated by phase-1/4 with the 15px
+            # SNAP_TOLERANCE_PX search rect.  When ALIGN reuses it (via
+            # _align_geometry_segments, which passes the wider ~20px ALIGN
+            # aperture), an underlay group already cached at 15px is NOT
+            # re-queried at 20px — so ALIGN path×UNDERLAY crossings only see
+            # underlay segments within the 15px rect, a ≤5px sliver short of the
+            # full ALIGN band.  Native scene items are re-queried fresh here each
+            # frame (not cached this way) and are unaffected.  Deliberately NOT
+            # widening the key: keying on (gid, aperture) would re-introduce the
+            # double underlay query per mousemove that this cache just removed.
             nearby = ctx.underlay_geoms.get(gid)
             if nearby is None:
                 nearby = index.query(lx1, ly1, local_rect.width(),

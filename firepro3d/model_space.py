@@ -862,13 +862,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
-        # ALIGN active-item: sentinel for draw_gridline + paste/move.
+        # ALIGN active-item: arm the seam for EVERY point-asking placement mode
+        # (spec 2026-08-26 universal client scope — see ``_ALIGN_PLACEMENT_MODES``).
+        # New-item placement modes have no scene item to self-exclude, so they
+        # take the shared ``_PLACEMENT_SENTINEL`` (as gridline/wall always did);
+        # move/paste start on the sentinel too and the press path swaps in the
+        # real moved item for self-exclusion, and a grip-drag sets the dragged
+        # item directly (see mousePressEvent).
         # The acquire set never survives a mode boundary (design spec: Esc /
         # commit / mode-start/end clears all) — reset it and the dwell clock
         # here, the one place every mode change funnels through.
         self._align_controller.clear()
         self._align_last_move_ns = None
-        if mode in ("draw_gridline", "paste", "move", "wall"):
+        if mode in self._ALIGN_PLACEMENT_MODES:
             self._align_active_item = self._PLACEMENT_SENTINEL
         else:
             self._align_active_item = None
@@ -4395,7 +4401,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         This is the *constrained* position actually shown on screen, which is
         what the HUD seeds from.  Distinct from ``_last_scene_pos``, which
         holds the raw cursor and so can disagree with the preview whenever a
-        constraint (Ctrl, 45° snap, inference) is active.
+        constraint (Ctrl, 45° snap, ALIGN) is active.
 
         This — not ``active_schema()`` — is the gate for "is there a live
         placement to seed from".  Most modes that ``active_schema()`` answers
@@ -4419,7 +4425,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Record the resolved placement point and derive the HUD readout.
 
         Call once per frame per mode, at the point where the mode has finished
-        constraining its position (OSNAP → inference → Ctrl → 45° snap).  This
+        constraining its position (OSNAP → ALIGN → Ctrl → 45° snap).  This
         is the single source for both the live read-only readout and the
         values the HUD seeds with, so the two cannot disagree.
 
@@ -4737,7 +4743,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         deliberately *not* the fallback: in the running app that is the
         vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
         reading it made every zoom-dependent tolerance (snap aperture,
-        design-area pick, inference band, …) collapse to a fixed *scene*
+        design-area pick, ALIGN band, …) collapse to a fixed *scene*
         distance regardless of zoom.
         """
         v = self._visible_view()
@@ -6849,6 +6855,35 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             v.viewport().update()
 
     # ── Dispatch table: mode string → press-handler method name ──────
+    # Point-asking PLACEMENT modes — every command whose press picks a free
+    # point in the scene to draw new geometry or drop a placed item.  This is
+    # the authoritative "arm ALIGN" set (spec 2026-08-26: universal client
+    # scope): both the ALIGN tier in ``get_effective_position`` and the dwell
+    # feed gate on ``_align_active_item is not None``, so ALIGN is silently
+    # inert in any placement mode omitted here.
+    #
+    # Defined POSITIVELY (membership) rather than as a hand-maintained literal
+    # in ``set_mode``: it is the subset of ``_PRESS_DISPATCH`` whose handler
+    # resolves a cursor point through ``get_effective_position`` and places
+    # there.  Deliberately EXCLUDES:
+    #   • ``select`` / ``None``            — no point placed
+    #   • object-pick transforms/modifies  — rotate, scale, mirror, break,
+    #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
+    #     merge_points, offset(_side), align, the two constraint pickers, room
+    #     (click-inside-region), place_import (ghost drag, no snap point)
+    # ``move``/``paste`` are placement (destination point) AND self-exclude the
+    # moved item; they stay armed here and the press path swaps the sentinel for
+    # the real self-exclude item.
+    _ALIGN_PLACEMENT_MODES = frozenset({
+        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
+        "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
+        "dimension", "text", "set_scale", "water_supply", "design_area",
+        "wall", "floor", "floor_rect", "roof", "roof_rect", "room_manual",
+        "opening", "door", "window", "detail",
+        "gridline_offset", "gridline_array",
+        "move", "paste",
+    })
+
     _PRESS_DISPATCH = {
         None:                       "_press_select_item",
         "select":                   "_press_select_item",
@@ -8724,7 +8759,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         *commit path*: a typed exact point and a mouse click land here, so they
         cannot drift apart.
 
-        ``tip`` is expected to arrive fully constrained (OSNAP, inference,
+        ``tip`` is expected to arrive fully constrained (OSNAP, ALIGN,
         Ctrl) — this method applies no further constraint.
 
         Deliberately does **not** push an undo state.  Polyline undo is pushed
@@ -8857,7 +8892,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         alternative *commit path*: a typed exact point and a mouse click land
         in this one method, so they cannot drift apart.
 
-        ``tip`` is expected to be fully constrained already (OSNAP, inference,
+        ``tip`` is expected to be fully constrained already (OSNAP, ALIGN,
         Ctrl) — this method applies no further constraint. A too-short line is
         rejected and leaves the anchor armed so the user can re-pick.
 

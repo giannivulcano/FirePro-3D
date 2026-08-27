@@ -2421,7 +2421,7 @@ class MainWindow(QMainWindow):
         old_tol = snap_engine.SNAP_TOLERANCE_PX
         old_grip = getattr(self.scene, "_grip_tolerance_px", 200)
         old_flags = {attr: getattr(eng, attr) for _, attr in checkboxes}
-        old_inference = self.scene._align_enabled
+        old_align_enabled = self.scene._align_enabled
 
         if dlg.exec() == QDialog.DialogCode.Accepted:
             # Persist SNAP settings
@@ -2438,8 +2438,8 @@ class MainWindow(QMainWindow):
             for attr, val in old_flags.items():
                 setattr(eng, attr, val)
             # Revert ALIGN
-            self.scene.set_align_enabled(old_inference)
-            QSettings().setValue("align/enabled", old_inference)
+            self.scene.set_align_enabled(old_align_enabled)
+            QSettings().setValue("align/enabled", old_align_enabled)
 
         # Keep the SNAP toolbar in sync with whatever the dialog left set.
         self.snap_toolbar.refresh_from_engine()
