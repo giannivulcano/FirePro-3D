@@ -353,6 +353,11 @@ def _apply_generic(item, cat, color_mode, lw_mm):
     # Items like FloorSlab/Room use alpha 50 in model-space paint(); setting
     # _paper_fill_opaque tells them to skip the alpha reduction.
     item._paper_fill_opaque = True
+    # Rooms plot as boundary + tag only — suppress the fill entirely in
+    # viewports (a filled room reads as a solid blob on the sheet).
+    from .room import Room
+    if isinstance(item, Room):
+        item._paper_no_fill = True
     if hasattr(item, "pen") and callable(getattr(item, "setPen", None)):
         pen = item.pen()
         pen.setWidthF(lw_mm)
@@ -802,6 +807,8 @@ def restore_model_display(saved: list[dict]):
                 item._display_section_color = entry.get("display_section_color")
             if hasattr(item, "_paper_fill_opaque"):
                 del item._paper_fill_opaque
+            if hasattr(item, "_paper_no_fill"):
+                del item._paper_no_fill
             if entry.get("pen") is not None and hasattr(item, "setPen"):
                 item.setPen(entry["pen"])
             # Restore WallOpening gap colour: prior value (None means unset →

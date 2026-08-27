@@ -235,6 +235,56 @@ class TestApplyRestore:
         assert pipe.opacity() == original_opacity
 
 
+class TestRoomPaperNoFill:
+    """Rooms plot as boundary + tag only — no fill — in paper viewports (#1)."""
+
+    @pytest.fixture
+    def scene_with_room(self, qapp):
+        from firepro3d.room import Room
+        scene = QGraphicsScene()
+        pts = [QPointF(0, 0), QPointF(1000, 0),
+               QPointF(1000, 1000), QPointF(0, 1000)]
+        room = Room(boundary=pts, color="#4488cc")
+        scene.addItem(room)
+        return scene, room
+
+    def test_apply_sets_no_fill_flag_and_restore_clears(self, scene_with_room):
+        scene, room = scene_with_room
+        saved = apply_paper_overrides(scene, QRectF(0, 0, 1000, 1000))
+        assert getattr(room, "_paper_no_fill", False) is True, (
+            "apply_paper_overrides must flag rooms as no-fill for paper"
+        )
+        restore_model_display(saved)
+        assert not hasattr(room, "_paper_no_fill"), (
+            "_paper_no_fill must be cleaned up on restore (round-trip)"
+        )
+
+    def _render_interior_pixel(self, scene):
+        from PyQt6.QtGui import QImage, QPainter
+        img = QImage(100, 100, QImage.Format.Format_ARGB32)
+        img.fill(QColor("white"))
+        p = QPainter(img)
+        scene.render(p, target=QRectF(0, 0, 100, 100),
+                     source=QRectF(0, 0, 1000, 1000))
+        p.end()
+        # (25,25) px → model (250,250): room interior, clear of the centroid tag.
+        return img.pixelColor(25, 25)
+
+    def test_room_interior_unfilled_in_paper(self, scene_with_room):
+        scene, room = scene_with_room
+        room._paper_no_fill = True
+        assert self._render_interior_pixel(scene) == QColor("white"), (
+            "room interior must render unfilled (background) in paper viewports"
+        )
+
+    def test_room_interior_filled_on_model_canvas(self, scene_with_room):
+        scene, room = scene_with_room
+        # No flag = model canvas: the alpha-50 wash tints the interior.
+        assert self._render_interior_pixel(scene) != QColor("white"), (
+            "room interior must stay filled on the model canvas (no regression)"
+        )
+
+
 class TestResolveLineWeight:
     def test_known_weight(self):
         mm = resolve_line_weight_mm("Medium")
