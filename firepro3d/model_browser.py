@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
     QAbstractItemView, QMenu, QMessageBox, QFileDialog,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QFont, QColor, QBrush
 
 from . import theme as th
@@ -81,6 +81,8 @@ class ModelBrowser(QWidget):
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.itemChanged.connect(self._on_tree_item_changed)
+        # Delete key on the tree deletes the selected entities (spec §4.3).
+        self._tree.installEventFilter(self)
         layout.addWidget(self._tree)
 
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
@@ -583,7 +585,54 @@ class ModelBrowser(QWidget):
         act_show_all.triggered.connect(
             lambda: (self._scene._show_all_hidden(), self.refresh()))
 
+        menu.addSeparator()
+        act_delete = menu.addAction("Delete")
+        act_delete.triggered.connect(self._delete_selected_entities)
+
         menu.exec(self._tree.viewport().mapToGlobal(pos))
+
+    # ── Deletion (spec §4.3) ───────────────────────────────────────────────
+
+    def eventFilter(self, obj, event):
+        """Delete key on the tree deletes the selected entities."""
+        if (obj is self._tree
+                and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Delete):
+            self._delete_selected_entities()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _delete_selected_entities(self):
+        """Delete the selected entity rows via the scene's canonical path.
+
+        Underlay file/layer rows are excluded (their removal is a separate,
+        non-undoable path). The browser does not re-implement deletion: it
+        selects the resolved entities in the scene and delegates to
+        ``delete_selected_items()``, which owns the entity-graph bookkeeping
+        and the single undo push (spec §4.3).
+        """
+        if self._scene is None:
+            return
+        entities = []
+        for tree_item in self._tree.selectedItems():
+            if tree_item.data(0, _ROLE_UNDERLAY) is not None:
+                continue  # underlay rows are not entity-deletable
+            eid = tree_item.data(0, _ROLE_ENTITY)
+            if eid is not None:
+                entity = self._find_entity_by_id(eid)
+                if entity is not None:
+                    entities.append(entity)
+        if not entities:
+            return
+        self._syncing = True
+        try:
+            self._scene.clearSelection()
+            for entity in entities:
+                entity.setSelected(True)
+        finally:
+            self._syncing = False
+        self._scene.delete_selected_items()
+        self.refresh()
 
     # ── Checkbox handler ───────────────────────────────────────────────
 
