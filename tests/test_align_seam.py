@@ -45,3 +45,20 @@ def test_lifecycle_clear_on_mode_change(shown_model_view):
 
     scene.set_mode("select")     # leaving placement clears the acquire set
     assert scene._align_controller.acquired == []
+
+
+def test_acquired_points_clear_after_placement_commit(shown_model_view):
+    """Placing geometry resets the acquire set (AutoCAD OTRACK: per-point acquisition).
+
+    Continuous placement modes stay in-mode after a commit, so the mode-change
+    clear never fires. ``push_undo_state`` is the single funnel every committed
+    placement passes through; acquisitions must reset there so the next element
+    starts with a clean tracking set.
+    """
+    view, scene = shown_model_view
+    scene.set_mode("draw_gridline")
+    _acquire_origin_endpoint(scene)
+    assert len(scene._align_controller.acquired) == 1
+
+    scene.push_undo_state()      # a placement commit landed
+    assert scene._align_controller.acquired == []

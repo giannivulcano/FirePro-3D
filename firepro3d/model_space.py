@@ -3589,6 +3589,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if len(self._undo_stack) > self.UNDO_MAX:
             self._undo_stack.pop(0)
         self._undo_pos = len(self._undo_stack) - 1
+        # ALIGN acquisitions are per-placement tracking aids: reset them once a
+        # placement commits.  push_undo_state is the single funnel every committed
+        # placement passes through, so this clears the acquire set after each
+        # element (matches AutoCAD OTRACK, which drops acquired points per picked
+        # point) even in continuous modes that stay armed.  No-op when nothing is
+        # acquired, so non-placement mutations are unaffected.
+        ctrl = getattr(self, "_align_controller", None)
+        if ctrl is not None and ctrl.acquired:
+            ctrl.clear()
+            self._align_last_move_ns = None
         self.sceneModified.emit()
 
     def undo(self):
