@@ -97,7 +97,7 @@ This sign flip is the single most common angle bug in this codebase — never ca
 
 **Storage and the normalization boundary.** Angles are stored as plain `float` degrees — there is no separate internal basis, so §2 does not apply to them. Unlike lengths, normalization happens on the way **in** as well as out: `parse_angle` normalizes before returning, so a user who types `270` gets `-90.0` stored. Clients doing angle arithmetic (relative angles, sums) can produce values outside `(-180, 180]` and should re-normalize before display — but `format_angle` normalizes defensively as well, so a client that forgets still renders correctly rather than silently wrong.
 
-**Absolute vs relative.** `format_angle`/`parse_angle` carry no notion of a reference — they always render and parse a plain degree value. A client whose angle is *relative* to something (e.g. a connected pipe's angle relative to its reference pipe) owns the subtraction and **must** make the convention visible in the field label (`Rel A` vs `A`), because the formatted string is identical either way. See `inferred-dimension-driven-placement.md §4`.
+**Absolute vs relative.** `format_angle`/`parse_angle` carry no notion of a reference — they always render and parse a plain degree value. A client whose angle is *relative* to something (e.g. a connected pipe's angle relative to its reference pipe) owns the subtraction and **must** make the convention visible in the field label (`Rel A` vs `A`), because the formatted string is identical either way. See `align-placement.md §4`.
 
 ### 4.1 The two normalization conventions (drift guard)
 

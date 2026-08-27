@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging
+import sys, json, math, shutil, logging, time
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -40,7 +40,8 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        UNDERLAY_MM_TO_PX_HINT,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_HL_RADIUS_PX,
-                       Z_OVERLAY, INFERENCE_TOL_PX,
+                       Z_OVERLAY, ALIGN_PATH_TOL_PX,
+                       ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
                        SELECTION_OUTLINE_COLOR)
 from .fitting import Fitting
@@ -85,10 +86,11 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
 
 
 class _PlacementSentinel:
-    """Marker object: inference is active during placement, nothing to self-exclude.
+    """Marker object: ALIGN is active during placement, nothing to self-exclude.
 
-    Must NOT implement alignment_reference_points() so that the engine
-    excludes nothing — all existing gridlines remain valid candidates.
+    Set as ``_align_active_item`` for modes that place a *new* item (which has
+    no scene identity yet), so the ALIGN tier is live without pointing at any
+    real item to exclude.
     """
 
 
@@ -118,7 +120,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     warningIssued = pyqtSignal(str, str)                                    # title, message
     confirmRequested = pyqtSignal(str, str, str)                            # action_id, title, message
     snapToggled = pyqtSignal(bool)    # emitted whenever toggle_snap() runs
-    inferenceToggled = pyqtSignal(bool)  # emitted whenever set_inference_enabled() runs
+    alignToggled = pyqtSignal(bool)  # emitted whenever set_align_enabled() runs
     pipeNodeHighlight = pyqtSignal(str)  # pipe-mode node snap readout for status bar
 
     def __init__(self):
@@ -247,18 +249,39 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
-        self._inference_exclude_ids: set = set()  # ids self-excluded from inference (move)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
         self._snap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
-        # Inferred alignment guides (inference_engine.py)
-        from .inference_engine import InferenceEngine
-        self._inference_engine: InferenceEngine = InferenceEngine()
-        self._inference_enabled: bool = True          # toggled via settings (Task 4)
-        self._inference_result = None                 # surfaced to drawForeground (Task 3)
-        self._inference_active_item = None            # item being placed/dragged (self-exclude)
+        # ALIGN acquire-and-track (align_controller.py + align_engine.py)
+        from .align_controller import AlignController
+        self._align_controller = AlignController(
+            dwell_ms=ALIGN_DWELL_MS, max_points=ALIGN_MAX_POINTS)
+        self._align_last_move_ns = None               # elapsed-ms clock between moves
+        self._align_enabled: bool = True              # toggled via settings / F11
+        # ALIGN path soft-snap aperture (px) — ALIGN's OWN grab band, separate
+        # from the 15px real-snap aperture. Live-applied by the SnappingPane and
+        # restored from QSettings; threaded into find(align_aperture_px=…).
+        self._align_path_tol_px: float = float(ALIGN_PATH_TOL_PX)
+        self._align_result = None                     # surfaced to drawForeground
+        # On-path Navigate (Task 6 follow-up): the winning single-path Ray + the
+        # cursor's signed distance along it, recovered in get_effective_position
+        # while soft-snapped to one ``align_path``.  Drives the ``track`` schema
+        # swap (active_schema) — None whenever the cursor is off a single path
+        # (off ALIGN entirely, or on an ``align_intersection`` crossing, which
+        # gets no distance field).  Survives ``clear_placement_state`` because it
+        # is set before that call in the mouse-move path.
+        self._align_track_ray = None                  # align_engine.Ray | None
+        self._align_track_dist = 0.0                  # signed distance along it
+        # Direction the auto-acquired active anchor extends along (spec D3): the
+        # unit direction of the directional object the FIRST placement point
+        # landed on, captured at the arming click (mousePressEvent).  ``None``
+        # when the first point started in empty space / on a non-directional
+        # point — then the anchor emits H/V only, no phantom extension.  Cleared
+        # on every acquire-set reset so a prior element's direction never leaks.
+        self._align_anchor_dir = None                 # (dx, dy) unit | None
+        self._align_active_item = None                # item being placed/dragged (self-exclude)
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
         self._pipe_tab_candidates: list = []
@@ -846,23 +869,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_item = None
         self._grip_index = -1
         self._grip_dragging = False
-        # Inference active-item: sentinel for draw_gridline + paste/move.
-        if mode in ("draw_gridline", "paste", "move", "wall"):
-            self._inference_active_item = self._PLACEMENT_SENTINEL
+        # ALIGN active-item: arm the seam for EVERY point-asking placement mode
+        # (spec 2026-08-26 universal client scope — see ``_ALIGN_PLACEMENT_MODES``).
+        # New-item placement modes have no scene item to self-exclude, so they
+        # take the shared ``_PLACEMENT_SENTINEL`` (as gridline/wall always did);
+        # move/paste start on the sentinel too and the press path swaps in the
+        # real moved item for self-exclusion, and a grip-drag sets the dragged
+        # item directly (see mousePressEvent).
+        # The acquire set never survives a mode boundary (design spec: Esc /
+        # commit / mode-start/end clears all) — reset it and the dwell clock
+        # here, the one place every mode change funnels through.
+        self._align_controller.clear()
+        self._align_last_move_ns = None
+        self._align_anchor_dir = None
+        if mode in self._ALIGN_PLACEMENT_MODES:
+            self._align_active_item = self._PLACEMENT_SENTINEL
         else:
-            self._inference_active_item = None
-            self._inference_result = None
-        # Move self-excludes the moving gridlines from the reference set.
-        if mode == "move":
-            self._inference_exclude_ids = {
-                id(i) for i in (self.selectedItems() or [])
-                if isinstance(i, GridlineItem)
-            } | {
-                id(i) for i in (self._selected_items or [])
-                if isinstance(i, GridlineItem)
-            }
-        else:
-            self._inference_exclude_ids = set()
+            self._align_active_item = None
+            self._align_result = None
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -3573,6 +3597,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if len(self._undo_stack) > self.UNDO_MAX:
             self._undo_stack.pop(0)
         self._undo_pos = len(self._undo_stack) - 1
+        # ALIGN acquisitions are per-placement tracking aids: reset them once a
+        # placement commits.  push_undo_state is the single funnel every committed
+        # placement passes through, so this clears the acquire set after each
+        # element (matches AutoCAD OTRACK, which drops acquired points per picked
+        # point) even in continuous modes that stay armed.  No-op when nothing is
+        # acquired, so non-placement mutations are unaffected.
+        ctrl = getattr(self, "_align_controller", None)
+        if ctrl is not None and ctrl.acquired:
+            ctrl.clear()
+            self._align_last_move_ns = None
+            self._align_anchor_dir = None
         self.sceneModified.emit()
 
     def undo(self):
@@ -3743,42 +3778,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
-    def _collect_alignment_refs(self, cursor=None, tol=None):
-        """Collect alignment reference features from the scene's alignment
-        providers (gridlines + walls). The InferenceEngine stays generic;
-        Model_Space supplies candidates from its own entity collections.
-
-        Args:
-            cursor: Optional QPointF scene position of the current cursor.
-                When provided together with *tol*, walls are spatially filtered
-                to those whose bounding box intersects a (2*tol x 2*tol) rect
-                centred on *cursor*, using the scene BSP index.
-            tol: Optional float tolerance radius (scene units). Required when
-                *cursor* is provided to enable the spatial filter.
-
-        Future providers are added by iterating their own collections here,
-        NOT by changing the inference engine.  Self-exclusion is applied via
-        source_id so the active item does not snap to itself.
-        """
-        refs = []
-        exclude_id = (id(self._inference_active_item)
-                      if self._inference_active_item is not None else None)
-        exclude_ids = self._inference_exclude_ids
-        for gl in self._gridlines:                       # small list — direct
-            for f in gl.alignment_reference_points():
-                if f.source_id != exclude_id and f.source_id not in exclude_ids:
-                    refs.append(f)
-        # Walls can be numerous (imports) — spatial-filter to the cursor rect
-        # via the scene BSP index (NOT sceneBoundingRect, NOT a full self._walls scan).
-        if cursor is not None and tol:
-            rect = QRectF(cursor.x() - tol, cursor.y() - tol, 2 * tol, 2 * tol)
-            for it in self.items(rect):
-                if isinstance(it, WallSegment):
-                    for f in it.alignment_reference_points():
-                        if f.source_id != exclude_id and f.source_id not in exclude_ids:
-                            refs.append(f)
-        return refs
-
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
         # Design-area picking snaps to sprinkler centres ONLY: general
@@ -3809,10 +3808,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._snap_engine.snap_center = _was_center
             if result is not None:
                 self._snap_result = result
-                self._inference_result = None
+                self._align_result = None
                 return result.point
             self._snap_result = None
-            self._inference_result = None
+            self._align_result = None
             return QPointF(scene_pos)
 
         # SNAP takes highest priority (disabled when no mode or select mode,
@@ -3828,7 +3827,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     held=self._snap_result)
                 self._snap_result = result
                 if result is not None:
-                    self._inference_result = None
+                    self._align_result = None
                     return result.point
             else:
                 self._snap_result = None
@@ -3854,25 +3853,234 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._snap_engine.enabled = _was_enabled
                 if result is not None:
                     self._snap_result = result
-                    self._inference_result = None
+                    self._align_result = None
                     return result.point
 
-        # ── Inferred alignment guides (weak snap, below SNAP) ────────────
-        if self._inference_enabled and self._inference_active_item is not None:
+        # ── ALIGN acquire-and-track (weak snap, below real SNAP) ─────────
+        # The controller holds the acquired set (fed on move by the dwell
+        # machine); each frame it emits the transient tracking [Ray]s (acquired
+        # H/V + extension + parallel, plus the auto-acquired active anchor).
+        # Those rays enter the ONE picker via find(align_paths=…) at ALIGN
+        # priority (below every real snap); a hit projects the cursor onto the
+        # path / crossing.
+        if self._align_enabled and self._align_active_item is not None:
             _view = self._snap_view()
             if _view is not None:
-                scale = max(abs(_view.transform().m11()), 1e-9)
-                tol = INFERENCE_TOL_PX / scale
-                refs = self._collect_alignment_refs(scene_pos, tol)
-                res = self._inference_engine.resolve(
-                    (scene_pos.x(), scene_pos.y()), refs, tol)
-                self._inference_result = res  # stored even when "free" (Task 3 reads it)
-                if res.priority != "free":
-                    return QPointF(res.snapped[0], res.snapped[1])
-                # "free" — fall through to grid snap (no position change)
+                self._align_controller.set_active_anchor(
+                    self._align_anchor_point(), self._align_anchor_direction())
+                # Parallel guide anchoring: once a placement FROM-point exists it
+                # anchors THERE (fixed, so the cursor can snap onto it); before
+                # the first point there is none, so it falls back to the cursor —
+                # a moving preview that confirms the direction was acquired. Use
+                # the raw per-mode anchor (not get_placement_anchor, which the
+                # track schema masks with the ray origin).
+                _anchor = self._mode_placement_anchor()
+                parallel_origin = ((_anchor.x(), _anchor.y())
+                                   if _anchor is not None
+                                   else (scene_pos.x(), scene_pos.y()))
+                rays = self._align_controller.build_rays(parallel_origin)
+                if rays:
+                    res = self._snap_engine.find(
+                        scene_pos, self, _view.transform(),
+                        align_paths=rays, held=self._align_result,
+                        align_aperture_px=self._align_path_tol_px)
+                    self._align_result = res
+                    if (res is not None
+                            and res.snap_type in ("align_intersection",
+                                                  "align_path")):
+                        # Navigate (D4): a single-path soft-snap arms the
+                        # ``track`` schema so typing a Distance places along the
+                        # path.  The picker returns the foot point but not the
+                        # winning Ray, so recover it from ``rays`` (still held
+                        # here) — the ray whose projection of the foot has ~0
+                        # perpendicular error.  An ``align_intersection`` is a
+                        # fixed crossing with no single direction, so it gets no
+                        # distance field: clear the arm and leave the primitive
+                        # schema live.
+                        if res.snap_type == "align_path":
+                            self._arm_align_track(rays, res.point)
+                        else:
+                            self._align_track_ray = None
+                        return res.point
+                    self._align_track_ray = None
+                else:
+                    self._align_result = None
+                    self._align_track_ray = None
         else:
-            self._inference_result = None
+            self._align_result = None
+            self._align_track_ray = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+
+    def _align_anchor_point(self):
+        """The current placement FROM-point as an (x, y) tuple, or None.
+
+        The active placement anchor auto-acquires an H/V pair (design spec D3):
+        it is the point the user is drawing *from*, so lining up with it is
+        always wanted.  Uses :meth:`_mode_placement_anchor` (the *raw* per-mode
+        anchor), NOT :meth:`get_placement_anchor` — the latter is masked by the
+        ``track`` schema to return the tracking ray's origin, which is non-None
+        even before a first point is placed.  Feeding that to the auto-anchor
+        would pin an H/V pair to the moving cursor (a parallel preview trivially
+        self-snaps → track swap → ray origin = cursor), painting stray H/V lines
+        anchored to nothing real.  The auto-anchor is the *real* from-point:
+        None until the first click, then the clicked point.
+        """
+        a = self._mode_placement_anchor()
+        return None if a is None else (a.x(), a.y())
+
+    def _align_anchor_direction(self):
+        """Direction the auto-acquired anchor extends along, or None (spec D3).
+
+        The unit direction of the directional object the FIRST placement point
+        landed on, captured at the arming click (``mousePressEvent``) in
+        ``self._align_anchor_dir``.  When non-None, the controller's
+        ``set_active_anchor(point, direction)`` gives the anchor an Extension
+        ray so the user can extend end-to-end at the existing angle (continue a
+        wall/line collinearly).  ``None`` when the first point started in empty
+        space or on a non-directional point — the anchor then emits H/V only.
+        """
+        return self._align_anchor_dir
+
+    def _arm_align_track(self, rays, foot) -> None:
+        """Recover the winning single-path Ray and arm the Navigate track state.
+
+        The ``align_path`` picker result carries the foot point but not the
+        :class:`~firepro3d.align_engine.Ray` it projected onto, so recover it
+        from *rays* (the transient set the seam just built): the winning ray is
+        the one whose projection of *foot* lands back on *foot* — i.e. ~0
+        perpendicular error.  That ray's origin/direction drive the ``track``
+        schema (``resolve_track`` places ``origin + Distance·direction``), and
+        the signed distance seeds the HUD's Distance field.
+
+        Clears the arm when no ray matches (a defensive no-match rather than a
+        stale ray leaking into the schema swap).
+
+        Args:
+            rays: The transient tracking rays the seam passed to ``find``.
+            foot: The ``align_path`` foot point (``OsnapResult.point``).
+        """
+        from .align_engine import project_to_ray
+        fp = (foot.x(), foot.y())
+        best = None
+        best_err = None
+        for ray in rays:
+            proj, dist = project_to_ray(fp, ray)
+            err = math.hypot(proj[0] - fp[0], proj[1] - fp[1])
+            if best_err is None or err < best_err:
+                best_err, best, best_dist = err, ray, dist
+        # A genuine on-path foot projects back onto itself; anything above a
+        # hair is not the ray the picker chose (parallel rays never tie here
+        # because only one passes through the foot).
+        if best is not None and best_err <= 1e-6:
+            self._align_track_ray = best
+            self._align_track_dist = best_dist
+        else:
+            self._align_track_ray = None
+
+    def _align_track_active(self) -> bool:
+        """Whether the cursor is soft-snapped to a single ALIGN path right now.
+
+        The gate for the ``track`` schema swap: true only while the live ALIGN
+        result is a single ``align_path`` *and* its winning ray was recovered.
+        Keyed on ``_align_result`` (not just the cached ray) so every real-snap
+        path that clears the result to None — a stronger OSNAP winning, a mode
+        with no ALIGN — drops the track schema without having to also reset the
+        ray, and an ``align_intersection`` (a fixed crossing, no direction)
+        never trips it.  Only meaningful for a placement mode whose normal
+        schema resolves to a point; :meth:`_align_track_schema` enforces that.
+        """
+        res = self._align_result
+        return (self._align_track_ray is not None
+                and res is not None
+                and getattr(res, "snap_type", None) == "align_path")
+
+    def _align_track_schema(self):
+        """Return the ``track`` Schema when the on-path swap should be live, else None.
+
+        Scoped to placement modes whose normal (non-track) schema resolves to a
+        point — line/circle/rectangle-sizing and friends.  A transform mode
+        (move, the gridline replicate modes) or the rectangle/polygon rotate
+        step has no meaningful "distance along a path", so the swap is refused
+        there and the primitive schema stays live.  The mode must also be able
+        to commit a typed point (``_APPLIER_FOR_MODE``), or an engaged track HUD
+        would dead-end — the same honesty gate ``_hud_available`` applies.
+        """
+        if not self._align_track_active():
+            return None
+        if self.mode not in self._APPLIER_FOR_MODE:
+            return None
+        base = self._base_schema()
+        if base is None or not base.is_placement:
+            return None
+        return SCHEMAS.get("track")
+
+    def _base_schema(self):
+        """The mode's normal (non-track) schema — the primitive readout.
+
+        Split out of :meth:`active_schema` so the track-swap gate can consult
+        the primitive schema without recursing through the swap itself.
+        """
+        if self.mode == "draw_arc":
+            return self._arc_schema_for_step()
+        if self.mode == "draw_rectangle":
+            return self._rectangle_schema_for_step()
+        if self.mode == "polygon":
+            return self._polygon_schema_for_step()
+        if self.mode == "wall":
+            return self._wall_schema_for_primitive()
+        key = self._SCHEMA_FOR_MODE.get(self.mode)
+        return SCHEMAS.get(key) if key else None
+
+    def _align_snap_dict(self, res):
+        """Map an ``OsnapResult`` → the dict the AlignController's dwell eats.
+
+        Returns ``{"point", "snap_type", "source_id", "direction"}`` or None
+        when there is no real snap under the cursor.  ``direction`` is the unit
+        direction of the source object (line/wall/pipe/polyline) so an
+        endpoint acquire can spawn an Extension ray and an edge (nearest) hit a
+        Parallel ray; ``None`` for point-only sources.  ``source_id`` is a
+        stable identity for the source item so re-hover-release and self-
+        exclusion key off it (``id(source_item)`` when present, else the snap
+        type — a scene-stable fallback for synthetic intersections).
+        """
+        if res is None:
+            return None
+        src = getattr(res, "source_item", None)
+        source_id = id(src) if src is not None else hash(res.snap_type)
+        return {
+            "point": (res.point.x(), res.point.y()),
+            "snap_type": res.snap_type,
+            "source_id": source_id,
+            "direction": self._source_item_direction(src),
+        }
+
+    @staticmethod
+    def _source_item_direction(src):
+        """Unit direction of a line-like source item, or None.
+
+        Handles the directional entity types (line / wall / pipe / polyline);
+        anything else (nodes, ellipses, points) has no direction.
+        """
+        if src is None:
+            return None
+        import math as _math
+        p1 = p2 = None
+        # WallSegment: true centerline endpoints.
+        if isinstance(src, WallSegment):
+            p1, p2 = src.centerline_pt1, src.centerline_pt2
+        elif isinstance(src, GridlineItem):
+            p1, p2 = QPointF(src._origin), src._far_point()
+        elif isinstance(src, QGraphicsLineItem):
+            ln = src.line()
+            p1 = src.mapToScene(ln.p1())
+            p2 = src.mapToScene(ln.p2())
+        if p1 is None or p2 is None:
+            return None
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        n = _math.hypot(dx, dy)
+        if n < 1e-9:
+            return None
+        return (dx / n, dy / n)
 
     def toggle_snap(self, enabled: bool | None = None):
         """Toggle or explicitly set SNAP.  Called from F3 shortcut and
@@ -3888,16 +4096,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             v.viewport().update()
         self.snapToggled.emit(self._snap_enabled)
 
-    def set_inference_enabled(self, enabled: bool | None = None):
-        """Toggle or set alignment inference. Mirrors toggle_snap()."""
+    def set_align_enabled(self, enabled: bool | None = None):
+        """Toggle or set ALIGN. Mirrors toggle_snap()."""
         if enabled is None:
-            self._inference_enabled = not self._inference_enabled
+            self._align_enabled = not self._align_enabled
         else:
-            self._inference_enabled = bool(enabled)
-        self._inference_result = None
+            self._align_enabled = bool(enabled)
+        self._align_result = None
         for v in self.views():
             v.viewport().update()
-        self.inferenceToggled.emit(self._inference_enabled)
+        self.alignToggled.emit(self._align_enabled)
 
     def _constrain_angle(self, anchor: QPointF, raw: QPointF) -> QPointF:
         """
@@ -3931,6 +4139,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         Returns:
             A copy of the anchor point, or None when no anchor exists.
+        """
+        # On-path Navigate: the ``track`` schema measures Distance from the
+        # tracking path's ORIGIN (D4), not the mode's own placement anchor, so
+        # while the track swap is live the anchor is the winning ray's origin.
+        # ``resolve_track(origin, {Distance, __dir__})`` then lands
+        # ``origin + Distance·direction``.
+        if self._align_track_schema() is not None:
+            ox, oy = self._align_track_ray.origin
+            return QPointF(ox, oy)
+        return self._mode_placement_anchor()
+
+    def _mode_placement_anchor(self) -> "QPointF | None":
+        """The mode's *own* placement anchor, ignoring any on-path track swap.
+
+        Split out of :meth:`get_placement_anchor` so the commit path can ask
+        "does the current mode already have a first-point anchor armed?" without
+        the ``track`` schema substituting the tracking ray's origin (which is
+        non-None even at the first-point step, and is exactly what would mask a
+        first point as a second point — BUG A).  ``get_placement_anchor``
+        returns the track-ray origin while the swap is live; this returns the
+        real per-mode anchor (``None`` at the first-point step).
         """
         if self.mode in ("draw_line", "draw_gridline"):
             a = self._draw_line_anchor
@@ -4151,16 +4380,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             The registered ``Schema`` for ``self.mode``, or None when the mode
             has no dynamic-input schema.
         """
-        if self.mode == "draw_arc":
-            return self._arc_schema_for_step()
-        if self.mode == "draw_rectangle":
-            return self._rectangle_schema_for_step()
-        if self.mode == "polygon":
-            return self._polygon_schema_for_step()
-        if self.mode == "wall":
-            return self._wall_schema_for_primitive()
-        key = self._SCHEMA_FOR_MODE.get(self.mode)
-        return SCHEMAS.get(key) if key else None
+        # On-path Navigate (D4) overrides the primitive readout while the cursor
+        # is soft-snapped to a single ALIGN path: the ``track`` schema replaces
+        # the mode's Length/Angle (or X/Y, R, …) with one signed Distance field.
+        # Refused for transform modes / rotate steps and for modes that cannot
+        # commit a typed point — see ``_align_track_schema``.
+        track = self._align_track_schema()
+        if track is not None:
+            return track
+        return self._base_schema()
 
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.
@@ -4223,7 +4451,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         This is the *constrained* position actually shown on screen, which is
         what the HUD seeds from.  Distinct from ``_last_scene_pos``, which
         holds the raw cursor and so can disagree with the preview whenever a
-        constraint (Ctrl, 45° snap, inference) is active.
+        constraint (Ctrl, 45° snap, ALIGN) is active.
 
         This — not ``active_schema()`` — is the gate for "is there a live
         placement to seed from".  Most modes that ``active_schema()`` answers
@@ -4247,7 +4475,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Record the resolved placement point and derive the HUD readout.
 
         Call once per frame per mode, at the point where the mode has finished
-        constraining its position (OSNAP → inference → Ctrl → 45° snap).  This
+        constraining its position (OSNAP → ALIGN → Ctrl → 45° snap).  This
         is the single source for both the live read-only readout and the
         values the HUD seeds with, so the two cannot disagree.
 
@@ -4485,6 +4713,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
+        self._arm_track_direction(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Re-placed every frame: an unengaged HUD follows the cursor.
@@ -4530,6 +4759,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
+        self._arm_track_direction(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Latch to the resolved placement point — the constrained position
@@ -4563,7 +4793,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         deliberately *not* the fallback: in the running app that is the
         vestigial, never-shown ``MainWindow.view`` frozen at ``m11 == 1.0`` —
         reading it made every zoom-dependent tolerance (snap aperture,
-        design-area pick, inference band, …) collapse to a fixed *scene*
+        design-area pick, ALIGN band, …) collapse to a fixed *scene*
         distance regardless of zoom.
         """
         v = self._visible_view()
@@ -4593,6 +4823,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             Values keyed by field name, in schema (scene) units.
         """
+        if schema.name == "track":
+            # The track schema has no cursor-derived inverse (``seed`` is None):
+            # its one Distance field is the signed distance-along-ray the seam
+            # already measured when it recovered the winning ray.  Seeding it
+            # keeps the readout showing how far along the path the cursor sits.
+            return {"Distance": self._align_track_dist}
         if schema.is_placement:
             # Explicit None test, never truthiness: PyQt gives QPointF a
             # __bool__ that is False at the origin, so ``point or anchor`` would
@@ -4702,6 +4938,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         hud.set_coupling_radius(hud.scene_to_mm(self._draw_arc_radius))
 
+    def _arm_track_direction(self, hud, schema) -> None:
+        """Inject the winning path's unit direction into a ``track`` HUD.
+
+        ``resolve_track`` reads the direction from the values dict under the
+        reserved ``"__dir__"`` key, injected by ``DynamicInputHud.values`` from
+        whatever ``set_track_direction`` last armed.  The direction is fixed for
+        as long as the cursor stays on one path, so arming it at seed time (each
+        sync and at engage) keeps it current as the swap turns on and off.  A
+        no-op for every other schema; other HUDs ignore the armed direction.
+        """
+        if schema is None or schema.name != "track":
+            return
+        direction = (self._align_track_ray.direction
+                     if self._align_track_ray is not None else None)
+        hud.set_track_direction(direction)
+
     def end_dynamic_input(self) -> None:
         """Close the HUD entirely — the placement it was reading out is over.
 
@@ -4797,12 +5049,69 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return
         hud = self.dynamic_input
         geometry = schema.resolve(anchor, values)
+        # On-path Navigate at the FIRST point (BUG A): the ``track`` schema is a
+        # placement schema, so ``get_placement_anchor`` hands back the tracking
+        # ray's ORIGIN even before the mode's own first click — non-None — which
+        # satisfies the anchor gate above.  But the mode's commit-only appliers
+        # (``_commit_draw_line_at`` / ``_commit_draw_circle_at``) refuse when no
+        # per-mode anchor is armed, and a False verdict becomes a red field.  A
+        # typed Distance on a path at the first point is really "click here to
+        # arm the first point", so route the resolved point through the mode's
+        # PRESS handler (the arm-or-commit entry a real first click takes),
+        # exactly as ``_apply_wall_dynamic_input`` already does for walls.  With
+        # a per-mode anchor armed (second point), this branch is skipped and the
+        # segment commits through the normal applier as before.
+        if (schema.name == "track"
+                and self._mode_placement_anchor() is None
+                and self._commit_track_first_point(geometry)):
+            self.end_dynamic_input()
+            return
         if self.apply_dynamic_input(geometry):
             # An applier may have torn the HUD down itself (e.g. by calling
             # set_mode); end_dynamic_input is a no-op in that case.
             self.end_dynamic_input()
         elif hud is not None and hud is self.dynamic_input:
             hud.reject_commit()
+
+    def _commit_track_first_point(self, point) -> bool:
+        """Arm the mode's first point at *point* via its press handler.
+
+        The on-path Navigate first-point path (BUG A): a typed Distance on a
+        tracking path at the first-point step must arm the mode's placement
+        anchor the same way a real first click on the path does, not run the
+        commit-only applier (which refuses without an anchor).  Dispatches a
+        synthetic press — ``event=None`` (the arming branch of every placement
+        press handler touches only ``snapped``; ``event.modifiers()`` is read
+        only in the second-point/commit branch, which cannot run here because
+        the anchor is None) — through ``_PRESS_DISPATCH`` for the current mode.
+
+        Args:
+            point: The resolved scene-space point (``origin + Distance·dir``).
+
+        Returns:
+            True when the mode has a press handler and the first point was
+            armed; False when no handler exists (caller falls back to the
+            normal applier / rejection path).
+        """
+        handler_name = self._PRESS_DISPATCH.get(self.mode)
+        if handler_name is None:
+            return False
+        before = self._mode_placement_anchor()
+        getattr(self, handler_name)(None, point, point, None, None, None)
+        # Spec D3 parity for the typed-first-point path: this synthetic press
+        # does NOT flow through mousePressEvent's arm wrapper, so mirror the
+        # direction capture here.  A track first point is armed while soft-
+        # snapped to a single ALIGN path, so the inherited direction is that
+        # path's own direction (extension/parallel ray); fall back to the live
+        # snap result's source object if no track ray is armed.
+        if before is None and self._mode_placement_anchor() is not None:
+            ray = self._align_track_ray
+            if ray is not None:
+                self._align_anchor_dir = ray.direction
+            else:
+                self._align_anchor_dir = self._source_item_direction(
+                    getattr(self._snap_result, "source_item", None))
+        return True
 
     def apply_dynamic_input(self, geometry):
         """Apply resolved *geometry* through the current mode's commit path.
@@ -5376,6 +5685,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.cursorMoved.emit(self._format_cursor_readout(scene_pos))
 
         snapped = self.get_effective_position(scene_pos)
+        # ── ALIGN dwell feed ────────────────────────────────────────────
+        # Advance the acquire machine with the elapsed-ms since the last move
+        # and the CURRENT real-snap under the cursor (get_effective_position
+        # just populated ``_snap_result``).  Hover-resting long enough on one
+        # snap source acquires it; the picker reads the acquired set next frame.
+        now_ns = time.perf_counter_ns()
+        elapsed_ms = (0.0 if self._align_last_move_ns is None
+                      else (now_ns - self._align_last_move_ns) / 1e6)
+        self._align_last_move_ns = now_ns
+        if self._align_enabled and self._align_active_item is not None:
+            self._align_controller.on_move(
+                (scene_pos.x(), scene_pos.y()),
+                self._align_snap_dict(self._snap_result), elapsed_ms)
         # Cleared each frame; draw modes republish below.  The resolved point
         # goes with the hint — leaving it set would let a mode that never
         # publishes hand the HUD the *previous* mode's stale point.
@@ -6640,6 +6962,35 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             v.viewport().update()
 
     # ── Dispatch table: mode string → press-handler method name ──────
+    # Point-asking PLACEMENT modes — every command whose press picks a free
+    # point in the scene to draw new geometry or drop a placed item.  This is
+    # the authoritative "arm ALIGN" set (spec 2026-08-26: universal client
+    # scope): both the ALIGN tier in ``get_effective_position`` and the dwell
+    # feed gate on ``_align_active_item is not None``, so ALIGN is silently
+    # inert in any placement mode omitted here.
+    #
+    # Defined POSITIVELY (membership) rather than as a hand-maintained literal
+    # in ``set_mode``: it is the subset of ``_PRESS_DISPATCH`` whose handler
+    # resolves a cursor point through ``get_effective_position`` and places
+    # there.  Deliberately EXCLUDES:
+    #   • ``select`` / ``None``            — no point placed
+    #   • object-pick transforms/modifies  — rotate, scale, mirror, break,
+    #     break_at_point, fillet, chamfer, stretch, trim(_pick), extend(_pick),
+    #     merge_points, offset(_side), align, the two constraint pickers, room
+    #     (click-inside-region), place_import (ghost drag, no snap point)
+    # ``move``/``paste`` are placement (destination point) AND self-exclude the
+    # moved item; they stay armed here and the press path swaps the sentinel for
+    # the real self-exclude item.
+    _ALIGN_PLACEMENT_MODES = frozenset({
+        "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
+        "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
+        "dimension", "text", "set_scale", "water_supply", "design_area",
+        "wall", "floor", "floor_rect", "roof", "roof_rect", "room_manual",
+        "opening", "door", "window", "detail",
+        "gridline_offset", "gridline_array",
+        "move", "paste",
+    })
+
     _PRESS_DISPATCH = {
         None:                       "_press_select_item",
         "select":                   "_press_select_item",
@@ -6979,9 +7330,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     return
                 self._grip_item, self._grip_index = grip_hit
                 self._grip_dragging = True
-                # Enable inference self-exclusion for gridline endpoint drags.
+                # Enable ALIGN self-exclusion for gridline endpoint drags.
                 if isinstance(self._grip_item, GridlineItem):
-                    self._inference_active_item = self._grip_item
+                    self._align_active_item = self._grip_item
                 return  # consumed by grip system
 
         # ── Gridline body click → select (no body drag, use grips) ──
@@ -7007,8 +7358,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is not None:
+            # Spec D3: when THIS press arms a first placement point, the
+            # auto-acquired active anchor inherits the direction of the object
+            # the point landed on, so an Extension ray extends end-to-end at the
+            # existing angle (continue a wall/line collinearly).  Detect a
+            # fresh arm by the raw per-mode anchor flipping None → not-None
+            # across the handler (``_mode_placement_anchor`` is not masked by the
+            # track-schema override, unlike ``get_placement_anchor``), then
+            # capture the direction from the snap result the arming click landed
+            # on (``None`` for empty space / a non-directional point — which also
+            # correctly overwrites any stale inherited direction).
+            anchor_before = self._mode_placement_anchor()
             getattr(self, handler_name)(event, scene_pos, snapped,
                                         selection, node_under, pipe_under)
+            anchor_after = self._mode_placement_anchor()
+            if anchor_before is None and anchor_after is not None:
+                self._align_anchor_dir = self._source_item_direction(
+                    getattr(self._snap_result, "source_item", None))
             # A press is what arms an anchor and what commits it, so the HUD's
             # existence is reconciled here as well as on move.  Without this a
             # committed placement would leave its readout hanging on screen
@@ -8515,7 +8881,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         *commit path*: a typed exact point and a mouse click land here, so they
         cannot drift apart.
 
-        ``tip`` is expected to arrive fully constrained (OSNAP, inference,
+        ``tip`` is expected to arrive fully constrained (OSNAP, ALIGN,
         Ctrl) — this method applies no further constraint.
 
         Deliberately does **not** push an undo state.  Polyline undo is pushed
@@ -8648,7 +9014,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         alternative *commit path*: a typed exact point and a mouse click land
         in this one method, so they cannot drift apart.
 
-        ``tip`` is expected to be fully constrained already (OSNAP, inference,
+        ``tip`` is expected to be fully constrained already (OSNAP, ALIGN,
         Ctrl) — this method applies no further constraint. A too-short line is
         rejected and leaves the anchor armed so the user can re-pick.
 
@@ -9911,9 +10277,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
-            # Clear inference active item now that the drag gesture is complete.
-            self._inference_active_item = None
-            self._inference_result = None
+            # Clear ALIGN active item now that the drag gesture is complete.
+            self._align_active_item = None
+            self._align_result = None
+            self._align_controller.clear()
+            self._align_last_move_ns = None
+            self._align_anchor_dir = None
             self.push_undo_state()
             for v in self.views():
                 v.viewport().update()

@@ -14,6 +14,12 @@ from PyQt6.QtWidgets import (
     QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from .constants import (
+    ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
+    ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
+    ALIGN_DIR_PERPENDICULAR_DEFAULT,
+)
+
 
 class SettingsPane(QWidget):
     """Base pane. Subclasses implement load/apply/revert and build their UI."""
@@ -46,13 +52,21 @@ _FACTORY_DEFAULTS: dict = {
     "grip_px":      200,
     "grid_mm":      10.0,
     "angle_deg":    45,
-    "inference":    True,
+    "align":        True,
+    # ── ALIGN knobs (docs/superpowers/specs/…-align-tracking-design.md D7) ──
+    "align_path_tol_px": int(ALIGN_PATH_TOL_PX),
+    "align_dwell_ms":    ALIGN_DWELL_MS,
+    "align_max_points":  ALIGN_MAX_POINTS,
+    "align_dir_hv":        ALIGN_DIR_HV_DEFAULT,
+    "align_dir_extension": ALIGN_DIR_EXTENSION_DEFAULT,
+    "align_dir_parallel":  ALIGN_DIR_PARALLEL_DEFAULT,
+    "align_dir_perpendicular": ALIGN_DIR_PERPENDICULAR_DEFAULT,
     **{attr: True for _, attr in _SNAP_TYPES},
 }
 
 
 class SnappingPane(SettingsPane):
-    """Preferences pane for SNAP / snap-tolerance / grid / inference settings.
+    """Preferences pane for SNAP / snap-tolerance / grid / ALIGN settings.
 
     Ports the two existing snap dialogs in ``main.py``:
     - ``_open_snap_tolerance_dialog`` — snap radius, grip radius, 8 snap-type
@@ -146,29 +160,108 @@ class SnappingPane(SettingsPane):
 
         tabs.addTab(grid_tab, "Grid / Angle")
 
-        # ── Tab 3: Inference ─────────────────────────────────────────────────
+        # ── Tab 3: ALIGN ─────────────────────────────────────────────────────
         inf_tab = QWidget()
         inf_layout = QVBoxLayout(inf_tab)
 
-        self._align_cb = QCheckBox("Alignment Guides")
-        self._align_cb.setObjectName("inference_alignment_guides")
+        self._align_cb = QCheckBox("ALIGN (master on/off · F11)")
+        self._align_cb.setObjectName("align_enabled")
         inf_layout.addWidget(self._align_cb)
 
-        coming_soon = QGroupBox("Dynamic Input · Equal Spacing")
-        coming_soon.setEnabled(False)
-        cs_layout = QVBoxLayout(coming_soon)
-        cs_label = QLabel("Coming soon")
-        cs_label.setStyleSheet("color: #888;")
-        cs_layout.addWidget(cs_label)
-        inf_layout.addWidget(coming_soon)
+        # Acquire / tracking tunables
+        tune_group = QGroupBox("Acquire & Tracking")
+        tune_form = QFormLayout(tune_group)
+
+        self._align_tol_spin = QSpinBox()
+        self._align_tol_spin.setRange(5, 200)
+        self._align_tol_spin.setSingleStep(5)
+        self._align_tol_spin.setSuffix(" px")
+        tune_form.addRow("Path snap aperture:", self._align_tol_spin)
+
+        self._align_dwell_spin = QSpinBox()
+        self._align_dwell_spin.setRange(0, 3000)
+        self._align_dwell_spin.setSingleStep(50)
+        self._align_dwell_spin.setSuffix(" ms")
+        tune_form.addRow("Acquire dwell:", self._align_dwell_spin)
+
+        self._align_maxpts_spin = QSpinBox()
+        self._align_maxpts_spin.setRange(1, 20)
+        self._align_maxpts_spin.setSingleStep(1)
+        tune_form.addRow("Max acquired points:", self._align_maxpts_spin)
+
+        inf_layout.addWidget(tune_group)
+
+        # Per-direction ray-kind toggles
+        dir_group = QGroupBox("Tracking Directions")
+        dir_layout = QVBoxLayout(dir_group)
+        self._align_hv_cb = QCheckBox("Horizontal / Vertical")
+        self._align_ext_cb = QCheckBox("Extension (collinear)")
+        self._align_par_cb = QCheckBox("Parallel")
+        self._align_perp_cb = QCheckBox("Perpendicular")
+        for cb in (self._align_hv_cb, self._align_ext_cb, self._align_par_cb,
+                   self._align_perp_cb):
+            dir_layout.addWidget(cb)
+        inf_layout.addWidget(dir_group)
         inf_layout.addStretch()
 
-        tabs.addTab(inf_tab, "Inference")
+        tabs.addTab(inf_tab, "ALIGN")
 
         # ── Reset to Defaults button ──────────────────────────────────────────
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.clicked.connect(self.reset_to_defaults)
         outer.addWidget(reset_btn)
+
+    # ── ALIGN knob setters / getters ──────────────────────────────────────────
+    # Thin wrappers so callers (and tests) drive the widgets by name; apply()
+    # reads the widgets, so setting a value then apply()-ing live-applies it.
+
+    def set_align_path_tol(self, px: int) -> None:
+        self._align_tol_spin.setValue(int(px))
+
+    def align_path_tol(self) -> int:
+        return self._align_tol_spin.value()
+
+    def set_align_dwell(self, ms: int) -> None:
+        self._align_dwell_spin.setValue(int(ms))
+
+    def align_dwell(self) -> int:
+        return self._align_dwell_spin.value()
+
+    def set_align_max_points(self, n: int) -> None:
+        self._align_maxpts_spin.setValue(int(n))
+
+    def align_max_points(self) -> int:
+        return self._align_maxpts_spin.value()
+
+    def set_align_hv_enabled(self, on: bool) -> None:
+        self._align_hv_cb.setChecked(bool(on))
+
+    def align_hv_enabled(self) -> bool:
+        return self._align_hv_cb.isChecked()
+
+    def set_align_extension_enabled(self, on: bool) -> None:
+        self._align_ext_cb.setChecked(bool(on))
+
+    def align_extension_enabled(self) -> bool:
+        return self._align_ext_cb.isChecked()
+
+    def set_align_parallel_enabled(self, on: bool) -> None:
+        self._align_par_cb.setChecked(bool(on))
+
+    def align_parallel_enabled(self) -> bool:
+        return self._align_par_cb.isChecked()
+
+    def set_align_perpendicular_enabled(self, on: bool) -> None:
+        self._align_perp_cb.setChecked(bool(on))
+
+    def align_perpendicular_enabled(self) -> bool:
+        return self._align_perp_cb.isChecked()
+
+    def set_align_master(self, on: bool) -> None:
+        self._align_cb.setChecked(bool(on))
+
+    def align_master(self) -> bool:
+        return self._align_cb.isChecked()
 
     # ── SettingsPane protocol ─────────────────────────────────────────────────
 
@@ -193,14 +286,38 @@ class SnappingPane(SettingsPane):
             eng = self._scene._snap_engine
             grip_px = int(getattr(self._scene, "_grip_tolerance_px", 200))
             angle_deg = int(self._scene._snap_angle_deg)
-            inference = bool(self._scene._inference_enabled)
+            align_on = bool(self._scene._align_enabled)
+            # ALIGN tunables come from the live controller when present; a
+            # partial scene (test double) falls back to the factory defaults.
+            ctrl = getattr(self._scene, "_align_controller", None)
+            align_tol = int(getattr(self._scene, "_align_path_tol_px",
+                                    ALIGN_PATH_TOL_PX))
+            align_dwell = int(getattr(ctrl, "dwell_ms", ALIGN_DWELL_MS))
+            align_maxpts = int(getattr(ctrl, "max_points", ALIGN_MAX_POINTS))
+            align_hv = bool(getattr(ctrl, "dir_hv_enabled", ALIGN_DIR_HV_DEFAULT))
+            align_ext = bool(getattr(ctrl, "dir_extension_enabled",
+                                     ALIGN_DIR_EXTENSION_DEFAULT))
+            align_par = bool(getattr(ctrl, "dir_parallel_enabled",
+                                     ALIGN_DIR_PARALLEL_DEFAULT))
+            align_perp = bool(getattr(ctrl, "dir_perpendicular_enabled",
+                                      ALIGN_DIR_PERPENDICULAR_DEFAULT))
             snap_flags: dict[str, bool] = {
                 attr: bool(getattr(eng, attr, True)) for _, attr in _SNAP_TYPES
             }
         else:
             grip_px = s.value("snap/grip_tolerance_px", 200, type=int)
             angle_deg = s.value("snap/angle_deg", 45, type=int)
-            inference = s.value("inference/alignment_guides", True, type=bool)
+            align_on = s.value("align/enabled", True, type=bool)
+            align_tol = s.value("align/path_tol_px", int(ALIGN_PATH_TOL_PX), type=int)
+            align_dwell = s.value("align/dwell_ms", ALIGN_DWELL_MS, type=int)
+            align_maxpts = s.value("align/max_points", ALIGN_MAX_POINTS, type=int)
+            align_hv = s.value("align/dir_hv", ALIGN_DIR_HV_DEFAULT, type=bool)
+            align_ext = s.value("align/dir_extension",
+                                ALIGN_DIR_EXTENSION_DEFAULT, type=bool)
+            align_par = s.value("align/dir_parallel",
+                                ALIGN_DIR_PARALLEL_DEFAULT, type=bool)
+            align_perp = s.value("align/dir_perpendicular",
+                                 ALIGN_DIR_PERPENDICULAR_DEFAULT, type=bool)
             snap_flags = {}
             for _, attr in _SNAP_TYPES:
                 val = s.value(f"snap/{attr}", True)
@@ -220,7 +337,14 @@ class SnappingPane(SettingsPane):
             "grip_px":      grip_px,
             "grid_mm":      grid_mm,
             "angle_deg":    angle_deg,
-            "inference":    inference,
+            "align":        align_on,
+            "align_path_tol_px": align_tol,
+            "align_dwell_ms":    align_dwell,
+            "align_max_points":  align_maxpts,
+            "align_dir_hv":        align_hv,
+            "align_dir_extension": align_ext,
+            "align_dir_parallel":  align_par,
+            "align_dir_perpendicular": align_perp,
             **snap_flags,
         }
 
@@ -230,7 +354,14 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(grip_px)
         self._grid_edit.set_value_mm(grid_mm)
         self._angle_spin.setValue(int(angle_deg))
-        self._align_cb.setChecked(inference)
+        self._align_cb.setChecked(align_on)
+        self._align_tol_spin.setValue(int(align_tol))
+        self._align_dwell_spin.setValue(int(align_dwell))
+        self._align_maxpts_spin.setValue(int(align_maxpts))
+        self._align_hv_cb.setChecked(bool(align_hv))
+        self._align_ext_cb.setChecked(bool(align_ext))
+        self._align_par_cb.setChecked(bool(align_par))
+        self._align_perp_cb.setChecked(bool(align_perp))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(snap_flags[attr])
 
@@ -282,11 +413,36 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene._snap_angle_deg = angle_deg
 
-        # ── Inference (alignment guides) ──────────────────────────────────────
-        inference = self._align_cb.isChecked()
-        s.setValue("inference/alignment_guides", inference)
+        # ── ALIGN master on/off ───────────────────────────────────────────────
+        align_on = self._align_cb.isChecked()
+        s.setValue("align/enabled", align_on)
         if self._scene is not None:
-            self._scene.set_inference_enabled(inference)
+            self._scene.set_align_enabled(align_on)
+
+        # ── ALIGN tunables (path-tol / dwell / max-points / directions) ───────
+        align_tol = self._align_tol_spin.value()
+        align_dwell = self._align_dwell_spin.value()
+        align_maxpts = self._align_maxpts_spin.value()
+        align_hv = self._align_hv_cb.isChecked()
+        align_ext = self._align_ext_cb.isChecked()
+        align_par = self._align_par_cb.isChecked()
+        align_perp = self._align_perp_cb.isChecked()
+        s.setValue("align/path_tol_px", align_tol)
+        s.setValue("align/dwell_ms", align_dwell)
+        s.setValue("align/max_points", align_maxpts)
+        s.setValue("align/dir_hv", align_hv)
+        s.setValue("align/dir_extension", align_ext)
+        s.setValue("align/dir_parallel", align_par)
+        s.setValue("align/dir_perpendicular", align_perp)
+        if self._scene is not None:
+            self._scene._align_path_tol_px = float(align_tol)
+            ctrl = getattr(self._scene, "_align_controller", None)
+            if ctrl is not None:
+                ctrl.dwell_ms = align_dwell
+                ctrl.max_points = align_maxpts
+                ctrl.set_direction_flags(hv=align_hv, extension=align_ext,
+                                         parallel=align_par,
+                                         perpendicular=align_perp)
 
         # ── SNAP toolbar sync ─────────────────────────────────────────────────
         if self._snap_toolbar is not None:
@@ -314,7 +470,18 @@ class SnappingPane(SettingsPane):
         if self._scene is not None:
             self._scene._grip_tolerance_px = self._snapshot["grip_px"]
             self._scene._snap_angle_deg = self._snapshot["angle_deg"]
-            self._scene.set_inference_enabled(self._snapshot["inference"])
+            self._scene.set_align_enabled(self._snapshot["align"])
+            self._scene._align_path_tol_px = float(
+                self._snapshot["align_path_tol_px"])
+            ctrl = getattr(self._scene, "_align_controller", None)
+            if ctrl is not None:
+                ctrl.dwell_ms = self._snapshot["align_dwell_ms"]
+                ctrl.max_points = self._snapshot["align_max_points"]
+                ctrl.set_direction_flags(
+                    hv=self._snapshot["align_dir_hv"],
+                    extension=self._snapshot["align_dir_extension"],
+                    parallel=self._snapshot["align_dir_parallel"],
+                    perpendicular=self._snapshot["align_dir_perpendicular"])
             eng = self._scene._snap_engine
             for _, attr in _SNAP_TYPES:
                 setattr(eng, attr, self._snapshot[attr])
@@ -333,7 +500,15 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(self._snapshot["grip_px"])
         self._grid_edit.set_value_mm(self._snapshot["grid_mm"])
         self._angle_spin.setValue(int(self._snapshot["angle_deg"]))
-        self._align_cb.setChecked(self._snapshot["inference"])
+        self._align_cb.setChecked(self._snapshot["align"])
+        self._align_tol_spin.setValue(int(self._snapshot["align_path_tol_px"]))
+        self._align_dwell_spin.setValue(int(self._snapshot["align_dwell_ms"]))
+        self._align_maxpts_spin.setValue(int(self._snapshot["align_max_points"]))
+        self._align_hv_cb.setChecked(bool(self._snapshot["align_dir_hv"]))
+        self._align_ext_cb.setChecked(bool(self._snapshot["align_dir_extension"]))
+        self._align_par_cb.setChecked(bool(self._snapshot["align_dir_parallel"]))
+        self._align_perp_cb.setChecked(
+            bool(self._snapshot["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(self._snapshot[attr])
 
@@ -345,7 +520,14 @@ class SnappingPane(SettingsPane):
         self._grip_spin.setValue(d["grip_px"])
         self._grid_edit.set_value_mm(d["grid_mm"])
         self._angle_spin.setValue(int(d["angle_deg"]))
-        self._align_cb.setChecked(d["inference"])
+        self._align_cb.setChecked(d["align"])
+        self._align_tol_spin.setValue(int(d["align_path_tol_px"]))
+        self._align_dwell_spin.setValue(int(d["align_dwell_ms"]))
+        self._align_maxpts_spin.setValue(int(d["align_max_points"]))
+        self._align_hv_cb.setChecked(bool(d["align_dir_hv"]))
+        self._align_ext_cb.setChecked(bool(d["align_dir_extension"]))
+        self._align_par_cb.setChecked(bool(d["align_dir_parallel"]))
+        self._align_perp_cb.setChecked(bool(d["align_dir_perpendicular"]))
         for attr, cb in self._snap_cbs.items():
             cb.setChecked(d[attr])
         self.apply()

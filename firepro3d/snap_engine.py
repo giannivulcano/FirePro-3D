@@ -78,6 +78,21 @@ def scene_to_px(scene_dist: float, scale: float) -> float:
     return scene_dist * _safe_scale(scale)
 
 
+def _ray_line(ray) -> QLineF:
+    """A long finite QLineF along *ray* for source-trace highlighting.
+
+    ALIGN rays are conceptually infinite; the foreground pass draws a finite
+    line, so we materialise a viewport-spanning segment centred on the ray
+    origin. Carried on the ``OsnapResult.source_lines`` so ``drawForeground``
+    lights the participating tracking vector(s).
+    """
+    ox, oy = ray.origin
+    dx, dy = ray.direction
+    L = 1e6
+    return QLineF(QPointF(ox - L * dx, oy - L * dy),
+                  QPointF(ox + L * dx, oy + L * dy))
+
+
 # Geometry primitive epsilons (used in snap math helpers)
 _EPS_PARALLEL:   float = 1e-10  # line-line cross product denominator
 _EPS_DEGENERATE: float = 1e-12  # zero-length segment / zero-radius guard
@@ -152,6 +167,12 @@ SNAP_PRIORITY: dict[str, int] = {
     "quadrant":      5,
     "tangent":       6,
     "nearest":       7,
+    # ── ALIGN transient tracking candidates — always BELOW every real snap ──
+    # so a real endpoint/intersection/etc. in range always outranks a tracking
+    # path. path×path / path×geometry crossings (align_intersection) win over a
+    # single-path projection (align_path). See docs/specs/align-placement.md.
+    "align_intersection": 20,
+    "align_path":         30,
 }
 
 
@@ -207,23 +228,47 @@ class _SnapCtx:
         # Whitelist of snap types that may be returned (None = no restriction)
         self.only_types: "set[str] | None" = only_types
 
-    def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem,
+    def check(self, snap_type: str, pt: QPointF, src_item: QGraphicsItem | None,
               name: str | None = None, *,
               src_item2: QGraphicsItem | None = None,
-              source_lines: list | None = None):
-        """Compare a candidate snap against the current best, judged in PIXELS."""
+              source_lines: list | None = None,
+              aperture_px: float | None = None):
+        """Compare a candidate snap against the current best, judged in PIXELS.
+
+        ``aperture_px`` optionally overrides the hard grab-radius cutoff for
+        THIS candidate only (ALIGN candidates ride their own wider
+        ``ALIGN_PATH_TOL_PX`` band without widening the real-snap aperture).
+        The priority-band picker arithmetic is unchanged — a closer real snap
+        still wins by priority — so real-snap acceptance never regresses.
+        """
         if self.only_types is not None and snap_type not in self.only_types:
             return
         d_scene = math.hypot(pt.x() - self.cursor.x(), pt.y() - self.cursor.y())
         d_px = d_scene * self.scale
-        if d_px > self.aperture_px:
+        cutoff = self.aperture_px if aperture_px is None else aperture_px
+        if d_px > cutoff:
             return  # hard pixel aperture — zoom-invariant grab radius
         if snap_type == "endpoint":
             self.endpoint_candidates.append(pt)
         prio = SNAP_PRIORITY.get(snap_type, 6)
         band = self.priority_band_px
+        # Acceptance rules (all judged in px):
+        #  1. strictly closer beyond the band  → always win;
+        #  2. within the band + higher priority → win (priority-override,
+        #     "recall-first": e.g. an intersection beats a closer perpendicular);
+        #  3. within the band + EQUAL priority + strictly closer → win.
+        # Rule 3 is load-bearing for ALIGN: the acquired point's H/V rays and its
+        # extension ray are all ``align_path`` (equal priority) and the H/V rays
+        # are always checked first, so without a same-priority closest-wins rule
+        # a closer extension foot (2 px) could never displace a farther H/V foot
+        # (10 px) once it was the incumbent — extension tracking then silently
+        # failed for every non-axis-aligned source (BUG B) while H/V "worked"
+        # only because its ray coincides with the extension for axis-aligned
+        # geometry.  ``< best_dist_px`` (strict) means a farther equal-priority
+        # candidate checked later can never displace a closer incumbent.
         if (d_px < self.best_dist_px - band or
-                (d_px < self.best_dist_px + band and prio < self.best_prio)):
+                (d_px < self.best_dist_px + band and prio < self.best_prio) or
+                (d_px < self.best_dist_px and prio == self.best_prio)):
             self.best_dist_px = d_px
             self.best_prio = prio
             self.best_result = OsnapResult(
@@ -270,6 +315,8 @@ class SnapEngine:
         only_types:     "set[str] | None" = None,
         item_filter:    "Callable[[QGraphicsItem], bool] | None" = None,
         held:           "OsnapResult | None" = None,
+        align_paths:    "list | None" = None,
+        align_aperture_px: float | None = None,
     ) -> OsnapResult | None:
         """Return the nearest snappable point within tolerance, or *None*.
 
@@ -290,15 +337,36 @@ class SnapEngine:
                 aperture OR a strictly-higher-priority candidate appears.
                 ``None`` (default) means no hysteresis — existing callers are
                 unaffected.
+            align_paths: Optional list of ALIGN :class:`~firepro3d.align_engine.Ray`
+                transient tracking vectors. When provided, ALIGN candidates are
+                added INTO the same priority-band picker (not a second pass):
+                path×path and path×geometry crossings as ``align_intersection``
+                (priority 20) and single-path projections as ``align_path``
+                (priority 30) — both well below every real snap (0–7), so a real
+                snap in range always wins. Candidates ride the identical pixel
+                aperture + hysteresis arithmetic (zoom-invariant). ``None``
+                (default) skips the pass entirely — existing callers unaffected.
+            align_aperture_px: Optional px grab-radius for ALIGN candidates only.
+                ALIGN paths soft-snap at their OWN wider band
+                (``ALIGN_PATH_TOL_PX``), separate from the 15px real-snap
+                aperture, so a cursor can reach a tracking path from farther away
+                without loosening real snaps. ``None`` (default) falls back to
+                ``ALIGN_PATH_TOL_PX``. Real-snap acceptance is never affected.
         """
         if not self.enabled:
             return None
+
+        from .constants import ALIGN_PATH_TOL_PX
+        align_aperture = (float(ALIGN_PATH_TOL_PX) if align_aperture_px is None
+                          else float(align_aperture_px))
 
         # Aperture is a screen-pixel constant (zoom-invariant). Convert to a
         # scene-unit SEARCH radius, clamped to a perf-only ceiling that never
         # bites at a usable zoom. Acceptance is judged in pixels (see _SnapCtx).
         scale = view_transform.m11()
         aperture_px = float(SNAP_TOLERANCE_PX)
+        # ALIGN candidates search a wider rect (their own aperture) — but the
+        # real-snap search rect stays at the 15px aperture below.
         search_tol = min(px_to_scene(aperture_px, scale), SNAP_MAX_SCENE_TOL)
 
         search_rect = QRectF(
@@ -332,13 +400,51 @@ class SnapEngine:
             self._check_geometry_intersections(ctx, scene, search_rect, exclude,
                                                gl_items, item_filter)
 
+        # Phase 5 — ALIGN transient tracking candidates (into the same picker).
+        # Priced below every real snap (see SNAP_PRIORITY), so any real snap in
+        # range outranks these; they ride ctx.check's px aperture unchanged, so
+        # the acquire/path grab radius is zoom-invariant like all other snaps.
+        if align_paths:
+            from .align_engine import path_x_path, path_x_segment, project_to_ray
+            cur = (cursor_scene.x(), cursor_scene.y())
+            # path × path (priority align_intersection = 20)
+            for i in range(len(align_paths)):
+                for j in range(i + 1, len(align_paths)):
+                    p = path_x_path(align_paths[i], align_paths[j])
+                    if p is not None:
+                        ctx.check("align_intersection", QPointF(*p), None,
+                                  source_lines=[_ray_line(align_paths[i]),
+                                                _ray_line(align_paths[j])],
+                                  aperture_px=align_aperture)
+            # path × nearby geometry (priority align_intersection = 20)
+            for seg in self._align_geometry_segments(scene, cursor_scene,
+                                                     view_transform, item_filter,
+                                                     ctx, align_aperture):
+                for ray in align_paths:
+                    p = path_x_segment(ray, seg[0], seg[1])
+                    if p is not None:
+                        ctx.check("align_intersection", QPointF(*p), None,
+                                  source_lines=[_ray_line(ray)],
+                                  aperture_px=align_aperture)
+            # single-path projection (priority align_path = 30)
+            for ray in align_paths:
+                foot, _ = project_to_ray(cur, ray)
+                ctx.check("align_path", QPointF(*foot), None,
+                          source_lines=[_ray_line(ray)],
+                          aperture_px=align_aperture)
+
         best = ctx.best_result
         if held is None:
             return best
         held_d_px = scene_to_px(
             math.hypot(held.point.x() - cursor_scene.x(),
                        held.point.y() - cursor_scene.y()), scale)
-        if held_d_px > aperture_px:
+        # A held ALIGN result is released at the ALIGN aperture, not the tighter
+        # real-snap aperture, so an on-path hold isn't dropped prematurely.
+        held_aperture = (align_aperture
+                         if held.snap_type in ("align_intersection", "align_path")
+                         else aperture_px)
+        if held_d_px > held_aperture:
             return best  # cursor left the held aperture → release the hold
         if best is None:
             return held
@@ -469,190 +575,25 @@ class SnapEngine:
         _segments: list[tuple[QPointF, QPointF, QGraphicsItem, object]] = []
         _circles: list[tuple[QPointF, float, QGraphicsItem]] = []
 
-        # Include all gridlines (shape is bubbles-only, missed by search_rect)
-        for gl in gl_items:
-            line = gl.line()
-            _segments.append((gl.mapToScene(line.p1()),
-                             gl.mapToScene(line.p2()), gl, gl))
-
-        _underlay_tags = ("DXF Underlay", "PDF Underlay")
-
-        def _phase4_items():
-            """Yield items for segment extraction — skip underlay groups entirely."""
-            _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
-            for item in scene.items(search_rect, _bbox):
-                if exclude is not None and item is exclude:
-                    continue
-                if item.zValue() > 150:
-                    continue
-                parent = item.parentItem()
-                if parent is not None:
-                    if (isinstance(parent, QGraphicsItemGroup)
-                            and parent.data(0) in _underlay_tags):
-                        if isinstance(parent.data(4), UnderlaySnapIndex):
-                            continue  # segments from index below
-                        if item_filter is not None and not item_filter(item):
-                            continue
-                        yield item  # no index — process directly
-                    continue
-                if (isinstance(item, QGraphicsItemGroup)
-                        and item.data(0) in _underlay_tags):
-                    continue
-                if item_filter is not None and not item_filter(item):
-                    continue
-                yield item
-
-        for item in _phase4_items():
-            if isinstance(item, QGraphicsLineItem):
-                line = item.line()
-                _segments.append((item.mapToScene(line.p1()),
-                                 item.mapToScene(line.p2()), item, item))
-            elif isinstance(item, PolylineItem):
-                verts = item._points
-                for j in range(len(verts) - 1):
-                    _segments.append((item.mapToScene(verts[j]),
-                                     item.mapToScene(verts[j + 1]), item, item))
-            elif isinstance(item, RectangleItem):
-                r = item.rect()
-                corners = [
-                    item.mapToScene(QPointF(r.left(),  r.top())),
-                    item.mapToScene(QPointF(r.right(), r.top())),
-                    item.mapToScene(QPointF(r.right(), r.bottom())),
-                    item.mapToScene(QPointF(r.left(),  r.bottom())),
-                ]
-                for j in range(4):
-                    _segments.append((corners[j], corners[(j + 1) % 4],
-                                     item, item))
-            elif isinstance(item, WallSegment):
-                # Use mitered geometry so joined walls share clean corners
-                # instead of crossing each other inside the joint — the
-                # root cause of the §7.1 wall-corner false negative.
-                try:
-                    p1l, p1r, p2r, p2l = item.snap_quad_points()
-                    _segments.append((p1l, p2l, item, item))
-                    _segments.append((p1r, p2r, item, item))
-                except (ValueError, AttributeError):
-                    pass
-            elif isinstance(item, CircleItem):
-                _circles.append((item._center, item._radius, item))
-            elif isinstance(item, RegularPolygonItem):
-                verts = item.vertices()
-                for j in range(len(verts)):
-                    _segments.append((verts[j], verts[(j + 1) % len(verts)],
-                                      item, item))
-            elif isinstance(item, QGraphicsPathItem):
-                # Generic path items (DXF imports). Filter each segment
-                # against the search rect — polyline bounding rects are
-                # large but only a few segments are actually near the cursor.
-                path = item.path()
-                n = path.elementCount()
-                for j in range(min(n - 1, 511)):
-                    e2 = path.elementAt(j + 1)
-                    if e2.type == QPainterPath.ElementType.MoveToElement:
-                        continue  # sub-path boundary, no segment
-                    e1 = path.elementAt(j)
-                    p1 = item.mapToScene(QPointF(e1.x, e1.y))
-                    p2 = item.mapToScene(QPointF(e2.x, e2.y))
-                    seg_r = QRectF(
-                        min(p1.x(), p2.x()) - 0.5,
-                        min(p1.y(), p2.y()) - 0.5,
-                        abs(p2.x() - p1.x()) + 1.0,
-                        abs(p2.y() - p1.y()) + 1.0,
-                    )
-                    if search_rect.intersects(seg_r):
-                        _segments.append((p1, p2, item, item))
-                # Abort during extraction — once over the cap the
-                # phase bails anyway (see check below).
-                if len(_segments) > _PHASE4_MAX_SEGMENTS:
-                    return
-
-        # Extract segments from underlay snap indices
-        _queried_groups: set[int] = set()
-        _bbox_mode = Qt.ItemSelectionMode.IntersectsItemBoundingRect
-        for item in scene.items(search_rect, _bbox_mode):
-            parent = item.parentItem()
-            grp = None
-            if parent is not None and isinstance(parent, QGraphicsItemGroup):
-                if parent.data(0) in _underlay_tags:
-                    grp = parent
-            elif (isinstance(item, QGraphicsItemGroup)
-                  and item.data(0) in _underlay_tags):
-                grp = item
-            if grp is None:
-                continue
-            gid = id(grp)
-            if gid in _queried_groups:
-                continue
-            _queried_groups.add(gid)
-
-            index = grp.data(4)
-            if not isinstance(index, UnderlaySnapIndex):
-                continue
-            xf = grp.sceneTransform()
-            inv_xf, ok = xf.inverted()
-            if not ok:
-                continue
-            local_rect = inv_xf.mapRect(search_rect)
-            lx1 = local_rect.x()
-            ly1 = local_rect.y()
-            lx2 = lx1 + local_rect.width()
-            ly2 = ly1 + local_rect.height()
-
-            # Reuse Phase 1's query result for this group (same
-            # search_rect) instead of querying twice per mousemove.
-            nearby = ctx.underlay_geoms.get(gid)
-            if nearby is None:
-                nearby = index.query(lx1, ly1, local_rect.width(),
-                                     local_rect.height())
-                ctx.underlay_geoms[gid] = nearby
-
-            for g in nearby:
-                kind = g.get("kind")
-                if kind == "line":
-                    ax = g["x1"]; ay = g["y1"]
-                    bx = g["x2"]; by = g["y2"]
-                    # Segment-bbox rejection in local space before any
-                    # xf.map / QPointF construction.
-                    if (max(ax, bx) < lx1 or min(ax, bx) > lx2
-                            or max(ay, by) < ly1 or min(ay, by) > ly2):
-                        continue
-                    p1 = xf.map(QPointF(ax, ay))
-                    p2 = xf.map(QPointF(bx, by))
-                    seg_r = QRectF(
-                        min(p1.x(), p2.x()) - 0.5,
-                        min(p1.y(), p2.y()) - 0.5,
-                        abs(p2.x() - p1.x()) + 1.0,
-                        abs(p2.y() - p1.y()) + 1.0,
-                    )
-                    if search_rect.intersects(seg_r):
-                        _segments.append((p1, p2, grp, None))
-                elif kind == "path_points":
-                    points = g.get("points", [])
-                    for j in range(min(len(points) - 1, 511)):
-                        a, b = points[j], points[j + 1]
-                        if (max(a[0], b[0]) < lx1 or min(a[0], b[0]) > lx2
-                                or max(a[1], b[1]) < ly1
-                                or min(a[1], b[1]) > ly2):
-                            continue
-                        p1 = xf.map(QPointF(a[0], a[1]))
-                        p2 = xf.map(QPointF(b[0], b[1]))
-                        seg_r = QRectF(
-                            min(p1.x(), p2.x()) - 0.5,
-                            min(p1.y(), p2.y()) - 0.5,
-                            abs(p2.x() - p1.x()) + 1.0,
-                            abs(p2.y() - p1.y()) + 1.0,
-                        )
-                        if search_rect.intersects(seg_r):
-                            _segments.append((p1, p2, grp, None))
-                # Abort during extraction — once over the cap the phase
-                # bails anyway, so don't keep extracting thousands more.
-                if len(_segments) > _PHASE4_MAX_SEGMENTS:
-                    return
+        # Shared extraction — the same generator ALIGN's path×geometry pass
+        # consumes (single home for the search-rect + per-type segment math,
+        # respecting _PHASE4_MAX_SEGMENTS). It yields ("seg", …) / ("circle", …)
+        # records; here we split them into the two collections phase-4 pairs.
+        _overflow = False
+        for rec in self._iter_geometry_segments(scene, search_rect, exclude,
+                                                gl_items, item_filter, ctx):
+            if rec[0] == "seg":
+                _segments.append(rec[1])
+            else:  # "circle"
+                _circles.append(rec[1])
+            if len(_segments) > _PHASE4_MAX_SEGMENTS:
+                _overflow = True
+                break
 
         # Bail out if segment extraction exploded (batched DXF paths
         # have hundreds of segments per item; O(n²) pairing on 3000+
         # segments freezes the UI).
-        if len(_segments) > _PHASE4_MAX_SEGMENTS:
+        if _overflow:
             return
 
         # Endpoint protection band — §6.3 Change B. Intersection
@@ -697,6 +638,277 @@ class SnapEngine:
                         ctx.check("intersection", ix, src,
                                   src_item2=c_item,
                                   source_lines=[QLineF(sa1, sa2)])
+
+    # ── Shared geometry-segment extraction (phase 4 + ALIGN) ─────────────────
+
+    def _iter_geometry_segments(self, scene: QGraphicsScene,
+                                search_rect: QRectF,
+                                exclude: QGraphicsItem | None,
+                                gl_items: list,
+                                item_filter: "Callable[[QGraphicsItem], bool] | None",
+                                ctx: "_SnapCtx"):
+        """Yield near-cursor scene geometry as tagged records.
+
+        The single home for the search-rect + per-entity-type segment/circle
+        extraction used by BOTH phase-4 geometry intersections and ALIGN's
+        path×geometry crossings. Yields:
+
+            ("seg", (p1, p2, src_item, parent_key))   — a scene-space segment
+            ("circle", (center, radius, src_item))    — a circle for line×circle
+
+        ``src_item`` is the QGraphicsItem traced for highlighting; ``parent_key``
+        drives same-parent intersection suppression in phase 4 (underlay-index
+        segments use ``None``, which is exempt). Callers must honour
+        ``_PHASE4_MAX_SEGMENTS`` themselves and stop consuming past the cap; this
+        generator does not count for them (it is lazy), but it does apply the
+        same per-item early-out the original inline extractor used so a single
+        pathological path/underlay can't spew unbounded work before the caller
+        breaks. See docs/specs/snapping-engine.md §7.1 and align-placement.md.
+        """
+        _underlay_tags = ("DXF Underlay", "PDF Underlay")
+        _emitted = 0  # running segment count, for the per-item early-out only
+
+        # Include all gridlines (shape is bubbles-only, missed by search_rect)
+        for gl in gl_items:
+            line = gl.line()
+            yield ("seg", (gl.mapToScene(line.p1()),
+                           gl.mapToScene(line.p2()), gl, gl))
+            _emitted += 1
+
+        def _phase4_items():
+            """Yield items for segment extraction — skip underlay groups entirely."""
+            _bbox = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+            for item in scene.items(search_rect, _bbox):
+                if exclude is not None and item is exclude:
+                    continue
+                if item.zValue() > 150:
+                    continue
+                parent = item.parentItem()
+                if parent is not None:
+                    if (isinstance(parent, QGraphicsItemGroup)
+                            and parent.data(0) in _underlay_tags):
+                        if isinstance(parent.data(4), UnderlaySnapIndex):
+                            continue  # segments from index below
+                        if item_filter is not None and not item_filter(item):
+                            continue
+                        yield item  # no index — process directly
+                    continue
+                if (isinstance(item, QGraphicsItemGroup)
+                        and item.data(0) in _underlay_tags):
+                    continue
+                if item_filter is not None and not item_filter(item):
+                    continue
+                yield item
+
+        for item in _phase4_items():
+            if isinstance(item, QGraphicsLineItem):
+                line = item.line()
+                yield ("seg", (item.mapToScene(line.p1()),
+                               item.mapToScene(line.p2()), item, item))
+                _emitted += 1
+            elif isinstance(item, PolylineItem):
+                verts = item._points
+                for j in range(len(verts) - 1):
+                    yield ("seg", (item.mapToScene(verts[j]),
+                                   item.mapToScene(verts[j + 1]), item, item))
+                    _emitted += 1
+            elif isinstance(item, RectangleItem):
+                r = item.rect()
+                corners = [
+                    item.mapToScene(QPointF(r.left(),  r.top())),
+                    item.mapToScene(QPointF(r.right(), r.top())),
+                    item.mapToScene(QPointF(r.right(), r.bottom())),
+                    item.mapToScene(QPointF(r.left(),  r.bottom())),
+                ]
+                for j in range(4):
+                    yield ("seg", (corners[j], corners[(j + 1) % 4],
+                                   item, item))
+                    _emitted += 1
+            elif isinstance(item, WallSegment):
+                # Use mitered geometry so joined walls share clean corners
+                # instead of crossing each other inside the joint — the
+                # root cause of the §7.1 wall-corner false negative.
+                try:
+                    p1l, p1r, p2r, p2l = item.snap_quad_points()
+                    yield ("seg", (p1l, p2l, item, item))
+                    yield ("seg", (p1r, p2r, item, item))
+                    _emitted += 2
+                except (ValueError, AttributeError):
+                    pass
+            elif isinstance(item, CircleItem):
+                yield ("circle", (item._center, item._radius, item))
+            elif isinstance(item, RegularPolygonItem):
+                verts = item.vertices()
+                for j in range(len(verts)):
+                    yield ("seg", (verts[j], verts[(j + 1) % len(verts)],
+                                   item, item))
+                    _emitted += 1
+            elif isinstance(item, QGraphicsPathItem):
+                # Generic path items (DXF imports). Filter each segment
+                # against the search rect — polyline bounding rects are
+                # large but only a few segments are actually near the cursor.
+                path = item.path()
+                n = path.elementCount()
+                for j in range(min(n - 1, 511)):
+                    e2 = path.elementAt(j + 1)
+                    if e2.type == QPainterPath.ElementType.MoveToElement:
+                        continue  # sub-path boundary, no segment
+                    e1 = path.elementAt(j)
+                    p1 = item.mapToScene(QPointF(e1.x, e1.y))
+                    p2 = item.mapToScene(QPointF(e2.x, e2.y))
+                    seg_r = QRectF(
+                        min(p1.x(), p2.x()) - 0.5,
+                        min(p1.y(), p2.y()) - 0.5,
+                        abs(p2.x() - p1.x()) + 1.0,
+                        abs(p2.y() - p1.y()) + 1.0,
+                    )
+                    if search_rect.intersects(seg_r):
+                        yield ("seg", (p1, p2, item, item))
+                        _emitted += 1
+                # Abort during extraction — once over the cap the
+                # consumer bails anyway, so stop spending work here.
+                if _emitted > _PHASE4_MAX_SEGMENTS:
+                    return
+
+        # Extract segments from underlay snap indices
+        _queried_groups: set[int] = set()
+        _bbox_mode = Qt.ItemSelectionMode.IntersectsItemBoundingRect
+        for item in scene.items(search_rect, _bbox_mode):
+            parent = item.parentItem()
+            grp = None
+            if parent is not None and isinstance(parent, QGraphicsItemGroup):
+                if parent.data(0) in _underlay_tags:
+                    grp = parent
+            elif (isinstance(item, QGraphicsItemGroup)
+                  and item.data(0) in _underlay_tags):
+                grp = item
+            if grp is None:
+                continue
+            gid = id(grp)
+            if gid in _queried_groups:
+                continue
+            _queried_groups.add(gid)
+
+            index = grp.data(4)
+            if not isinstance(index, UnderlaySnapIndex):
+                continue
+            xf = grp.sceneTransform()
+            inv_xf, ok = xf.inverted()
+            if not ok:
+                continue
+            local_rect = inv_xf.mapRect(search_rect)
+            lx1 = local_rect.x()
+            ly1 = local_rect.y()
+            lx2 = lx1 + local_rect.width()
+            ly2 = ly1 + local_rect.height()
+
+            # Reuse Phase 1's query result for this group (same
+            # search_rect) instead of querying twice per mousemove.
+            #
+            # ACCEPTED v1 NARROWING (ALIGN path×underlay): this per-group cache
+            # is keyed on gid alone and populated by phase-1/4 with the 15px
+            # SNAP_TOLERANCE_PX search rect.  When ALIGN reuses it (via
+            # _align_geometry_segments, which passes the wider ~20px ALIGN
+            # aperture), an underlay group already cached at 15px is NOT
+            # re-queried at 20px — so ALIGN path×UNDERLAY crossings only see
+            # underlay segments within the 15px rect, a ≤5px sliver short of the
+            # full ALIGN band.  Native scene items are re-queried fresh here each
+            # frame (not cached this way) and are unaffected.  Deliberately NOT
+            # widening the key: keying on (gid, aperture) would re-introduce the
+            # double underlay query per mousemove that this cache just removed.
+            nearby = ctx.underlay_geoms.get(gid)
+            if nearby is None:
+                nearby = index.query(lx1, ly1, local_rect.width(),
+                                     local_rect.height())
+                ctx.underlay_geoms[gid] = nearby
+
+            for g in nearby:
+                kind = g.get("kind")
+                if kind == "line":
+                    ax = g["x1"]; ay = g["y1"]
+                    bx = g["x2"]; by = g["y2"]
+                    # Segment-bbox rejection in local space before any
+                    # xf.map / QPointF construction.
+                    if (max(ax, bx) < lx1 or min(ax, bx) > lx2
+                            or max(ay, by) < ly1 or min(ay, by) > ly2):
+                        continue
+                    p1 = xf.map(QPointF(ax, ay))
+                    p2 = xf.map(QPointF(bx, by))
+                    seg_r = QRectF(
+                        min(p1.x(), p2.x()) - 0.5,
+                        min(p1.y(), p2.y()) - 0.5,
+                        abs(p2.x() - p1.x()) + 1.0,
+                        abs(p2.y() - p1.y()) + 1.0,
+                    )
+                    if search_rect.intersects(seg_r):
+                        yield ("seg", (p1, p2, grp, None))
+                        _emitted += 1
+                elif kind == "path_points":
+                    points = g.get("points", [])
+                    for j in range(min(len(points) - 1, 511)):
+                        a, b = points[j], points[j + 1]
+                        if (max(a[0], b[0]) < lx1 or min(a[0], b[0]) > lx2
+                                or max(a[1], b[1]) < ly1
+                                or min(a[1], b[1]) > ly2):
+                            continue
+                        p1 = xf.map(QPointF(a[0], a[1]))
+                        p2 = xf.map(QPointF(b[0], b[1]))
+                        seg_r = QRectF(
+                            min(p1.x(), p2.x()) - 0.5,
+                            min(p1.y(), p2.y()) - 0.5,
+                            abs(p2.x() - p1.x()) + 1.0,
+                            abs(p2.y() - p1.y()) + 1.0,
+                        )
+                        if search_rect.intersects(seg_r):
+                            yield ("seg", (p1, p2, grp, None))
+                            _emitted += 1
+                # Abort during extraction — once over the cap the consumer
+                # bails anyway, so don't keep extracting thousands more.
+                if _emitted > _PHASE4_MAX_SEGMENTS:
+                    return
+
+    def _align_geometry_segments(self, scene: QGraphicsScene,
+                                 cursor_scene: QPointF,
+                                 view_transform: QTransform,
+                                 item_filter: "Callable[[QGraphicsItem], bool] | None",
+                                 ctx: "_SnapCtx",
+                                 aperture_px: float | None = None):
+        """Yield (p1, p2) scene-space segments near the cursor for ALIGN.
+
+        Path×geometry crossings project ALIGN rays against nearby real geometry.
+        This reuses the exact phase-4 search rect + segment extraction (via the
+        shared ``_iter_geometry_segments`` generator) so ALIGN sees the same
+        geometry phase-4 does. Respects ``_PHASE4_MAX_SEGMENTS`` (stops past the
+        cap). No gridlines are threaded in (ALIGN passes an empty ``gl_items``);
+        gridline crossings already surface as real ``intersection`` snaps.
+
+        The MAIN ``find()`` ctx is threaded in so its ``underlay_geoms`` cache —
+        already populated by phase 1/4 this same call — is reused here instead of
+        re-querying the underlay snap indices (spec: no redundant underlay
+        iteration; matters on DXF-heavy scenes when ALIGN is active).
+        """
+        scale = view_transform.m11()
+        # ALIGN path×geometry crossings use the ALIGN aperture for the search
+        # rect (wider than the 15px real-snap aperture) so a ray can cross real
+        # geometry that lies just outside the real-snap grab radius.
+        if aperture_px is None:
+            from .constants import ALIGN_PATH_TOL_PX
+            aperture_px = float(ALIGN_PATH_TOL_PX)
+        search_tol = min(px_to_scene(aperture_px, scale), SNAP_MAX_SCENE_TOL)
+        search_rect = QRectF(
+            cursor_scene.x() - search_tol, cursor_scene.y() - search_tol,
+            search_tol * 2, search_tol * 2,
+        )
+        _count = 0
+        for rec in self._iter_geometry_segments(scene, search_rect, None,
+                                               [], item_filter, ctx):
+            if rec[0] != "seg":
+                continue  # circles have no path×segment crossing here
+            p1, p2, _src, _pk = rec[1]
+            yield (p1.x(), p1.y()), (p2.x(), p2.y())
+            _count += 1
+            if _count > _PHASE4_MAX_SEGMENTS:
+                return
 
     # ── Internal ─────────────────────────────────────────────────────────────
 

@@ -14,7 +14,7 @@
 | Ribbon icons / graphics | `specs/icon-style-guide.md` | `icons.py`, `svg_utils.py`, `graphics/Ribbon/` | current |
 | Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `dwg_converter.py` | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
-| Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `inference_engine.py` | current |
+| Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `align_engine.py` | current |
 | 2D geometry / drawing items | `specs/2d-geometry.md` | `construction_geometry.py`, `model_space.py` (2D-geometry placement + dispatch), `snap_engine.py` (2D snap) | current |
 | Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py` | current |
 | Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `model_space.py` (placement) | current |
@@ -27,7 +27,7 @@
 | Units & formatting conventions | `specs/units-and-formatting.md` | `scale_manager.py` (conventions consumed app-wide) | current |
 | **Selection mode** | `specs/selection-mode.md` | `model_space.py` (selection) | **proposal** (unbuilt) |
 | **Section view subsystem** | `specs/section-view-subsystem.md` | `section_*.py` (do not exist yet) | **proposal** (unbuilt) |
-| **Inferred / dimension-driven placement** | `specs/inferred-dimension-driven-placement.md` | `inference_engine.py`, `dynamic_input.py`, `model_space.py`, `model_view.py`, `gridline.py`, `construction_geometry.py` | **partial** (Dynamic Input HUD §4 built — line/rect/circle/polyline/gridline/move **+ arc (step-aware) + rectangle rotate** clients; placement-variant ←/→ cycle, ghost-on-commit, Ctrl angle-snap, reference guides, single-key tool shortcuts built; H/V alignment guides + endpoint grip-drag built; wall/pipe HUD clients + wall/pipe/node guide providers + other guide types = proposal) |
+| **ALIGN — acquire-and-track alignment & dimension-driven placement** | `specs/align-placement.md` | `align_engine.py`, `align_controller.py`, `snap_engine.py`, `dynamic_input.py`, `model_space.py`, `model_view.py`, `preferences_dialog.py`, `main.py`, `constants.py`, `gridline.py`, `wall.py` | **partial** (ALIGN acquire→lock→infer→guide→navigate built — pure ray engine, acquire state machine, one-picker `find(align_paths=…)` at prio 20/30, `track` distance-along-path schema, 5 SNAP-pane knobs + F11; Navigate = Dynamic Input HUD; Equal-Spacing §7 + Selection-Dimensions §8 = proposal) |
 | **Paper space / sheets** | `specs/paper-space.md` | `paper_space.py`, `paper_export.py`, `paper_export_dialog.py`, `paper_display.py`, `paper_commands.py` | **partial** (Phase-1 + plot + text annotations + multi-sheet management built; remaining annotation types / layer overrides pending) |
 | Title block templates / editor | `specs/titleblock-template-system.md` | `titleblock_template.py`, `titleblock_editor.py`, `titleblock_arrange.py`, `paper_space.py` (title block rendering) | current |
 | Project Browser (navigation tree / drag source) | `specs/project-browser.md` | `project_browser.py`, `main.py` (ProjectBrowser wiring) | current |

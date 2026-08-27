@@ -871,32 +871,6 @@ class GridlineItem(QGraphicsLineItem):
         return [QPointF(self._origin), self._far_point(),
                 QPointF(self.bubble1.pos()), QPointF(self.bubble2.pos())]
 
-    def alignment_reference_points(self):
-        """Reference features for the inference engine: both endpoints and
-        both bubble centres, in scene coordinates.
-
-        GridlineItem is always positioned at the scene origin (pos()==(0,0))
-        with no transform, so _origin/_far_point() and bubble.pos() are
-        already in scene coordinates — consistent with grip_points().
-
-        See docs/specs/inferred-dimension-driven-placement.md §5.
-        """
-        from .inference_engine import ReferenceFeature
-        # Endpoints (scene coords) — identical coordinate space as grip_points().
-        p1 = QPointF(self._origin)
-        p2 = self._far_point()
-        # Bubble centres: bubble.setPos() is called with absolute coords so
-        # bubble.pos() returns scene-absolute values (item pos == origin).
-        b1 = self.bubble1.pos()
-        b2 = self.bubble2.pos()
-        sid = id(self)
-        return [
-            ReferenceFeature("point", p1.x(), p1.y(), sid, "endpoint"),
-            ReferenceFeature("point", p2.x(), p2.y(), sid, "endpoint"),
-            ReferenceFeature("point", b1.x(), b1.y(), sid, "bubble"),
-            ReferenceFeature("point", b2.x(), b2.y(), sid, "bubble"),
-        ]
-
     def apply_grip(self, index: int, new_pos: QPointF):
         """Grips 0/1 extend/shorten along the line (opposite end fixed).
         Grips 2/3 slide the bubble standoff along the axis (floored at 0).

@@ -72,7 +72,7 @@ def _make_pane(isolated_settings) -> SnappingPane:  # noqa: ANN001
 
 def test_factory_defaults_exported(qapp):
     """_FACTORY_DEFAULTS is a public dict with the expected keys."""
-    required = {"tol_px", "hysteresis_px", "grip_px", "grid_mm", "angle_deg", "inference"}
+    required = {"tol_px", "hysteresis_px", "grip_px", "grid_mm", "angle_deg", "align"}
     required |= {attr for _, attr in _SNAP_TYPES}
     assert required.issubset(_FACTORY_DEFAULTS.keys())
 
@@ -187,12 +187,12 @@ def test_all_snap_types_persist(qapp, isolated_settings):
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 
-def test_inference_persists_to_qsettings(qapp, isolated_settings):
-    """apply() writes inference/alignment_guides to QSettings."""
+def test_align_persists_to_qsettings(qapp, isolated_settings):
+    """apply() writes align/enabled to QSettings."""
     pane = _make_pane(isolated_settings)
     pane._align_cb.setChecked(False)
     pane.apply()
-    saved = isolated_settings.value("inference/alignment_guides")
+    saved = isolated_settings.value("align/enabled")
     if isinstance(saved, str):
         saved = saved.lower() not in ("false", "0")
     assert bool(saved) is False
@@ -220,7 +220,7 @@ def test_reset_restores_all_factory_defaults(qapp, isolated_settings):
     assert pane._hyst_spin.value() == _FACTORY_DEFAULTS["hysteresis_px"]
     assert pane._grip_spin.value() == _FACTORY_DEFAULTS["grip_px"]
     assert pane._angle_spin.value() == int(_FACTORY_DEFAULTS["angle_deg"])
-    assert pane._align_cb.isChecked() is _FACTORY_DEFAULTS["inference"]
+    assert pane._align_cb.isChecked() is _FACTORY_DEFAULTS["align"]
     for attr, cb in pane._snap_cbs.items():
         assert cb.isChecked() is True, f"snap_cb[{attr}] should be checked after reset"
 
@@ -306,7 +306,7 @@ def test_apply_pushes_all_fields_to_live_scene(qapp, isolated_settings, make_mod
     assert getattr(ms, "_grip_tolerance_px", None) == 300
     assert ms._snap_angle_deg == 30
     assert ms._snap_engine.snap_endpoint is False
-    assert ms._inference_enabled is False
+    assert ms._align_enabled is False
 
 
 def test_reset_pushes_factory_to_live_scene(qapp, isolated_settings, make_model_space):

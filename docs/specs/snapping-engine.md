@@ -63,9 +63,9 @@ The snapping engine has a disproportionate impact on drafting throughput. Pain #
 | 3D / multi-level snap behavior | Belongs in the views-relationship spec (separate P1 task). |
 | Polar tracking | Separate subsystem; AutoCAD treats it independently of OSNAP. |
 | Grid snap (snap to a regular spacing independent of objects) | Separate subsystem; FirePro3D currently uses gridlines as objects, not as a spacing constraint. |
-| Object snap tracking (OTRACK) | AutoCAD's killer feature for offset placement; deserves its own spec. |
-| **Inferred / dimension-driven placement** (Revit's spine) | **Flagged as the next priority spec after this one.** |
-| Snap-from / temporary tracking | Subsystem of OTRACK family. |
+| Object snap tracking (OTRACK) | **DELIVERED → [`align-placement.md`](align-placement.md)** (ALIGN acquire-and-track; candidates enter `find()` at priority 20/30 — see §14.5). |
+| **Inferred / dimension-driven placement** (Revit's spine) | **DELIVERED → [`align-placement.md`](align-placement.md)** (the auto-proximity variant was retired and replaced by ALIGN's deliberate-acquire model). |
+| Snap-from / temporary tracking | Subsystem of OTRACK family — folded into ALIGN acquire (`align-placement.md`). |
 | Apparent intersection | 3D feature; couples to multi-level snap. |
 
 ---
@@ -183,8 +183,21 @@ band = SNAP_PRIORITY_BAND_PX   # fixed pixel constant — NOT derived from toler
 
 A candidate becomes the new best if:
   • its d_px is strictly less than (best_dist_px − band), OR
-  • its d_px is within (best_dist_px + band) AND it has higher priority (lower number)
+  • its d_px is within (best_dist_px + band) AND it has higher priority (lower number), OR
+  • its d_px is strictly less than best_dist_px AND it has EQUAL priority (same number)
 ```
+
+The **third clause** (same-priority closest-wins) was added by a bugfix. Within
+the band, an equal-priority candidate that is *strictly closer* in px displaces the
+running best (`d_px < best_dist_px and prio == best_prio`). It was needed because an
+acquired point's H/V tracking rays and its extension ray are all `align_path` (equal
+priority, §3.1) and the H/V rays are checked *first* — without this clause a closer
+extension foot could never beat a farther H/V foot that was already the incumbent, so
+extension tracking silently failed for every non-axis-aligned source ("extension only
+works axis-aligned" bug). The strict `<` keeps the pick **order-independent** (a
+farther equal-priority candidate checked later can never displace a closer incumbent),
+and the clause does **not** touch the higher-priority-override band (clause 2,
+`prio < best_prio`). Regression: `tests/test_align_extension_angled.py`.
 
 `SNAP_PRIORITY_BAND_PX` is a **fixed pixel constant** (not scaled from the scene-unit tolerance), so the priority band is stable regardless of what tolerance the user sets or what zoom level is active. This replaces the earlier `max(tolerance × 0.3, min(tolerance, SNAP_PRIORITY_BAND_PX))` formula, which collapsed at low user tolerance (Pain #2). The endpoint protection band that suppresses intersection candidates near an endpoint is a fixed `_ENDPOINT_PROTECTION_PX = 6` px constant (§6.3 Change B). Regression: `tests/test_snap_priority_band.py`.
 
@@ -472,6 +485,12 @@ These two are the only current consumers. Future contextual-snap use cases (tool
 The entire pixel-aperture model — and *every* other zoom-dependent tolerance (design-area pick, inference/OTRACK band, array/offset/dimension/rotate previews) — depends on reading the on-screen zoom `view.transform().m11()`. **Critical invariant:** that zoom MUST come from the **visible** plan view via `Model_Space._snap_view()` / `_active_view_scale()`, **never** `self.views()[0]`.
 
 The model scene has **N+1 attached `QGraphicsView`s**: a vestigial, never-shown `MainWindow.view` (created first at `main.py:430`, so it is *always* `views()[0]`, permanently frozen at `m11 = 1.0`) plus one `Model_View` per open plan tab (only the active tab is `isVisible()`). Reading `views()[0].transform().m11()` therefore returns `1.0` forever, which silently degenerates the pixel judgment `d_px = d_scene × m11` into a **fixed scene-unit tolerance** — world-unit snapping (huge grab zoomed in, tiny/insensitive zoomed out) regardless of the pixel aperture. This bug pre-dated the pixel-aperture work and **neutralized it entirely** until fixed (2026-08-26, `a4affd8`). `_snap_view()` returns the first `isVisible()` view, falling back to the last-attached view for headless tests — never the vestigial index-0. **Any new zoom-dependent code must use `_active_view_scale()`, not `self.views()[0]`.**
+
+### 14.5 ALIGN candidates enter the picker (`align_paths=` / `align_aperture_px=`)
+
+*(Added 2026-08-26 — the ALIGN acquire-and-track subsystem is governed by [`align-placement.md`](align-placement.md); this note documents only its `find()` seam.)*
+
+`SnapEngine.find()` accepts two optional ALIGN arguments: `align_paths` (a list of ALIGN `align_engine.Ray` tracking vectors) and `align_aperture_px` (their separate px grab-radius, default `ALIGN_PATH_TOL_PX`). When `align_paths` is provided, `find()` adds three candidate families to the **same** `_SnapCtx` priority-band picker — path×path and path×geometry crossings as `align_intersection` (priority **20**) and single-path projections as `align_path` (priority **30**) — so they rank **below every real snap** (priorities 0–7). ALIGN candidates are judged at `align_aperture_px` via a per-candidate `ctx.check(..., aperture_px=…)` override (not the 15px real-snap aperture), and a held ALIGN result is released at that wider aperture. Real-snap acceptance is never affected. The picker/hysteresis (§6.1, §14.2) and px judgment (§14.1) are unchanged — ALIGN is one more candidate source, not a second resolution path.
 
 ---
 

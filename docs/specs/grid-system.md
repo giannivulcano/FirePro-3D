@@ -10,7 +10,7 @@ applies-to:
   - firepro3d/paper_display.py
   - firepro3d/scene_io.py
   - firepro3d/constants.py
-  - firepro3d/inference_engine.py
+  - firepro3d/align_engine.py
   - main.py
 ---
 
@@ -236,7 +236,7 @@ After any label change (Properties-panel relabel, auto-assign at placement, load
 
 ### 7.1 On-Canvas Placement
 
-Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line-tool handlers** — `_press_draw_line`, the shared `line` Dynamic Input schema + `_commit_draw_line_at` commit path (both modes map to it in `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`; see [inferred-dimension-driven-placement.md §4](inferred-dimension-driven-placement.md)), the published placement readout, and `_constrain_angle` — with the only divergence being a `_make_line_like` item factory (`draw_line` → `LineItem`; `draw_gridline` → `GridlineItem`). This structurally guarantees placement mirrors the Line tool one-for-one:
+Gridlines are placed with a new `draw_gridline` scene mode that **rides the Line-tool handlers** — `_press_draw_line`, the shared `line` Dynamic Input schema + `_commit_draw_line_at` commit path (both modes map to it in `_SCHEMA_FOR_MODE`/`_APPLIER_FOR_MODE`; see [align-placement.md §4](align-placement.md)), the published placement readout, and `_constrain_angle` — with the only divergence being a `_make_line_like` item factory (`draw_line` → `LineItem`; `draw_gridline` → `GridlineItem`). This structurally guarantees placement mirrors the Line tool one-for-one:
 
 - **1st click** = origin; **2nd click** = length + angle
 - **Ctrl** = angle-constrain; **Tab** = exact length + angle dynamic input
@@ -520,12 +520,12 @@ No structural changes to `GridlineItem` are needed. The existing `move_perpendic
 | `firepro3d/property_manager.py` | Right-side Properties panel dispatch to `get_properties`/`set_property` |
 | `firepro3d/model_view.py` | Double-click-to-select gridline + double-click spacing-dimension edit; `drawForeground` inference guide + array/offset ghost + move/paste silhouette ghost; grip render honors `grip_hittable` |
 | `firepro3d/scene_tools.py` | `_find_grip_hit` grip hit-test (honors `grip_hittable`); shared with all grip-bearing items |
-| `firepro3d/inference_engine.py` | `InferenceEngine`, `ReferenceFeature`, `Guide`, `InferenceResult` — entity-agnostic; owned by `Model_Space` |
+| `firepro3d/align_engine.py` | `AlignEngine`, `ReferenceFeature`, `Guide`, `AlignResult` — entity-agnostic; owned by `Model_Space` |
 | `firepro3d/paper_display.py` | Paper render pass: `_apply_gridline` true-scale bubbles + dash-dot paper geometry (§10.2) |
 | `firepro3d/scene_io.py` | File serialization (delegates to `GridlineItem.to_dict`/`from_dict`); counter sync on load |
 | `firepro3d/elevation_scene.py` | Elevation projection + `ElevGridlineItem` (filtering, Z-overrides) |
-| `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors, `INFERENCE_TOL_PX`, `INFERENCE_GUIDE_COLOR`, `INFERENCE_GUIDE_DASH`, `INFERENCE_GLYPH_PX`) |
-| `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset; "GUIDES" status-bar pill; F12 shortcut; `inference/alignment_guides` QSettings restore |
+| `firepro3d/constants.py` | Centralized grid constants (`GRIDLINE_BUBBLE_OFFSET_MM`, dash geometry, colors, `ALIGN_PATH_TOL_PX`, `ALIGN_GUIDE_COLOR`, `ALIGN_GUIDE_DASH`, `ALIGN_GLYPH_PX`) |
+| `main.py` | Draw-tab ribbon "Gridline" button; default seed + post-seed undo-stack reset; "ALIGN" status-bar pill; F11 shortcut; `align/enabled` QSettings restore |
 
 **Removed:** `firepro3d/grid_line.py` (legacy `GridLine`); `firepro3d/grid_lines_dialog.py` (modal dialog).
 
@@ -594,4 +594,4 @@ Entering `draw_gridline` mode emits `requestPropertyUpdate(_get_gridline_templat
 
 ### 17.8 Alignment Snapping (Inference)
 
-During gridline placement (`draw_gridline`, both points) and endpoint grip-drag, the active point participates in the inference engine's H/V alignment guides. Reference features are supplied by `GridlineItem.alignment_reference_points()` (4 features: both endpoints + both bubble centres). Guide rendering, snap priority, and toggle details are governed by `docs/specs/inferred-dimension-driven-placement.md` (Rule A — see there for the full contract; this section only notes gridline participation).
+During gridline placement (`draw_gridline`, both points) and endpoint grip-drag, the active point participates in the inference engine's H/V alignment guides. Reference features are supplied by `GridlineItem.alignment_reference_points()` (4 features: both endpoints + both bubble centres). Guide rendering, snap priority, and toggle details are governed by `docs/specs/align-placement.md` (Rule A — see there for the full contract; this section only notes gridline participation).

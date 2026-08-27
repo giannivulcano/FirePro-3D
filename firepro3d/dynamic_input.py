@@ -221,6 +221,21 @@ def resolve_spacing_count(anchor, values: dict) -> dict:
             "count": max(1, int(round(values["Count"])))}
 
 
+# ── Track (ALIGN distance-along-path) ───────────────────────────────────────
+
+def resolve_track(anchor: QPointF, values: dict) -> QPointF:
+    """Place *Distance* along a tracking path from *anchor* (the path origin).
+
+    The path direction is injected under the reserved ``"__dir__"`` key by the
+    seam when the HUD engages on a path (the same idea as arc's coupling radius,
+    but a direction rather than a scalar). Distance is signed; the direction is
+    a unit vector in scene coordinates.
+    """
+    dx, dy = values.get("__dir__", (1.0, 0.0))
+    d = values["Distance"]
+    return QPointF(anchor.x() + d * dx, anchor.y() + d * dy)
+
+
 SCHEMAS: dict[str, Schema] = {
     "line": Schema(
         name="line",
@@ -318,6 +333,18 @@ SCHEMAS: dict[str, Schema] = {
         # scene before the rotate step, so the HUD stays shut until they exist —
         # like ``move`` and ``arc_span``.
         needs_anchor=True,
+    ),
+    "track": Schema(
+        name="track",
+        fields=(
+            # Signed distance along the path (negative = behind the origin), so
+            # no 0.0 minimum — like rectangle's signed extents.  Labelled "L"
+            # (not "Dist") so the on-path readout matches the line/wall/gridline
+            # placement HUD — the field the user sees before snapping onto a path.
+            FieldSpec("Distance", "L", FieldKind.DIMENSION),
+        ),
+        resolve=resolve_track,
+        seed=None,          # seeded from the on-path projection by the seam
     ),
 }
 
@@ -570,6 +597,11 @@ class DynamicInputHud(QWidget):
         # other's handler.
         self._coupling_radius: float = 0.0
         self._coupling_writing = False
+        # ALIGN track-direction injection (track schema only).  The path's unit
+        # direction (scene coords) armed by the seam and injected under the
+        # reserved ``"__dir__"`` key so ``resolve_track`` stays a pure function
+        # of (anchor, values).  ``None`` (the default) injects nothing.
+        self._track_dir: tuple[float, float] | None = None
 
         self.setObjectName("DynamicInputHud")
         # QSS on a plain QWidget only paints with this attribute set.
@@ -778,6 +810,15 @@ class DynamicInputHud(QWidget):
         finally:
             self._coupling_writing = False
 
+    def set_track_direction(self, direction: tuple[float, float] | None) -> None:
+        """Arm the ``track`` schema's path direction (unit vector, scene coords).
+
+        Consulted only by the seam when reading values for a ``track`` HUD; other
+        schemas ignore it. Injected into the values dict under ``"__dir__"`` so
+        ``resolve_track`` stays a pure function of (anchor, values).
+        """
+        self._track_dir = direction
+
     def set_values(self, values: dict) -> None:
         """Seed the editors from *values*, expressed in schema units.
 
@@ -832,6 +873,8 @@ class DynamicInputHud(QWidget):
             if not editor.try_commit():
                 self._mark_invalid(name)
             out[name] = self._value_of(name)
+        if self._schema.name == "track" and self._track_dir is not None:
+            out["__dir__"] = self._track_dir
         return out
 
     def _value_of(self, name: str) -> float:
@@ -863,7 +906,10 @@ class DynamicInputHud(QWidget):
         Returns:
             ``{field_name: value}`` in schema units, same shape as ``values()``.
         """
-        return {name: self._value_of(name) for name in self._editors}
+        out = {name: self._value_of(name) for name in self._editors}
+        if self._schema.name == "track" and self._track_dir is not None:
+            out["__dir__"] = self._track_dir
+        return out
 
     def has_invalid_field(self) -> bool:
         """Whether any field holds input that was rejected and not yet retyped.

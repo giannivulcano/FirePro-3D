@@ -275,24 +275,6 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         a, b = self.centerline_pt1, self.centerline_pt2
         return QPointF((a.x() + b.x()) / 2.0, (a.y() + b.y()) / 2.0)
 
-    def alignment_reference_points(self):
-        """H/V inference references at the TRUE centerline (endpoints + mid).
-
-        Duck-typed provider consumed by ``Model_Space._collect_alignment_refs``
-        (mirrors ``GridlineItem.alignment_reference_points``).  Keyed off the
-        derived centerline so Left/Right walls reference their real center.
-        """
-        from .inference_engine import ReferenceFeature
-        sid = id(self)
-        a = self.centerline_pt1
-        b = self.centerline_pt2
-        m = self.centerline_midpoint()
-        return [
-            ReferenceFeature("wall", a.x(), a.y(), sid, "endpoint"),
-            ReferenceFeature("wall", b.x(), b.y(), sid, "endpoint"),
-            ReferenceFeature("wall", m.x(), m.y(), sid, "midpoint"),
-        ]
-
     # ── Path rebuild (2D) ────────────────────────────────────────────────────
 
     def _rebuild_path(self):

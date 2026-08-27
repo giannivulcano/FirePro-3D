@@ -77,14 +77,26 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 # (DESIGN_AREA_PICK_PX retired 2026-08-25: design-area pick now routes through
 #  SnapEngine.find at the shared SNAP_TOLERANCE_PX aperture.)
 
-# ── Inferred alignment guides (inference_engine.py) ──────────────────────────
-INFERENCE_TOL_PX = 65.0        # screen-px band to align to a ref feature; wider than OSNAP
-                               # (SNAP_TOLERANCE_PX=40) per inferred-placement spec §5.4 (weak snap)
+# ── ALIGN tracking paths (align_engine.py) ───────────────────────────────────
+ALIGN_PATH_TOL_PX = 20.0       # screen-px cursor→path soft-snap aperture; wider than the
+                               # 15px real-snap aperture but its OWN band (align-placement D7)
 
-# ── Inferred-placement alignment guide overlay ────────────────────────────────
-INFERENCE_GUIDE_COLOR = "#00c8ff"      # cyan — alignment-guide line + glyph (theming.md)
-INFERENCE_GUIDE_DASH = [4.0, 4.0]      # cosmetic dash pattern (px)
-INFERENCE_GLYPH_PX = 7.0               # reference-point glyph size (screen px)
+# ── ALIGN acquire machine (align_controller.py) ──────────────────────────────
+ALIGN_DWELL_MS = 400           # hover-dwell to acquire a snap point (ms)
+ALIGN_MAX_POINTS = 5           # acquired-point cap (evict oldest)
+# Per-direction ray-kind gating defaults (SnappingPane toggles; controller flags).
+ALIGN_DIR_HV_DEFAULT = True         # emit horizontal/vertical rays from point-acquires
+ALIGN_DIR_EXTENSION_DEFAULT = True  # emit collinear extension rays from directional points
+ALIGN_DIR_PARALLEL_DEFAULT = False  # direction-tracking parallel OFF by default:
+#   the flaky direction-track parallel is superseded by the planned perpendicular
+#   OFFSET-tracking feature (TODO P2); plumbing kept, surfaced only when re-enabled.
+ALIGN_DIR_PERPENDICULAR_DEFAULT = True  # emit perpendicular rays (dir rotated 90°) from directional points
+
+# ── ALIGN tracking-path overlay ───────────────────────────────────────────────
+ALIGN_GUIDE_COLOR = "#00c8ff"          # cyan — alignment-guide line + glyph (theming.md)
+ALIGN_GUIDE_DASH = [4.0, 4.0]          # cosmetic dash pattern (px)
+ALIGN_GLYPH_PX = 7.0                   # reference-point glyph size (screen px)
+ALIGN_ACQUIRE_COLOR = "#00ff88"        # green '+' acquired-point marker (distinct from snap glyphs)
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
 
 # ── Design-criteria badge (model-space mm; tuned at 2026-07-14 mockup gate) ──

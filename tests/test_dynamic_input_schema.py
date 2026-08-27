@@ -35,7 +35,7 @@ class TestRegistry:
         assert set(SCHEMAS) == {
             "line", "rectangle", "circle", "polygon",
             "displacement", "distance", "spacing_count",
-            "arc_span", "rotation",
+            "arc_span", "rotation", "track",
         }
 
     def test_line_fields(self):
@@ -98,7 +98,7 @@ class TestRegistry:
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "rectangle", "circle", "polygon",
-                        "displacement", "arc_span", "rotation"}
+                        "displacement", "arc_span", "rotation", "track"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False
