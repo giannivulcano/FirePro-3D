@@ -1,0 +1,47 @@
+"""tests/test_align_seam.py — Model_Space ALIGN seam (real entry point).
+
+Drives the ALIGN acquire→track seam through the *real* pipeline: a shown,
+activated ``Model_View`` over a ``Model_Space``, posting real ``QMouseEvent``s
+(QTest.mouseMove is inert here — see project memory).  The ground-truth assertion
+is that after acquiring the (0,0) endpoint, the cursor near that point's H path
+resolves ONTO y=0 through ``get_effective_position`` (the seam's ALIGN tier), and
+that a mode change clears the controller.
+"""
+
+from __future__ import annotations
+
+from PyQt6.QtCore import QPointF
+
+
+def _acquire_origin_endpoint(scene):
+    """Acquire the (0,0) endpoint directly on the controller (dwell crossed)."""
+    scene._align_controller.on_move(
+        (0.0, 0.0),
+        {"point": (0.0, 0.0), "snap_type": "endpoint", "source_id": 1,
+         "direction": None},
+        elapsed_ms=500)
+
+
+def test_align_tier_snaps_to_path_after_acquire(shown_model_view):
+    view, scene = shown_model_view
+    # Enter a placement mode so the ALIGN tier is live (_align_active_item set).
+    scene.set_mode("draw_gridline")
+    assert scene._align_active_item is not None
+    _acquire_origin_endpoint(scene)
+    assert len(scene._align_controller.acquired) == 1
+
+    # Cursor sitting just below the horizontal path through (0,0): the ALIGN
+    # tier must project it onto y=0 (ground truth: the resolved point lands on
+    # the path, not merely "some result exists").
+    p = scene.get_effective_position(QPointF(800.0, 20.0))
+    assert abs(p.y()) < 1e-6, f"expected y≈0 on the H path, got {p.y()}"
+
+
+def test_lifecycle_clear_on_mode_change(shown_model_view):
+    view, scene = shown_model_view
+    scene.set_mode("draw_gridline")
+    _acquire_origin_endpoint(scene)
+    assert len(scene._align_controller.acquired) == 1
+
+    scene.set_mode("select")     # leaving placement clears the acquire set
+    assert scene._align_controller.acquired == []

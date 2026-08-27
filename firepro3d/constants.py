@@ -81,10 +81,15 @@ DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below 
 ALIGN_PATH_TOL_PX = 65.0       # screen-px band to align to a ref feature; wider than OSNAP
                                # (SNAP_TOLERANCE_PX=40) per align-placement spec §5.4 (weak snap)
 
+# ── ALIGN acquire machine (align_controller.py) ──────────────────────────────
+ALIGN_DWELL_MS = 400           # hover-dwell to acquire a snap point (ms)
+ALIGN_MAX_POINTS = 5           # acquired-point cap (evict oldest)
+
 # ── ALIGN tracking-path overlay ───────────────────────────────────────────────
 ALIGN_GUIDE_COLOR = "#00c8ff"          # cyan — alignment-guide line + glyph (theming.md)
 ALIGN_GUIDE_DASH = [4.0, 4.0]          # cosmetic dash pattern (px)
 ALIGN_GLYPH_PX = 7.0                   # reference-point glyph size (screen px)
+ALIGN_ACQUIRE_COLOR = "#00ff88"        # green '+' acquired-point marker (distinct from snap glyphs)
 DESIGN_AREA_HL_RADIUS_PX = 14  # highlight-ring radius for selected design sprinklers (px)
 
 # ── Design-criteria badge (model-space mm; tuned at 2026-07-14 mockup gate) ──

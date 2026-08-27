@@ -22,7 +22,6 @@ def ms_view(qapp):
 def test_scene_has_move_ghost_attr(ms_view):
     ms, view = ms_view
     assert ms._move_ghost == []
-    assert ms._align_exclude_ids == set()
 
 
 def test_drawforeground_survives_move_ghost(ms_view):
@@ -119,31 +118,13 @@ def test_move_ghost_cleared_on_mode_exit(ms_view):
     assert ms._move_ghost == []
 
 
-def test_paste_activates_inference(ms_view):
-    ms, view = ms_view
-    QApplication.clipboard().setText(json.dumps(
-        [{"type": "gridline", "origin": [0, 0], "length": 5000.0,
-          "angle": 90.0, "label": "1"}]))
-    ref = GridlineItem(QPointF(3000, 0), QPointF(3000, 5000), label="R")  # vertical
-    ms.addItem(ref); ms._gridlines.append(ref)
-    ms._align_enabled = True
-    ms.set_mode("paste")
-    assert ms._align_active_item is not None
-    # Cursor near ref's X (within tolerance) -> inference snaps X to 3000
-    snapped = ms.get_effective_position(QPointF(3000 + 5, 1000))
-    assert math.isclose(snapped.x(), 3000.0, abs_tol=1.0)
-
-
-def test_move_excludes_moving_gridline_from_refs(ms_view):
-    ms, view = ms_view
-    gl = GridlineItem(QPointF(1000, 0), QPointF(1000, 5000), label="1")
-    ms.addItem(gl); ms._gridlines.append(gl); gl.setSelected(True)
-    ms._selected_items = [gl]
-    ms._align_enabled = True
-    ms.set_mode("move")
-    assert id(gl) in ms._align_exclude_ids
-    refs = ms._collect_alignment_refs()
-    assert all(f.source_id != id(gl) for f in refs)  # the mover is not a reference
+# NOTE: two tests removed here in Task 6 — ``test_paste_activates_inference``
+# and ``test_move_excludes_moving_gridline_from_refs`` — asserted the RETIRED
+# auto-proximity alignment behavior (cursor auto-snaps X to a nearby gridline
+# during paste; move self-excludes the mover from the reference set via
+# ``_align_exclude_ids``/``_collect_alignment_refs``).  That whole path is
+# removed by design (replaced by the ALIGN acquire model); the paste/move GHOST
+# rendering + geometry tests above/below still cover the live behavior.
 
 
 # ── GridlineItem is movable by the generic move (bug: it wasn't) ───────────

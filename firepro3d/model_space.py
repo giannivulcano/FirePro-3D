@@ -1,4 +1,4 @@
-import sys, json, math, shutil, logging
+import sys, json, math, shutil, logging, time
 
 log = logging.getLogger("FirePro3D")
 from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLineItem,
@@ -41,6 +41,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
+                       ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
                        SELECTION_OUTLINE_COLOR)
 from .fitting import Fitting
@@ -85,10 +86,11 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
 
 
 class _PlacementSentinel:
-    """Marker object: inference is active during placement, nothing to self-exclude.
+    """Marker object: ALIGN is active during placement, nothing to self-exclude.
 
-    Must NOT implement alignment_reference_points() so that the engine
-    excludes nothing — all existing gridlines remain valid candidates.
+    Set as ``_align_active_item`` for modes that place a *new* item (which has
+    no scene identity yet), so the ALIGN tier is live without pointing at any
+    real item to exclude.
     """
 
 
@@ -247,17 +249,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._replicate_ghost: list = []        # list[(QPointF origin, QPointF far)]
         self._move_ghost: list = []          # list[QPainterPath] in scene coords
         self._move_ghost_base: list = []      # base paths captured at first click
-        self._align_exclude_ids: set = set()  # ids self-excluded from align (move)
         # SNAP (Sprint H)
         self._snap_engine: SnapEngine = SnapEngine()
         self._snap_result: "OsnapResult | None" = None
         self._snap_enabled: bool = True
         self._snap_angle_deg: float = 45.0       # Ctrl-snap angle increment (degrees)
-        # ALIGN tracking paths (align_engine.py)
-        from .align_engine import AlignEngine
-        self._align_engine: AlignEngine = AlignEngine()
-        self._align_enabled: bool = True              # toggled via settings (Task 4)
-        self._align_result = None                     # surfaced to drawForeground (Task 3)
+        # ALIGN acquire-and-track (align_controller.py + align_engine.py)
+        from .align_controller import AlignController
+        self._align_controller = AlignController(
+            dwell_ms=ALIGN_DWELL_MS, max_points=ALIGN_MAX_POINTS)
+        self._align_last_move_ns = None               # elapsed-ms clock between moves
+        self._align_enabled: bool = True              # toggled via settings / F11
+        self._align_result = None                     # surfaced to drawForeground
         self._align_active_item = None                # item being placed/dragged (self-exclude)
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
@@ -847,22 +850,16 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._grip_index = -1
         self._grip_dragging = False
         # ALIGN active-item: sentinel for draw_gridline + paste/move.
+        # The acquire set never survives a mode boundary (design spec: Esc /
+        # commit / mode-start/end clears all) — reset it and the dwell clock
+        # here, the one place every mode change funnels through.
+        self._align_controller.clear()
+        self._align_last_move_ns = None
         if mode in ("draw_gridline", "paste", "move", "wall"):
             self._align_active_item = self._PLACEMENT_SENTINEL
         else:
             self._align_active_item = None
             self._align_result = None
-        # Move self-excludes the moving gridlines from the reference set.
-        if mode == "move":
-            self._align_exclude_ids = {
-                id(i) for i in (self.selectedItems() or [])
-                if isinstance(i, GridlineItem)
-            } | {
-                id(i) for i in (self._selected_items or [])
-                if isinstance(i, GridlineItem)
-            }
-        else:
-            self._align_exclude_ids = set()
         # Clear the move/paste ghost when leaving those modes.
         if mode not in ("paste", "move"):
             self._move_ghost = []
@@ -3743,42 +3740,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         grid = 1
         return QPointF(round(x / grid) * grid, round(y / grid) * grid)
 
-    def _collect_alignment_refs(self, cursor=None, tol=None):
-        """Collect alignment reference features from the scene's alignment
-        providers (gridlines + walls). The AlignEngine stays generic;
-        Model_Space supplies candidates from its own entity collections.
-
-        Args:
-            cursor: Optional QPointF scene position of the current cursor.
-                When provided together with *tol*, walls are spatially filtered
-                to those whose bounding box intersects a (2*tol x 2*tol) rect
-                centred on *cursor*, using the scene BSP index.
-            tol: Optional float tolerance radius (scene units). Required when
-                *cursor* is provided to enable the spatial filter.
-
-        Future providers are added by iterating their own collections here,
-        NOT by changing the align engine.  Self-exclusion is applied via
-        source_id so the active item does not snap to itself.
-        """
-        refs = []
-        exclude_id = (id(self._align_active_item)
-                      if self._align_active_item is not None else None)
-        exclude_ids = self._align_exclude_ids
-        for gl in self._gridlines:                       # small list — direct
-            for f in gl.alignment_reference_points():
-                if f.source_id != exclude_id and f.source_id not in exclude_ids:
-                    refs.append(f)
-        # Walls can be numerous (imports) — spatial-filter to the cursor rect
-        # via the scene BSP index (NOT sceneBoundingRect, NOT a full self._walls scan).
-        if cursor is not None and tol:
-            rect = QRectF(cursor.x() - tol, cursor.y() - tol, 2 * tol, 2 * tol)
-            for it in self.items(rect):
-                if isinstance(it, WallSegment):
-                    for f in it.alignment_reference_points():
-                        if f.source_id != exclude_id and f.source_id not in exclude_ids:
-                            refs.append(f)
-        return refs
-
     def get_effective_position(self, scene_pos: QPointF) -> QPointF:
         """Return best-fit cursor position: OSNAP > underlay snap > grid snap."""
         # Design-area picking snaps to sprinkler centres ONLY: general
@@ -3857,22 +3818,119 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self._align_result = None
                     return result.point
 
-        # ── ALIGN tracking paths (weak snap, below SNAP) ─────────────────
+        # ── ALIGN acquire-and-track (weak snap, below real SNAP) ─────────
+        # The controller holds the acquired set (fed on move by the dwell
+        # machine); each frame it emits the transient tracking [Ray]s (acquired
+        # H/V + extension + parallel, plus the auto-acquired active anchor).
+        # Those rays enter the ONE picker via find(align_paths=…) at ALIGN
+        # priority (below every real snap); a hit projects the cursor onto the
+        # path / crossing.
         if self._align_enabled and self._align_active_item is not None:
             _view = self._snap_view()
             if _view is not None:
-                scale = max(abs(_view.transform().m11()), 1e-9)
-                tol = ALIGN_PATH_TOL_PX / scale
-                refs = self._collect_alignment_refs(scene_pos, tol)
-                res = self._align_engine.resolve(
-                    (scene_pos.x(), scene_pos.y()), refs, tol)
-                self._align_result = res  # stored even when "free" (Task 3 reads it)
-                if res.priority != "free":
-                    return QPointF(res.snapped[0], res.snapped[1])
-                # "free" — fall through to grid snap (no position change)
+                active_pt = (scene_pos.x(), scene_pos.y())
+                self._align_controller.set_active_anchor(
+                    self._align_anchor_point(), self._align_anchor_direction())
+                rays = self._align_controller.build_rays(active_pt)
+                if rays:
+                    res = self._snap_engine.find(
+                        scene_pos, self, _view.transform(),
+                        align_paths=rays, held=self._align_result)
+                    self._align_result = res
+                    if (res is not None
+                            and res.snap_type in ("align_intersection",
+                                                  "align_path")):
+                        # TODO(align, Task 6 follow-up): when ``res`` is a single
+                        # ``align_path`` (soft-snapped to one path), swap the
+                        # HUD's active schema to ``track`` (see D4): call
+                        # ``hud.set_track_direction(<path unit dir>)`` and set
+                        # the anchor to the path origin so typing a Distance
+                        # places along the path.  The plumbing exists — the
+                        # ``track`` schema + ``set_track_direction`` on the HUD,
+                        # and the picker already carries the ray on
+                        # ``source_lines`` — but wiring it through
+                        # ``active_schema``/``_sync_dynamic_input`` (which is
+                        # anchor-gated and called from many sites) was deferred
+                        # to keep this large seam change safe.  Ray/geometry
+                        # snapping, render, and lifecycle are fully live.
+                        return res.point
+                else:
+                    self._align_result = None
         else:
             self._align_result = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
+
+    def _align_anchor_point(self):
+        """The current placement anchor as an (x, y) tuple, or None.
+
+        The active placement anchor auto-acquires an H/V pair (design spec D3):
+        it is the point the user is drawing *from*, so lining up with it is
+        always wanted.  Delegates to :meth:`get_placement_anchor` (the one home
+        for the per-mode anchor).
+        """
+        a = self.get_placement_anchor()
+        return None if a is None else (a.x(), a.y())
+
+    def _align_anchor_direction(self):
+        """Direction the auto-acquired anchor extends along, or None.
+
+        Reserved for anchoring an extension ray off the active placement point
+        when it sits on a directional object.  The seam has no reliable handle
+        on that object here, so it returns None (H/V only) — the extension
+        flavour is delivered by explicit acquire, not the anchor.
+        """
+        return None
+
+    def _align_snap_dict(self, res):
+        """Map an ``OsnapResult`` → the dict the AlignController's dwell eats.
+
+        Returns ``{"point", "snap_type", "source_id", "direction"}`` or None
+        when there is no real snap under the cursor.  ``direction`` is the unit
+        direction of the source object (line/wall/pipe/polyline) so an
+        endpoint acquire can spawn an Extension ray and an edge (nearest) hit a
+        Parallel ray; ``None`` for point-only sources.  ``source_id`` is a
+        stable identity for the source item so re-hover-release and self-
+        exclusion key off it (``id(source_item)`` when present, else the snap
+        type — a scene-stable fallback for synthetic intersections).
+        """
+        if res is None:
+            return None
+        src = getattr(res, "source_item", None)
+        source_id = id(src) if src is not None else hash(res.snap_type)
+        return {
+            "point": (res.point.x(), res.point.y()),
+            "snap_type": res.snap_type,
+            "source_id": source_id,
+            "direction": self._source_item_direction(src),
+        }
+
+    @staticmethod
+    def _source_item_direction(src):
+        """Unit direction of a line-like source item, or None.
+
+        Handles the directional entity types (line / wall / pipe / polyline);
+        anything else (nodes, ellipses, points) has no direction.
+        """
+        if src is None:
+            return None
+        import math as _math
+        p1 = p2 = None
+        # WallSegment: true centerline endpoints.
+        if isinstance(src, WallSegment):
+            p1, p2 = src.centerline_pt1, src.centerline_pt2
+        elif isinstance(src, GridlineItem):
+            p1, p2 = QPointF(src._origin), src._far_point()
+        elif isinstance(src, QGraphicsLineItem):
+            ln = src.line()
+            p1 = src.mapToScene(ln.p1())
+            p2 = src.mapToScene(ln.p2())
+        if p1 is None or p2 is None:
+            return None
+        dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+        n = _math.hypot(dx, dy)
+        if n < 1e-9:
+            return None
+        return (dx / n, dy / n)
 
     def toggle_snap(self, enabled: bool | None = None):
         """Toggle or explicitly set SNAP.  Called from F3 shortcut and
@@ -5376,6 +5434,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self.cursorMoved.emit(self._format_cursor_readout(scene_pos))
 
         snapped = self.get_effective_position(scene_pos)
+        # ── ALIGN dwell feed ────────────────────────────────────────────
+        # Advance the acquire machine with the elapsed-ms since the last move
+        # and the CURRENT real-snap under the cursor (get_effective_position
+        # just populated ``_snap_result``).  Hover-resting long enough on one
+        # snap source acquires it; the picker reads the acquired set next frame.
+        now_ns = time.perf_counter_ns()
+        elapsed_ms = (0.0 if self._align_last_move_ns is None
+                      else (now_ns - self._align_last_move_ns) / 1e6)
+        self._align_last_move_ns = now_ns
+        if self._align_enabled and self._align_active_item is not None:
+            self._align_controller.on_move(
+                (scene_pos.x(), scene_pos.y()),
+                self._align_snap_dict(self._snap_result), elapsed_ms)
         # Cleared each frame; draw modes republish below.  The resolved point
         # goes with the hint — leaving it set would let a mode that never
         # publishes hand the HUD the *previous* mode's stale point.
@@ -9914,6 +9985,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             # Clear ALIGN active item now that the drag gesture is complete.
             self._align_active_item = None
             self._align_result = None
+            self._align_controller.clear()
+            self._align_last_move_ns = None
             self.push_undo_state()
             for v in self.views():
                 v.viewport().update()
