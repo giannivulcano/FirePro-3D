@@ -274,6 +274,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # is set before that call in the mouse-move path.
         self._align_track_ray = None                  # align_engine.Ray | None
         self._align_track_dist = 0.0                  # signed distance along it
+        # Direction the auto-acquired active anchor extends along (spec D3): the
+        # unit direction of the directional object the FIRST placement point
+        # landed on, captured at the arming click (mousePressEvent).  ``None``
+        # when the first point started in empty space / on a non-directional
+        # point — then the anchor emits H/V only, no phantom extension.  Cleared
+        # on every acquire-set reset so a prior element's direction never leaks.
+        self._align_anchor_dir = None                 # (dx, dy) unit | None
         self._align_active_item = None                # item being placed/dragged (self-exclude)
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
@@ -874,6 +881,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # here, the one place every mode change funnels through.
         self._align_controller.clear()
         self._align_last_move_ns = None
+        self._align_anchor_dir = None
         if mode in self._ALIGN_PLACEMENT_MODES:
             self._align_active_item = self._PLACEMENT_SENTINEL
         else:
@@ -3599,6 +3607,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if ctrl is not None and ctrl.acquired:
             ctrl.clear()
             self._align_last_move_ns = None
+            self._align_anchor_dir = None
         self.sceneModified.emit()
 
     def undo(self):
@@ -3905,14 +3914,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         return None if a is None else (a.x(), a.y())
 
     def _align_anchor_direction(self):
-        """Direction the auto-acquired anchor extends along, or None.
+        """Direction the auto-acquired anchor extends along, or None (spec D3).
 
-        Reserved for anchoring an extension ray off the active placement point
-        when it sits on a directional object.  The seam has no reliable handle
-        on that object here, so it returns None (H/V only) — the extension
-        flavour is delivered by explicit acquire, not the anchor.
+        The unit direction of the directional object the FIRST placement point
+        landed on, captured at the arming click (``mousePressEvent``) in
+        ``self._align_anchor_dir``.  When non-None, the controller's
+        ``set_active_anchor(point, direction)`` gives the anchor an Extension
+        ray so the user can extend end-to-end at the existing angle (continue a
+        wall/line collinearly).  ``None`` when the first point started in empty
+        space or on a non-directional point — the anchor then emits H/V only.
         """
-        return None
+        return self._align_anchor_dir
 
     def _arm_align_track(self, rays, foot) -> None:
         """Recover the winning single-path Ray and arm the Navigate track state.
@@ -5069,7 +5081,21 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is None:
             return False
+        before = self._mode_placement_anchor()
         getattr(self, handler_name)(None, point, point, None, None, None)
+        # Spec D3 parity for the typed-first-point path: this synthetic press
+        # does NOT flow through mousePressEvent's arm wrapper, so mirror the
+        # direction capture here.  A track first point is armed while soft-
+        # snapped to a single ALIGN path, so the inherited direction is that
+        # path's own direction (extension/parallel ray); fall back to the live
+        # snap result's source object if no track ray is armed.
+        if before is None and self._mode_placement_anchor() is not None:
+            ray = self._align_track_ray
+            if ray is not None:
+                self._align_anchor_dir = ray.direction
+            else:
+                self._align_anchor_dir = self._source_item_direction(
+                    getattr(self._snap_result, "source_item", None))
         return True
 
     def apply_dynamic_input(self, geometry):
@@ -7317,8 +7343,23 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # ── Dispatch to per-mode handler ────────────────────────────────
         handler_name = self._PRESS_DISPATCH.get(self.mode)
         if handler_name is not None:
+            # Spec D3: when THIS press arms a first placement point, the
+            # auto-acquired active anchor inherits the direction of the object
+            # the point landed on, so an Extension ray extends end-to-end at the
+            # existing angle (continue a wall/line collinearly).  Detect a
+            # fresh arm by the raw per-mode anchor flipping None → not-None
+            # across the handler (``_mode_placement_anchor`` is not masked by the
+            # track-schema override, unlike ``get_placement_anchor``), then
+            # capture the direction from the snap result the arming click landed
+            # on (``None`` for empty space / a non-directional point — which also
+            # correctly overwrites any stale inherited direction).
+            anchor_before = self._mode_placement_anchor()
             getattr(self, handler_name)(event, scene_pos, snapped,
                                         selection, node_under, pipe_under)
+            anchor_after = self._mode_placement_anchor()
+            if anchor_before is None and anchor_after is not None:
+                self._align_anchor_dir = self._source_item_direction(
+                    getattr(self._snap_result, "source_item", None))
             # A press is what arms an anchor and what commits it, so the HUD's
             # existence is reconciled here as well as on move.  Without this a
             # committed placement would leave its readout hanging on screen
@@ -10226,6 +10267,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._align_result = None
             self._align_controller.clear()
             self._align_last_move_ns = None
+            self._align_anchor_dir = None
             self.push_undo_state()
             for v in self.views():
                 v.viewport().update()
