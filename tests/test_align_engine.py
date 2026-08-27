@@ -8,7 +8,7 @@ from firepro3d.align_engine import (
 def test_point_acquire_emits_h_and_v_rays():
     ref = AcquiredRef(point=(10.0, 20.0), direction=None,
                       flavor="point", snap_type="midpoint", source_id=1)
-    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    rays = rays_for_acquired([ref], parallel_origin=(0.0, 0.0))
     kinds = {(r.kind, round(r.direction[0], 6), round(r.direction[1], 6)) for r in rays}
     assert ("hv", 1.0, 0.0) in kinds   # horizontal
     assert ("hv", 0.0, 1.0) in kinds   # vertical
@@ -18,7 +18,7 @@ def test_point_acquire_emits_h_and_v_rays():
 def test_endpoint_with_direction_also_emits_extension():
     ref = AcquiredRef(point=(0.0, 0.0), direction=(1.0, 1.0),
                       flavor="point", snap_type="endpoint", source_id=2)
-    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    rays = rays_for_acquired([ref], parallel_origin=(0.0, 0.0))
     ext = [r for r in rays if r.kind == "extension"]
     assert len(ext) == 1
     d = ext[0].direction
@@ -29,7 +29,7 @@ def test_endpoint_with_direction_also_emits_perpendicular():
     # direction=(1,0) → perpendicular unit is (0, ±1). Extension is still emitted.
     ref = AcquiredRef(point=(0.0, 0.0), direction=(1.0, 0.0),
                       flavor="point", snap_type="endpoint", source_id=2)
-    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    rays = rays_for_acquired([ref], parallel_origin=(0.0, 0.0))
     perp = [r for r in rays if r.kind == "perpendicular"]
     ext = [r for r in rays if r.kind == "extension"]
     assert len(perp) == 1
@@ -46,7 +46,7 @@ def test_perpendicular_of_45deg_is_135deg():
     # direction=(1,1) (45°) → perpendicular unit ±(-1/√2, 1/√2).
     ref = AcquiredRef(point=(0.0, 0.0), direction=(1.0, 1.0),
                       flavor="point", snap_type="endpoint", source_id=7)
-    rays = rays_for_acquired([ref], active_point=(0.0, 0.0))
+    rays = rays_for_acquired([ref], parallel_origin=(0.0, 0.0))
     perp = [r for r in rays if r.kind == "perpendicular"]
     assert len(perp) == 1
     d = perp[0].direction
@@ -56,14 +56,26 @@ def test_perpendicular_of_45deg_is_135deg():
     assert math.isclose(d[0] * 1.0 + d[1] * 1.0, 0.0, abs_tol=1e-9)
 
 
-def test_direction_acquire_emits_parallel_anchored_at_active_point():
+def test_parallel_ray_anchored_at_from_point_not_cursor():
+    # A direction-acquire's parallel ray is pinned to the placement FROM-point
+    # (parallel_origin), fixed — so the cursor can snap onto it.
     ref = AcquiredRef(point=None, direction=(1.0, 0.0),
                       flavor="direction", snap_type="nearest", source_id=3)
-    rays = rays_for_acquired([ref], active_point=(5.0, 7.0))
+    rays = rays_for_acquired([ref], parallel_origin=(5.0, 7.0))
     par = [r for r in rays if r.kind == "parallel"]
     assert len(par) == 1
-    assert par[0].origin == (5.0, 7.0)
+    assert par[0].origin == (5.0, 7.0)      # the from-point, not the cursor
     assert par[0].direction == (1.0, 0.0)
+
+
+def test_no_parallel_ray_without_a_from_point():
+    # No placement anchor yet → parallel is meaningless (parallel from where?),
+    # so none is emitted. Prevents a cursor-following parallel line you can't
+    # snap to (smoke-test finding, 2026-08-26).
+    ref = AcquiredRef(point=None, direction=(1.0, 0.0),
+                      flavor="direction", snap_type="nearest", source_id=3)
+    rays = rays_for_acquired([ref], parallel_origin=None)
+    assert [r for r in rays if r.kind == "parallel"] == []
 
 
 def test_path_x_path_intersection_is_ground_truth():

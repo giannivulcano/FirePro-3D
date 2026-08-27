@@ -68,7 +68,7 @@ def test_perpendicular_enabled_by_default_includes_perpendicular_rays():
     c.on_move((0.0, 0.0),
               _snap((0.0, 0.0), "endpoint", 2, direction=(1.0, 0.0)),
               elapsed_ms=450)
-    rays = c.build_rays(active_point=(0.0, 0.0))
+    rays = c.build_rays(parallel_origin=(0.0, 0.0))
     assert any(r.kind == "perpendicular" for r in rays)
     assert any(r.kind == "extension" for r in rays)   # extension still present
 
@@ -79,7 +79,7 @@ def test_disabled_perpendicular_omits_perpendicular_but_keeps_others():
     c.on_move((0.0, 0.0),
               _snap((0.0, 0.0), "endpoint", 2, direction=(1.0, 0.0)),
               elapsed_ms=450)
-    rays = c.build_rays(active_point=(0.0, 0.0))
+    rays = c.build_rays(parallel_origin=(0.0, 0.0))
     assert all(r.kind != "perpendicular" for r in rays)
     assert any(r.kind == "extension" for r in rays)   # extension untouched
     assert any(r.kind == "hv" for r in rays)          # hv untouched
@@ -97,7 +97,7 @@ def test_set_direction_flags_toggles_perpendicular():
 def test_build_rays_includes_active_anchor_autoacquire():
     c = AlignController(dwell_ms=400, max_points=5)
     c.set_active_anchor((5.0, 5.0), direction=None)
-    rays = c.build_rays(active_point=(5.0, 5.0))
+    rays = c.build_rays(parallel_origin=(5.0, 5.0))
     # anchor auto-acquire → H + V from (5,5)
     origins = {r.origin for r in rays}
     assert (5.0, 5.0) in origins

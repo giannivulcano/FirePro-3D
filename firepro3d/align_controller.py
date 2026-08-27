@@ -129,8 +129,13 @@ class AlignController:
         if perpendicular is not None:
             self.dir_perpendicular_enabled = bool(perpendicular)
 
-    def build_rays(self, active_point: tuple[float, float]) -> list[Ray]:
+    def build_rays(self, parallel_origin: tuple[float, float] | None) -> list[Ray]:
         """Return the enabled transient tracking rays (anchor + acquired set).
+
+        *parallel_origin* is the placement FROM-point (or None before the first
+        point is placed); ``parallel`` rays anchor there — fixed — so the cursor
+        can snap onto them, rather than following the cursor. The other kinds
+        anchor at their own acquired points and ignore it.
 
         Per-direction gating (``dir_hv_enabled`` / ``dir_extension_enabled`` /
         ``dir_parallel_enabled`` / ``dir_perpendicular_enabled``) drops whole ray
@@ -141,7 +146,7 @@ class AlignController:
         refs = list(self.acquired)
         if self._anchor is not None:
             refs = [self._anchor] + refs
-        rays = rays_for_acquired(refs, active_point)
+        rays = rays_for_acquired(refs, parallel_origin)
         if (self.dir_hv_enabled and self.dir_extension_enabled
                 and self.dir_parallel_enabled and self.dir_perpendicular_enabled):
             return rays

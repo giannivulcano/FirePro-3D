@@ -42,13 +42,18 @@ def _unit(dx: float, dy: float) -> tuple[float, float] | None:
 
 
 def rays_for_acquired(acquired: list[AcquiredRef],
-                      active_point: tuple[float, float]) -> list[Ray]:
+                      parallel_origin: tuple[float, float] | None) -> list[Ray]:
     """Build the transient tracking rays for the current acquired set.
 
     point-acquire → H + V rays from the point; + an extension ray along its
     captured direction and a perpendicular ray (that direction rotated 90°) when
-    present. direction-acquire → a parallel ray in the captured direction
-    anchored at *active_point*.
+    present. direction-acquire → a parallel ray in the captured direction,
+    anchored at *parallel_origin* — the placement FROM-point (the point the user
+    is drawing from), NOT the live cursor. A parallel guide is only meaningful
+    once a from-point exists (it constrains the direction of the segment leaving
+    it), so when *parallel_origin* is None (no placement anchor yet) no parallel
+    ray is emitted. Anchoring at the fixed from-point (rather than the moving
+    cursor) is what lets the cursor snap ONTO the parallel guide.
     """
     rays: list[Ray] = []
     for a in acquired:
@@ -63,10 +68,11 @@ def rays_for_acquired(acquired: list[AcquiredRef],
                     # so the user can draw ACROSS the object through its endpoint.
                     perp = (-u[1], u[0])
                     rays.append(Ray(a.point, perp, "perpendicular", a.source_id))
-        elif a.flavor == "direction" and a.direction is not None:
+        elif (a.flavor == "direction" and a.direction is not None
+              and parallel_origin is not None):
             u = _unit(*a.direction)
             if u is not None:
-                rays.append(Ray(active_point, u, "parallel", a.source_id))
+                rays.append(Ray(parallel_origin, u, "parallel", a.source_id))
     return rays
 
 

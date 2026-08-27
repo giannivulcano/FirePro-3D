@@ -210,5 +210,5 @@ def test_disabled_hv_omits_hv_rays(qapp, pane, model_space):
     ctrl.on_move((0.0, 0.0),
                  {"point": (0.0, 0.0), "snap_type": "midpoint",
                   "source_id": 1, "direction": None}, elapsed_ms=500)
-    rays = ctrl.build_rays(active_point=(0.0, 0.0))
+    rays = ctrl.build_rays(parallel_origin=(0.0, 0.0))
     assert all(r.kind != "hv" for r in rays)

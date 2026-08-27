@@ -3866,10 +3866,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._align_enabled and self._align_active_item is not None:
             _view = self._snap_view()
             if _view is not None:
-                active_pt = (scene_pos.x(), scene_pos.y())
                 self._align_controller.set_active_anchor(
                     self._align_anchor_point(), self._align_anchor_direction())
-                rays = self._align_controller.build_rays(active_pt)
+                # Parallel rays anchor at the placement FROM-point (fixed), not
+                # the cursor, so the cursor can snap onto them. Use the raw
+                # per-mode anchor (not get_placement_anchor, which the track
+                # schema masks with the ray origin). None → no from-point yet →
+                # no parallel guide.
+                _anchor = self._mode_placement_anchor()
+                parallel_origin = (None if _anchor is None
+                                   else (_anchor.x(), _anchor.y()))
+                rays = self._align_controller.build_rays(parallel_origin)
                 if rays:
                     res = self._snap_engine.find(
                         scene_pos, self, _view.transform(),
