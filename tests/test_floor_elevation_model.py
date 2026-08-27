@@ -57,3 +57,13 @@ def test_missing_level_zrange_none():
               _bottom_mode="thickness", _thickness_mm=152.4)
     s._scene = _FakeScene(LM)
     assert s.z_range_mm() is None
+def test_missing_level_get_3d_mesh_none():
+    s = _slab(_top_mode="level", _top_level="Ghost", _top_offset_mm=0.0,
+              _bottom_mode="thickness", _thickness_mm=152.4)
+    s._scene = _FakeScene(LM)
+    assert s.get_3d_mesh(LM) is None
+def test_effective_thickness_default():
+    s = _slab(_top_mode="level", _top_level="Level 1", _top_offset_mm=0.0,
+              _bottom_mode="thickness", _thickness_mm=152.4)
+    s._scene = _FakeScene(LM)
+    assert s.effective_thickness_mm() == 152.4

@@ -351,18 +351,15 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     # ── Serialisation ────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        # NOTE: Task 1 round-trips the two-boundary fields minimally so the
-        # module imports and existing suites don't crash. The byte-exact
-        # schema + legacy migration (both scene_io and _capture_network) is
-        # Task 2 (design D9).
-        d = {
+        # New two-boundary schema ONLY — legacy keys (level, level_offset_mm,
+        # thickness_ft) are dropped on save. This dict is the single serializer
+        # for BOTH persistence paths (scene_io file save AND
+        # _capture_network/_restore_network undo), which both delegate here.
+        return {
             "type":              "floor_slab",
             "points":            [[p.x(), p.y()] for p in self._points],
             "color":             self._color.name(),
-            "thickness_mm":      self._thickness_mm,
-            "level":             self.level,
             "name":              self.name,
-            # Two-boundary elevation model
             "top_mode":          self._top_mode,
             "top_level":         self._top_level,
             "top_offset_mm":     self._top_offset_mm,
@@ -371,33 +368,34 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_level":      self._bottom_level,
             "bottom_offset_mm":  self._bottom_offset_mm,
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
+            "thickness_mm":      self._thickness_mm,
         }
-        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "FloorSlab":
         points = [QPointF(p[0], p[1]) for p in data.get("points", [])]
         slab = cls(points=points, color=data.get("color", "#8888cc"))
-        # New mm key; fall back to old ft key with conversion
-        if "thickness_mm" in data:
-            slab._thickness_mm = data["thickness_mm"]
-        else:
-            slab._thickness_mm = data.get("thickness_ft", DEFAULT_THICKNESS_MM / 304.8) * 304.8
-        slab.level = data.get("level", DEFAULT_LEVEL)
         slab.name = data.get("name", "")
-
-        # Two-boundary fields. When absent (legacy files), fall back to the
-        # single-datum model: top = level + level_offset_mm, bottom = thickness.
-        # (Full lossless migration across both serialization paths is Task 2.)
-        slab._top_mode = data.get("top_mode", "level")
-        slab._top_level = data.get("top_level", slab.level)
-        slab._top_offset_mm = data.get("top_offset_mm",
-                                       data.get("level_offset_mm", 0.0))
-        slab._top_abs_z_mm = data.get("top_abs_z_mm", 0.0)
-        slab._bottom_mode = data.get("bottom_mode", "thickness")
-        slab._bottom_level = data.get("bottom_level", slab.level)
-        slab._bottom_offset_mm = data.get("bottom_offset_mm", 0.0)
-        slab._bottom_abs_z_mm = data.get("bottom_abs_z_mm", 0.0)
+        if "top_mode" in data:                      # new schema
+            slab._top_mode = data["top_mode"]
+            slab._top_level = data.get("top_level", DEFAULT_LEVEL)
+            slab._top_offset_mm = data.get("top_offset_mm", 0.0)
+            slab._top_abs_z_mm = data.get("top_abs_z_mm", 0.0)
+            slab._bottom_mode = data.get("bottom_mode", "thickness")
+            slab._bottom_level = data.get("bottom_level", DEFAULT_LEVEL)
+            slab._bottom_offset_mm = data.get("bottom_offset_mm", 0.0)
+            slab._bottom_abs_z_mm = data.get("bottom_abs_z_mm", 0.0)
+            slab._thickness_mm = data.get("thickness_mm", DEFAULT_THICKNESS_MM)
+        else:                                        # legacy → two-boundary
+            if "thickness_mm" in data:
+                slab._thickness_mm = data["thickness_mm"]
+            else:
+                slab._thickness_mm = data.get(
+                    "thickness_ft", DEFAULT_THICKNESS_MM / 304.8) * 304.8
+            slab._top_mode = "level"
+            slab._top_level = data.get("level", DEFAULT_LEVEL)
+            slab._top_offset_mm = data.get("level_offset_mm", 0.0)
+            slab._bottom_mode = "thickness"
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────

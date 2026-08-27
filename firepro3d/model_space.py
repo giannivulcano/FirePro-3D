@@ -3244,7 +3244,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "gridlines":          [gl.to_dict() for gl in self._gridlines],
             # ── Walls & Floors ────────────────────────────────────────────
             "walls":              [w.to_dict()  for w in self._walls],
-            "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],
+            "floor_slabs":        [fs.to_dict() for fs in self._floor_slabs],  # two-boundary schema via to_dict (parity w/ scene_io)
             "roofs":              [r.to_dict()  for r in self._roofs],
             "rooms":              [r.to_dict()  for r in self._rooms],
             "constraints":        self._capture_constraints(),

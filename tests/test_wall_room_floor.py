@@ -966,13 +966,23 @@ class TestFloorSlabSerialization:
         assert restored._top_offset_mm == pytest.approx(10.0)
         assert len(restored.points) == 3
 
-    def test_legacy_level_offset_migrates_to_top_offset(self, triangle_slab):
-        """Legacy files stored ``level_offset_mm``; it seeds ``_top_offset_mm``."""
-        d = triangle_slab.to_dict()
-        d.pop("top_offset_mm", None)
-        d["level_offset_mm"] = 25.0
-        restored = FloorSlab.from_dict(d)
+    def test_legacy_level_offset_migrates_to_top_offset(self, qapp):
+        """Legacy files (no ``top_mode``) map ``level_offset_mm`` → ``_top_offset_mm``.
+
+        The new schema is detected by the presence of ``top_mode``; a pure
+        legacy dict (single-datum model) migrates to top=level, bottom=thickness.
+        """
+        legacy = {
+            "type": "floor_slab",
+            "points": [[0, 0], [1000, 0], [0, 1000]],
+            "thickness_mm": 200.0,
+            "level": "Level 1",
+            "level_offset_mm": 25.0,
+        }
+        restored = FloorSlab.from_dict(legacy)
+        assert restored._top_mode == "level"
         assert restored._top_offset_mm == pytest.approx(25.0)
+        assert restored._bottom_mode == "thickness"
 
     def test_defaults_on_minimal_data(self, qapp):
         data = {
