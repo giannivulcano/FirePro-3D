@@ -1143,7 +1143,13 @@ class MainWindow(QMainWindow):
         if tab_text.startswith("Elevation: "):
             direction = tab_text[len("Elevation: "):].lower()
             self.elevation_manager._views.pop(direction, None)
-        if widget is not None:
+        # The paper tab is a persistent singleton (self.paper_space_widget,
+        # re-added on demand by _activate_paper_sheet) — like the protected
+        # "3D Model" tab. removeTab reparents it out; deleting it here would
+        # destroy the C++ object while self.paper_space_widget still points at
+        # it, so the next paper access (indexOf) raises "wrapped C/C++ object
+        # ... has been deleted". Only dispose genuinely disposable view tabs.
+        if widget is not None and widget is not self.paper_space_widget:
             widget.deleteLater()
 
     def _apply_plan_level(self, level_name: str):

@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import pytest
 from PyQt6.QtTest import QTest
+from PyQt6.QtCore import QEvent
+from PyQt6.QtWidgets import QApplication
+from PyQt6 import sip
 
 from firepro3d import snap_engine
 
@@ -70,4 +73,35 @@ def test_activate_paper_sheet_idempotent(_mw):
     assert count_second == count_first, (
         "A second call to _activate_paper_sheet must not create an additional tab"
     )
+    assert mw.central_tabs.currentWidget() is mw.paper_space_widget
+
+
+def test_closing_paper_tab_preserves_singleton_widget(_mw):
+    """Closing the paper tab must NOT destroy the canonical paper widget.
+
+    Regression for RuntimeError('wrapped C/C++ object of type
+    PaperSpaceWidget has been deleted'): _on_tab_close_requested
+    unconditionally called widget.deleteLater(), destroying the persistent
+    self.paper_space_widget when its tab was closed. The next paper access
+    (_push_sheet_list → central_tabs.indexOf) then raised.
+    """
+    mw = _mw
+    mw._activate_paper_sheet("Layout 1")
+    idx = mw.central_tabs.indexOf(mw.paper_space_widget)
+    assert idx != -1
+
+    mw._on_tab_close_requested(idx)
+    # The real crash happened once the event loop processed the scheduled
+    # DeferredDelete, not synchronously at close — force it here so a
+    # regression bites deterministically.
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+    assert not sip.isdeleted(mw.paper_space_widget), (
+        "paper_space_widget was destroyed on tab close; it is a persistent "
+        "singleton (like the 3D Model tab) and must survive close/reopen"
+    )
+    # The exact call that raised in the field must now succeed.
+    mw._push_sheet_list()
+    # And the paper tab must be re-openable.
+    mw._activate_paper_sheet("Layout 1")
     assert mw.central_tabs.currentWidget() is mw.paper_space_widget
