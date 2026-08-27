@@ -261,6 +261,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._align_last_move_ns = None               # elapsed-ms clock between moves
         self._align_enabled: bool = True              # toggled via settings / F11
         self._align_result = None                     # surfaced to drawForeground
+        # On-path Navigate (Task 6 follow-up): the winning single-path Ray + the
+        # cursor's signed distance along it, recovered in get_effective_position
+        # while soft-snapped to one ``align_path``.  Drives the ``track`` schema
+        # swap (active_schema) — None whenever the cursor is off a single path
+        # (off ALIGN entirely, or on an ``align_intersection`` crossing, which
+        # gets no distance field).  Survives ``clear_placement_state`` because it
+        # is set before that call in the mouse-move path.
+        self._align_track_ray = None                  # align_engine.Ray | None
+        self._align_track_dist = 0.0                  # signed distance along it
         self._align_active_item = None                # item being placed/dragged (self-exclude)
         self._PLACEMENT_SENTINEL = _PlacementSentinel()  # shared sentinel for draw_gridline
         # Pipe-mode Tab cycling through Z-stacked node candidates
@@ -3840,24 +3849,27 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     if (res is not None
                             and res.snap_type in ("align_intersection",
                                                   "align_path")):
-                        # TODO(align, Task 6 follow-up): when ``res`` is a single
-                        # ``align_path`` (soft-snapped to one path), swap the
-                        # HUD's active schema to ``track`` (see D4): call
-                        # ``hud.set_track_direction(<path unit dir>)`` and set
-                        # the anchor to the path origin so typing a Distance
-                        # places along the path.  The plumbing exists — the
-                        # ``track`` schema + ``set_track_direction`` on the HUD,
-                        # and the picker already carries the ray on
-                        # ``source_lines`` — but wiring it through
-                        # ``active_schema``/``_sync_dynamic_input`` (which is
-                        # anchor-gated and called from many sites) was deferred
-                        # to keep this large seam change safe.  Ray/geometry
-                        # snapping, render, and lifecycle are fully live.
+                        # Navigate (D4): a single-path soft-snap arms the
+                        # ``track`` schema so typing a Distance places along the
+                        # path.  The picker returns the foot point but not the
+                        # winning Ray, so recover it from ``rays`` (still held
+                        # here) — the ray whose projection of the foot has ~0
+                        # perpendicular error.  An ``align_intersection`` is a
+                        # fixed crossing with no single direction, so it gets no
+                        # distance field: clear the arm and leave the primitive
+                        # schema live.
+                        if res.snap_type == "align_path":
+                            self._arm_align_track(rays, res.point)
+                        else:
+                            self._align_track_ray = None
                         return res.point
+                    self._align_track_ray = None
                 else:
                     self._align_result = None
+                    self._align_track_ray = None
         else:
             self._align_result = None
+            self._align_track_ray = None
         return self.get_snapped_position(scene_pos.x(), scene_pos.y())
 
     def _align_anchor_point(self):
@@ -3880,6 +3892,96 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         flavour is delivered by explicit acquire, not the anchor.
         """
         return None
+
+    def _arm_align_track(self, rays, foot) -> None:
+        """Recover the winning single-path Ray and arm the Navigate track state.
+
+        The ``align_path`` picker result carries the foot point but not the
+        :class:`~firepro3d.align_engine.Ray` it projected onto, so recover it
+        from *rays* (the transient set the seam just built): the winning ray is
+        the one whose projection of *foot* lands back on *foot* — i.e. ~0
+        perpendicular error.  That ray's origin/direction drive the ``track``
+        schema (``resolve_track`` places ``origin + Distance·direction``), and
+        the signed distance seeds the HUD's Distance field.
+
+        Clears the arm when no ray matches (a defensive no-match rather than a
+        stale ray leaking into the schema swap).
+
+        Args:
+            rays: The transient tracking rays the seam passed to ``find``.
+            foot: The ``align_path`` foot point (``OsnapResult.point``).
+        """
+        from .align_engine import project_to_ray
+        fp = (foot.x(), foot.y())
+        best = None
+        best_err = None
+        for ray in rays:
+            proj, dist = project_to_ray(fp, ray)
+            err = math.hypot(proj[0] - fp[0], proj[1] - fp[1])
+            if best_err is None or err < best_err:
+                best_err, best, best_dist = err, ray, dist
+        # A genuine on-path foot projects back onto itself; anything above a
+        # hair is not the ray the picker chose (parallel rays never tie here
+        # because only one passes through the foot).
+        if best is not None and best_err <= 1e-6:
+            self._align_track_ray = best
+            self._align_track_dist = best_dist
+        else:
+            self._align_track_ray = None
+
+    def _align_track_active(self) -> bool:
+        """Whether the cursor is soft-snapped to a single ALIGN path right now.
+
+        The gate for the ``track`` schema swap: true only while the live ALIGN
+        result is a single ``align_path`` *and* its winning ray was recovered.
+        Keyed on ``_align_result`` (not just the cached ray) so every real-snap
+        path that clears the result to None — a stronger OSNAP winning, a mode
+        with no ALIGN — drops the track schema without having to also reset the
+        ray, and an ``align_intersection`` (a fixed crossing, no direction)
+        never trips it.  Only meaningful for a placement mode whose normal
+        schema resolves to a point; :meth:`_align_track_schema` enforces that.
+        """
+        res = self._align_result
+        return (self._align_track_ray is not None
+                and res is not None
+                and getattr(res, "snap_type", None) == "align_path")
+
+    def _align_track_schema(self):
+        """Return the ``track`` Schema when the on-path swap should be live, else None.
+
+        Scoped to placement modes whose normal (non-track) schema resolves to a
+        point — line/circle/rectangle-sizing and friends.  A transform mode
+        (move, the gridline replicate modes) or the rectangle/polygon rotate
+        step has no meaningful "distance along a path", so the swap is refused
+        there and the primitive schema stays live.  The mode must also be able
+        to commit a typed point (``_APPLIER_FOR_MODE``), or an engaged track HUD
+        would dead-end — the same honesty gate ``_hud_available`` applies.
+        """
+        if not self._align_track_active():
+            return None
+        if self.mode not in self._APPLIER_FOR_MODE:
+            return None
+        base = self._base_schema()
+        if base is None or not base.is_placement:
+            return None
+        return SCHEMAS.get("track")
+
+    def _base_schema(self):
+        """The mode's normal (non-track) schema — the primitive readout.
+
+        Split out of :meth:`active_schema` so the track-swap gate can consult
+        the primitive schema without recursing through the swap itself.
+        """
+        if self.mode == "draw_arc":
+            return self._arc_schema_for_step()
+        if self.mode == "draw_rectangle":
+            return self._rectangle_schema_for_step()
+        if self.mode == "polygon":
+            return self._polygon_schema_for_step()
+        if self.mode == "wall":
+            return self._wall_schema_for_primitive()
+        key = self._SCHEMA_FOR_MODE.get(self.mode)
+        return SCHEMAS.get(key) if key else None
 
     def _align_snap_dict(self, res):
         """Map an ``OsnapResult`` → the dict the AlignController's dwell eats.
@@ -3990,6 +4092,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             A copy of the anchor point, or None when no anchor exists.
         """
+        # On-path Navigate: the ``track`` schema measures Distance from the
+        # tracking path's ORIGIN (D4), not the mode's own placement anchor, so
+        # while the track swap is live the anchor is the winning ray's origin.
+        # ``resolve_track(origin, {Distance, __dir__})`` then lands
+        # ``origin + Distance·direction``.
+        if self._align_track_schema() is not None:
+            ox, oy = self._align_track_ray.origin
+            return QPointF(ox, oy)
         if self.mode in ("draw_line", "draw_gridline"):
             a = self._draw_line_anchor
             return QPointF(a) if a is not None else None
@@ -4209,16 +4319,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             The registered ``Schema`` for ``self.mode``, or None when the mode
             has no dynamic-input schema.
         """
-        if self.mode == "draw_arc":
-            return self._arc_schema_for_step()
-        if self.mode == "draw_rectangle":
-            return self._rectangle_schema_for_step()
-        if self.mode == "polygon":
-            return self._polygon_schema_for_step()
-        if self.mode == "wall":
-            return self._wall_schema_for_primitive()
-        key = self._SCHEMA_FOR_MODE.get(self.mode)
-        return SCHEMAS.get(key) if key else None
+        # On-path Navigate (D4) overrides the primitive readout while the cursor
+        # is soft-snapped to a single ALIGN path: the ``track`` schema replaces
+        # the mode's Length/Angle (or X/Y, R, …) with one signed Distance field.
+        # Refused for transform modes / rotate steps and for modes that cannot
+        # commit a typed point — see ``_align_track_schema``.
+        track = self._align_track_schema()
+        if track is not None:
+            return track
+        return self._base_schema()
 
     def _rectangle_schema_for_step(self):
         """Return the rectangle schema for the current step.
@@ -4543,6 +4652,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
+        self._arm_track_direction(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Re-placed every frame: an unengaged HUD follows the cursor.
@@ -4588,6 +4698,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         hud.set_values(
             self._seed_values_for(schema, self.get_placement_anchor()))
         self._arm_arc_coupling(hud, schema)
+        self._arm_track_direction(hud, schema)
         view = self._visible_view()
         if view is not None and hasattr(view, "place_dynamic_input"):
             # Latch to the resolved placement point — the constrained position
@@ -4651,6 +4762,12 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         Returns:
             Values keyed by field name, in schema (scene) units.
         """
+        if schema.name == "track":
+            # The track schema has no cursor-derived inverse (``seed`` is None):
+            # its one Distance field is the signed distance-along-ray the seam
+            # already measured when it recovered the winning ray.  Seeding it
+            # keeps the readout showing how far along the path the cursor sits.
+            return {"Distance": self._align_track_dist}
         if schema.is_placement:
             # Explicit None test, never truthiness: PyQt gives QPointF a
             # __bool__ that is False at the origin, so ``point or anchor`` would
@@ -4759,6 +4876,22 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if schema is None or schema.name != "arc_span":
             return
         hud.set_coupling_radius(hud.scene_to_mm(self._draw_arc_radius))
+
+    def _arm_track_direction(self, hud, schema) -> None:
+        """Inject the winning path's unit direction into a ``track`` HUD.
+
+        ``resolve_track`` reads the direction from the values dict under the
+        reserved ``"__dir__"`` key, injected by ``DynamicInputHud.values`` from
+        whatever ``set_track_direction`` last armed.  The direction is fixed for
+        as long as the cursor stays on one path, so arming it at seed time (each
+        sync and at engage) keeps it current as the swap turns on and off.  A
+        no-op for every other schema; other HUDs ignore the armed direction.
+        """
+        if schema is None or schema.name != "track":
+            return
+        direction = (self._align_track_ray.direction
+                     if self._align_track_ray is not None else None)
+        hud.set_track_direction(direction)
 
     def end_dynamic_input(self) -> None:
         """Close the HUD entirely — the placement it was reading out is over.
