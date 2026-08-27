@@ -87,7 +87,9 @@ ALIGN_MAX_POINTS = 5           # acquired-point cap (evict oldest)
 # Per-direction ray-kind gating defaults (SnappingPane toggles; controller flags).
 ALIGN_DIR_HV_DEFAULT = True         # emit horizontal/vertical rays from point-acquires
 ALIGN_DIR_EXTENSION_DEFAULT = True  # emit collinear extension rays from directional points
-ALIGN_DIR_PARALLEL_DEFAULT = True   # emit parallel rays from direction-acquires
+ALIGN_DIR_PARALLEL_DEFAULT = False  # direction-tracking parallel OFF by default:
+#   the flaky direction-track parallel is superseded by the planned perpendicular
+#   OFFSET-tracking feature (TODO P2); plumbing kept, surfaced only when re-enabled.
 ALIGN_DIR_PERPENDICULAR_DEFAULT = True  # emit perpendicular rays (dir rotated 90°) from directional points
 
 # ── ALIGN tracking-path overlay ───────────────────────────────────────────────
