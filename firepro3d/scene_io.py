@@ -24,6 +24,10 @@ from PyQt6.QtCore import QPointF
 
 from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
 from .underlay import Underlay
+from .network_codec import (
+    serialize_node, serialize_pipe, serialize_dimension,
+    serialize_note, serialize_water_supply, serialize_design_area,
+)
 
 log = logging.getLogger("FirePro3D")
 
@@ -44,30 +48,7 @@ class SceneIOMixin:
         node_list = list(self.sprinkler_system.nodes)
         node_id = {n: i for i, n in enumerate(node_list)}
 
-        nodes_data = []
-        for node in node_list:
-            entry = {
-                "id":             node_id[node],
-                "x":              node.scenePos().x(),
-                "y":              node.scenePos().y(),
-                "elevation":      node.z_pos,
-                "level":          getattr(node, "level", DEFAULT_LEVEL),
-                "ceiling_level":  getattr(node, "ceiling_level", DEFAULT_LEVEL),
-                "ceiling_offset_mm": getattr(node, "ceiling_offset", DEFAULT_CEILING_OFFSET_MM),
-                "room_name":     getattr(node, "_room_name", ""),
-                "sprinkler":      node.sprinkler.get_properties() if node.has_sprinkler() else None,
-            }
-            node_ovr = getattr(node, "_display_overrides", {})
-            if node_ovr:
-                entry["display_overrides"] = node_ovr
-            if node.has_sprinkler():
-                spr_ovr = getattr(node.sprinkler, "_display_overrides", {})
-                if spr_ovr:
-                    entry["sprinkler_display_overrides"] = spr_ovr
-            fit_ovr = getattr(node.fitting, "_display_overrides", {}) if node.has_fitting() else {}
-            if fit_ovr:
-                entry["fitting_display_overrides"] = fit_ovr
-            nodes_data.append(entry)
+        nodes_data = [serialize_node(node, node_id) for node in node_list]
 
         # --- Pipes ---
         pipes_data = []
@@ -76,39 +57,14 @@ class SceneIOMixin:
                 continue
             if pipe.node1 not in node_id or pipe.node2 not in node_id:
                 continue
-            raw_props = {k: v["value"] for k, v in pipe._properties.items()}
-            pipe_entry = {
-                "node1_id":   node_id[pipe.node1],
-                "node2_id":   node_id[pipe.node2],
-                "level":      getattr(pipe, "level", DEFAULT_LEVEL),
-                "properties": raw_props,
-            }
-            pipe_ovr = getattr(pipe, "_display_overrides", {})
-            if pipe_ovr:
-                pipe_entry["display_overrides"] = pipe_ovr
-            pipes_data.append(pipe_entry)
+            pipes_data.append(serialize_pipe(pipe, node_id))
 
         # --- Annotations ---
         annotations_data = []
         for dim in self.annotations.dimensions:
-            annotations_data.append({
-                "type": "dimension",
-                "p1":   [dim._p1.x(), dim._p1.y()],
-                "p2":   [dim._p2.x(), dim._p2.y()],
-                "offset_dist": getattr(dim, "_offset_dist", 10),
-                "witness_ext_override": getattr(dim, "_witness_ext_override", None),
-                "properties": {k: v["value"] for k, v in dim.get_properties().items()},
-                "level":      getattr(dim, "level", DEFAULT_LEVEL),
-            })
+            annotations_data.append(serialize_dimension(dim))
         for note in self.annotations.notes:
-            annotations_data.append({
-                "type": "note",
-                "x":    note.scenePos().x(),
-                "y":    note.scenePos().y(),
-                "text_width": note.textWidth(),
-                "properties": {k: v["value"] for k, v in note.get_properties().items()},
-                "level":      getattr(note, "level", DEFAULT_LEVEL),
-            })
+            annotations_data.append(serialize_note(note))
 
         # (HatchItem retired 2026-08-22 — no longer saved; migration on load only)
 
@@ -139,33 +95,13 @@ class SceneIOMixin:
 
         # --- Water supply ---
         ws = self.water_supply_node
-        ws_data = None
-        if ws is not None:
-            ws_data = {
-                "x":          ws.pos().x(),
-                "y":          ws.pos().y(),
-                "properties": {k: v["value"] for k, v in ws.get_properties().items()},
-            }
-            ws_ovr = getattr(ws, "_display_overrides", {})
-            if ws_ovr:
-                ws_data["display_overrides"] = ws_ovr
+        ws_data = serialize_water_supply(ws) if ws is not None else None
 
         # --- Design areas ---
-        design_areas_data = []
-        for da in self.design_areas:
-            spr_node_ids = []
-            for spr in da.sprinklers:
-                if spr.node and spr.node in node_id:
-                    spr_node_ids.append(node_id[spr.node])
-            design_areas_data.append({
-                "sprinkler_node_ids": spr_node_ids,
-                # raw stored props — get_properties() adds synthesized display rows
-                "properties": {k: v["value"] for k, v in da._properties.items()},
-                "is_active": da is self.active_design_area,
-                "level": da.level,
-                "badge_offset": (list(da.badge_offset())
-                                 if da._badge_user_moved else None),
-            })
+        design_areas_data = [
+            serialize_design_area(da, node_id, self.active_design_area)
+            for da in self.design_areas
+        ]
 
         # --- Levels ---
         levels_data = (

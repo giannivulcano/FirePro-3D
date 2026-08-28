@@ -9,11 +9,49 @@ RED on the pre-fix code and GREEN after the surgical fix.
 
 from __future__ import annotations
 
+import json
+
 from PyQt6.QtCore import QPointF
 
 from firepro3d.model_space import Model_Space
-from firepro3d.annotations import NoteAnnotation
+from firepro3d.annotations import NoteAnnotation, DimensionAnnotation
 from firepro3d.wall import WallSegment
+from firepro3d.water_supply import WaterSupply
+from firepro3d.design_area import DesignArea
+from firepro3d.level_manager import LevelManager
+
+# The hand-serialized entity types the NetworkCodec unifies (slice 4).
+_CODEC_KEYS = ("nodes", "pipes", "annotations", "water_supply", "design_areas")
+
+
+def _scene_with_hand_serialized_entities(with_sprinkler=True):
+    """A Model_Space carrying one of each codec-owned entity type.
+
+    ``with_sprinkler=False`` omits the sprinkler head, whose derived properties
+    (K-Factor/Coverage/Model options) are not byte-stable across load→save — a
+    pre-existing sprinkler-serialization quirk unrelated to the codec.
+    """
+    ms = Model_Space()
+    ms._level_manager = LevelManager()
+    n1 = ms.add_node(0.0, 0.0)
+    n2 = ms.add_node(1000.0, 0.0)
+    ms.add_pipe(n1, n2)
+    if with_sprinkler:
+        ms.add_sprinkler(n1)
+    note = NoteAnnotation(x=50.0, y=50.0, text_width=120.0)
+    ms.addItem(note)
+    ms.annotations.add_note(note)
+    dim = DimensionAnnotation(QPointF(0.0, 0.0), QPointF(100.0, 0.0))
+    ms.addItem(dim)
+    ms.annotations.add_dimension(dim)
+    ws = WaterSupply(200.0, 200.0)
+    ms.addItem(ws)
+    ms.water_supply_node = ws
+    ms.sprinkler_system.supply_node = ws
+    da = DesignArea([n1.sprinkler] if n1.has_sprinkler() else [])
+    ms.addItem(da)
+    ms.design_areas.append(da)
+    return ms
 
 
 def test_undo_snapshot_pipe_props_are_stored_props(qapp):
@@ -68,3 +106,35 @@ def test_pipe_geometry_correct_after_undo(qapp):
     ms._restore_network(snap)
     restored = ms.sprinkler_system.pipes[0]
     assert abs(restored.line().length() - len_before) < 1.0
+
+
+# ── NetworkCodec (slice 4): file & undo now share one serialize home ──────────
+
+def test_save_and_capture_agree_on_hand_serialized_types(qapp, tmp_path):
+    """The file path (save_to_file) and undo path (_capture_network) must emit
+    IDENTICAL dicts for every codec-owned entity type — structurally guaranteed
+    now that both route through network_codec."""
+    ms = _scene_with_hand_serialized_entities()
+    fp = str(tmp_path / "codec.fpd")
+    assert ms.save_to_file(fp)
+    saved = json.load(open(fp, encoding="utf-8"))
+    cap = ms._capture_network()
+    for key in _CODEC_KEYS:
+        assert saved[key] == cap[key], f"file/undo diverge on {key!r}"
+
+
+def test_codec_sections_stable_across_file_roundtrip(qapp, tmp_path):
+    """save -> load -> save reproduces the codec-owned sections byte-for-byte
+    (round-trip stability of the file format for these types)."""
+    ms = _scene_with_hand_serialized_entities(with_sprinkler=False)
+    fp1 = str(tmp_path / "a.fpd")
+    assert ms.save_to_file(fp1)
+    ms2 = Model_Space()
+    ms2._level_manager = LevelManager()
+    ms2.load_from_file(fp1)
+    fp2 = str(tmp_path / "b.fpd")
+    assert ms2.save_to_file(fp2)
+    a = json.load(open(fp1, encoding="utf-8"))
+    b = json.load(open(fp2, encoding="utf-8"))
+    for key in _CODEC_KEYS:
+        assert a[key] == b[key], f"codec section {key!r} not stable across round-trip"
