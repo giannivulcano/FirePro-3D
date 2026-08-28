@@ -46,6 +46,60 @@ def _distance(a: QPointF, b: QPointF) -> float:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Solver
+# ─────────────────────────────────────────────────────────────────────────────
+
+def solve_constraints(constraints, moved_item=None) -> list:
+    """Run the iterative constraint solver with convergence detection.
+
+    Pure algorithm extracted from ``Model_Space._solve_constraints`` (the
+    decomposition slice C): it mutates the constrained items' geometry but does
+    **no** rendering and holds no scene state. The caller owns the repaint +
+    conflict-report side effects.
+
+    Iterates each enabled constraint's ``solve(moved_item)`` up to 20 times,
+    stopping early on full satisfaction. If the unsatisfied count fails to
+    improve for 3 consecutive iterations it declares a conflict.
+
+    Args:
+        constraints: iterable of ``Constraint`` objects.
+        moved_item: the item that just moved (hint passed to each ``solve``).
+
+    Returns:
+        The list of unsatisfied constraints that triggered a stall (a genuine
+        conflict), or an empty list if the system converged or exhausted the
+        iteration budget without stalling.
+    """
+    MAX_ITERATIONS = 20
+    prev_unsatisfied = float('inf')
+    stall_count = 0
+
+    for _iteration in range(MAX_ITERATIONS):
+        all_satisfied = True
+        unsatisfied: list = []
+        for c in constraints:
+            if not c.enabled:
+                continue
+            if not c.solve(moved_item):
+                all_satisfied = False
+                unsatisfied.append(c)
+        if all_satisfied:
+            break
+
+        # Convergence / stall detection
+        n = len(unsatisfied)
+        if n >= prev_unsatisfied:
+            stall_count += 1
+            if stall_count >= 3:
+                return unsatisfied  # conflict — solver stalled
+        else:
+            stall_count = 0
+        prev_unsatisfied = n
+
+    return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Base class
 # ─────────────────────────────────────────────────────────────────────────────
 
