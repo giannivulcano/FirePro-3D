@@ -206,7 +206,7 @@ class ModelBrowser(QWidget):
                 item = QTreeWidgetItem(floors_root, [label])
                 item.setData(0, _ROLE_ENTITY, id(slab))
                 pts = len(slab.points) if hasattr(slab, "points") else 0
-                item.setToolTip(0, f"Level: {slab.level}  Points: {pts}")
+                item.setToolTip(0, f"Points: {pts}")
                 self._style_hidden(item, slab)
 
             # -- Roofs --

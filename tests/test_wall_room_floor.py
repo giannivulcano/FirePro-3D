@@ -951,24 +951,38 @@ class TestFloorSlabSerialization:
     def test_round_trip(self, triangle_slab):
         triangle_slab.name = "Slab-1"
         triangle_slab._thickness_mm = 200.0
-        triangle_slab._level_offset_mm = 10.0
+        triangle_slab._top_offset_mm = 10.0
 
         d = triangle_slab.to_dict()
         assert d["type"] == "floor_slab"
         assert len(d["points"]) == 3
         assert d["thickness_mm"] == pytest.approx(200.0)
         assert d["name"] == "Slab-1"
-        assert d["level_offset_mm"] == pytest.approx(10.0)
+        assert d["top_offset_mm"] == pytest.approx(10.0)
 
         restored = FloorSlab.from_dict(d)
         assert restored.name == "Slab-1"
         assert restored._thickness_mm == pytest.approx(200.0)
-        assert restored._level_offset_mm == pytest.approx(10.0)
+        assert restored._top_offset_mm == pytest.approx(10.0)
         assert len(restored.points) == 3
 
-    def test_level_offset_omitted_when_zero(self, triangle_slab):
-        d = triangle_slab.to_dict()
-        assert "level_offset_mm" not in d
+    def test_legacy_level_offset_migrates_to_top_offset(self, qapp):
+        """Legacy files (no ``top_mode``) map ``level_offset_mm`` → ``_top_offset_mm``.
+
+        The new schema is detected by the presence of ``top_mode``; a pure
+        legacy dict (single-datum model) migrates to top=level, bottom=thickness.
+        """
+        legacy = {
+            "type": "floor_slab",
+            "points": [[0, 0], [1000, 0], [0, 1000]],
+            "thickness_mm": 200.0,
+            "level": "Level 1",
+            "level_offset_mm": 25.0,
+        }
+        restored = FloorSlab.from_dict(legacy)
+        assert restored._top_mode == "level"
+        assert restored._top_offset_mm == pytest.approx(25.0)
+        assert restored._bottom_mode == "thickness"
 
     def test_defaults_on_minimal_data(self, qapp):
         data = {
@@ -993,12 +1007,17 @@ class TestFloorSlabSerialization:
 
 class TestFloorSlabProperties:
     def test_get_properties_keys(self, triangle_slab):
+        # Two-boundary panel: default is top=level, bottom=thickness. The old
+        # flat Level/Colour rows are retired (mode-conditional rows + Display
+        # Manager appearance). See test_floor_panel_display for full coverage.
         props = triangle_slab.get_properties()
-        expected_keys = {
-            "Type", "Name", "Level", "Level Offset",
-            "Colour", "Thickness", "Points",
-        }
-        assert expected_keys == set(props.keys())
+        keys = set(props.keys())
+        assert {"Type", "Name", "Top Reference", "Bottom Reference",
+                "Points"} <= keys
+        assert "Colour" not in keys
+        assert "Level" not in keys           # retired flat level row
+        # Default bottom mode is thickness → editable Thickness input present
+        assert props["Thickness"]["type"] == "dimension"
 
     def test_set_name(self, triangle_slab):
         triangle_slab.set_property("Name", "Ground Floor")
@@ -1008,10 +1027,6 @@ class TestFloorSlabProperties:
         triangle_slab.set_property("Thickness", 300.0)
         assert triangle_slab._thickness_mm == pytest.approx(300.0)
 
-    def test_set_level(self, triangle_slab):
-        triangle_slab.set_property("Level", "Level 2")
-        assert triangle_slab.level == "Level 2"
-
-    def test_set_level_offset(self, triangle_slab):
-        triangle_slab.set_property("Level Offset", 50.0)
-        assert triangle_slab._level_offset_mm == pytest.approx(50.0)
+    def test_set_top_reference_mode(self, triangle_slab):
+        triangle_slab.set_property("Top Reference", "Absolute")
+        assert triangle_slab._top_mode == "absolute"

@@ -108,6 +108,10 @@ class PlanView:
     level_name:  str            # which level this plan view shows
     view_height: float = 0.0   # mm, absolute elevation of the cut plane
     view_depth:  float = 0.0   # mm, absolute elevation of the bottom limit
+    # When False the upper bound (view_height) is auto-derived from the actual
+    # floor above at activation (see LevelManager.compute_view_height); when
+    # True the user pinned it via the View Range dialog and it is respected.
+    view_height_explicit: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -115,6 +119,7 @@ class PlanView:
             "level_name":  self.level_name,
             "view_height": self.view_height,
             "view_depth":  self.view_depth,
+            "view_height_explicit": self.view_height_explicit,
         }
 
     @classmethod
@@ -124,6 +129,10 @@ class PlanView:
             level_name  = d["level_name"],
             view_height = d.get("view_height", 0.0),
             view_depth  = d.get("view_depth",  0.0),
+            # BACK-COMPAT: an OLD project file has no flag → treat the saved
+            # view_height as explicit so we never stomp a possibly-deliberate
+            # user setting we can't distinguish from an auto default.
+            view_height_explicit = d.get("view_height_explicit", True),
         )
 
 
@@ -167,6 +176,7 @@ class PlanViewInfo:
 
 
 _DEFAULT_SLAB_THICKNESS_MM = 152.4  # 6 inches — used to compute default view_height
+_VIEW_TOP_TOL_MM = 50.0  # a floor "belongs to the level above" if its top-z is within this of that datum
 
 
 class PlanViewManager:
@@ -191,17 +201,11 @@ class PlanViewManager:
         # view_depth: this level's elevation (show floor-level items)
         view_depth = elev + (lvl.view_bottom if lvl else -1000.0)
 
-        # view_height: next level's elevation minus slab thickness,
-        # or this level + view_top if no level above exists
-        levels_sorted = sorted(level_manager.levels, key=lambda l: l.elevation)
-        next_lvl = None
-        for l in levels_sorted:
-            if l.elevation > elev:
-                next_lvl = l
-                break
-        if next_lvl is not None:
-            view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
-        else:
+        # view_height: floor-agnostic default (next datum - slab thickness, or
+        # this level + view_top at the top). Shared with LevelManager so all
+        # three call sites derive it identically.
+        view_height = level_manager.fallback_view_height(level_name)
+        if view_height is None:
             view_height = elev + (lvl.view_top if lvl else 2000.0)
 
         pv = PlanView(name=name, level_name=level_name,
@@ -291,8 +295,16 @@ class LevelManager:
             return
         self._levels = [l for l in self._levels if l.name != name]
 
-    def rename_level(self, old_name: str, new_name: str, items) -> bool:
-        """Rename a level and update all items that referenced the old name."""
+    def rename_level(self, old_name: str, new_name: str, items,
+                     scene=None) -> bool:
+        """Rename a level and update all items that referenced the old name.
+
+        Regular items are remapped via their owning ``.level`` attribute.
+        Floors no longer carry a meaningful owning level (visibility is pure
+        z-range), so they are *not* in the generic ``.level`` loop; instead
+        their two boundary references (``_top_level`` / ``_bottom_level``)
+        are remapped when *scene* is supplied.
+        """
         if not new_name or (self.get(new_name) is not None
                            and new_name != old_name):
             return False
@@ -301,8 +313,20 @@ class LevelManager:
             return False
         lvl.name = new_name
         for item in items:
+            # Floors (pure z-range visibility) have no meaningful owning
+            # level — never rewrite their .level; their boundary refs are
+            # remapped below instead.
+            if getattr(item, "_visibility_by_zrange", False):
+                continue
             if getattr(item, "level", None) == old_name:
                 item.level = new_name
+        # Floors: remap boundary level refs (they're excluded from the
+        # generic .level loop above — their owning .level is obsolete).
+        for slab in getattr(scene, "_floor_slabs", []):
+            if getattr(slab, "_top_level", None) == old_name:
+                slab._top_level = new_name
+            if getattr(slab, "_bottom_level", None) == old_name:
+                slab._bottom_level = new_name
         return True
 
     # ── Serialisation ─────────────────────────────────────────────────────────
@@ -321,6 +345,57 @@ class LevelManager:
         self._levels = [Level(**vars(l)) for l in DEFAULT_LEVELS]
 
     # ── Elevation helpers ───────────────────────────────────────────────────
+
+    def fallback_view_height(self, level_name) -> float | None:
+        """The floor-agnostic default plan upper bound: next_datum - default slab
+        thickness, or (top level) elev + view_top; None if the level is unknown.
+
+        This is the scene-independent tail shared by ``compute_view_height``,
+        ``PlanViewManager.create`` and the View Range dialog's reset path.
+        """
+        lvl = self.get(level_name)
+        if lvl is None:
+            return None
+        nxt = None
+        for l in sorted(self._levels, key=lambda x: x.elevation):
+            if l.elevation > lvl.elevation:
+                nxt = l
+                break
+        if nxt is None:
+            return lvl.elevation + lvl.view_top
+        return nxt.elevation - _DEFAULT_SLAB_THICKNESS_MM
+
+    def compute_view_height(self, scene, level_name) -> float | None:
+        """Auto upper bound for a level's plan view.
+
+        Prefers the bottom-z of the actual floor above (a slab whose resolved
+        top-z sits within ``_VIEW_TOP_TOL_MM`` of the next level's datum); this
+        keeps a thick spanning floor from dipping below the cut plane and
+        bleeding into the current plan. Falls back to
+        ``next_datum - _DEFAULT_SLAB_THICKNESS_MM`` when no such floor exists,
+        and to ``this level + view_top`` when there is no level above.
+
+        Returns ``None`` if *level_name* is unknown.
+        """
+        lvl = self.get(level_name)
+        if lvl is None:
+            return None
+        nxt = None
+        for l in sorted(self._levels, key=lambda x: x.elevation):
+            if l.elevation > lvl.elevation:
+                nxt = l
+                break
+        if nxt is None:
+            return lvl.elevation + lvl.view_top
+        best = None
+        for slab in getattr(scene, "_floor_slabs", []):
+            zr = slab.z_range_mm() if hasattr(slab, "z_range_mm") else None
+            if zr is None:
+                continue
+            bot, top = zr
+            if abs(top - nxt.elevation) <= _VIEW_TOP_TOL_MM:
+                best = bot if best is None else min(best, bot)
+        return best if best is not None else self.fallback_view_height(level_name)
 
     def update_elevations(self, scene):
         """Recompute z_pos for all nodes using ceiling_level + ceiling_offset."""
@@ -389,6 +464,20 @@ class LevelManager:
             # Reset section-cut flag
             if hasattr(item, "_is_section_cut"):
                 item._is_section_cut = False
+
+            # Pure z-range items (floors) ignore .level entirely: their
+            # vertical extent alone drives visibility + section-cut.
+            if getattr(item, "_visibility_by_zrange", False):
+                if has_view_range:
+                    item.setVisible(True)
+                    item.setOpacity(1.0)
+                    item.setFlag(
+                        QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True,
+                    )
+                    _apply_z_filter(item, view_height, view_depth)
+                else:
+                    item.setVisible(True)
+                return
 
             lvl_name = getattr(item, "level", DEFAULT_LEVEL)
 

@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-25
-verified-commit: eead762
+last-verified: 2026-08-28
+verified-commit: 579e841
 applies-to:
   - firepro3d/ribbon_bar.py
   - firepro3d/font_group.py
@@ -63,7 +63,7 @@ CAD users get a workflow-ordered command surface instead of nested menus. The li
 | 1 | **Manage** | File (New/Open/Save/Save As/Recent) · Settings (Preferences button → `PreferencesDialog`) · Edit (Undo/Redo, always accessible) · Snap (OSNAP/Snap-to-Underlay/Angle Snap/Snap Settings/OSNAP Bar) |
 | 2 | **View** | Navigate (Fit to Screen) · Underlay (Underlay Manager → import dialog/Refresh All) · Display (Display Manager) · Panels (Properties/Browser/Hydraulic Report/Radiation Report dock toggles) |
 | 3 | **Create** | Geometry (Line/Rectangle/Circle/Polyline/Arc/Single-Place) · Blocks (Insert Block/Create Block) |
-| 4 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle]/Floor/Roof/Room/Door/Window/Detail) · Datums (Levels/Gridline) |
+| 4 | **Architecture** | Building (Wall [single checkable button → `set_mode("wall")`; W shortcut; ←/→ primitive cycle] / Floor [single checkable button → `set_mode("floor")`; F shortcut; ←/→ Corner/Center Rect, Polygon] / Roof / Room / Door / Window / Detail) · Datums (Levels/Gridline) |
 | 5 | **Sprinkler Systems** | Layout (Pipe/Sprinkler/Water Supply/Design Area) · Tools (Auto-Populate/Coverage Overlay/Sprinkler Manager) · Hydraulics (Run Hydraulics/Clear Results/Equiv Lengths/Export PDF/Export CSV) |
 | 6 | **Analyze** | Thermal Radiation (Run Radiation/Clear Radiation) |
 | 7 | **Draft** | Page (Paper Size/Title Block/Refresh Viewports/Fit Sheet) · Annotate (Dimension/Text/Hatch + sheet Add Text) · Font (`FontGroupController` embedded via `add_widget`) · Plot (Export PDF/Print) |
@@ -78,6 +78,8 @@ Checkable tool buttons that enter a scene mode register in `self._mode_buttons[m
 
 > **As-built (2026-08-25):** the Wall button (Architecture → Building) is a **single checkable button** calling `set_mode("wall")`. It registers under the key `"wall"` only. The old split-button `wall` / `wall_rect` pair is retired; `set_mode("wall_rect")` remains as a backward-compat alias in `Model_Space.set_mode` (folds to `wall + rect primitive`) but is no longer used by the ribbon. The **W** shortcut is a scene-focus-gated window-level binding in `Model_View._TOOL_SHORTCUTS` — not a `shortcut=` ribbon param (§3.3). ←/→ cycles the wall primitive (Line/Polyline/Corner Rect/Center Rect) at step 0; Spacebar cycles alignment; see `wall-room-floor-system.md §4.4`.
 
+> **As-built (2026-08-28):** the Floor button (Architecture → Building) is likewise a **single checkable button** calling `set_mode("floor")`, registered under `"floor"` only, with `floor_icon.svg` wired. The old split menu-button (Floor Rectangle / Floor Polygon dropdown) is retired; `set_mode("floor_rect")` remains a back-compat alias in `Model_Space.set_mode`. The **F** shortcut is a scene-focus-gated `Model_View._TOOL_SHORTCUTS` binding — it **displaced** the old bare-`F` Fit-to-Screen (Fit is now the View-tab button). ←/→ cycles the floor primitive (Corner Rect / Center Rect / Polygon) at step 0; see `wall-room-floor-system.md §11.4`.
+
 ### 3.6 Tab behaviors
 
 - **Contextual tab show/hide:** `scene.selectionChanged → _on_selection_changed_contextual` (§3.8). Supersedes the old Modify auto-switch (`_on_selection_changed_modify` — removed).
@@ -89,7 +91,7 @@ Checkable tool buttons that enter a scene mode register in `self._mode_buttons[m
 
 All ribbon QSS comes from `theme.build_ribbon_qss` at `RibbonBar` construction; `RibbonGroup` label color and separator color read `theme.detect()` live. The module-level `RIBBON_QSS` string in `ribbon_bar.py` is **dead** (kept "for reference" — D1).
 
-Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a two-token themed model (primary + accent roles, remapped per theme at load time). See `specs/icon-style-guide.md` for the full authoring contract, sentinel colors, per-theme token table, and fallback behavior. Do not restate token values here (Rule A: owned by `icon-style-guide.md`). The `_I` closure in `init_ribbon` calls `themed_icon(name, current_theme)` and is evaluated once at ribbon-build time (runtime theme-switch is not a current feature).
+Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a two-token themed model (primary + accent roles, remapped per theme at load time). See `specs/icon-style-guide.md` for the full authoring contract, sentinel colors, per-theme token table, and fallback behavior. Do not restate token values here (Rule A: owned by `icon-style-guide.md`). *(Accent convention reversed 2026-08-28 → **light = blue, dark = green**; the dark-theme green is `icons.ACCENT_GREEN`, the single source shared with the ALIGN/SNAP status-bar pills in `main.py` — see `icon-style-guide.md §4.2`.)* The `_I` closure in `init_ribbon` calls `themed_icon(name, current_theme)` and is evaluated once at ribbon-build time (runtime theme-switch is not a current feature).
 
 ### 3.8 Contextual tabs
 
@@ -103,7 +105,7 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
 **Content & registry (`main.py` — owns all behavioral decisions):**
 
 - **`_CONTEXTUAL_TABS`** (class-level `dict[str, str]`): maps family key → human-readable tab title. Current catalog: `geo2d`, `geo3d`, `annotation`, `wall`, `floor`, `roof`, `room`, `opening`, `detail`, `pipe`, `sprinkler`, `water_supply`, `design_area`, `gridline`, `level`, `viewport`, `sheet_text`, `mixed` (→ "Modify").
-- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(title, page_builder)` callable. The **`geo2d`** key uses a dedicated `_build_geo2d_context` builder (2026-08-22 — Placement + Fill groups, then the shared Edit group); all other keys still use `_build_contextual_edit_group`. Remaining type-specific tools are a filed follow-up.
+- **`_contextual_registry`** (instance, built in `_init_contextual_tabs()`): maps family key → `(title, page_builder)` callable. The **`geo2d`** key uses a dedicated `_build_geo2d_context` builder (2026-08-22 — Placement + Fill groups, then the shared Edit group); the **`floor`** key uses `_build_floor_context` (2026-08-28 — the reusable **Graphic Override** group, then the shared Edit group); all other keys still use `_build_contextual_edit_group`. Remaining type-specific tools are a filed follow-up.
 - **`_contextual_index`**: fixed slot = 7 (one past the 7th base tab) where the contextual tab is always inserted.
 - **`_active_contextual_key`**: the currently visible family key, or `None` when no contextual tab is shown.
 - **`_pre_contextual_tab`**: the base-tab index to restore on deselect; captured only on the `None → contextual` transition so contextual-to-contextual swaps (wall → pipe) never overwrite the saved base.
@@ -114,6 +116,8 @@ Ribbon icons are loaded via **`firepro3d.icons.themed_icon(name, theme)`** — a
   - **`None → contextual`**: capture `_pre_contextual_tab`; `insert_page` + activate.
   - **`contextual → contextual`** (key change): `remove_page` old; `insert_page` + activate new (pre-tab stays from the original `None → contextual` capture).
   - **`contextual → None`**: `remove_page`; restore `_pre_contextual_tab`.
+
+**Reusable Graphic Override group (2026-08-28):** `_build_graphic_override_group(page)` adds a "Graphic Override" group of three small buttons — **Stroke Colour** / **Fill Colour** / **Clear** — surfacing the existing per-instance Display-Manager override machinery (`item._display_overrides` keyed `"color"` / `"fill"`; serialized). Stroke/Fill open a `QColorDialog` and write the picked hex onto every eligible selected item (those carrying a `_display_overrides` dict — the `DisplayableItemMixin` protocol); Clear empties the dict → reverts to the Display Manager category default. Each gesture pushes **one** undo snapshot (`scene.push_undo_state()`), re-applies via `display_manager.apply_saved_display_settings`, and emits `sceneModified`; an empty selection (or cancelled dialog) is a no-op that pushes nothing. Built on the Floor contextual tab first (via `_build_floor_context`) and designed to generalize to other entity families.
 
 **Shared Edit group:** `_build_contextual_edit_group(page)` adds a single "Edit" group to any contextual page containing 5 small buttons: Delete / Copy / Cut / Paste / Duplicate. It is on **every** contextual tab. The **`geo2d`** tab additionally carries a **Placement group** (Level combo + Level Offset `DimensionEdit`, via the reusable `_build_placement_group`) and a **Fill group** (Fill type / Pattern / Fill Colour / Fill Opacity, enabled only when a fillable shape is selected) — the first type-specific contextual tools (2026-08-22); writes route through the scene undo path (`push_undo_state` + `set_property`). Remaining families' type-specific tools are a filed follow-up. A blank contextual tab was rejected (reads as broken; Edit group restores mouse-accessible clipboard/delete that removing Modify would otherwise push to keyboard-only).
 

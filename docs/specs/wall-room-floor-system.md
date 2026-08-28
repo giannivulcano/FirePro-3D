@@ -1,13 +1,15 @@
 ---
-status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; divergences ledger in §13
-last-verified: 2026-08-25
-verified-commit: eead762
+status: current          # §4–§13 code-verified as-built; §7 Phase A (first-class Feature-based Opening) BUILT 2026-08-24; §11 two-boundary floor model BUILT 2026-08-28; divergences ledger in §13
+last-verified: 2026-08-28
+verified-commit: 579e841
 applies-to:
   - firepro3d/wall.py
   - firepro3d/room.py
   - firepro3d/floor_slab.py
   - firepro3d/wall_opening.py
   - firepro3d/roof.py
+  - firepro3d/model_space.py   # floor placement dispatch + template persistence (§11.9)
+  - firepro3d/level_manager.py  # floor pure-z-range visibility + rename remap (§11.3)
 ---
 
 # Wall, Room & Floor Slab System — Design Spec
@@ -19,6 +21,8 @@ applies-to:
 **Impl note (2026-07-13):** §5 joinery rewritten as-built after the three-wall-junction fix — 3-wall junctions now get a **full-miter pie join** (`_pie_miter_corners`), tee joins snap to the host **centerline** and cope to its near face (`nearest_centerline_point`, `_tee_cope_corners`). Verified against commit `25e1dea`; tests `tests/test_wall_room_floor.py` (`TestThreeWallJunctionMiter`, `TestTeeJoin`).
 **Impl note (2026-07-14):** §9 gains Room Protection Criteria (occupancy, system type, design point — §9.7) and the 8th hazard class (Low-Piled Storage); §12.3 serialization gains the three criteria fields. Verified against commit `5ba9227`; tests `tests/test_room_criteria.py`.
 **Design note (2026-08-23):** §7 rewritten as a **first-principles redesign** — the Opening becomes a **first-class, Feature-based** element (Feature > Category > Type; cross-wall placement + orientation mirrors; plan/elevation/3D representations; wall cut; §7.1–7.17). Introduces the forward-looking **Feature system** (§7.16), which graduates to its own governing spec at Phase B. Source: TODO.md "Opening element…" (2026-08-23 grill).
+**Impl note (2026-08-28):** §11 (Floor Slab) **rewritten as-built** on `feat/floor-workflow-elevation-model` — the floor gains a **two-boundary elevation model** (independent top + bottom, each with a reference mode), the owning `.level`-for-geometry is **retired** (visibility is pure z-range), and placement is folded onto the unified 2D-geometry dispatch (mirrors the wall §4.4 pattern: one checkable **Floor** button, `F`, ←/→ primitive cycle, rect rotate-step, polygon, continuous placement). §11.10 records the plan view-range upper-bound derivation cross-reference. Verified against commit `579e841`; tests `tests/test_floor_{elevation_model,elevation_projection,serialization,visibility,placement_workflow,panel_display,template_persistence}.py`, `tests/test_graphic_override.py`.
+
 **Impl note (2026-08-24):** §7 **Phase A BUILT** as-built on `feat/opening-feature-element` (subagent-driven; `feature.py`, `feature_browser.py`, rewritten `wall_opening.py`, + model_space/main/elevation_scene/view_3d/display_manager/level_manager/wall wiring; ~40 commits; full suite green). Verified against commit `f5b63b2`; tests `tests/test_opening_{feature,placement,render,persistence,ribbon}.py`. **As-built refinements over the §7 draft** (from smoke tests): (a) **z-order** — an opening is pinned just above its host wall (`level_manager._apply_elev_z`) so its plan gap cuts the wall regardless of head-vs-wall height (§7.7); (b) **plan gap fill** = scene background on screen / paper-white on sheets (not white/dark block); door swing arc spans the opening; (c) **3D** — the door/window **frame is a fixed-depth object** (`_FRAME_DEPTH_MM`), only the wall **cut** matches wall depth; `wall.get_3d_mesh` builds from `quad_points` (un-mitered) so opening jambs stay perpendicular on joined walls (3D corners butt-join — follow-up to re-mitre); walls made watertight through openings (capped reveals, §7.8.3); (d) **paper space** — openings use the "Wall" paper category + a paper-aware gap fill; (e) **undo** — openings ride the existing snapshot undo (no new mechanism, §7.11 correction); (f) a **pre-placement property template** (`current_opening_template`, QSettings `template/opening`) lets sill/size/orientation be set before placing (§7.6). Deferred (filed in TODO): Phase B Manager, Phase C Editor, 3D `boolean_difference`/re-mitre, vertical-plane anchoring, elevation projection polish, panel polish.
 
 ## 1. Goal
@@ -652,63 +656,151 @@ Only nodes with sprinklers (`node.has_sprinkler()`) are considered. The detectio
 
 ## 11. Floor Slab
 
-### 11.1 Data Model
+> **Rewritten as-built 2026-08-28** (two-boundary elevation model; owning `.level`-for-geometry retired; unified placement dispatch). See the 2026-08-28 impl note at the top of this spec.
+
+### 11.1 Two-Boundary Elevation Model
+
+A slab's vertical extent is defined by **two independently-specified boundaries** — a **top** and a **bottom** — each choosing a *reference mode*. This replaces the superseded *single datum + downward thickness* model (a slab can now span a story, sit on a surveyed datum, or reference different levels top vs. bottom). The owning `.level` concept is **retired for geometry** (§11.3).
+
+**Data fields** (flat per-attribute, on `FloorSlab`):
 
 | Field | Type | Default | Notes |
 |-------|------|---------|-------|
 | `_points` | `list[QPointF]` | from placement | Closed boundary polygon |
-| `_thickness_mm` | `float` | 152.4 (6") | Slab structural depth |
-| `_level_offset_mm` | `float` | 0 | Vertical offset from level elevation |
-| `_color` | `QColor` | category default | Fill/stroke color |
-| `_is_occluding` | `bool` | `False` | Set by LevelManager |
-| `_is_section_cut` | `bool` | `False` | Set by LevelManager |
+| `_top_mode` | `str` | `"level"` | Top reference: `"level"` \| `"absolute"` |
+| `_top_level` | `str` | `DEFAULT_LEVEL` | Level name for `"level"` top |
+| `_top_offset_mm` | `float` | 0 | Signed offset added to the top level elevation |
+| `_top_abs_z_mm` | `float` | 0 | World-mm Z for `"absolute"` top |
+| `_bottom_mode` | `str` | `"thickness"` | Bottom reference: `"level"` \| `"absolute"` \| `"thickness"` |
+| `_bottom_level` | `str` | `DEFAULT_LEVEL` | Level name for `"level"` bottom |
+| `_bottom_offset_mm` | `float` | 0 | Signed offset added to the bottom level elevation |
+| `_bottom_abs_z_mm` | `float` | 0 | World-mm Z for `"absolute"` bottom |
+| `_thickness_mm` | `float` | 152.4 (6") | Input **only** in `"thickness"` bottom mode; else a derived readout |
+| `_visibility_by_zrange` | `bool` | `True` | Marks the item for pure-z-range visibility (§11.3) |
+| `_color` | `QColor` | category default | Construction default; **not** panel-edited (Display Manager owns appearance) |
+| `_is_occluding` | `bool` | `False` | Set by `LevelManager` |
+| `_is_section_cut` | `bool` | `False` | Set by `LevelManager` |
 
-### 11.2 Z-Range
+The mode enum tuples are also mirrored in `constants.py` (`FLOOR_TOP_MODES`, `FLOOR_BOTTOM_MODES`). Retired fields: `_level_offset_mm` and the owning `.level` (a vestigial `.level` attr may survive from the `DisplayableItemMixin` default but is **never serialized and never drives geometry**).
 
-- Top: `level.elevation + level_offset_mm`
-- Bottom: `top - thickness_mm`
+### 11.2 Z-Range Resolution (pure resolver)
 
-### 11.3 Placement
+Boundary→Z resolution is a **module-level pure function** with no Qt dependency (unit-testable at ground truth):
 
-Floor slabs are placed by clicking polygon vertices sequentially. `add_point()` adds each vertex; `close_polygon()` finalizes. Minimum 3 points required.
+```
+_resolve_boundary_z(mode, level, offset_mm, abs_z_mm, level_manager) -> float | None
+  "absolute" → abs_z_mm
+  else       → level_manager.get(level).elevation + offset_mm
+               (None if level_manager is None or the level is missing)
+```
 
-Vertex insertion/removal supported after placement via `insert_point()` / `remove_point()` (maintains ≥ 3 points).
+`z_range_mm()` returns an **ordered** `(bot, top)` tuple, or `None` when unresolvable:
 
-### 11.4 Occlusion Masking
+```
+top = _resolve_boundary_z(top…)                          (None → None)
+bot = top - _thickness_mm       if _bottom_mode == "thickness"
+      else _resolve_boundary_z(bottom…)                  (None → None)
+return (min(bot, top), max(bot, top))                    # always ordered
+```
 
-**Trigger:** `LevelManager` sets `_is_occluding = True` when the slab's top surface falls within the plan view Z-range (`view_depth < slab_top <= view_height`).
+Implemented as `_z_range_with_lm(lm)` (takes an explicit `LevelManager`) with `z_range_mm()` a thin caller resolving the manager via the live scene (`scene._level_manager`, or a `_scene` test hook). `effective_thickness_mm()` = `top − bot` (or `None`). The **elevation/section projection** resolves floor Z through `_z_range_with_lm(self._lm)` (see §11.10) — correcting the prior model where `.level` *did* drive elevation geometry.
 
-**Mechanism:** `paint()` draws an opaque background-colored polygon *before* the semi-transparent fill. This visually masks lower-floor content. Qt paints items in ascending Z-order, so floor slabs (Z = -80) paint their opaque mask before walls (Z = -50) on any floor. Walls on the *active* level paint over the mask; walls on *lower* levels (hidden by the level manager) never appear.
+### 11.3 Visibility — Pure Z-Range (owning `.level` retired)
 
-**Dependency:** Relies on Z-ordering — floor slabs (Z = -80) paint before walls (Z = -50). The opaque mask is laid down first; same-level walls paint on top of it.
+Floors carry `_visibility_by_zrange = True`. `LevelManager._set_level_vis` routes any flagged item through **pure z-range** — it ignores `.level` entirely: within a view range the item is shown and `_apply_z_filter` sets `_is_section_cut`; with no view range it is simply shown. There is no `.level == active` fast-path and no `isinstance` coupling in `level_manager`. The default `Level.view_bottom = -1000 mm` margin (owned by `view-relationships.md §7.1`) keeps default slabs and cross-level spans visible.
 
-### 11.5 Section-Cut Hatching
+**Rename remap:** `LevelManager.rename_level(old, new, items, scene=…)` skips floors in the generic `.level` loop (guarded by `_visibility_by_zrange`) and instead remaps each slab's `_top_level` / `_bottom_level` (when `== old`) via a separate pass over `scene._floor_slabs`. `LevelWidget` now passes `scene=` so the remap runs. `PlanViewManager.rename_level` is unrelated (renames plan-view keys).
 
-`LevelManager` sets `_is_section_cut = True` when the view-range cut plane intersects the slab's Z-range (`z_bot < view_height < z_top`).
+**Model Browser:** floors sit under a flat "Floors (N)" node; the tooltip dropped the `Level:` line (now just `Points: N`) since a floor has no owning level.
 
-`paint()` overlays diagonal hatch via `draw_section_hatch()` with the slab polygon as clip path. Section appearance controlled by the display system cascade.
+### 11.4 Placement Workflow (unified dispatch — mirrors the wall)
 
-### 11.6 Rendering
+Floor placement is a first-class client of the unified 2D-geometry placement dispatch (shared machinery: `2d-geometry.md §4`; the wall precedent it mirrors: §4.4). The old separate `floor` (click-vertex polygon) / `floor_rect` (2-click box, dropdown-selected, **not** HUD-wired) modes are **retired**.
+
+**Single `"floor"` scene-mode** carries `_floor_primitive ∈ {"rect", "polygon"}` and `_floor_rect_from_center: bool`. `set_mode("floor_rect")` is a backward-compat alias that folds to `floor + rect primitive` (corner).
+
+**F shortcut** — scene-focus-gated in `Model_View._TOOL_SHORTCUTS` (bare key). It **displaced** the old bare-`F` Fit-to-Screen binding (Fit is now reached via the View-tab "Fit to Screen" button).
+
+**←/→ cycles the primitive** at step 0 (session-sticky, via `cycle_placement_variant` + `_PLACEMENT_VARIANTS["floor"]`):
+
+| Slot | Variant | First-step instruction |
+|------|---------|------------------------|
+| 0 | Floor (Corner Rectangle) | Pick first corner |
+| 1 | Floor (Center Rectangle) | Pick centre point |
+| 2 | Floor (Polygon) | Pick first boundary point |
+
+**Rect (Corner/Center) — 3-step:** anchor → sizing → **rotate**, mirroring the wall rect. `rect_sizing_points()` computes the axis-aligned `pt1/pt2` from anchor + corner + `from_center`; `rotated_rect_corners()` produces the 4 rotated scene corners committed as **one** `FloorSlab` (a floor is a single closed polygon, unlike the wall rect's 4 segments). Ctrl snaps to 45° about the pivot (= the anchor). Rotate-step guides (`_floor_rect_ref_line0/A`) + a spinning dashed preview show the orientation.
+
+**Polygon:** click-vertex boundary; **click near the first vertex (≥3 verts) / Enter / double-click** closes; **Delete** pops the last vertex (routed through `Model_View` for both the polygon and the tool-shortcut path; discards the in-progress slab at one vertex). `close_polygon()` finalizes; minimum 3 points. Vertex insert/remove after placement via `insert_point()` / `remove_point()` (keeps ≥ 3). The old click-near-a-vertex-to-delete-mid-placement gesture was removed (Delete replaces it).
+
+**Continuous** placement (each commit re-arms; Esc exits to select). The **passive HUD** shows geometry only (rect W/H then rotate Angle; polygon per-segment Length/Angle). Polygon move republishes placement state every frame (`publish_placement_state(last_pt, snapped)`) so the `line`-schema HUD seeds a live per-segment readout (without it `get_resolved_point()` stays `None` and the readout freezes at 0 mm/0°). Spacebar/↑/↓ are inert.
+
+**Dispatch surfaces** (all mirror the wall): `_press_floor_router` / `_move_floor_router` dispatch on `_floor_primitive`; `_apply_floor_dynamic_input` handles typed placement (rect sizing→rotate→commit; polygon routes the point through the vertex handler); `_floor_schema_for_primitive` (rect sizing → `rectangle`, rect rotate → `rotation`, polygon → `line`); `_PLACEMENT_VARIANTS["floor"]`; and a **`floor` branch in `_transform_seed_values`** (the rotate-step live angle seed — the `project_transform_seed_hud_per_mode` precedent).
+
+**Naming:** a placed floor takes the floor template's user-authored name (the placeholder `"(Template)"` and blank both fall back to `"Floor"`), **uniquified** against existing floor names — a "Slab" collision yields `Slab 1`, `Slab 2`, … (suffix starts at 1). Named *before* the slab is appended to `_floor_slabs` so it does not collide with itself.
+
+**Template application:** `_apply_floor_template_fields` copies the full two-boundary model (top/bottom mode/level/offset/abs-z + thickness) from the template onto a placed slab — closing the parity gap the old thickness-only copy left. The owning `.level` is deliberately **not** copied (retired; would silently revert on reload/undo).
+
+### 11.5 Degenerate-Safety (allow + warn)
+
+Inverted/zero-height configurations are **allowed** (never blocked at input), then warned and degraded:
+
+- **Anti-degeneracy constant** `MIN_FLOOR_THICKNESS_MM` = 1.0 mm (in `constants.py`) — a degeneracy floor, **not** an architectural minimum.
+- **Thickness-mode input** rejects values below `MIN_FLOOR_THICKNESS_MM` (the panel's `Thickness` dimension row carries `minimum`; `set_property` clamps with `max(v, MIN_FLOOR_THICKNESS_MM)`).
+- **Level/Absolute inversion** (resolved `bot ≥ top`): allowed. `get_3d_mesh` returns `None` when `top − bot < MIN_FLOOR_THICKNESS_MM` (no inverted winding); `z_range_mm` still returns the ordered tuple so visibility/section stay defined; `get_properties` emits a `warning` row (§11.7).
+
+### 11.6 Occlusion Masking
+
+**Trigger:** `LevelManager` sets `_is_occluding = True` when the slab's top surface falls within the plan view Z-range (`view_depth < slab_top <= view_height`), using the resolved `z_range_mm()[1]`.
+
+**Mechanism:** `paint()` draws an opaque background-colored polygon *before* the semi-transparent fill, masking lower-floor content. Qt paints in ascending Z-order, so floor slabs (Z = -80) paint their opaque mask before walls (Z = -50). Same-level walls paint over the mask; lower-level walls (hidden by the level manager) never appear.
+
+### 11.7 Property Panel (mode-conditional)
+
+`get_properties()` returns **mode-conditional rows**; the panel re-queries after every edit (`property-panel.md §3.3`), so returning a different key set drives dynamic show/hide with no extra machinery:
+
+```
+Type · Name
+── Top ──
+  Top Reference : enum {Level, Absolute}
+  (level)  Top Level : level_ref ; Top Offset : dimension
+  (abs)    Top Z     : dimension
+  Top Elevation : label (read-only, always)
+── Bottom ──
+  Bottom Reference : enum {Level, Absolute, Thickness}
+  (level)     Bottom Level : level_ref ; Bottom Offset : dimension
+  (abs)       Bottom Z     : dimension
+  (thickness) Thickness    : dimension (minimum = MIN_FLOOR_THICKNESS_MM)
+  Thickness (derived) : label   [shown when bottom ≠ thickness]
+  Bottom Elevation : label (read-only, always)
+  Points : label
+  ⚠ "Floor is inverted" warning   [when resolved bot ≥ top and bottom ≠ thickness]
+```
+
+**No `Colour` row** — appearance is owned by the Display Manager "Floor" category and the reusable Graphic Override group (`ribbon-bar.md`). Because two-boundary floors expose their own `Top/Bottom Reference` rows, they **opt out** of the panel's legacy synthesized Level combo (`property_manager.py` suppresses it when `"Top Reference"`/`"Bottom Reference"` is present — a legacy combo there would resurrect the retired `.level` coupling and lie). `set_property` maps each enum/dimension key to its field (out-of-options enum labels no-op defensively; dimensions parse via `ScaleManager`).
+
+### 11.8 Rendering
 
 1. **Occlusion mask** (if `_is_occluding`): Opaque polygon in scene background color.
-2. **Fill**: Semi-transparent polygon (alpha 50) in display fill color.
-3. **Outline**: 1px cosmetic pen in display line color.
-4. **Section hatch** (if `_is_section_cut`): Diagonal overlay via shared utility.
+2. **Fill**: Semi-transparent polygon (alpha 50) in display fill color (opaque when `_paper_fill_opaque`).
+3. **Outline**: 1 px cosmetic pen in display line color.
+4. **Section hatch** (if `_is_section_cut`): Diagonal overlay via `draw_section_hatch()` with the slab polygon as clip path; appearance from the display cascade. `LevelManager` sets `_is_section_cut = True` when the cut plane straddles the slab's Z-range (`z_bot < view_height < z_top`).
 5. **Selection**: Red outline.
 
-### 11.7 3D Mesh
+### 11.9 3D Mesh
 
-`get_3d_mesh(level_manager)`:
-1. Triangulate polygon using ear-clipping (`triangulate_polygon()` from `geometry_utils`).
-2. Build twin vertex rings at top and bottom elevations.
-3. Top face: triangulation output.
-4. Bottom face: reversed winding.
-5. Side faces: quad strips (2 triangles per edge) connecting top and bottom rings.
-6. Convert scene coords to mm via scale_manager.
+`get_3d_mesh(level_manager=None)`:
+1. Resolve the vertical extent via the shared pure resolver — `_z_range_with_lm(level_manager)` when a manager is passed (the 3D pipeline supplies one), else `z_range_mm()`. Returns `None` if unresolvable **or** if `top − bot < MIN_FLOOR_THICKNESS_MM` (§11.5).
+2. Triangulate the polygon (ear-clipping, `triangulate_polygon()`); convert scene coords to mm via `scale_manager`.
+3. Build twin vertex rings at `top_z` and `bot_z`; top face = triangulation, bottom face = reversed winding, side faces = quad strips per edge.
 
-### 11.8 Grip Points
+### 11.10 Grip Points & Cross-References
 
-Every polygon vertex is a grip point. `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path.
+Every polygon vertex is a grip point; `apply_grip(index, new_pos)` moves the indexed vertex and rebuilds the path. `translate(dx, dy)` shifts all vertices (so `move_items` works on floors).
+
+**Elevation / section projection** (`elevation_scene._project_floor_slabs`) resolves each slab's world-Z via `slab._z_range_with_lm(self._lm)` — using the elevation scene's **own** `LevelManager` explicitly (the slab lives in the model scene, so `slab.z_range_mm()` is not guaranteed to reach the right manager). Unresolvable slabs are skipped (degenerate-safe).
+
+**Plan view-range upper bound** derivation (a thick floor above no longer bleeds into the current plan) is owned by `view-relationships.md §7.1` — link, don't restate.
 
 ## 12. Serialization
 
@@ -781,21 +873,30 @@ Openings are serialized within their parent wall's `openings` array. The wall re
 
 `design_point` serializes as `null` when unset (load restores `None` → curve-minimum default, §9.7). Missing `occupancy`/`system_type`/`design_point` on old saves default to `""`/`"Wet"`/`null`. (The legacy `user_layer` field is gone — the per-item layer system was removed.)
 
-### 12.4 FloorSlab
+### 12.4 FloorSlab (two-boundary schema, 2026-08-28)
 
 ```json
 {
     "type": "floor_slab",
     "points": [[x1, y1], [x2, y2], ...],
-    "thickness_mm": 152.4,
-    "level_offset_mm": 0.0,
     "color": "#8888cc",
     "name": "Slab 1",
-    "level": "Level 1"
+    "top_mode": "level",
+    "top_level": "Level 1",
+    "top_offset_mm": 0.0,
+    "top_abs_z_mm": 0.0,
+    "bottom_mode": "thickness",
+    "bottom_level": "Level 1",
+    "bottom_offset_mm": 0.0,
+    "bottom_abs_z_mm": 0.0,
+    "thickness_mm": 152.4,
+    "display_overrides": { }
 }
 ```
 
-**Backward compatibility:** `thickness_ft` → `thickness_mm` (× 304.8).
+`to_dict()` is the **single serializer for both persistence paths** — `scene_io` (file save) and `_capture_network`/`_restore_network` (undo) both delegate to it (memory: dual serialization paths). `display_overrides` (per-instance Display-Manager stroke/fill overrides) is **emitted only when non-empty** (matches `GridlineItem`); `from_dict` defaults it to `{}`.
+
+**Migration (lossless, both paths):** a legacy record (no `top_mode` key) `{level, level_offset_mm, thickness_mm}` loads to `top_mode="level"`, `top_level=level`, `top_offset_mm=level_offset_mm`, `bottom_mode="thickness"`, `thickness_mm` — reproducing the same `(bot_z, top_z)`/mesh as before. Legacy `thickness_ft` → `thickness_mm` (× 304.8) still handled. **The new schema is written on re-save; legacy keys (`level`, `level_offset_mm`) are dropped** (the load path keeps reading them).
 
 ## 13. Divergences from Current Implementation
 

@@ -1,7 +1,7 @@
 ---
 status: current          # code-verified as-built behavior; divergences ledger at end
-last-verified: 2026-08-27
-verified-commit: 3865f77
+last-verified: 2026-08-28
+verified-commit: 579e841
 applies-to:
   - firepro3d/property_manager.py
   - firepro3d/dimension_edit.py
@@ -67,7 +67,7 @@ The generic protocol has four baked-in exceptions (all in `_show_properties_inne
 1. **Node→Sprinkler resolution:** a selected `Node` with `has_sprinkler()` shows the *sprinkler's* properties instead.
 2. **Sprinkler DB cascade:** `_cascade_sprinkler_props` filters Model/Orientation options from the lazy singleton `SprinklerDatabase` and auto-fills read-only K-Factor / Coverage / Min Pressure / Temperature when exactly one record matches.
 3. **Pipe node sections:** a `Pipe` appends "── Node 1/2 ──" header rows rendering each node's properties inline (level_ref/label/string only), plus a read-only "Absolute Elev." row.
-4. **Legacy Level row:** items with a `.level` attribute but no `level_ref` property get a synthesized Level combo (`_change_level`), which also re-derives node `z_pos` from level elevation + ceiling offset and calls `level_manager.apply_to_scene`. **Suppressed (2026-07-14) when the entity's property dict already contains a `"Level"` key** — e.g. `DesignArea` exposes a read-only Level *label*; a second editable combo would be a duplicate lie.
+4. **Legacy Level row:** items with a `.level` attribute but no `level_ref` property get a synthesized Level combo (`_change_level`), which also re-derives node `z_pos` from level elevation + ceiling offset and calls `level_manager.apply_to_scene`. **Suppressed (2026-07-14) when the entity's property dict already contains a `"Level"` key** — e.g. `DesignArea` exposes a read-only Level *label*; a second editable combo would be a duplicate lie. **Also suppressed (2026-08-28) for items that own their elevation UI** — a property dict containing a `"Top Reference"` or `"Bottom Reference"` key (two-boundary `FloorSlab`): in its absolute/thickness modes such a floor emits no `level_ref` row but still carries a vestigial `.level` attr, so a legacy combo there would resurrect the retired `.level` coupling and lie (§`wall-room-floor-system.md §11.3/§11.7`).
 
 ### 3.5 Multi-select semantics
 
@@ -87,7 +87,7 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 
 - **Pipe/Sprinkler:** `MainWindow.current_pipe_template` / `current_sprinkler_template` (constructed at startup with null endpoints); `_scene_ref` set so `_get_scale_manager` resolves units. Placement copies values via `entity.set_properties(template)`. **Persisted across sessions** in `QSettings` (`template/pipe`, `template/sprinkler`) as raw `{key: value}` — saved in `save_settings`, restored after project load.
 - **Sheet text (built 2026-07-09):** `MainWindow.current_text_template` — an off-scene `TextAnnotationItem` (`_scale_manager_ref` set; `set_property` writes directly, no undo). Its data object is aliased to `PaperScene.text_template`, which seeds `begin_place_text`. Persisted in `QSettings` (`template/text`) via `paper_space.text_template_to_settings`/`apply_template_settings` (explicit string coercion — the Windows registry backend stringifies — and non-positive-height fallback).
-- **Wall/Floor/Roof/Geometry:** lazily-created scene-owned templates (`Model_View._get_*_template`, name `"(Template)"`), synced to the active level on each fetch; shown via `_on_mode_changed_template`. **Not persisted.**
+- **Wall/Floor/Roof/Geometry:** lazily-created scene-owned templates (`Model_View._get_*_template`, name `"(Template)"`), synced to the active level on each fetch; shown via `_on_mode_changed_template`. **Not persisted, except Floor (2026-08-28):** `Model_Space.save/load_floor_template_settings` (QSettings `template/floor`) round-trips the floor recipe — `_top_mode`, `_top_offset_mm`, `_bottom_mode`, `_bottom_offset_mm`, `_thickness_mm` **only**; level names + absolute-Z are project-specific and re-seed from the active level on load (level-mode → active `_top_level`/`_bottom_level`; absolute-mode → `_*_abs_z_mm` seeded from the active level's elevation). Wired in `MainWindow` `save_settings` / post-load restore.
 - **Persistence policy (grilled 2026-07-08):** the persisted/non-persisted asymmetry is historical, not designed. *New* template families (e.g. sheet text) follow the **persisted** pattern from day one; retrofitting wall/floor/roof/geometry persistence is a separate low-priority follow-up. QSettings is the current store; a future per-user accounts feature may replace it — keep template persistence behind the existing save/restore helpers so the store can swap.
 - ScaleManager resolution order for off-scene targets: `scene().scale_manager` → `_scale_manager_ref` → `_scene_ref.scale_manager` (`_get_scale_manager`).
 
@@ -125,7 +125,7 @@ A **template** is a real entity instance living *outside* any scene, shown in th
 
 | # | Divergence | Status |
 |---|---|---|
-| D0 | **Wall/floor/roof/geometry templates don't persist** across sessions (historical asymmetry, §3.7). | Gap; low-priority follow-up to retrofit. |
+| D0 | **Wall/roof/geometry templates don't persist** across sessions (historical asymmetry, §3.7). **Floor now persists** (2026-08-28): `Model_Space.save/load_floor_template_settings` round-trips modes/offsets/thickness only via QSettings `template/floor` (level names + absolute-Z re-seed from the active level on load); wall/roof/geometry retrofit still pending. | Partially resolved; wall/roof/geometry retrofit remains a low-priority follow-up. |
 | D1 | **Zero test coverage** — no test file references `PropertyManager` or `DimensionEdit`. | Gap; add coverage opportunistically when touching the panel. |
 | D2 | ~~No paper-space wiring~~ | **Resolved 2026-07-09** — §3.6 paper wiring built; the dialog is deleted. Viewports remain dialog-based (follow-up filed in TODO.md). |
 | D3 | ~~Direct-mutation write path vs paper-space undo invariant~~ | **Resolved 2026-07-09** — §3.3 pluggable write route as-built for paper (commands + multi-select macro); model space stays direct until model undo exists. |

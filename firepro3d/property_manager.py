@@ -387,8 +387,17 @@ class PropertyManager(QWidget):
         # Only show if the item doesn't already expose level_ref properties
         # AND hasn't supplied its own "Level" row (e.g. DesignArea exposes a
         # read-only label — a second editable combo would be a duplicate lie).
+        # Two-boundary floors own their elevation UI via Top/Bottom Reference
+        # rows; in absolute/thickness modes they emit no level_ref row but still
+        # carry a vestigial `.level` attr, so they must opt OUT — a legacy Level
+        # combo there would resurrect the retired `.level` coupling and lie
+        # (their elevation does not depend on `.level` in those modes).
+        _owns_elevation_rows = any(
+            k in props for k in ("Top Reference", "Bottom Reference")
+        )
         if (not has_level_ref
                 and "Level" not in props
+                and not _owns_elevation_rows
                 and hasattr(primary, "level")
                 and self._level_manager is not None):
             combo = QComboBox()

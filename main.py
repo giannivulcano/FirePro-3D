@@ -42,6 +42,7 @@ from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LE
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
 from firepro3d import theme as th
+from firepro3d.icons import ACCENT_GREEN
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +218,9 @@ class _SnapIndicatorLabel(QLabel):
         on = bool(self.property("snapOn"))
         if on:
             self.setStyleSheet(
-                "font-weight: bold; color: #44ff88; "
+                f"font-weight: bold; color: {ACCENT_GREEN}; "
                 "background: #1a3a24; padding: 2px 10px; "
-                "border: 1px solid #44ff88; border-radius: 3px;"
+                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
             )
         else:
             self.setStyleSheet(
@@ -261,9 +262,9 @@ class _GuidesIndicatorLabel(QLabel):
         on = bool(self.property("guidesOn"))
         if on:
             self.setStyleSheet(
-                "font-weight: bold; color: #44ff88; "
+                f"font-weight: bold; color: {ACCENT_GREEN}; "
                 "background: #1a3a24; padding: 2px 10px; "
-                "border: 1px solid #44ff88; border-radius: 3px;"
+                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
             )
         else:
             self.setStyleSheet(
@@ -917,6 +918,9 @@ class MainWindow(QMainWindow):
                     mf = op["mirror_facing"]
                     tmpl.mirror_facing = (mf if isinstance(mf, bool)
                                           else str(mf).lower() in ("true", "1"))
+        # Restore floor placement template (modes/offsets/thickness); level
+        # names + absolute-Z re-seed from the active level inside the helper.
+        self.scene.load_floor_template_settings(self.settings)
 
     def _apply_persistent_unit_prefs(self):
         """Override the scale manager's display unit and precision with the
@@ -1187,6 +1191,19 @@ class MainWindow(QMainWindow):
             "plan", f"Plan: {level_name}") if resolver is not None else None
         if ctx is not None:
             _lvl, vh, vd = ctx
+            # Auto upper bound: when the user hasn't pinned an explicit
+            # view_height, derive it from the actual floor above at activation
+            # (a thick spanning floor would otherwise bleed into this plan).
+            # We pass the computed value into this render only — never write it
+            # back onto the cached PlanView, which would defeat the flag on the
+            # next load. NOTE: paper-space SheetViewport rendering still uses
+            # the cached pv.view_height via the resolver; dynamic parity there
+            # is a separate follow-up ("paper-viewport dynamic view-height").
+            pv = self.plan_view_mgr.get(f"Plan: {level_name}")
+            if pv is not None and not getattr(pv, "view_height_explicit", False):
+                dyn = self.level_mgr.compute_view_height(self.scene, level_name)
+                if dyn is not None:
+                    vh = dyn
             self.level_mgr.apply_to_scene(self.scene, level_name,
                                           view_height=vh, view_depth=vd)
         else:
@@ -1218,11 +1235,15 @@ class MainWindow(QMainWindow):
             from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
-                self.scene.scale_manager, parent=self)
+                self.scene.scale_manager, parent=self, scene=self.scene)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 vh, vd = dlg.get_values()
                 pv.view_height = vh
                 pv.view_depth = vd
+                # Respect the dialog's override intent: a manual height edit
+                # pins it (True); Reset-to-Defaults opts back into the dynamic
+                # auto-derived upper bound (False).
+                pv.view_height_explicit = dlg.is_explicit()
                 current_text = self.central_tabs.tabText(
                     self.central_tabs.currentIndex())
                 if current_text == tab_text:
@@ -1249,11 +1270,16 @@ class MainWindow(QMainWindow):
             from firepro3d.view_range_dialog import ViewRangeDialog
             dlg = ViewRangeDialog(
                 pv, self.level_mgr, self.plan_view_mgr,
-                self.scene.scale_manager, parent=self)
+                self.scene.scale_manager, parent=self, scene=self.scene)
             if dlg.exec() == dlg.DialogCode.Accepted:
                 vh, vd = dlg.get_values()
                 marker.view_height = vh
                 marker.view_depth = vd
+                # NOTE: dlg.is_explicit() is intentionally NOT read here — the
+                # explicit/auto-derive upper-bound flag is plan-view-only by
+                # design. Markers have no auto-derived height, so there is no
+                # dynamic bound to opt back into. (scene= is still passed so the
+                # dialog can preview against real geometry.)
                 # Refresh masking if this detail tab is active
                 current_text = self.central_tabs.tabText(
                     self.central_tabs.currentIndex())
@@ -1638,19 +1664,12 @@ class MainWindow(QMainWindow):
         _wall_btn.setToolTip("Draw a wall  (W) — ←/→ Line/Polyline/Rectangle, Space aligns")
         self._mode_buttons["wall"] = _wall_btn
         _floor_btn = g_3d.add_large_button(
-            "Floor", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("floor_rect"),
+            "Floor", _I("floor_icon.svg"),
+            lambda: self.scene.set_mode("floor"),
             checkable=True)
-        _floor_btn.setToolTip("Draw a floor slab boundary")
-        _floor_menu = QMenu(_floor_btn)
-        _floor_rect_act = _floor_menu.addAction("Floor (Rectangle)")
-        _floor_poly_act = _floor_menu.addAction("Floor (Polygon)")
-        _floor_rect_act.triggered.connect(lambda: self.scene.set_mode("floor_rect"))
-        _floor_poly_act.triggered.connect(lambda: self.scene.set_mode("floor"))
-        _floor_btn.setMenu(_floor_menu)
-        _floor_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        _floor_btn.setToolTip(
+            "Draw a floor  (F) — ←/→ Corner/Center Rect, Polygon")
         self._mode_buttons["floor"] = _floor_btn
-        self._mode_buttons["floor_rect"] = _floor_btn
         _roof_btn = g_3d.add_large_button(
             "Roof", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("roof_rect"),
@@ -2668,7 +2687,7 @@ class MainWindow(QMainWindow):
             template = self.scene._get_wall_template()
             template._alignment = self.scene._wall_alignment
             self.prop_manager.show_properties(template)
-        elif mode in ("floor", "floor_rect"):
+        elif mode == "floor":
             template = self.scene._get_floor_template()
             self.prop_manager.show_properties(template)
         elif mode in ("roof", "roof_rect"):
@@ -3248,6 +3267,126 @@ class MainWindow(QMainWindow):
             lambda: self.scene.duplicate_selected())
         _btn.setToolTip("Duplicate selected items [Ctrl+D]")
 
+    # ── Reusable Graphic Override group ────────────────────────────────────────
+
+    def _graphic_override_targets(self) -> list:
+        """Selected items that expose the per-instance override machinery.
+
+        An item qualifies only if it carries a ``_display_overrides`` dict
+        (the :class:`~firepro3d.displayable_item.DisplayableItemMixin`
+        protocol).  Non-participating items are silently skipped so the
+        override actions no-op on empty targets (no undo state is pushed).
+        """
+        return [it for it in self.scene.selectedItems()
+                if hasattr(it, "_display_overrides")]
+
+    def _apply_display_overrides_live(self) -> None:
+        """Re-apply category + per-instance display overrides to the scene.
+
+        Routes through the Display Manager's public apply path
+        (``apply_saved_display_settings``), which reads each item's
+        ``_display_overrides`` and pushes the resolved colours onto
+        ``_display_color`` / ``_display_fill_color`` + calls ``item.update()``.
+        """
+        from firepro3d.display_manager import apply_saved_display_settings
+        # TODO(perf): scene-wide re-apply; narrow to affected categories if large-scene lag appears.
+        apply_saved_display_settings(self.scene)
+
+    def _set_graphic_override(self, prop: str, title: str) -> None:
+        """Open a colour picker and set override *prop* on every eligible item.
+
+        *prop* is the Display-Manager override key — ``"color"`` (stroke/pen)
+        or ``"fill"``.  One undo snapshot is pushed before the write; a no-op
+        gesture (no eligible target, or cancelled dialog) pushes nothing.
+        """
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
+
+        targets = self._graphic_override_targets()
+        if not targets:
+            return
+
+        # Seed the picker from the first target's current override, if any.
+        seed = targets[0]._display_overrides.get(prop)
+        col = QColorDialog.getColor(
+            QColor(seed) if seed else QColor("#ffffff"), self, title)
+        if not col.isValid():
+            return
+
+        self.scene.push_undo_state()
+        hex_val = col.name()
+        for it in targets:
+            if not hasattr(it, "_display_overrides"):
+                it._display_overrides = {}
+            it._display_overrides[prop] = hex_val
+        self._apply_display_overrides_live()
+        self.scene.sceneModified.emit()
+
+    def _graphic_override_stroke(self) -> None:
+        """Stroke (pen) colour override — Display-Manager key ``"color"``."""
+        self._set_graphic_override("color", "Stroke Colour")
+
+    def _graphic_override_fill(self) -> None:
+        """Fill (brush) colour override — Display-Manager key ``"fill"``."""
+        self._set_graphic_override("fill", "Fill Colour")
+
+    def _graphic_override_clear(self) -> None:
+        """Clear all per-instance overrides on eligible items → category default."""
+        targets = self._graphic_override_targets()
+        if not targets:
+            return
+        self.scene.push_undo_state()
+        for it in targets:
+            it._display_overrides.clear()
+        self._apply_display_overrides_live()
+        self.scene.sceneModified.emit()
+
+    def _build_graphic_override_group(self, page) -> None:
+        """Add a reusable "Graphic Override" group to *page*.
+
+        Three actions — Stroke Colour, Fill Colour, Clear — surface the
+        existing per-instance Display-Manager override machinery
+        (``item._display_overrides`` keyed ``"color"`` / ``"fill"``) on a
+        contextual ribbon tab.  Clear reverts the selection to its Display
+        Manager category defaults.  All writes push a single undo snapshot;
+        an empty selection is a no-op.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        g = page.add_group("Graphic Override")
+        _btn = g.add_small_button(
+            "Stroke Colour", _I("placeholder_icon.svg"),
+            self._graphic_override_stroke)
+        _btn.setToolTip("Override the line/stroke colour for the selection")
+        _btn = g.add_small_button(
+            "Fill Colour", _I("placeholder_icon.svg"),
+            self._graphic_override_fill)
+        _btn.setToolTip("Override the fill colour for the selection")
+        _btn = g.add_small_button(
+            "Clear", _I("clear_icon.svg"),
+            self._graphic_override_clear)
+        _btn.setToolTip("Clear overrides — revert to the Display Manager category")
+
+    def _build_floor_context(self, page) -> None:
+        """Build the 'Floor' contextual tab: Graphic Override + Edit.
+
+        The floor's Top/Bottom-level elevation model is owned by the right-side
+        property panel (Task 3 retired the floor ``.level`` combo), so the
+        contextual tab carries only the universal Edit group plus the reusable
+        per-instance Graphic Override group.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        self._build_graphic_override_group(page)
+        self._build_contextual_edit_group(page)
+
     def _init_contextual_tabs(self) -> None:
         """Build the contextual-tab registry and initialise state variables.
 
@@ -3275,6 +3414,11 @@ class MainWindow(QMainWindow):
         self._contextual_registry["opening"] = (
             self._CONTEXTUAL_TABS["opening"],
             self._build_opening_context,
+        )
+        # Override floor with its richer builder (Graphic Override + Edit).
+        self._contextual_registry["floor"] = (
+            self._CONTEXTUAL_TABS["floor"],
+            self._build_floor_context,
         )
         # Fixed slot immediately after the 7 base tabs.
         self._contextual_index: int = 7
@@ -4260,7 +4404,7 @@ class MainWindow(QMainWindow):
         try:
             # Don't override template properties during placement modes
             if self.scene.mode in ("pipe", "sprinkler", "wall",
-                                    "floor", "floor_rect", "roof", "roof_rect",
+                                    "floor", "roof", "roof_rect",
                                     "set_scale", "design_area"):
                 return
             items = self.scene.selectedItems()
@@ -4302,11 +4446,14 @@ class MainWindow(QMainWindow):
         from firepro3d.view_range_dialog import ViewRangeDialog
         dlg = ViewRangeDialog(
             pv, self.level_mgr, self.plan_view_mgr,
-            self.scene.scale_manager, parent=self)
+            self.scene.scale_manager, parent=self, scene=self.scene)
         if dlg.exec() == dlg.DialogCode.Accepted:
             vh, vd = dlg.get_values()
             pv.view_height = vh
             pv.view_depth = vd
+            # Respect the dialog's override intent: a manual height edit pins it
+            # (True); Reset-to-Defaults opts back into the dynamic upper bound.
+            pv.view_height_explicit = dlg.is_explicit()
             current_text = self.central_tabs.tabText(
                 self.central_tabs.currentIndex())
             if current_text == tab_text:
@@ -4386,6 +4533,9 @@ class MainWindow(QMainWindow):
                 "mirror_hinge": t.mirror_hinge,
                 "mirror_facing": t.mirror_facing,
             })
+        # Persist the floor placement template (modes/offsets/thickness only;
+        # level names + absolute-Z are project-specific and stay out).
+        self.scene.save_floor_template_settings(self.settings)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

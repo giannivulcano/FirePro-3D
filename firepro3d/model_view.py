@@ -854,6 +854,7 @@ class Model_View(QGraphicsView):
         Qt.Key.Key_K: "polyline",
         Qt.Key.Key_P: "polygon",
         Qt.Key.Key_W: "wall",
+        Qt.Key.Key_F: "floor",
     }
 
     def event(self, ev: QEvent) -> bool:
@@ -885,6 +886,11 @@ class Model_View(QGraphicsView):
                     and getattr(sc, "_polyline_active", None) is not None):
                 ev.accept()
                 return True
+            # Floor polygon placement pops its last vertex on Delete too.
+            if (getattr(sc, "mode", None) == "floor"
+                    and getattr(sc, "_floor_active", None) is not None):
+                ev.accept()
+                return True
         return super().event(ev)
 
     def keyPressEvent(self, event):
@@ -905,10 +911,8 @@ class Model_View(QGraphicsView):
                 sc.set_mode(self._TOOL_SHORTCUTS[event.key()])
                 event.accept()
                 return
-        if event.key() == Qt.Key.Key_F:
-            self.fit_to_screen()
-            event.accept()
-            return
+        # Note: bare F is a tool shortcut (floor) handled above; Fit-to-Screen
+        # is reached via the ribbon "Fit to Screen" button.
         super().keyPressEvent(event)
 
     def scrollContentsBy(self, dx, dy):  # noqa: N802 (Qt naming)

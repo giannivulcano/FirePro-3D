@@ -16,11 +16,11 @@
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `align_engine.py` | current |
 | 2D geometry / drawing items | `specs/2d-geometry.md` | `construction_geometry.py`, `model_space.py` (2D-geometry placement + dispatch), `snap_engine.py` (2D snap) | current |
-| Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py` | current |
+| Walls / rooms / floors / openings | `specs/wall-room-floor-system.md` | `wall.py`, `room.py`, `floor_slab.py`, `wall_opening.py`, `roof.py`, `model_space.py` (floor placement dispatch + template §11), `level_manager.py` (floor pure-z-range visibility + rename remap §11.3) | current |
 | Pipe placement methodology | `specs/pipe-placement-methodology.md` | `pipe.py`, `node.py`, `model_space.py` (placement) | current |
 | Sprinkler system components | `specs/sprinkler-system-components.md` | `sprinkler.py`, `sprinkler_db.py`, `sprinkler_system.py`, `fitting.py`, `water_supply.py`, `design_area.py`, `nfpa_curves.py`, `design_point_dialog.py` | current |
 | Parametric constraints / align | `specs/parametric-constraint-system.md` | `constraints.py`, `scene_tools.py` | current |
-| Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py`, `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py` | current |
+| Views / levels / Z-model (incl. elevation) | `specs/view-relationships.md` (+ `architecture/level-system.md`) | `level_manager.py`, `elevation_scene.py` (consumes the floor two-boundary z-model via `slab._z_range_with_lm` — still governed here; §7.1 plan view-range upper bound), `elevation_view.py`, `elevation_manager.py`, `view_marker.py`, `detail_view.py`, `view_range_dialog.py` | current |
 | Display / visibility | `architecture/display-system.md` (Z-order owned by `view-relationships.md §7.3` + `constants.py`) | `display_manager.py`, `displayable_item.py` | current |
 | Theming / UI tokens | `architecture/theming.md` | `theme.py` | current |
 | Property panel / templates | `specs/property-panel.md` | `property_manager.py`, `dimension_edit.py` | current |

@@ -183,7 +183,7 @@ class SceneIOMixin:
         polygons_data = [p.to_dict() for p in self._draw_polygons]
         gridlines_data = [gl.to_dict() for gl in self._gridlines]
         walls_data = [w.to_dict() for w in self._walls]
-        floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]
+        floor_slabs_data = [fs.to_dict() for fs in self._floor_slabs]  # two-boundary schema via to_dict
         roofs_data = [r.to_dict() for r in self._roofs]
         rooms_data = [r.to_dict() for r in self._rooms]
 
