@@ -1645,6 +1645,8 @@ class MainWindow(QMainWindow):
 
         # --- Blocks ---
         g_blocks = draw_page.add_group("Blocks")
+        _mode_btn(g_blocks, "Text\nBlock", _I("text_icon.svg"), "text").setToolTip(
+            "Place a text note")
         g_blocks.add_small_button(
             "Insert\nBlock", _I("placeholder_icon.svg"), self._insert_block)
         g_blocks.add_small_button(
@@ -1852,7 +1854,6 @@ class MainWindow(QMainWindow):
         # --- Annotate (model + sheet) ---
         g_annotate = draft_page.add_group("Annotate")
         _mode_btn(g_annotate, "Dimension", _I("dimension_icon.svg"), "dimension").setToolTip("Place a dimension annotation")
-        _mode_btn(g_annotate, "Text", _I("text_icon.svg"), "text").setToolTip("Place a text note")
         self._add_text_ribbon_btn = g_annotate.add_large_button(
             "Add\nText", _I("text_icon.svg"),
             self._on_ribbon_add_text_toggled, checkable=True)
