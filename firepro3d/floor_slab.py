@@ -28,6 +28,11 @@ DEFAULT_THICKNESS_MM = 152.4   # 6 inches
 _FILL_ALPHA = 50               # semi-transparent fill in 2D
 _SELECTION_COLOR = QColor("red")
 
+# ── Property-panel mode labels (enum face ↔ stored mode string) ──────────────
+_TOP_MODE_LABELS = {"level": "Level", "absolute": "Absolute"}
+_BOTTOM_MODE_LABELS = {"level": "Level", "absolute": "Absolute",
+                       "thickness": "Thickness"}
+
 
 # ── Pure Z-resolver (no Qt dependency) ────────────────────────────────────────
 
@@ -301,18 +306,81 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     # ── Properties API ───────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:
-        # NOTE: the two-boundary elevation panel (Top/Bottom reference rows) is
-        # built in a later task; for now expose the surviving editable fields so
-        # the panel keeps working. Thickness edits the "thickness" bottom mode.
-        return {
-            "Type":          {"type": "label",     "value": "Floor Slab"},
-            "Name":          {"type": "string",    "value": self.name},
-            "Level":         {"type": "level_ref", "value": self.level},
-            "Colour":        {"type": "color",     "value": self._color.name()},
-            "Thickness":     {"type": "dimension", "value": self._fmt(self._thickness_mm),
-                              "value_mm": self._thickness_mm},
-            "Points":        {"type": "label",     "value": str(len(self._points))},
+        """Mode-conditional two-boundary elevation panel.
+
+        Rows CHANGE per boundary mode (level → Level+Offset; absolute → Z;
+        thickness → Thickness input). The property panel re-queries this after
+        every edit, so returning a different key set drives dynamic show/hide.
+        Appearance (Colour) is owned by the Display Manager, not this panel.
+        """
+        p = {
+            "Type": {"type": "label", "value": "Floor Slab"},
+            "Name": {"type": "string", "value": self.name},
         }
+        lm = self._level_manager()
+        top_z = _resolve_boundary_z(
+            self._top_mode, self._top_level,
+            self._top_offset_mm, self._top_abs_z_mm, lm)
+
+        # ── Top ──
+        p["— Top —"] = {"type": "header"}
+        p["Top Reference"] = {
+            "type": "enum",
+            "value": _TOP_MODE_LABELS[self._top_mode],
+            "options": list(_TOP_MODE_LABELS.values()),
+        }
+        if self._top_mode == "level":
+            p["Top Level"] = {"type": "level_ref", "value": self._top_level}
+            p["Top Offset"] = {"type": "dimension",
+                               "value": self._fmt(self._top_offset_mm),
+                               "value_mm": self._top_offset_mm}
+        else:
+            p["Top Z"] = {"type": "dimension",
+                          "value": self._fmt(self._top_abs_z_mm),
+                          "value_mm": self._top_abs_z_mm}
+        p["Top Elevation"] = {"type": "label",
+                              "value": self._fmt(top_z) if top_z is not None else "—"}
+
+        # ── Bottom ──
+        p["— Bottom —"] = {"type": "header"}
+        p["Bottom Reference"] = {
+            "type": "enum",
+            "value": _BOTTOM_MODE_LABELS[self._bottom_mode],
+            "options": list(_BOTTOM_MODE_LABELS.values()),
+        }
+        if self._bottom_mode == "level":
+            p["Bottom Level"] = {"type": "level_ref", "value": self._bottom_level}
+            p["Bottom Offset"] = {"type": "dimension",
+                                  "value": self._fmt(self._bottom_offset_mm),
+                                  "value_mm": self._bottom_offset_mm}
+        elif self._bottom_mode == "absolute":
+            p["Bottom Z"] = {"type": "dimension",
+                             "value": self._fmt(self._bottom_abs_z_mm),
+                             "value_mm": self._bottom_abs_z_mm}
+        else:  # thickness
+            p["Thickness"] = {"type": "dimension",
+                              "value": self._fmt(self._thickness_mm),
+                              "value_mm": self._thickness_mm,
+                              "minimum": MIN_FLOOR_THICKNESS_MM}
+
+        zr = self.z_range_mm()
+        if self._bottom_mode != "thickness":
+            thick = (zr[1] - zr[0]) if zr else None
+            p["Thickness (derived)"] = {"type": "label",
+                                        "value": self._fmt(thick) if thick is not None else "—"}
+        p["Bottom Elevation"] = {"type": "label",
+                                 "value": self._fmt(zr[0]) if zr else "—"}
+        p["Points"] = {"type": "label", "value": str(len(self._points))}
+
+        # ── inversion warning ──
+        if (zr is not None and top_z is not None
+                and zr[0] >= top_z - 1e-6
+                and self._bottom_mode != "thickness"):
+            p["Floor is inverted"] = {
+                "type": "warning",
+                "value": "Floor top is at or below its bottom — "
+                         "zero/inverted thickness."}
+        return p
 
     def _parse_dim(self, value) -> float | None:
         """Parse a dimension value (display-formatted or raw) to mm.
@@ -338,15 +406,39 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
     def set_property(self, key: str, value):
         if key == "Name":
             self.name = str(value)
-        elif key == "Level":
-            self.level = str(value)
-        elif key == "Colour":
-            self._color = QColor(value)
-            self.update()
+        elif key == "Top Reference":
+            mode = {v: k for k, v in _TOP_MODE_LABELS.items()}.get(value)
+            if mode is not None:          # defensive: out-of-options label no-ops
+                self._top_mode = mode
+        elif key == "Top Level":
+            self._top_level = str(value)
+        elif key == "Top Offset":
+            v = self._parse_dim(value)
+            if v is not None:
+                self._top_offset_mm = v
+        elif key == "Top Z":
+            v = self._parse_dim(value)
+            if v is not None:
+                self._top_abs_z_mm = v
+        elif key == "Bottom Reference":
+            mode = {v: k for k, v in _BOTTOM_MODE_LABELS.items()}.get(value)
+            if mode is not None:
+                self._bottom_mode = mode
+        elif key == "Bottom Level":
+            self._bottom_level = str(value)
+        elif key == "Bottom Offset":
+            v = self._parse_dim(value)
+            if v is not None:
+                self._bottom_offset_mm = v
+        elif key == "Bottom Z":
+            v = self._parse_dim(value)
+            if v is not None:
+                self._bottom_abs_z_mm = v
         elif key == "Thickness":
-            parsed = self._parse_dim(value)
-            if parsed is not None:
-                self._thickness_mm = parsed
+            v = self._parse_dim(value)
+            if v is not None:
+                self._thickness_mm = max(v, MIN_FLOOR_THICKNESS_MM)
+        self.update()
 
     # ── Serialisation ────────────────────────────────────────────────────────
 
