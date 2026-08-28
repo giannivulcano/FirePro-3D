@@ -1275,6 +1275,11 @@ class MainWindow(QMainWindow):
                 vh, vd = dlg.get_values()
                 marker.view_height = vh
                 marker.view_depth = vd
+                # NOTE: dlg.is_explicit() is intentionally NOT read here — the
+                # explicit/auto-derive upper-bound flag is plan-view-only by
+                # design. Markers have no auto-derived height, so there is no
+                # dynamic bound to opt back into. (scene= is still passed so the
+                # dialog can preview against real geometry.)
                 # Refresh masking if this detail tab is active
                 current_text = self.central_tabs.tabText(
                     self.central_tabs.currentIndex())

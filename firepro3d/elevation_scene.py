@@ -1090,8 +1090,15 @@ class ElevationScene(QGraphicsScene):
         bg = QColor(_t.canvas_bg)
 
         for slab in getattr(self._ms, "_floor_slabs", []):
-            z = self._level_z(getattr(slab, "level", DEFAULT_LEVEL)) + getattr(slab, "_level_offset_mm", 0.0)
-            thickness = getattr(slab, "_thickness_mm", 150.0)
+            # Resolve the slab's true world-Z from the two-boundary model.
+            # Use this scene's own LevelManager explicitly: the slab lives in
+            # the model scene (self._ms), not in this elevation scene, so
+            # slab.z_range_mm() (which resolves via slab.scene()._level_manager)
+            # is not guaranteed to reach the LM this view was built with.
+            zr = slab._z_range_with_lm(self._lm)
+            if zr is None:
+                continue  # unresolvable (missing level etc.) — skip, degenerate-safe
+            bot_z, top_z = zr
 
             pts = getattr(slab, "_points", [])
             if not pts:
@@ -1119,8 +1126,10 @@ class ElevationScene(QGraphicsScene):
             else:
                 depth = cy
 
-            v_top = -(z)
-            v_bottom = -(z - thickness)
+            # Elevation view is Y-down: higher world-Z projects to a more
+            # negative v-coordinate, so negate both boundaries.
+            v_top = -top_z
+            v_bottom = -bot_z
             width = h_max - h_min
             height = v_bottom - v_top
 
@@ -1314,6 +1323,8 @@ class ElevationScene(QGraphicsScene):
         pen.setCosmetic(True)
 
         for item in getattr(self._ms, "_draw_lines", []):
+            # These are DrawLine construction lines, never FloorSlabs — floors
+            # are projected via their two-boundary z_range in _project_floor_slabs.
             z = self._level_z(getattr(item, "level", DEFAULT_LEVEL))
             wx1, wy1 = self._scene_to_world(item._pt1.x(), item._pt1.y())
             wx2, wy2 = self._scene_to_world(item._pt2.x(), item._pt2.y())

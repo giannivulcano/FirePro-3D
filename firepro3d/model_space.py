@@ -10037,9 +10037,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Copy the floor template's model fields onto a freshly-built slab.
 
         Applies the two-boundary elevation model (top/bottom mode/level/offset/
-        abs-z), thickness, and the annotation level so a placed slab inherits the
-        template the user edited pre-placement — the parity gap the old
-        thickness-only copy left open.
+        abs-z) and thickness so a placed slab inherits the template the user
+        edited pre-placement — the parity gap the old thickness-only copy left
+        open. The owning ``.level`` is deliberately NOT copied (retired for
+        floor geometry; see note below).
         """
         tmpl = self._get_floor_template()
         slab._thickness_mm = tmpl._thickness_mm
@@ -10051,7 +10052,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         slab._bottom_level = tmpl._bottom_level if tmpl._bottom_level else self.active_level
         slab._bottom_offset_mm = tmpl._bottom_offset_mm
         slab._bottom_abs_z_mm = tmpl._bottom_abs_z_mm
-        slab.level = tmpl.level if tmpl.level else self.active_level
+        # NOTE: no owning `.level` write — a floor's `.level` is retired for
+        # geometry (visibility is pure z-range) and is NOT serialized, so it
+        # would silently revert to the mixin default on reload/undo. The two
+        # boundary refs above (_top_level/_bottom_level) carry the elevation.
 
     # ── Floor polygon (click-vertex) ──────────────────────────────────────────
     def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
