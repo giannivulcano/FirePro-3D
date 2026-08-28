@@ -10035,6 +10035,33 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._press_floor(None, geometry, geometry, None, None, None)
         return True
 
+    def _floor_base_name(self) -> str:
+        """Base name for a placed floor: the user-authored template name or "Floor".
+
+        The template name defaults to the literal ``"(Template)"`` (set in
+        ``_get_floor_template``); that placeholder and a blank name both fall
+        back to ``"Floor"``.  A user-authored name is used verbatim (trimmed).
+        """
+        tmpl = self._get_floor_template()
+        nm = (getattr(tmpl, "name", "") or "").strip()
+        return nm if (nm and nm != "(Template)") else "Floor"
+
+    def _unique_floor_name(self, base: str) -> str:
+        """Return *base* uniquified against existing floor names.
+
+        If *base* is unused among ``self._floor_slabs`` it is returned as-is;
+        otherwise the smallest ``f"{base} {N}"`` with N >= 2 that is free.
+        The caller must name the slab BEFORE appending it (or the new slab must
+        not yet be in ``_floor_slabs``) so it does not collide with itself.
+        """
+        existing = {s.name for s in self._floor_slabs if s is not None}
+        if base not in existing:
+            return base
+        n = 2
+        while f"{base} {n}" in existing:
+            n += 1
+        return f"{base} {n}"
+
     def _apply_floor_template_fields(self, slab) -> None:
         """Copy the floor template's model fields onto a freshly-built slab.
 
@@ -10064,8 +10091,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._floor_active is None:
             _ftmpl = self._get_floor_template()
             slab = FloorSlab(color=_ftmpl._color.name())
-            slab.name = f"Floor {self._next_floor_num}"
-            self._next_floor_num += 1
+            # Name from the template (uniquified) BEFORE appending to _floor_slabs
+            # so the new slab is not counted against itself.
+            slab.name = self._unique_floor_name(self._floor_base_name())
             self._apply_floor_template_fields(slab)
             slab.add_point(snapped)
             self.addItem(slab)
@@ -10185,8 +10213,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         corners = rotated_rect_corners(pt1, pt2, angle_deg, pivot)
         _ftmpl = self._get_floor_template()
         slab = FloorSlab(points=list(corners), color=_ftmpl._color.name())
-        slab.name = f"Floor {self._next_floor_num}"
-        self._next_floor_num += 1
+        # Name from the template (uniquified) BEFORE appending to _floor_slabs.
+        slab.name = self._unique_floor_name(self._floor_base_name())
         self._apply_floor_template_fields(slab)
         self.addItem(slab)
         self._floor_slabs.append(slab)

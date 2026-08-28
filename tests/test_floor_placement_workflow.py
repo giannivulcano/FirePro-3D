@@ -310,3 +310,89 @@ def test_rect_hud_rotate_angle_live_updates(qapp, shown_model_view):
     assert pt_b is not None
 
     assert abs(seed_a["Angle"] - seed_b["Angle"]) > 1.0
+
+
+# ── Template name seeds placed floors (uniquified on collision) ────────────────
+
+def _place_polygon_floor(view, scene, origin=(0.0, 0.0)):
+    """Place ONE triangular floor via the real polygon commit path.
+
+    Drives ``_press_floor`` through posted clicks: 3 vertices then a
+    close-near-first click.  Returns the newly committed FloorSlab.
+    """
+    ox, oy = origin
+    _click(view, QPointF(ox, oy))
+    _click(view, QPointF(ox + 1000, oy))
+    _click(view, QPointF(ox + 1000, oy + 1000))
+    _click(view, QPointF(ox, oy))          # close near first vertex
+    return scene._floor_slabs[-1]
+
+
+def test_template_name_seeds_placed_floor(qapp, shown_model_view):
+    """A user-authored template name seeds the placed slab's name verbatim."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    scene.cycle_placement_variant(+1)   # corner rect -> center rect
+    scene.cycle_placement_variant(+1)   # center rect -> polygon
+    scene._get_floor_template().name = "Slab"
+    slab = _place_polygon_floor(view, scene)
+    assert slab.name == "Slab"
+
+
+def test_duplicate_floor_name_appends_number(qapp, shown_model_view):
+    """Colliding template names uniquify with the smallest N >= 2."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    scene.cycle_placement_variant(+1)
+    scene.cycle_placement_variant(+1)
+    scene._get_floor_template().name = "Slab"
+    n1 = _place_polygon_floor(view, scene, origin=(0, 0))
+    n2 = _place_polygon_floor(view, scene, origin=(3000, 0))
+    n3 = _place_polygon_floor(view, scene, origin=(6000, 0))
+    assert [n1.name, n2.name, n3.name] == ["Slab", "Slab 2", "Slab 3"]
+
+
+def test_default_template_name_uses_floor(qapp, shown_model_view):
+    """The default "(Template)" name falls back to base "Floor"."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    scene.cycle_placement_variant(+1)
+    scene.cycle_placement_variant(+1)
+    # template name left at its default "(Template)"
+    assert scene._get_floor_template().name == "(Template)"
+    n1 = _place_polygon_floor(view, scene, origin=(0, 0))
+    n2 = _place_polygon_floor(view, scene, origin=(3000, 0))
+    assert [n1.name, n2.name] == ["Floor", "Floor 2"]
+
+
+def test_blank_template_name_uses_floor(qapp, shown_model_view):
+    """A blank template name falls back to base "Floor"."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    scene.cycle_placement_variant(+1)
+    scene.cycle_placement_variant(+1)
+    scene._get_floor_template().name = ""
+    slab = _place_polygon_floor(view, scene)
+    assert slab.name == "Floor"
+
+
+# ── Unit tests for the naming helpers (stubbed scene state) ────────────────────
+
+def test_unique_floor_name_helper(scene):
+    """_unique_floor_name uniquifies against existing slab names."""
+    class _S:
+        def __init__(self, name):
+            self.name = name
+    scene._floor_slabs = [_S("Slab"), _S("Slab 2"), None]
+    assert scene._unique_floor_name("Floor") == "Floor"      # free
+    assert scene._unique_floor_name("Slab") == "Slab 3"      # 2 taken -> 3
+
+
+def test_floor_base_name_helper(scene):
+    """_floor_base_name reads the template, defaulting to "Floor"."""
+    scene._get_floor_template().name = "(Template)"
+    assert scene._floor_base_name() == "Floor"
+    scene._get_floor_template().name = ""
+    assert scene._floor_base_name() == "Floor"
+    scene._get_floor_template().name = "  Deck  "
+    assert scene._floor_base_name() == "Deck"
