@@ -5244,6 +5244,74 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._floor_template.level = self.active_level
         return self._floor_template
 
+    # QSettings key for the persisted floor placement template (mirrors the
+    # pipe/sprinkler/text template keys owned by MainWindow).
+    FLOOR_TEMPLATE_SETTINGS_KEY = "template/floor"
+
+    def save_floor_template_settings(self, settings) -> None:
+        """Persist the floor placement template to *settings* (QSettings).
+
+        Mirrors the pipe/sprinkler/text templates: writes raw internal values so
+        they round-trip regardless of unit prefs.  Only the project-agnostic
+        recipe is stored — modes, offsets and thickness.  Level NAMES and
+        absolute-Z values are project-specific and are deliberately NOT
+        persisted (they are re-seeded from the active level on load).
+        """
+        tmpl = self._get_floor_template()
+        settings.setValue(self.FLOOR_TEMPLATE_SETTINGS_KEY, {
+            "top_mode":         tmpl._top_mode,
+            "top_offset_mm":    tmpl._top_offset_mm,
+            "bottom_mode":      tmpl._bottom_mode,
+            "bottom_offset_mm": tmpl._bottom_offset_mm,
+            "thickness_mm":     tmpl._thickness_mm,
+        })
+
+    def load_floor_template_settings(self, settings) -> None:
+        """Restore the floor placement template from *settings* (QSettings).
+
+        Applies the persisted modes/offsets/thickness, then re-seeds the
+        project-specific parts against the active level:
+
+        * Level-mode boundaries → ``_top_level`` / ``_bottom_level`` resolve to
+          the current active level.
+        * Absolute-mode boundaries → ``_*_abs_z_mm`` seed from the active
+          level's elevation, so an absolute default starts at a sane
+          project-relative value.
+        """
+        if not settings.contains(self.FLOOR_TEMPLATE_SETTINGS_KEY):
+            return
+        blob = settings.value(self.FLOOR_TEMPLATE_SETTINGS_KEY, {})
+        if not isinstance(blob, dict):
+            return
+
+        tmpl = self._get_floor_template()
+
+        # Active level's elevation seeds absolute-mode boundaries.
+        active_elev = 0.0
+        if self._level_manager is not None:
+            lvl = self._level_manager.get(self.active_level)
+            if lvl is not None:
+                active_elev = float(lvl.elevation)
+
+        if "top_mode" in blob:
+            tmpl._top_mode = str(blob["top_mode"])
+        if "top_offset_mm" in blob:
+            tmpl._top_offset_mm = float(blob["top_offset_mm"])
+        if "bottom_mode" in blob:
+            tmpl._bottom_mode = str(blob["bottom_mode"])
+        if "bottom_offset_mm" in blob:
+            tmpl._bottom_offset_mm = float(blob["bottom_offset_mm"])
+        if "thickness_mm" in blob:
+            tmpl._thickness_mm = float(blob["thickness_mm"])
+
+        # Re-seed project-specific parts from the active level.
+        tmpl._top_level = self.active_level
+        tmpl._bottom_level = self.active_level
+        if tmpl._top_mode == "absolute":
+            tmpl._top_abs_z_mm = active_elev
+        if tmpl._bottom_mode == "absolute":
+            tmpl._bottom_abs_z_mm = active_elev
+
     def _get_roof_template(self) -> "RoofItem":
         """Return (lazily-created) roof template for pre-placement editing."""
         if self._roof_template is None:

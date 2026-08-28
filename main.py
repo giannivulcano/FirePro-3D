@@ -917,6 +917,9 @@ class MainWindow(QMainWindow):
                     mf = op["mirror_facing"]
                     tmpl.mirror_facing = (mf if isinstance(mf, bool)
                                           else str(mf).lower() in ("true", "1"))
+        # Restore floor placement template (modes/offsets/thickness); level
+        # names + absolute-Z re-seed from the active level inside the helper.
+        self.scene.load_floor_template_settings(self.settings)
 
     def _apply_persistent_unit_prefs(self):
         """Override the scale manager's display unit and precision with the
@@ -4524,6 +4527,9 @@ class MainWindow(QMainWindow):
                 "mirror_hinge": t.mirror_hinge,
                 "mirror_facing": t.mirror_facing,
             })
+        # Persist the floor placement template (modes/offsets/thickness only;
+        # level names + absolute-Z are project-specific and stay out).
+        self.scene.save_floor_template_settings(self.settings)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
