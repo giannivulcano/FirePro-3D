@@ -238,3 +238,56 @@ def test_live_panel_mode_switch_drops_and_adds_rows(qapp):
     after = _row_labels(pm)
     assert "Top Z" in after
     assert "Top Level" not in after
+
+
+class _LMWithLevels:
+    """Real-ish level manager for live PropertyManager tests."""
+
+    class _Lvl:
+        def __init__(self, name, elevation):
+            self.name = name
+            self.elevation = elevation
+
+    def __init__(self):
+        self.levels = [self._Lvl("Level 1", 0.0), self._Lvl("Level 2", 3048.0)]
+
+    def get(self, name):
+        for lv in self.levels:
+            if lv.name == name:
+                return lv
+        return None
+
+
+@pytest.mark.parametrize(
+    "top_mode, bottom_mode",
+    [
+        ("absolute", "thickness"),
+        ("absolute", "absolute"),
+    ],
+)
+def test_no_spurious_level_combo_in_absolute_modes(qapp, top_mode, bottom_mode):
+    """A two-boundary floor in a NON-level mode (neither boundary emits a
+    level_ref row) still carries a vestigial `.level` attr. The panel's legacy
+    Level-combo fallback must NOT fire for it — the floor owns its elevation via
+    Top/Bottom Reference rows, so a legacy 'Level' combo would resurrect the
+    retired `.level` coupling and lie about how its elevation is computed.
+    """
+    from firepro3d.property_manager import PropertyManager
+
+    slab = _slab(scene=True, _top_mode=top_mode, _bottom_mode=bottom_mode)
+    # Precondition: no level_ref row is emitted in these modes (so the legacy
+    # fallback's `has_level_ref` guard alone would NOT stop the combo).
+    props = slab.get_properties()
+    assert not [k for k, m in props.items() if m.get("type") == "level_ref"]
+    assert hasattr(slab, "level")  # the vestigial attr that baits the fallback
+
+    pm = PropertyManager()
+    pm.set_level_manager(_LMWithLevels())
+    pm.show_properties(slab)
+    _flush_deletes(qapp)
+
+    labels = _row_labels(pm)
+    assert "Level" not in labels, (
+        f"spurious legacy Level combo leaked in {top_mode}/{bottom_mode} mode; "
+        f"labels={sorted(labels)}"
+    )
