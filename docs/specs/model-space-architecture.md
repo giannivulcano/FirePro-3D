@@ -1,7 +1,7 @@
 ---
 status: partial            # current: as-built composition §2/§3 ; proposal: target decomposition §5/§6
 last-verified: 2026-08-28
-verified-commit: 4ae820a   # slices 1 (A+C) + 2 (B) landed; as-built census in §2 mapped against 3a99b63
+verified-commit: c675721   # slices 1 (A+C), 2 (B), 4a (NetworkCodec serialize) landed; census in §2 mapped @ 3a99b63
 applies-to:
   - firepro3d/model_space.py
   - firepro3d/scene_tools.py
@@ -72,7 +72,7 @@ The end state is a thin `Model_Space` core plus scene-referencing collaborators.
   - **A —** move the *item-aware* pure helpers (`_compute_fillet`, `_compute_chamfer`, `_offset_polyline_pts`, `_get_item_segments`, `_compute_intersections`, `_compute_extend_intersections`, `extract_edges`) → new `tool_geometry.py`. A new module *is* warranted: these dispatch on `construction_geometry` item types, so they cannot live in `cad_math.py`/`geometry_intersect.py` (item-agnostic; would create an import cycle). **Reuse, don't relocate:** the raw-math duplicates `_offset_line_intersection` (≈ `gi.line_line_intersection_unbounded`) and `_point_to_segment_dist` (≈ `CAD_Math.point_on_line_nearest`) fold into the existing modules instead of moving.
   - **C —** **split** the constraint solver: the pure algorithm (`solve(constraints, moved_item=None) -> list[unsatisfied]`, loop + stall/convergence detection) → `constraints.py` (already governed by `parametric-constraint-system.md`); the repaint + `_report_constraint_conflict` side-effect tail stays as a thin scene-side `_solve_constraints` shell. Update the 3 model_space call-sites + scene_tools.
 - **Slice 2 = B — `SceneToolsMixin` mixin → composition — ✅ landed 4ae820a** (`self._tools = SceneTools(self)`). Redirect its borrowed state attrs + geometry registries to `self._scene.*`; audit `self.mode` direct writes against `set_mode` side-effects; keep dispatch `getattr` resolution working (forwarding stubs or dispatch-on-collaborator). This is the first slice that changes an app-wide access/dispatch pattern → isolated for its own review + **manual smoke test**.
-- **Reassess after B.** Then the **`NetworkCodec` unify** slice (collapse `save_to_file` + `_capture_network` into one per-entity codec — structurally eliminates the §4 divergence class; fixes the 6 divergences as intended behavior changes), *then* domain concerns. **Underlay** is the recommended first domain slice (excluded from undo, own serialization block, isolated async worker, single shared `self.underlays` list).
+- **`NetworkCodec` unify** — split: **4a (serialize) ✅ landed c675721** (the 6 hand-serialized types route through `network_codec.py`; `.fpd` byte-identical) and **4b (deserialize) — pending** (unify per-entity field-application in `load_from_file`/`_restore_network`; the corrupt-a-save surface — its own fresh pass). *Then* domain concerns. **Underlay** is the recommended first domain slice (excluded from undo, own serialization block, isolated async worker, single shared `self.underlays` list).
 
 ## 7. Governed-behavior cross-references (Rule A — do not restate)
 
