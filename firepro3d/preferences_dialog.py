@@ -681,9 +681,10 @@ class ImportPane(SettingsPane):
     Covers:
     - ODA File Converter executable path (QSettings key ``dwg/oda_converter_path``).
 
-    PDF rasterisation DPI and import mode are **not** exposed here — the import
-    pipeline (``dxf_preview_dialog.py``) owns those choices at import time and
-    does not read QSettings for them.
+    - PDF rasterisation DPI + import-mode **defaults** (QSettings keys
+      ``import/pdf_dpi`` / ``import/pdf_import_mode``). The import dialog seeds
+      its PDF Options combos from these; a per-import override does not write
+      back (one-off).
 
     This is a QSettings-only preference; no live-object mutation is needed.
     Construct with no args.
@@ -715,14 +716,19 @@ class ImportPane(SettingsPane):
         oda_row_layout.addWidget(browse_btn)
         oda_form.addRow("Executable:", oda_row)
 
-        note = QLabel(
-            "PDF rasterisation DPI and import mode are set in the import dialog."
-        )
-        note.setStyleSheet("color: #888; font-size: 11px;")
-        note.setWordWrap(True)
-        oda_form.addRow("", note)
-
         outer.addWidget(oda_group)
+
+        # ── PDF import defaults ───────────────────────────────────────────────
+        pdf_group = QGroupBox("PDF Import Defaults")
+        pdf_form = QFormLayout(pdf_group)
+        self._dpi_combo = QComboBox()
+        self._dpi_combo.addItems(["72", "150", "300"])
+        pdf_form.addRow("Rasterisation DPI:", self._dpi_combo)
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["Auto", "Vectors", "Raster"])
+        pdf_form.addRow("Import mode:", self._mode_combo)
+        outer.addWidget(pdf_group)
+
         outer.addStretch()
 
     # ── Private helpers ───────────────────────────────────────────────────────
@@ -744,19 +750,27 @@ class ImportPane(SettingsPane):
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
 
         oda_path = s.value("dwg/oda_converter_path", "", type=str)
-        self._snapshot = {"oda_path": oda_path}
+        dpi = s.value("import/pdf_dpi", 150, type=int)
+        mode = s.value("import/pdf_import_mode", "auto", type=str)
+        self._snapshot = {"oda_path": oda_path, "dpi": dpi, "mode": mode}
         self._oda_edit.setText(oda_path)
+        self._dpi_combo.setCurrentText(str(dpi))
+        self._mode_combo.setCurrentText(mode.capitalize())
 
     def apply(self) -> None:
         """Write widget values to QSettings."""
         s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
         s.setValue("dwg/oda_converter_path", self._oda_edit.text())
+        s.setValue("import/pdf_dpi", int(self._dpi_combo.currentText()))
+        s.setValue("import/pdf_import_mode", self._mode_combo.currentText().lower())
 
     def revert(self) -> None:
         """Restore snapshot values to widgets (no live objects to roll back)."""
         if not self._snapshot:
             return
         self._oda_edit.setText(self._snapshot["oda_path"])
+        self._dpi_combo.setCurrentText(str(self._snapshot["dpi"]))
+        self._mode_combo.setCurrentText(self._snapshot["mode"].capitalize())
 
 
 class GeneralPane(SettingsPane):

@@ -1388,9 +1388,24 @@ class UnderlayImportDialog(QDialog):
 
     # ── PDF loading ──────────────────────────────────────────────────────────
 
+    def _seed_pdf_options_from_prefs(self):
+        """Seed the PDF Options combos from the Preferences defaults (one-off)."""
+        from PyQt6.QtCore import QSettings
+        from .preferences_dialog import _QSETTINGS_ORG, _QSETTINGS_APP
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+        dpi = s.value("import/pdf_dpi", 150, type=int)
+        mode = s.value("import/pdf_import_mode", "auto", type=str)
+        self._dpi_combo.blockSignals(True)
+        self._mode_combo.blockSignals(True)
+        self._dpi_combo.setCurrentText(str(dpi))
+        self._mode_combo.setCurrentText(mode.capitalize())
+        self._dpi_combo.blockSignals(False)
+        self._mode_combo.blockSignals(False)
+
     def _load_pdf(self, path: str):
         self._file_type = "pdf"
         self._pdf_opts_grp.setVisible(True)
+        self._seed_pdf_options_from_prefs()
 
         if not _HAS_FITZ:
             QMessageBox.warning(self, "Missing dependency",
