@@ -2607,35 +2607,50 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         elif kind == "text":
             txt = g.get("text", "")
             if txt:
+                # DPI-independent + fractional-exact size: render at a fixed
+                # pixel em, then scale by size/BASE. (Point size would inflate by
+                # 96/72 + HiDPI; rounding a pixel size loses sub-point accuracy.)
+                size = max(0.5, float(g.get("size", 6)))
+                _BASE = 100.0
                 f = QFont("Arial")
                 f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-                # Pixel size (not point size): DPI-independent, matches the PDF's
-                # point-based path (point size inflates by 96/72 + HiDPI factor).
-                f.setPixelSize(max(1, round(g.get("size", 6))))
+                f.setPixelSize(int(_BASE))
+                sc = size / _BASE
                 tx, ty = g["x"], g["y"]
                 ha = g.get("halign", 0)
                 va = g.get("valign", 3)
+                twidth = g.get("twidth")
                 lines = txt.split("\n")
+                single = len(lines) == 1
                 fm = QFontMetricsF(f)
-                line_h = fm.height()
+                line_h = fm.height() * sc
                 total_h = line_h * len(lines)
                 if va == 0:       # top
-                    base_y = ty + fm.ascent()
+                    base_y = ty + fm.ascent() * sc
                 elif va == 1:     # middle
-                    base_y = ty + fm.ascent() - total_h / 2
+                    base_y = ty + fm.ascent() * sc - total_h / 2
                 elif va == 2:     # bottom
-                    base_y = ty + fm.ascent() - total_h
-                else:             # baseline (single-line default)
+                    base_y = ty + fm.ascent() * sc - total_h
+                else:             # baseline (PDF spans: y == span origin)
                     base_y = ty
                 for i, line in enumerate(lines):
                     if not line.strip():
                         continue
+                    nat_w = fm.horizontalAdvance(line)   # at BASE px
+                    # fit x to the source span width when known, else scale = size
+                    sx = (twidth / nat_w) if (twidth and nat_w > 0 and single) else sc
+                    final_w = nat_w * sx
                     lx = tx
                     if ha == 1:   # center
-                        lx -= fm.horizontalAdvance(line) / 2
+                        lx -= final_w / 2
                     elif ha == 2: # right
-                        lx -= fm.horizontalAdvance(line)
-                    path.addText(lx, base_y + i * line_h, f, line)
+                        lx -= final_w
+                    tmp = QPainterPath()
+                    tmp.addText(0.0, 0.0, f, line)
+                    tr = QTransform()
+                    tr.translate(lx, base_y + i * line_h)
+                    tr.scale(sx, sc)
+                    path.addPath(tr.map(tmp))
 
     def _build_batched_underlay_group(
         self,

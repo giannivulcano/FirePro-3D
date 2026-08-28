@@ -321,19 +321,24 @@ class PdfImportWorker(QThread):
                     text = span.get("text", "").strip()
                     if not text:
                         continue
-                    bbox = span.get("bbox")       # (x0, y0, x1, y1)
+                    origin = span.get("origin")   # (x, baseline_y) — exact baseline
+                    bbox = span.get("bbox")       # ink bbox — for width fitting
                     size = span.get("size", 8.0)
-                    if bbox is None:
-                        continue
+                    if origin is None:
+                        if bbox is None:
+                            continue
+                        origin = (bbox[0], bbox[3])
                     results.append({
                         "kind": "text",
                         "layer": "PDF Text",
-                        "x": bbox[0],
-                        "y": bbox[1],
+                        "x": origin[0],
+                        "y": origin[1],   # place the glyph baseline here
                         "text": text,
                         "size": size,
-                        "halign": 0,      # left (bbox x0)
-                        "valign": 0,      # top-anchored to the span bbox top (y0)
+                        "halign": 0,      # left (span origin x)
+                        "valign": 3,      # baseline: base_y = y (the span origin)
+                        # on-paper text width -> substitute font is x-scaled to it
+                        "twidth": (bbox[2] - bbox[0]) if bbox else None,
                     })
         return results
 
