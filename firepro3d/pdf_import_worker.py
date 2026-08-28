@@ -410,3 +410,23 @@ def generate_pdf_thumbnails(file_path: str, width: int = 128) -> list[tuple[int,
             doc.close()
 
     return thumbs
+
+
+def pdf_page_names(file_path: str) -> list[str]:
+    """Return a display name per page: PDF page label if present, else 'Page N'."""
+    if not _HAS_FITZ:
+        return []
+    names: list[str] = []
+    doc = fitz.open(file_path)
+    try:
+        for i in range(len(doc)):
+            label = ""
+            try:
+                label = doc[i].get_label()      # PyMuPDF >= 1.18
+            except Exception:
+                label = ""
+            names.append(label.strip() if label and label.strip()
+                         else f"Page {i + 1}")
+    finally:
+        doc.close()
+    return names

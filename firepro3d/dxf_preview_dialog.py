@@ -535,6 +535,7 @@ class UnderlayImportDialog(QDialog):
         self._snap_result: OsnapResult | None = None
         self._pdf_page: int = 0
         self._pdf_page_count: int = 0
+        self._pdf_page_names: list[str] = []
         self._doc = None          # ezdxf document (DXF/DWG only)
         self._extracting = False  # re-entrancy guard for extraction
         self._extract_worker: _DialogExtractWorker | None = None
@@ -1427,11 +1428,16 @@ class UnderlayImportDialog(QDialog):
 
         # Generate thumbnails
         self._thumb_list.clear()
+        from .pdf_import_worker import pdf_page_names
+        self._pdf_page_names = pdf_page_names(path)
         if self._pdf_page_count > 1:
             from .pdf_import_worker import generate_pdf_thumbnails
             thumbs = generate_pdf_thumbnails(path, width=80)
             for page_idx, pixmap in thumbs:
-                item = QListWidgetItem(QIcon(pixmap), f"Page {page_idx + 1}")
+                name = (self._pdf_page_names[page_idx]
+                        if page_idx < len(self._pdf_page_names)
+                        else f"Page {page_idx + 1}")
+                item = QListWidgetItem(QIcon(pixmap), name)
                 self._thumb_list.addItem(item)
             self._thumb_list.setVisible(True)
             if self._thumb_list.count() > 0:
@@ -1441,6 +1447,11 @@ class UnderlayImportDialog(QDialog):
 
         self._pdf_page = 0
         self._load_pdf_page(path, 0)
+
+    def _page_name(self, page: int) -> str:
+        """Display name for a PDF page (label else 'Page N')."""
+        names = getattr(self, "_pdf_page_names", [])
+        return names[page] if 0 <= page < len(names) else f"Page {page + 1}"
 
     def _load_pdf_page(self, path: str, page: int, dpi: int | None = None):
         """Load vectors from a specific PDF page."""
@@ -1459,7 +1470,7 @@ class UnderlayImportDialog(QDialog):
             self._show_raster_preview(path, page, dpi)
             self._clear_loading()
             self._info_lbl.setText(
-                f"Raster import of page {page + 1} at {dpi} DPI.")
+                f"{self._page_name(page)} — raster at {dpi} DPI.")
         else:
             from .pdf_import_worker import extract_pdf_vectors_sync
             self._set_loading(f"Extracting vectors from page {page + 1}…")
@@ -1501,7 +1512,7 @@ class UnderlayImportDialog(QDialog):
                 self._clear_loading()
                 n = len(geoms)
                 self._info_lbl.setText(
-                    f"{n} vector entities from page {page + 1} of "
+                    f"{self._page_name(page)} — {n} vector entities from "
                     f"{os.path.basename(path)}")
             elif mode == "vectors":
                 self._has_vectors = False
