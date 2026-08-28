@@ -3258,6 +3258,126 @@ class MainWindow(QMainWindow):
             lambda: self.scene.duplicate_selected())
         _btn.setToolTip("Duplicate selected items [Ctrl+D]")
 
+    # ── Reusable Graphic Override group ────────────────────────────────────────
+
+    def _graphic_override_targets(self) -> list:
+        """Selected items that expose the per-instance override machinery.
+
+        An item qualifies only if it carries a ``_display_overrides`` dict
+        (the :class:`~firepro3d.displayable_item.DisplayableItemMixin`
+        protocol).  Non-participating items are silently skipped so the
+        override actions no-op on empty targets (no undo state is pushed).
+        """
+        return [it for it in self.scene.selectedItems()
+                if hasattr(it, "_display_overrides")]
+
+    def _apply_display_overrides_live(self) -> None:
+        """Re-apply category + per-instance display overrides to the scene.
+
+        Routes through the Display Manager's public apply path
+        (``apply_saved_display_settings``), which reads each item's
+        ``_display_overrides`` and pushes the resolved colours onto
+        ``_display_color`` / ``_display_fill_color`` + calls ``item.update()``.
+        """
+        from firepro3d.display_manager import apply_saved_display_settings
+        apply_saved_display_settings(self.scene)
+        self.scene.update()
+
+    def _set_graphic_override(self, prop: str, title: str) -> None:
+        """Open a colour picker and set override *prop* on every eligible item.
+
+        *prop* is the Display-Manager override key — ``"color"`` (stroke/pen)
+        or ``"fill"``.  One undo snapshot is pushed before the write; a no-op
+        gesture (no eligible target, or cancelled dialog) pushes nothing.
+        """
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
+
+        targets = self._graphic_override_targets()
+        if not targets:
+            return
+
+        # Seed the picker from the first target's current override, if any.
+        seed = targets[0]._display_overrides.get(prop)
+        col = QColorDialog.getColor(
+            QColor(seed) if seed else QColor("#ffffff"), self, title)
+        if not col.isValid():
+            return
+
+        self.scene.push_undo_state()
+        hex_val = col.name()
+        for it in targets:
+            if not hasattr(it, "_display_overrides"):
+                it._display_overrides = {}
+            it._display_overrides[prop] = hex_val
+        self._apply_display_overrides_live()
+        self.scene.sceneModified.emit()
+
+    def _graphic_override_stroke(self) -> None:
+        """Stroke (pen) colour override — Display-Manager key ``"color"``."""
+        self._set_graphic_override("color", "Stroke Colour")
+
+    def _graphic_override_fill(self) -> None:
+        """Fill (brush) colour override — Display-Manager key ``"fill"``."""
+        self._set_graphic_override("fill", "Fill Colour")
+
+    def _graphic_override_clear(self) -> None:
+        """Clear all per-instance overrides on eligible items → category default."""
+        targets = self._graphic_override_targets()
+        if not targets:
+            return
+        self.scene.push_undo_state()
+        for it in targets:
+            it._display_overrides.clear()
+        self._apply_display_overrides_live()
+        self.scene.sceneModified.emit()
+
+    def _build_graphic_override_group(self, page) -> None:
+        """Add a reusable "Graphic Override" group to *page*.
+
+        Three actions — Stroke Colour, Fill Colour, Clear — surface the
+        existing per-instance Display-Manager override machinery
+        (``item._display_overrides`` keyed ``"color"`` / ``"fill"``) on a
+        contextual ribbon tab.  Clear reverts the selection to its Display
+        Manager category defaults.  All writes push a single undo snapshot;
+        an empty selection is a no-op.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        from firepro3d.icons import themed_icon, LIGHT, DARK
+        from firepro3d import theme as _th
+        _theme = DARK if _th.detect().name == DARK else LIGHT
+        _I = lambda name: themed_icon(name, _theme)
+
+        g = page.add_group("Graphic Override")
+        _btn = g.add_small_button(
+            "Stroke Colour", _I("placeholder_icon.svg"),
+            self._graphic_override_stroke)
+        _btn.setToolTip("Override the line/stroke colour for the selection")
+        _btn = g.add_small_button(
+            "Fill Colour", _I("placeholder_icon.svg"),
+            self._graphic_override_fill)
+        _btn.setToolTip("Override the fill colour for the selection")
+        _btn = g.add_small_button(
+            "Clear", _I("clear_icon.svg"),
+            self._graphic_override_clear)
+        _btn.setToolTip("Clear overrides — revert to the Display Manager category")
+
+    def _build_floor_context(self, page) -> None:
+        """Build the 'Floor' contextual tab: Graphic Override + Edit.
+
+        The floor's Top/Bottom-level elevation model is owned by the right-side
+        property panel (Task 3 retired the floor ``.level`` combo), so the
+        contextual tab carries only the universal Edit group plus the reusable
+        per-instance Graphic Override group.
+
+        Args:
+            page: :class:`~firepro3d.ribbon_bar.RibbonPage` to populate.
+        """
+        self._build_graphic_override_group(page)
+        self._build_contextual_edit_group(page)
+
     def _init_contextual_tabs(self) -> None:
         """Build the contextual-tab registry and initialise state variables.
 
@@ -3285,6 +3405,11 @@ class MainWindow(QMainWindow):
         self._contextual_registry["opening"] = (
             self._CONTEXTUAL_TABS["opening"],
             self._build_opening_context,
+        )
+        # Override floor with its richer builder (Graphic Override + Edit).
+        self._contextual_registry["floor"] = (
+            self._CONTEXTUAL_TABS["floor"],
+            self._build_floor_context,
         )
         # Fixed slot immediately after the 7 base tabs.
         self._contextual_index: int = 7

@@ -461,6 +461,9 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_offset_mm":  self._bottom_offset_mm,
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
             "thickness_mm":      self._thickness_mm,
+            # Per-instance Display-Manager overrides (stroke/fill colour, etc.).
+            # Round-tripped here so both file save AND undo/redo preserve them.
+            "display_overrides": dict(self._display_overrides),
         }
 
     @classmethod
@@ -488,6 +491,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             slab._top_level = data.get("level", DEFAULT_LEVEL)
             slab._top_offset_mm = data.get("level_offset_mm", 0.0)
             slab._bottom_mode = "thickness"
+        slab._display_overrides = dict(data.get("display_overrides", {}))
         return slab
 
     # ── 3D mesh generation ───────────────────────────────────────────────────
