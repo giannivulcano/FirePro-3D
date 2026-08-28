@@ -1,7 +1,22 @@
+---
+status: current
+last-verified: 2026-08-28
+verified-commit: 579e841
+applies-to:
+  - firepro3d/level_manager.py
+  - firepro3d/elevation_scene.py
+  - firepro3d/elevation_view.py
+  - firepro3d/elevation_manager.py
+  - firepro3d/view_marker.py
+  - firepro3d/detail_view.py
+  - firepro3d/view_range_dialog.py
+---
+
 # View Relationships — Specification
 
 > **Status:** Approved (Revision 1, post grill session)
 > **Date:** 2026-04-08
+> **§7.1 (plan view-range upper bound) + §3.3 (FloorSlab world-Z) last-verified:** 2026-08-28 against `level_manager.compute_view_height`/`fallback_view_height`, `PlanView.view_height_explicit`, `view_range_dialog.py`, `main._apply_plan_level`, and the `floor_slab.py` two-boundary model (commit `579e841`, floor-workflow task). FloorSlab world-Z is owned by `wall-room-floor-system.md §11`; this table links to it.
 > **Source tasks:** TODO.md "Spec & grill session: define and refine the relationship between views" (P1, Architecture)
 > **Adjacent specs:** `pipe-placement-methodology.md`, `snapping-engine.md`
 > **Pattern:** Documents current behavior + names required fixes (same revision style as `pipe-placement-methodology.md` Rev 2).
@@ -109,9 +124,7 @@ This table enumerates every property in the data model that contributes to an ob
 | **Room** | `_ceiling_level` | str | "Level 2" | Ceiling level | `room.py:93` |
 | **Room** | `_ceiling_offset` | float (mm) | 0 | Offset below ceiling level | `room.py:94` |
 | **Room** | `z_range_mm()` | method | computed | Returns `(floor_z, ceil_z)` — see §7.2 for formula and known issues | `room.py:124-144` |
-| **FloorSlab** | `level` (inherited) | str | "Level 1" | Slab top sits at this level | `floor_slab.py:62` |
-| **FloorSlab** | `_level_offset_mm` | float | 0 | Vertical offset from level | `floor_slab.py:60` |
-| **FloorSlab** | `_thickness_mm` | float | 152.4 | Slab thickness; bottom Z = top Z − thickness | `floor_slab.py:59` |
+| **FloorSlab** | `z_range_mm()` | method | computed | **Two-boundary model** (top + bottom, each `level+offset` / `absolute`, bottom also `thickness`). Owning `.level`-for-geometry **retired 2026-08-28** (`_level_offset_mm` gone); visibility is pure z-range. Formula + fields owned by `wall-room-floor-system.md §11` | `floor_slab.py` |
 | **Roof** | `level` (inherited) | str | "Level 1" | Roof base elevation | `roof.py:23` |
 | **Roof** | (slope/pitch) | — | flat | Pitch affects 3D only; 2D treats roof as flat at level elevation | `roof.py:28-30` |
 | **Underlay** (DXF/PDF) | (none) | — | Z = 0 | Always at world Z = 0; not configurable | `underlay.py` |
@@ -258,13 +271,15 @@ one).
 A plan or section view instance is parameterized by a **Z slab** `[z_bottom, z_top]`:
 
 - **Anchor:** the view is anchored to a **level**.
-- **Default top:** `level.elevation + level.view_top` (`view_top` defaults to 2000 mm).
 - **Default bottom:** `level.elevation + level.view_bottom` (`view_bottom` defaults to −1000 mm).
-- **Override:** an instance may override `view_top`/`view_bottom` to non-default values. (Today this is exposed via `view_range_dialog.py`.)
-- **Intersection rule:** an item is visible iff its world-Z range (a single value or a `[z_bot, z_top]` returned by `z_range_mm()`) intersects the slab.
+- **Default top — dynamic, derived from the actual floor above (2026-08-28):** the plan's upper bound (`view_height` / cut plane) auto-derives at plan activation from the **bottom-z of the actual floor above** — the floor slab whose resolved top-z sits within `_VIEW_TOP_TOL_MM` (50 mm) of the next level's datum. This keeps a **thick / spanning floor above** from dipping below the cut plane and bleeding into the current plan. `LevelManager.compute_view_height(scene, level)` owns the rule; `fallback_view_height(level)` is the scene-independent tail — `next_datum − _DEFAULT_SLAB_THICKNESS_MM` (or, for the top level, `elevation + view_top`, `view_top` default 2000 mm) — shared by `compute_view_height`, `PlanViewManager.create`, and the dialog's Reset path (one home).
+- **Explicit-override flag:** `PlanView.view_height_explicit` gates the auto-derivation. When `False` (auto), `main._apply_plan_level` recomputes `view_height` via `compute_view_height` **for the render only** — never writing it back onto the cached `PlanView` (which would defeat the flag next load). When `True`, the user's pinned cut-plane height wins. `ViewRangeDialog` **sets** the flag `True` on any manual height edit and **clears** it (`False`) on Reset-to-Defaults (opt back into dynamic); the dialog receives `scene=` so its Reset preview uses `compute_view_height`. **Back-compat:** an old project file with no flag loads as `view_height_explicit = True` (never stomp a possibly-deliberate saved height we can't distinguish from an auto default).
+- **Scope (follow-up):** this dynamic upper bound applies to **on-screen plan rendering only**. The paper-space `SheetViewport` still renders from the cached `pv.view_height` via the `ViewResolver` (§6.5) — dynamic parity there ("paper-viewport dynamic view-height") is a documented follow-up.
+- **Override (bottom / manual top):** an instance may override `view_top`/`view_bottom` via `view_range_dialog.py`.
+- **Intersection rule:** an item is visible iff its world-Z range (a single value or a `[z_bot, z_top]` returned by `z_range_mm()`) intersects the slab. **Floors are pure z-range** (no `.level` fast-path — `wall-room-floor-system.md §11.3`).
 - **Cut/clip semantics:** items that *cross* `z_top` may be drawn cut/clipped (e.g. walls show as filled outlines at the cut plane); items that fall *below* `z_bottom` may be drawn dashed or hidden depending on view configuration.
 
-The implementation of intersection + cut today lives in `level_manager.py:33-50` (`_apply_z_filter`).
+The implementation of intersection + cut today lives in `level_manager.py` (`_apply_z_filter`).
 
 **Display override suppression:** When `_display_overrides["visible"]` is `False` on any item, `_set_level_vis()` returns early — the item remains hidden regardless of level or view-range logic. Hidden items are not selectable and skip Z-ordering.
 

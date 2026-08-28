@@ -4,8 +4,8 @@ status: current
 applies-to:
   - firepro3d/construction_geometry.py
   - firepro3d/model_space.py   # 2D-geometry placement + dispatch tables only
-last-verified: 2026-08-25
-verified-commit: eead762
+last-verified: 2026-08-28
+verified-commit: 579e841
 ---
 
 # 2D Geometry System
@@ -120,6 +120,17 @@ field-commit path), the instruction map, cursor map (`model_view.py`),
   `active_schema`). `rect_sizing_points()` in `construction_geometry.py` is now
   **shared** between the 2D-geo rectangle and the wall rectangle. See
   `wall-room-floor-system.md §4.4` for the full wall-placement contract.
+- **Floor (2026-08-28):** floor placement registers into the same dispatch as a
+  first-class client, mirroring the wall. One `"floor"` scene-mode carries
+  `_floor_primitive ∈ {"rect","polygon"}` + `_floor_rect_from_center`; ←/→ cycles
+  Corner Rect / Center Rect / Polygon via `_PLACEMENT_VARIANTS`; the rect variants
+  share the **3-step** (anchor → size → rotate) pattern with the shared
+  **"rotation"** HUD schema (step-aware `active_schema` → `_floor_schema_for_primitive`),
+  and reuse `rect_sizing_points()` / `rotated_rect_corners()`. The polygon variant
+  shares the polyline close-ring / Enter / double-click / **Delete-pop** UX. `F`
+  shortcut; `set_mode("floor_rect")` is a back-compat alias. The floor commits **one**
+  closed-polygon `FloorSlab` (not N segments). See `wall-room-floor-system.md §11.4`
+  for the full floor-placement + elevation-model contract.
 
 ## 5. Snap contribution (`snap_engine.py`)
 

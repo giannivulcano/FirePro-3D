@@ -1,12 +1,12 @@
 ---
 status: current
-last-verified: 2026-08-22
-verified-commit: 812db35
+last-verified: 2026-08-28
+verified-commit: 579e841
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
   - firepro3d/graphics/Ribbon/
-source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec"
+source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task"
 ---
 
 # Ribbon Icon Style Guide — Governing Spec
