@@ -87,6 +87,53 @@ _DXF_INSUNITS: dict[int, tuple[str, float]] = {
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# PDF architectural / engineering scale ratios
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MM_PER_POINT = 25.4 / 72.0   # a PDF point is 1/72 inch
+
+
+def pdf_scale_from_ratio(paper_mm: float, real_mm: float) -> float:
+    """import_scale (PDF points -> scene mm) for a paper:real drawing ratio.
+
+    Derived from the calibration ground truth ``scale = real_mm / source_units``
+    (source unit = point): a paper distance ``paper_mm`` occupies
+    ``paper_mm / _MM_PER_POINT`` points, so ``scale = real_mm / that``.
+    """
+    if paper_mm <= 0:
+        return 1.0
+    return (real_mm / paper_mm) * _MM_PER_POINT
+
+
+def _arch(label: str, paper_in: float, real_ft: float) -> tuple[str, float]:
+    return (label, pdf_scale_from_ratio(paper_in * 25.4, real_ft * 304.8))
+
+
+# Imperial architectural scales (paper inches : 1 foot).
+_ARCH_SCALES: list[tuple[str, float]] = [
+    _arch('1/8" = 1\'-0"', 0.125, 1.0),
+    _arch('3/16" = 1\'-0"', 0.1875, 1.0),
+    _arch('1/4" = 1\'-0"', 0.25, 1.0),
+    _arch('3/8" = 1\'-0"', 0.375, 1.0),
+    _arch('1/2" = 1\'-0"', 0.5, 1.0),
+    _arch('3/4" = 1\'-0"', 0.75, 1.0),
+    _arch('1" = 1\'-0"', 1.0, 1.0),
+    _arch('1-1/2" = 1\'-0"', 1.5, 1.0),
+    _arch('3" = 1\'-0"', 3.0, 1.0),
+]
+
+# Engineering scales (1 inch : N feet).
+_ENG_SCALES: list[tuple[str, float]] = [
+    _arch('1" = 10\'', 1.0, 10.0),
+    _arch('1" = 20\'', 1.0, 20.0),
+    _arch('1" = 30\'', 1.0, 30.0),
+    _arch('1" = 40\'', 1.0, 40.0),
+    _arch('1" = 50\'', 1.0, 50.0),
+    _arch('1" = 100\'', 1.0, 100.0),
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Data classes
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -734,8 +781,7 @@ class UnderlayImportDialog(QDialog):
         scale_row = QHBoxLayout()
         scale_row.addWidget(QLabel("Scale:"))
         self._scale_combo = QComboBox()
-        for label, _ in self._SCALE_OPTIONS:
-            self._scale_combo.addItem(label)
+        self._populate_scale_combo(is_pdf=False)  # PDF arch/eng added on load
         # Size to the widest item ("Custom…") instead of stretching full width.
         self._scale_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents)
@@ -763,6 +809,10 @@ class UnderlayImportDialog(QDialog):
         self._calibration_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
         place_vlay.addWidget(self._calibration_lbl)
+        self._scale_readout_lbl = QLabel("")
+        self._scale_readout_lbl.setStyleSheet("color: #6aa9ff; font-size: 11px;")
+        self._scale_readout_lbl.setVisible(False)
+        place_vlay.addWidget(self._scale_readout_lbl)
 
         place_vlay.addWidget(_sep())
 
@@ -1025,6 +1075,7 @@ class UnderlayImportDialog(QDialog):
         self._layout_cache.clear()  # new document — memo entries are stale
 
         # Auto-detect DXF units ($INSUNITS)
+        self._populate_scale_combo(is_pdf=False)  # clear any prior PDF arch scales
         self._detect_dxf_units(doc)
 
         # Detect layouts
@@ -1407,6 +1458,7 @@ class UnderlayImportDialog(QDialog):
         self._file_type = "pdf"
         self._pdf_opts_grp.setVisible(True)
         self._seed_pdf_options_from_prefs()
+        self._populate_scale_combo(is_pdf=True)   # offer architectural ratios
 
         if not _HAS_FITZ:
             QMessageBox.warning(self, "Missing dependency",
@@ -1542,6 +1594,7 @@ class UnderlayImportDialog(QDialog):
                     f"will import as raster image.")
 
         self._units_info_lbl.setVisible(False)
+        self._update_scale_readout()
         self._update_status()
 
     def _show_raster_preview(self, path: str, page: int, dpi: int = 150):
@@ -1868,10 +1921,33 @@ class UnderlayImportDialog(QDialog):
 
     # ── Scale ─────────────────────────────────────────────────────────────────
 
+    def _populate_scale_combo(self, is_pdf: bool):
+        """(Re)fill the scale combo, storing each preset's scale in itemData.
+
+        Architectural/engineering ratios are **PDF-only** — their points->mm
+        math is verified; DXF/DWG unit support is a follow-up.
+        """
+        combo = self._scale_combo
+        combo.blockSignals(True)
+        combo.clear()
+        for label, val in self._SCALE_OPTIONS:
+            combo.addItem(label, val)          # val=None for "Custom…"
+        if is_pdf:
+            combo.insertSeparator(combo.count())
+            for label, val in _ARCH_SCALES:
+                combo.addItem(label, val)
+            combo.insertSeparator(combo.count())
+            for label, val in _ENG_SCALES:
+                combo.addItem(label, val)
+        combo.setCurrentIndex(0)
+        combo.blockSignals(False)
+
     def _on_scale_combo_changed(self, idx: int):
-        _, val = self._SCALE_OPTIONS[idx]
-        self._custom_scale_edit.setVisible(val is None)
-        self._calibration_lbl.setVisible(val is None and bool(self._calibration_lbl.text()))
+        is_custom = self._scale_combo.currentData() is None   # "Custom…"
+        self._custom_scale_edit.setVisible(is_custom)
+        self._calibration_lbl.setVisible(
+            is_custom and bool(self._calibration_lbl.text()))
+        self._update_scale_readout()
 
     def _get_custom_scale(self) -> float:
         try:
@@ -1880,11 +1956,42 @@ class UnderlayImportDialog(QDialog):
             return 1.0
 
     def _current_scale(self) -> float:
-        idx = self._scale_combo.currentIndex()
-        _, val = self._SCALE_OPTIONS[idx]
-        if val is None:
-            return self._get_custom_scale()
-        return val
+        data = self._scale_combo.currentData()
+        if data is not None:
+            return float(data)
+        return self._get_custom_scale()   # "Custom…"
+
+    def _update_scale_readout(self):
+        """Show the real-world size of the loaded geometry at the current scale."""
+        lbl = getattr(self, "_scale_readout_lbl", None)
+        if lbl is None:
+            return
+        geoms = getattr(self, "_all_geoms", None)
+        if not geoms or self._scale_combo.currentData() is None:
+            lbl.setVisible(False)
+            return
+        xs, ys = [], []
+        for g in geoms:
+            k = g.get("kind")
+            if k == "line":
+                xs += [g["x1"], g["x2"]]; ys += [g["y1"], g["y2"]]
+            elif k == "path_points":
+                for p in g["points"]:
+                    xs.append(p[0]); ys.append(p[1])
+            elif k == "circle":
+                xs += [g["x"], g["x"] + g["w"]]; ys += [g["y"], g["y"] + g["h"]]
+        if not xs or not ys:
+            lbl.setVisible(False)
+            return
+        s = self._current_scale()
+        w_mm = (max(xs) - min(xs)) * s
+        h_mm = (max(ys) - min(ys)) * s
+        sm = getattr(self, "_sm", None)
+        if sm is not None:
+            lbl.setText(f"≈ {sm.format_length(w_mm)} × {sm.format_length(h_mm)} real")
+        else:
+            lbl.setText(f"≈ {w_mm:.0f} × {h_mm:.0f} mm real")
+        lbl.setVisible(True)
 
     def _start_pick2(self):
         self._pick_pts = []
