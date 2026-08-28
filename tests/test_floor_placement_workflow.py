@@ -24,6 +24,23 @@ from firepro3d.model_space import Model_Space
 from firepro3d.dynamic_input import SCHEMAS
 
 
+class _MoveEventStub:
+    """Minimal stand-in for ``QGraphicsSceneMouseEvent``.
+
+    PyQt6 refuses to instantiate QGraphicsSceneMouseEvent headlessly, and a
+    posted QMouseEvent does not drive the scene's mouseMoveEvent (project
+    limitation — see test_wall_placement_workflow.py / memory "QTest.mouseMove
+    is inert here").  The floor move handlers only touch ``event.modifiers()``,
+    so this stub covers the whole event surface they use.
+    """
+
+    def __init__(self, modifiers=None):
+        self._mods = modifiers or Qt.KeyboardModifier.NoModifier
+
+    def modifiers(self):
+        return self._mods
+
+
 def _click(view, scene_pt):
     """Post a left-button press+release at scene_pt through the real event pipeline."""
     vp = view.viewport()
@@ -177,3 +194,119 @@ def test_one_checkable_floor_button_no_menu(mw):
     assert btn is not None, "Floor mode button must be registered"
     assert btn.isCheckable() is True
     assert btn.menu() is None, "Floor button must have no dropdown menu"
+
+
+# ── HUD live-update during floor placement ────────────────────────────────────
+#
+# The passive HUD readout is what ``_seed_values_for(active_schema,
+# get_placement_anchor())`` returns after each move — that is exactly what
+# ``_sync_dynamic_input`` feeds to ``hud.set_values``.  These tests drive the
+# real move path (the ``_MOVE_DISPATCH`` handler the mouse uses) and read that
+# seed, NOT the dead ``_draw_dim_hint`` painted string.  A frozen readout shows
+# up as identical seed values at two different cursor positions.
+
+
+def _seeded(scene):
+    """Return the HUD seed values ``_sync_dynamic_input`` would push this frame."""
+    return scene._seed_values_for(scene.active_schema(),
+                                  scene.get_placement_anchor())
+
+
+def _drive_move(scene, snapped):
+    """Run the real per-mode move handler for the given cursor point.
+
+    Mirrors ``mouseMoveEvent``: clear the published point (the frame reset),
+    dispatch to the mode handler, then let the seed be read.  Posted
+    QMouseEvent is inert in PyQt6 (see module docstring), so the handler is
+    invoked the same way the dispatch table would.
+    """
+    scene.clear_placement_state()
+    scene._move_floor_router(_MoveEventStub(), snapped)
+
+
+def test_polygon_hud_length_live_updates(qapp, shown_model_view):
+    """Polygon: the seeded HUD Length/Angle must track the cursor after a vertex.
+
+    RED before the fix — ``_move_floor`` never called ``publish_placement_state``,
+    so ``get_resolved_point()`` stayed None and ``_seed_values_for`` fell back to
+    ``schema.seed(anchor, anchor)`` = a frozen zero-length readout at every
+    cursor position.
+    """
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    scene.cycle_placement_variant(+1)   # corner rect -> center rect
+    scene.cycle_placement_variant(+1)   # center rect -> polygon
+    assert scene._floor_primitive == "polygon"
+
+    _click(view, QPointF(0, 0))         # first vertex arms the polygon chain
+    assert scene._floor_active is not None
+
+    _drive_move(scene, QPointF(1000, 0))
+    pt_a = scene.get_resolved_point()
+    seed_a = _seeded(scene)
+    assert pt_a is not None, (
+        "_move_floor must publish the resolved cursor so the HUD can seed")
+
+    _drive_move(scene, QPointF(0, 1000))
+    pt_b = scene.get_resolved_point()
+    seed_b = _seeded(scene)
+    assert pt_b is not None
+
+    # The published point and the seeded readout must both reflect the cursor
+    # and DIFFER between the two positions (not frozen at zero).
+    assert seed_a["Length"] > 1.0
+    assert seed_b["Length"] > 1.0
+    assert abs(seed_a["Length"] - seed_b["Length"]) < 1e-6  # same 1000mm radius
+    assert abs(seed_a["Angle"] - seed_b["Angle"]) > 1.0     # 0° vs +90° differ
+
+
+def test_rect_hud_size_live_updates(qapp, shown_model_view):
+    """Corner Rect sizing: seeded W/H must track the cursor and differ per move."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    assert scene._floor_primitive == "rect"
+    assert scene._floor_rect_from_center is False
+
+    _click(view, QPointF(0, 0))         # first corner -> sizing step
+    assert scene._floor_rect_anchor is not None
+    assert scene._floor_rect_rotating is False
+
+    _drive_move(scene, QPointF(1000, 800))
+    pt_a = scene.get_resolved_point()
+    seed_a = _seeded(scene)
+    assert pt_a is not None, "sizing move must publish the far corner"
+
+    _drive_move(scene, QPointF(500, 300))
+    pt_b = scene.get_resolved_point()
+    seed_b = _seeded(scene)
+    assert pt_b is not None
+
+    # rectangle schema seeds the signed X/Y extents of the far corner.
+    assert abs(seed_a["X"] - 1000) < 1 and abs(seed_a["Y"]) > 0
+    assert abs(seed_b["X"] - 500) < 1
+    assert abs(seed_a["X"] - seed_b["X"]) > 1.0
+    assert abs(seed_a["Y"] - seed_b["Y"]) > 1.0
+
+
+def test_rect_hud_rotate_angle_live_updates(qapp, shown_model_view):
+    """Corner Rect rotate step: seeded Angle must track the cursor and differ."""
+    view, scene = shown_model_view
+    scene.set_mode("floor")
+    assert scene._floor_primitive == "rect"
+
+    _click(view, QPointF(0, 0))         # anchor
+    _click(view, QPointF(1000, 800))    # size -> rotate step
+    assert scene._floor_rect_rotating is True
+    assert scene.active_schema().name == "rotation"
+
+    _drive_move(scene, QPointF(1200, 0))
+    pt_a = scene.get_resolved_point()
+    seed_a = _seeded(scene)
+    assert pt_a is not None, "rotate move must publish the orientation point"
+
+    _drive_move(scene, QPointF(0, 1200))
+    pt_b = scene.get_resolved_point()
+    seed_b = _seeded(scene)
+    assert pt_b is not None
+
+    assert abs(seed_a["Angle"] - seed_b["Angle"]) > 1.0

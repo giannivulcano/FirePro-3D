@@ -6742,7 +6742,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._wall_preview_rect.show()
 
     def _move_floor(self, event, snapped):
-        sm = self.scale_manager
         if self._floor_active is None:
             self.update_preview_node(snapped)
             self.preview_pipe.hide()
@@ -6756,11 +6755,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             pen.setCosmetic(True)
             self.preview_pipe.setPen(pen)
             self.preview_pipe.show()
-            _dx = snapped.x() - last_pt.x()
-            _dy = snapped.y() - last_pt.y()
-            _len = math.hypot(_dx, _dy)
-            _ang = math.degrees(math.atan2(-_dy, _dx))
-            self._draw_dim_hint = f"L: {sm.scene_to_display(_len)}  A: {_ang:.1f}°"
+            # Publish the resolved cursor every frame so the passive HUD seeds
+            # a live per-segment Length/Angle from ``last_pt`` (the anchor
+            # ``get_placement_anchor`` returns for a floor polygon).  Mirrors
+            # ``_move_wall``; without it ``get_resolved_point()`` stays None and
+            # the ``line`` schema seeds ``seed(anchor, anchor)`` — a frozen 0mm/0°
+            # readout.  ``_draw_dim_hint`` is the legacy painted string and is
+            # dead under the HUD design (``publish_placement_state`` clears it).
+            self.publish_placement_state(last_pt, snapped)
 
     def _move_wall_rect(self, event, snapped):
         """Mouse-move preview for the wall rectangle primitive.
