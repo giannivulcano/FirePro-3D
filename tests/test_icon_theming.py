@@ -1,7 +1,20 @@
+import re
+
 from PyQt6.QtGui import QIcon
 
 from firepro3d import icons
+from firepro3d.assets import asset_path
 from firepro3d.svg_utils import svg_recolor
+
+# Architecture-tab icons authored against docs/specs/icon-style-guide.md.
+_ARCH_ICONS = [
+    "wall_icon.svg", "floor_icon.svg", "roof_icon.svg", "room_icon.svg",
+    "door_icon.svg", "window_icon.svg", "blank_icon.svg",
+    "detail_icon.svg", "levels_icon.svg", "gridline_icon.svg",
+]
+# Only these colour literals may appear (style-guide §4.1). Case-insensitive.
+_ALLOWED_HEX = {"#1a1a1a", "#004cff"}
+_HEX_RE = re.compile(r"#[0-9a-fA-F]{6,8}")
 
 _SVG = (
     '<?xml version="1.0"?>'
@@ -42,3 +55,34 @@ def test_theme_tokens_differ_light_vs_dark():
     assert icons.token_map(icons.LIGHT) != icons.token_map(icons.DARK)
     assert icons.token_map(icons.LIGHT)[icons.PRIMARY_SENTINEL] != \
            icons.token_map(icons.DARK)[icons.PRIMARY_SENTINEL]
+
+
+def test_architecture_icons_exist_and_are_two_token_compliant():
+    """Every Architecture-tab icon uses only the two authoring sentinels.
+
+    Guards the coverage mandate (style-guide §7) and the two-token rule (§4.1):
+    any other hex literal (or an 8-digit hex) would fail to retheme and show a
+    visual defect in one or both themes — exactly the bug the old white-hardcoded
+    gridline_icon had.
+    """
+    import os
+    for name in _ARCH_ICONS:
+        path = asset_path("Ribbon", name)
+        assert os.path.isfile(path), f"{name} missing from graphics/Ribbon"
+        raw = open(path, "r", encoding="utf-8").read()
+        for hexval in _HEX_RE.findall(raw):
+            assert len(hexval) == 7, f"{name}: 8-digit hex {hexval} is forbidden (§4.1)"
+            assert hexval.lower() in _ALLOWED_HEX, \
+                f"{name}: non-sentinel colour {hexval} will not retheme (§4.1)"
+
+
+def test_architecture_icons_render_nonblank_both_themes_no_fallback(qapp, caplog):
+    """Each icon resolves to a real file (no _missing_icon fallback warning)."""
+    icons._cache.clear()
+    for name in _ARCH_ICONS:
+        for theme in (icons.LIGHT, icons.DARK):
+            with caplog.at_level("WARNING", logger="firepro3d.icons"):
+                caplog.clear()
+                ic = icons.themed_icon(name, theme)
+            assert isinstance(ic, QIcon) and not ic.isNull()
+            assert "not found" not in caplog.text, f"{name} hit the fallback glyph"

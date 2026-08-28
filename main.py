@@ -1658,7 +1658,7 @@ class MainWindow(QMainWindow):
         # --- Building ---
         g_3d = build_page.add_group("Building")
         _wall_btn = g_3d.add_large_button(
-            "Wall", _I("placeholder_icon.svg"),
+            "Wall", _I("wall_icon.svg"),
             lambda: self.scene.set_mode("wall"),
             checkable=True)
         _wall_btn.setToolTip("Draw a wall  (W) — ←/→ Line/Polyline/Rectangle, Space aligns")
@@ -1671,7 +1671,7 @@ class MainWindow(QMainWindow):
             "Draw a floor  (F) — ←/→ Corner/Center Rect, Polygon")
         self._mode_buttons["floor"] = _floor_btn
         _roof_btn = g_3d.add_large_button(
-            "Roof", _I("placeholder_icon.svg"),
+            "Roof", _I("roof_icon.svg"),
             lambda: self.scene.set_mode("roof_rect"),
             checkable=True)
         _roof_btn.setToolTip("Draw a roof boundary")
@@ -1685,7 +1685,7 @@ class MainWindow(QMainWindow):
         self._mode_buttons["roof"] = _roof_btn
         self._mode_buttons["roof_rect"] = _roof_btn
         _room_btn = g_3d.add_large_button(
-            "Room", _I("placeholder_icon.svg"),
+            "Room", _I("room_icon.svg"),
             lambda: self.scene.set_mode("room"),
             checkable=True)
         _room_btn.setToolTip("Define a room boundary")
@@ -1699,25 +1699,25 @@ class MainWindow(QMainWindow):
         self._mode_buttons["room"] = _room_btn
         self._mode_buttons["room_manual"] = _room_btn
         _door_btn = g_3d.add_small_button(
-            "Door", _I("placeholder_icon.svg"),
+            "Door", _I("door_icon.svg"),
             lambda: self._enter_opening_mode("door"),
             checkable=True)
         _door_btn.setToolTip("Place a door opening in a wall")
         self._mode_buttons["door"] = _door_btn
         _window_btn = g_3d.add_small_button(
-            "Window", _I("placeholder_icon.svg"),
+            "Window", _I("window_icon.svg"),
             lambda: self._enter_opening_mode("window"),
             checkable=True)
         _window_btn.setToolTip("Place a window opening in a wall")
         self._mode_buttons["window"] = _window_btn
         _blank_btn = g_3d.add_small_button(
-            "Blank", _I("placeholder_icon.svg"),
+            "Blank", _I("blank_icon.svg"),
             lambda: self._enter_opening_mode("blank"),
             checkable=True)
         _blank_btn.setToolTip("Place a blank (frameless) opening in a wall")
         self._mode_buttons["blank"] = _blank_btn
         _detail_btn = g_3d.add_small_button(
-            "Detail", _I("placeholder_icon.svg"),
+            "Detail", _I("detail_icon.svg"),
             lambda: self.scene.set_mode("detail"),
             checkable=True)
         _detail_btn.setToolTip("Draw a detail view crop boundary")
@@ -1726,7 +1726,7 @@ class MainWindow(QMainWindow):
         # --- Datums ---
         g_datum = build_page.add_group("Datums")
         _btn = g_datum.add_large_button(
-            "Levels", _I("placeholder_icon.svg"),
+            "Levels", _I("levels_icon.svg"),
             self._open_level_dialog)
         _btn.setToolTip("Open Level Manager dialog")
         _mode_btn(g_datum, "Gridline", _I("gridline_icon.svg"), "draw_gridline").setToolTip(
