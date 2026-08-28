@@ -74,10 +74,12 @@ def test_undo_redo_present_on_manage(main_window):
 # each get their own entry because _mode_buttons[alias] = same_button is the
 # invariant; clicking the shared button verifies the wiring, not the alias.
 # Note: wall_rect was removed in Task 6 (single wall button, no dropdown).
+# floor_rect was likewise collapsed into the single Floor button (floor-workflow
+# branch) — it survives as a set_mode alias, not a distinct mode button.
 _SURVIVING_MODES = [
     "draw_line", "draw_rectangle", "draw_circle", "polyline", "draw_arc",
     "draw_gridline", "dimension", "text",
-    "wall", "floor", "floor_rect", "roof", "roof_rect",
+    "wall", "floor", "roof", "roof_rect",
     "room", "room_manual", "door", "window", "detail",
     "pipe", "sprinkler", "water_supply", "design_area",
     "radiation_emitter", "radiation_receiver",

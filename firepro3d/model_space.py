@@ -393,8 +393,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         self._wall_rect_ref_line0: "QGraphicsLineItem | None" = None
         self._wall_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._floor_active: "FloorSlab | None" = None       # in-progress floor boundary
+        self._floor_primitive: str = "rect"                 # variant for floor mode: "rect"|"polygon"
+        self._floor_rect_from_center: bool = False          # corner vs centre rect
         self._floor_rect_anchor: "QPointF | None" = None   # first click for rect floor
         self._floor_rect_preview: "QGraphicsRectItem | None" = None
+        # Rect-floor rotate step (mirrors the wall rect rotate step)
+        self._floor_rect_sized_pt1: "QPointF | None" = None
+        self._floor_rect_sized_pt2: "QPointF | None" = None
+        self._floor_rect_rotating: bool = False
+        self._floor_rect_pivot: "QPointF | None" = None
+        self._floor_rect_ref_line0: "QGraphicsLineItem | None" = None
+        self._floor_rect_ref_lineA: "QGraphicsLineItem | None" = None
         self._geometry_template = None                      # pre-placement template for geometry tools
         # Opening placement (§7.6): unified door/window/blank mode carrying a
         # Feature id + pre-commit cycle state (alignment / hinge / facing).
@@ -842,6 +851,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if hasattr(self, "_variant_index"):
                 self._variant_index["wall"] = 2  # "Wall (Corner Rectangle)" slot
             mode = "wall"
+        # Backward-compat alias: the old ribbon menu calls set_mode("floor_rect").
+        # Fold into unified "floor" mode with the corner-rect primitive selected
+        # (index 0) so all downstream logic sees mode == "floor".
+        if mode == "floor_rect":
+            self._floor_primitive = "rect"
+            self._floor_rect_from_center = False
+            if hasattr(self, "_variant_index"):
+                self._variant_index["floor"] = 0  # "Floor (Corner Rectangle)" slot
+            mode = "floor"
         # A HUD outlives neither its schema nor its anchor: leaving one open
         # across a mode switch would strand a widget whose applier belongs to
         # the mode just left.  Closed before self.mode changes so the tear-down
@@ -1072,7 +1090,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._wall_preview_rect.scene() is self:
                     self.removeItem(self._wall_preview_rect)
                 self._wall_preview_rect = None
-        # Clean up floor drawing state
+        # Clean up floor drawing state (unified: polygon + rect share "floor")
         if mode != "floor":
             if self._floor_active is not None:
                 if len(self._floor_active._points) < 3:
@@ -1081,6 +1099,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     if self._floor_active in self._floor_slabs:
                         self._floor_slabs.remove(self._floor_active)
                 self._floor_active = None
+            # Rect-floor state (anchor / rotate step / previews / ref guides).
+            self._floor_rect_anchor = None
+            self._floor_rect_rotating = False
+            self._floor_rect_sized_pt1 = None
+            self._floor_rect_sized_pt2 = None
+            self._floor_rect_pivot = None
+            self._clear_floor_rect_ref_lines()
+            if self._floor_rect_preview is not None:
+                if self._floor_rect_preview.scene() is self:
+                    self.removeItem(self._floor_rect_preview)
+                self._floor_rect_preview = None
         if mode != "wall":
             self._wall_rect_anchor = None
             self._wall_rect_rotating = False
@@ -1096,12 +1125,6 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._wall_rect_thickness_preview.scene() is self:
                     self.removeItem(self._wall_rect_thickness_preview)
                 self._wall_rect_thickness_preview = None
-        if mode != "floor_rect":
-            self._floor_rect_anchor = None
-            if self._floor_rect_preview is not None:
-                if self._floor_rect_preview.scene() is self:
-                    self.removeItem(self._floor_rect_preview)
-                self._floor_rect_preview = None
         # Clean up roof drawing state
         if mode != "roof":
             if self._roof_active is not None:
@@ -4028,6 +4051,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return self._polygon_schema_for_step()
         if self.mode == "wall":
             return self._wall_schema_for_primitive()
+        if self.mode == "floor":
+            return self._floor_schema_for_primitive()
         key = self._SCHEMA_FOR_MODE.get(self.mode)
         return SCHEMAS.get(key) if key else None
 
@@ -4198,6 +4223,19 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return QPointF(a) if a is not None else None
             a = self._wall_anchor
             return QPointF(a) if a is not None else None
+        if self.mode == "floor":
+            if self._floor_primitive == "rect":
+                # Rotate step: pivot is the anchor.
+                if self._floor_rect_rotating:
+                    p = self._floor_rect_pivot
+                    return QPointF(p) if p is not None else None
+                a = self._floor_rect_anchor
+                return QPointF(a) if a is not None else None
+            # Polygon: anchor is the last placed vertex (rubber-band from it).
+            fa = self._floor_active
+            if fa is not None and fa._points:
+                return QPointF(fa._points[-1])
+            return None
         if self.mode == "polyline":
             pl = self._polyline_active
             if pl is not None and pl._points:
@@ -4266,6 +4304,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         # cases it per primitive, and this router dispatches to the same press
         # handlers the mouse uses.
         "wall": "_apply_wall_dynamic_input",
+        # floor mirrors wall: primitive-aware (rect step-aware / polygon), the
+        # router dispatches to the same press handlers the mouse uses.
+        "floor": "_apply_floor_dynamic_input",
     }
 
     # Mode -> ordered placement variants: (label, first-point instruction,
@@ -4303,6 +4344,14 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 ("Wall (Center Rectangle)", "Pick centre point",
                  lambda s: s._set_wall_primitive("rect", from_center=True)),
             ],
+            "floor": [
+                ("Floor (Corner Rectangle)", "Pick first corner",
+                 lambda s: s._set_floor_primitive("rect", from_center=False)),
+                ("Floor (Center Rectangle)", "Pick centre point",
+                 lambda s: s._set_floor_primitive("rect", from_center=True)),
+                ("Floor (Polygon)", "Pick first boundary point",
+                 lambda s: s._set_floor_primitive("polygon")),
+            ],
         }
         self._variant_index = {m: 0 for m in self._PLACEMENT_VARIANTS}
 
@@ -4320,6 +4369,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             return (self._wall_anchor is None
                     and self._wall_rect_anchor is None
                     and not self._wall_rect_rotating)
+        if self.mode == "floor":
+            return (self._floor_active is None
+                    and self._floor_rect_anchor is None
+                    and not self._floor_rect_rotating)
         return False
 
     def _apply_current_variant(self) -> None:
@@ -4441,6 +4494,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """
         if self._wall_primitive == "rect":
             if self._wall_rect_rotating:
+                return SCHEMAS.get("rotation")
+            return SCHEMAS.get("rectangle")
+        return SCHEMAS.get("line")
+
+    def _floor_schema_for_primitive(self):
+        """HUD schema for the active floor primitive.
+
+        Rect → step-aware: sizing step uses ``rectangle`` schema, rotate step
+        uses ``rotation`` schema.  Polygon → ``line`` schema (per-segment
+        length/angle readout, same as the wall line/polyline).  Mirrors
+        ``_wall_schema_for_primitive``.
+        """
+        if self._floor_primitive == "rect":
+            if self._floor_rect_rotating:
                 return SCHEMAS.get("rotation")
             return SCHEMAS.get("rectangle")
         return SCHEMAS.get("line")
@@ -4877,6 +4944,8 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return {"Angle": self._polygon_rotation_angle_to(point)}
             if self.mode == "wall":
                 return {"Angle": self._wall_rect_rotation_angle_to(point)}
+            if self.mode == "floor":
+                return {"Angle": self._floor_rect_rotation_angle_to(point)}
             return {"Angle": self._rect_rotation_angle_to(point)}
         if schema.name == "arc_span":
             # Live span from the resolved point — the same sweep the third click
@@ -5786,8 +5855,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "mirror":                   "_move_mirror",
         "stretch":                  "_move_stretch",
         "wall":                     "_move_wall_router",
-        "floor":                    "_move_floor",
-        "floor_rect":               "_move_floor_rect",
+        "floor":                    "_move_floor_router",
         "roof":                     "_move_roof",
         "roof_rect":                "_move_roof_rect",
         "room_manual":              "_move_room_manual",
@@ -6697,19 +6765,46 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 self._wall_rect_thickness_preview.show()
 
     def _move_floor_rect(self, event, snapped):
+        """Mouse-move preview for the floor rectangle primitive.
+
+        Rotate step: spins the sized preview rect about the pivot + updates ref
+        guides + publishes the orientation.  Sizing step: updates the
+        axis-aligned preview rect (corner or centre) and publishes the far
+        corner.  Mirrors ``_move_wall_rect`` (minus the wall thickness overlay).
+        """
         sm = self.scale_manager
+        if self._floor_rect_rotating:
+            # Rotate step: spin the sized preview rect about the pivot.
+            self.preview_node.hide()
+            self.preview_pipe.hide()
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._floor_rect_pivot is not None):
+                snapped = self._constrain_angle(self._floor_rect_pivot, snapped)
+            angle = self._floor_rect_rotation_angle_to(snapped)
+            if (self._floor_rect_preview is not None
+                    and self._floor_rect_pivot is not None):
+                self._floor_rect_preview.setTransformOriginPoint(self._floor_rect_pivot)
+                self._floor_rect_preview.setRotation(-angle)   # Y-up CCW → Qt CW negate
+            self._update_floor_rect_ref_lines(angle)
+            self.publish_placement_state(self._floor_rect_pivot, snapped)
+            return
         if self._floor_rect_anchor is None:
             self.update_preview_node(snapped)
         else:
             self.preview_node.hide()
         self.preview_pipe.hide()
         if self._floor_rect_anchor is not None and self._floor_rect_preview is not None:
-            rect = QRectF(self._floor_rect_anchor, snapped).normalized()
+            from .construction_geometry import rect_sizing_points
+            anc = self._floor_rect_anchor
+            pt1, pt2 = rect_sizing_points(anc, snapped, self._floor_rect_from_center)
+            rect = QRectF(pt1, pt2).normalized()
             self._floor_rect_preview.setRect(rect)
             self._draw_dim_hint = (
                 f"W: {sm.scene_to_display(rect.width())}  "
                 f"H: {sm.scene_to_display(rect.height())}"
             )
+            self.publish_placement_state(anc, snapped)
 
     def _move_roof(self, event, snapped):
         sm = self.scale_manager
@@ -6985,7 +7080,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_line", "draw_gridline", "draw_rectangle", "draw_circle",
         "draw_arc", "polyline", "polygon", "pipe", "sprinkler",
         "dimension", "text", "set_scale", "water_supply", "design_area",
-        "wall", "floor", "floor_rect", "roof", "roof_rect", "room_manual",
+        "wall", "floor", "roof", "roof_rect", "room_manual",
         "opening", "door", "window", "detail",
         "gridline_offset", "gridline_array",
         "move", "paste",
@@ -7032,8 +7127,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         "draw_circle":              "_press_draw_circle",
         "polygon":                  "_press_polygon",
         "wall":                     "_press_wall_router",
-        "floor":                    "_press_floor",
-        "floor_rect":               "_press_floor_rect",
+        "floor":                    "_press_floor_router",
         "roof":                     "_press_roof",
         "roof_rect":                "_press_roof_rect",
         "opening":                  "_press_opening",
@@ -8918,6 +9012,24 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         At one remaining vertex the in-progress polyline is discarded and the
         tool re-arms.  Returns True when it handled the key (placement active).
         """
+        # Floor polygon placement: pop the last boundary vertex (discard the
+        # in-progress slab at one vertex).  Shares the Delete-pop UX with the
+        # polyline tool.
+        if self.mode == "floor" and self._floor_active is not None:
+            fa = self._floor_active
+            if len(fa._points) <= 1:
+                if fa.scene() is self:
+                    self.removeItem(fa)
+                if fa in self._floor_slabs:
+                    self._floor_slabs.remove(fa)
+                self._floor_active = None
+                self.preview_pipe.hide()
+                self.instructionChanged.emit("Pick first boundary point")
+            else:
+                fa._points.pop()
+                fa._rebuild_path()
+            for v in self.views(): v.viewport().update()
+            return True
         pl = self._polyline_active
         if self.mode != "polyline" or pl is None:
             return False
@@ -9810,24 +9922,83 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "Pick centre point" if _from_centre else "Pick first corner")
         return True
 
-    # ── Floor drawing ─────────────────────────────────────────────────
+    # ── Floor placement (unified dispatch — mirrors the wall pattern) ─────────
+    def _set_floor_primitive(self, primitive, from_center=False):
+        """Apply the floor primitive variant (called by _PLACEMENT_VARIANTS apply_fn).
+
+        Sets ``_floor_primitive`` and, for the rect primitives, also sets
+        ``_floor_rect_from_center`` so corner and centre variants are distinct.
+        Mirrors ``_set_wall_primitive``.
+        """
+        self._floor_primitive = primitive
+        if primitive == "rect":
+            self._floor_rect_from_center = from_center
+
+    def _press_floor_router(self, *args):
+        """Dispatch a floor click to the active primitive's builder."""
+        if self._floor_primitive == "rect":
+            return self._press_floor_rect(*args)
+        return self._press_floor(*args)   # polygon
+
+    def _move_floor_router(self, *args):
+        """Dispatch a floor mouse-move to the active primitive's preview builder."""
+        if self._floor_primitive == "rect":
+            return self._move_floor_rect(*args)
+        return self._move_floor(*args)    # polygon
+
+    def _apply_floor_dynamic_input(self, geometry) -> bool:
+        """Commit a typed floor placement via the same builders the mouse uses.
+
+        Rect: sizing step advances to the rotate step; rotate step commits the
+        4 rotated corners.  Polygon: routes the resolved point through the
+        vertex press handler.  Mirrors ``_apply_wall_dynamic_input``.
+        """
+        if self._floor_primitive == "rect":
+            if self._floor_rect_rotating:
+                return self._commit_floor_rect_rotated(geometry["angle_deg"])
+            return self._advance_floor_rect_to_rotate_step(geometry)
+        else:
+            self._press_floor(None, geometry, geometry, None, None, None)
+        return True
+
+    def _apply_floor_template_fields(self, slab) -> None:
+        """Copy the floor template's model fields onto a freshly-built slab.
+
+        Applies the two-boundary elevation model (top/bottom mode/level/offset/
+        abs-z), thickness, and the annotation level so a placed slab inherits the
+        template the user edited pre-placement — the parity gap the old
+        thickness-only copy left open.
+        """
+        tmpl = self._get_floor_template()
+        slab._thickness_mm = tmpl._thickness_mm
+        slab._top_mode = tmpl._top_mode
+        slab._top_level = tmpl._top_level if tmpl._top_level else self.active_level
+        slab._top_offset_mm = tmpl._top_offset_mm
+        slab._top_abs_z_mm = tmpl._top_abs_z_mm
+        slab._bottom_mode = tmpl._bottom_mode
+        slab._bottom_level = tmpl._bottom_level if tmpl._bottom_level else self.active_level
+        slab._bottom_offset_mm = tmpl._bottom_offset_mm
+        slab._bottom_abs_z_mm = tmpl._bottom_abs_z_mm
+        slab.level = tmpl.level if tmpl.level else self.active_level
+
+    # ── Floor polygon (click-vertex) ──────────────────────────────────────────
     def _press_floor(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._floor_active is None:
             _ftmpl = self._get_floor_template()
             slab = FloorSlab(color=_ftmpl._color.name())
             slab.name = f"Floor {self._next_floor_num}"
             self._next_floor_num += 1
-            slab._thickness_mm = _ftmpl._thickness_mm
-            slab.level = _ftmpl.level if _ftmpl.level else self.active_level
+            self._apply_floor_template_fields(slab)
             slab.add_point(snapped)
             self.addItem(slab)
             self._floor_slabs.append(slab)
             self._floor_active = slab
             self.update_preview_node(snapped)
-            self.instructionChanged.emit("Pick next point (click near first or Enter to close)")
+            self.instructionChanged.emit(
+                "Pick next boundary point (click near first / Enter / double-click to close, Del pops)")
         else:
             pts = self._floor_active._points
-            # Close-near-first: if ≥3 points and click is within snap tolerance of first vertex
+            # Close-near-first: ≥3 points and click within snap tolerance of first vertex.
             if len(pts) >= 3:
                 scale = self._active_view_scale()
                 tol = 8.0 / max(scale, 1e-6)
@@ -9840,32 +10011,38 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.preview_pipe.hide()
                     for v in self.views(): v.viewport().update()
                     self.push_undo_state()
-                    self.instructionChanged.emit("Pick first boundary point (click near first to close)")
+                    self.instructionChanged.emit("Pick first boundary point (←/→ to change)")
                     return
-            # Click-to-delete vertex: if click is near an existing vertex (8px) → remove it
-            if len(pts) >= 2:
-                scale = self._active_view_scale()
-                tol = 8.0 / max(scale, 1e-6)
-                for vi in range(len(pts)):
-                    dv = math.hypot(snapped.x() - pts[vi].x(), snapped.y() - pts[vi].y())
-                    if dv <= tol:
-                        pts.pop(vi)
-                        self._floor_active._rebuild_path()
-                        for v in self.views(): v.viewport().update()
-                        return
             self._floor_active.add_point(snapped)
 
-    # ── Floor rectangle (2-click) ─────────────────────────────────────
+    # ── Floor rectangle (3-step: anchor → size → rotate) ──────────────────────
     def _press_floor_rect(self, event, pos, snapped, item_under, node_under, pipe_under):
-        if self._floor_rect_anchor is None:
+        """3-step floor-rectangle placement, mirroring ``_press_wall_rect``.
+
+        Step 1 (no anchor): store anchor, create dashed preview.
+        Step 2 (anchor set, not rotating): advance to rotate step.
+        Step 3 (rotating): commit ONE 4-corner FloorSlab at the rotation angle.
+        """
+        if self._floor_rect_rotating:
+            # Third click: commit at the pivot→cursor heading.
+            if (event is not None
+                    and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                    and self._floor_rect_pivot is not None):
+                snapped = self._constrain_angle(self._floor_rect_pivot, snapped)
+            self._commit_floor_rect_rotated(
+                self._floor_rect_rotation_angle_to(snapped))
+        elif self._floor_rect_anchor is None:
+            # First click: store anchor, show dashed preview rect.
             self._floor_rect_anchor = snapped
-            self.instructionChanged.emit("Pick opposite corner for rectangular floor")
-            # Create preview rect
-            preview = QGraphicsRectItem(QRectF(snapped, snapped))
+            self.update_preview_node(snapped)
+            _instr = ("Pick corner (from centre)" if self._floor_rect_from_center
+                      else "Pick opposite corner for rectangular floor")
+            self.instructionChanged.emit(_instr)
             _ftmpl = self._get_floor_template()
             _fc = QColor(_ftmpl._color)
             pen = QPen(_fc, 1, Qt.PenStyle.DashLine)
             pen.setCosmetic(True)
+            preview = QGraphicsRectItem(QRectF(snapped, snapped))
             preview.setPen(pen)
             _fc.setAlpha(30)
             preview.setBrush(QBrush(_fc))
@@ -9873,32 +10050,122 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self.addItem(preview)
             self._floor_rect_preview = preview
         else:
-            # Commit rectangular floor
-            rect = QRectF(self._floor_rect_anchor, snapped).normalized()
-            corners = [
-                QPointF(rect.x(), rect.y()),
-                QPointF(rect.x() + rect.width(), rect.y()),
-                QPointF(rect.x() + rect.width(), rect.y() + rect.height()),
-                QPointF(rect.x(), rect.y() + rect.height()),
-            ]
-            _ftmpl = self._get_floor_template()
-            slab = FloorSlab(points=corners, color=_ftmpl._color.name())
-            slab.name = f"Floor {self._next_floor_num}"
-            self._next_floor_num += 1
-            slab._thickness_mm = _ftmpl._thickness_mm
-            slab.level = _ftmpl.level if _ftmpl.level else self.active_level
-            self.addItem(slab)
-            self._floor_slabs.append(slab)
-            apply_category_defaults(slab)
-            slab.setSelected(True)
-            for v in self.views(): v.viewport().update()
-            # Clean up preview
-            if self._floor_rect_preview is not None:
+            # Second click: size the axis-aligned rect and enter rotate step.
+            self._advance_floor_rect_to_rotate_step(snapped)
+
+    def _floor_rect_rotation_angle_to(self, cursor) -> float:
+        """Return Y-up degrees from +x (pivot → cursor).  Falls back to 0°."""
+        piv = self._floor_rect_pivot
+        if piv is None:
+            return 0.0
+        return math.degrees(math.atan2(-(cursor.y() - piv.y()),
+                                       cursor.x() - piv.x()))
+
+    def _advance_floor_rect_to_rotate_step(self, corner) -> bool:
+        """Advance the armed floor rect from sizing to rotate step.
+
+        Mirrors ``_advance_wall_rect_to_rotate_step``.  Computes the axis-aligned
+        pt1/pt2 via ``rect_sizing_points``, rejects extents <0.5, stores state,
+        snaps the preview rect, creates ref guides, emits instruction.
+        """
+        from .construction_geometry import rect_sizing_points
+        anc = self._floor_rect_anchor
+        if anc is None:
+            return False
+        pt1, pt2 = rect_sizing_points(anc, corner, self._floor_rect_from_center)
+        if abs(pt2.x() - pt1.x()) < 0.5 or abs(pt2.y() - pt1.y()) < 0.5:
+            self._show_status("Floor rectangle too small — skipped", timeout=2000)
+            return False
+        self._floor_rect_sized_pt1 = pt1
+        self._floor_rect_sized_pt2 = pt2
+        self._floor_rect_pivot = QPointF(anc)
+        self._floor_rect_rotating = True
+        if self._floor_rect_preview is not None:
+            self._floor_rect_preview.setRect(QRectF(pt1, pt2).normalized())
+        self._clear_floor_rect_ref_lines()
+        self._floor_rect_ref_line0 = self._make_ref_line()
+        self._floor_rect_ref_lineA = self._make_ref_line()
+        self._update_floor_rect_ref_lines(0.0)
+        self.clear_placement_state()
+        self.instructionChanged.emit("Pick rotation / type angle")
+        return True
+
+    def _commit_floor_rect_rotated(self, angle_deg) -> bool:
+        """Commit the sized floor rectangle rotated to ``angle_deg`` about its pivot.
+
+        Uses ``rotated_rect_corners`` to compute the 4 scene-space corners, then
+        builds ONE ``FloorSlab`` from them (mirrors ``_commit_wall_rect_rotated``,
+        which builds 4 walls — a floor is a single closed polygon).  Clears all
+        rect state and re-arms continuous placement.
+        """
+        from .construction_geometry import rotated_rect_corners
+        pt1 = self._floor_rect_sized_pt1
+        pt2 = self._floor_rect_sized_pt2
+        pivot = self._floor_rect_pivot
+        if pt1 is None or pt2 is None or pivot is None:
+            return False
+        corners = rotated_rect_corners(pt1, pt2, angle_deg, pivot)
+        _ftmpl = self._get_floor_template()
+        slab = FloorSlab(points=list(corners), color=_ftmpl._color.name())
+        slab.name = f"Floor {self._next_floor_num}"
+        self._next_floor_num += 1
+        self._apply_floor_template_fields(slab)
+        self.addItem(slab)
+        self._floor_slabs.append(slab)
+        apply_category_defaults(slab)
+        slab.setSelected(True)
+        for v in self.views():
+            v.viewport().update()
+        # Clean up preview + ref guides.
+        if self._floor_rect_preview is not None:
+            if self._floor_rect_preview.scene() is self:
                 self.removeItem(self._floor_rect_preview)
-                self._floor_rect_preview = None
-            self._floor_rect_anchor = None
-            self.push_undo_state()
-            self.instructionChanged.emit("Pick first corner for rectangular floor")
+            self._floor_rect_preview = None
+        self._clear_floor_rect_ref_lines()
+        # Reset all rect state (re-arm continuous placement).
+        _from_centre = self._floor_rect_from_center
+        self._floor_rect_anchor = None
+        self._floor_rect_rotating = False
+        self._floor_rect_sized_pt1 = None
+        self._floor_rect_sized_pt2 = None
+        self._floor_rect_pivot = None
+        self.clear_placement_state()
+        self.push_undo_state()
+        self.instructionChanged.emit(
+            "Pick centre point" if _from_centre else "Pick first corner")
+        return True
+
+    def _clear_floor_rect_ref_lines(self) -> None:
+        """Remove floor-rect rotate-step reference guides from the scene."""
+        for attr in ("_floor_rect_ref_line0", "_floor_rect_ref_lineA"):
+            line = getattr(self, attr, None)
+            if line is not None:
+                if line.scene() is self:
+                    self.removeItem(line)
+                setattr(self, attr, None)
+
+    def _update_floor_rect_ref_lines(self, angle_deg) -> None:
+        """Point the two floor-rect rotate-step guides from the pivot.
+
+        Mirrors ``_update_wall_rect_ref_lines``: a 0° datum + the live sweep line
+        at ``angle_deg``, both diagonal-length so they frame the sized rectangle.
+        A no-op until both guides and the sized rect exist.
+        """
+        piv = self._floor_rect_pivot
+        if (piv is None or self._floor_rect_ref_line0 is None
+                or self._floor_rect_ref_lineA is None
+                or self._floor_rect_sized_pt1 is None
+                or self._floor_rect_sized_pt2 is None):
+            return
+        p1, p2 = self._floor_rect_sized_pt1, self._floor_rect_sized_pt2
+        length = math.hypot(p2.x() - p1.x(), p2.y() - p1.y())
+        rad = math.radians(angle_deg)
+        self._floor_rect_ref_line0.setLine(piv.x(), piv.y(),
+                                           piv.x() + length, piv.y())
+        self._floor_rect_ref_lineA.setLine(
+            piv.x(), piv.y(),
+            piv.x() + length * math.cos(rad),
+            piv.y() - length * math.sin(rad))   # Y-up: subtract sin
 
     # ── Detail view placement ──────────────────────────────────────────
 

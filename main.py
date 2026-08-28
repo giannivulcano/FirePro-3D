@@ -1656,18 +1656,11 @@ class MainWindow(QMainWindow):
         self._mode_buttons["wall"] = _wall_btn
         _floor_btn = g_3d.add_large_button(
             "Floor", _I("placeholder_icon.svg"),
-            lambda: self.scene.set_mode("floor_rect"),
+            lambda: self.scene.set_mode("floor"),
             checkable=True)
-        _floor_btn.setToolTip("Draw a floor slab boundary")
-        _floor_menu = QMenu(_floor_btn)
-        _floor_rect_act = _floor_menu.addAction("Floor (Rectangle)")
-        _floor_poly_act = _floor_menu.addAction("Floor (Polygon)")
-        _floor_rect_act.triggered.connect(lambda: self.scene.set_mode("floor_rect"))
-        _floor_poly_act.triggered.connect(lambda: self.scene.set_mode("floor"))
-        _floor_btn.setMenu(_floor_menu)
-        _floor_btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        _floor_btn.setToolTip(
+            "Draw a floor  (F) — ←/→ Corner/Center Rect, Polygon")
         self._mode_buttons["floor"] = _floor_btn
-        self._mode_buttons["floor_rect"] = _floor_btn
         _roof_btn = g_3d.add_large_button(
             "Roof", _I("placeholder_icon.svg"),
             lambda: self.scene.set_mode("roof_rect"),
