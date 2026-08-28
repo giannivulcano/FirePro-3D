@@ -8,6 +8,7 @@
 
 | Subsystem | Governing spec | Primary modules (`firepro3d/`) | Status |
 |---|---|---|---|
+| **Model_Space composition / decomposition** (structural) | `specs/model-space-architecture.md` | `model_space.py` (composition/seams — behavior slices governed by the per-subsystem specs below), `scene_tools.py`, `scene_io.py` | partial (as-built composition current; target decomposition proposal — forged 2026-08-28) |
 | Snapping / OSNAP engine | `specs/snapping-engine.md` | `snap_engine.py`, `model_view.py` | current |
 | SNAP toolbar / per-type toggles | `specs/snap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
 | Ribbon bar (tabs/groups/buttons, mode-button sync, contextual tabs) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `icons.py`, `preferences_dialog.py`, `main.py` (`init_ribbon` + `_init_*_tab` + contextual-tab mechanism) | current |
