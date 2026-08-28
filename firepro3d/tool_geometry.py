@@ -3,7 +3,7 @@ tool_geometry.py
 ================
 Pure, item-aware geometry helpers for the modify/draw tools.
 
-Extracted from :class:`SceneToolsMixin` (``scene_tools.py``) as the first slice
+Extracted from :class:`SceneTools` (``scene_tools.py``) as the first slice
 of the Model_Space decomposition (see ``docs/specs/model-space-architecture.md``
 §6, slice A). These functions take scene *items* and plain values and return
 computed geometry — they hold **no** scene state, mutate **no** scene, and do
@@ -15,7 +15,7 @@ math) and *below* the interactive tool state-machines that remain on the scene.
 It dispatches on ``construction_geometry`` item types, so it cannot live in
 those lower modules without creating an import cycle.
 
-``SceneToolsMixin`` retains thin wrappers that delegate here, so every existing
+``SceneTools`` retains thin wrappers that delegate here, so every existing
 caller (and the ``tests/test_scene_tools.py`` parity net) is unchanged.
 """
 

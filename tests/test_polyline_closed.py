@@ -59,6 +59,6 @@ def test_offset_of_closed_polyline_stays_closed(qapp):
     pl.close()
     scene.addItem(pl)
     scene._polylines.append(pl)
-    offset = scene._make_offset_item(pl, 10.0)
+    offset = scene._tools._make_offset_item(pl, 10.0)
     assert offset is not None
     assert offset.is_closed() is True

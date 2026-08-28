@@ -1,7 +1,7 @@
 """Direct tests for tool_geometry.py — the pure item-aware geometry helpers
-extracted from SceneToolsMixin (Model_Space decomposition slice A).
+extracted from SceneTools (Model_Space decomposition slice A).
 
-The behavior is already exercised through the SceneToolsMixin wrappers in
+The behavior is already exercised through the SceneTools wrappers in
 tests/test_scene_tools.py (the parity net). These tests lock the *module* API
 directly and cover the two helpers the parity net never touched:
 point_to_segment_dist and compute_extend_intersections.

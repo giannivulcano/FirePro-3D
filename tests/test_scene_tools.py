@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView
 from firepro3d.construction_geometry import (
     LineItem, PolylineItem, CircleItem, RectangleItem, ArcItem,
 )
-from firepro3d.scene_tools import SceneToolsMixin, extract_edges
+from firepro3d.scene_tools import SceneTools, extract_edges
 from firepro3d.cad_math import CAD_Math
 from firepro3d import geometry_intersect as gi
 
@@ -31,14 +31,15 @@ def _flush():
 
 
 # ---------------------------------------------------------------------------
-# Minimal scene stub that satisfies SceneToolsMixin's dependencies
+# Minimal scene stub that satisfies SceneTools's dependencies
 # ---------------------------------------------------------------------------
 
-class _StubScene(SceneToolsMixin, QGraphicsScene):
-    """Thin scene that mixes in SceneToolsMixin and provides required attrs."""
+class _StubScene(QGraphicsScene):
+    """Thin scene that composes SceneTools and provides required attrs."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._tools = SceneTools(self)
         self._draw_lines: list = []
         self._draw_rects: list = []
         self._draw_circles: list = []
@@ -90,11 +91,11 @@ def scene(qapp):
 
 
 class TestOffsetLineIntersection:
-    """SceneToolsMixin._offset_line_intersection — 2D infinite line intersect."""
+    """SceneTools._offset_line_intersection — 2D infinite line intersect."""
 
     def test_perpendicular_lines(self, scene):
         # Horizontal line through origin, vertical line through (5,0)
-        pt = scene._offset_line_intersection(
+        pt = scene._tools._offset_line_intersection(
             QPointF(0, 0), QPointF(1, 0),   # line 1: horizontal
             QPointF(5, 0), QPointF(0, 1),   # line 2: vertical at x=5
         )
@@ -104,7 +105,7 @@ class TestOffsetLineIntersection:
 
     def test_angled_lines(self, scene):
         # y = x  and  y = -x + 10  => intersect at (5, 5)
-        pt = scene._offset_line_intersection(
+        pt = scene._tools._offset_line_intersection(
             QPointF(0, 0), QPointF(1, 1),
             QPointF(10, 0), QPointF(-1, 1),
         )
@@ -113,14 +114,14 @@ class TestOffsetLineIntersection:
         assert abs(pt.y() - 5.0) < 1e-6
 
     def test_parallel_returns_none(self, scene):
-        pt = scene._offset_line_intersection(
+        pt = scene._tools._offset_line_intersection(
             QPointF(0, 0), QPointF(1, 0),
             QPointF(0, 5), QPointF(1, 0),
         )
         assert pt is None
 
     def test_identical_lines_returns_none(self, scene):
-        pt = scene._offset_line_intersection(
+        pt = scene._tools._offset_line_intersection(
             QPointF(0, 0), QPointF(1, 0),
             QPointF(0, 0), QPointF(1, 0),
         )
@@ -128,7 +129,7 @@ class TestOffsetLineIntersection:
 
     def test_45_degree_lines(self, scene):
         # line1: y=0 (horizontal), line2: y=x (45 deg through origin)
-        pt = scene._offset_line_intersection(
+        pt = scene._tools._offset_line_intersection(
             QPointF(0, 0), QPointF(1, 0),
             QPointF(0, 0), QPointF(1, 1),
         )
@@ -138,11 +139,11 @@ class TestOffsetLineIntersection:
 
 
 class TestOffsetPolylinePts:
-    """SceneToolsMixin._offset_polyline_pts — miter-join offset."""
+    """SceneTools._offset_polyline_pts — miter-join offset."""
 
     def test_horizontal_line_offset_up(self, scene):
         pts = [QPointF(0, 0), QPointF(100, 0)]
-        result = scene._offset_polyline_pts(pts, 10.0)
+        result = scene._tools._offset_polyline_pts(pts, 10.0)
         assert len(result) == 2
         # Left-normal of rightward segment is (0, -1) => offset by +10 means y = -10
         # (signed_dist positive with left-normal (-dy, dx))
@@ -153,7 +154,7 @@ class TestOffsetPolylinePts:
 
     def test_horizontal_line_offset_down(self, scene):
         pts = [QPointF(0, 0), QPointF(100, 0)]
-        result = scene._offset_polyline_pts(pts, -10.0)
+        result = scene._tools._offset_polyline_pts(pts, -10.0)
         assert len(result) == 2
         for p in result:
             assert abs(p.y() - (-10.0)) < 1e-6
@@ -161,7 +162,7 @@ class TestOffsetPolylinePts:
     def test_l_shape_miter(self, scene):
         """L-shaped polyline: right then up. Miter should produce clean corner."""
         pts = [QPointF(0, 0), QPointF(100, 0), QPointF(100, 100)]
-        result = scene._offset_polyline_pts(pts, 10.0)
+        result = scene._tools._offset_polyline_pts(pts, 10.0)
         assert len(result) == 3
         # First segment (0,0)->(100,0): normal (0,1) => offset y+10
         assert abs(result[0].y() - 10.0) < 1e-6
@@ -171,27 +172,27 @@ class TestOffsetPolylinePts:
 
     def test_single_point_returns_copy(self, scene):
         pts = [QPointF(5, 5)]
-        result = scene._offset_polyline_pts(pts, 10.0)
+        result = scene._tools._offset_polyline_pts(pts, 10.0)
         assert len(result) == 1
 
     def test_empty_input(self, scene):
-        result = scene._offset_polyline_pts([], 10.0)
+        result = scene._tools._offset_polyline_pts([], 10.0)
         assert result == []
 
 
 class TestPerpendicularDistance:
-    """SceneToolsMixin._perpendicular_distance — distance from point to entity."""
+    """SceneTools._perpendicular_distance — distance from point to entity."""
 
     def test_line_distance(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._perpendicular_distance(line, QPointF(50, 30))
+        d = scene._tools._perpendicular_distance(line, QPointF(50, 30))
         assert abs(d - 30.0) < 1e-3
 
     def test_line_distance_zero(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        d = scene._perpendicular_distance(line, QPointF(50, 0))
+        d = scene._tools._perpendicular_distance(line, QPointF(50, 0))
         assert abs(d) < 1e-3
 
     def test_circle_distance_outside(self, scene):
@@ -200,47 +201,47 @@ class TestPerpendicularDistance:
         # _perpendicular_distance uses boundingRect().width()/2 as radius,
         # which includes cosmetic pen padding (~55 for a 50-radius circle).
         r_effective = circle.boundingRect().width() / 2
-        d = scene._perpendicular_distance(circle, QPointF(100, 0))
+        d = scene._tools._perpendicular_distance(circle, QPointF(100, 0))
         assert abs(d - (100.0 - r_effective)) < 1e-3
 
     def test_circle_distance_inside(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
         r_effective = circle.boundingRect().width() / 2
-        d = scene._perpendicular_distance(circle, QPointF(20, 0))
+        d = scene._tools._perpendicular_distance(circle, QPointF(20, 0))
         assert abs(d - (r_effective - 20.0)) < 1e-3
 
     def test_polyline_distance(self, scene):
         pl = PolylineItem(QPointF(0, 0))
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
-        d = scene._perpendicular_distance(pl, QPointF(50, 20))
+        d = scene._tools._perpendicular_distance(pl, QPointF(50, 20))
         assert abs(d - 20.0) < 1e-3
 
     def test_arc_distance(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
         # Point at (80, 0) => distance = |80 - 50| = 30
-        d = scene._perpendicular_distance(arc, QPointF(80, 0))
+        d = scene._tools._perpendicular_distance(arc, QPointF(80, 0))
         assert abs(d - 30.0) < 1e-3
 
     def test_rectangle_distance_outside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (150, 50) => nearest edge at x=100 => distance = 50
-        d = scene._perpendicular_distance(rect, QPointF(150, 50))
+        d = scene._tools._perpendicular_distance(rect, QPointF(150, 50))
         assert abs(d - 50.0) < 1e-3
 
     def test_rectangle_distance_inside(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
         # Point at (10, 50) => nearest edge is left (x=0) => distance = 10
-        d = scene._perpendicular_distance(rect, QPointF(10, 50))
+        d = scene._tools._perpendicular_distance(rect, QPointF(10, 50))
         assert abs(d - 10.0) < 1e-3
 
 
 class TestOffsetSignedDist:
-    """SceneToolsMixin._offset_signed_dist — side detection."""
+    """SceneTools._offset_signed_dist — side detection."""
 
     def test_line_left_side_positive(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -248,49 +249,49 @@ class TestOffsetSignedDist:
         # Point above the line (y > 0) is on the left for rightward segment
         # Cross product: dx*(side_y - p1_y) - dy*(side_x - p1_x)
         # 100*(50-0) - 0*(50-0) = 5000 > 0 => left => positive
-        sd = scene._offset_signed_dist(line, 10.0, QPointF(50, 50))
+        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, 50))
         assert sd == 10.0
 
     def test_line_right_side_negative(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
-        sd = scene._offset_signed_dist(line, 10.0, QPointF(50, -50))
+        sd = scene._tools._offset_signed_dist(line, 10.0, QPointF(50, -50))
         assert sd == -10.0
 
     def test_circle_outside_positive(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._offset_signed_dist(circle, 10.0, QPointF(100, 0))
+        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(100, 0))
         assert sd == 10.0  # outside => grow
 
     def test_circle_inside_negative(self, scene):
         circle = CircleItem(QPointF(0, 0), 50.0)
         scene.addItem(circle)
-        sd = scene._offset_signed_dist(circle, 10.0, QPointF(10, 0))
+        sd = scene._tools._offset_signed_dist(circle, 10.0, QPointF(10, 0))
         assert sd == -10.0  # inside => shrink
 
     def test_rectangle_outside_positive(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._offset_signed_dist(rect, 5.0, QPointF(150, 50))
+        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(150, 50))
         assert sd == 5.0
 
     def test_rectangle_inside_negative(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 100))
         scene.addItem(rect)
-        sd = scene._offset_signed_dist(rect, 5.0, QPointF(50, 50))
+        sd = scene._tools._offset_signed_dist(rect, 5.0, QPointF(50, 50))
         assert sd == -5.0
 
     def test_arc_outside_positive(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._offset_signed_dist(arc, 10.0, QPointF(80, 0))
+        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(80, 0))
         assert sd == 10.0
 
     def test_arc_inside_negative(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
-        sd = scene._offset_signed_dist(arc, 10.0, QPointF(10, 0))
+        sd = scene._tools._offset_signed_dist(arc, 10.0, QPointF(10, 0))
         assert sd == -10.0
 
 
@@ -300,7 +301,7 @@ class TestOffsetSignedDist:
 
 
 class TestComputeFillet:
-    """SceneToolsMixin._compute_fillet — arc data between two lines."""
+    """SceneTools._compute_fillet — arc data between two lines."""
 
     def test_perpendicular_lines_radius_10(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -308,7 +309,7 @@ class TestComputeFillet:
         scene.addItem(l1)
         scene.addItem(l2)
 
-        data = scene._compute_fillet(l1, l2, 10.0)
+        data = scene._tools._compute_fillet(l1, l2, 10.0)
         assert data is not None
         assert abs(data["radius"] - 10.0) < 1e-6
         # Center should be at (10, 10) — 10 away from both axes
@@ -323,14 +324,14 @@ class TestComputeFillet:
         l2 = LineItem(QPointF(0, 50), QPointF(100, 50))
         scene.addItem(l1)
         scene.addItem(l2)
-        assert scene._compute_fillet(l1, l2, 10.0) is None
+        assert scene._tools._compute_fillet(l1, l2, 10.0) is None
 
     def test_non_line_items_returns_none(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
         c1 = CircleItem(QPointF(50, 50), 30)
         scene.addItem(l1)
         scene.addItem(c1)
-        assert scene._compute_fillet(l1, c1, 10.0) is None
+        assert scene._tools._compute_fillet(l1, c1, 10.0) is None
 
     def test_45_degree_lines(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -338,13 +339,13 @@ class TestComputeFillet:
         scene.addItem(l1)
         scene.addItem(l2)
 
-        data = scene._compute_fillet(l1, l2, 10.0)
+        data = scene._tools._compute_fillet(l1, l2, 10.0)
         assert data is not None
         assert abs(data["radius"] - 10.0) < 1e-6
 
 
 class TestComputeChamfer:
-    """SceneToolsMixin._compute_chamfer — bevel line between two lines."""
+    """SceneTools._compute_chamfer — bevel line between two lines."""
 
     def test_perpendicular_lines_dist_10(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -352,7 +353,7 @@ class TestComputeChamfer:
         scene.addItem(l1)
         scene.addItem(l2)
 
-        data = scene._compute_chamfer(l1, l2, 10.0)
+        data = scene._tools._compute_chamfer(l1, l2, 10.0)
         assert data is not None
         # Chamfer points should be 10 units along each line from intersection
         assert abs(data["cp1"].x() - 10.0) < 1e-3
@@ -365,14 +366,14 @@ class TestComputeChamfer:
         l2 = LineItem(QPointF(0, 50), QPointF(100, 50))
         scene.addItem(l1)
         scene.addItem(l2)
-        assert scene._compute_chamfer(l1, l2, 10.0) is None
+        assert scene._tools._compute_chamfer(l1, l2, 10.0) is None
 
     def test_non_line_items_returns_none(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 0))
         c1 = CircleItem(QPointF(50, 50), 30)
         scene.addItem(l1)
         scene.addItem(c1)
-        assert scene._compute_chamfer(l1, c1, 10.0) is None
+        assert scene._tools._compute_chamfer(l1, c1, 10.0) is None
 
     def test_meeting_at_nonorigin_intersection(self, scene):
         l1 = LineItem(QPointF(-50, 50), QPointF(50, 50))
@@ -380,7 +381,7 @@ class TestComputeChamfer:
         scene.addItem(l1)
         scene.addItem(l2)
 
-        data = scene._compute_chamfer(l1, l2, 15.0)
+        data = scene._tools._compute_chamfer(l1, l2, 15.0)
         assert data is not None
         # Intersection is at (50, 50)
         # l1: unit vector from (50,50) toward far end (-50,50) is (-1,0); cp1 at (35, 50)
@@ -395,14 +396,14 @@ class TestComputeChamfer:
 
 
 class TestBreakAtPoint:
-    """SceneToolsMixin._break_at_point — splitting items."""
+    """SceneTools._break_at_point — splitting items."""
 
     def test_line_split_at_midpoint(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
         scene._draw_lines.append(line)
 
-        scene._break_at_point(line, QPointF(50, 0))
+        scene._tools._break_at_point(line, QPointF(50, 0))
 
         # Original should be removed; two new lines created
         assert line not in scene._draw_lines
@@ -420,7 +421,7 @@ class TestBreakAtPoint:
         scene.addItem(line)
         scene._draw_lines.append(line)
 
-        scene._break_at_point(line, QPointF(25, 0))
+        scene._tools._break_at_point(line, QPointF(25, 0))
 
         assert len(scene._draw_lines) == 2
         pieces = sorted(scene._draw_lines, key=lambda l: l._pt1.x())
@@ -432,7 +433,7 @@ class TestBreakAtPoint:
         scene.addItem(circle)
         scene._draw_circles.append(circle)
 
-        scene._break_at_point(circle, QPointF(50, 0))
+        scene._tools._break_at_point(circle, QPointF(50, 0))
 
         assert circle not in scene._draw_circles
         assert len(scene._draw_arcs) == 1
@@ -448,21 +449,21 @@ class TestBreakAtPoint:
         # Break at 90 degrees (top of arc)
         bp = QPointF(50.0 * math.cos(math.radians(90)),
                      50.0 * math.sin(math.radians(90)))
-        scene._break_at_point(arc, bp)
+        scene._tools._break_at_point(arc, bp)
 
         assert arc not in scene._draw_arcs
         assert len(scene._draw_arcs) == 2
 
 
 class TestBreakItem:
-    """SceneToolsMixin._break_item — removing segment between two points."""
+    """SceneTools._break_item — removing segment between two points."""
 
     def test_line_break_between(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
         scene._draw_lines.append(line)
 
-        scene._break_item(line, QPointF(25, 0), QPointF(75, 0))
+        scene._tools._break_item(line, QPointF(25, 0), QPointF(75, 0))
 
         assert line not in scene._draw_lines
         assert len(scene._draw_lines) == 2
@@ -481,7 +482,7 @@ class TestBreakItem:
         bp1 = QPointF(50, 0)   # 0 degrees
         bp2 = QPointF(0, 50)   # 90 degrees
 
-        scene._break_item(circle, bp1, bp2)
+        scene._tools._break_item(circle, bp1, bp2)
 
         assert circle not in scene._draw_circles
         assert len(scene._draw_arcs) == 1
@@ -493,7 +494,7 @@ class TestBreakItem:
 
 
 class TestFindGripHit:
-    """SceneToolsMixin._find_grip_hit — nearest grip within tolerance."""
+    """SceneTools._find_grip_hit — nearest grip within tolerance."""
 
     def test_finds_nearest_grip_on_selected_line(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
@@ -501,7 +502,7 @@ class TestFindGripHit:
         line.setSelected(True)
         _flush()
 
-        result = scene._find_grip_hit(QPointF(1, 0))
+        result = scene._tools._find_grip_hit(QPointF(1, 0))
         assert result is not None
         item, idx = result
         assert item is line
@@ -513,7 +514,7 @@ class TestFindGripHit:
         line.setSelected(True)
         _flush()
 
-        result = scene._find_grip_hit(QPointF(99, 0))
+        result = scene._tools._find_grip_hit(QPointF(99, 0))
         assert result is not None
         item, idx = result
         assert item is line
@@ -525,7 +526,7 @@ class TestFindGripHit:
         line.setSelected(True)
         _flush()
 
-        result = scene._find_grip_hit(QPointF(50, 1))
+        result = scene._tools._find_grip_hit(QPointF(50, 1))
         assert result is not None
         item, idx = result
         assert item is line
@@ -538,7 +539,7 @@ class TestFindGripHit:
         _flush()
 
         # Way outside tolerance
-        result = scene._find_grip_hit(QPointF(500, 500))
+        result = scene._tools._find_grip_hit(QPointF(500, 500))
         assert result is None
 
     def test_returns_none_when_not_selected(self, scene):
@@ -547,7 +548,7 @@ class TestFindGripHit:
         line.setSelected(False)
         _flush()
 
-        result = scene._find_grip_hit(QPointF(1, 0))
+        result = scene._tools._find_grip_hit(QPointF(1, 0))
         assert result is None
 
     def test_circle_center_grip(self, scene):
@@ -556,7 +557,7 @@ class TestFindGripHit:
         circle.setSelected(True)
         _flush()
 
-        result = scene._find_grip_hit(QPointF(50, 50))
+        result = scene._tools._find_grip_hit(QPointF(50, 50))
         assert result is not None
         item, idx = result
         assert item is circle
@@ -569,7 +570,7 @@ class TestFindGripHit:
         _flush()
 
         # Near top-left corner (grip index 0)
-        result = scene._find_grip_hit(QPointF(1, 1))
+        result = scene._tools._find_grip_hit(QPointF(1, 1))
         assert result is not None
         item, idx = result
         assert item is rect
@@ -617,19 +618,19 @@ class TestExtractEdges:
 
 
 class TestGetItemSegments:
-    """SceneToolsMixin._get_item_segments — geometric representation."""
+    """SceneTools._get_item_segments — geometric representation."""
 
     def test_line_item(self, scene):
         line = LineItem(QPointF(10, 20), QPointF(30, 40))
         scene.addItem(line)
-        segs = scene._get_item_segments(line)
+        segs = scene._tools._get_item_segments(line)
         assert len(segs) == 1
         assert segs[0][0] == "line"
 
     def test_circle_item(self, scene):
         circle = CircleItem(QPointF(0, 0), 50)
         scene.addItem(circle)
-        segs = scene._get_item_segments(circle)
+        segs = scene._tools._get_item_segments(circle)
         assert len(segs) == 1
         assert segs[0][0] == "circle"
         assert abs(segs[0][2] - 50.0) < 1e-6
@@ -637,7 +638,7 @@ class TestGetItemSegments:
     def test_arc_item(self, scene):
         arc = ArcItem(QPointF(0, 0), 50.0, 45, 90)
         scene.addItem(arc)
-        segs = scene._get_item_segments(arc)
+        segs = scene._tools._get_item_segments(arc)
         assert len(segs) == 1
         assert segs[0][0] == "arc"
         assert abs(segs[0][3] - 45.0) < 1e-6
@@ -646,7 +647,7 @@ class TestGetItemSegments:
     def test_rectangle_item(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 50))
         scene.addItem(rect)
-        segs = scene._get_item_segments(rect)
+        segs = scene._tools._get_item_segments(rect)
         assert len(segs) == 4  # four edges
         for seg in segs:
             assert seg[0] == "line"
@@ -656,7 +657,7 @@ class TestGetItemSegments:
         pl.append_point(QPointF(50, 0))
         pl.append_point(QPointF(50, 50))
         scene.addItem(pl)
-        segs = scene._get_item_segments(pl)
+        segs = scene._tools._get_item_segments(pl)
         assert len(segs) == 2
         for seg in segs:
             assert seg[0] == "line"
@@ -668,7 +669,7 @@ class TestGetItemSegments:
 
 
 class TestComputeIntersections:
-    """SceneToolsMixin._compute_intersections — intersection dispatch."""
+    """SceneTools._compute_intersections — intersection dispatch."""
 
     def test_two_crossing_lines(self, scene):
         l1 = LineItem(QPointF(0, 0), QPointF(100, 100))
@@ -677,7 +678,7 @@ class TestComputeIntersections:
         scene.addItem(l2)
         scene._draw_lines.extend([l1, l2])
 
-        pts = scene._compute_intersections(l1, l2)
+        pts = scene._tools._compute_intersections(l1, l2)
         assert len(pts) == 1
         assert abs(pts[0].x() - 50.0) < 1e-3
         assert abs(pts[0].y() - 50.0) < 1e-3
@@ -690,7 +691,7 @@ class TestComputeIntersections:
         scene._draw_lines.append(line)
         scene._draw_circles.append(circle)
 
-        pts = scene._compute_intersections(line, circle)
+        pts = scene._tools._compute_intersections(line, circle)
         assert len(pts) == 2
 
     def test_parallel_lines_no_intersection(self, scene):
@@ -699,7 +700,7 @@ class TestComputeIntersections:
         scene.addItem(l1)
         scene.addItem(l2)
 
-        pts = scene._compute_intersections(l1, l2)
+        pts = scene._tools._compute_intersections(l1, l2)
         assert len(pts) == 0
 
 
@@ -990,13 +991,13 @@ class TestConstructionGeometryGrips:
 
 
 class TestMakeOffsetItem:
-    """SceneToolsMixin._make_offset_item — produces offset copies."""
+    """SceneTools._make_offset_item — produces offset copies."""
 
     def test_line_offset(self, scene):
         line = LineItem(QPointF(0, 0), QPointF(100, 0))
         scene.addItem(line)
 
-        result = scene._make_offset_item(line, 10.0)
+        result = scene._tools._make_offset_item(line, 10.0)
         assert result is not None
         assert isinstance(result, LineItem)
 
@@ -1005,7 +1006,7 @@ class TestMakeOffsetItem:
         pl.append_point(QPointF(100, 0))
         scene.addItem(pl)
 
-        result = scene._make_offset_item(pl, 10.0)
+        result = scene._tools._make_offset_item(pl, 10.0)
         assert result is not None
         assert isinstance(result, PolylineItem)
 
@@ -1015,7 +1016,7 @@ class TestMakeOffsetItem:
 
         # _make_offset_item uses boundingRect().width()/2 as radius (includes pen)
         r_eff = circle.boundingRect().width() / 2
-        result = scene._make_offset_item(circle, 10.0)
+        result = scene._tools._make_offset_item(circle, 10.0)
         assert result is not None
         assert isinstance(result, CircleItem)
         assert abs(result._radius - (r_eff + 10.0)) < 1e-3
@@ -1025,7 +1026,7 @@ class TestMakeOffsetItem:
         scene.addItem(circle)
 
         r_eff = circle.boundingRect().width() / 2
-        result = scene._make_offset_item(circle, -20.0)
+        result = scene._tools._make_offset_item(circle, -20.0)
         assert result is not None
         assert abs(result._radius - (r_eff - 20.0)) < 1e-3
 
@@ -1035,14 +1036,14 @@ class TestMakeOffsetItem:
 
         r_eff = circle.boundingRect().width() / 2
         # Offset inward by more than the effective radius => None
-        result = scene._make_offset_item(circle, -(r_eff + 10.0))
+        result = scene._tools._make_offset_item(circle, -(r_eff + 10.0))
         assert result is None  # negative radius not allowed
 
     def test_rectangle_offset(self, scene):
         rect = RectangleItem(QPointF(0, 0), QPointF(100, 50))
         scene.addItem(rect)
 
-        result = scene._make_offset_item(rect, 10.0)
+        result = scene._tools._make_offset_item(rect, 10.0)
         assert result is not None
         assert isinstance(result, RectangleItem)
         r = result.rect()
@@ -1053,7 +1054,7 @@ class TestMakeOffsetItem:
         arc = ArcItem(QPointF(0, 0), 50.0, 0, 180)
         scene.addItem(arc)
 
-        result = scene._make_offset_item(arc, 10.0)
+        result = scene._tools._make_offset_item(arc, 10.0)
         assert result is not None
         assert isinstance(result, ArcItem)
         assert abs(result._radius - 60.0) < 1e-3
