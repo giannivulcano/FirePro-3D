@@ -1,10 +1,9 @@
 """
 scene_tools.py
 ==============
-Mixin providing geometry editing tools for Model_Space.
-
-Extracted from Model_Space.py to keep the main scene class focused on
-interactive mouse/keyboard handling.  Mixed into Model_Space's MRO.
+Geometry editing tools for Model_Space, composed as ``scene._tools``
+(``SceneTools``).  Extracted from Model_Space.py to keep the main scene class
+focused on interactive mouse/keyboard handling.
 
 Tools included:
 - Offset (line intersection, polyline offset, perpendicular distance)
@@ -136,8 +135,16 @@ class _PadlockItem(QGraphicsPathItem):
             event.accept()
 
 
-class SceneToolsMixin:
-    """Geometry editing tools for the plan-view scene."""
+class SceneTools:
+    """Geometry editing tools for Model_Space, composed as ``scene._tools``.
+
+    Holds a back-reference to the owning ``Model_Space`` (``self._scene``);
+    scene-graph mutation and shared placement state go through it, while
+    sibling tool methods are called on ``self``.
+    """
+
+    def __init__(self, scene):
+        self._scene = scene
 
     # ======================================================================
     # OFFSET COMMAND helpers
@@ -172,10 +179,10 @@ class SceneToolsMixin:
         return tool_geometry.make_offset_item(source, signed_dist)
 
     def _clear_offset_preview(self):
-        if self._offset_preview is not None:
-            if self._offset_preview.scene() is self:
-                self.removeItem(self._offset_preview)
-            self._offset_preview = None
+        if self._scene._offset_preview is not None:
+            if self._scene._offset_preview.scene() is self._scene:
+                self._scene.removeItem(self._scene._offset_preview)
+            self._scene._offset_preview = None
 
 
     # ======================================================================
@@ -206,7 +213,7 @@ class SceneToolsMixin:
           total_angle       : float  (degrees, e.g. 360 for full circle)
           rotate_items      : bool   (rotate geometry orientation; Nodes only)
         """
-        items = self.selectedItems()
+        items = self._scene.selectedItems()
         if not items:
             return
 
@@ -247,7 +254,7 @@ class SceneToolsMixin:
                 for c in range(cols):
                     if r == 0 and c == 0:
                         continue  # skip the original position
-                    self.paste_items(QPointF(c * xs, -r * ys))
+                    self._scene.paste_items(QPointF(c * xs, -r * ys))
 
         elif mode == "polar":
             cx    = float(params.get("cx", 0))
@@ -296,10 +303,10 @@ class SceneToolsMixin:
                         rot["points"] = new_pts
                     rotated.append(rot)
                 QApplication.clipboard().setText(json.dumps(rotated))
-                self.paste_items(QPointF(0, 0))
+                self._scene.paste_items(QPointF(0, 0))
 
         QApplication.clipboard().setText(old_clip)
-        self.push_undo_state()
+        self._scene.push_undo_state()
 
     # -------------------------------------------------------------------------
     # ROTATE SELECTED (Sprint M recovery)
@@ -310,7 +317,7 @@ class SceneToolsMixin:
     def _apply_rotate(self, pivot: QPointF, angle_deg: float, items: list = None):
         """Rotate *items* around *pivot* by *angle_deg*."""
         if items is None:
-            items = self._selected_items or self.selectedItems()
+            items = self._scene._selected_items or self._scene.selectedItems()
         rp = CAD_Math.rotate_point
         for item in items:
             if isinstance(item, Node):
@@ -345,13 +352,13 @@ class SceneToolsMixin:
                     pl.append_point(pt)
                 pl.finalize()
                 pl.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(pl)
-                self._polylines.append(pl)
+                self._scene.addItem(pl)
+                self._scene._polylines.append(pl)
                 # Remove original rect
-                if item.scene() is self:
-                    self.removeItem(item)
-                if item in self._draw_rects:
-                    self._draw_rects.remove(item)
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+                if item in self._scene._draw_rects:
+                    self._scene._draw_rects.remove(item)
             elif isinstance(item, ArcItem):
                 item._center = rp(item._center, pivot, angle_deg)
                 item._start_deg += angle_deg
@@ -360,7 +367,7 @@ class SceneToolsMixin:
     def _apply_scale(self, base: QPointF, factor: float, items: list = None):
         """Scale *items* relative to *base* by *factor*."""
         if items is None:
-            items = self._selected_items or self.selectedItems()
+            items = self._scene._selected_items or self._scene.selectedItems()
         sp = CAD_Math.scale_point
         for item in items:
             if isinstance(item, Node):
@@ -392,15 +399,15 @@ class SceneToolsMixin:
 
     def _apply_mirror(self, axis_p1: QPointF, axis_p2: QPointF):
         """Create mirrored copies of selected items across the axis line."""
-        items = self._selected_items or self.selectedItems()
+        items = self._scene._selected_items or self._scene.selectedItems()
         mp = CAD_Math.mirror_point
         new_items = []
         for item in items:
             if isinstance(item, Node):
                 new_pos = mp(item.scenePos(), axis_p1, axis_p2)
-                node = self.add_node(new_pos.x(), new_pos.y())
+                node = self._scene.add_node(new_pos.x(), new_pos.y())
                 if item.has_sprinkler():
-                    self.add_sprinkler(node, None)
+                    self._scene.add_sprinkler(node, None)
                 new_items.append(node)
             elif isinstance(item, LineItem):
                 p1 = mp(item._pt1, axis_p1, axis_p2)
@@ -408,8 +415,8 @@ class SceneToolsMixin:
                 ln = LineItem(p1, p2, color=item.pen().color().name(),
                               lineweight=item.pen().widthF())
                 ln.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(ln)
-                self._draw_lines.append(ln)
+                self._scene.addItem(ln)
+                self._scene._draw_lines.append(ln)
                 new_items.append(ln)
             elif isinstance(item, PolylineItem):
                 pts = [mp(p, axis_p1, axis_p2) for p in item._points]
@@ -419,16 +426,16 @@ class SceneToolsMixin:
                     pl.append_point(pt)
                 pl.finalize()
                 pl.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(pl)
-                self._polylines.append(pl)
+                self._scene.addItem(pl)
+                self._scene._polylines.append(pl)
                 new_items.append(pl)
             elif isinstance(item, CircleItem):
                 c = mp(item._center, axis_p1, axis_p2)
                 ci = CircleItem(c, item._radius, color=item.pen().color().name(),
                                 lineweight=item.pen().widthF())
                 ci.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(ci)
-                self._draw_circles.append(ci)
+                self._scene.addItem(ci)
+                self._scene._draw_circles.append(ci)
                 new_items.append(ci)
             elif isinstance(item, RectangleItem):
                 rect = item.rect()
@@ -437,8 +444,8 @@ class SceneToolsMixin:
                 ri = RectangleItem(tl, br, color=item.pen().color().name(),
                                    lineweight=item.pen().widthF())
                 ri.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(ri)
-                self._draw_rects.append(ri)
+                self._scene.addItem(ri)
+                self._scene._draw_rects.append(ri)
                 new_items.append(ri)
             elif isinstance(item, ArcItem):
                 c = mp(item._center, axis_p1, axis_p2)
@@ -447,8 +454,8 @@ class SceneToolsMixin:
                              -item._span_deg, color=item.pen().color().name(),
                              lineweight=item.pen().widthF())
                 ai.level = getattr(item, "level", DEFAULT_LEVEL)
-                self.addItem(ai)
-                self._draw_arcs.append(ai)
+                self._scene.addItem(ai)
+                self._scene._draw_arcs.append(ai)
                 new_items.append(ai)
         return new_items
 
@@ -457,10 +464,10 @@ class SceneToolsMixin:
 
     def join_selected_items(self):
         """Join selected lines/polylines into a single polyline if endpoints match."""
-        items = [i for i in self.selectedItems()
+        items = [i for i in self._scene.selectedItems()
                  if isinstance(i, (LineItem, PolylineItem))]
         if len(items) < 2:
-            self._show_status("Select 2+ lines/polylines to join", 3000)
+            self._scene._show_status("Select 2+ lines/polylines to join", 3000)
             return
         TOL = 1.0  # tolerance in scene units
         # Extract segments as ordered point lists
@@ -493,7 +500,7 @@ class SceneToolsMixin:
                     chain = list(reversed(seg[1:])) + chain
                     segments.pop(i); changed = True; break
         if segments:
-            self._show_status("Cannot join: endpoints do not match", 3000)
+            self._scene._show_status("Cannot join: endpoints do not match", 3000)
             return
         # Create merged polyline
         color = items[0].pen().color().name()
@@ -505,24 +512,24 @@ class SceneToolsMixin:
         pl.level = getattr(items[0], "level", DEFAULT_LEVEL)
         # Remove originals
         for item in items:
-            if item.scene() is self:
-                self.removeItem(item)
-            if isinstance(item, LineItem) and item in self._draw_lines:
-                self._draw_lines.remove(item)
-            elif isinstance(item, PolylineItem) and item in self._polylines:
-                self._polylines.remove(item)
-        self.addItem(pl)
-        self._polylines.append(pl)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if isinstance(item, LineItem) and item in self._scene._draw_lines:
+                self._scene._draw_lines.remove(item)
+            elif isinstance(item, PolylineItem) and item in self._scene._polylines:
+                self._scene._polylines.remove(item)
+        self._scene.addItem(pl)
+        self._scene._polylines.append(pl)
         pl.setSelected(True)
-        self.push_undo_state()
-        self._show_status("Joined into polyline", 2000)
+        self._scene.push_undo_state()
+        self._scene._show_status("Joined into polyline", 2000)
 
     def explode_selected_items(self):
         """Explode polylines into lines and rectangles into 4 lines."""
-        items = [i for i in self.selectedItems()
+        items = [i for i in self._scene.selectedItems()
                  if isinstance(i, (PolylineItem, RectangleItem))]
         if not items:
-            self._show_status("Select polylines or rectangles to explode", 3000)
+            self._scene._show_status("Select polylines or rectangles to explode", 3000)
             return
         for item in items:
             color = item.pen().color().name()
@@ -532,12 +539,12 @@ class SceneToolsMixin:
                 for i in range(len(pts) - 1):
                     ln = LineItem(QPointF(pts[i]), QPointF(pts[i+1]),
                                   color=color, lineweight=lw)
-                    self.addItem(ln)
-                    self._draw_lines.append(ln)
-                if item.scene() is self:
-                    self.removeItem(item)
-                if item in self._polylines:
-                    self._polylines.remove(item)
+                    self._scene.addItem(ln)
+                    self._scene._draw_lines.append(ln)
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+                if item in self._scene._polylines:
+                    self._scene._polylines.remove(item)
             elif isinstance(item, RectangleItem):
                 rect = item.rect()
                 corners = [rect.topLeft(), rect.topRight(),
@@ -545,14 +552,14 @@ class SceneToolsMixin:
                 for i in range(4):
                     ln = LineItem(QPointF(corners[i]), QPointF(corners[(i+1)%4]),
                                   color=color, lineweight=lw)
-                    self.addItem(ln)
-                    self._draw_lines.append(ln)
-                if item.scene() is self:
-                    self.removeItem(item)
-                if item in self._draw_rects:
-                    self._draw_rects.remove(item)
-        self.push_undo_state()
-        self._show_status("Exploded into individual segments", 2000)
+                    self._scene.addItem(ln)
+                    self._scene._draw_lines.append(ln)
+                if item.scene() is self._scene:
+                    self._scene.removeItem(item)
+                if item in self._scene._draw_rects:
+                    self._scene._draw_rects.remove(item)
+        self._scene.push_undo_state()
+        self._scene._show_status("Exploded into individual segments", 2000)
 
     # -------------------------------------------------------------------------
     # BREAK / BREAK AT POINT
@@ -573,13 +580,13 @@ class SceneToolsMixin:
             lw = item.pen().widthF()
             l1 = LineItem(QPointF(item._pt1), proj1, color=color, lineweight=lw)
             l2 = LineItem(proj2, QPointF(item._pt2), color=color, lineweight=lw)
-            if item.scene() is self:
-                self.removeItem(item)
-            if item in self._draw_lines:
-                self._draw_lines.remove(item)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if item in self._scene._draw_lines:
+                self._scene._draw_lines.remove(item)
             for ln in (l1, l2):
-                self.addItem(ln)
-                self._draw_lines.append(ln)
+                self._scene.addItem(ln)
+                self._scene._draw_lines.append(ln)
         elif isinstance(item, CircleItem):
             # Convert to arc, removing segment between the two angles
             a1 = math.degrees(math.atan2(bp1.y()-item._center.y(), bp1.x()-item._center.x()))
@@ -589,12 +596,12 @@ class SceneToolsMixin:
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
             arc.level = getattr(item, "level", DEFAULT_LEVEL)
-            if item.scene() is self:
-                self.removeItem(item)
-            if item in self._draw_circles:
-                self._draw_circles.remove(item)
-            self.addItem(arc)
-            self._draw_arcs.append(arc)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if item in self._scene._draw_circles:
+                self._scene._draw_circles.remove(item)
+            self._scene.addItem(arc)
+            self._scene._draw_arcs.append(arc)
 
     def _break_at_point(self, item, bp: QPointF):
         """Split *item* into two at *bp*."""
@@ -606,13 +613,13 @@ class SceneToolsMixin:
             lw = item.pen().widthF()
             l1 = LineItem(QPointF(item._pt1), proj, color=color, lineweight=lw)
             l2 = LineItem(proj, QPointF(item._pt2), color=color, lineweight=lw)
-            if item.scene() is self:
-                self.removeItem(item)
-            if item in self._draw_lines:
-                self._draw_lines.remove(item)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if item in self._scene._draw_lines:
+                self._scene._draw_lines.remove(item)
             for ln in (l1, l2):
-                self.addItem(ln)
-                self._draw_lines.append(ln)
+                self._scene.addItem(ln)
+                self._scene._draw_lines.append(ln)
         elif isinstance(item, CircleItem):
             a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
             arc = ArcItem(QPointF(item._center), item._radius,
@@ -620,12 +627,12 @@ class SceneToolsMixin:
                           color=item.pen().color().name(),
                           lineweight=item.pen().widthF())
             arc.level = getattr(item, "level", DEFAULT_LEVEL)
-            if item.scene() is self:
-                self.removeItem(item)
-            if item in self._draw_circles:
-                self._draw_circles.remove(item)
-            self.addItem(arc)
-            self._draw_arcs.append(arc)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if item in self._scene._draw_circles:
+                self._scene._draw_circles.remove(item)
+            self._scene.addItem(arc)
+            self._scene._draw_arcs.append(arc)
         elif isinstance(item, ArcItem):
             a = math.degrees(math.atan2(bp.y()-item._center.y(), bp.x()-item._center.x()))
             # Normalize to arc range
@@ -643,13 +650,13 @@ class SceneToolsMixin:
                          lineweight=item.pen().widthF())
             a1.level = getattr(item, "level", DEFAULT_LEVEL)
             a2.level = getattr(item, "level", DEFAULT_LEVEL)
-            if item.scene() is self:
-                self.removeItem(item)
-            if item in self._draw_arcs:
-                self._draw_arcs.remove(item)
+            if item.scene() is self._scene:
+                self._scene.removeItem(item)
+            if item in self._scene._draw_arcs:
+                self._scene._draw_arcs.remove(item)
             for ai in (a1, a2):
-                self.addItem(ai)
-                self._draw_arcs.append(ai)
+                self._scene.addItem(ai)
+                self._scene._draw_arcs.append(ai)
 
     # -------------------------------------------------------------------------
     # FILLET / CHAMFER
@@ -666,8 +673,8 @@ class SceneToolsMixin:
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
         arc.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
-        self.addItem(arc)
-        self._draw_arcs.append(arc)
+        self._scene.addItem(arc)
+        self._scene._draw_arcs.append(arc)
         # Trim lines to tangent points
         setattr(data["item1"], data["near1"], QPointF(data["tp1"]))
         item1 = data["item1"]
@@ -688,8 +695,8 @@ class SceneToolsMixin:
                       color=data["item1"].pen().color().name(),
                       lineweight=data["item1"].pen().widthF())
         ln.level = getattr(data["item1"], "level", DEFAULT_LEVEL)
-        self.addItem(ln)
-        self._draw_lines.append(ln)
+        self._scene.addItem(ln)
+        self._scene._draw_lines.append(ln)
         setattr(data["item1"], data["near1"], QPointF(data["cp1"]))
         item1 = data["item1"]
         item1.setLine(item1._pt1.x(), item1._pt1.y(), item1._pt2.x(), item1._pt2.y())
@@ -702,8 +709,8 @@ class SceneToolsMixin:
 
     def begin_stretch_crossing(self, scene_rect: QRectF):
         """Collect vertices inside crossing window, transition to base point pick."""
-        self._stretch_vertices = []
-        self._stretch_full_items = []
+        self._scene._stretch_vertices = []
+        self._scene._stretch_full_items = []
         all_geom = self._all_geometry_items()
         for item in all_geom:
             if not hasattr(item, "grip_points"):
@@ -714,25 +721,25 @@ class SceneToolsMixin:
             if not inside:
                 continue
             if len(inside) == len(grips):
-                self._stretch_full_items.append(item)
+                self._scene._stretch_full_items.append(item)
             else:
                 for idx, g in inside:
-                    self._stretch_vertices.append((item, idx, QPointF(g)))
-        if not self._stretch_vertices and not self._stretch_full_items:
-            self._show_status("No vertices in crossing window", 3000)
+                    self._scene._stretch_vertices.append((item, idx, QPointF(g)))
+        if not self._scene._stretch_vertices and not self._scene._stretch_full_items:
+            self._scene._show_status("No vertices in crossing window", 3000)
             return
-        count = len(self._stretch_vertices) + len(self._stretch_full_items)
-        self._show_status(f"Captured {count} items/vertices. Pick base point.")
-        self.instructionChanged.emit("Pick base point")
+        count = len(self._scene._stretch_vertices) + len(self._scene._stretch_full_items)
+        self._scene._show_status(f"Captured {count} items/vertices. Pick base point.")
+        self._scene.instructionChanged.emit("Pick base point")
 
     def _commit_stretch(self, delta: QPointF):
         """Apply stretch delta to captured vertices and full items."""
-        for item in self._stretch_full_items:
+        for item in self._scene._stretch_full_items:
             if hasattr(item, 'translate'):
                 item.translate(delta.x(), delta.y())
             elif isinstance(item, Node):
                 item.moveBy(delta.x(), delta.y())
-        for item, idx, _orig in self._stretch_vertices:
+        for item, idx, _orig in self._scene._stretch_vertices:
             grips = item.grip_points()
             if idx < len(grips):
                 new_pt = QPointF(grips[idx].x() + delta.x(),
@@ -747,16 +754,16 @@ class SceneToolsMixin:
         Return *(item, grip_index)* for the closest grip handle within
         tolerance of *pos* on any selected item, else *None*.
         """
-        views = self.views()
+        views = self._scene.views()
         if not views:
             return None
         scale = views[0].transform().m11()
-        grip_px = getattr(self, "_grip_tolerance_px", 12)
+        grip_px = getattr(self._scene, "_grip_tolerance_px", 12)
         tol   = grip_px / max(scale, 1e-6)
 
         best = None
         best_dist = tol
-        for item in self.selectedItems():
+        for item in self._scene.selectedItems():
             if not hasattr(item, "grip_points"):
                 continue
             for idx, gpt in enumerate(item.grip_points()):
@@ -779,12 +786,12 @@ class SceneToolsMixin:
             RegularPolygonItem,
         )
         items = []
-        items.extend(self._draw_lines)
-        items.extend(self._draw_rects)
-        items.extend(self._draw_circles)
-        items.extend(self._draw_arcs)
-        items.extend(self._polylines)
-        items.extend(self._draw_polygons)
+        items.extend(self._scene._draw_lines)
+        items.extend(self._scene._draw_rects)
+        items.extend(self._scene._draw_circles)
+        items.extend(self._scene._draw_arcs)
+        items.extend(self._scene._polylines)
+        items.extend(self._scene._draw_polygons)
         return items
 
     def _find_geometry_at(self, pos: QPointF):
@@ -793,7 +800,7 @@ class SceneToolsMixin:
             LineItem, RectangleItem, CircleItem, ArcItem, PolylineItem,
         )
         tol = 8.0
-        views = self.views()
+        views = self._scene.views()
         if views:
             scale = views[0].transform().m11()
             tol = 8.0 / max(scale, 1e-6)
@@ -822,7 +829,7 @@ class SceneToolsMixin:
         from .construction_geometry import (
             LineItem, PolylineItem, ArcItem,
         )
-        views = self.views()
+        views = self._scene.views()
         if not views:
             return None
         scale = views[0].transform().m11()
@@ -844,19 +851,19 @@ class SceneToolsMixin:
 
     def _clear_trim_state(self):
         """Clean up trim edge highlight and state."""
-        if self._trim_edge_highlight is not None:
-            if self._trim_edge_highlight.scene() is self:
-                self.removeItem(self._trim_edge_highlight)
-            self._trim_edge_highlight = None
-        self._trim_edge = None
+        if self._scene._trim_edge_highlight is not None:
+            if self._scene._trim_edge_highlight.scene() is self._scene:
+                self._scene.removeItem(self._scene._trim_edge_highlight)
+            self._scene._trim_edge_highlight = None
+        self._scene._trim_edge = None
 
     def _clear_extend_state(self):
         """Clean up extend boundary highlight and state."""
-        if self._extend_boundary_highlight is not None:
-            if self._extend_boundary_highlight.scene() is self:
-                self.removeItem(self._extend_boundary_highlight)
-            self._extend_boundary_highlight = None
-        self._extend_boundary = None
+        if self._scene._extend_boundary_highlight is not None:
+            if self._scene._extend_boundary_highlight.scene() is self._scene:
+                self._scene.removeItem(self._scene._extend_boundary_highlight)
+            self._scene._extend_boundary_highlight = None
+        self._scene._extend_boundary = None
 
     def _highlight_item(self, item, color="#ff4400"):
         """Create a bright overlay highlight for an item."""
@@ -867,21 +874,21 @@ class SceneToolsMixin:
             h = QGraphicsLineItem(line)
             h.setPen(highlight_pen)
             h.setZValue(250)
-            self.addItem(h)
+            self._scene.addItem(h)
             return h
         elif hasattr(item, 'rect'):
             h = QGraphicsRectItem(item.rect())
             h.setPen(highlight_pen)
             h.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             h.setZValue(250)
-            self.addItem(h)
+            self._scene.addItem(h)
             return h
         elif hasattr(item, 'path'):
             h = QGraphicsPathItem(item.path())
             h.setPen(highlight_pen)
             h.setBrush(QBrush(Qt.BrushStyle.NoBrush))
             h.setZValue(250)
-            self.addItem(h)
+            self._scene.addItem(h)
             return h
         return None
 
@@ -891,29 +898,29 @@ class SceneToolsMixin:
             LineItem, CircleItem, ArcItem, PolylineItem,
         )
 
-        if self.mode == "trim":
+        if self._scene.mode == "trim":
             # Phase 1: select cutting edge
             item = self._find_geometry_at(pos)
             if item is not None:
-                self._trim_edge = item
-                self._trim_edge_highlight = self._highlight_item(item)
-                self.mode = "trim_pick"
-                self.modeChanged.emit("trim_pick")
-                self.instructionChanged.emit(
+                self._scene._trim_edge = item
+                self._scene._trim_edge_highlight = self._highlight_item(item)
+                self._scene.mode = "trim_pick"
+                self._scene.modeChanged.emit("trim_pick")
+                self._scene.instructionChanged.emit(
                     "Click segment to trim (right-click to cancel)")
             return
 
-        elif self.mode == "trim_pick":
+        elif self._scene.mode == "trim_pick":
             # Phase 2: click segment to trim at intersection with cutting edge
             item = self._find_geometry_at(pos)
-            if item is None or item is self._trim_edge:
+            if item is None or item is self._scene._trim_edge:
                 return
 
-            edge = self._trim_edge
+            edge = self._scene._trim_edge
             # Find intersections between item and edge
             intersections = self._compute_intersections(item, edge)
             if not intersections:
-                self._show_status("No intersection found")
+                self._scene._show_status("No intersection found")
                 return
 
             # Determine which portion to remove based on click position
@@ -930,8 +937,8 @@ class SceneToolsMixin:
                     item.apply_grip(0, hit)  # move p1 to intersection
                 else:
                     item.apply_grip(2, hit)  # move p2 to intersection
-                self.push_undo_state()
-                self._show_status("Trimmed line")
+                self._scene.push_undo_state()
+                self._scene._show_status("Trimmed line")
 
             elif isinstance(item, CircleItem):
                 # Convert circle to arc by removing the clicked portion
@@ -946,7 +953,7 @@ class SceneToolsMixin:
                     int_angles.append(angle % 360)
 
                 if len(int_angles) < 2:
-                    self._show_status(
+                    self._scene._show_status(
                         "Need at least two intersections to trim a circle")
                     return
 
@@ -994,22 +1001,22 @@ class SceneToolsMixin:
 
                 # Validate resulting arc
                 if span < ANG_EPS or span > 360 - ANG_EPS:
-                    self._show_status("Trim would produce degenerate arc")
+                    self._scene._show_status("Trim would produce degenerate arc")
                     return
 
                 color = item.pen().color().name()
                 lw = item.pen().widthF()
                 arc = ArcItem(center, r, start, span, color, lw)
                 arc.level = getattr(item, 'level', 'Level 1')
-                self.addItem(arc)
-                self._draw_arcs.append(arc)
+                self._scene.addItem(arc)
+                self._scene._draw_arcs.append(arc)
 
                 # Remove original circle
-                self.removeItem(item)
-                if item in self._draw_circles:
-                    self._draw_circles.remove(item)
-                self.push_undo_state()
-                self._show_status("Trimmed circle to arc")
+                self._scene.removeItem(item)
+                if item in self._scene._draw_circles:
+                    self._scene._draw_circles.remove(item)
+                self._scene.push_undo_state()
+                self._scene._show_status("Trimmed circle to arc")
 
             elif isinstance(item, ArcItem):
                 center = item._center
@@ -1042,64 +1049,64 @@ class SceneToolsMixin:
                     item._span_deg = rel_trim
 
                 item._rebuild_path()
-                self.push_undo_state()
-                self._show_status("Trimmed arc")
+                self._scene.push_undo_state()
+                self._scene._show_status("Trimmed arc")
 
     def _handle_extend_click(self, pos: QPointF):
         """Handle mouse click during extend mode."""
         from .construction_geometry import LineItem, ArcItem, PolylineItem
 
-        if self.mode == "extend":
+        if self._scene.mode == "extend":
             item = self._find_geometry_at(pos)
             if item is not None:
-                self._extend_boundary = item
-                self._extend_boundary_highlight = self._highlight_item(item, "#00aa00")
-                self.mode = "extend_pick"
-                self.modeChanged.emit("extend_pick")
-                self.instructionChanged.emit(
+                self._scene._extend_boundary = item
+                self._scene._extend_boundary_highlight = self._highlight_item(item, "#00aa00")
+                self._scene.mode = "extend_pick"
+                self._scene.modeChanged.emit("extend_pick")
+                self._scene.instructionChanged.emit(
                     "Click near endpoint to extend (right-click to cancel)")
             return
 
-        elif self.mode == "extend_pick":
+        elif self._scene.mode == "extend_pick":
             endpoint_hit = self._find_endpoint_hit(pos)
             if endpoint_hit is None:
                 return
             item, grip_idx, grip_pt = endpoint_hit
-            boundary = self._extend_boundary
+            boundary = self._scene._extend_boundary
 
             if isinstance(item, (LineItem, PolylineItem)):
                 # For polylines, only allow extending from first or last vertex
                 if isinstance(item, PolylineItem):
                     n_verts = len(item._points)
                     if grip_idx != 0 and grip_idx != n_verts - 1:
-                        self._show_status("Can only extend from first or last vertex")
+                        self._scene._show_status("Can only extend from first or last vertex")
                         return
 
                 intersections = self._compute_extend_intersections(
                     item, grip_idx, boundary)
                 if not intersections:
-                    self._show_status("No intersection with boundary")
+                    self._scene._show_status("No intersection with boundary")
                     return
                 hit = gi.nearest_intersection(grip_pt, intersections)
                 if hit:
                     item.apply_grip(grip_idx, hit)
-                    self.push_undo_state()
+                    self._scene.push_undo_state()
                     kind = "polyline" if isinstance(item, PolylineItem) else "line"
-                    self._show_status(f"Extended {kind} to boundary")
+                    self._scene._show_status(f"Extended {kind} to boundary")
 
     def _handle_merge_click(self, pos: QPointF):
         """Handle mouse click during merge points mode."""
         endpoint_hit = self._find_endpoint_hit(pos)
         if endpoint_hit is None:
-            self._show_status("No endpoint found nearby")
+            self._scene._show_status("No endpoint found nearby")
             return
 
         item, grip_idx, grip_pt = endpoint_hit
 
-        if self._merge_point1 is None:
+        if self._scene._merge_point1 is None:
             # First click — store the target point
-            self._merge_point1 = (item, grip_idx, grip_pt)
-            self.instructionChanged.emit("Click second endpoint to merge")
+            self._scene._merge_point1 = (item, grip_idx, grip_pt)
+            self._scene.instructionChanged.emit("Click second endpoint to merge")
             # Create visual indicator
             marker = QGraphicsEllipseItem(-4, -4, 8, 8)
             marker.setPos(grip_pt)
@@ -1107,59 +1114,59 @@ class SceneToolsMixin:
             marker.setPen(QPen(QColor("#ff4400")))
             marker.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
             marker.setZValue(300)
-            self.addItem(marker)
-            self._merge_preview = marker
+            self._scene.addItem(marker)
+            self._scene._merge_preview = marker
         else:
             # Second click — move second endpoint to first
-            target_pt = self._merge_point1[2]
+            target_pt = self._scene._merge_point1[2]
             item.apply_grip(grip_idx, target_pt)
-            self.push_undo_state()
-            self._show_status("Points merged")
+            self._scene.push_undo_state()
+            self._scene._show_status("Points merged")
             # Clean up
-            if self._merge_preview is not None:
-                if self._merge_preview.scene() is self:
-                    self.removeItem(self._merge_preview)
-                self._merge_preview = None
-            self._merge_point1 = None
-            self.instructionChanged.emit("Click first endpoint")
+            if self._scene._merge_preview is not None:
+                if self._scene._merge_preview.scene() is self._scene:
+                    self._scene.removeItem(self._scene._merge_preview)
+                self._scene._merge_preview = None
+            self._scene._merge_point1 = None
+            self._scene.instructionChanged.emit("Click first endpoint")
 
     def _handle_constraint_concentric_click(self, pos: QPointF):
         """Handle mouse click during concentric constraint mode."""
         from .construction_geometry import CircleItem, ArcItem
         item = self._find_geometry_at(pos)
         if item is None or not isinstance(item, (CircleItem, ArcItem)):
-            self._show_status("Please select a circle or arc")
+            self._scene._show_status("Please select a circle or arc")
             return
 
-        if self._constraint_circle_a is None:
-            self._constraint_circle_a = item
-            self.instructionChanged.emit("Select second circle")
+        if self._scene._constraint_circle_a is None:
+            self._scene._constraint_circle_a = item
+            self._scene.instructionChanged.emit("Select second circle")
         else:
             from .constraints import ConcentricConstraint
-            constraint = ConcentricConstraint(self._constraint_circle_a, item)
-            self._constraints.append(constraint)
-            self._solve_constraints(self._constraint_circle_a)
-            self.push_undo_state()
-            self._constraint_circle_a = None
-            self._show_status("Concentric constraint applied")
-            self.instructionChanged.emit("Select first circle")
-            for v in self.views():
+            constraint = ConcentricConstraint(self._scene._constraint_circle_a, item)
+            self._scene._constraints.append(constraint)
+            self._solve_constraints(self._scene._constraint_circle_a)
+            self._scene.push_undo_state()
+            self._scene._constraint_circle_a = None
+            self._scene._show_status("Concentric constraint applied")
+            self._scene.instructionChanged.emit("Select first circle")
+            for v in self._scene.views():
                 v.viewport().update()
 
     def _handle_constraint_dimensional_click(self, pos: QPointF):
         """Handle mouse click during dimensional constraint mode."""
         endpoint_hit = self._find_endpoint_hit(pos)
         if endpoint_hit is None:
-            self._show_status("No grip point found nearby")
+            self._scene._show_status("No grip point found nearby")
             return
 
         item, grip_idx, grip_pt = endpoint_hit
 
-        if self._constraint_grip_a is None:
-            self._constraint_grip_a = (item, grip_idx, grip_pt)
-            self.instructionChanged.emit("Click second grip point")
+        if self._scene._constraint_grip_a is None:
+            self._scene._constraint_grip_a = (item, grip_idx, grip_pt)
+            self._scene.instructionChanged.emit("Click second grip point")
         else:
-            item_a, grip_a, pt_a = self._constraint_grip_a
+            item_a, grip_a, pt_a = self._scene._constraint_grip_a
             current_dist = math.hypot(
                 grip_pt.x() - pt_a.x(), grip_pt.y() - pt_a.y())
 
@@ -1186,14 +1193,14 @@ class SceneToolsMixin:
                 dist = spin.value()
                 constraint = DimensionalConstraint(
                     item_a, grip_a, item, grip_idx, dist)
-                self._constraints.append(constraint)
+                self._scene._constraints.append(constraint)
                 self._solve_constraints()
-                self.push_undo_state()
-                self._show_status(f"Dimensional constraint: {dist:.1f}")
+                self._scene.push_undo_state()
+                self._scene._show_status(f"Dimensional constraint: {dist:.1f}")
 
-            self._constraint_grip_a = None
-            self.instructionChanged.emit("Click first grip point")
-            for v in self.views():
+            self._scene._constraint_grip_a = None
+            self._scene.instructionChanged.emit("Click first grip point")
+            for v in self._scene.views():
                 v.viewport().update()
 
     def _solve_constraints(self, moved_item=None):
@@ -1204,17 +1211,17 @@ class SceneToolsMixin:
         repaint and the status-bar conflict report.
         """
         from .constraints import solve_constraints
-        conflict = solve_constraints(self._constraints, moved_item)
+        conflict = solve_constraints(self._scene._constraints, moved_item)
         if conflict:
             self._report_constraint_conflict(conflict)
-        for v in self.views():
+        for v in self._scene.views():
             v.viewport().update()
 
     def _report_constraint_conflict(self, unsatisfied: list):
         """Emit a status message about conflicting constraints."""
         ids = [str(getattr(c, 'id', '?')) for c in unsatisfied[:3]]
         msg = f"⚠ Constraint conflict: {', '.join(ids)} cannot be satisfied simultaneously"
-        self._show_status(msg, timeout=5000)
+        self._scene._show_status(msg, timeout=5000)
 
     def _compute_intersections(self, item, edge):
         """Delegates to :func:`tool_geometry.compute_intersections`."""
@@ -1242,19 +1249,19 @@ class SceneToolsMixin:
         from .gridline import GridlineItem
         from .geometry_intersect import is_parallel, perpendicular_translation
 
-        if self._align_reference is None:
+        if self._scene._align_reference is None:
             # ── First pick: reference edge ──────────────────────────────
             result = self._find_nearest_edge(pos)
             if result is None:
-                self._show_status("No edge found near cursor")
+                self._scene._show_status("No edge found near cursor")
                 return
             edge, ref_item = result
-            self._align_reference = (edge, ref_item)
+            self._scene._align_reference = (edge, ref_item)
             # Remove any hover highlight before creating reference highlight
-            if self._align_highlight is not None:
-                if self._align_highlight.scene() is self:
-                    self.removeItem(self._align_highlight)
-                self._align_highlight = None
+            if self._scene._align_highlight is not None:
+                if self._scene._align_highlight.scene() is self._scene:
+                    self._scene.removeItem(self._scene._align_highlight)
+                self._scene._align_highlight = None
             # Visual highlight: dashed line along the reference edge
             highlight = QGraphicsLineItem(
                 edge[0].x(), edge[0].y(), edge[1].x(), edge[1].y())
@@ -1263,16 +1270,16 @@ class SceneToolsMixin:
             pen.setStyle(Qt.PenStyle.DashLine)
             highlight.setPen(pen)
             highlight.setZValue(9999)
-            self.addItem(highlight)
-            self._align_highlight = highlight
-            self.instructionChanged.emit("Click element to align")
+            self._scene.addItem(highlight)
+            self._scene._align_highlight = highlight
+            self._scene.instructionChanged.emit("Click element to align")
         else:
             # ── Second pick: target ─────────────────────────────────────
-            ref_edge, ref_item = self._align_reference
+            ref_edge, ref_item = self._scene._align_reference
 
             # Determine target: selected items or item under cursor
-            selected = [s for s in self.selectedItems()
-                        if s is not ref_item and s is not self._align_highlight]
+            selected = [s for s in self._scene.selectedItems()
+                        if s is not ref_item and s is not self._scene._align_highlight]
             if selected and item_under in selected:
                 # Multi-select: item_under is the anchor
                 self._execute_align(ref_edge, ref_item, item_under,
@@ -1283,25 +1290,25 @@ class SceneToolsMixin:
             else:
                 result = self._find_nearest_edge(pos)
                 if result is None:
-                    self._show_status("No target edge found")
+                    self._scene._show_status("No target edge found")
                     return
                 target_edge, target_item = result
                 if target_item is ref_item:
-                    self._show_status("Target must differ from reference")
+                    self._scene._show_status("Target must differ from reference")
                     return
                 self._execute_align(ref_edge, ref_item, target_item)
 
             # Clean up reference state
-            self._align_reference = None
-            if self._align_highlight is not None:
-                if self._align_highlight.scene() is self:
-                    self.removeItem(self._align_highlight)
-                self._align_highlight = None
-            if self._align_ghost is not None:
-                if self._align_ghost.scene() is self:
-                    self.removeItem(self._align_ghost)
-                self._align_ghost = None
-            self.instructionChanged.emit("Click reference edge")
+            self._scene._align_reference = None
+            if self._scene._align_highlight is not None:
+                if self._scene._align_highlight.scene() is self._scene:
+                    self._scene.removeItem(self._scene._align_highlight)
+                self._scene._align_highlight = None
+            if self._scene._align_ghost is not None:
+                if self._scene._align_ghost.scene() is self._scene:
+                    self._scene.removeItem(self._scene._align_ghost)
+                self._scene._align_ghost = None
+            self._scene.instructionChanged.emit("Click reference edge")
 
     def _execute_align(self, ref_edge, ref_item, target, group=None):
         """Align *target* (and optional *group*) to *ref_edge*.
@@ -1335,16 +1342,16 @@ class SceneToolsMixin:
                         delta = d
 
             if best_edge is None:
-                self._show_status("No parallel edge found on target")
+                self._scene._show_status("No parallel edge found on target")
                 return
 
-        self.push_undo_state()
+        self._scene.push_undo_state()
 
         items_to_move = [target] + (group[1:] if group else [])
         for item in items_to_move:
             if isinstance(item, GridlineItem):
                 if getattr(item, '_locked', False):
-                    self._show_status("Gridline is locked — skipped")
+                    self._scene._show_status("Gridline is locked — skipped")
                     continue
                 # Use move_perpendicular for gridlines
                 # Compute signed perpendicular distance
@@ -1410,11 +1417,11 @@ class SceneToolsMixin:
                 "perpendicular_offset": item_offset if item is not target else 0.0,
             }
             padlock = _PadlockItem(item_mid, constraint_data)
-            self.addItem(padlock)
-            self._align_padlocks.append(padlock)
+            self._scene.addItem(padlock)
+            self._scene._align_padlocks.append(padlock)
 
-        self._show_status("Aligned \u2014 click padlock to lock")
-        for v in self.views():
+        self._scene._show_status("Aligned \u2014 click padlock to lock")
+        for v in self._scene.views():
             v.viewport().update()
 
     def _find_nearest_edge(self, pos):
@@ -1424,13 +1431,13 @@ class SceneToolsMixin:
         and *item* is the owning scene item, or ``None`` if nothing found.
         """
         tol = 20.0
-        views = self.views()
+        views = self._scene.views()
         if views:
             scale = views[0].transform().m11()
             tol = 20.0 / max(scale, 1e-6)
 
         search_rect = QRectF(pos.x() - tol, pos.y() - tol, tol * 2, tol * 2)
-        candidates = self.items(search_rect)
+        candidates = self._scene.items(search_rect)
 
         best_edge = None
         best_item = None
@@ -1438,7 +1445,7 @@ class SceneToolsMixin:
 
         for item in candidates:
             # Skip our own highlight / ghost items
-            if item is self._align_highlight or item is self._align_ghost:
+            if item is self._scene._align_highlight or item is self._scene._align_ghost:
                 continue
             # Skip padlock / lock indicator items
             if isinstance(item, _PadlockItem):
@@ -1477,14 +1484,14 @@ class SceneToolsMixin:
 
         pos = snapped
 
-        if self._align_reference is None:
+        if self._scene._align_reference is None:
             # ── Pre-reference: highlight nearest edge ───────────────────
             result = self._find_nearest_edge(pos)
             if result is not None:
                 edge, _ = result
-                if self._align_highlight is not None:
+                if self._scene._align_highlight is not None:
                     # Update existing highlight
-                    self._align_highlight.setLine(
+                    self._scene._align_highlight.setLine(
                         edge[0].x(), edge[0].y(),
                         edge[1].x(), edge[1].y())
                 else:
@@ -1496,17 +1503,17 @@ class SceneToolsMixin:
                     pen.setStyle(Qt.PenStyle.DashLine)
                     highlight.setPen(pen)
                     highlight.setZValue(9999)
-                    self.addItem(highlight)
-                    self._align_highlight = highlight
+                    self._scene.addItem(highlight)
+                    self._scene._align_highlight = highlight
             else:
                 # No edge nearby — remove highlight
-                if self._align_highlight is not None:
-                    if self._align_highlight.scene() is self:
-                        self.removeItem(self._align_highlight)
-                    self._align_highlight = None
+                if self._scene._align_highlight is not None:
+                    if self._scene._align_highlight.scene() is self._scene:
+                        self._scene.removeItem(self._scene._align_highlight)
+                    self._scene._align_highlight = None
         else:
             # ── Post-reference: ghost line showing projected position ───
-            ref_edge, ref_item = self._align_reference
+            ref_edge, ref_item = self._scene._align_reference
             ref_p1, ref_p2 = ref_edge
 
             result = self._find_nearest_edge(pos)
@@ -1535,8 +1542,8 @@ class SceneToolsMixin:
                                       best_te[0].y() + best_delta.y())
                         gp2 = QPointF(best_te[1].x() + best_delta.x(),
                                       best_te[1].y() + best_delta.y())
-                        if self._align_ghost is not None:
-                            self._align_ghost.setLine(
+                        if self._scene._align_ghost is not None:
+                            self._scene._align_ghost.setLine(
                                 gp1.x(), gp1.y(), gp2.x(), gp2.y())
                         else:
                             ghost = QGraphicsLineItem(
@@ -1546,12 +1553,12 @@ class SceneToolsMixin:
                             pen.setStyle(Qt.PenStyle.DotLine)
                             ghost.setPen(pen)
                             ghost.setZValue(9999)
-                            self.addItem(ghost)
-                            self._align_ghost = ghost
+                            self._scene.addItem(ghost)
+                            self._scene._align_ghost = ghost
                         return
 
             # No valid target — remove ghost
-            if self._align_ghost is not None:
-                if self._align_ghost.scene() is self:
-                    self.removeItem(self._align_ghost)
-                self._align_ghost = None
+            if self._scene._align_ghost is not None:
+                if self._scene._align_ghost.scene() is self._scene:
+                    self._scene.removeItem(self._scene._align_ghost)
+                self._scene._align_ghost = None

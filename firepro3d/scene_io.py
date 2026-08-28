@@ -113,7 +113,7 @@ class SceneIOMixin:
         # (HatchItem retired 2026-08-22 — no longer saved; migration on load only)
 
         # --- Constraints ---
-        all_geom = self._all_geometry_items()
+        all_geom = self._tools._all_geometry_items()
         geom_id = {item: i for i, item in enumerate(all_geom)}
         constraints_data = []
         for c in self._constraints:
@@ -663,7 +663,7 @@ class SceneIOMixin:
                 continue  # tolerant: skip malformed legacy hatch
 
         # --- Constraints ---
-        all_geom = self._all_geometry_items()
+        all_geom = self._tools._all_geometry_items()
         id_to_geom = {i: item for i, item in enumerate(all_geom)}
         for entry in payload.get("constraints", []):
             try:

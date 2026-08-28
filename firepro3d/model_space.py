@@ -58,7 +58,7 @@ import os
 
 
 from .scene_io import SceneIOMixin
-from .scene_tools import SceneToolsMixin
+from .scene_tools import SceneTools
 
 
 def _is_underlay_item(it) -> bool:
@@ -102,7 +102,7 @@ _ARC_VARIANT_CENTER = "center"   # centre-first: click 1 is the arc centre
 _ARC_VARIANT_START = "start"     # start-first: click 1 is the start point
 
 
-class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
+class Model_Space(SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
     UNDO_MAX = 50
@@ -125,6 +125,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def __init__(self):
         super().__init__()
+        self._tools = SceneTools(self)   # composed geometry-tool collaborator (decomposition slice B)
         self.setSceneRect(QRectF(-500000, -500000, 1000000, 1000000))
         # One-time repair: fix display/*/visible stored as bool instead of string
         self._repair_display_settings()
@@ -1031,7 +1032,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Clean up offset preview whenever leaving offset modes
         if mode not in ("offset", "offset_side"):
-            self._clear_offset_preview()
+            self._tools._clear_offset_preview()
             self._offset_source = None
             self._offset_manual = False
             if self._offset_highlight is not None:
@@ -1046,11 +1047,11 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # Clean up trim state
         if mode not in ("trim", "trim_pick"):
-            self._clear_trim_state()
+            self._tools._clear_trim_state()
 
         # Clean up extend state
         if mode not in ("extend", "extend_pick"):
-            self._clear_extend_state()
+            self._tools._clear_extend_state()
 
         # Clean up merge state
         if mode != "merge_points":
@@ -3274,7 +3275,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
     def _capture_constraints(self) -> list[dict]:
         """Serialize constraints for undo/save, using geometry-list index IDs."""
-        all_geom = self._all_geometry_items()
+        all_geom = self._tools._all_geometry_items()
         geom_id = {item: i for i, item in enumerate(all_geom)}
         result = []
         for c in self._constraints:
@@ -3587,7 +3588,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 da.compute_area(self.scale_manager)
 
             # ── Constraints ───────────────────────────────────────────────
-            all_geom = self._all_geometry_items()
+            all_geom = self._tools._all_geometry_items()
             id_to_geom = {i: item for i, item in enumerate(all_geom)}
             for d in state.get("constraints", []):
                 try:
@@ -5710,7 +5711,18 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
 
     # ─────────────────────────────────────────────────────────────────────────
-    # OFFSET COMMAND helpers -> see scene_tools.py (SceneToolsMixin)
+    # ── Align tool: dispatch-table getattr targets forward to the composed
+    #    SceneTools collaborator (decomposition slice B) ─────────────────────
+    def _press_align(self, event, pos, snapped, item_under, node_under, pipe_under):
+        return self._tools._press_align(event, pos, snapped, item_under, node_under, pipe_under)
+
+    def _move_align(self, event, snapped):
+        return self._tools._move_align(event, snapped)
+
+    def array_items(self, params):
+        return self._tools.array_items(params)
+
+    # OFFSET COMMAND helpers -> see scene_tools.py (SceneTools)
     # ─────────────────────────────────────────────────────────────────────────
 
     def project_point_onto_line(self, p1: QPointF, p2: QPointF, p: QPointF) -> QPointF:
@@ -5768,7 +5780,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if old_pt is not None:
                 new_pt = gi.grip_points()[self._grip_index]
                 self._propagate_wall_endpoint(gi, old_pt, new_pt)
-        self._solve_constraints(gi)
+        self._tools._solve_constraints(gi)
         for v in self.views():
             v.viewport().update()
 
@@ -6570,13 +6582,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if self._offset_source is not None:
             # Compute distance from cursor to source entity
             if not getattr(self, '_offset_manual', False):
-                self._offset_dist = self._perpendicular_distance(
+                self._offset_dist = self._tools._perpendicular_distance(
                     self._offset_source, snapped)
             if self._offset_dist > 0:
-                sd = self._offset_signed_dist(
+                sd = self._tools._offset_signed_dist(
                     self._offset_source, self._offset_dist, snapped)
-                self._clear_offset_preview()
-                preview = self._make_offset_item(self._offset_source, sd)
+                self._tools._clear_offset_preview()
+                preview = self._tools._make_offset_item(self._offset_source, sd)
                 if preview is not None:
                     pen = preview.pen()
                     pen.setStyle(Qt.PenStyle.DashLine)
@@ -7228,13 +7240,13 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 f"Click to pick side and commit.", timeout=0)
         elif mode == "rotate":
             if self._rotate_pivot is not None:
-                self._apply_rotate(self._rotate_pivot, value)
+                self._tools._apply_rotate(self._rotate_pivot, value)
                 self.push_undo_state()
                 self._selected_items = []
                 self.set_mode(None)
         elif mode == "scale":
             if self._scale_base is not None:
-                self._apply_scale(self._scale_base, value)
+                self._tools._apply_scale(self._scale_base, value)
                 self.push_undo_state()
                 self._selected_items = []
                 self.set_mode(None)
@@ -7244,7 +7256,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._fillet_preview.scene() is self:
                     self.removeItem(self._fillet_preview)
                 self._fillet_preview = None
-            data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+            data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
                                         self._fillet_radius)
             if data is not None:
                 pp = QPainterPath()
@@ -7259,7 +7271,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 if self._chamfer_preview.scene() is self:
                     self.removeItem(self._chamfer_preview)
                 self._chamfer_preview = None
-            data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+            data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
                                           self._chamfer_dist)
             if data is not None:
                 self._chamfer_preview = QGraphicsLineItem(
@@ -7482,7 +7494,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                             "detail", "align", "design_area")
         if (self.mode not in _skip_grip_modes
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)):
-            grip_hit = self._find_grip_hit(snapped)
+            grip_hit = self._tools._find_grip_hit(snapped)
             if grip_hit is not None:
                 if self.mode == "move" and self.node_start_pos is None:
                     # In move mode, use grip point as precise base point.  Build
@@ -8802,7 +8814,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         if not hit:
             return
         self._offset_source = hit[0]
-        self._offset_highlight = self._highlight_item(hit[0])
+        self._offset_highlight = self._tools._highlight_item(hit[0])
         self._offset_dist = 0  # will be computed from cursor distance
         self._offset_manual = False  # cursor-driven distance
         self.set_mode("offset_side")
@@ -8813,9 +8825,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     def _press_offset_side(self, event, pos, snapped, item_under, node_under, pipe_under):
         # Click determines which side — commit the offset
         if self._offset_source is not None and self._offset_dist > 0:
-            sd = self._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
-            self._clear_offset_preview()
-            new_item = self._make_offset_item(self._offset_source, sd)
+            sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, snapped)
+            self._tools._clear_offset_preview()
+            new_item = self._tools._make_offset_item(self._offset_source, sd)
             if new_item is not None:
                 if isinstance(new_item, LineItem):
                     self.addItem(new_item)
@@ -8850,7 +8862,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             dx = snapped.x() - self._rotate_pivot.x()
             dy = snapped.y() - self._rotate_pivot.y()
             angle = math.degrees(math.atan2(-dy, dx))
-            self._apply_rotate(self._rotate_pivot, angle)
+            self._tools._apply_rotate(self._rotate_pivot, angle)
             self.push_undo_state()
             self._selected_items = []
             self.set_mode(None)
@@ -8867,7 +8879,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._mirror_p1 = snapped
             self.instructionChanged.emit("Pick second axis point")
         else:
-            self._apply_mirror(self._mirror_p1, snapped)
+            self._tools._apply_mirror(self._mirror_p1, snapped)
             self.confirmRequested.emit(
                 "mirror_delete", "Mirror", "Delete original objects?")
             # If user accepts, complete_confirmation() deletes originals
@@ -8879,46 +8891,46 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # ── Break (2-point) ──────────────────────────────────────────────
     def _press_break(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_target is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None:
                 self._break_target = hit
-                self._break_highlight = self._highlight_item(hit)
+                self._break_highlight = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Pick first break point on object")
         elif self._break_p1 is None:
             self._break_p1 = snapped
             self.instructionChanged.emit("Pick second break point")
         else:
-            self._break_item(self._break_target, self._break_p1, snapped)
+            self._tools._break_item(self._break_target, self._break_p1, snapped)
             self.push_undo_state()
             self.set_mode("break")
 
     # ── Break at Point ───────────────────────────────────────────────
     def _press_break_at_point(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._break_at_target is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None:
                 self._break_at_target = hit
-                self._break_at_highlight = self._highlight_item(hit)
+                self._break_at_highlight = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Pick break point on object")
         else:
-            self._break_at_point(self._break_at_target, snapped)
+            self._tools._break_at_point(self._break_at_target, snapped)
             self.push_undo_state()
             self.set_mode("break_at_point")
 
     # ── Fillet ───────────────────────────────────────────────────────
     def _press_fillet(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._fillet_item1 is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem):
                 self._fillet_item1 = hit
-                self._fillet_highlight1 = self._highlight_item(hit)
+                self._fillet_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line (Tab = set radius)")
         elif self._fillet_item2 is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._fillet_item1:
                 self._fillet_item2 = hit
-                self._fillet_highlight2 = self._highlight_item(hit)
-                data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                self._fillet_highlight2 = self._tools._highlight_item(hit)
+                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
                                            self._fillet_radius)
                 if data is None:
                     self._show_status("Cannot fillet these lines (parallel?)")
@@ -8940,17 +8952,17 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
     # ── Chamfer ──────────────────────────────────────────────────────
     def _press_chamfer(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._chamfer_item1 is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem):
                 self._chamfer_item1 = hit
-                self._chamfer_highlight1 = self._highlight_item(hit)
+                self._chamfer_highlight1 = self._tools._highlight_item(hit)
                 self.instructionChanged.emit("Click second line (Tab = set distance)")
         elif self._chamfer_item2 is None:
-            hit = self._find_geometry_at(pos)
+            hit = self._tools._find_geometry_at(pos)
             if hit is not None and isinstance(hit, LineItem) and hit is not self._chamfer_item1:
                 self._chamfer_item2 = hit
-                self._chamfer_highlight2 = self._highlight_item(hit)
-                data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                self._chamfer_highlight2 = self._tools._highlight_item(hit)
+                data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
                                              self._chamfer_dist)
                 if data is None:
                     self._show_status("Cannot chamfer these lines (parallel?)")
@@ -8975,28 +8987,28 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             else:
                 delta = QPointF(snapped.x() - self._stretch_base.x(),
                                 snapped.y() - self._stretch_base.y())
-                self._commit_stretch(delta)
+                self._tools._commit_stretch(delta)
                 self.push_undo_state()
                 self.set_mode(None)
 
     # ── Trim / Extend (Sprint Y) ─────────────────────────────────────
     def _press_trim(self, event, pos, snapped, item_under, node_under, pipe_under):
-        self._handle_trim_click(snapped)
+        self._tools._handle_trim_click(snapped)
 
     def _press_extend(self, event, pos, snapped, item_under, node_under, pipe_under):
-        self._handle_extend_click(snapped)
+        self._tools._handle_extend_click(snapped)
 
     # ── Merge / Hatch ────────────────────────────────────────────────
     def _press_merge_hatch(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.mode == "merge_points":
-            self._handle_merge_click(snapped)
+            self._tools._handle_merge_click(snapped)
 
     # ── Constraints ──────────────────────────────────────────────────
     def _press_constraint(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self.mode == "constraint_concentric":
-            self._handle_constraint_concentric_click(snapped)
+            self._tools._handle_constraint_concentric_click(snapped)
         elif self.mode == "constraint_dimensional":
-            self._handle_constraint_dimensional_click(snapped)
+            self._tools._handle_constraint_dimensional_click(snapped)
 
     def _press_polyline(self, event, pos, snapped, item_under, node_under, pipe_under):
         if self._polyline_active is None:
@@ -10647,7 +10659,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             self._gridline_drag_original_pos = None
             return
         if event.button() == Qt.MouseButton.LeftButton and self._grip_dragging:
-            self._solve_constraints(self._grip_item)  # enforce constraints
+            self._tools._solve_constraints(self._grip_item)  # enforce constraints
             self._grip_dragging = False
             self._grip_item     = None
             self._grip_index    = -1
@@ -11245,9 +11257,9 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             if self.mode == "offset_side" and self._offset_source is not None and self._offset_dist > 0:
                 cursor_pos = self._last_scene_pos
                 if cursor_pos is not None:
-                    sd = self._offset_signed_dist(self._offset_source, self._offset_dist, cursor_pos)
-                    self._clear_offset_preview()
-                    new_item = self._make_offset_item(self._offset_source, sd)
+                    sd = self._tools._offset_signed_dist(self._offset_source, self._offset_dist, cursor_pos)
+                    self._tools._clear_offset_preview()
+                    new_item = self._tools._make_offset_item(self._offset_source, sd)
                     if new_item is not None:
                         if isinstance(new_item, LineItem):
                             self.addItem(new_item)
@@ -11357,10 +11369,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                     self.instructionChanged.emit("Pick first room boundary point")
             # Commit fillet
             elif self.mode == "fillet" and self._fillet_item1 is not None and self._fillet_item2 is not None:
-                data = self._compute_fillet(self._fillet_item1, self._fillet_item2,
+                data = self._tools._compute_fillet(self._fillet_item1, self._fillet_item2,
                                             self._fillet_radius)
                 if data is not None:
-                    self._commit_fillet(data)
+                    self._tools._commit_fillet(data)
                     self.push_undo_state()
                 else:
                     self._show_status("Cannot compute fillet for these objects", timeout=3000)
@@ -11368,10 +11380,10 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 return
             # Commit chamfer
             elif self.mode == "chamfer" and self._chamfer_item1 is not None and self._chamfer_item2 is not None:
-                data = self._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
+                data = self._tools._compute_chamfer(self._chamfer_item1, self._chamfer_item2,
                                               self._chamfer_dist)
                 if data is not None:
-                    self._commit_chamfer(data)
+                    self._tools._commit_chamfer(data)
                     self.push_undo_state()
                 else:
                     self._show_status("Cannot compute chamfer for these objects", timeout=3000)
@@ -11686,7 +11698,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             elif hasattr(item, "translate"):
                 item.translate(offset.x(), offset.y())
                 item.setSelected(True)
-        self._solve_constraints()  # enforce constraints after move
+        self._tools._solve_constraints()  # enforce constraints after move
         self._selected_items = None   # clear after use
 
     def clipboard_data(self):
@@ -11736,7 +11748,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
 
     # -------------------------------------------------------------------------
-    # GEOMETRY TOOLS -> see scene_tools.py (SceneToolsMixin)
+    # GEOMETRY TOOLS -> see scene_tools.py (SceneTools)
     # array, rotate, scale, mirror, join, explode, break, fillet, chamfer,
     # stretch, trim, extend, merge, hatch, constraints, geometry helpers
     # -------------------------------------------------------------------------

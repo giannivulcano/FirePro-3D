@@ -730,8 +730,8 @@ class Model_View(QGraphicsView):
             # not real scene items).  Detect the grip hit here and suppress
             # rubber-band by temporarily switching to NoDrag for this press.
             if (sc is not None
-                    and hasattr(sc, "_find_grip_hit")):
-                if sc._find_grip_hit(scene_pos) is not None:
+                    and hasattr(sc, "_tools")):
+                if sc._tools._find_grip_hit(scene_pos) is not None:
                     self._grip_press_active = True
                     self.setDragMode(QGraphicsView.DragMode.NoDrag)
                     super().mousePressEvent(event)
@@ -799,7 +799,7 @@ class Model_View(QGraphicsView):
                     br = self.mapToScene(max(rb_start.x(), end.x()),
                                          max(rb_start.y(), end.y()))
                     crossing_rect = QRectF(tl, br).normalized()
-                    sc.begin_stretch_crossing(crossing_rect)
+                    sc._tools.begin_stretch_crossing(crossing_rect)
             self._rb_start = None
             super().mouseReleaseEvent(event)
         else:
@@ -1058,7 +1058,7 @@ class Model_View(QGraphicsView):
                                 "Distance:", c.distance, 0.01, 1_000_000, 3)
                             if ok:
                                 c.distance = val
-                                sc._solve_constraints()
+                                sc._tools._solve_constraints()
                                 sc.push_undo_state()
                                 self.viewport().update()
                             return
