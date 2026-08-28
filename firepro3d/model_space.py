@@ -10050,14 +10050,15 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
         """Return *base* uniquified against existing floor names.
 
         If *base* is unused among ``self._floor_slabs`` it is returned as-is;
-        otherwise the smallest ``f"{base} {N}"`` with N >= 2 that is free.
+        otherwise the smallest ``f"{base} {N}"`` with N >= 1 that is free
+        (so a "Slab" collision yields "Slab 1", "Slab 2", ...).
         The caller must name the slab BEFORE appending it (or the new slab must
         not yet be in ``_floor_slabs``) so it does not collide with itself.
         """
         existing = {s.name for s in self._floor_slabs if s is not None}
         if base not in existing:
             return base
-        n = 2
+        n = 1
         while f"{base} {n}" in existing:
             n += 1
         return f"{base} {n}"

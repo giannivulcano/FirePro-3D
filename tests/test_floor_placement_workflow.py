@@ -340,7 +340,7 @@ def test_template_name_seeds_placed_floor(qapp, shown_model_view):
 
 
 def test_duplicate_floor_name_appends_number(qapp, shown_model_view):
-    """Colliding template names uniquify with the smallest N >= 2."""
+    """Colliding template names uniquify with the smallest N >= 1."""
     view, scene = shown_model_view
     scene.set_mode("floor")
     scene.cycle_placement_variant(+1)
@@ -349,7 +349,7 @@ def test_duplicate_floor_name_appends_number(qapp, shown_model_view):
     n1 = _place_polygon_floor(view, scene, origin=(0, 0))
     n2 = _place_polygon_floor(view, scene, origin=(3000, 0))
     n3 = _place_polygon_floor(view, scene, origin=(6000, 0))
-    assert [n1.name, n2.name, n3.name] == ["Slab", "Slab 2", "Slab 3"]
+    assert [n1.name, n2.name, n3.name] == ["Slab", "Slab 1", "Slab 2"]
 
 
 def test_default_template_name_uses_floor(qapp, shown_model_view):
@@ -362,7 +362,7 @@ def test_default_template_name_uses_floor(qapp, shown_model_view):
     assert scene._get_floor_template().name == "(Template)"
     n1 = _place_polygon_floor(view, scene, origin=(0, 0))
     n2 = _place_polygon_floor(view, scene, origin=(3000, 0))
-    assert [n1.name, n2.name] == ["Floor", "Floor 2"]
+    assert [n1.name, n2.name] == ["Floor", "Floor 1"]
 
 
 def test_blank_template_name_uses_floor(qapp, shown_model_view):
@@ -383,9 +383,9 @@ def test_unique_floor_name_helper(scene):
     class _S:
         def __init__(self, name):
             self.name = name
-    scene._floor_slabs = [_S("Slab"), _S("Slab 2"), None]
+    scene._floor_slabs = [_S("Slab"), _S("Slab 1"), None]
     assert scene._unique_floor_name("Floor") == "Floor"      # free
-    assert scene._unique_floor_name("Slab") == "Slab 3"      # 2 taken -> 3
+    assert scene._unique_floor_name("Slab") == "Slab 2"      # Slab + Slab 1 taken -> 2
 
 
 def test_floor_base_name_helper(scene):
