@@ -57,7 +57,14 @@ The loader substitutes sentinels with theme values at load time. The mapping is 
 | Token role | Sentinel (authored in SVG) | Light theme | Dark theme |
 |---|---|---|---|
 | Primary | `#1A1A1A` | `#1A1A1A` (black) | `#F0F0F0` (white) |
-| Accent | `#004CFF` | `#008000` (green) | `#3B82F6` (blue) |
+| Accent | `#004CFF` | `#004CFF` (blue, `ACCENT_BLUE`) | `#44FF88` (green, `ACCENT_GREEN`) |
+
+Accent convention: **light theme = blue, dark theme = green**. The two display
+values are named constants in `icons.py` (`ACCENT_BLUE`, `ACCENT_GREEN`). The
+dark-theme green `#44FF88` is the **single source** shared with the ALIGN/SNAP
+status-bar pills in `main.py` (which import `ACCENT_GREEN`), so pill-green and
+icon-accent-green stay in sync. The authoring sentinel stays `#004CFF` — SVGs
+are always authored with the blue sentinel regardless of the per-theme display.
 
 To change a theme colour, edit **only** `icons.py` `_TOKENS`. SVG geometry is never touched for retheming — that is the purpose of this contract.
 

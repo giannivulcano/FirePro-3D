@@ -22,10 +22,17 @@ DARK = "dark"
 PRIMARY_SENTINEL = "#1A1A1A"
 ACCENT_SENTINEL = "#004CFF"
 
+# Shared accent DISPLAY colours — single source of truth for the two-token
+# accent, referenced by both the ribbon-icon loader (below) and the ALIGN/SNAP
+# status-bar pills in main.py so pill-green and icon-accent-green stay in sync.
+ACCENT_GREEN = "#44FF88"   # matches the ALIGN/SNAP status pill; dark-theme accent
+ACCENT_BLUE  = "#004CFF"   # light-theme accent (style-guide canonical accent hex)
+
 # Per-theme token values (icon-style-guide.md token table).
+# Accent convention: LIGHT theme = blue, DARK theme = green.
 _TOKENS = {
-    LIGHT: {PRIMARY_SENTINEL: "#1A1A1A", ACCENT_SENTINEL: "#008000"},  # primary black, accent green
-    DARK:  {PRIMARY_SENTINEL: "#F0F0F0", ACCENT_SENTINEL: "#3B82F6"},  # primary white, accent blue
+    LIGHT: {PRIMARY_SENTINEL: "#1A1A1A", ACCENT_SENTINEL: ACCENT_BLUE},   # primary black, accent blue
+    DARK:  {PRIMARY_SENTINEL: "#F0F0F0", ACCENT_SENTINEL: ACCENT_GREEN},  # primary white, accent green
 }
 _FALLBACK = "_missing_icon.svg"
 _cache: dict[tuple[str, str], QIcon] = {}

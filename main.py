@@ -42,6 +42,7 @@ from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LE
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
 from firepro3d import theme as th
+from firepro3d.icons import ACCENT_GREEN
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -217,9 +218,9 @@ class _SnapIndicatorLabel(QLabel):
         on = bool(self.property("snapOn"))
         if on:
             self.setStyleSheet(
-                "font-weight: bold; color: #44ff88; "
+                f"font-weight: bold; color: {ACCENT_GREEN}; "
                 "background: #1a3a24; padding: 2px 10px; "
-                "border: 1px solid #44ff88; border-radius: 3px;"
+                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
             )
         else:
             self.setStyleSheet(
@@ -261,9 +262,9 @@ class _GuidesIndicatorLabel(QLabel):
         on = bool(self.property("guidesOn"))
         if on:
             self.setStyleSheet(
-                "font-weight: bold; color: #44ff88; "
+                f"font-weight: bold; color: {ACCENT_GREEN}; "
                 "background: #1a3a24; padding: 2px 10px; "
-                "border: 1px solid #44ff88; border-radius: 3px;"
+                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
             )
         else:
             self.setStyleSheet(
@@ -1658,7 +1659,7 @@ class MainWindow(QMainWindow):
         _wall_btn.setToolTip("Draw a wall  (W) — ←/→ Line/Polyline/Rectangle, Space aligns")
         self._mode_buttons["wall"] = _wall_btn
         _floor_btn = g_3d.add_large_button(
-            "Floor", _I("placeholder_icon.svg"),
+            "Floor", _I("floor_icon.svg"),
             lambda: self.scene.set_mode("floor"),
             checkable=True)
         _floor_btn.setToolTip(
