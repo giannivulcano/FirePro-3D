@@ -3199,7 +3199,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             undo_pipe = {
                 "node1_id":   node_id[pipe.node1],
                 "node2_id":   node_id[pipe.node2],
-                "properties": {k: v["value"] for k, v in pipe.get_properties().items()},
+                # raw stored props — parity with save_to_file; get_properties()
+                # injects synthesized display rows (Length, node elevations).
+                "properties": {k: v["value"] for k, v in pipe._properties.items()},
                 "level":     getattr(pipe, "level", DEFAULT_LEVEL),
             }
             pipe_ovr = getattr(pipe, "_display_overrides", {})
@@ -3409,7 +3411,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     dim.update_geometry()
                     dim.level = entry.get("level", DEFAULT_LEVEL)
                 elif ann_type == "note":
-                    note = NoteAnnotation(x=entry["x"], y=entry["y"])
+                    tw = entry.get("text_width", -1)
+                    note = NoteAnnotation(
+                        x=entry["x"], y=entry["y"],
+                        text_width=tw if tw and tw > 0 else 0)  # parity with load_from_file
                     self.addItem(note)
                     self.annotations.add_note(note)
                     for key, value in entry.get("properties", {}).items():
@@ -3582,6 +3587,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 room._scale_manager_ref = self.scale_manager
                 self.addItem(room)
                 self._rooms.append(room)
+
+            # Recompute auto-name counters (parity with load_from_file) so the
+            # next auto-name doesn't skip a number after an undo.
+            self._recalc_name_counters()
 
             # ── Design-area tiles (now that walls & rooms exist) ──────────
             for da in self.design_areas:
