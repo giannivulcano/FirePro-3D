@@ -89,6 +89,18 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     return pen
 
 
+def _pdf_width_to_px(pt_width: float) -> float:
+    """PDF stroke width (points) -> cosmetic px, floored at the default width.
+
+    Preserves the source line-width *hierarchy* while keeping thin lines at
+    least as visible as today's flat ``UNDERLAY_LINE_WIDTH_PX``.
+    """
+    if pt_width <= 0.0:
+        return UNDERLAY_LINE_WIDTH_PX
+    width_mm = pt_width * 25.4 / 72.0
+    return max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
+
+
 class _PlacementSentinel:
     """Marker object: ALIGN is active during placement, nothing to self-exclude.
 
@@ -2661,13 +2673,40 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 else:
                     self._append_geom_to_path(geom_path, g)
 
-            if not geom_path.isEmpty():
+            has_override = bool(record.effective_layer_weight(layer))
+            if not geom_path.isEmpty() and has_override:
+                # Per-file/layer Line-Weight override wins: single pen, flat
+                # width for the whole layer (today's look).
                 item = QGraphicsPathItem(geom_path)
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
                 item.setData(1, layer)  # layer tag for visibility toggling
                 items.append(item)
+            elif not has_override:
+                # No override -> preserve source line-width hierarchy: one path
+                # (one pen width) per distinct stroke width. DXF geoms carry no
+                # "width" -> all bucket at 0.0 -> UNDERLAY_LINE_WIDTH_PX (today).
+                by_width: dict[float, QPainterPath] = {}
+                for g in geoms:
+                    if g.get("kind") == "text":
+                        continue
+                    w = round(float(g.get("width", 0.0)), 2)
+                    self._append_geom_to_path(
+                        by_width.setdefault(w, QPainterPath()), g)
+                colour = QColor(record.effective_layer_colour(layer))
+                for w, wpath in by_width.items():
+                    if wpath.isEmpty():
+                        continue
+                    pen = QPen(colour, _pdf_width_to_px(w))
+                    pen.setCosmetic(True)
+                    item = QGraphicsPathItem(wpath)
+                    item.setPen(pen)
+                    item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+                    item.setZValue(Z_UNDERLAY)
+                    item.setData(1, layer)  # layer tag for visibility toggling
+                    item.setData(7, w)      # source stroke width (pt) for repen
+                    items.append(item)
 
             if not text_path.isEmpty():
                 item = QGraphicsPathItem(text_path)
@@ -3139,8 +3178,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     # text batch: colour rides the brush fill
                     child.setBrush(QBrush(QColor(
                         record.effective_layer_colour(layer))))
-                else:
+                elif record.effective_layer_weight(layer):
+                    # override wins: flat weight for the whole layer
                     child.setPen(underlay_layer_pen(record, layer))
+                else:
+                    # no override: preserve the child's source PDF width, recolour
+                    src_w = child.data(7)
+                    if src_w is None:
+                        child.setPen(underlay_layer_pen(record, layer))
+                    else:
+                        p = QPen(QColor(record.effective_layer_colour(layer)),
+                                 _pdf_width_to_px(float(src_w)))
+                        p.setCosmetic(True)
+                        child.setPen(p)
             group.setOpacity(record.opacity)
             return
 

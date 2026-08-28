@@ -204,6 +204,7 @@ class PdfImportWorker(QThread):
         """
         items = path.get("items", [])
         layer = path.get("layer", "") or "PDF Vectors"
+        width = float(path.get("width") or 0.0)
         results: list[dict] = []
 
         # Track points for building a single path_points from connected segments
@@ -288,6 +289,10 @@ class PdfImportWorker(QThread):
                 "closed": is_closed,
             })
 
+        # Carry the PDF stroke width (points) onto every geom from this path,
+        # so the underlay builder can preserve the source line-width hierarchy.
+        for r in results:
+            r["width"] = width
         return results
 
     # ─────────────────────────────────────────────────────────────────
