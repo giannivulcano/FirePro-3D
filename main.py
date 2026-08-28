@@ -4319,7 +4319,7 @@ class MainWindow(QMainWindow):
         from firepro3d.view_range_dialog import ViewRangeDialog
         dlg = ViewRangeDialog(
             pv, self.level_mgr, self.plan_view_mgr,
-            self.scene.scale_manager, parent=self)
+            self.scene.scale_manager, parent=self, scene=self.scene)
         if dlg.exec() == dlg.DialogCode.Accepted:
             vh, vd = dlg.get_values()
             pv.view_height = vh

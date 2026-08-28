@@ -203,23 +203,16 @@ class ViewRangeDialog(QDialog):
         # is_explicit() and writes this onto the shared PlanView on Accept.
         self._explicit = False
 
-        levels_sorted = sorted(self._lm.levels, key=lambda l: l.elevation)
-        next_lvl = None
-        for l in levels_sorted:
-            if l.elevation > elev:
-                next_lvl = l
-                break
-
-        from .level_manager import _DEFAULT_SLAB_THICKNESS_MM
         view_height = None
         if self._scene is not None:
             view_height = self._lm.compute_view_height(
                 self._scene, self._pv.level_name)
+        # No scene (or uncomputable) → the floor-agnostic fallback.
+        # NOTE: mirrors LevelManager.fallback_view_height (one home).
         if view_height is None:
-            if next_lvl is not None:
-                view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
-            else:
-                view_height = elev + lvl.view_top
+            view_height = self._lm.fallback_view_height(self._pv.level_name)
+        if view_height is None:
+            view_height = elev + lvl.view_top
 
         view_depth = elev + lvl.view_bottom
 

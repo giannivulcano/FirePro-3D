@@ -239,3 +239,49 @@ def test_dialog_reset_without_scene_falls_back_to_formula(qapp):
     assert dlg.is_explicit() is False
     vh, _vd = dlg.get_values()
     assert vh == pytest.approx(3048.0 - _DEFAULT_SLAB_THICKNESS_MM)
+
+
+# ── (5) commit path writes the flag onto the PlanView on Accept ──────────────
+
+def _commit_dialog_to_planview(pv, dlg):
+    """Mirror of the Accept branch in main._open_plan_view_range /
+    _tab_context_plan: on Accept, the handler writes the dialog values +
+    override intent back onto the shared PlanView."""
+    vh, vd = dlg.get_values()
+    pv.view_height = vh
+    pv.view_depth = vd
+    pv.view_height_explicit = dlg.is_explicit()
+
+
+def test_commit_writes_explicit_true_after_manual_edit(qapp):
+    """A manual height edit pins the flag; Accept persists explicit=True."""
+    s = _scene(qapp)
+    _floor_above_L2(s, thickness_mm=300.0)
+    pv = PlanView(name="Plan: Level 1", level_name="Level 1",
+                  view_height=2895.6, view_depth=-1000.0,
+                  view_height_explicit=False)
+    dlg = _dialog(qapp, s, pv)
+    # A real height edit sets the field value AND emits valueChanged (which
+    # routes to _absolute_to_ref("height") and pins the explicit flag).
+    dlg._height_edit.set_value_mm(2600.0)
+    dlg._height_edit.valueChanged.emit(2600.0)
+    assert dlg.is_explicit() is True
+    _commit_dialog_to_planview(pv, dlg)
+    assert pv.view_height_explicit is True
+    assert pv.view_height == pytest.approx(2600.0)
+
+
+def test_commit_writes_explicit_false_after_reset(qapp):
+    """Reset-to-Defaults opts back into dynamic; Accept persists explicit=False
+    and the shared PlanView carries the computed dynamic upper bound."""
+    s = _scene(qapp)
+    _floor_above_L2(s, thickness_mm=300.0)   # floor above bottom at 2748
+    pv = PlanView(name="Plan: Level 1", level_name="Level 1",
+                  view_height=2895.6, view_depth=-1000.0,
+                  view_height_explicit=True)
+    dlg = _dialog(qapp, s, pv)
+    dlg._reset_defaults()
+    assert dlg.is_explicit() is False
+    _commit_dialog_to_planview(pv, dlg)
+    assert pv.view_height_explicit is False
+    assert pv.view_height == pytest.approx(2748.0)

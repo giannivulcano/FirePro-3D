@@ -201,17 +201,11 @@ class PlanViewManager:
         # view_depth: this level's elevation (show floor-level items)
         view_depth = elev + (lvl.view_bottom if lvl else -1000.0)
 
-        # view_height: next level's elevation minus slab thickness,
-        # or this level + view_top if no level above exists
-        levels_sorted = sorted(level_manager.levels, key=lambda l: l.elevation)
-        next_lvl = None
-        for l in levels_sorted:
-            if l.elevation > elev:
-                next_lvl = l
-                break
-        if next_lvl is not None:
-            view_height = next_lvl.elevation - _DEFAULT_SLAB_THICKNESS_MM
-        else:
+        # view_height: floor-agnostic default (next datum - slab thickness, or
+        # this level + view_top at the top). Shared with LevelManager so all
+        # three call sites derive it identically.
+        view_height = level_manager.fallback_view_height(level_name)
+        if view_height is None:
             view_height = elev + (lvl.view_top if lvl else 2000.0)
 
         pv = PlanView(name=name, level_name=level_name,
@@ -352,6 +346,25 @@ class LevelManager:
 
     # ── Elevation helpers ───────────────────────────────────────────────────
 
+    def fallback_view_height(self, level_name) -> float | None:
+        """The floor-agnostic default plan upper bound: next_datum - default slab
+        thickness, or (top level) elev + view_top; None if the level is unknown.
+
+        This is the scene-independent tail shared by ``compute_view_height``,
+        ``PlanViewManager.create`` and the View Range dialog's reset path.
+        """
+        lvl = self.get(level_name)
+        if lvl is None:
+            return None
+        nxt = None
+        for l in sorted(self._levels, key=lambda x: x.elevation):
+            if l.elevation > lvl.elevation:
+                nxt = l
+                break
+        if nxt is None:
+            return lvl.elevation + lvl.view_top
+        return nxt.elevation - _DEFAULT_SLAB_THICKNESS_MM
+
     def compute_view_height(self, scene, level_name) -> float | None:
         """Auto upper bound for a level's plan view.
 
@@ -382,8 +395,7 @@ class LevelManager:
             bot, top = zr
             if abs(top - nxt.elevation) <= _VIEW_TOP_TOL_MM:
                 best = bot if best is None else min(best, bot)
-        return best if best is not None else (
-            nxt.elevation - _DEFAULT_SLAB_THICKNESS_MM)
+        return best if best is not None else self.fallback_view_height(level_name)
 
     def update_elevations(self, scene):
         """Recompute z_pos for all nodes using ceiling_level + ceiling_offset."""
