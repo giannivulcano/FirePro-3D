@@ -1722,7 +1722,9 @@ class UnderlayImportDialog(QDialog):
             if txt:
                 f = QFont("Arial")
                 f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-                f.setPointSizeF(max(0.5, g.get("size", 6)))
+                # Pixel size (not point size): DPI-independent, matches the PDF's
+                # point-based path (point size inflates by 96/72 + HiDPI factor).
+                f.setPixelSize(max(1, round(g.get("size", 6))))
                 tx, ty = g["x"], g["y"]
                 ha = g.get("halign", 0)
                 va = g.get("valign", 3)

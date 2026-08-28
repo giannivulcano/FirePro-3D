@@ -332,6 +332,8 @@ class PdfImportWorker(QThread):
                         "y": bbox[1],
                         "text": text,
                         "size": size,
+                        "halign": 0,      # left (bbox x0)
+                        "valign": 0,      # top-anchored to the span bbox top (y0)
                     })
         return results
 
