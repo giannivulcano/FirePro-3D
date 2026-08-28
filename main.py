@@ -2681,7 +2681,7 @@ class MainWindow(QMainWindow):
             template = self.scene._get_wall_template()
             template._alignment = self.scene._wall_alignment
             self.prop_manager.show_properties(template)
-        elif mode in ("floor", "floor_rect"):
+        elif mode == "floor":
             template = self.scene._get_floor_template()
             self.prop_manager.show_properties(template)
         elif mode in ("roof", "roof_rect"):
@@ -3283,8 +3283,8 @@ class MainWindow(QMainWindow):
         ``_display_color`` / ``_display_fill_color`` + calls ``item.update()``.
         """
         from firepro3d.display_manager import apply_saved_display_settings
+        # TODO(perf): scene-wide re-apply; narrow to affected categories if large-scene lag appears.
         apply_saved_display_settings(self.scene)
-        self.scene.update()
 
     def _set_graphic_override(self, prop: str, title: str) -> None:
         """Open a colour picker and set override *prop* on every eligible item.
@@ -4398,7 +4398,7 @@ class MainWindow(QMainWindow):
         try:
             # Don't override template properties during placement modes
             if self.scene.mode in ("pipe", "sprinkler", "wall",
-                                    "floor", "floor_rect", "roof", "roof_rect",
+                                    "floor", "roof", "roof_rect",
                                     "set_scale", "design_area"):
                 return
             items = self.scene.selectedItems()

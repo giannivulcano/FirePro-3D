@@ -43,7 +43,7 @@ from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
                        ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
                        OPENING_ALIGN_CENTER, OPENING_ALIGNMENTS,
-                       SELECTION_OUTLINE_COLOR)
+                       SELECTION_OUTLINE_COLOR, MIN_FLOOR_THICKNESS_MM)
 from .fitting import Fitting
 from .wall import WallSegment, compute_wall_quad, DEFAULT_THICKNESS_MM
 from .floor_slab import FloorSlab
@@ -1281,8 +1281,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
             "chamfer":         "Click first object",
             "stretch":         "Draw crossing window (right-to-left)",
             "wall":            "Pick wall start point",
-            "floor":           "Pick first boundary point (click near first to close)",
-            "floor_rect":      "Pick first corner for rectangular floor",
+            "floor":           "Pick first point",
             "room":            "Click inside a closed wall region",
             "room_manual":     "Pick first room boundary point",
             "opening":         "Click on a wall to place an opening",
@@ -5294,15 +5293,20 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
                 active_elev = float(lvl.elevation)
 
         if "top_mode" in blob:
-            tmpl._top_mode = str(blob["top_mode"])
+            mode = str(blob["top_mode"])
+            if mode in {"level", "absolute"}:
+                tmpl._top_mode = mode
         if "top_offset_mm" in blob:
             tmpl._top_offset_mm = float(blob["top_offset_mm"])
         if "bottom_mode" in blob:
-            tmpl._bottom_mode = str(blob["bottom_mode"])
+            mode = str(blob["bottom_mode"])
+            if mode in {"level", "absolute", "thickness"}:
+                tmpl._bottom_mode = mode
         if "bottom_offset_mm" in blob:
             tmpl._bottom_offset_mm = float(blob["bottom_offset_mm"])
         if "thickness_mm" in blob:
-            tmpl._thickness_mm = float(blob["thickness_mm"])
+            tmpl._thickness_mm = max(float(blob["thickness_mm"]),
+                                     MIN_FLOOR_THICKNESS_MM)
 
         # Re-seed project-specific parts from the active level.
         tmpl._top_level = self.active_level
@@ -7469,7 +7473,7 @@ class Model_Space(SceneToolsMixin, SceneIOMixin, QGraphicsScene):
 
         # ── Grip hit takes priority over mode handlers ──────────────────
         # Skip grip detection in drawing modes so clicks reach the draw handler
-        _skip_grip_modes = ("wall", "floor", "floor_rect", "pipe", "sprinkler",
+        _skip_grip_modes = ("wall", "floor", "pipe", "sprinkler",
                             "draw_line", "draw_rectangle",
                             "draw_circle", "draw_arc", "polyline", "draw_gridline",
                             "dimension", "text", "door", "window", "set_scale",

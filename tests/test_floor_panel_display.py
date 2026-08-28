@@ -205,21 +205,6 @@ def test_live_panel_mode_switch_drops_and_adds_rows(qapp):
     and adds the Top Z row."""
     from firepro3d.property_manager import PropertyManager
 
-    class _LMWithLevels:
-        class _Lvl:
-            def __init__(self, name, elevation):
-                self.name = name
-                self.elevation = elevation
-
-        def __init__(self):
-            self.levels = [self._Lvl("Level 1", 0.0), self._Lvl("Level 2", 3048.0)]
-
-        def get(self, name):
-            for lv in self.levels:
-                if lv.name == name:
-                    return lv
-            return None
-
     slab = _slab(_top_mode="level", _top_level="Level 1")
     pm = PropertyManager()
     pm.set_level_manager(_LMWithLevels())

@@ -32,6 +32,9 @@ _SELECTION_COLOR = QColor("red")
 _TOP_MODE_LABELS = {"level": "Level", "absolute": "Absolute"}
 _BOTTOM_MODE_LABELS = {"level": "Level", "absolute": "Absolute",
                        "thickness": "Thickness"}
+# Label → mode reverse-maps (precomputed; used by set_property).
+_TOP_MODE_REVERSE = {v: k for k, v in _TOP_MODE_LABELS.items()}
+_BOTTOM_MODE_REVERSE = {v: k for k, v in _BOTTOM_MODE_LABELS.items()}
 
 
 # ── Pure Z-resolver (no Qt dependency) ────────────────────────────────────────
@@ -407,7 +410,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         if key == "Name":
             self.name = str(value)
         elif key == "Top Reference":
-            mode = {v: k for k, v in _TOP_MODE_LABELS.items()}.get(value)
+            mode = _TOP_MODE_REVERSE.get(value)
             if mode is not None:          # defensive: out-of-options label no-ops
                 self._top_mode = mode
         elif key == "Top Level":
@@ -421,7 +424,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             if v is not None:
                 self._top_abs_z_mm = v
         elif key == "Bottom Reference":
-            mode = {v: k for k, v in _BOTTOM_MODE_LABELS.items()}.get(value)
+            mode = _BOTTOM_MODE_REVERSE.get(value)
             if mode is not None:
                 self._bottom_mode = mode
         elif key == "Bottom Level":
@@ -447,7 +450,7 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         # thickness_ft) are dropped on save. This dict is the single serializer
         # for BOTH persistence paths (scene_io file save AND
         # _capture_network/_restore_network undo), which both delegate here.
-        return {
+        d = {
             "type":              "floor_slab",
             "points":            [[p.x(), p.y()] for p in self._points],
             "color":             self._color.name(),
@@ -461,10 +464,14 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
             "bottom_offset_mm":  self._bottom_offset_mm,
             "bottom_abs_z_mm":   self._bottom_abs_z_mm,
             "thickness_mm":      self._thickness_mm,
-            # Per-instance Display-Manager overrides (stroke/fill colour, etc.).
-            # Round-tripped here so both file save AND undo/redo preserve them.
-            "display_overrides": dict(self._display_overrides),
         }
+        # Per-instance Display-Manager overrides (stroke/fill colour, etc.).
+        # Emitted only when non-empty (matches GridlineItem.to_dict) so untouched
+        # floor records stay lean; from_dict defaults to {} when absent. Round-
+        # tripped so both file save AND undo/redo preserve them.
+        if self._display_overrides:
+            d["display_overrides"] = dict(self._display_overrides)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "FloorSlab":
