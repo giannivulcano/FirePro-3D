@@ -150,7 +150,22 @@ class UnderlayTreeModel(QAbstractItemModel):
         return None
 
     def _layers_of(self, record) -> list[str]:
-        return _record_layer_names(record)
+        """Return the sorted layer-name list from the paired scene group.
+
+        Reads ``group.data(2)`` (the canonical layer list cached on the item)
+        with a ``child.data(1)`` fallback for groups built before the cache
+        was populated.  Returns ``[]`` for raster-PDF groups (no layers) and
+        when no paired group exists.
+        """
+        group = self._group_for(record)
+        if group is None:
+            return []
+        layers = group.data(2)
+        if not layers:
+            layers = sorted(
+                {c.data(1) for c in group.childItems() if c.data(1) is not None}
+            )
+        return list(layers)
 
     def _node(self, record, layer=None) -> _Node:
         key = (id(record), layer)
