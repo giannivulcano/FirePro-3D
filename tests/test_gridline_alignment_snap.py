@@ -72,7 +72,6 @@ class TestPlacementAndGripWiring:
         """Placement with no reference geometry must succeed without crash."""
         ms = make_model_space()
         ms._snap_enabled = False
-        ms._snap_to_underlay = False
         _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         ms.set_mode("draw_gridline")
@@ -87,7 +86,6 @@ class TestPlacementAndGripWiring:
         mode stays draw_gridline (re-armed for the next placement)."""
         ms = make_model_space()
         ms._snap_enabled = False
-        ms._snap_to_underlay = False
         _setup_align_view(ms, center_x=0.0, center_y=0.0)
 
         ms.set_mode("draw_gridline")

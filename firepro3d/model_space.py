@@ -171,7 +171,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # left-Shift press, broken by any other key or a click, consumed on the
         # matching release — so Shift-as-modifier never cycles.
         self._lshift_tap_armed = False
-        self._snap_to_underlay: bool = False
         self.water_supply_node: "WaterSupply | None" = None  # placed water supply
         self.hydraulic_result = None                          # last solver run (Sprint 2)
         self._radiation_selecting = False                      # True during radiation surface selection
@@ -2756,7 +2755,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         engine, replacing invisible QGraphicsItems in the scene BSP.
         """
         from .underlay_snap_index import UnderlaySnapIndex
-        index = UnderlaySnapIndex(geom_list, record.hidden_layers)
+        index = UnderlaySnapIndex(geom_list, record.hidden_layers, record)
         group.setData(4, index)
 
     def _on_dxf_error(self, msg: str, progress: QProgressDialog):
@@ -3869,28 +3868,6 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._snap_result = None
         else:
             self._snap_result = None
-
-        # Underlay snap — routed through the ONE snap engine, restricted to
-        # underlay geometry (pixel-correct + zoom-invariant). Runs when the
-        # SNAP block above did not fire (e.g. select mode) and the toggle is on.
-        if self._snap_to_underlay:
-            _view = self._snap_view()
-            if _view is not None:
-                # Force-enable the engine for this call: the underlay toggle is
-                # independent of the general SNAP on/off switch.
-                _was_enabled = self._snap_engine.enabled
-                self._snap_engine.enabled = True
-                try:
-                    result = self._snap_engine.find(
-                        scene_pos, self, _view.transform(),
-                        item_filter=_is_underlay_item,
-                        held=self._snap_result)
-                finally:
-                    self._snap_engine.enabled = _was_enabled
-                if result is not None:
-                    self._snap_result = result
-                    self._align_result = None
-                    return result.point
 
         # ── ALIGN acquire-and-track (weak snap, below real SNAP) ─────────
         # The controller holds the acquired set (fed on move by the dwell

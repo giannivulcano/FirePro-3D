@@ -33,12 +33,14 @@ class UnderlaySnapIndex:
         "_geom_list", "_hidden_layers", "_cells",
         "_ox", "_oy", "_cw", "_ch", "_nx", "_ny",
         "_bx0", "_by0", "_bx1", "_by1",
+        "_record",
     )
 
     def __init__(self, geom_list: list[dict],
-                 hidden_layers: list[str]):
+                 hidden_layers: list[str], record=None):
         self._geom_list = geom_list
         self._hidden_layers = hidden_layers
+        self._record = record
 
         # Single bounds pass: compute per-geom bboxes once, keep them as
         # compact double arrays (32 bytes/geom) for the query-time bbox
@@ -101,6 +103,9 @@ class UnderlaySnapIndex:
         Parameters are the rect's (x, y, width, height) in group-local
         coordinates.  Returns a deduplicated list of geometry dicts.
         """
+        if self._record is not None and not self._record.snap:
+            return []
+
         hidden = set(self._hidden_layers) if self._hidden_layers else set()
 
         x1 = local_rect_x

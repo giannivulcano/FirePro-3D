@@ -1539,12 +1539,6 @@ class MainWindow(QMainWindow):
             self._toggle_snap, checkable=True)
         self._snap_btn.setChecked(True)
         self._snap_btn.setToolTip("Select Nearest Anchor Point (SNAP)  [F3]")
-        _btn = g_snap.add_small_button(
-            "Snap to\nUnderlay",
-            _I("placeholder_icon.svg"),
-            lambda checked: setattr(self.scene, "_snap_to_underlay", checked),
-            checkable=True)
-        _btn.setToolTip("Snap to DXF underlay geometry")
         _btn = g_snap.add_small_menu_button(
             "Angle Snap",
             _I("placeholder_icon.svg"),
