@@ -204,6 +204,7 @@ class PdfImportWorker(QThread):
         """
         items = path.get("items", [])
         layer = path.get("layer", "") or "PDF Vectors"
+        width = float(path.get("width") or 0.0)
         results: list[dict] = []
 
         # Track points for building a single path_points from connected segments
@@ -288,6 +289,10 @@ class PdfImportWorker(QThread):
                 "closed": is_closed,
             })
 
+        # Carry the PDF stroke width (points) onto every geom from this path,
+        # so the underlay builder can preserve the source line-width hierarchy.
+        for r in results:
+            r["width"] = width
         return results
 
     # ─────────────────────────────────────────────────────────────────
@@ -316,17 +321,24 @@ class PdfImportWorker(QThread):
                     text = span.get("text", "").strip()
                     if not text:
                         continue
-                    bbox = span.get("bbox")       # (x0, y0, x1, y1)
+                    origin = span.get("origin")   # (x, baseline_y) — exact baseline
+                    bbox = span.get("bbox")       # ink bbox — for width fitting
                     size = span.get("size", 8.0)
-                    if bbox is None:
-                        continue
+                    if origin is None:
+                        if bbox is None:
+                            continue
+                        origin = (bbox[0], bbox[3])
                     results.append({
                         "kind": "text",
                         "layer": "PDF Text",
-                        "x": bbox[0],
-                        "y": bbox[1],
+                        "x": origin[0],
+                        "y": origin[1],   # place the glyph baseline here
                         "text": text,
                         "size": size,
+                        "halign": 0,      # left (span origin x)
+                        "valign": 3,      # baseline: base_y = y (the span origin)
+                        # on-paper text width -> substitute font is x-scaled to it
+                        "twidth": (bbox[2] - bbox[0]) if bbox else None,
                     })
         return results
 
@@ -410,3 +422,23 @@ def generate_pdf_thumbnails(file_path: str, width: int = 128) -> list[tuple[int,
             doc.close()
 
     return thumbs
+
+
+def pdf_page_names(file_path: str) -> list[str]:
+    """Return a display name per page: PDF page label if present, else 'Page N'."""
+    if not _HAS_FITZ:
+        return []
+    names: list[str] = []
+    doc = fitz.open(file_path)
+    try:
+        for i in range(len(doc)):
+            label = ""
+            try:
+                label = doc[i].get_label()      # PyMuPDF >= 1.18
+            except Exception:
+                label = ""
+            names.append(label.strip() if label and label.strip()
+                         else f"Page {i + 1}")
+    finally:
+        doc.close()
+    return names

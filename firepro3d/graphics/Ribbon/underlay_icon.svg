@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none"
+     stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- underlay sheet behind: only the exposed L (occluded top-left cut off) -->
+  <path stroke="#004CFF" d="M34 15 L38 15 A2 2 0 0 1 40 17 L40 40 A2 2 0 0 1 38 42 L17 42 A2 2 0 0 1 15 40 L15 36 L32 36 A2 2 0 0 0 34 34 Z"/>
+  <!-- document sheet on top -->
+  <rect x="8" y="8" width="26" height="28" rx="2"/>
+  <path d="M14 16 H28 M14 22 H28 M14 28 H22"/>
+</svg>

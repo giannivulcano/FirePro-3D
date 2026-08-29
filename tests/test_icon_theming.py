@@ -11,6 +11,7 @@ _ARCH_ICONS = [
     "wall_icon.svg", "floor_icon.svg", "roof_icon.svg", "room_icon.svg",
     "door_icon.svg", "window_icon.svg", "blank_icon.svg",
     "detail_icon.svg", "levels_icon.svg", "gridline_icon.svg",
+    "underlay_icon.svg",
 ]
 # Only these colour literals may appear (style-guide §4.1). Case-insensitive.
 _ALLOWED_HEX = {"#1a1a1a", "#004cff"}
