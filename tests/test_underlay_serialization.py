@@ -36,7 +36,7 @@ class TestUnderlayFullConstruction:
             dpi=150,
             colour="#00ff00",
             line_weight=1.5,
-            level="Level 2",
+            levels=["Level 2"],
             visible=False,
             hidden_layers=["A-FURN"],
             import_mode="vector",
@@ -55,7 +55,7 @@ class TestUnderlayFullConstruction:
         assert u.locked is True
         assert u.colour == "#00ff00"
         assert u.line_weight == 1.5
-        assert u.level == "Level 2"
+        assert u.levels == ["Level 2"]
         assert u.visible is False
         assert u.hidden_layers == ["A-FURN"]
         assert u.import_mode == "vector"
@@ -78,7 +78,7 @@ class TestUnderlayFullConstruction:
             dpi=300,
             colour="#ffffff",
             line_weight=0.0,
-            level="*",
+            levels=["*"],
             visible=True,
             hidden_layers=[],
             import_mode="raster",
@@ -91,7 +91,7 @@ class TestUnderlayFullConstruction:
         assert u.page == 3
         assert u.dpi == 300
         assert u.import_mode == "raster"
-        assert u.level == "*"
+        assert u.levels == ["*"]
         assert u.selected_layers is None
 
 
@@ -144,7 +144,7 @@ class TestToDictTypeSpecific:
             u = Underlay(type=utype, path=f"test.{utype}")
             d = u.to_dict()
             for key in ("type", "path", "x", "y", "scale", "rotation",
-                        "opacity", "locked", "level",
+                        "opacity", "locked", "levels",
                         "visible", "hidden_layers", "import_mode",
                         "import_scale", "import_base_x", "import_base_y",
                         "selected_layers"):
@@ -189,7 +189,7 @@ class TestFromDictBackwardCompat:
         assert u.dpi == 150
         assert u.colour == "#ffffff"
         assert u.line_weight == 0
-        assert u.level == DEFAULT_LEVEL
+        assert u.levels == [DEFAULT_LEVEL]
         assert u.visible is True
         assert u.hidden_layers == []
         assert u.import_mode == "auto"
@@ -218,7 +218,7 @@ class TestFromDictBackwardCompat:
         assert u.page == 1
         assert u.dpi == 200
         # Rev 2+ fields fall back to defaults
-        assert u.level == DEFAULT_LEVEL
+        assert u.levels == [DEFAULT_LEVEL]
         assert u.visible is True
         assert u.hidden_layers == []
         assert u.import_mode == "auto"
@@ -278,9 +278,9 @@ class TestRoundTripEdgeCases:
         assert u2.hidden_layers == layers
 
     def test_all_levels_wildcard_round_trip(self):
-        u = Underlay(type="pdf", path="a.pdf", level="*")
+        u = Underlay(type="pdf", path="a.pdf", levels=["*"])
         u2 = Underlay.from_dict(u.to_dict())
-        assert u2.level == "*"
+        assert u2.levels == ["*"]
 
     def test_selected_layers_empty_list_round_trip(self):
         """Empty list is distinct from None."""
@@ -440,14 +440,14 @@ class TestGetProperties:
         assert "Hidden Layers" not in props
 
     def test_all_levels_display(self):
-        u = Underlay(type="dxf", path="a.dxf", level="*")
+        u = Underlay(type="dxf", path="a.dxf", levels=["*"])
         props = u.get_properties()
-        assert props["Level"]["value"] == "All Levels"
+        assert props["Levels"]["value"] == "All Levels"
 
     def test_specific_level_display(self):
-        u = Underlay(type="dxf", path="a.dxf", level="Level 3")
+        u = Underlay(type="dxf", path="a.dxf", levels=["Level 3"])
         props = u.get_properties()
-        assert props["Level"]["value"] == "Level 3"
+        assert props["Levels"]["value"] == "Level 3"
 
     def test_all_values_are_label_type(self):
         u = Underlay(type="pdf", path="a.pdf", page=0, dpi=150,

@@ -2364,7 +2364,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             import_base_x=bx,
             import_base_y=by,
             selected_layers=getattr(params, "selected_layers", None),
-            level=self.active_level,
+            levels=[self.active_level],
             import_mode=getattr(params, "import_mode", "auto"),
             layout=getattr(params, "layout", ""),
             import_bounds=getattr(params, "import_bounds", None),
@@ -2520,7 +2520,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             x=params["x"], y=params["y"],
             colour=color.name(),
             line_weight=params.get("line_weight", UNDERLAY_LINE_WIDTH_PX),
-            level=self.active_level,
+            levels=[self.active_level],
             layout=params.get("layout", ""),
         )
 
@@ -2899,7 +2899,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             type="pdf", path=file_path,
             x=item.pos().x(), y=item.pos().y(),
             dpi=dpi, page=page,
-            level=self.active_level,
+            levels=[self.active_level],
             import_mode=import_mode,
         )
 
@@ -2976,7 +2976,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             type="pdf", path=file_path,
             x=x, y=y,
             dpi=dpi, page=page,
-            level=self.active_level,
+            levels=[self.active_level],
             import_mode=import_mode,
         )
 

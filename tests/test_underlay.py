@@ -12,7 +12,7 @@ class TestUnderlayFields:
 
     def test_default_level(self):
         u = Underlay(type="dxf", path="test.dxf")
-        assert u.level == DEFAULT_LEVEL
+        assert u.levels == [DEFAULT_LEVEL]
 
     def test_default_visible(self):
         u = Underlay(type="dxf", path="test.dxf")
@@ -58,14 +58,14 @@ class TestUnderlaySerialization:
             type="dxf", path="plans/floor1.dxf",
             x=10.0, y=20.0, scale=2.5, rotation=45.0, opacity=0.8,
             locked=True, colour="#ff0000", line_weight=0.5,
-            level="Level 2", visible=False,
+            levels=["Level 2"], visible=False,
             hidden_layers=["A-FURN", "A-ELEC"], import_mode="auto",
         )
         d = u.to_dict()
         u2 = Underlay.from_dict(d)
         assert u2.type == "dxf"
         assert u2.path == "plans/floor1.dxf"
-        assert u2.level == "Level 2"
+        assert u2.levels == ["Level 2"]
         assert u2.visible is False
         assert u2.hidden_layers == ["A-FURN", "A-ELEC"]
         assert u2.import_mode == "auto"
@@ -76,14 +76,14 @@ class TestUnderlaySerialization:
         u = Underlay(
             type="pdf", path="plans/sheet.pdf",
             page=2, dpi=300, import_mode="raster",
-            level="*", visible=True,
+            levels=["*"], visible=True,
         )
         d = u.to_dict()
         u2 = Underlay.from_dict(d)
         assert u2.page == 2
         assert u2.dpi == 300
         assert u2.import_mode == "raster"
-        assert u2.level == "*"
+        assert u2.levels == ["*"]
 
     def test_backward_compat_missing_new_fields(self):
         """Old project files lack level/visible/hidden_layers/import_mode."""
@@ -95,16 +95,16 @@ class TestUnderlaySerialization:
             "user_layer": "Default",
         }
         u = Underlay.from_dict(old_dict)
-        assert u.level == DEFAULT_LEVEL
+        assert u.levels == [DEFAULT_LEVEL]
         assert u.visible is True
         assert u.hidden_layers == []
         assert u.import_mode == "auto"
 
     def test_to_dict_includes_new_fields(self):
-        u = Underlay(type="dxf", path="test.dxf", level="Level 3",
+        u = Underlay(type="dxf", path="test.dxf", levels=["Level 3"],
                      visible=False, hidden_layers=["X"], import_mode="auto")
         d = u.to_dict()
-        assert d["level"] == "Level 3"
+        assert d["levels"] == ["Level 3"]
         assert d["visible"] is False
         assert d["hidden_layers"] == ["X"]
         assert d["import_mode"] == "auto"
@@ -211,31 +211,26 @@ class TestPathResolution:
 
 
 class TestDisplayManagementFields:
-    """Spec §16.2 — hidden_in_views / layer_overrides / line_weight_name."""
+    """Spec §16.2 — layer_overrides / line_weight_name."""
 
     def test_defaults(self):
         u = Underlay(type="dxf", path="a.dxf")
-        assert u.hidden_in_views == []
         assert u.layer_overrides == {}
         assert u.line_weight_name == ""
 
     def test_default_factory_isolation(self):
         a = Underlay(type="dxf", path="a.dxf")
         b = Underlay(type="dxf", path="b.dxf")
-        a.hidden_in_views.append("plan:Plan: Level 1")
         a.layer_overrides["A-WALL"] = {"colour": "#ff0000"}
-        assert b.hidden_in_views == []
         assert b.layer_overrides == {}
 
     def test_round_trip(self):
         u = Underlay(type="dxf", path="a.dxf",
-                     hidden_in_views=["plan:Plan: Level 1", "detail:Riser"],
                      layer_overrides={"A-WALL": {"colour": "#ff0000",
                                                  "line_weight": "Heavy"},
                                       "A-DOOR": {"line_weight": "Light"}},
                      line_weight_name="Medium")
         u2 = Underlay.from_dict(u.to_dict())
-        assert u2.hidden_in_views == u.hidden_in_views
         assert u2.layer_overrides == u.layer_overrides
         assert u2.line_weight_name == "Medium"
         assert u2.layer_overrides is not u.layer_overrides
@@ -244,11 +239,9 @@ class TestDisplayManagementFields:
     def test_backward_compat_old_dict(self):
         """Pre-§16 project dicts load with behavior-identical defaults."""
         d = Underlay(type="dxf", path="a.dxf").to_dict()
-        d.pop("hidden_in_views", None)
         d.pop("layer_overrides", None)
         d.pop("line_weight_name", None)
         u = Underlay.from_dict(d)
-        assert u.hidden_in_views == []
         assert u.layer_overrides == {}
         assert u.line_weight_name == ""
 
@@ -263,38 +256,3 @@ class TestDisplayManagementFields:
         assert u.effective_layer_weight("A-DOOR") == "Heavy"
         assert u.effective_layer_colour("OTHER") == "#c0c0c0"
         assert u.effective_layer_weight("OTHER") == "Medium"
-
-
-class TestRemapViewKey:
-    """§16.7 rename remap: swap a per-view exclusion key in place."""
-
-    def test_swaps_present_key_in_place(self):
-        u = Underlay(type="dxf", path="a.dxf",
-                     hidden_in_views=["detail:Riser",
-                                      "plan:Plan: Level 1",
-                                      "detail:Enlarged"])
-        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
-        # order preserved, only the target key rewritten
-        assert u.hidden_in_views == ["detail:Riser",
-                                     "plan:Plan: Level 5",
-                                     "detail:Enlarged"]
-
-    def test_absent_key_is_noop(self):
-        u = Underlay(type="dxf", path="a.dxf",
-                     hidden_in_views=["detail:Riser"])
-        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
-        assert u.hidden_in_views == ["detail:Riser"]
-
-    def test_no_duplicate_when_new_key_already_present(self):
-        u = Underlay(type="dxf", path="a.dxf",
-                     hidden_in_views=["plan:Plan: Level 5",
-                                      "plan:Plan: Level 1"])
-        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 5")
-        # old key dropped, new key not duplicated
-        assert u.hidden_in_views == ["plan:Plan: Level 5"]
-
-    def test_same_key_is_noop(self):
-        u = Underlay(type="dxf", path="a.dxf",
-                     hidden_in_views=["plan:Plan: Level 1"])
-        u.remap_view_key("plan:Plan: Level 1", "plan:Plan: Level 1")
-        assert u.hidden_in_views == ["plan:Plan: Level 1"]

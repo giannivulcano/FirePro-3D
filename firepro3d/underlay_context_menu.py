@@ -163,7 +163,7 @@ class UnderlayContextMenu:
             opacity=data.opacity, locked=False,
             page=data.page, dpi=data.dpi,
             colour=data.colour, line_weight=data.line_weight,
-            level=data.level, visible=data.visible,
+            levels=list(data.levels), visible=data.visible,
             hidden_layers=list(data.hidden_layers),
             import_mode=data.import_mode,
         )
