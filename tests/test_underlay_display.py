@@ -146,48 +146,48 @@ class TestLayerHiddenChokePoint:
         assert fired == []
 
 
-class TestPerViewVisibility:
-    def _scene_with_underlay(self, qapp, hidden_in=()):
+class TestLevelsVisibility:
+    """§16.x: underlay visibility is governed by the levels list."""
+
+    def _scene_with_underlay(self, qapp, levels=("Level 1",)):
         scene = Model_Space()
-        rec = _record(level="Level 1",
-                      hidden_in_views=list(hidden_in))
+        lm = LevelManager()
+        # Ensure "Level 1" and "Level 2" exist in the LevelManager
+        # (default LevelManager already has "Level 1"; add "Level 2")
+        if not any(l.name == "Level 2" for l in lm._levels):
+            from firepro3d.level_manager import Level
+            lm._levels.append(Level("Level 2", elevation=3000.0))
+        rec = _record()
+        rec.levels = list(levels)
         group, _ = scene._build_batched_underlay_group(_geoms(), rec)
         scene.underlays.append((rec, group))
-        return scene, rec, group
+        return scene, rec, group, lm
 
-    def test_hidden_in_active_view(self, qapp):
-        scene, rec, group = self._scene_with_underlay(
-            qapp, hidden_in=["plan:Plan: Level 1"])
-        lm = LevelManager()
-        scene.active_view_key = "plan:Plan: Level 1"
-        lm.apply_to_scene(scene, "Level 1")
-        assert not group.isVisible()
-        # switch to a view not in the exclusion set -> visible again
-        scene.active_view_key = "detail:Riser"
+    def test_levels_list_matches_active(self, qapp):
+        """levels=["Level 1","Level 2"] → visible when active is "Level 1"."""
+        scene, rec, group, lm = self._scene_with_underlay(
+            qapp, levels=["Level 1", "Level 2"])
         lm.apply_to_scene(scene, "Level 1")
         assert group.isVisible()
 
-    def test_exclusion_composes_with_visible_flag(self, qapp):
-        """visible=False wins regardless of view (additive AND, §16.1)."""
-        scene, rec, group = self._scene_with_underlay(qapp)
-        rec.visible = False
-        lm = LevelManager()
-        scene.active_view_key = "plan:Plan: Level 1"
+    def test_levels_list_not_matching_active(self, qapp):
+        """levels=["Level 2"] → hidden when active is "Level 1"."""
+        scene, rec, group, lm = self._scene_with_underlay(
+            qapp, levels=["Level 2"])
         lm.apply_to_scene(scene, "Level 1")
         assert not group.isVisible()
 
-    def test_default_scene_has_empty_view_key(self, qapp):
-        scene = Model_Space()
-        assert scene.active_view_key == ""
+    def test_levels_star_always_visible(self, qapp):
+        """levels=["*"] → visible regardless of active level."""
+        scene, rec, group, lm = self._scene_with_underlay(
+            qapp, levels=["*"])
+        lm.apply_to_scene(scene, "Level 1")
+        assert group.isVisible()
 
-    def test_all_levels_underlay_can_be_view_hidden(self, qapp):
-        """Pins the clause ordering BEFORE the level=='*' early-visible branch."""
-        scene = Model_Space()
-        rec = _record(level="*", hidden_in_views=["plan:Plan: Level 1"])
-        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
-        scene.underlays.append((rec, group))
-        lm = LevelManager()
-        scene.active_view_key = "plan:Plan: Level 1"
+    def test_levels_empty_always_hidden(self, qapp):
+        """levels=[] → hidden (no level assigned)."""
+        scene, rec, group, lm = self._scene_with_underlay(
+            qapp, levels=[])
         lm.apply_to_scene(scene, "Level 1")
         assert not group.isVisible()
 

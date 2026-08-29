@@ -584,21 +584,21 @@ class LevelManager:
             if not data.visible:
                 item.setVisible(False)
                 continue
-            if getattr(scene, "active_view_key", "") in data.hidden_in_views:
-                item.setVisible(False)
-                continue
-            if data.level == "*":
+            if "*" in data.levels:
                 item.setVisible(True)
                 continue
-            lvl = lvl_map.get(data.level)
-            if lvl is None:
+            if not data.levels:
                 item.setVisible(False)
                 continue
             if has_view_range:
-                z = lvl.elevation
-                item.setVisible(view_depth <= z <= view_height)
+                shown = any(
+                    (lvl := lvl_map.get(name)) is not None
+                    and view_depth <= lvl.elevation <= view_height
+                    for name in data.levels
+                )
+                item.setVisible(shown)
             else:
-                item.setVisible(data.level == active)
+                item.setVisible(active in data.levels)
 
         # ── Elevation-based Z-ordering ────────────────────────────────────
         # Assign Qt Z-values based on actual elevation so that higher items
@@ -685,8 +685,15 @@ class LevelManager:
                 continue
             if not item.isVisible():
                 continue
-            lvl = lvl_map.get(data.level)
-            elev = lvl.elevation if lvl else 0.0
+            # Use first named level (skip "*") to determine elevation for Z-order
+            elev = 0.0
+            for _lname in data.levels:
+                if _lname == "*":
+                    continue
+                _lvl = lvl_map.get(_lname)
+                if _lvl is not None:
+                    elev = _lvl.elevation
+                    break
             item.setZValue(elev * Z_ELEV_SCALE + Z_CAT_UNDERLAY)
         for item in getattr(scene, "_roofs", []):
             _apply_elev_z(item)
