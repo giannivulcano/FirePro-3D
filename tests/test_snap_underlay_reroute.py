@@ -20,11 +20,12 @@ def test_find_snap_point_is_gone():
 
 
 def test_global_toggle_attribute_removed():
-    """_snap_to_underlay field must not exist on a fresh Model_Space instance."""
-    from firepro3d import model_space
-    # Ensure the attribute is not declared as a class-level default anywhere
-    assert "_snap_to_underlay" not in vars(model_space.Model_Space), \
-        "_snap_to_underlay class-level attribute must be removed"
+    """_snap_to_underlay must not be assigned anywhere in Model_Space.__init__."""
+    import inspect
+    from firepro3d.model_space import Model_Space
+    src = inspect.getsource(Model_Space.__init__)
+    assert "_snap_to_underlay" not in src, \
+        "_snap_to_underlay assignment must be removed from Model_Space.__init__"
 
 
 @pytest.mark.parametrize("scale", [0.05, 5.0])

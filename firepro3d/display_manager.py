@@ -16,10 +16,10 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, QTreeWidgetItem,
     QDialogButtonBox, QPushButton, QDoubleSpinBox, QSpinBox, QCheckBox,
     QHeaderView, QColorDialog, QWidget, QLabel, QComboBox,
-    QAbstractItemView, QTabWidget, QLineEdit, QMenu,
+    QAbstractItemView, QTabWidget, QLineEdit,
 )
 from PyQt6.QtGui import (QColor, QFont, QBrush, QPen, QPainter, QPixmap,
-                         QIcon, QCursor)
+                         QIcon)
 from PyQt6.QtCore import Qt, QSettings, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 

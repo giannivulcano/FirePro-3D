@@ -65,12 +65,6 @@ from .network_codec import (
 )
 
 
-def _is_underlay_item(it) -> bool:
-    """True if a scene item is a child of a DXF/PDF underlay group."""
-    p = it.parentItem()
-    return p is not None and p.data(0) in ("DXF Underlay", "PDF Underlay")
-
-
 def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     """Cosmetic screen pen for one source layer of an underlay (spec §16.3).
 

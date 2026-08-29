@@ -193,7 +193,7 @@ class TestLevelsVisibility:
 
 
 class TestLevelRenameRemap:
-    """§16.7: renaming a level remaps underlay per-view exclusion keys."""
+    """§16.7: renaming a level remaps the underlay levels list; delete strips the removed name."""
 
     def _find_name_row(self, widget, text):
         for row in range(widget.table.rowCount()):
