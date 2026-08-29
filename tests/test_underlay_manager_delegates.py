@@ -16,7 +16,7 @@ from PyQt6.QtGui import QMouseEvent, QPainter, QPixmap
 from PyQt6.QtWidgets import QGraphicsPixmapItem, QStyleOptionViewItem
 
 from firepro3d.underlay import Underlay
-from firepro3d.underlay_manager_theme import DARK
+from firepro3d.theme import DARK
 from firepro3d.underlay_manager_model import UnderlayTreeModel, Col
 from firepro3d.underlay_manager_delegates import (
     ToggleDelegate,

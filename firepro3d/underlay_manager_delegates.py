@@ -29,7 +29,7 @@ from .underlay_manager_model import (
     LayerRole,
     UnderlayRole,
 )
-from .underlay_manager_theme import Theme
+from .theme import Theme
 
 ROW_HEIGHT = 34
 

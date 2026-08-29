@@ -655,10 +655,9 @@ RibbonSmallButton:disabled {{
 # ---------------------------------------------------------------------------
 # Underlay Manager dialog stylesheet
 #
-# Object-scoped QSS copied verbatim from underlay_manager_theme.py, using
-# `$name` placeholders substituted from the house Theme by
-# build_underlay_manager_qss(). Kept identical so the manager renders the same
-# once underlay_manager_theme.py is retired.
+# Object-scoped QSS for the retired underlay_manager_theme.py, using `$name`
+# placeholders substituted from the house Theme by build_underlay_manager_qss().
+# Kept identical to the original so the manager renders the same after retirement.
 # ---------------------------------------------------------------------------
 _UNDERLAY_MANAGER_QSS = """
 QDialog#UnderlayManagerDialog {

@@ -36,7 +36,7 @@ from .underlay_manager_delegates import (
 from .underlay_manager_model import (
     Col, LayerRole, UnderlayFilterProxy, UnderlayRole, UnderlayTreeModel,
 )
-from .underlay_manager_theme import DARK, Theme, build_qss
+from .theme import Theme, detect, build_underlay_manager_qss
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,8 @@ class _DetailsPanel(QFrame):
     relinkRequested = pyqtSignal()
     reloadRequested = pyqtSignal()
 
-    def __init__(self, theme: Theme, parent=None):
+    def __init__(self, theme: Theme | None = None, parent=None):
+        theme = theme or detect()
         super().__init__(parent)
         self.setObjectName("detailsPanel")
         self.t = theme
@@ -191,8 +192,9 @@ class _DetailsPanel(QFrame):
 class UnderlayManagerDialog(QDialog):
     """Modeless manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
-    def __init__(self, scene, main_window, theme: Theme = DARK, parent=None,
+    def __init__(self, scene, main_window, theme: Theme | None = None, parent=None,
                  apply_stylesheet: bool = True):
+        theme = theme or detect()
         super().__init__(parent)
         self.scene = scene
         self.main_window = main_window
@@ -200,7 +202,7 @@ class UnderlayManagerDialog(QDialog):
         self.setObjectName("UnderlayManagerDialog")
         self.setWindowTitle("Underlay Manager")
         if apply_stylesheet:
-            self.setStyleSheet(build_qss(theme))
+            self.setStyleSheet(build_underlay_manager_qss(theme))
         self.resize(1080, 560)
         self.setModal(False)
 

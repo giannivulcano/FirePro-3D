@@ -1,4 +1,5 @@
 """Tests for the two-layer design-token system (theme.py)."""
+import pathlib
 from dataclasses import fields
 
 import pytest
@@ -98,3 +99,17 @@ def test_underlay_manager_qss_builds_from_house_theme():
     assert th.DARK.accent in qss          # accent substituted
     assert th.DARK.sunken in qss          # 'table' token -> sunken
     assert "$" not in qss                  # every placeholder substituted
+
+
+def test_no_importers_of_deleted_manager_theme():
+    import importlib
+    import pathlib
+    src = pathlib.Path(th.__file__).parent
+    offenders = [
+        p.name for p in src.glob("*.py")
+        if "underlay_manager_theme" in p.read_text(encoding="utf-8")
+        and p.name != "theme.py"
+    ]
+    assert offenders == [], f"still import underlay_manager_theme: {offenders}"
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("firepro3d.underlay_manager_theme")
