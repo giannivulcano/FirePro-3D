@@ -162,3 +162,12 @@ def test_modify_disabled_with_no_or_multi_selection(qapp):
     sel.select(idx1, sel.SelectionFlag.Select | sel.SelectionFlag.Rows)
     dlg._sync_ui()
     assert dlg.btn_modify.isEnabled() is False
+
+
+def test_details_layers_row_shows_count(qapp):
+    """Single-selection details panel Layers row shows the correct layer count."""
+    dlg, scene, mw = _make_dialog(2)
+    dlg.show()
+    dlg._select_row(0)
+    # Both records are backed by _FakeGroup(["GRID", "WALLS"]) → 2 layers.
+    assert dlg.details._rows["Layers"].text() == "2 layers"

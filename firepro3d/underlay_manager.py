@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from .underlay_manager_delegates import (
-    ROW_HEIGHT, ColourDelegate, LevelsDelegate, ToggleDelegate, WeightDelegate,
+    ColourDelegate, LevelsDelegate, ToggleDelegate, WeightDelegate,
     make_menu,
 )
 from .underlay_manager_model import (
@@ -145,7 +145,7 @@ class _DetailsPanel(QFrame):
         return os.path.basename(getattr(record, "path", "") or "") or "(untitled)"
 
     # -- population --------------------------------------------------------
-    def show_selection(self, records: list) -> None:
+    def show_selection(self, records: list, layer_count: int = 0) -> None:
         single = len(records) == 1
         for widget in (self.preview, self.name, self.status,
                        self.btn_reload, self.btn_relink):
@@ -160,7 +160,7 @@ class _DetailsPanel(QFrame):
                 if not records
                 else f"{len(records)} selected\n"
                      "Delete and Reload act on all of them.\n"
-                     "Space toggles visibility."
+                     "Space toggles visibility of selected underlays."
             )
             return
 
@@ -180,6 +180,8 @@ class _DetailsPanel(QFrame):
         self._rows["Rotation"].setText(f"{getattr(record, 'rotation', 0.0):g}°")
         self._rows["Insertion"].setText(
             f"{getattr(record, 'x', 0.0):g}, {getattr(record, 'y', 0.0):g}")
+        self._rows["Layers"].setText(
+            f"{layer_count} layers" if layer_count else "—")
         self.btn_relink.setVisible(missing)
 
 
@@ -512,7 +514,14 @@ class UnderlayManagerDialog(QDialog):
         records = self._underlay_rows_selected()
         self.btn_modify.setEnabled(len(records) == 1)
         self.btn_delete.setEnabled(bool(records))
-        self.details.show_selection(self._selected_records())
+        selected = self._selected_records()
+        layer_count = 0
+        if len(selected) == 1:
+            try:
+                layer_count = len(self.model._layers_of(selected[0]))
+            except Exception:
+                layer_count = 0
+        self.details.show_selection(selected, layer_count=layer_count)
 
         items = [d for d, _ in list(self.scene.underlays)]
         visible = sum(1 for r in items if getattr(r, "visible", True))
