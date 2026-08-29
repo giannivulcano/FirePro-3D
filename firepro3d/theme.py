@@ -214,6 +214,7 @@ def build_app_qss(t: Theme) -> str:
 QMainWindow, QDialog, QWidget {{
     background: {t.bg_base};
     color: {t.text_primary};
+    font-size: 13px;
 }}
 
 /* ── Dock widgets ───────────────────────────────────────────────────────── */
@@ -256,6 +257,7 @@ QMenu {{
     background: {t.bg_raised};
     color: {t.text_primary};
     border: 1px solid {t.border_strong};
+    border-radius: 6px;
     padding: 2px;
 }}
 QMenu::item {{
@@ -285,6 +287,7 @@ QTableWidget, QTableView {{
     gridline-color: {t.border_subtle};
     alternate-background-color: {t.bg_raised};
     border: 1px solid {t.border_strong};
+    border-radius: 6px;
     selection-background-color: {t.btn_checked};
     selection-color: {t.text_primary};
 }}
@@ -305,8 +308,8 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit {{
     background: {t.bg_sunken};
     color: {t.text_primary};
     border: 1px solid {t.border_strong};
-    border-radius: 2px;
-    padding: 2px 4px;
+    border-radius: 6px;
+    padding: 4px 8px;
     selection-background-color: {t.btn_checked};
 }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
@@ -323,8 +326,8 @@ QComboBox {{
     background: {t.bg_sunken};
     color: {t.text_primary};
     border: 1px solid {t.border_strong};
-    border-radius: 2px;
-    padding: 2px 4px;
+    border-radius: 6px;
+    padding: 4px 8px;
 }}
 QComboBox:focus {{
     border-color: {t.accent_primary};
@@ -346,8 +349,8 @@ QPushButton {{
     background: {t.bg_raised};
     color: {t.text_primary};
     border: 1px solid {t.border_strong};
-    border-radius: 3px;
-    padding: 4px 12px;
+    border-radius: 6px;
+    padding: 5px 14px;
     min-height: 22px;
 }}
 QPushButton:hover {{
@@ -468,7 +471,7 @@ QScrollBar:vertical {{
 }}
 QScrollBar::handle:vertical {{
     background: {t.border_strong};
-    border-radius: 4px;
+    border-radius: 5px;
     min-height: 20px;
 }}
 QScrollBar::handle:vertical:hover {{
@@ -481,7 +484,7 @@ QScrollBar:horizontal {{
 }}
 QScrollBar::handle:horizontal {{
     background: {t.border_strong};
-    border-radius: 4px;
+    border-radius: 5px;
     min-width: 20px;
 }}
 QScrollBar::add-line, QScrollBar::sub-line {{
@@ -504,7 +507,7 @@ QLabel {{
 QGroupBox {{
     color: {t.text_primary};
     border: 1px solid {t.border_subtle};
-    border-radius: 3px;
+    border-radius: 6px;
     margin-top: 10px;
     padding-top: 6px;
 }}
@@ -520,12 +523,35 @@ QToolTip {{
     background: {t.bg_raised};
     color: {t.text_primary};
     border: 1px solid {t.border_strong};
+    border-radius: 6px;
     padding: 3px 6px;
 }}
 
 /* ── Dialog button boxes ────────────────────────────────────────────────── */
 QDialogButtonBox QPushButton {{
     min-width: 70px;
+}}
+
+/* ── Semantic button variants ─────────────────────────────────────── */
+QPushButton[variant="primary"] {{
+    background: {t.accent}; color: {t.accent_ink};
+    border-color: {t.accent}; font-weight: 700;
+}}
+QPushButton[variant="primary"]:hover {{ background: {t.ok}; }}
+QPushButton[variant="danger"] {{ color: {t.danger}; }}
+QPushButton[variant="danger"]:hover {{
+    background: {t.danger_soft}; border-color: {t.danger};
+}}
+/* ── Role / state labels ──────────────────────────────────────────── */
+QLabel[role="header"] {{ color: {t.muted}; font-weight: 600; }}
+QLabel[role="muted"] {{ color: {t.muted}; }}
+QLabel[state="warn"] {{
+    color: {t.warn}; background: {t.warn_soft};
+    border-radius: 6px; padding: 6px 8px;
+}}
+/* table rows read as separated cards */
+QTableWidget::item, QTableView::item {{
+    border-bottom: 1px solid {t.border_subtle};
 }}
 """
 

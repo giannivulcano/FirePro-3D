@@ -72,3 +72,20 @@ def test_color_resolves_primitive_and_semantic_names_with_alpha():
 
 def test_detect_returns_a_theme():
     assert isinstance(th.detect(), th.Theme)
+
+
+def test_app_qss_contains_token_values_and_density():
+    qss = th.build_app_qss(th.DARK)
+    assert th.DARK.ink in qss
+    assert th.DARK.accent in qss
+    assert th.DARK.raised in qss
+    assert "border-radius: 6px" in qss
+    assert "font-size: 13px" in qss or "font-size:13px" in qss
+
+
+def test_app_qss_has_variant_and_role_selectors():
+    qss = th.build_app_qss(th.DARK)
+    assert 'QPushButton[variant="primary"]' in qss
+    assert 'QPushButton[variant="danger"]' in qss
+    assert 'QLabel[role="header"]' in qss
+    assert 'QLabel[state="warn"]' in qss
