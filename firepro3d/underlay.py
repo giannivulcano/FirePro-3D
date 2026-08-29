@@ -27,7 +27,8 @@ class Underlay:
     colour: str = "#c0c0c0"
     line_weight: float = 0.0
     # New fields (Revision 2)
-    level: str = DEFAULT_LEVEL
+    levels: list[str] = field(default_factory=lambda: [DEFAULT_LEVEL])  # ["*"] = all levels
+    snap: bool = True
     visible: bool = True
     hidden_layers: list[str] = field(default_factory=list)
     import_mode: str = "auto"
@@ -42,7 +43,6 @@ class Underlay:
     # Stored so re-extraction can reproduce the same spatial filter.
     import_bounds: list[float] | None = None  # [min_x, min_y, max_x, max_y]
     # Display management & view assignment (Revision 8, spec §16.2)
-    hidden_in_views: list[str] = field(default_factory=list)
     layer_overrides: dict = field(default_factory=dict)
     line_weight_name: str = ""
 
@@ -66,7 +66,8 @@ class Underlay:
         elif self.type in ("dxf", "dwg"):
             d["colour"]      = self.colour
             d["line_weight"] = self.line_weight
-        d["level"] = self.level
+        d["levels"] = list(self.levels)
+        d["snap"] = self.snap
         d["visible"] = self.visible
         d["hidden_layers"] = list(self.hidden_layers)
         d["import_mode"] = self.import_mode
@@ -77,7 +78,6 @@ class Underlay:
         d["layout"] = self.layout
         if self.import_bounds is not None:
             d["import_bounds"] = list(self.import_bounds)
-        d["hidden_in_views"] = list(self.hidden_in_views)
         d["layer_overrides"] = {k: dict(v)
                                 for k, v in self.layer_overrides.items()}
         d["line_weight_name"] = self.line_weight_name
@@ -85,6 +85,9 @@ class Underlay:
 
     @staticmethod
     def from_dict(d: dict) -> "Underlay":
+        levels = d.get("levels")
+        if levels is None:
+            levels = [d.get("level", DEFAULT_LEVEL)]
         return Underlay(
             type        = d["type"],
             path        = d["path"],
@@ -103,7 +106,8 @@ class Underlay:
             colour      = d.get("colour",
                                 "#c0c0c0" if d["type"] == "pdf" else "#ffffff"),
             line_weight = d.get("line_weight", 0),
-            level         = d.get("level", DEFAULT_LEVEL),
+            levels        = list(levels),
+            snap          = d.get("snap", True),
             visible       = d.get("visible", True),
             hidden_layers = d.get("hidden_layers", []),
             import_mode   = d.get("import_mode", "auto"),
@@ -113,7 +117,6 @@ class Underlay:
             selected_layers = d.get("selected_layers", None),
             layout = d.get("layout", ""),
             import_bounds = d.get("import_bounds", None),
-            hidden_in_views = list(d.get("hidden_in_views", [])),
             layer_overrides = {k: dict(v)
                                for k, v in d.get("layer_overrides", {}).items()},
             line_weight_name = d.get("line_weight_name", ""),
@@ -168,24 +171,6 @@ class Underlay:
         return self.layer_overrides.get(layer, {}).get(
             "line_weight", self.line_weight_name)
 
-    def remap_view_key(self, old_key: str, new_key: str) -> None:
-        """Rewrite a per-view exclusion key in place (§16.7 rename remap).
-
-        Used when a level/detail view is renamed: any ``hidden_in_views``
-        entry keyed to the old view name is retargeted to the new one.
-        No-op if *old_key* is absent; preserves list order and never
-        duplicates *new_key* if it is already present.
-        """
-        if old_key == new_key:
-            return
-        for i, k in enumerate(self.hidden_in_views):
-            if k == old_key:
-                if new_key in self.hidden_in_views:
-                    del self.hidden_in_views[i]
-                else:
-                    self.hidden_in_views[i] = new_key
-                return
-
     def get_properties(self) -> dict:
         """Return property template for the property manager panel.
 
@@ -196,9 +181,9 @@ class Underlay:
             "File": {"type": "label", "value": os.path.basename(self.path)},
             "Path": {"type": "label", "value": self.path},
             "Type": {"type": "label", "value": self.type.upper()},
-            "Level": {"type": "label",
-                       "value": "All Levels" if self.level == "*"
-                       else self.level},
+            "Levels": {"type": "label",
+                       "value": "All Levels" if self.levels == ["*"]
+                       else ", ".join(self.levels) or "—"},
             "X": {"type": "label", "value": f"{self.x:.1f}"},
             "Y": {"type": "label", "value": f"{self.y:.1f}"},
             "Scale": {"type": "label", "value": str(self.scale)},
