@@ -36,6 +36,7 @@ from .annotations import DimensionAnnotation, NoteAnnotation
 from .wall import WallSegment
 from .floor_slab import FloorSlab
 from .view_cube import ViewCube
+from .theme import detect
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -221,14 +222,19 @@ class View3D(QWidget):
         layout.setSpacing(0)
 
         # Toolbar — compact wrapper widget with fixed height
+        _t = detect()
         tb_widget = QWidget()
         tb_widget.setFixedHeight(28)
-        tb_widget.setStyleSheet("background: #1e1e1e;")
+        tb_widget.setStyleSheet(f"background: {_t.bg_raised};")
         tb = QHBoxLayout(tb_widget)
         tb.setContentsMargins(4, 2, 4, 2)
         tb.setSpacing(4)
 
-        _btn_style = "QPushButton { height: 20px; padding: 0 6px; font-size: 11px; }"
+        _btn_style = (
+            f"QPushButton {{ height: 20px; padding: 0 6px; font-size: 11px; "
+            f"color: {_t.text_primary}; border: 1px solid {_t.border_strong}; }}"
+            f"QPushButton:hover {{ background: {_t.btn_hover}; }}"
+        )
 
         self._fit_btn = QPushButton("Fit All")
         self._fit_btn.setStyleSheet(_btn_style)
@@ -270,7 +276,7 @@ class View3D(QWidget):
 
         tb.addStretch()
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._info_label.setStyleSheet(f"color: {_t.text_secondary}; font-size: 11px;")
         tb.addWidget(self._info_label)
         layout.addWidget(tb_widget)
 
