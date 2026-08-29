@@ -573,7 +573,8 @@ class UnderlayImportDialog(QDialog):
 
     def __init__(self, parent=None, file_path: str = "",
                  scale_manager=None, default_dir: str = "",
-                 levels: list[str] | None = None, current_level: str = ""):
+                 levels: list[str] | None = None, current_level: str = "",
+                 modify_record=None):
         super().__init__(parent)
         self.setWindowTitle("Import Underlay — Preview")
         self.resize(1100, 700)
@@ -583,6 +584,7 @@ class UnderlayImportDialog(QDialog):
         self._default_dir = default_dir
         self._import_levels = list(levels) if levels else []
         self._current_level = current_level
+        self._modify_record = modify_record
         self._file_type: str = ""          # "dxf" or "pdf"
         self._all_geoms: list[dict] = []
         self._layers: list[str] = []
@@ -625,6 +627,64 @@ class UnderlayImportDialog(QDialog):
         if file_path:
             self._file_edit.setText(file_path)
             self._load_file()
+
+        if modify_record is not None:
+            self._apply_modify_prefill(modify_record)
+
+    def _apply_modify_prefill(self, record):
+        """Pre-load the dialog from an existing underlay record (Modify flow).
+
+        Sets the file, then the scale/rotation/page/dpi/mode/base widgets from
+        the record so re-placement starts from the record's current state.
+        Layer selection is left to the freshly loaded file (the record's
+        selected_layers still round-trips via the layer tree once geometry is
+        available); management fields (colour, levels, overrides…) are NOT
+        surfaced here — they are preserved by replace_underlay, not re-edited.
+        """
+        self.setWindowTitle("Modify Underlay — Preview")
+
+        # Load the file first (sync for PDF, async for DXF).
+        self._file_edit.setText(record.path)
+        self._load_file()
+
+        # PDF page — set the target page and (re)render it.
+        if record.type == "pdf" and record.page:
+            self._pdf_page = record.page
+            try:
+                self._load_pdf_page(record.path, record.page)
+            except Exception:
+                pass
+
+        # DPI / import mode combos (PDF).
+        self._dpi_combo.blockSignals(True)
+        self._dpi_combo.setCurrentText(str(record.dpi))
+        self._dpi_combo.blockSignals(False)
+        self._mode_combo.blockSignals(True)
+        self._mode_combo.setCurrentText(record.import_mode.capitalize())
+        self._mode_combo.blockSignals(False)
+
+        # Scale — the record stores the baked import multiplier as import_scale.
+        # Route it through the "Custom…" option so get_import_params().scale
+        # reproduces it exactly.
+        custom_idx = len(self._SCALE_OPTIONS) - 1
+        self._scale_combo.blockSignals(True)
+        self._scale_combo.setCurrentIndex(custom_idx)
+        self._scale_combo.blockSignals(False)
+        self._custom_scale_edit.blockSignals(True)
+        self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
+        self._custom_scale_edit.blockSignals(False)
+
+        # Rotation (display transform).
+        self._set_rotation(record.rotation)
+
+        # Base point (subtracted before scaling at import time).
+        try:
+            self._base_x_edit.set_value_mm(record.import_base_x)
+            self._base_y_edit.set_value_mm(record.import_base_y)
+            self._base_x = record.import_base_x
+            self._base_y = record.import_base_y
+        except Exception:
+            pass
 
     # ── Overlay items ─────────────────────────────────────────────────────────
 

@@ -4102,6 +4102,23 @@ class MainWindow(QMainWindow):
         else:
             self.scene.begin_place_import(params)
 
+    def modify_underlay(self, record):
+        """Re-open the import dialog pre-filled from an existing underlay
+        record and re-place its geometry, preserving management fields."""
+        default_dir = os.path.dirname(self._current_file) if self._current_file else ""
+        dialog = UnderlayImportDialog(
+            self, scale_manager=self.scene.scale_manager, default_dir=default_dir,
+            levels=[l.name for l in self.level_mgr.levels],
+            current_level=self.scene.active_level, modify_record=record)
+        try:
+            accepted = dialog.exec() == QDialog.DialogCode.Accepted
+            params = dialog.get_import_params() if accepted else None
+        finally:
+            dialog.deleteLater()
+        if params is None:
+            return
+        self.scene.replace_underlay(record, params)
+
     def _on_drop_import(self, path: str):
         """Handle a file dropped onto the canvas."""
         self.open_import_dialog(file_path=path)

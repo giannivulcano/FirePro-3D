@@ -3093,14 +3093,23 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.underlaysChanged.emit()
         self._show_status(f"Removed underlay: {data.path}")
 
-    def refresh_underlay(self, data: Underlay, item: QGraphicsItem):
-        """Re-import an underlay from disk, preserving position/scale/rotation/opacity."""
+    def refresh_underlay(self, data: Underlay, item: QGraphicsItem,
+                         sync_from_item: bool = True):
+        """Re-import an underlay from disk, preserving position/scale/rotation/opacity.
+
+        Args:
+            sync_from_item: When True (default, refresh-from-disk), the item's
+                current transform is written back to the record before rebuild.
+                The Modify flow passes False so the NEW scale/rotation already
+                on the record (from import params) survive the rebuild.
+        """
         # Sync current transform state back to record
-        data.x = item.scenePos().x()
-        data.y = item.scenePos().y()
-        data.scale = item.scale()
-        data.rotation = item.rotation()
-        data.opacity = item.opacity()
+        if sync_from_item:
+            data.x = item.scenePos().x()
+            data.y = item.scenePos().y()
+            data.scale = item.scale()
+            data.rotation = item.rotation()
+            data.opacity = item.opacity()
 
         # Check file exists before re-import
         if not os.path.exists(data.path):
@@ -3172,6 +3181,100 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         snapshot = list(self.underlays)
         for data, item in snapshot:
             self.refresh_underlay(data, item)
+
+    def replace_underlay(self, record: Underlay, params):
+        """Re-place an underlay's geometry from new import params, preserving
+        the record's identity, draw position, list index, and management fields.
+
+        The Modify flow re-opens the import dialog pre-filled, lets the user
+        change scale/placement/layers, and re-places the geometry WHILE
+        preserving manager-owned fields (levels, colour, line_weight_name,
+        layer_overrides, hidden_layers, visible, snap, locked, opacity).
+
+        Geometry+placement fields are overwritten via
+        ``apply_import_params_preserving_management`` BEFORE rebuild, so even
+        the async DXF path rebuilds from the preserved+updated record.
+
+        Note (async DXF): DXF import runs on a worker thread, so the rebuilt
+        group lands later in ``_on_dxf_finished``. Field preservation and the
+        record's path update happen synchronously here; list-index preservation
+        is applied synchronously for the sync (PDF) path and is best-effort
+        (the fresh entry appends at the end) for the async DXF path.
+        """
+        from .underlay import apply_import_params_preserving_management
+
+        # 1. Locate the current (record, item) pair and its list index.
+        original_index = None
+        item = None
+        for i, (d, it) in enumerate(self.underlays):
+            if d is record:
+                original_index = i
+                item = it
+                break
+        if item is None:
+            log.warning("replace_underlay: record not found in underlays list")
+            return
+
+        # Preserve the on-canvas anchor — Modify changes geometry/scale, not
+        # where the underlay sits in the scene.
+        try:
+            old_x = item.scenePos().x()
+            old_y = item.scenePos().y()
+        except RuntimeError:
+            old_x, old_y = record.x, record.y
+
+        # 2. Build an `incoming` Underlay carrying ONLY geometry+placement.
+        #    Mirror _commit_place_import: params.scale bakes into the geometry
+        #    via import_scale/import_base_*, NOT the display transform. The
+        #    display `scale` is preserved (no-op overwrite from the record).
+        incoming = Underlay(
+            type=params.file_type,
+            path=params.file_path,
+            page=getattr(params, "pdf_page", record.page),
+            dpi=getattr(params, "pdf_dpi", record.dpi),
+            scale=record.scale,                 # preserve display transform
+            rotation=getattr(params, "rotation", record.rotation),
+            x=old_x, y=old_y,
+            import_scale=getattr(params, "scale", record.import_scale),
+            import_base_x=getattr(params, "base_x", record.import_base_x),
+            import_base_y=getattr(params, "base_y", record.import_base_y),
+            selected_layers=getattr(params, "selected_layers", None),
+            layout=getattr(params, "layout", record.layout),
+            import_bounds=getattr(params, "import_bounds", None),
+            import_mode=getattr(params, "import_mode", record.import_mode),
+        )
+
+        # 3. Derive the authoritative layer set from the new geometry.
+        layers = None
+        geom_list = getattr(params, "geom_list", None)
+        if geom_list:
+            layers = sorted({g.get("layer", "0") for g in geom_list})
+        elif params.selected_layers is not None:
+            layers = list(params.selected_layers)
+
+        # 4. Overwrite geometry+placement, preserve management, prune overrides.
+        apply_import_params_preserving_management(
+            record, incoming, new_layer_names=layers)
+
+        # 5. Rebuild the group in place WITHOUT syncing the old item's
+        #    transform back (that would clobber the new scale/rotation).
+        self.refresh_underlay(record, item, sync_from_item=False)
+
+        # 6. Restore the original list index for the sync (PDF) path.
+        #    refresh_underlay appends the fresh entry at the end; underlay
+        #    ordering influences z-stacking among underlays, so keep it stable.
+        if original_index is not None:
+            new_entry = None
+            for entry in self.underlays:
+                if entry[0] is record:
+                    new_entry = entry
+                    break
+            if new_entry is not None:
+                cur = self.underlays.index(new_entry)
+                if cur != original_index and original_index < len(self.underlays):
+                    self.underlays.pop(cur)
+                    self.underlays.insert(original_index, new_entry)
+                    self.underlaysChanged.emit()
 
     def repen_underlay(self, record: Underlay):
         """Re-apply effective per-layer pens/brushes + opacity in place (§16.3).
