@@ -22,6 +22,7 @@ from PyQt6.QtCore import Qt, QPointF
 from .roof import ROOF_TYPES, DEFAULT_PITCH_DEG
 from .scale_manager import DisplayUnit
 from .dimension_edit import DimensionEdit
+from .theme import detect
 
 # Path where user-supplied images will live (one per roof type).
 _IMG_DIR = os.path.join(os.path.dirname(__file__), "graphics", "roof_types")
@@ -216,7 +217,7 @@ class RoofDialog(QDialog):
         # Eave height = level elevation + offset (read-only)
         self._eave_height_label = QLabel()
         self._eave_height_label.setStyleSheet(
-            "background: #2a2a2a; color: grey; padding: 4px 6px;"
+            f"background: {detect().bg_sunken}; color: {detect().text_secondary}; padding: 4px 6px;"
             " border: 1px solid #555; border-radius: 2px;")
         form.addRow("Eave Height:", self._eave_height_label)
 
@@ -230,7 +231,7 @@ class RoofDialog(QDialog):
         # Peak height (read-only)
         self._peak_height_label = QLabel()
         self._peak_height_label.setStyleSheet(
-            "background: #2a2a2a; color: grey; padding: 4px 6px;"
+            f"background: {detect().bg_sunken}; color: {detect().text_secondary}; padding: 4px 6px;"
             " border: 1px solid #555; border-radius: 2px;")
         form.addRow("Peak Height:", self._peak_height_label)
 
@@ -255,7 +256,7 @@ class RoofDialog(QDialog):
 
         # Pitch hint
         self._pitch_hint = QLabel("")
-        self._pitch_hint.setStyleSheet("color: grey; font-size: 11px;")
+        self._pitch_hint.setStyleSheet(f"color: {detect().text_secondary}; font-size: 11px;")
         left.addWidget(self._pitch_hint)
         left.addStretch()
 

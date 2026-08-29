@@ -19,6 +19,7 @@ from .wall import (
     ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT,
 )
 from .dimension_edit import DimensionEdit
+from .theme import detect
 
 
 
@@ -143,7 +144,7 @@ class WallDialog(QDialog):
 
         # Height (read-only, computed)
         self._height_label = QLabel()
-        self._height_label.setStyleSheet("color: grey; font-size: 11px;")
+        self._height_label.setStyleSheet(f"color: {detect().text_secondary}; font-size: 11px;")
         form.addRow("Height:", self._height_label)
 
         outer.addLayout(form)

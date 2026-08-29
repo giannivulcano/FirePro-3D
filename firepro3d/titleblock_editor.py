@@ -43,6 +43,7 @@ from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
 from .titleblock_arrange import ArrangementsTab
 from .constants import TB_PREVIEW_MIN_MM
+from .theme import detect
 
 # Module-level ScaleManager used as dimension parser throughout the editor.
 # ScaleManager() is standalone (pixels_per_mm=1 → 1 px = 1 mm, display_unit=mm),
@@ -119,7 +120,7 @@ def _update_swatch(btn: QPushButton, color: str) -> None:
         btn.setStyleSheet(
             f"background-color: {c.name()}; border: 1px solid #888;")
     else:
-        btn.setStyleSheet("background-color: transparent; border: 1px solid #888;")
+        btn.setStyleSheet(f"background-color: transparent; border: 1px solid {detect().border_strong};")
     btn.setProperty("_color", color)
 
 
@@ -723,7 +724,7 @@ class TitleBlockEditorDialog(QDialog):
         # ── Bottom: warnings + Save / Save && Close / Close (outside tabs) ──
         self._warning_label = QLabel()
         self._warning_label.setWordWrap(True)
-        self._warning_label.setStyleSheet("color: #b8620a; font-size: 11px;")
+        self._warning_label.setStyleSheet(f"color: {detect().warn}; font-size: 11px;")
         self._warning_label.setVisible(False)
         centre.addWidget(self._warning_label)
 

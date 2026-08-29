@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
 from .constants import TB_INSERT_BAND_PX, TB_POOL_CARD_W
 from .dimension_edit import DimensionEdit
 from .scale_manager import ScaleManager
+from .theme import detect
 from .titleblock_template import (
     Slot, TemplateLayout, move_field, pair_field, solve_layout, unplace_field,
 )
@@ -1175,7 +1176,7 @@ class ArrangementsTab(QWidget):
         centre = QVBoxLayout()
         self.banner = QLabel()
         self.banner.setWordWrap(True)
-        self.banner.setStyleSheet("color: #b8620a; font-size: 11px;")
+        self.banner.setStyleSheet(f"color: {detect().warn}; font-size: 11px;")
         self.banner.setVisible(False)
         centre.addWidget(self.banner)
         self.canvas = StripCanvas()
