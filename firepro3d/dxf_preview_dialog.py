@@ -172,7 +172,6 @@ class ImportParams:
         self.import_mode: str = "auto"    # "auto" | "vectors" | "raster"
         self.layout: str = ""            # DWG layout name (empty = Model)
         self.import_bounds: list[float] | None = None  # area selection bounds
-        self.level: str = ""             # target floor level (empty = current)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -780,18 +779,6 @@ class UnderlayImportDialog(QDialog):
         place_grp = QGroupBox("Placement")
         place_vlay = QVBoxLayout(place_grp)
         place_vlay.setSpacing(6)
-
-        # -- Level: target floor for the import (defaults to current level) --
-        self._level_combo = QComboBox()
-        if self._import_levels:
-            self._level_combo.addItems(self._import_levels)
-            if self._current_level in self._import_levels:
-                self._level_combo.setCurrentText(self._current_level)
-            level_row = QHBoxLayout()
-            level_row.addWidget(QLabel("Level:"))
-            level_row.addWidget(self._level_combo, 1)
-            place_vlay.addLayout(level_row)
-            place_vlay.addWidget(_sep())
 
         # -- Scale: small combo + inline custom factor + "Calibrate" pill --
         scale_row = QHBoxLayout()
@@ -2309,7 +2296,6 @@ class UnderlayImportDialog(QDialog):
         p.pdf_dpi = int(self._dpi_combo.currentText())
         p.import_mode = self._mode_combo.currentText().lower()
         p.insert_at_origin = self._origin_cb.isChecked()
-        p.level = self._level_combo.currentText() or self._current_level
 
         active_layers = self._active_layers()
         geoms = []

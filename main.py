@@ -4069,9 +4069,9 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
         if params is None:
             return
-        # Route the import to the chosen level (defaults to the current one),
-        # switching to its plan view so the underlay record is tagged with it.
-        self._activate_plan_view(params.level or self.scene.active_level)
+        # New imports always use the active level; level reassignment is done
+        # via the Underlay Manager after import.
+        self._activate_plan_view(self.scene.active_level)
         # PDF with no vectors → raster fallback
         if (not params.geom_list
                 and params.file_type == "pdf"
@@ -4083,6 +4083,7 @@ class MainWindow(QMainWindow):
                 rotation=params.rotation,
                 scale=params.scale,
                 import_mode=params.import_mode,
+                levels=[self.scene.active_level],
             )
             self.scene.import_pdf(
                 params.file_path,
