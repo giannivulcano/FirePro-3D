@@ -34,115 +34,155 @@ from .assets import asset_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Colour helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _rgba(hexc: str, alpha: int) -> str:
+    """'#rrggbb' + 0-255 alpha -> a QSS 'rgba(r,g,b,a)' string."""
+    c = QColor(hexc)
+    return f"rgba({c.red()},{c.green()},{c.blue()},{alpha})"
+
+
+def _mix(a: str, b: str, t: float) -> str:
+    """Linear blend of two '#rrggbb' colours, t in [0,1]."""
+    ca, cb = QColor(a), QColor(b)
+    r = round(ca.red() + (cb.red() - ca.red()) * t)
+    g = round(ca.green() + (cb.green() - ca.green()) * t)
+    bl = round(ca.blue() + (cb.blue() - ca.blue()) * t)
+    return QColor(r, g, bl).name()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Token dataclass
 # ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class Theme:
-    """Immutable set of color / style tokens for one theme variant."""
+    """One theme variant. A variant authors ONLY the 16 primitive colours;
+    every semantic token below derives from them (Layer 2)."""
 
-    # ── Identity ──────────────────────────────────────────────────────────────
-    name: str                  # "light" | "dark"
+    name: str
 
-    # ── Background layers ─────────────────────────────────────────────────────
-    bg_base: str               # main window, dock widget interiors
-    bg_raised: str             # ribbon panel, dialog bodies, toolbar
-    bg_sunken: str             # input fields, table cells
+    # Layer 1: primitives (the only authored values)
+    ground: str
+    surface: str
+    sunken: str
+    raised: str
+    line: str
+    line_strong: str
+    ink: str
+    muted: str
+    faint: str
+    accent: str
+    accent_ink: str
+    selection: str
+    selection_active: str
+    ok: str
+    warn: str
+    danger: str
 
-    bg_tab_inactive: str       # unselected ribbon / dialog tab
-    bg_tab_selected: str       # selected tab (should merge with bg_raised)
+    # Layer 2: semantic aliases (derived; shared by all variants)
+    @property
+    def bg_base(self) -> str: return self.ground
+    @property
+    def canvas_bg(self) -> str: return self.ground
+    @property
+    def bg_raised(self) -> str: return self.raised
+    @property
+    def bg_sunken(self) -> str: return self.sunken
+    @property
+    def bg_tab_inactive(self) -> str: return self.surface
+    @property
+    def bg_tab_selected(self) -> str: return self.raised
+    @property
+    def surface2(self) -> str: return self.raised
+    @property
+    def table(self) -> str: return self.sunken
+    @property
+    def chip(self) -> str: return self.raised
+    @property
+    def chip_ink(self) -> str: return self.muted
+    @property
+    def btn_hover(self) -> str: return self.accent_soft
+    @property
+    def btn_pressed(self) -> str: return self.raised
+    @property
+    def btn_checked(self) -> str: return self.accent_soft2
+    @property
+    def btn_checked_border(self) -> str: return self.accent
+    @property
+    def border_strong(self) -> str: return self.line_strong
+    @property
+    def border_subtle(self) -> str: return self.line
+    @property
+    def text_primary(self) -> str: return self.ink
+    @property
+    def text_secondary(self) -> str: return self.muted
+    @property
+    def text_disabled(self) -> str: return self.faint
+    @property
+    def text_accent(self) -> str: return self.accent
+    @property
+    def grid_dot(self) -> str: return _mix(self.ground, self.faint, 0.5)
+    @property
+    def accent_primary(self) -> str: return self.accent
+    @property
+    def status_ok(self) -> str: return self.ok
+    @property
+    def status_warn(self) -> str: return self.warn
+    @property
+    def status_error(self) -> str: return self.danger
+    @property
+    def accent_soft(self) -> str: return _rgba(self.accent, 34)
+    @property
+    def accent_soft2(self) -> str: return _rgba(self.accent, 56)
+    @property
+    def warn_soft(self) -> str: return _rgba(self.warn, 40)
+    @property
+    def danger_soft(self) -> str: return _rgba(self.danger, 38)
 
-    # ── Interactive button states ─────────────────────────────────────────────
-    btn_hover: str
-    btn_pressed: str
-    btn_checked: str
-    btn_checked_border: str
+    def color(self, name: str, alpha: int = 255) -> QColor:
+        """Resolve a primitive OR semantic token name to a QColor.
 
-    # ── Borders & separators ──────────────────────────────────────────────────
-    border_strong: str         # outer frame lines, focused input rings
-    border_subtle: str         # group separators, table grid, cell dividers
+        Only hex-valued tokens are resolvable (the rgba ``*_soft`` strings are
+        QSS-only). Delegates pass an explicit alpha for soft fills, e.g.
+        ``theme.color("accent", 40)``.
 
-    # ── Text ──────────────────────────────────────────────────────────────────
-    text_primary: str          # body text, labels
-    text_secondary: str        # group caption labels, placeholder text
-    text_disabled: str         # disabled control text
-    text_accent: str           # selected tab, links, active-mode indicator
+        Args:
+            name: A primitive or hex-valued semantic token name.
+            alpha: Alpha channel value 0-255 (default opaque).
 
-    # ── Canvas (Model_View / Paper_View) ──────────────────────────────────────
-    canvas_bg: str             # scene background fill
-    grid_dot: str              # dot-grid point color
-
-    # ── Semantic colors ───────────────────────────────────────────────────────
-    accent_primary: str        # focus rings, run-hydraulics button highlight
-    status_ok: str             # passed / green
-    status_warn: str           # warning / orange
-    status_error: str          # error / red
+        Returns:
+            The resolved colour with the requested alpha.
+        """
+        val = getattr(self, name)
+        c = QColor(val)
+        c.setAlpha(alpha)
+        return c
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Preset themes
 # ─────────────────────────────────────────────────────────────────────────────
 
-LIGHT = Theme(
-    name             = "light",
-
-    bg_base          = "#f5f5f5",
-    bg_raised        = "#f0f0f0",
-    bg_sunken        = "#ffffff",
-    bg_tab_inactive  = "#dcdcdc",
-    bg_tab_selected  = "#f0f0f0",
-
-    btn_hover        = "#cce4f7",
-    btn_pressed      = "#99c9f0",
-    btn_checked      = "#bdd7ee",
-    btn_checked_border = "#6aafe6",
-
-    border_strong    = "#b0b0b0",
-    border_subtle    = "#c8c8c8",
-
-    text_primary     = "#222222",
-    text_secondary   = "#555555",
-    text_disabled    = "#aaaaaa",
-    text_accent      = "#1a1a8c",
-
-    canvas_bg        = "#ffffff",
-    grid_dot         = "#cccccc",
-
-    accent_primary   = "#0078d4",
-    status_ok        = "#217346",
-    status_warn      = "#b46500",
-    status_error     = "#c42b1c",
+DARK = Theme(
+    name="dark",
+    ground="#141619", surface="#1E2125", sunken="#212529", raised="#24282D",
+    line="#363B41", line_strong="#454B52",
+    ink="#E6E9EC", muted="#98A1AA", faint="#6F7982",
+    accent="#63BE8B", accent_ink="#0E1712",
+    selection="#63BE8B", selection_active="#8FE3B4",
+    ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
 )
 
-DARK = Theme(
-    name             = "dark",
-
-    bg_base          = "#1e1e1e",
-    bg_raised        = "#2b2b2b",
-    bg_sunken        = "#1a1a1a",
-    bg_tab_inactive  = "#333333",
-    bg_tab_selected  = "#2b2b2b",
-
-    btn_hover        = "#3a5a78",
-    btn_pressed      = "#2d4a66",
-    btn_checked      = "#1f4060",
-    btn_checked_border = "#4fa3e0",
-
-    border_strong    = "#555555",
-    border_subtle    = "#444444",
-
-    text_primary     = "#e0e0e0",
-    text_secondary   = "#999999",
-    text_disabled    = "#555555",
-    text_accent      = "#4fa3e0",
-
-    canvas_bg        = "#1e1e1e",
-    grid_dot         = "#3a3a3a",
-
-    accent_primary   = "#4fa3e0",
-    status_ok        = "#4caf50",
-    status_warn      = "#ffb74d",
-    status_error     = "#ef5350",
+LIGHT = Theme(
+    name="light",
+    ground="#f4f5f6", surface="#ffffff", sunken="#ffffff", raised="#eceef0",
+    line="#d4d8dc", line_strong="#b4bac0",
+    ink="#1c2024", muted="#5a636c", faint="#98a1aa",
+    accent="#2f9e63", accent_ink="#ffffff",
+    selection="#2f9e63", selection_active="#1f7a49",
+    ok="#2f9e63", warn="#b46500", danger="#c42b1c",
 )
 
 
