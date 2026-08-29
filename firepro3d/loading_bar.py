@@ -27,18 +27,21 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import pyqtSignal
 
+from .theme import detect
+
 # ── Shared style ─────────────────────────────────────────────────────────────
 
-_BAR_STYLE = """
-    QProgressBar {
-        background: #e0e0e0;
+def _bar_style(t) -> str:
+    return f"""
+    QProgressBar {{
+        background: {t.bg_sunken};
         border: none;
         border-radius: 4px;
-    }
-    QProgressBar::chunk {
-        background: #3399ff;
+    }}
+    QProgressBar::chunk {{
+        background: {t.accent};
         border-radius: 4px;
-    }
+    }}
 """
 
 
@@ -68,7 +71,7 @@ class LoadingBar(QWidget):
 
         self._bar = QProgressBar()
         self._bar.setTextVisible(False)
-        self._bar.setStyleSheet(_BAR_STYLE)
+        self._bar.setStyleSheet(_bar_style(detect()))
         lay.addWidget(self._bar, 1)
 
         self._cancel_btn: QPushButton | None = None

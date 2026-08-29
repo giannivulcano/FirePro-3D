@@ -28,6 +28,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSettings, QByteArray
 
 from .constants import HAZARD_CLASSES
+from .theme import detect
 from .nfpa_curves import (DENSITY_AREA_CURVES, HAZARD_ABBREV,
                           interpolate_density as _interpolate_density,
                           interpolate_area as _interpolate_area)
@@ -1339,7 +1340,8 @@ class AutoPopulateDialog(QDialog):
         self._calc_log.setMaximumHeight(160)
         self._calc_log.setStyleSheet(
             "QTextEdit { font-family: Consolas, monospace; font-size: 11px; "
-            "color: #000000; background: #f8f8f8; border: 1px solid #ccc; }"
+            f"color: {detect().text_primary}; background: {detect().bg_sunken}; "
+            f"border: 1px solid {detect().border_subtle}; }}"
         )
         res_vbox.addWidget(QLabel("Calculation Log:"))
         res_vbox.addWidget(self._calc_log)
@@ -1515,14 +1517,14 @@ class AutoPopulateDialog(QDialog):
             ok = actual_cov <= nfpa_max_cov
             if ok:
                 self._lbl_status.setText("PASS")
-                self._lbl_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
+                self._lbl_status.setStyleSheet(f"color: {detect().status_ok}; font-weight: bold;")
             else:
                 self._lbl_status.setText("FAIL - coverage exceeds limit")
-                self._lbl_status.setStyleSheet("color: #F44336; font-weight: bold;")
+                self._lbl_status.setStyleSheet(f"color: {detect().status_error}; font-weight: bold;")
         else:
             self._lbl_actual_cov.setText("---")
             self._lbl_status.setText("No sprinklers computed")
-            self._lbl_status.setStyleSheet("color: #FF9800; font-weight: bold;")
+            self._lbl_status.setStyleSheet(f"color: {detect().status_warn}; font-weight: bold;")
 
     # ── Graph interaction ─────────────────────────────────────────────────
 

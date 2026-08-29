@@ -64,6 +64,7 @@ except ImportError:
 
 from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
+from .theme import detect
 from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
 from .underlay_snap_index import UnderlaySnapIndex
 from .scale_manager import ScaleManager
@@ -772,7 +773,7 @@ class UnderlayImportDialog(QDialog):
         def _sep():
             line = QWidget()
             line.setFixedHeight(1)
-            line.setStyleSheet("background: #3a3a3a;")
+            line.setStyleSheet(f"background: {detect().border_subtle};")
             return line
 
         # File bar
@@ -866,19 +867,19 @@ class UnderlayImportDialog(QDialog):
             icon=QIcon(asset_path("Ribbon", "dimension_icon.svg"))))
         place_vlay.addLayout(scale_row)
         self._units_info_lbl = QLabel("")
-        self._units_info_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._units_info_lbl.setStyleSheet(f"color: {detect().text_secondary}; font-size: 11px;")
         self._units_info_lbl.setVisible(False)
         place_vlay.addWidget(self._units_info_lbl)
         self._calibration_lbl = QLabel("")
-        self._calibration_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._calibration_lbl.setStyleSheet(f"color: {detect().text_secondary}; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
         place_vlay.addWidget(self._calibration_lbl)
         self._scale_readout_lbl = QLabel("")
-        self._scale_readout_lbl.setStyleSheet("color: #6aa9ff; font-size: 11px;")
+        self._scale_readout_lbl.setStyleSheet(f"color: {detect().accent}; font-size: 11px;")
         self._scale_readout_lbl.setVisible(False)
         place_vlay.addWidget(self._scale_readout_lbl)
         self._scale_ratio_lbl = QLabel("")
-        self._scale_ratio_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._scale_ratio_lbl.setStyleSheet(f"color: {detect().text_secondary}; font-size: 11px;")
         self._scale_ratio_lbl.setVisible(False)
         place_vlay.addWidget(self._scale_ratio_lbl)
 
