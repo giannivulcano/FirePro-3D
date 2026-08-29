@@ -22,6 +22,7 @@ from PyQt6.QtCore import (
     QSortFilterProxyModel,
     Qt,
 )
+from PyQt6.QtWidgets import QGraphicsPixmapItem
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ UnderlayRole = Qt.ItemDataRole.UserRole + 1   # -> Underlay record (both row kin
 SearchRole = Qt.ItemDataRole.UserRole + 2     # -> combined lowercase text for filtering
 SortRole = Qt.ItemDataRole.UserRole + 3       # -> per-column sort key
 LayerRole = Qt.ItemDataRole.UserRole + 4      # -> layer name (child row) / None (underlay row)
+AppearanceEditableRole = Qt.ItemDataRole.UserRole + 5  # -> bool: colour/weight/snap editable (False for raster PDF)
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +244,13 @@ class UnderlayTreeModel(QAbstractItemModel):
             return record
         if role == LayerRole:
             return node.layer
+        if role == AppearanceEditableRole:
+            # Layer child rows are always editable (vector by definition).
+            # An underlay node is editable unless its paired group is a raster
+            # PDF pixmap (no vector pens to recolour / reweight / snap).
+            if node.layer is not None:
+                return True
+            return not isinstance(self._group_for(record), QGraphicsPixmapItem)
 
         if node.layer is not None:
             return self._layer_data(node, col, role)

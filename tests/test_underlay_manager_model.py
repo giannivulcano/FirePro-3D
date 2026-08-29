@@ -6,6 +6,7 @@ from firepro3d.underlay_manager_theme import DARK
 from firepro3d.underlay_manager_model import (
     UnderlayTreeModel,
     Col,
+    AppearanceEditableRole,
 )
 
 
@@ -188,6 +189,27 @@ def test_layer_name_display(qapp):
     parent = model.index(0, 0, QModelIndex())
     child = model.index(0, int(Col.NAME), parent)
     assert model.data(child, Qt.ItemDataRole.DisplayRole) == "GRID"
+
+
+def test_appearance_editable_vector_true(qapp):
+    # A DXF underlay paired with a plain _FakeGroup (not a pixmap) is editable,
+    # and its layer children are editable too.
+    rec = _dxf_record()
+    _scene, model = _make_model([rec])
+    top = model.index(0, 0, QModelIndex())
+    assert model.data(top, AppearanceEditableRole) is True
+    child = model.index(0, 0, top)
+    assert model.data(child, AppearanceEditableRole) is True
+
+
+def test_appearance_editable_raster_pdf_false(qapp):
+    # A raster PDF is paired with a QGraphicsPixmapItem -> not editable.
+    from PyQt6.QtWidgets import QGraphicsPixmapItem
+    rec = _raster_pdf_record()
+    scene = _FakeScene([(rec, QGraphicsPixmapItem())])
+    model = UnderlayTreeModel(scene, DARK, lambda: ["L1", "L2"])
+    top = model.index(0, 0, QModelIndex())
+    assert model.data(top, AppearanceEditableRole) is False
 
 
 def test_underlaysChanged_resets(qapp):
