@@ -1,8 +1,9 @@
 ---
-status: partial            # §1–§15 current (2026-06-23 verify); §16 built & code-verified 2026-08-10
-last-verified: 2026-08-10  # §16 as-built (§16.7 this commit); §1–§15 last verified 2026-06-23 @ 3e5b01a
-verified-commit: c615632
+status: partial            # §1–§15 current (2026-06-23 verify); §16 built 2026-08-10; §17 PDF-import-polish 2026-08-28
+last-verified: 2026-08-28  # §17 PDF Import Polish @ 95667fb; §16 as-built 2026-08-10; §1–§15 2026-06-23 @ 3e5b01a
+verified-commit: 95667fb
 applies-to:
+  - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
   - firepro3d/model_space.py          # §16.3 pens, repen_underlay, §16.4 active_view_key
   - firepro3d/level_manager.py        # §16.4 per-view visibility clause
@@ -768,3 +769,48 @@ Underlays
 - Per-view: tab switches with exclusions → `isVisible()` asserted; viewport render of an excluding view → underlay absent from rendered pixels, sibling viewport unaffected (echo-guard one-observer-dirty case).
 - Export parity (PyMuPDF, `test_gridline_paper_scale.py` style): B&W → black strokes; named weight measures true-mm; no-weight baseline unchanged vs today.
 - Refresh/duplicate preservation; red-verification (fix stashed → key tests fail); full chunked suite green before done.
+
+## 17. PDF Import Polish (as-built, 2026-08-28)
+
+Shipped on `feat/pdf-import-polish` (grill-locked WHAT; TDD). Amends earlier notes.
+
+**17.1 PDF DPI + import-mode defaults (supersedes §10 "dialog-only").** The
+`ImportPane` (Preferences → Import & Conversion) now exposes **PDF DPI**
+(72/150/300) and **import mode** (Auto/Vectors/Raster) **defaults**, persisted to
+QSettings `import/pdf_dpi` / `import/pdf_import_mode` (`_QSETTINGS_ORG`/`_APP`).
+The import dialog **seeds** its PDF Options combos from these on load; a
+per-import change is **one-off** (does not write back). The old "these are set in
+the import dialog and not read from QSettings" statement is retired.
+
+**17.2 Multi-page page selection by name (supersedes the "batch multi-page"
+non-goal).** Batch import is still not wanted. Instead, `pdf_page_names()`
+resolves each page's **name** (PyMuPDF page label else "Page N"); the thumbnail
+strip shows it as a caption and the info label echoes the selected page. Import
+stays single-page.
+
+**17.3 PDF vector line-width preservation.** `pdf_import_worker._extract_path`
+now carries each path's **stroke width**; `_build_batched_underlay_group`
+sub-batches stroke geometry **by width** (one cosmetic pen per width bucket,
+`pt→mm→px` via `UNDERLAY_MM_TO_PX_HINT`, floored at `UNDERLAY_LINE_WIDTH_PX`), so
+the source line-weight hierarchy is preserved. A DM **per-file Line-Weight
+override wins** (flattens to one pen); `repen_underlay` preserves each child's
+source width (item `data(7)`) on live DM colour/opacity edits. Source **colour**
+is still **not** preserved (same deferral as DXF §16-D5). DXF geoms carry no
+width → single bucket → unchanged look.
+
+**17.4 PDF text rendering.** Text is rendered DPI-independently at **pixel
+(fractional) size** — never point size — positioned at the span **baseline
+origin** and **x-scaled to the source span width** so a substitute font's
+advances don't drift. `_extract_text` emits `origin`, `size`, `twidth`,
+`valign=3`. (Both `_append_geom_to_path` copies — model_space + dxf_preview —
+are updated identically; a full de-dup is a filed follow-up.)
+
+**17.5 Architectural / engineering scale (PDF only).** The scale dropdown offers
+imperial **architectural** (`1/8"…3"=1'-0"`) and **engineering** (`1"=10'…100'`)
+presets whose `import_scale` is computed as `M × 25.4/72` (M = paper→real
+magnification), verified against the calibration ground truth `import_scale =
+real_mm / source_points`. A read-out shows the resulting real-world size, and a
+Custom/calibrated factor is annotated with its ratio (`1:M` + named scale).
+**DXF/DWG arch-scale is deferred** — its `$INSUNITS`→scale path (`_DXF_INSUNITS`
+"to-inches" factors) is inconsistent with the calibration formula and must be
+reconciled first (filed follow-up).
