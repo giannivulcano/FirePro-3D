@@ -1570,7 +1570,7 @@ class MainWindow(QMainWindow):
         # --- Underlay (moved from Manage → Import) ---
         g_ul = view_page.add_group("Underlay")
         _btn = g_ul.add_large_button(
-            "Underlay\nManager", _I("underlay_icon.svg"), self.open_import_dialog)
+            "Underlay\nManager", _I("underlay_icon.svg"), self.open_underlay_manager)
         _btn.setToolTip("Import/manage PDF, DXF, or DWG underlays")
 
         # --- Display ---
@@ -4045,6 +4045,17 @@ class MainWindow(QMainWindow):
             self.view_3d.delete_selected()
             return
         self.scene.delete_selected_items()
+
+    def open_underlay_manager(self):
+        """Open (or re-show) the modeless Underlay Manager singleton."""
+        mgr = getattr(self, "_underlay_manager", None)
+        if mgr is None:
+            from firepro3d.underlay_manager import UnderlayManagerDialog
+            mgr = UnderlayManagerDialog(self.scene, self, parent=self)
+            self._underlay_manager = mgr
+        mgr.show()
+        mgr.raise_()
+        mgr.activateWindow()
 
     def open_import_dialog(self, file_path: str = ""):
         """Open the unified underlay import dialog (PDF, DXF, DWG)."""
