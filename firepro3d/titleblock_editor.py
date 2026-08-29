@@ -118,7 +118,7 @@ def _update_swatch(btn: QPushButton, color: str) -> None:
     c = QColor(color) if color else QColor(0, 0, 0, 0)
     if c.isValid() and color:
         btn.setStyleSheet(
-            f"background-color: {c.name()}; border: 1px solid #888;")
+            f"background-color: {c.name()}; border: 1px solid {detect().border_strong};")
     else:
         btn.setStyleSheet(f"background-color: transparent; border: 1px solid {detect().border_strong};")
     btn.setProperty("_color", color)
@@ -563,7 +563,9 @@ class TitleBlockEditorDialog(QDialog):
         self._fimg_thumb.setFixedSize(120, 72)
         self._fimg_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._fimg_thumb.setStyleSheet(
-            "border: 1px solid #888; background: #fff;")
+            f"border: 1px solid {detect().border_strong}; "
+            "background: #fff;"  # theme-exempt: white paper preview
+        )
         img_row.addWidget(self._fimg_thumb)
         img_btns = QHBoxLayout()
         self._fimg_btn = QPushButton("Choose image…")

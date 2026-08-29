@@ -218,7 +218,7 @@ class RoofDialog(QDialog):
         self._eave_height_label = QLabel()
         self._eave_height_label.setStyleSheet(
             f"background: {detect().bg_sunken}; color: {detect().text_secondary}; padding: 4px 6px;"
-            " border: 1px solid #555; border-radius: 2px;")
+            f" border: 1px solid {detect().border_subtle}; border-radius: 2px;")
         form.addRow("Eave Height:", self._eave_height_label)
 
         # Offset above the selected level (DimensionEdit, stores mm)
@@ -232,7 +232,7 @@ class RoofDialog(QDialog):
         self._peak_height_label = QLabel()
         self._peak_height_label.setStyleSheet(
             f"background: {detect().bg_sunken}; color: {detect().text_secondary}; padding: 4px 6px;"
-            " border: 1px solid #555; border-radius: 2px;")
+            f" border: 1px solid {detect().border_subtle}; border-radius: 2px;")
         form.addRow("Peak Height:", self._peak_height_label)
 
         # Set initial eave/peak height display
@@ -271,7 +271,9 @@ class RoofDialog(QDialog):
         self._img_label.setFrameShape(QFrame.Shape.StyledPanel)
         self._img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._img_label.setStyleSheet(
-            "background: #1e1e1e; border: 1px solid #444; border-radius: 4px;")
+            "background: #1e1e1e; "  # theme-exempt: fixed dark schematic preview backdrop
+            f"border: 1px solid {detect().border_subtle}; border-radius: 4px;"
+        )
         right.addWidget(self._img_label)
 
         body.addLayout(right, 0)
@@ -349,7 +351,7 @@ class RoofDialog(QDialog):
     def _update_color_swatch(self):
         self._color_btn.setStyleSheet(
             f"background-color: {self._color_value};"
-            f" border: 1px solid #666; border-radius: 3px;")
+            f" border: 1px solid {detect().border_strong}; border-radius: 3px;")
         self._color_btn.setText(self._color_value)
 
     def _pick_color(self):
