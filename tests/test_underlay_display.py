@@ -209,41 +209,48 @@ class TestLevelRenameRemap:
         widget.table.item(row, 0).setText(new)  # drives _on_item_changed
         widget.deleteLater()
 
-    def test_rename_remaps_view_exclusion_key(self, qapp):
-        # level="*" so only the per-view exclusion (not level filtering) gates visibility
-        scene = Model_Space()
-        rec = _record(level="*", hidden_in_views=["plan:Plan: Level 1"])
-        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
-        scene.underlays.append((rec, group))
-        lm = LevelManager()
-
-        self._rename(lm, scene, "Level 1", "Level 5")
-
-        assert rec.hidden_in_views == ["plan:Plan: Level 5"]
-        # exclusion now applies in the renamed view
-        scene.active_view_key = "plan:Plan: Level 5"
-        lm.apply_to_scene(scene, "Level 5")
-        assert not group.isVisible()
-        # and no longer in the old view key
-        scene.active_view_key = "plan:Plan: Level 1"
-        lm.apply_to_scene(scene, "Level 5")
-        assert group.isVisible()
-
     def test_rename_remaps_level_assignment(self, qapp):
         # a level-specific underlay must follow its level's rename, not orphan
         scene = Model_Space()
-        rec = _record(level="Level 1")
+        rec = _record()
+        rec.levels = ["Level 1"]
         group, _ = scene._build_batched_underlay_group(_geoms(), rec)
         scene.underlays.append((rec, group))
         lm = LevelManager()
 
         self._rename(lm, scene, "Level 1", "Level 5")
 
-        assert rec.level == "Level 5"
+        assert rec.levels == ["Level 5"]
         # still shown on the (renamed) level it belongs to
-        scene.active_view_key = "plan:Plan: Level 5"
         lm.apply_to_scene(scene, "Level 5")
         assert group.isVisible()
+
+    def test_delete_strips_level_from_underlays(self, qapp):
+        # deleting a level removes it from every underlay's levels list
+        from firepro3d.level_manager import Level
+        from firepro3d.level_widget import LevelWidget
+        scene = Model_Space()
+        lm = LevelManager()
+        if not any(l.name == "Level 2" for l in lm._levels):
+            lm._levels.append(Level("Level 2", elevation=3000.0))
+        rec = _record()
+        rec.levels = ["Level 1", "Level 2"]
+        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
+        scene.underlays.append((rec, group))
+
+        # Drive the real delete path via LevelWidget
+        widget = LevelWidget(lm, scene)
+        row = self._find_name_row(widget, "Level 1")
+        widget.table.setCurrentCell(row, 0)
+        # Bypass the QMessageBox confirmation dialog
+        from unittest.mock import patch
+        from PyQt6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox, "question",
+                          return_value=QMessageBox.StandardButton.Yes):
+            widget._delete_level()
+        widget.deleteLater()
+
+        assert rec.levels == ["Level 2"]
 
 
 @pytest.fixture(scope="module")
@@ -281,22 +288,6 @@ def main_window(_main_window_singleton):
 
 
 class TestTabSwitchVisibility:
-    def test_plan_activation_applies_exclusion(self, main_window):
-        win = main_window
-        scene = win.scene
-        rec = _record(level=scene.active_level,
-                      hidden_in_views=[f"plan:Plan: {scene.active_level}"])
-        group, _ = scene._build_batched_underlay_group(_geoms(), rec)
-        scene.underlays.append((rec, group))
-        try:
-            win._activate_plan_view(scene.active_level)
-            assert not group.isVisible()
-            assert scene.active_view_key == f"plan:Plan: {scene.active_level}"
-        finally:
-            # Shared fixture: leave no cross-test state behind.
-            scene.underlays.remove((rec, group))
-            scene.removeItem(group)
-
     def test_detail_activation_sets_detail_view_key(self, main_window,
                                                     monkeypatch):
         """Slot-level by necessity: the pure-key assertion is the target.

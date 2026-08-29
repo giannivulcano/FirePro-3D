@@ -266,25 +266,18 @@ class LevelWidget(QWidget):
 
         Underlays are stored as records (not scene items), so
         ``LevelManager.rename_level`` — which only rewrites ``item.level``
-        for QGraphicsItems — never reaches them.  Two things must follow
-        the rename here:
-
-        * ``record.level`` — else a level-specific underlay orphans and the
-          §7.2 pass hides it (``lvl_map.get`` misses the stale name).
-        * per-view exclusion keys — the ``f"plan:Plan: {level}"`` vocabulary
-          matches ``Model_Space.active_view_key``; rewrite so a
-          hide-in-this-view exclusion survives the rename.
+        for QGraphicsItems — never reaches them.  ``record.levels`` must
+        follow the rename so a level-specific underlay does not orphan and
+        get hidden by the §7.2 visibility pass (``lvl_map.get`` would miss
+        the stale name).
         """
         scene = self.scene
         underlays = getattr(scene, "underlays", None) if scene else None
         if not underlays:
             return
-        old_key = f"plan:Plan: {old_name}"
-        new_key = f"plan:Plan: {new_name}"
-        for record, _ in underlays:
-            if record.level == old_name:
-                record.level = new_name
-            record.remap_view_key(old_key, new_key)
+        for record, _item in underlays:
+            record.levels = [new_name if n == old_name else n
+                             for n in record.levels]
 
     def _on_active_combo_changed(self, idx: int):
         if self._building or idx < 0:
@@ -339,11 +332,14 @@ class LevelWidget(QWidget):
             if l.name != lvl.name:
                 fallback = l.name
                 break
+        removed_name = lvl.name
         if fallback:
             for item in self._all_scene_items():
-                if getattr(item, "level", None) == lvl.name:
+                if getattr(item, "level", None) == removed_name:
                     item.level = fallback
-        self.manager.remove_level(lvl.name)
+        for record, _item in getattr(self.scene, "underlays", []):
+            record.levels = [n for n in record.levels if n != removed_name]
+        self.manager.remove_level(removed_name)
         self.populate()
         self.levelsChanged.emit()
         current = getattr(self.scene, "active_level", DEFAULT_LEVEL) if self.scene else DEFAULT_LEVEL
