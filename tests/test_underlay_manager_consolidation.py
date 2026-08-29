@@ -2,6 +2,7 @@ import inspect
 import firepro3d.dxf_preview_dialog as dpd
 import firepro3d.display_manager as dm
 import firepro3d.model_browser as mb
+import firepro3d.underlay_context_menu as ucm
 
 
 def test_import_dialog_has_no_level_combo():
@@ -37,6 +38,13 @@ def test_browser_underlay_no_layer_child_nodes():
     assert "_set_underlay_level" not in src, (
         "_set_underlay_level must be removed — level editing moved to Underlay Manager"
     )
+
+
+def test_context_menu_has_no_opacity_action():
+    src = inspect.getsource(ucm)
+    assert "Opacity" not in src
+    assert "_set_opacity" not in src
+    assert "setOpacity" not in src
 
 
 def test_browser_underlay_uses_levels_not_level():

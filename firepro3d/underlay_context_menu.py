@@ -2,7 +2,7 @@
 Underlay Context Menu
 =====================
 Right-click context menu for underlay items (PDF / DXF) in the scene.
-Provides: Scale, Rotate, Opacity, Lock/Unlock, Refresh from disk, Remove.
+Provides: Scale, Rotate, Lock/Unlock, Refresh from disk, Remove.
 """
 
 from PyQt6.QtWidgets import (
@@ -35,14 +35,6 @@ class UnderlayContextMenu:
             lambda: UnderlayContextMenu._set_rotation(scene, underlay_data, underlay_item)
         )
         menu.addAction(rotate_action)
-
-        # ── Opacity ──────────────────────────────────────────────────
-        opacity_pct = int(underlay_data.opacity * 100)
-        opacity_action = QAction(f"Opacity… (current: {opacity_pct}%)", menu)
-        opacity_action.triggered.connect(
-            lambda: UnderlayContextMenu._set_opacity(scene, underlay_data, underlay_item)
-        )
-        menu.addAction(opacity_action)
 
         menu.addSeparator()
 
@@ -119,19 +111,6 @@ class UnderlayContextMenu:
             scene.push_undo_state()
 
     @staticmethod
-    def _set_opacity(scene, data: Underlay, item: QGraphicsItem):
-        val, ok = QInputDialog.getInt(
-            scene.views()[0] if scene.views() else None,
-            "Set Underlay Opacity",
-            "Opacity (0–100%):",
-            int(data.opacity * 100), 0, 100
-        )
-        if ok:
-            data.opacity = val / 100.0
-            item.setOpacity(data.opacity)
-            scene.push_undo_state()
-
-    @staticmethod
     def _toggle_lock(scene, data: Underlay, item: QGraphicsItem):
         data.locked = not data.locked
         if data.locked:
@@ -144,13 +123,11 @@ class UnderlayContextMenu:
 
     @staticmethod
     def _reset_transform(scene, data: Underlay, item: QGraphicsItem):
-        """Reset scale, rotation, and opacity to defaults."""
+        """Reset scale and rotation to defaults."""
         data.scale = 1.0
         data.rotation = 0.0
-        data.opacity = 1.0
         item.setScale(1.0)
         item.setRotation(0.0)
-        item.setOpacity(1.0)
         scene.push_undo_state()
 
     @staticmethod
