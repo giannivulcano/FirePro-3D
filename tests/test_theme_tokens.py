@@ -89,3 +89,12 @@ def test_app_qss_has_variant_and_role_selectors():
     assert 'QPushButton[variant="danger"]' in qss
     assert 'QLabel[role="header"]' in qss
     assert 'QLabel[state="warn"]' in qss
+
+
+def test_underlay_manager_qss_builds_from_house_theme():
+    qss = th.build_underlay_manager_qss(th.DARK)
+    assert "#UnderlayManagerDialog" in qss
+    assert "underlayTable" in qss
+    assert th.DARK.accent in qss          # accent substituted
+    assert th.DARK.sunken in qss          # 'table' token -> sunken
+    assert "$" not in qss                  # every placeholder substituted

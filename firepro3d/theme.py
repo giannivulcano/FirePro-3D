@@ -650,3 +650,134 @@ RibbonSmallButton:disabled {{
     color: {t.text_disabled};
 }}
 """
+
+
+# ---------------------------------------------------------------------------
+# Underlay Manager dialog stylesheet
+#
+# Object-scoped QSS copied verbatim from underlay_manager_theme.py, using
+# `$name` placeholders substituted from the house Theme by
+# build_underlay_manager_qss(). Kept identical so the manager renders the same
+# once underlay_manager_theme.py is retired.
+# ---------------------------------------------------------------------------
+_UNDERLAY_MANAGER_QSS = """
+QDialog#UnderlayManagerDialog {
+    background: $surface;
+    color: $ink;
+    font-size: 13px;
+}
+#UnderlayManagerDialog QLabel { background: transparent; color: $ink; }
+#UnderlayManagerDialog QLabel[role="muted"]  { color: $muted; }
+#UnderlayManagerDialog QLabel[role="faint"]  { color: $faint; font-size: 12px; }
+#UnderlayManagerDialog QLabel[role="header"] {
+    color: $muted; font-size: 10px; font-weight: 600;
+}
+#UnderlayManagerDialog QLabel[state="warn"] {
+    color: $warn; background: $warn_soft;
+    border-radius: 6px; padding: 6px 8px;
+}
+
+#UnderlayManagerDialog QPushButton {
+    background: $table; color: $ink;
+    border: 1px solid $line_strong; border-radius: 6px;
+    padding: 5px 12px; font-weight: 500;
+}
+#UnderlayManagerDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
+#UnderlayManagerDialog QPushButton:disabled { color: $faint; border-color: $line; }
+#UnderlayManagerDialog QPushButton[variant="primary"] {
+    background: $accent; color: $accent_ink; border-color: $accent; font-weight: 600;
+}
+#UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
+#UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled {
+    background: $danger_soft; color: $danger; border-color: $danger;
+}
+
+#UnderlayManagerDialog QLineEdit {
+    background: $table; color: $ink;
+    border: 1px solid $line_strong; border-radius: 6px;
+    padding: 5px 9px;
+    selection-background-color: $accent_soft2;
+}
+#UnderlayManagerDialog QLineEdit:focus { border-color: $accent; }
+
+QTableView#underlayTable {
+    background: $table;
+    alternate-background-color: $table;
+    color: $ink;
+    border: none;
+    gridline-color: transparent;
+    selection-background-color: $accent_soft2;
+    selection-color: $ink;
+    outline: none;
+}
+QTableView#underlayTable::item {
+    border-bottom: 1px solid $line;
+    padding: 0 4px;
+}
+QTableView#underlayTable::item:hover    { background: $accent_soft; }
+QTableView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
+QHeaderView::section {
+    background: $table; color: $muted;
+    border: none; border-bottom: 1px solid $line_strong;
+    padding: 7px 8px;
+    font-size: 10px; font-weight: 600;
+}
+QTableView QTableCornerButton::section { background: $table; border: none; }
+
+QFrame#detailsPanel { background: $surface; border-left: 1px solid $line; }
+QFrame#footerBar    { background: $surface2; border-top: 1px solid $line; }
+QFrame#toolbarBar   { background: $surface; border-bottom: 1px solid $line; }
+QLabel#previewBox {
+    background: $table; border: 1px solid $line; border-radius: 6px;
+}
+
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: $line_strong; border-radius: 5px; min-height: 30px; }
+QScrollBar::handle:vertical:hover { background: $faint; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; width: 0; }
+QScrollBar:horizontal { background: transparent; height: 10px; }
+QScrollBar::handle:horizontal { background: $line_strong; border-radius: 5px; min-width: 30px; }
+
+QMenu#uwMenu {
+    background: $surface; color: $ink;
+    border: 1px solid $line_strong; border-radius: 8px;
+    padding: 5px;
+}
+QMenu#uwMenu::item {
+    padding: 6px 22px 6px 10px; border-radius: 5px;
+}
+QMenu#uwMenu::item:selected { background: $accent_soft; }
+QMenu#uwMenu::item:disabled { color: $faint; }
+QMenu#uwMenu::separator { height: 1px; background: $line; margin: 5px 4px; }
+QMenu#uwMenu::indicator { width: 14px; height: 14px; margin-left: 4px; }
+
+QToolTip {
+    background: $surface2; color: $ink;
+    border: 1px solid $line_strong; padding: 4px 7px;
+}
+"""
+
+
+# Token names the Underlay Manager QSS references via `$name`.
+_UM_QSS_TOKENS = (
+    "ground", "surface", "surface2", "table", "ink", "muted", "faint",
+    "line_strong", "line", "accent_ink", "accent_soft2", "accent_soft",
+    "accent", "warn_soft", "warn", "danger_soft", "danger", "ok",
+    "chip_ink", "chip",
+)
+
+
+def build_underlay_manager_qss(t: Theme) -> str:
+    """Object-scoped QSS for the Underlay Manager dialog, from house tokens.
+
+    Args:
+        t: The active house theme.
+
+    Returns:
+        The manager stylesheet with every ``$token`` substituted.
+    """
+    qss = _UNDERLAY_MANAGER_QSS
+    # longest keys first so `$line` never clobbers `$line_strong`
+    for key in sorted(_UM_QSS_TOKENS, key=len, reverse=True):
+        qss = qss.replace("$" + key, getattr(t, key))
+    return qss
