@@ -133,6 +133,22 @@ _ENG_SCALES: list[tuple[str, float]] = [
 ]
 
 
+def pdf_scale_ratio_text(factor: float) -> str:
+    """Human-readable ratio for a PDF import_scale factor (mm per point).
+
+    ``factor`` = real-mm per PDF point. The drawing ratio is ``1 : M`` where
+    ``M = real/paper`` magnification. If the factor matches a standard named
+    scale (within 2%), that name is shown too.
+    """
+    if factor <= 0:
+        return ""
+    M = factor * 72.0 / 25.4          # real per paper -> drawing is 1 : M
+    for label, sc in _ARCH_SCALES + _ENG_SCALES:
+        if abs(sc - factor) <= 0.02 * factor:
+            return f"{label}  (1:{M:.4g})"
+    return f"1 : {M:.4g}"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Data classes
 # ─────────────────────────────────────────────────────────────────────────────
@@ -793,6 +809,7 @@ class UnderlayImportDialog(QDialog):
         self._custom_scale_edit.setText("1.0")
         self._custom_scale_edit.setFixedWidth(80)
         self._custom_scale_edit.setVisible(False)
+        self._custom_scale_edit.textChanged.connect(self._on_custom_scale_edited)
         scale_row.addWidget(self._custom_scale_edit)
         scale_row.addStretch()
         scale_row.addWidget(_pill(
@@ -813,6 +830,10 @@ class UnderlayImportDialog(QDialog):
         self._scale_readout_lbl.setStyleSheet("color: #6aa9ff; font-size: 11px;")
         self._scale_readout_lbl.setVisible(False)
         place_vlay.addWidget(self._scale_readout_lbl)
+        self._scale_ratio_lbl = QLabel("")
+        self._scale_ratio_lbl.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._scale_ratio_lbl.setVisible(False)
+        place_vlay.addWidget(self._scale_ratio_lbl)
 
         place_vlay.addWidget(_sep())
 
@@ -1948,6 +1969,28 @@ class UnderlayImportDialog(QDialog):
         self._calibration_lbl.setVisible(
             is_custom and bool(self._calibration_lbl.text()))
         self._update_scale_readout()
+        self._update_scale_ratio_label()
+
+    def _on_custom_scale_edited(self, *_):
+        self._update_scale_ratio_label()
+        self._update_scale_readout()
+
+    def _update_scale_ratio_label(self):
+        """For a PDF Custom/calibrated factor, show the equivalent drawing ratio."""
+        lbl = getattr(self, "_scale_ratio_lbl", None)
+        if lbl is None:
+            return
+        is_pdf = getattr(self, "_file_type", "") == "pdf"
+        # Named presets already read as a ratio in the combo; annotate Custom only.
+        if not is_pdf or self._scale_combo.currentData() is not None:
+            lbl.setVisible(False)
+            return
+        txt = pdf_scale_ratio_text(self._current_scale())
+        if txt:
+            lbl.setText(f"=  {txt}")
+            lbl.setVisible(True)
+        else:
+            lbl.setVisible(False)
 
     def _get_custom_scale(self) -> float:
         try:
@@ -2084,8 +2127,13 @@ class UnderlayImportDialog(QDialog):
                     self._scale_combo.setCurrentIndex(custom_idx)
                     self._custom_scale_edit.setText(f"{factor:.5g}")
                     display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
-                    self._calibration_lbl.setText(
-                        f"{px_dist:.1f} px = {display}")
+                    if self._file_type == "pdf":
+                        ratio = pdf_scale_ratio_text(factor)
+                        self._calibration_lbl.setText(
+                            f"{px_dist:.1f} pt = {display}   ({ratio})")
+                    else:
+                        self._calibration_lbl.setText(
+                            f"{px_dist:.1f} px = {display}")
                     self._calibration_lbl.setVisible(True)
                     self._status_lbl.setText(f"Scale calibrated: {display}")
                 else:

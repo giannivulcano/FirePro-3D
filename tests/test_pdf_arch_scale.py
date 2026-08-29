@@ -2,8 +2,23 @@
 import_scale (PDF points -> scene mm), matching the calibration ground truth
 scale = real_mm / source_points."""
 from firepro3d.dxf_preview_dialog import (
-    pdf_scale_from_ratio, _ARCH_SCALES, _ENG_SCALES, _MM_PER_POINT,
+    pdf_scale_from_ratio, pdf_scale_ratio_text, _ARCH_SCALES, _ENG_SCALES,
+    _MM_PER_POINT,
 )
+
+
+def test_ratio_text_matches_named_arch_scale():
+    factor = pdf_scale_from_ratio(0.375 * 25.4, 304.8)   # 3/8"=1'-0"
+    txt = pdf_scale_ratio_text(factor)
+    assert '3/8" = 1\'-0"' in txt
+    assert "1:32" in txt
+
+
+def test_ratio_text_falls_back_to_one_to_n():
+    factor = pdf_scale_from_ratio(1.0, 20.0)   # arbitrary 1mm=20mm -> 1:20
+    txt = pdf_scale_ratio_text(factor)
+    assert txt.startswith("1 : ")
+    assert "20" in txt
 
 
 def test_ratio_1to1_is_point_to_mm():
@@ -69,3 +84,18 @@ def test_dxf_style_combo_has_no_arch_scales(qapp):
     labels = [dlg._scale_combo.itemText(i)
               for i in range(dlg._scale_combo.count())]
     assert not any("1'-0\"" in l or l.startswith('1" = ') for l in labels)
+
+
+def test_custom_factor_shows_equivalent_ratio(qapp, tmp_path):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    p = tmp_path / "blank.pdf"
+    _blank_pdf(p)
+    dlg = UnderlayImportDialog(None)
+    dlg._load_pdf(str(p))
+    ci = next(i for i in range(dlg._scale_combo.count())
+              if dlg._scale_combo.itemData(i) is None
+              and dlg._scale_combo.itemText(i).startswith("Custom"))
+    dlg._scale_combo.setCurrentIndex(ci)
+    dlg._custom_scale_edit.setText("11.2889")     # the 3/8"=1'-0" factor
+    assert not dlg._scale_ratio_lbl.isHidden()
+    assert '3/8" = 1\'-0"' in dlg._scale_ratio_lbl.text()
