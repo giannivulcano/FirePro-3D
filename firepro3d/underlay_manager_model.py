@@ -83,18 +83,6 @@ def _record_source(record) -> str:
     return str(getattr(record, "path", "") or "")
 
 
-def _record_layer_names(record) -> list[str]:
-    """Layer names for a vector underlay (``[]`` for a raster PDF)."""
-    names = getattr(record, "layer_names", None) or []
-    out = []
-    for entry in names:
-        if isinstance(entry, (tuple, list)):
-            out.append(entry[0])
-        else:
-            out.append(entry)
-    return out
-
-
 def _record_missing(record) -> bool:
     if getattr(record, "missing", False):
         return True
@@ -334,6 +322,7 @@ class UnderlayTreeModel(QAbstractItemModel):
     def _set_underlay_data(self, node, col, value) -> bool:
         record = node.record
         if col == Col.VIS:
+            # VIS setData value is 'visible' for both underlay and layer rows.
             record.visible = bool(value)
             self._apply_visibility()
             return True
@@ -358,7 +347,8 @@ class UnderlayTreeModel(QAbstractItemModel):
         record = node.record
         layer = node.layer
         if col == Col.VIS:
-            hidden = bool(value)
+            # VIS setData value is 'visible' for both underlay and layer rows.
+            hidden = not bool(value)
             group = self._group_for(record)
             done = False
             fn = getattr(self._scene, "set_underlay_layer_hidden", None)

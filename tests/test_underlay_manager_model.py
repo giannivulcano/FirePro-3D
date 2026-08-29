@@ -152,13 +152,20 @@ def test_setdata_layer_colour_override(qapp):
 
 def test_setdata_layer_vis_toggles(qapp):
     # Default group has ["GRID", "WALLS"] (sorted); child 0 = "GRID".
+    # value=visible: False -> hidden (in hidden_layers), True -> visible (not in hidden_layers).
     rec = _dxf_record()
     scene, model = _make_model([rec])
     parent = model.index(0, 0, QModelIndex())
     child = model.index(0, int(Col.VIS), parent)
-    assert model.setData(child, True, Qt.ItemDataRole.EditRole) is True
+
+    # Hide: value=False means not visible -> "GRID" should be in hidden_layers.
+    assert model.setData(child, False, Qt.ItemDataRole.EditRole) is True
     assert "GRID" in rec.hidden_layers
     assert scene.layer_hidden_calls  # routed through the choke point
+
+    # Show: value=True means visible -> "GRID" should NOT be in hidden_layers.
+    assert model.setData(child, True, Qt.ItemDataRole.EditRole) is True
+    assert "GRID" not in rec.hidden_layers
 
 
 def test_parent_maps_layer_to_underlay(qapp):
