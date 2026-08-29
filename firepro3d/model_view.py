@@ -286,6 +286,7 @@ class Model_View(QGraphicsView):
         if selected:
             painter.save()
             painter.resetTransform()
+            _sel_t = th.detect()
             for item in selected:
                 for idx, gpt in enumerate(item.grip_points()):
                     # Don't render a handle for a grip that can't be picked
@@ -294,8 +295,8 @@ class Model_View(QGraphicsView):
                         continue
                     vp = self.mapFromScene(gpt)
                     is_active = (item is active_item and idx == active_idx)
-                    fill  = QColor("#ff4400") if is_active else QColor("#00aaff")
-                    painter.setPen(QPen(QColor("#000000"), 1))
+                    fill = QColor(_sel_t.selection_active if is_active else _sel_t.selection)
+                    painter.setPen(QPen(QColor(_sel_t.selection), 1))
                     painter.setBrush(QBrush(fill))
                     painter.drawRect(vp.x() - 4, vp.y() - 4, 8, 8)
             painter.restore()

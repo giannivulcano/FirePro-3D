@@ -113,3 +113,10 @@ def test_no_importers_of_deleted_manager_theme():
     assert offenders == [], f"still import underlay_manager_theme: {offenders}"
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("firepro3d.underlay_manager_theme")
+
+
+def test_selection_tokens_distinct_for_grip_states():
+    t = th.DARK
+    assert t.selection == "#63BE8B"
+    assert t.selection_active == "#8FE3B4"
+    assert t.selection != t.selection_active
