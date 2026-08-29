@@ -214,3 +214,41 @@ class Underlay:
         return compute_cache_key(
             self.path, page=self.page, selected_layers=self.selected_layers,
             layout=self.layout, import_bounds=self.import_bounds)
+
+
+# ---------------------------------------------------------------------------
+# Geometry / placement fields — everything the import dialog controls.
+# Management fields (levels, colour, line_weight_name, layer_overrides,
+# hidden_layers, visible, snap, locked, opacity, line_weight) are NOT listed
+# here and are therefore preserved by apply_import_params_preserving_management.
+# ---------------------------------------------------------------------------
+_GEOMETRY_PLACEMENT_FIELDS = (
+    "type", "path", "page", "dpi", "scale", "rotation", "x", "y",
+    "import_scale", "import_base_x", "import_base_y",
+    "selected_layers", "layout", "import_bounds", "import_mode",
+)
+
+
+def apply_import_params_preserving_management(
+        record: "Underlay", incoming: "Underlay",
+        new_layer_names: list[str] | None = None) -> None:
+    """Overwrite only geometry+placement on *record* from *incoming*.
+
+    Management fields (levels, colour, line_weight_name, layer_overrides,
+    hidden_layers, visible, snap, locked, opacity, line_weight) are preserved.
+    If *new_layer_names* is given, prune layer_overrides/hidden_layers whose
+    layer no longer exists (by-name reconciliation, mirroring refresh_underlay).
+
+    Args:
+        record: The existing underlay record to update in-place.
+        incoming: A freshly constructed Underlay carrying the new import params.
+        new_layer_names: Optional list of layer names present in the new
+            file; used to drop stale overrides/hidden entries.
+    """
+    for f in _GEOMETRY_PLACEMENT_FIELDS:
+        setattr(record, f, getattr(incoming, f))
+    if new_layer_names is not None:
+        known = set(new_layer_names)
+        record.layer_overrides = {
+            k: v for k, v in record.layer_overrides.items() if k in known}
+        record.hidden_layers = [h for h in record.hidden_layers if h in known]
