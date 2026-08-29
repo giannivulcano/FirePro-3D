@@ -14,7 +14,7 @@ import os
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLabel, QSizePolicy,
-    QAbstractItemView, QMenu, QMessageBox, QFileDialog,
+    QAbstractItemView, QMenu, QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QFont, QColor, QBrush
@@ -24,8 +24,6 @@ from .wall import WallSegment
 from .floor_slab import FloorSlab
 from .pipe import Pipe
 from .node import Node
-from .underlay import Underlay
-from .underlay_context_menu import UnderlayContextMenu
 
 
 _ROLE_ENTITY = Qt.ItemDataRole.UserRole  # stores Python id() of the entity
@@ -367,8 +365,10 @@ class ModelBrowser(QWidget):
                     filename = os.path.basename(data.path)
                     is_missing = (item is None
                                   or item.data(0) == "missing_underlay")
-                    level_label = ("All Levels" if data.level == "*"
-                                   else data.level)
+                    level_label = (
+                        "All Levels" if data.levels == ["*"]
+                        else ", ".join(data.levels) or "—"
+                    )
 
                     # File node
                     label = f"{filename}    [{level_label}]"
@@ -379,49 +379,16 @@ class ModelBrowser(QWidget):
                     if not is_missing:
                         file_node.setFlags(
                             file_node.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                        if data.type == "dxf" and item is not None:
-                            all_layers = item.data(2) or []
-                            hidden_set = set(data.hidden_layers)
-                            if not data.visible:
-                                file_node.setCheckState(0, Qt.CheckState.Unchecked)
-                            elif hidden_set and any(ln in hidden_set for ln in all_layers):
-                                file_node.setCheckState(
-                                    0, Qt.CheckState.PartiallyChecked)
-                            else:
-                                file_node.setCheckState(0, Qt.CheckState.Checked)
-                        else:
-                            # PDF or DXF with no layers — simple two-state
-                            file_node.setCheckState(
-                                0, Qt.CheckState.Checked if data.visible
-                                else Qt.CheckState.Unchecked)
+                        # Simple two-state checkbox — layer-level visibility is
+                        # managed in the Underlay Manager, not the browser.
+                        file_node.setCheckState(
+                            0, Qt.CheckState.Checked if data.visible
+                            else Qt.CheckState.Unchecked)
                     if not data.visible:
                         file_node.setForeground(0, self._GREY)
 
-                    # Source-layer children (DXF only)
-                    if data.type == "dxf" and item is not None and not is_missing:
-                        all_layers = item.data(2) or []
-                        hidden_set = set(data.hidden_layers)
-                        for layer_name in all_layers:
-                            count = sum(
-                                1 for c in item.childItems()
-                                if c.data(1) == layer_name)
-                            is_hidden = layer_name in hidden_set
-                            suffix = "  (hidden)" if is_hidden else ""
-                            layer_node = QTreeWidgetItem(
-                                file_node,
-                                [f"{layer_name}  ({count} items){suffix}"])
-                            layer_node.setData(0, _ROLE_UNDERLAY, idx)
-                            layer_node.setData(0, _ROLE_ENTITY, layer_name)
-                            layer_node.setFlags(
-                                layer_node.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                            layer_node.setCheckState(
-                                0, Qt.CheckState.Unchecked if is_hidden
-                                else Qt.CheckState.Checked)
-                            if is_hidden:
-                                layer_node.setForeground(0, self._GREY)
-
-                    # PDF page child
-                    elif data.type == "pdf" and not is_missing:
+                    # PDF page child (navigation-only; DXF layer nodes removed)
+                    if data.type == "pdf" and not is_missing:
                         QTreeWidgetItem(file_node, [f"Page {data.page + 1}"])
             self._restore_expansion(expanded)
         finally:
@@ -485,14 +452,11 @@ class ModelBrowser(QWidget):
             return
         selected_items = self._tree.selectedItems()
 
-        # Check for underlay file-node selection (skip layer nodes)
+        # Check for underlay file-node selection
         for tree_item in selected_items:
             ul_idx = tree_item.data(0, _ROLE_UNDERLAY)
             if ul_idx is not None:
-                # Layer nodes have _ROLE_ENTITY set to the layer name —
-                # don't pan/select for those, only file nodes
-                if tree_item.data(0, _ROLE_ENTITY) is None:
-                    self._on_underlay_selected(ul_idx)
+                self._on_underlay_selected(ul_idx)
                 return
 
         # Existing entity selection logic
@@ -637,7 +601,7 @@ class ModelBrowser(QWidget):
     # ── Checkbox handler ───────────────────────────────────────────────
 
     def _on_tree_item_changed(self, tree_item: QTreeWidgetItem, column: int):
-        """Handle checkbox state changes on underlay nodes."""
+        """Handle checkbox state changes on underlay file nodes (show/hide)."""
         if self._syncing:
             return
         ul_idx = tree_item.data(0, _ROLE_UNDERLAY)
@@ -650,35 +614,12 @@ class ModelBrowser(QWidget):
         if item is None:
             return
 
-        layer_name = tree_item.data(0, _ROLE_ENTITY)
-        checked = tree_item.checkState(0) != Qt.CheckState.Unchecked
-
-        if isinstance(layer_name, str):
-            # Layer node toggled
-            is_hidden = layer_name in data.hidden_layers
-            if checked and is_hidden:
-                self._toggle_underlay_layer(data, item, layer_name)
-            elif not checked and not is_hidden:
-                self._toggle_underlay_layer(data, item, layer_name)
-        else:
-            # File node toggled
-            new_state = tree_item.checkState(0)
-            if new_state == Qt.CheckState.Unchecked and data.visible and data.hidden_layers:
-                # Was PartiallyChecked (visible but some layers hidden).
-                # User clicked expecting "show all" — clear hidden layers
-                # instead of hiding the whole underlay.
-                for child in item.childItems():
-                    lname = child.data(1)
-                    if lname and lname in data.hidden_layers:
-                        child.setVisible(True)
-                data.hidden_layers.clear()
-                self._scene.underlaysChanged.emit()
-                self._scene.push_undo_state()
-                self.refresh()
-            elif new_state == Qt.CheckState.Checked and not data.visible:
-                self._toggle_underlay_visible(data, item)
-            elif new_state == Qt.CheckState.Unchecked and data.visible:
-                self._toggle_underlay_visible(data, item)
+        # File node only (layer child nodes no longer exist in the browser)
+        new_state = tree_item.checkState(0)
+        if new_state == Qt.CheckState.Checked and not data.visible:
+            self._toggle_underlay_visible(data, item)
+        elif new_state == Qt.CheckState.Unchecked and data.visible:
+            self._toggle_underlay_visible(data, item)
 
     # ── Underlay handlers ────────────────────────────────────────────────
 
@@ -719,24 +660,15 @@ class ModelBrowser(QWidget):
         is_missing = (item is None
                       or item.data(0) == "missing_underlay")
 
-        # Check if this is a source-layer node
-        layer_name = tree_item.data(0, _ROLE_ENTITY)
-        if isinstance(layer_name, str):
-            self._underlay_layer_context_menu(data, item, layer_name, pos)
-            return
-
         menu = QMenu(self)
-        scene = self._scene
 
         if is_missing:
-            act_relink = menu.addAction("Relink\u2026")
-            act_relink.triggered.connect(
-                lambda: self._relink_underlay(data, item))
-            menu.addSeparator()
+            # Missing underlay: only Remove is available
             act_remove = menu.addAction("Remove")
             act_remove.triggered.connect(
                 lambda: self._remove_underlay(data, item))
         else:
+            # Navigation-only actions (no editing \u2014 editing is in Underlay Manager)
             lock_label = "Unlock" if data.locked else "Lock"
             act_lock = menu.addAction(lock_label)
             act_lock.triggered.connect(
@@ -747,63 +679,11 @@ class ModelBrowser(QWidget):
             act_vis.triggered.connect(
                 lambda: self._toggle_underlay_visible(data, item))
 
-            level_menu = menu.addMenu("Change Level")
-            lm = getattr(scene, "_level_manager", None)
-            levels = lm.levels if lm else []
-            for lvl in levels:
-                act = level_menu.addAction(lvl.name)
-                act.triggered.connect(
-                    lambda checked=False, ln=lvl.name:
-                        self._set_underlay_level(data, ln))
-            level_menu.addSeparator()
-            act_all = level_menu.addAction("All Levels")
-            act_all.triggered.connect(
-                lambda: self._set_underlay_level(data, "*"))
-
-            menu.addSeparator()
-            act_scale = menu.addAction("Scale\u2026")
-            act_scale.triggered.connect(
-                lambda: (UnderlayContextMenu._set_scale(scene, data, item),
-                         self.refresh()))
-            act_rotate = menu.addAction("Rotate\u2026")
-            act_rotate.triggered.connect(
-                lambda: (UnderlayContextMenu._set_rotation(scene, data, item),
-                         self.refresh()))
-            act_opacity = menu.addAction("Opacity\u2026")
-            act_opacity.triggered.connect(
-                lambda: (UnderlayContextMenu._set_opacity(scene, data, item),
-                         self.refresh()))
-
-            menu.addSeparator()
-            act_relink = menu.addAction("Relink\u2026")
-            act_relink.triggered.connect(
-                lambda: self._relink_underlay(data, item))
-
-            act_refresh = menu.addAction("Refresh from Disk")
-            act_refresh.triggered.connect(
-                lambda: (scene.refresh_underlay(data, item),
-                         self.refresh()))
-
-            act_dup = menu.addAction("Duplicate")
-            act_dup.triggered.connect(
-                lambda: (UnderlayContextMenu._duplicate(scene, data, item),
-                         self.refresh()))
-
             menu.addSeparator()
             act_remove = menu.addAction("Remove")
             act_remove.triggered.connect(
                 lambda: self._remove_underlay(data, item))
 
-        menu.exec(self._tree.viewport().mapToGlobal(pos))
-
-    def _underlay_layer_context_menu(self, data, item, layer_name, pos):
-        """Context menu for a DXF source-layer node."""
-        menu = QMenu(self)
-        is_hidden = layer_name in data.hidden_layers
-        label = "Show Layer" if is_hidden else "Hide Layer"
-        act = menu.addAction(label)
-        act.triggered.connect(
-            lambda: self._toggle_underlay_layer(data, item, layer_name))
         menu.exec(self._tree.viewport().mapToGlobal(pos))
 
     # ── Underlay action helpers ──────────────────────────────────────────
@@ -827,36 +707,6 @@ class ModelBrowser(QWidget):
             lm.apply_to_scene(self._scene)
         elif item is not None:
             item.setVisible(data.visible)
-        self._scene.push_undo_state()
-        self.refresh()
-
-    def _set_underlay_level(self, data, level_name: str):
-        data.level = level_name
-        lm = getattr(self._scene, "_level_manager", None)
-        if lm:
-            lm.apply_to_scene(self._scene)
-        self._scene.push_undo_state()
-        self.refresh()
-
-    def _toggle_underlay_layer(self, data, item, layer_name):
-        """Toggle a DXF source layer on/off."""
-        hidden = layer_name not in data.hidden_layers
-        self._scene.set_underlay_layer_hidden(data, item, layer_name, hidden)
-        self._scene.push_undo_state()
-        self.refresh()
-
-    def _relink_underlay(self, data, item):
-        """File dialog to relink a missing or changed underlay."""
-        if data.type == "dxf":
-            filter_str = "DXF Files (*.dxf)"
-        else:
-            filter_str = "PDF Files (*.pdf)"
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Relink Underlay", "", filter_str)
-        if not path:
-            return
-        data.path = path
-        self._scene.refresh_underlay(data, item)
         self._scene.push_undo_state()
         self.refresh()
 
