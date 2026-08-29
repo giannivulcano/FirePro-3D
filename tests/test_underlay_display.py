@@ -385,23 +385,6 @@ class TestPaperUnderlayStage:
         assert child.pen().widthF() == pytest.approx(UNDERLAY_LINE_WIDTH_PX)
         restore_model_display(saved)
 
-    def test_excluded_view_hides_group_and_restores(self, qapp):
-        scene, rec, group, rect = _paper_scene_setup(
-            qapp, hidden_in_views=["plan:Plan: Level 1"])
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="plan:Plan: Level 1")
-        assert not group.isVisible()
-        restore_model_display(saved)
-        assert group.isVisible()
-
-    def test_other_view_unaffected(self, qapp):
-        scene, rec, group, rect = _paper_scene_setup(
-            qapp, hidden_in_views=["plan:Plan: Level 1"])
-        saved = apply_paper_overrides(scene, rect, paper_scale=0.02,
-                                      source_view_key="detail:Riser")
-        assert group.isVisible()
-        restore_model_display(saved)
-
     def test_model_hidden_group_stays_hidden(self, qapp):
         """A group hidden by the model-side pass is left alone (§16.5)."""
         scene, rec, group, rect = _paper_scene_setup(qapp)
@@ -465,83 +448,6 @@ def _mock_resolver(scene):
     resolver = MagicMock(spec=ViewResolver)
     resolver.resolve.side_effect = lambda vt, vn: (scene, QRectF(_CROP))
     return resolver
-
-
-def _render_paper(scene):
-    """Render the whole PaperScene at exactly PX_PER_MM pixels per paper mm."""
-    r = scene.sceneRect()
-    img = QImage(int(r.width() * PX_PER_MM), int(r.height() * PX_PER_MM),
-                 QImage.Format.Format_RGB32)
-    img.fill(0xFFFFFFFF)
-    p = QPainter(img)
-    scene.render(p, QRectF(0, 0, img.width(), img.height()), r,
-                 Qt.AspectRatioMode.IgnoreAspectRatio)
-    p.end()
-    return img
-
-
-def _paper_px(scene, x_mm, y_mm):
-    """Map paper-mm coordinates to image pixel coordinates."""
-    r = scene.sceneRect()
-    return int((x_mm - r.x()) * PX_PER_MM), int((y_mm - r.y()) * PX_PER_MM)
-
-
-def _np_bgr(img):
-    """QImage (Format_RGB32) → numpy (h, w) int arrays as (b, g, r)."""
-    import numpy as np
-    ptr = img.bits()
-    ptr.setsize(img.sizeInBytes())
-    arr = np.frombuffer(ptr, dtype=np.uint8).reshape(
-        img.height(), img.bytesPerLine() // 4, 4)[:, :img.width()]
-    a = arr.astype(int)
-    return a[..., 0], a[..., 1], a[..., 2]
-
-
-def _red_in_viewport(img, paper, vx, vy):
-    """Any unambiguous underlay-red pixel strictly inside the viewport?"""
-    b, g, r = _np_bgr(img)
-    red = (r >= 200) & (g <= 80) & (b <= 80)
-    x0, y0 = _paper_px(paper, vx + 2, vy + 2)
-    x1, y1 = _paper_px(paper, vx + _VP_W - 2, vy + _VP_W - 2)
-    return bool(red[y0:y1, x0:x1].any())
-
-
-class TestViewportPixelExclusion:
-    """§16.5 through the REAL SheetViewport.paint → apply_paper_overrides wire."""
-
-    @pytest.fixture
-    def exclusion_sheet(self, qapp):
-        from firepro3d.paper_space import PaperScene
-        from types import SimpleNamespace
-        scene = Model_Space()
-        rec = _record(
-            layer_overrides={"A-WALL": {"colour": "#ff0000",
-                                        "line_weight": "Very Heavy"}},
-            hidden_in_views=["plan:Plan: Level 1"])
-        group, _ = scene._build_batched_underlay_group([dict(_VLINE)], rec)
-        scene.underlays.append((rec, group))
-        sheet = _sheet_with_viewports([
-            ("plan", "Plan: Level 1", _VP_A_X, _VP_A_Y),   # excluded view
-            ("plan", "Plan: Level 2", _VP_B_X, _VP_B_Y),   # sibling view
-        ])
-        paper = PaperScene(sheet, _mock_resolver(scene))
-        yield SimpleNamespace(model=scene, rec=rec, group=group, paper=paper)
-        paper.dispose()
-
-    def test_viewport_pixel_exclusion_and_sibling(self, exclusion_sheet):
-        ts = exclusion_sheet
-        save_paper_color_mode(PaperColorMode.FULL_COLOR)  # keep authored red
-        img1 = _render_paper(ts.paper)
-        # Viewport A renders the excluded view: the red stroke must NOT plot.
-        assert not _red_in_viewport(img1, ts.paper, _VP_A_X, _VP_A_Y)
-        # Same relative position in sibling viewport B: the stroke DOES plot.
-        assert _red_in_viewport(img1, ts.paper, _VP_B_X, _VP_B_Y)
-        # Model state restored between/after paints.
-        assert ts.group.isVisible()
-        # Second render byte-identical — restore left no residue (the
-        # one-observer-dirty/echo case cannot ratchet state between passes).
-        img2 = _render_paper(ts.paper)
-        assert img1 == img2
 
 
 # ── PDF-export parity (fitz sampling idiom from the gridline suite) ──────────

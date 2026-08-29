@@ -700,9 +700,6 @@ def apply_paper_overrides(scene, source_rect, paper_scale: float = 1.0,
             entry = {"underlay_group": group, "visible": was_visible,
                      "children": []}
             saved.append(entry)
-            if source_view_key and source_view_key in record.hidden_in_views:
-                group.setVisible(False)
-                continue
             if not was_visible:
                 continue          # model-side hidden: leave untouched
             for child in group.childItems():
