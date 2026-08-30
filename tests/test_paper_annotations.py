@@ -1104,10 +1104,12 @@ def test_bounding_rect_covers_grip_halo(qapp):
     assert br.bottom() >= box.bottom() + halo - 1e-6
 
 
-def test_viewport_bounding_rect_covers_grip_rects(qapp):
-    # SheetViewport._grip_rects() must all lie inside boundingRect when selected,
-    # to avoid stale-trail artifacts on viewport drags.
+def test_viewport_manip_bounds_within_bounding_rect(qapp):
+    # Grips retired (Task 7): the SelectionManipulator now draws the frame +
+    # handles as its own scene children.  The viewport's manip_bounds() (the
+    # on-paper rect the frame wraps) must lie inside the item's boundingRect.
     from firepro3d.paper_space import SheetViewport, SheetViewData
+    from PyQt6.QtCore import QRectF
     data = SheetViewData(source_view_type="unknown", source_view_name="none",
                          title="Test", scale=1.0,
                          x=0.0, y=0.0, w=100.0, h=80.0)
@@ -1115,11 +1117,12 @@ def test_viewport_bounding_rect_covers_grip_rects(qapp):
     vp = SheetViewport(data, resolver)
     vp.setSelected(True)
     br = vp.boundingRect()
-    for r in vp._grip_rects():
-        assert br.left() <= r.left() + 1e-6, f"grip left {r.left()} outside br.left {br.left()}"
-        assert br.top() <= r.top() + 1e-6, f"grip top {r.top()} outside br.top {br.top()}"
-        assert br.right() >= r.right() - 1e-6, f"grip right {r.right()} outside br.right {br.right()}"
-        assert br.bottom() >= r.bottom() - 1e-6, f"grip bottom {r.bottom()} outside br.bottom {br.bottom()}"
+    # manip_bounds is in scene coords; boundingRect is item-local at pos (0,0).
+    mb = vp.manip_bounds().translated(-vp.pos())
+    assert br.left() <= mb.left() + 1e-6
+    assert br.top() <= mb.top() + 1e-6
+    assert br.right() >= mb.right() - 1e-6
+    assert br.bottom() >= mb.bottom() - 1e-6
 
 
 # ─────────────────────────────────────────────────────────────────────────────

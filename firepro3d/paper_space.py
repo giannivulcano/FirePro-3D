@@ -848,9 +848,7 @@ class SheetViewport(QGraphicsObject):
         self._resolver = resolver
         self._dirty = True
         self._placeholder = False
-        self._resizing = False
-        self._resize_handle: int = -1
-        self._resize_origin = QPointF()
+        # Native-move undo snapshot (resize now lives in the SelectionManipulator).
         self._geom_at_press = None   # (x, y, w, h, (cx,cy,cw,ch)) captured on mousePress
 
         self.setPos(data.x, data.y)
@@ -954,6 +952,116 @@ class SheetViewport(QGraphicsObject):
         pos = self.pos()
         self._data.x = pos.x()
         self._data.y = pos.y()
+
+    # ── SelectionManipulator capability protocol (spec §"Capability protocol")
+    # The paper scene's SelectionManipulator drives resize/move through these;
+    # the retired _apply_grip_resize / _nts_free_resize crop×scale semantics now
+    # live in the single home _resize_on_paper (below).  Paper viewports do NOT
+    # implement manip_rotate in v1 (no rotate knob).
+
+    def manip_capabilities(self) -> set:
+        """Dynamic capability narrowing (spec: item may drop a capability).
+
+        Detail viewports track the DetailMarker crop and cannot be scaled on
+        the sheet (the retired grips were inert for them) — drop ``"scale"`` so
+        the manipulator shows no resize handles.  Paper viewports never rotate
+        in v1.
+        """
+        caps = {"translate", "scale"}
+        if self._is_detail():
+            caps.discard("scale")
+        return caps
+
+    def manip_bounds(self) -> QRectF:
+        """On-paper rect the manipulator frame wraps (scene coords)."""
+        return QRectF(self._data.x, self._data.y, self._data.w, self._data.h)
+
+    def manip_translate(self, dx: float, dy: float) -> None:
+        """Baked on-paper move by (dx, dy) mm (mirrors the retired move path)."""
+        self._data.x += dx
+        self._data.y += dy
+        self.setPos(self._data.x, self._data.y)
+        self.mark_dirty()
+
+    def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
+        """Baked resize about *anchor* — reproduces the retired grip-resize.
+
+        The manipulator supplies scene-space scale factors about a scene anchor
+        (the corner opposite the dragged handle).  On-paper size becomes
+        (w·fx, h·fy); which edge stays fixed is read from *anchor* relative to
+        the current on-paper rect.  All crop×scale bookkeeping is delegated to
+        the one home :meth:`_resize_on_paper`.
+        """
+        if self._is_detail():
+            return  # detail extent is marker-owned (inert)
+        x, y, w, h = self._data.x, self._data.y, self._data.w, self._data.h
+        new_w = abs(w * fx)
+        new_h = abs(h * fy)
+        # Fixed edge = the one the anchor sits on. Compare against both edges;
+        # default to left/top fixed (grow toward +x/+y) when ambiguous.
+        eps = max(1e-6, (abs(w) + abs(h)) * 1e-6)
+        anchor_left = abs(anchor.x() - x) <= abs(anchor.x() - (x + w)) + eps
+        anchor_top = abs(anchor.y() - y) <= abs(anchor.y() - (y + h)) + eps
+        self._resize_on_paper(new_w, new_h, anchor_left, anchor_top)
+
+    def _resize_on_paper(self, new_w: float, new_h: float,
+                         anchor_left: bool, anchor_top: bool) -> None:
+        """The single home for the crop×scale resize (ex-_apply_grip_resize).
+
+        Sets the on-paper size to (new_w, new_h) keeping the edge indicated by
+        *anchor_left*/*anchor_top* fixed on paper.  For scale>0 this changes
+        ``crop_rect`` at fixed scale (Revit crop model); for NTS (scale==0) it
+        free-resizes w/h.  A moving left/top edge shifts x/y so the anchored
+        edge stays put on the sheet.
+
+        Args:
+            new_w: Target on-paper width (mm).
+            new_h: Target on-paper height (mm).
+            anchor_left: True keeps the left edge fixed (right edge moves);
+                False keeps the right edge fixed (left edge + x shift).
+            anchor_top: True keeps the top edge fixed (bottom edge moves);
+                False keeps the bottom edge fixed (top edge + y shift).
+        """
+        s = self._data.scale
+        if s <= 0:
+            # NTS: legacy free w/h (no true scale to protect).
+            new_w = max(new_w, _MIN_VIEWPORT_SIZE)
+            new_h = max(new_h, _MIN_VIEWPORT_SIZE)
+            if not anchor_left:
+                self._data.x += self._data.w - new_w
+            if not anchor_top:
+                self._data.y += self._data.h - new_h
+            self._data.w = new_w
+            self._data.h = new_h
+            self.setPos(self._data.x, self._data.y)
+            self.mark_dirty()
+            self.prepareGeometryChange()
+            return
+
+        old_crop = self._effective_crop()
+        cr = QRectF(old_crop)
+        # New crop extent in model mm = on-paper size / scale, floored at the
+        # min crop extent (matches the retired _MIN_CROP_MODEL clamp).
+        new_cw = max(new_w / s, _MIN_CROP_MODEL)
+        new_ch = max(new_h / s, _MIN_CROP_MODEL)
+        if anchor_left:
+            cr.setRight(cr.left() + new_cw)
+        else:
+            cr.setLeft(cr.right() - new_cw)
+        if anchor_top:
+            cr.setBottom(cr.top() + new_ch)
+        else:
+            cr.setTop(cr.bottom() - new_ch)
+        # A left/top edge move shifts the on-sheet origin so the opposite
+        # (anchored) edge stays put on paper.
+        if not anchor_left:
+            self._data.x += (cr.left() - old_crop.left()) * s
+        if not anchor_top:
+            self._data.y += (cr.top() - old_crop.top()) * s
+        self._data.crop_rect = cr
+        self._recompute_size_from_scale()
+        self.setPos(self._data.x, self._data.y)
+        self.mark_dirty()
 
     def boundingRect(self) -> QRectF:
         margin = _GRIP_SIZE if self.isSelected() else 0
@@ -1091,20 +1199,13 @@ class SheetViewport(QGraphicsObject):
                                   setattr(s, "_suppress_paper_echo", False))
             painter.setClipping(False)
 
-        # Border (only when enabled)
+        # Plotted border (only when enabled).  Selection feedback (the dashed
+        # boundary + resize handles) is now drawn by the scene's
+        # SelectionManipulator frame, not here (spec: paper handle code
+        # retired).
         if self._data.show_border:
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            if self.isSelected():
-                painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
-                                    SELECTION_OUTLINE_WIDTH_MM, Qt.PenStyle.DashLine))
-            else:
-                painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
-            painter.drawRect(vp_rect)
-        elif self.isSelected():
-            # Still show selection indicator even without border
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
-                                SELECTION_OUTLINE_WIDTH_MM, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(Qt.GlobalColor.black, 0.3))
             painter.drawRect(vp_rect)
 
         # View title below viewport (Revit-style)
@@ -1161,84 +1262,33 @@ class SheetViewport(QGraphicsObject):
             color="#444444",
         )
 
-        # Resize grips when selected
-        if self.isSelected():
-            self._draw_grips(painter)
-
-    def _grip_rects(self) -> list[QRectF]:
-        if self._is_detail():
-            return []          # detail extent is owned by the marker (inert)
-        w, h = self._data.w, self._data.h
-        g = _GRIP_SIZE
-        hg = g / 2
-        return [
-            QRectF(-hg, -hg, g, g),
-            QRectF(w / 2 - hg, -hg, g, g),
-            QRectF(w - hg, -hg, g, g),
-            QRectF(-hg, h / 2 - hg, g, g),
-            QRectF(w - hg, h / 2 - hg, g, g),
-            QRectF(-hg, h - hg, g, g),
-            QRectF(w / 2 - hg, h - hg, g, g),
-            QRectF(w - hg, h - hg, g, g),
-        ]
-
-    def _draw_grips(self, painter: QPainter):
-        painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR), SELECTION_GRIP_OUTLINE_WIDTH_MM))
-        painter.setBrush(QBrush(Qt.GlobalColor.white))
-        for r in self._grip_rects():
-            painter.drawRect(r)
-
-    def _hit_grip(self, pos: QPointF) -> int:
-        for i, r in enumerate(self._grip_rects()):
-            if r.contains(pos):
-                return i
-        return -1
+        # Selection feedback (dashed boundary + resize handles) is drawn by the
+        # scene's SelectionManipulator frame — the per-item grip code is retired.
 
     def mousePressEvent(self, event):
-        # Snapshot geometry on every press so move/resize releases can push a
-        # single ViewportGeometryCommand (covers both the grip-resize branch
-        # and the plain-move branch).
+        # Snapshot geometry on every press so a native (non-manipulator) move
+        # release can push a single ViewportGeometryCommand.  Resize now lives
+        # entirely in the scene's SelectionManipulator (manip_scale); the grip
+        # branch here is retired.
         cr = self._data.crop_rect
         self._geom_at_press = (self._data.x, self._data.y,
                                self._data.w, self._data.h,
                                (cr.x(), cr.y(), cr.width(), cr.height()))
-        if self.isSelected() and event.button() == Qt.MouseButton.LeftButton:
-            grip = self._hit_grip(event.pos())
-            if grip >= 0:
-                self._resizing = True
-                self._resize_handle = grip
-                self._resize_origin = event.pos()
-                event.accept()
-                return
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event):
-        if self._resizing:
-            delta = event.pos() - self._resize_origin
-            self._apply_grip_resize(self._resize_handle, delta)
-            self._resize_origin = event.pos()
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
     def mouseReleaseEvent(self, event):
-        if self._resizing:
-            self._resizing = False
-            self._resize_handle = -1
-            self.sync_data_from_item()
-            self._push_geometry_if_changed()
-            event.accept()
-            return
         super().mouseReleaseEvent(event)
         self._push_geometry_if_changed()
 
     def _push_geometry_if_changed(self):
         """Push a ViewportGeometryCommand if geometry changed since mousePress.
 
-        Records one undo command per completed move/resize gesture. The live
-        data is already current (synced during the drag); the command is for
-        undo history only. No-op when the geometry is unchanged, when there is
-        no captured press geometry, or when a command is being applied.
+        Covers the native ItemIsMovable move path (a drag on a not-yet-wrapped
+        viewport).  Manipulator-driven move/resize commits its own macro via
+        PaperScene._manip_commit, so the two never double-push (the manipulator
+        intercepts the press before this item sees it).  No-op when geometry is
+        unchanged, when there is no captured press geometry, or when a command
+        is being applied.
         """
         old = self._geom_at_press
         self._geom_at_press = None
@@ -1253,54 +1303,6 @@ class SheetViewport(QGraphicsObject):
         if scene is None or not hasattr(scene, "_push_viewport_geometry"):
             return
         scene._push_viewport_geometry(self._data, old, new)
-
-    def _apply_grip_resize(self, handle: int, delta: QPointF):
-        dx, dy = delta.x(), delta.y()
-        if self._is_detail():
-            return  # inert
-        if self._data.scale <= 0:
-            self._nts_free_resize(handle, dx, dy)   # legacy free w/h (no scale to protect)
-            return
-        s = self._data.scale
-        old_crop = self._effective_crop()
-        cr = QRectF(old_crop)
-        mdx, mdy = dx / s, dy / s
-        left_h, right_h = (0, 3, 5), (2, 4, 7)
-        top_h, bot_h = (0, 1, 2), (5, 6, 7)
-        if handle in left_h:
-            cr.setLeft(min(cr.left() + mdx, cr.right() - _MIN_CROP_MODEL))
-        if handle in right_h:
-            cr.setRight(max(cr.right() + mdx, cr.left() + _MIN_CROP_MODEL))
-        if handle in top_h:
-            cr.setTop(min(cr.top() + mdy, cr.bottom() - _MIN_CROP_MODEL))
-        if handle in bot_h:
-            cr.setBottom(max(cr.bottom() + mdy, cr.top() + _MIN_CROP_MODEL))
-        # A left/top edge move shifts the on-sheet origin so the opposite edge
-        # stays put on paper.
-        if handle in left_h:
-            self._data.x += (cr.left() - old_crop.left()) * s
-        if handle in top_h:
-            self._data.y += (cr.top() - old_crop.top()) * s
-        self._data.crop_rect = cr
-        self._recompute_size_from_scale()
-        self.setPos(self._data.x, self._data.y)
-        self.mark_dirty()
-
-    def _nts_free_resize(self, handle: int, dx: float, dy: float):
-        x, y = self._data.x, self._data.y
-        w, h = self._data.w, self._data.h
-        if handle in (0, 3, 5):
-            new_w = max(w - dx, _MIN_VIEWPORT_SIZE)
-            self._data.x = x + (w - new_w); self._data.w = new_w
-        if handle in (2, 4, 7):
-            self._data.w = max(w + dx, _MIN_VIEWPORT_SIZE)
-        if handle in (0, 1, 2):
-            new_h = max(h - dy, _MIN_VIEWPORT_SIZE)
-            self._data.y = y + (h - new_h); self._data.h = new_h
-        if handle in (5, 6, 7):
-            self._data.h = max(h + dy, _MIN_VIEWPORT_SIZE)
-        self.setPos(self._data.x, self._data.y)
-        self.mark_dirty(); self.prepareGeometryChange()
 
     def mouseDoubleClickEvent(self, event):
         self.navigate_requested.emit(self._data.source_view_type, self._data.source_view_name)
@@ -3439,7 +3441,21 @@ class PaperScene(QGraphicsScene):
         self._template: "TitleBlockTemplate | None" = None
         self._scene_project_info: dict = {}
         self.titleblock_warning: str = ""
+        # Pre-drag per-viewport geometry snapshot captured by the manipulator
+        # press_hook; consumed by the commit_hook to build undo commands.
+        self._manip_geom_at_press: dict = {}
         self._setup()
+
+        # Scene-level SelectionManipulator (frame + baked resize/move) — the one
+        # home for viewport handle interaction, replacing the retired per-item
+        # grip code.  Paper handles are sized in paper-mm; one undo entry per
+        # gesture is a macro of per-item ViewportGeometryCommands (spec
+        # "Undo & domains": paper = beginMacro + existing per-item commands).
+        from .selection_manipulator import SelectionManipulator
+        self._manipulator = SelectionManipulator(
+            self, handle_units="mm",
+            press_hook=self._manip_capture_press,
+            commit_hook=self._manip_commit)
 
     def _apply(self, fn):
         """Run *fn* with the re-enqueue guard raised.
@@ -3753,6 +3769,60 @@ class PaperScene(QGraphicsScene):
         """
         if not self._applying_command and old != new:
             self._undo_stack.push(ViewportGeometryCommand(self, data, old, new))
+
+    @staticmethod
+    def _viewport_geom(data) -> tuple:
+        """Snapshot tuple of a SheetViewData's geometry (matches the retired
+        ViewportGeometryCommand format: (x, y, w, h, (cx, cy, cw, ch)))."""
+        cr = data.crop_rect
+        return (data.x, data.y, data.w, data.h,
+                (cr.x(), cr.y(), cr.width(), cr.height()))
+
+    def _manip_capture_press(self, items) -> None:
+        """SelectionManipulator press_hook: snapshot pre-drag viewport geometry.
+
+        Captures each dragged SheetViewport's geometry before any bake mutates
+        it, so :meth:`_manip_commit` can build old->new undo commands. Keyed by
+        ``id(SheetViewData)`` (the persistent record); non-viewport items are
+        ignored.
+        """
+        self._manip_geom_at_press = {
+            id(it.data): (it.data, self._viewport_geom(it.data))
+            for it in items if isinstance(it, SheetViewport)
+        }
+
+    def _manip_commit(self, mode: str) -> None:
+        """SelectionManipulator commit_hook: one undo entry per gesture (macro).
+
+        Wraps a per-viewport ViewportGeometryCommand for every dragged viewport
+        whose geometry actually changed inside a single ``beginMacro`` /
+        ``endMacro`` pair (spec "Undo & domains": paper = beginMacro + existing
+        per-item commands + endMacro).  The live data is already current (baked
+        by ``manip_scale`` / ``manip_translate``); the commands are for undo
+        history.  A gesture that changed nothing pushes no macro.
+
+        Args:
+            mode: The gesture mode ("move"/"resize"); unused (both push the same
+                geometry command) but part of the commit_hook signature.
+        """
+        snap = self._manip_geom_at_press
+        self._manip_geom_at_press = {}
+        if not snap:
+            return
+        changes = []
+        for data, old in snap.values():
+            new = self._viewport_geom(data)
+            if old != new:
+                changes.append((data, old, new))
+        if not changes:
+            return
+        self._undo_stack.beginMacro("Transform Selection")
+        try:
+            for data, old, new in changes:
+                self._undo_stack.push(
+                    ViewportGeometryCommand(self, data, old, new))
+        finally:
+            self._undo_stack.endMacro()
 
     def get_viewports(self) -> list[SheetViewport]:
         return list(self._viewports)

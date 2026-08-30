@@ -32,6 +32,7 @@ from . import theme
 from .constants import (
     MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX, MANIP_KNOB_RADIUS_PX,
     MANIP_STEM_LEN_PX, MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
+    SELECTION_GRIP_SIZE_MM, SELECTION_GRIP_OUTLINE_WIDTH_MM,
 )
 from .dynamic_input import (
     resolve_manip_move, resolve_manip_resize, resolve_manip_rotate,
@@ -104,6 +105,13 @@ def item_capabilities(item) -> set:
     ``"translate"`` if ``manip_translate``/``translate`` exists (or the item
     is a Node, whose ``pos()`` is its serialized position); ``"rotate"`` iff
     ``manip_rotate``; ``"scale"`` iff ``manip_scale``.
+
+    An item may narrow this **dynamically** by implementing
+    ``manip_capabilities() -> set``: the returned set intersects the
+    duck-typed default, so an item that carries a ``manip_scale`` method but is
+    not currently scalable (a detail viewport, whose extent is marker-owned)
+    can drop ``"scale"`` for the current state — mirroring the retired
+    ``_grip_rects() -> []`` inert-grip behaviour.
     """
     caps: set = set()
     if (hasattr(item, "manip_translate") or hasattr(item, "translate")
@@ -113,6 +121,9 @@ def item_capabilities(item) -> set:
         caps.add("rotate")
     if hasattr(item, "manip_scale"):
         caps.add("scale")
+    narrow = getattr(item, "manip_capabilities", None)
+    if narrow is not None:
+        caps &= set(narrow())
     return caps
 
 
@@ -196,19 +207,33 @@ class _Handle(QGraphicsItem):
         self._manip = manip
         self.role = role
         self._hover = False
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        # Model scene: screen-constant device-px handles (ItemIgnoresTransformations).
+        # Paper scene: paper-mm handles that scale with the 1-unit==1-mm scene, so
+        # they plot/print at a true millimetre size (theming.md split).  The flag
+        # is owned by the manipulator (per-scene sizing mode).
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations,
+                     not manip._handle_mm)
         self.setAcceptHoverEvents(True)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self.setZValue(2.0 if role is not HandleRole.ROTATE else 1.5)
 
-    # -- geometry (device pixels, anchored at the handle's scene position) ----
+    # -- geometry (device px OR paper mm; anchored at the handle position) -----
+
+    def _size(self) -> float:
+        return self._manip._handle_size
+
+    def _border(self) -> float:
+        return self._manip._handle_border
+
+    def _grab_pad(self) -> float:
+        return self._manip._handle_grab_pad
 
     def _half(self) -> float:
-        return _HANDLE_SIZE_PX / 2.0 + _HANDLE_GRAB_PAD_PX
+        return self._size() / 2.0 + self._grab_pad()
 
     def boundingRect(self) -> QRectF:
         if self.role is HandleRole.ROTATE:
-            r = _ROTATE_OFFSET_PX + _ROTATE_RADIUS_PX + _HANDLE_GRAB_PAD_PX + 2.0
+            r = _ROTATE_OFFSET_PX + _ROTATE_RADIUS_PX + self._grab_pad() + 2.0
             return QRectF(-r, -r, 2 * r, 2 * r)
         h = self._half() * math.sqrt(2.0)   # covers the square at any rotation
         return QRectF(-h, -h, 2 * h, 2 * h)
@@ -225,7 +250,7 @@ class _Handle(QGraphicsItem):
         path = QPainterPath()
         if self.role is HandleRole.ROTATE:
             c = self._knob_center()
-            r = _ROTATE_RADIUS_PX + _HANDLE_GRAB_PAD_PX
+            r = _ROTATE_RADIUS_PX + self._grab_pad()
             path.addEllipse(c, r, r)
         else:
             h = self._half()
@@ -237,19 +262,21 @@ class _Handle(QGraphicsItem):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         border = self._manip._handle_color(self._hover)
         fill = _handle_fill()
+        bw = self._border()
         if self.role is HandleRole.ROTATE:
             c = self._knob_center()
             stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
             painter.setPen(stem)
             painter.drawLine(QPointF(0, 0), c)
-            painter.setPen(QPen(border, _HANDLE_BORDER_PX))
+            painter.setPen(QPen(border, bw))
             painter.setBrush(QBrush(border if self._hover else fill))
             painter.drawEllipse(c, _ROTATE_RADIUS_PX, _ROTATE_RADIUS_PX)
         else:
-            half = _HANDLE_SIZE_PX / 2.0
-            painter.setPen(QPen(border, _HANDLE_BORDER_PX))
+            size = self._size()
+            half = size / 2.0
+            painter.setPen(QPen(border, bw))
             painter.setBrush(QBrush(border if self._hover else fill))
-            painter.drawRect(QRectF(-half, -half, _HANDLE_SIZE_PX, _HANDLE_SIZE_PX))
+            painter.drawRect(QRectF(-half, -half, size, size))
 
     # -- interaction ----------------------------------------------------------
 
@@ -295,9 +322,17 @@ class SelectionManipulator(QGraphicsObject):
     Args:
         scene: The scene to attach to (added + ``selectionChanged`` tracked).
         commit_hook: ``callable(mode: str)`` invoked once after a baked
-            gesture (model scene: ``push_undo_state``).
+            gesture (model scene: ``push_undo_state``; paper scene: a
+            ``beginMacro``/per-item command/``endMacro`` wrapper — the hook
+            reads the manipulator's pre-drag snapshot via
+            :meth:`snapshot_items`).
         exclude: Optional ``callable(item) -> bool``; items for which it
             returns True are never wrapped.
+        handle_units: ``"px"`` (default, model scene) sizes resize handles in
+            device pixels via ``ItemIgnoresTransformations``; ``"mm"`` (paper
+            scene) sizes them in paper millimetres so they plot/print true to
+            scale (theming.md split; no rotate knob shows on paper because
+            paper items don't implement ``manip_rotate``).
     """
 
     #: Screen-only selection feedback — never plots.  Honoured by
@@ -306,10 +341,26 @@ class SelectionManipulator(QGraphicsObject):
 
     def __init__(self, scene: QGraphicsScene, *,
                  commit_hook: Optional[Callable[[str], None]] = None,
-                 exclude: Optional[Callable[[QGraphicsItem], bool]] = None):
+                 exclude: Optional[Callable[[QGraphicsItem], bool]] = None,
+                 handle_units: str = "px",
+                 press_hook: Optional[Callable[[List[QGraphicsItem]], None]]
+                 = None):
         super().__init__()
         self._commit_hook = commit_hook
+        self._press_hook = press_hook
         self._exclude = exclude
+
+        # Per-scene handle sizing (px in model, paper-mm in paper).  Read by
+        # every _Handle; the flag also decides ItemIgnoresTransformations.
+        self._handle_mm = (handle_units == "mm")
+        if self._handle_mm:
+            self._handle_size = SELECTION_GRIP_SIZE_MM
+            self._handle_border = SELECTION_GRIP_OUTLINE_WIDTH_MM
+            self._handle_grab_pad = SELECTION_GRIP_SIZE_MM * 0.5
+        else:
+            self._handle_size = _HANDLE_SIZE_PX
+            self._handle_border = _HANDLE_BORDER_PX
+            self._handle_grab_pad = _HANDLE_GRAB_PAD_PX
 
         self._rect = QRectF()
         self._sel_ids: frozenset = frozenset()
@@ -738,6 +789,11 @@ class SelectionManipulator(QGraphicsObject):
             inv, ok = s0.inverted()
             if ok:
                 self._items0.append((it, s0, inv, it.transform()))
+        # Paper commit path: let the scene capture per-item pre-drag geometry
+        # BEFORE any bake mutates the items, so its commit_hook can build
+        # old->new undo commands (model scene passes no press_hook).
+        if self._press_hook is not None:
+            self._press_hook([rec[0] for rec in self._items0])
         self.setFocus(Qt.FocusReason.MouseFocusReason)
         self._open_hud(mode)
 
