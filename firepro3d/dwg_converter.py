@@ -396,6 +396,80 @@ def compute_geom_bounds(geoms: list[dict]) -> list[float] | None:
     return [min_x, min_y, max_x, max_y]
 
 
+def apply_import_transform(
+    geoms: list[dict],
+    s: float,
+    bx: float,
+    by: float,
+) -> list[dict]:
+    """Bake an underlay's stored import transform into geometry dicts.
+
+    Applies the base-point shift then the uniform import scale
+    (``coord -> (coord - base) * s``) to every geometric field of each
+    geometry dict, returning new dicts (the input is not mutated).
+
+    This is the single home for a transform that was previously inlined —
+    byte-identically — in four ``model_space`` sites
+    (``_commit_place_import``, ``_on_dxf_finished``, ``_import_pdf_vectors``,
+    ``_load_underlay_from_cache``). Extracting it fixed a text bug: the text
+    branch scaled ``x``/``y``/``size`` but forgot ``twidth`` (the source span
+    width the substitute font is x-scaled to), so PDF text rendered with the
+    wrong horizontal fit on the canvas at architectural import scales while
+    the raw-rendered import preview looked correct.
+
+    Args:
+        geoms: Geometry dicts from the DXF/PDF extraction pipeline (raw,
+            pre-transform coordinates).
+        s: Import scale (``real_mm / source_units``).
+        bx: Base-point X (subtracted before scaling).
+        by: Base-point Y (subtracted before scaling).
+
+    Returns:
+        A new list of transformed geometry dicts. When ``s == 1`` and the
+        base point is the origin the returned dicts equal the inputs.
+    """
+    out: list[dict] = []
+    for g in geoms:
+        kind = g.get("kind")
+        t = dict(g)
+        if kind == "line":
+            t["x1"] = (g["x1"] - bx) * s
+            t["y1"] = (g["y1"] - by) * s
+            t["x2"] = (g["x2"] - bx) * s
+            t["y2"] = (g["y2"] - by) * s
+        elif kind in ("circle", "arc"):
+            xk = "x" if kind == "circle" else "rx"
+            yk = "y" if kind == "circle" else "ry"
+            wk = "w" if kind == "circle" else "rw"
+            hk = "h" if kind == "circle" else "rh"
+            t[xk] = (g[xk] - bx) * s
+            t[yk] = (g[yk] - by) * s
+            t[wk] = g[wk] * s
+            t[hk] = g[hk] * s
+        elif kind == "ellipse_full":
+            t["pos_cx"] = (g["pos_cx"] - bx) * s
+            t["pos_cy"] = (g["pos_cy"] - by) * s
+            t["x"] = g["x"] * s
+            t["y"] = g["y"] * s
+            t["w"] = g["w"] * s
+            t["h"] = g["h"] * s
+        elif kind == "path_points":
+            t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
+                           for p in g["points"]]
+        elif kind == "text":
+            t["x"] = (g["x"] - bx) * s
+            t["y"] = (g["y"] - by) * s
+            if "size" in g:
+                t["size"] = g["size"] * s
+            # twidth is the on-paper source span width the substitute font is
+            # x-scaled to; it lives in the same coordinate space as size, so it
+            # MUST scale with s or the text's horizontal fit breaks.
+            if g.get("twidth") is not None:
+                t["twidth"] = g["twidth"] * s
+        out.append(t)
+    return out
+
+
 def filter_geoms_by_bounds(
     geoms: list[dict],
     bounds: list[tuple[float, float, float, float]] | None,
