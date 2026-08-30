@@ -59,7 +59,10 @@ manipulator is **capability-gated**, not one-size.
 | `manip_scale(fx, fy, anchor)` | v1: box-native only | baked resize in the item's own semantics |
 
 **Box-native (v1 rotate/scale set):** `RectangleItem`, `SheetViewport`,
-`TextAnnotationItem`, `DesignAreaBadge`, note/dimension annotations.
+`TextAnnotationItem`, `DesignAreaBadge`, note/dimension annotations. An item
+adopts only the capabilities that are semantically valid for it (e.g. the
+fixed-layout badge may implement translate+rotate but not scale) — the handle
+gating reads what each item actually implements.
 `manip_scale` maps onto each item's own model — RectangleItem corner geometry;
 TextAnnotation `wrap_width_mm`/`box_height_mm` + reposition; SheetViewport
 **crop-rect change at fixed scale** (on-paper size = crop×scale invariant —
