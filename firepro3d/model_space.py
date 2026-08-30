@@ -38,7 +38,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
-                       UNDERLAY_MM_TO_PX_HINT,
+                       UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
@@ -77,6 +77,11 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     if weight_name:
         from .paper_display import resolve_line_weight_mm
         width_px = resolve_line_weight_mm(weight_name) * UNDERLAY_MM_TO_PX_HINT
+        # Near-1px hints snap to 1.0: Qt's fast cosmetic stroker only takes
+        # widths <= 1.0 (see UNDERLAY_LINE_WIDTH_PX); ~1px hints are visually
+        # identical but ~20x cheaper to stroke over a dense underlay.
+        if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
+            width_px = min(width_px, 1.0)
     else:
         width_px = UNDERLAY_LINE_WIDTH_PX
     pen = QPen(colour, width_px)
@@ -93,7 +98,12 @@ def _pdf_width_to_px(pt_width: float) -> float:
     if pt_width <= 0.0:
         return UNDERLAY_LINE_WIDTH_PX
     width_mm = pt_width * 25.4 / 72.0
-    return max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
+    width_px = max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
+    # Near-1px results snap to 1.0 for Qt's fast cosmetic-stroker path
+    # (widths > 1.0 stroke ~20x slower; see UNDERLAY_LINE_WIDTH_PX).
+    if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
+        width_px = min(width_px, 1.0)
+    return width_px
 
 
 class _PlacementSentinel:

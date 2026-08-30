@@ -61,9 +61,15 @@ GRIDLINE_BUBBLE_OFFSET_MM = 1000.0  # absolute along-axis bubble standoff (mm)
 
 # ── Underlay rendering ───────────────────────────────────────────────────────
 # Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
-# lines stay a constant thickness regardless of zoom or import scale. Matches
-# the gridline on-screen width (GRID_WIDTH in gridline.py).
-UNDERLAY_LINE_WIDTH_PX = 1.5
+# lines stay a constant thickness regardless of zoom or import scale.
+# HARD PERF CONSTRAINT: must be <= 1.0. Qt's fast cosmetic stroker only
+# handles widths <= 1.0px; wider cosmetic pens fall into the generic stroke
+# pipeline — measured ~20x slower over a dense underlay (22ms vs 1ms for the
+# same 94k-point drawing; the old 1.5 default made live repaints 500ms+).
+UNDERLAY_LINE_WIDTH_PX = 1.0
+# Screen hints at or below this round DOWN to 1.0 to stay on the fast path;
+# heavier user-chosen weights keep their true hint width (and its cost).
+UNDERLAY_FAST_PATH_SNAP_PX = 1.25
 
 # Screen-hint conversion for named underlay line weights (§16.3):
 # px = width_mm * UNDERLAY_MM_TO_PX_HINT. 6.0 makes Medium (0.25mm) ≈ 1.5px
