@@ -71,11 +71,16 @@ UNDERLAY_LINE_WIDTH_PX = 1.5
 UNDERLAY_MM_TO_PX_HINT = 6.0
 
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
-# Gesture is considered ended after this idle gap; the vector restore fires then.
-UNDERLAY_FREEZE_SETTLE_MS = 100
+# Gesture is considered ended after this idle gap; the vector restore fires
+# then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks
+# measured live) or every tick pays a fresh capture + settle repaint (the
+# thrash that made heavy underlays feel >1s per tick).
+UNDERLAY_FREEZE_SETTLE_MS = 450
 # Capture pad per side, as a fraction of the viewport (pan headroom during the
 # gesture; panning past the pad shows blank margin until settle — accepted).
-UNDERLAY_FREEZE_PAD_FRACTION = 0.5
+# 0.25 = 2.25x viewport pixels per capture (was 0.5 = 4x; capture cost scales
+# with covered pixels and is paid synchronously at gesture start).
+UNDERLAY_FREEZE_PAD_FRACTION = 0.25
 # Per-axis pixel clamp on the capture pixmap (memory bound at any DPR/monitor;
 # the pixmap-item transform corrects for any clamp, output just gets softer).
 UNDERLAY_FREEZE_MAX_PX = 8192
