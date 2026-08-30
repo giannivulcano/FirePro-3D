@@ -146,6 +146,21 @@ class Model_View(QGraphicsView):
                 y += grid_px
             x += grid_px
 
+    def _should_draw_selection_boundary(self, item) -> bool:
+        """Whether the legacy per-item dashed selection boundary should render.
+
+        Governing spec: docs/specs/selection-manipulator.md — the manipulator
+        frame is the single selection boundary, so an item the manipulator is
+        currently wrapping must NOT also draw its own boundary (grip squares
+        are separate and keep rendering).  Returns True when no manipulator
+        wraps the item (the pre-manipulator behaviour).
+        """
+        scene = self.scene()
+        manip = getattr(scene, "_manipulator", None) if scene else None
+        if manip is None:
+            return True
+        return not manip.wraps(item)
+
     def drawForeground(self, painter: QPainter, rect):
         """
         Overlay drawn on top of all scene content.

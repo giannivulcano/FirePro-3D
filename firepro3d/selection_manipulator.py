@@ -479,6 +479,12 @@ class SelectionManipulator(QGraphicsObject):
         """Top-level items the manipulator currently transforms."""
         return list(self._items)
 
+    def wraps(self, item: QGraphicsItem) -> bool:
+        """True when *item* is one of the items this manipulator currently
+        boxes (drawForeground consults this to skip the legacy per-item
+        selection boundary — the manipulator frame is the one boundary)."""
+        return item in self._items
+
     # ----------------------------------------------------- selection tracking --
 
     def _mode_allows(self, sc) -> bool:

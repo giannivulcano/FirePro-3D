@@ -25,6 +25,19 @@ from .hatch_patterns import PATTERN_NAMES
 _DEFAULT_FILL_PATTERN = PATTERN_NAMES[0] if PATTERN_NAMES else "diagonal"
 
 
+def _manip_wraps(item) -> bool:
+    """True when the scene's selection manipulator currently boxes *item*.
+
+    Governing spec: docs/specs/selection-manipulator.md — the manipulator
+    frame is the single selection boundary, so a wrapped item must NOT also
+    paint its own ``isSelected()`` highlight (grip squares are drawn separately
+    by Model_View and are unaffected).  Cheap and headless-safe (no view/manip
+    → False, i.e. the pre-manipulator boundary still paints).
+    """
+    manip = getattr(item.scene(), "_manipulator", None) if item.scene() else None
+    return manip is not None and manip.wraps(item)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Geometry2DMixin
 # ─────────────────────────────────────────────────────────────────────────────
@@ -383,7 +396,7 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             painter.setPen(highlight)
@@ -528,7 +541,7 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
             pen.setColor(QColor(dc))
             self.setPen(pen)
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             ln = self.line()
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
@@ -836,7 +849,7 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             painter.setPen(highlight)
@@ -1057,7 +1070,7 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             painter.setPen(highlight)
@@ -1233,7 +1246,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             highlight = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             highlight.setCosmetic(True)
             painter.setPen(highlight)
@@ -1450,7 +1463,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
                           self.fill_pattern, self._display_fill_color or "#888888",
                           alpha=int(round(self.fill_opacity * 255)))
         super().paint(painter, option, widget)
-        if self.isSelected():
+        if self.isSelected() and not _manip_wraps(self):
             hl = QPen(self.pen().color().lighter(150), self.pen().widthF() + 1.5)
             hl.setCosmetic(True)
             painter.setPen(hl)
