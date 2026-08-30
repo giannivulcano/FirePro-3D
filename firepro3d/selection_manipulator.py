@@ -39,15 +39,29 @@ _BOUND_PAD_PX = 6.0    # boundingRect pad (>= shape pad; generous for culling)
 #  Capability protocol (duck-typed — spec "Capability protocol" table)
 # --------------------------------------------------------------------------- #
 
+def _movable_by_pos(item) -> bool:
+    """True for items whose serialized position IS ``pos()`` (Node only).
+
+    Every QGraphicsItem has ``moveBy``, but for items whose geometry is
+    serialized from internal coordinates a bare ``moveBy`` desyncs the
+    visual position from the saved geometry (reverts on reload — the
+    dual-serialization trap). ``move_items`` moves only Node via ``moveBy``;
+    mirror that rule here.
+    """
+    from .node import Node
+    return isinstance(item, Node)
+
+
 def item_capabilities(item) -> set:
     """Return the set of manipulator capabilities an item supports.
 
-    ``"translate"`` if any of ``manip_translate``/``translate``/``moveBy``
-    exists; ``"rotate"`` iff ``manip_rotate``; ``"scale"`` iff ``manip_scale``.
+    ``"translate"`` if ``manip_translate``/``translate`` exists (or the item
+    is a Node, whose ``pos()`` is its serialized position); ``"rotate"`` iff
+    ``manip_rotate``; ``"scale"`` iff ``manip_scale``.
     """
     caps: set = set()
     if (hasattr(item, "manip_translate") or hasattr(item, "translate")
-            or hasattr(item, "moveBy")):
+            or _movable_by_pos(item)):
         caps.add("translate")
     if hasattr(item, "manip_rotate"):
         caps.add("rotate")
@@ -80,9 +94,8 @@ def bake_translate(item, dx: float, dy: float) -> bool:
     if fn is not None:
         fn(dx, dy)
         return True
-    fn = getattr(item, "moveBy", None)
-    if fn is not None:
-        fn(dx, dy)
+    if _movable_by_pos(item):
+        item.moveBy(dx, dy)
         return True
     return False
 
