@@ -669,6 +669,10 @@ class Model_View(QGraphicsView):
     # Zoom with mouse wheel
     # -----------------------------
     def wheelEvent(self, event):
+        # Pure horizontal scroll (trackpad swipe) is not a zoom — bail before
+        # freezing or scaling.
+        if event.angleDelta().y() == 0:
+            return
         # Freeze-blit the underlays for the gesture BEFORE the transform
         # changes (capture must be at pre-gesture resolution).
         sc = self.scene()
@@ -681,7 +685,6 @@ class Model_View(QGraphicsView):
             factor = 1 / self._zoom_factor
 
         # Zoom relative to cursor
-        cursor_pos = self.mapToScene(event.position().toPoint())
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
 
