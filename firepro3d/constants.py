@@ -70,6 +70,16 @@ UNDERLAY_LINE_WIDTH_PX = 1.5
 # so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
 UNDERLAY_MM_TO_PX_HINT = 6.0
 
+# ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
+# Gesture is considered ended after this idle gap; the vector restore fires then.
+UNDERLAY_FREEZE_SETTLE_MS = 100
+# Capture pad per side, as a fraction of the viewport (pan headroom during the
+# gesture; panning past the pad shows blank margin until settle — accepted).
+UNDERLAY_FREEZE_PAD_FRACTION = 0.5
+# Per-axis pixel clamp on the capture pixmap (memory bound at any DPR/monitor;
+# the pixmap-item transform corrects for any clamp, output just gets softer).
+UNDERLAY_FREEZE_MAX_PX = 8192
+
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)
 

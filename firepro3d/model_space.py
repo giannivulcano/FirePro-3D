@@ -19,6 +19,7 @@ from .sprinkler_system import SprinklerSystem
 from .cad_math import CAD_Math
 from .annotations import Annotation, DimensionAnnotation, NoteAnnotation
 from .underlay import Underlay
+from .underlay_freeze import UnderlayFreezeController, _UnderlayPathItem
 from .scale_manager import ScaleManager
 from .calibrate_dialog import CalibrateDialog
 from .roof_dialog import RoofDialog
@@ -146,6 +147,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self.underlays: list[tuple[Underlay, QGraphicsItem]] = []  # (data, scene_item)
+        self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
         self.dimension_start = None
@@ -2687,7 +2689,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if not geom_path.isEmpty() and has_override:
                 # Per-file/layer Line-Weight override wins: single pen, flat
                 # width for the whole layer (today's look).
-                item = QGraphicsPathItem(geom_path)
+                item = _UnderlayPathItem(geom_path)
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
@@ -2710,7 +2712,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         continue
                     pen = QPen(colour, _pdf_width_to_px(w))
                     pen.setCosmetic(True)
-                    item = QGraphicsPathItem(wpath)
+                    item = _UnderlayPathItem(wpath)
                     item.setPen(pen)
                     item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                     item.setZValue(Z_UNDERLAY)
@@ -2719,7 +2721,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     items.append(item)
 
             if not text_path.isEmpty():
-                item = QGraphicsPathItem(text_path)
+                item = _UnderlayPathItem(text_path)
                 item.setPen(QPen(Qt.PenStyle.NoPen))
                 item.setBrush(QBrush(QColor(
                     record.effective_layer_colour(layer))))
@@ -3269,6 +3271,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.underlays.pop(cur)
                     self.underlays.insert(original_index, new_entry)
                     self.underlaysChanged.emit()
+
+    def abort_underlay_freeze(self):
+        """End any gesture freeze so vector underlay painting resumes now.
+
+        Called defensively by every underlay mutation site, level passes,
+        fit-to-screen and the paper render path (spec §18). No-op when no
+        freeze is active.
+        """
+        self._underlay_freeze.abort()
 
     def repen_underlay(self, record: Underlay):
         """Re-apply effective per-layer pens/brushes + opacity in place (§16.3).
