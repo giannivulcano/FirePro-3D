@@ -355,3 +355,19 @@ def test_resize_gesture_bakes_scale_no_transform(qapp, scene_and_view):
     assert abs(r.rect().top() - 100.0) < 2.0
     assert r.rect().width() > 120.0                    # grew from 100 wide
     assert r.rect().height() > 60.0                    # grew from 50 tall
+
+
+def test_scene_clear_then_press_self_heals(qapp, scene_and_view):
+    """Regression (live smoke 2026-08-30): a scene clear (load/new/undo restore)
+    deletes the manipulator's C++ object. The next press read at the top of
+    Model_Space.mousePressEvent must self-heal, not raise 'wrapped C/C++ object
+    ... has been deleted' — which broke EVERY click, placement included."""
+    from PyQt6 import sip
+    scene, view = scene_and_view
+    m0 = scene._manipulator
+    scene.clear()                         # simulate a load/new reset
+    assert sip.isdeleted(m0)              # C++ object is gone
+    # a press must NOT raise and must restore a live manipulator
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(50, 50))
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(50, 50))
+    assert not sip.isdeleted(scene._live_manip())

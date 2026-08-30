@@ -35,7 +35,12 @@ def _manip_wraps(item) -> bool:
     → False, i.e. the pre-manipulator boundary still paints).
     """
     manip = getattr(item.scene(), "_manipulator", None) if item.scene() else None
-    return manip is not None and manip.wraps(item)
+    if manip is None:
+        return False
+    from PyQt6 import sip
+    if sip.isdeleted(manip):     # scene rebuild (load/new/sheet) deleted it
+        return False
+    return manip.wraps(item)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

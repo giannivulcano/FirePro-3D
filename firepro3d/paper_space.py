@@ -3363,18 +3363,22 @@ class PaperScene(QGraphicsScene):
         # Pre-drag per-viewport geometry snapshot captured by the manipulator
         # press_hook; consumed by the commit_hook to build undo commands.
         self._manip_geom_at_press: dict = {}
-        self._setup()
+        self._manipulator = None
+        self._setup()   # builds items AND (re)creates the manipulator
 
-        # Scene-level SelectionManipulator (frame + baked resize/move) — the one
-        # home for viewport handle interaction, replacing the retired per-item
-        # grip code.  Paper handles are sized in paper-mm; one undo entry per
-        # gesture is a macro of per-item ViewportGeometryCommands (spec
-        # "Undo & domains": paper = beginMacro + existing per-item commands).
+    def _create_manipulator(self):
+        """(Re)create the scene-level SelectionManipulator (frame + baked
+        resize/move) — the one home for viewport/text handle interaction,
+        replacing the retired per-item grip code.  Called from ``_setup`` so it
+        survives every sheet rebuild (``self.clear()`` deletes it as a scene
+        item).  Paper handles are paper-mm sized; one undo entry per gesture is
+        a macro of per-item commands (spec "Undo & domains")."""
         from .selection_manipulator import SelectionManipulator
         self._manipulator = SelectionManipulator(
             self, handle_units="mm",
             press_hook=self._manip_capture_press,
             commit_hook=self._manip_commit)
+        return self._manipulator
 
     def _apply(self, fn):
         """Run *fn* with the re-enqueue guard raised.
@@ -3494,6 +3498,9 @@ class PaperScene(QGraphicsScene):
     def _setup(self):
         """Build/rebuild all paper scene items."""
         self.clear()
+        # self.clear() deleted the manipulator (a scene item); recreate it so
+        # the frame + handle routing survive every sheet rebuild.
+        self._create_manipulator()
         self._title_tb = None
         self._field_overlay = None
         self._viewports = []

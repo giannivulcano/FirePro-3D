@@ -686,6 +686,10 @@ class SceneIOMixin:
         if self._level_manager:
             self._level_manager.reset()
         self.clear()
+        # self.clear() deleted the selection manipulator (a scene item);
+        # recreate it so the frame + press routing survive a load/new reset.
+        if hasattr(self, "_create_manipulator"):
+            self._create_manipulator()
         self.init_preview_node()
         self.init_preview_pipe()
         self.draw_origin()
