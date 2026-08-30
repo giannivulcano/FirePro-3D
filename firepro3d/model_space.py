@@ -2355,6 +2355,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             rotation=rotation,
             colour="#c0c0c0",
             line_weight=UNDERLAY_LINE_WIDTH_PX,
+            # PDF page/dpi MUST persist or any later re-extraction (refresh,
+            # cache miss) silently rebuilds from page 0 — the cover sheet.
+            page=getattr(params, "pdf_page", 0),
+            dpi=getattr(params, "pdf_dpi", 150),
             import_scale=s,
             import_base_x=bx,
             import_base_y=by,
