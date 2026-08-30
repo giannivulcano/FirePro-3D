@@ -127,3 +127,95 @@ def test_click_through_selects_item_under_frame(qapp, scene_and_view):
     _press_move_release(view, QPointF(100, 40), QPointF(100, 40))
     qapp.processEvents()
     assert b.isSelected() and not a.isSelected()
+
+
+def test_group_move_bakes_all_and_one_undo_restores(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    items = [LineItem(QPointF(x, 0), QPointF(x + 30, 0)) for x in (0, 60, 120)]
+    for it in items:
+        scene.addItem(it)
+        scene._draw_lines.append(it)   # register in the serialized network
+        it.setSelected(True)
+    scene.push_undo_state()            # baseline: lines at y=0
+    qapp.processEvents()
+
+    def _line_ys():
+        return sorted(l.line().p1().y() for l in scene._draw_lines)
+
+    assert _line_ys() == [0.0, 0.0, 0.0]
+    # (45, 0) sits in the gap between the first two lines (x 30..60), inside
+    # the group frame but >12 px from every endpoint/midpoint grip, so the
+    # press drives the manipulator, not a grip-drag on one line.
+    _press_move_release(view, QPointF(45, 0), QPointF(45, 80))
+    for it in items:
+        assert it.transform().isIdentity()          # baked, no held transform
+        assert abs(it.line().p1().y() - 80.0) < 2.0
+    scene.undo()                       # one undo reverts the whole group move
+    qapp.processEvents()
+    # _restore_network rebuilds items, so re-read the live network list.
+    assert len(scene._draw_lines) == 3
+    for y in _line_ys():
+        assert abs(y - 0.0) < 1e-6
+    for li in scene._draw_lines:
+        assert abs(li.line().p2().x() - (li.line().p1().x() + 30.0)) < 1e-6
+
+
+def test_escape_mid_drag_restores_byte_identical(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    item = LineItem(QPointF(100, 100), QPointF(200, 100))
+    scene.addItem(item)
+    item.setSelected(True)
+    qapp.processEvents()
+    before = json.dumps(scene._capture_network(), sort_keys=True, default=str)
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(125, 100))
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(125, 180))
+    from PyQt6.QtGui import QKeyEvent
+    scene.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                                  Qt.KeyboardModifier.NoModifier))
+    qapp.processEvents()
+    after = json.dumps(scene._capture_network(), sort_keys=True, default=str)
+    assert before == after
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(125, 180))  # no dangling drag
+
+
+def test_shift_mid_drag_is_ortho(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    item = LineItem(QPointF(100, 100), QPointF(200, 100))
+    scene.addItem(item)
+    item.setSelected(True)
+    qapp.processEvents()
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(125, 100))
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(195, 115),
+                modifiers=Qt.KeyboardModifier.ShiftModifier)
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(195, 115),
+                modifiers=Qt.KeyboardModifier.ShiftModifier)
+    assert abs(item.line().p1().y() - 100.0) < 2.0
+    assert item.line().p1().x() > 130.0
+
+
+def test_sprinkler_selection_resolves_to_node(qapp, scene_and_view):
+    # rebake() resolves a selected Sprinkler child to its parent Node (same
+    # rule as Model_Space.move_items): the Node is wrapped, the Sprinkler is
+    # not. Sprinklers set ItemIsSelectable=False in normal use (clicks land on
+    # the Node), so we flip the flag just to force the Sprinkler into
+    # selectedItems() and exercise the resolution branch directly.
+    from PyQt6.QtWidgets import QGraphicsItem
+    scene, view = scene_and_view
+    from firepro3d.node import Node
+    node = Node(100, 100)
+    node.add_sprinkler()
+    scene.addItem(node)
+    qapp.processEvents()
+    spr = node.sprinkler
+    spr.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+    spr.setSelected(True)
+    qapp.processEvents()
+    assert spr.isSelected()          # precondition: sprinkler is in the selection
+    manip = _manip(scene)
+    manip.rebake()
+    resolved = manip.selection_items()
+    assert node in resolved
+    assert spr not in resolved
