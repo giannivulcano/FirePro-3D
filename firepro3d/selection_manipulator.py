@@ -29,6 +29,10 @@ from PyQt6.QtWidgets import (
 )
 
 from . import theme
+from .constants import (
+    MANIP_HANDLE_SIZE_PX, MANIP_HANDLE_BORDER_PX, MANIP_KNOB_RADIUS_PX,
+    MANIP_STEM_LEN_PX, MANIP_HANDLE_FILL_DARK, MANIP_HANDLE_FILL_LIGHT,
+)
 from .dynamic_input import (
     resolve_manip_move, resolve_manip_resize, resolve_manip_rotate,
 )
@@ -44,14 +48,29 @@ _SHAPE_PAD_PX = 3.0    # interior hit slack so hairline frames stay grabbable
 _BOUND_PAD_PX = 6.0    # boundingRect pad (>= shape pad; generous for culling)
 
 # Handle metrics (device px; ItemIgnoresTransformations keeps them zoom-constant).
-# Placeholder styling until the Task-6 mockup binds the final look: white fill,
-# theme ``selection`` outline at rest / ``selection_active`` while dragging.
-_HANDLE_SIZE_PX = 8.0        # square side
-_HANDLE_BORDER_PX = 1.2
+# Style A (mockup-approved 2026-08-30): dark-filled square handles with a theme
+# ``selection`` outline at rest / ``selection_active`` while dragging/hovered; a
+# hollow rotate knob. The fill is theme-derived (see ``_handle_fill``). Metrics
+# live in constants.py (one home).
+_HANDLE_SIZE_PX = MANIP_HANDLE_SIZE_PX      # square side
+_HANDLE_BORDER_PX = MANIP_HANDLE_BORDER_PX
 _HANDLE_GRAB_PAD_PX = 3.0    # extra hit slack around the square
-_ROTATE_OFFSET_PX = 26.0     # stem length from the top-mid to the knob
-_ROTATE_RADIUS_PX = 5.0
+_ROTATE_OFFSET_PX = MANIP_STEM_LEN_PX     # stem length from the top-mid to the knob
+_ROTATE_RADIUS_PX = MANIP_KNOB_RADIUS_PX
 _ROTATE_SNAP_DEG = 15.0      # Shift-snap increment (absolute angle)
+
+
+def _handle_fill() -> QColor:
+    """Handle/knob fill for the active theme (mockup style A).
+
+    A function of the theme: near-black on a dark canvas, white on a light
+    canvas, so the square reads against the canvas while the ``selection``
+    border does the defining. Decided by the theme's canvas lightness so any
+    future variant resolves correctly.
+    """
+    t = theme.detect()
+    light = QColor(t.ground).lightness() >= 128
+    return QColor(MANIP_HANDLE_FILL_LIGHT if light else MANIP_HANDLE_FILL_DARK)
 
 #: Manipulator gesture mode -> dynamic-input schema name.  Move drives a
 #: gesture in v1; resize/rotate are wired ready for their handles (Task 5).
@@ -217,7 +236,7 @@ class _Handle(QGraphicsItem):
               widget: Optional[QWidget] = None) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         border = self._manip._handle_color(self._hover)
-        fill = QColor(Qt.GlobalColor.white)
+        fill = _handle_fill()
         if self.role is HandleRole.ROTATE:
             c = self._knob_center()
             stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
