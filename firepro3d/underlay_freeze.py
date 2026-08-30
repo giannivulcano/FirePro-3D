@@ -54,7 +54,7 @@ class UnderlayFreezeController:
         self._scene = scene
         self.frozen = False
         self._pixmap_item: QGraphicsPixmapItem | None = None
-        self._settle = QTimer()
+        self._settle = QTimer(scene)
         self._settle.setSingleShot(True)
         self._settle.setInterval(UNDERLAY_FREEZE_SETTLE_MS)
         self._settle.timeout.connect(self.end)
@@ -89,15 +89,18 @@ class UnderlayFreezeController:
     def end(self) -> None:
         """Restore crisp vector rendering (settle timeout / gesture end /
         defensive abort from a mutation site)."""
+        self._settle.stop()
         if not self.frozen:
             return
-        self._settle.stop()
         self.frozen = False
         item, self._pixmap_item = self._pixmap_item, None
         dirty = None
         if item is not None:
-            dirty = item.mapRectToScene(item.boundingRect())
-            self._scene.removeItem(item)
+            try:
+                dirty = item.mapRectToScene(item.boundingRect())
+                self._scene.removeItem(item)
+            except RuntimeError:
+                dirty = None    # item or scene already C++-deleted — nothing to restore
         if dirty is not None:
             self._scene.update(dirty)
 
