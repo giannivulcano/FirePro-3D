@@ -39,9 +39,10 @@ def make_underlay_scene(n_lines: int = 40):
 
 
 def render_scene(scene, w=300, h=300,
-                 source=QRectF(0.0, 0.0, 420.0, 220.0)) -> QImage:
+                 source=QRectF(0.0, 0.0, 420.0, 220.0),
+                 bg=Qt.GlobalColor.white) -> QImage:
     img = QImage(w, h, QImage.Format.Format_ARGB32_Premultiplied)
-    img.fill(Qt.GlobalColor.white)
+    img.fill(bg)
     p = QPainter(img)
     scene.render(p, QRectF(0, 0, w, h), source)
     p.end()
@@ -164,3 +165,78 @@ class TestCapture:
     def test_capture_none_without_underlays(self, qapp):
         scene = Model_Space()
         assert scene._underlay_freeze._capture(_FakeView()) is None
+
+
+class TestFreezeLifecycle:
+    def test_begin_adds_pixmap_and_render_still_shows_underlay(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        try:
+            assert scene._underlay_freeze.frozen is True
+            pm_items = [i for i in scene.items()
+                        if isinstance(i, QGraphicsPixmapItem)]
+            assert len(pm_items) == 1
+            # The user still SEES the underlay (via the pixmap blit).
+            # Render 1:1 onto a TRANSPARENT background: the capture bakes
+            # antialiased hairlines into the pixmap at partial alpha (the
+            # accepted transient bitmap-stretch look), so compositing over
+            # white — or resampling at a non-1:1 scale — shifts the bait
+            # colour past has_bait's tolerance even though the blit is
+            # exactly what a live AA view shows. Transparent bg + 1:1
+            # preserves the blitted pixels' own colour for the check.
+            assert has_bait(render_scene(
+                scene, w=420, h=220, bg=Qt.GlobalColor.transparent))
+        finally:
+            scene._underlay_freeze.end()
+
+    def test_end_removes_pixmap_and_restores_vectors(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        scene._underlay_freeze.end()
+        assert scene._underlay_freeze.frozen is False
+        assert not [i for i in scene.items()
+                    if isinstance(i, QGraphicsPixmapItem)]
+        assert has_bait(render_scene(scene))
+
+    def test_begin_noop_without_underlays(self, qapp):
+        scene = Model_Space()
+        scene._underlay_freeze.begin(_FakeView())
+        assert scene._underlay_freeze.frozen is False
+
+    def test_pixmap_item_not_serialized(self, qapp, tmp_path):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        try:
+            out = tmp_path / "frozen.fpd"
+            scene.save_to_file(str(out))
+            payload = json.loads(out.read_text())
+            assert len(payload["underlays"]) == 1   # record only, no extras
+        finally:
+            scene._underlay_freeze.end()
+        # Frozen pixmap must not leak into ANY payload collection: an
+        # unfrozen save of the very same scene serializes identically.
+        out2 = tmp_path / "unfrozen.fpd"
+        scene.save_to_file(str(out2))
+        payload2 = json.loads(out2.read_text())
+        assert (json.dumps(payload, sort_keys=True)
+                == json.dumps(payload2, sort_keys=True))
+
+    def test_snap_index_unaffected_while_frozen(self, qapp):
+        """Hard constraint: snap queries the geometry index, not paint.
+
+        Real query() parity: the UnderlaySnapIndex (group data slot 4,
+        attached by _attach_snap_index) answers a rect over the bait lines
+        identically frozen vs unfrozen.
+        """
+        scene, record, group = make_underlay_scene()
+        index = group.data(4)
+        assert index is not None
+        before = index.query(100.0, 20.0, 50.0, 20.0)
+        assert before, "query rect must hit real bait geometry unfrozen"
+        scene._underlay_freeze.begin(_FakeView())
+        try:
+            assert scene._underlay_freeze.frozen is True
+            after = index.query(100.0, 20.0, 50.0, 20.0)
+            assert after == before
+        finally:
+            scene._underlay_freeze.end()
