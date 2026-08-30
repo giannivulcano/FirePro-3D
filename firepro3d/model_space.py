@@ -2323,39 +2323,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         s = params.scale
         bx, by = params.base_x, params.base_y
 
-        # Transform geometry: shift by base point and apply scale
-        transformed = []
-        for g in params.geom_list:
-            kind = g.get("kind")
-            t = dict(g)
-            if kind == "line":
-                t["x1"] = (g["x1"] - bx) * s
-                t["y1"] = (g["y1"] - by) * s
-                t["x2"] = (g["x2"] - bx) * s
-                t["y2"] = (g["y2"] - by) * s
-            elif kind in ("circle", "arc"):
-                xk = "x" if kind == "circle" else "rx"
-                yk = "y" if kind == "circle" else "ry"
-                wk = "w" if kind == "circle" else "rw"
-                hk = "h" if kind == "circle" else "rh"
-                t[xk] = (g[xk] - bx) * s
-                t[yk] = (g[yk] - by) * s
-                t[wk] = g[wk] * s
-                t[hk] = g[hk] * s
-            elif kind == "ellipse_full":
-                t["pos_cx"] = (g["pos_cx"] - bx) * s
-                t["pos_cy"] = (g["pos_cy"] - by) * s
-                t["x"] = g["x"] * s; t["y"] = g["y"] * s
-                t["w"] = g["w"] * s; t["h"] = g["h"] * s
-            elif kind == "path_points":
-                t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
-                               for p in g["points"]]
-            elif kind == "text":
-                t["x"] = (g["x"] - bx) * s
-                t["y"] = (g["y"] - by) * s
-                if "size" in g:
-                    t["size"] = g["size"] * s
-            transformed.append(t)
+        # Transform geometry: shift by base point and apply scale.
+        from .dwg_converter import apply_import_transform
+        transformed = apply_import_transform(params.geom_list, s, bx, by)
 
         file_type = getattr(params, "file_type", "dxf")
         rotation = getattr(params, "rotation", 0.0)
@@ -2496,41 +2466,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if record is not None and (record.import_scale != 1.0
                                     or record.import_base_x != 0.0
                                     or record.import_base_y != 0.0):
-            s = record.import_scale
-            bx, by = record.import_base_x, record.import_base_y
-            transformed = []
-            for g in geom_list:
-                kind = g.get("kind")
-                t = dict(g)
-                if kind == "line":
-                    t["x1"] = (g["x1"] - bx) * s
-                    t["y1"] = (g["y1"] - by) * s
-                    t["x2"] = (g["x2"] - bx) * s
-                    t["y2"] = (g["y2"] - by) * s
-                elif kind in ("circle", "arc"):
-                    xk = "x" if kind == "circle" else "rx"
-                    yk = "y" if kind == "circle" else "ry"
-                    wk = "w" if kind == "circle" else "rw"
-                    hk = "h" if kind == "circle" else "rh"
-                    t[xk] = (g[xk] - bx) * s
-                    t[yk] = (g[yk] - by) * s
-                    t[wk] = g[wk] * s
-                    t[hk] = g[hk] * s
-                elif kind == "ellipse_full":
-                    t["pos_cx"] = (g["pos_cx"] - bx) * s
-                    t["pos_cy"] = (g["pos_cy"] - by) * s
-                    t["x"] = g["x"] * s; t["y"] = g["y"] * s
-                    t["w"] = g["w"] * s; t["h"] = g["h"] * s
-                elif kind == "path_points":
-                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
-                                   for p in g["points"]]
-                elif kind == "text":
-                    t["x"] = (g["x"] - bx) * s
-                    t["y"] = (g["y"] - by) * s
-                    if "size" in g:
-                        t["size"] = g["size"] * s
-                transformed.append(t)
-            geom_list = transformed
+            from .dwg_converter import apply_import_transform
+            geom_list = apply_import_transform(
+                geom_list, record.import_scale,
+                record.import_base_x, record.import_base_y)
 
         record = params["_record"] or Underlay(
             type=params.get("file_type", "dxf"), path=params["file_path"],
@@ -2960,41 +2899,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if _record is not None and (_record.import_scale != 1.0
                                      or _record.import_base_x != 0.0
                                      or _record.import_base_y != 0.0):
-            s = _record.import_scale
-            bx, by = _record.import_base_x, _record.import_base_y
-            transformed = []
-            for g in geom_list:
-                kind = g.get("kind")
-                t = dict(g)
-                if kind == "line":
-                    t["x1"] = (g["x1"] - bx) * s
-                    t["y1"] = (g["y1"] - by) * s
-                    t["x2"] = (g["x2"] - bx) * s
-                    t["y2"] = (g["y2"] - by) * s
-                elif kind in ("circle", "arc"):
-                    xk = "x" if kind == "circle" else "rx"
-                    yk = "y" if kind == "circle" else "ry"
-                    wk = "w" if kind == "circle" else "rw"
-                    hk = "h" if kind == "circle" else "rh"
-                    t[xk] = (g[xk] - bx) * s
-                    t[yk] = (g[yk] - by) * s
-                    t[wk] = g[wk] * s
-                    t[hk] = g[hk] * s
-                elif kind == "ellipse_full":
-                    t["pos_cx"] = (g["pos_cx"] - bx) * s
-                    t["pos_cy"] = (g["pos_cy"] - by) * s
-                    t["x"] = g["x"] * s; t["y"] = g["y"] * s
-                    t["w"] = g["w"] * s; t["h"] = g["h"] * s
-                elif kind == "path_points":
-                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
-                                   for p in g["points"]]
-                elif kind == "text":
-                    t["x"] = (g["x"] - bx) * s
-                    t["y"] = (g["y"] - by) * s
-                    if "size" in g:
-                        t["size"] = g["size"] * s
-                transformed.append(t)
-            geom_list = transformed
+            from .dwg_converter import apply_import_transform
+            geom_list = apply_import_transform(
+                geom_list, _record.import_scale,
+                _record.import_base_x, _record.import_base_y)
 
         record = _record or Underlay(
             type="pdf", path=file_path,
@@ -5566,43 +5474,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if (record.import_scale != 1.0
                 or record.import_base_x != 0.0
                 or record.import_base_y != 0.0):
-            s = record.import_scale
-            bx, by = record.import_base_x, record.import_base_y
-            transformed = []
-            for g in geom_list:
-                kind = g.get("kind")
-                t = dict(g)
-                if kind == "line":
-                    t["x1"] = (g["x1"] - bx) * s
-                    t["y1"] = (g["y1"] - by) * s
-                    t["x2"] = (g["x2"] - bx) * s
-                    t["y2"] = (g["y2"] - by) * s
-                elif kind in ("circle", "arc"):
-                    xk = "x" if kind == "circle" else "rx"
-                    yk = "y" if kind == "circle" else "ry"
-                    wk = "w" if kind == "circle" else "rw"
-                    hk = "h" if kind == "circle" else "rh"
-                    t[xk] = (g[xk] - bx) * s
-                    t[yk] = (g[yk] - by) * s
-                    t[wk] = g[wk] * s
-                    t[hk] = g[hk] * s
-                elif kind == "ellipse_full":
-                    t["pos_cx"] = (g["pos_cx"] - bx) * s
-                    t["pos_cy"] = (g["pos_cy"] - by) * s
-                    t["x"] = g["x"] * s
-                    t["y"] = g["y"] * s
-                    t["w"] = g["w"] * s
-                    t["h"] = g["h"] * s
-                elif kind == "path_points":
-                    t["points"] = [((p[0] - bx) * s, (p[1] - by) * s)
-                                   for p in g["points"]]
-                elif kind == "text":
-                    t["x"] = (g["x"] - bx) * s
-                    t["y"] = (g["y"] - by) * s
-                    if "size" in g:
-                        t["size"] = g["size"] * s
-                transformed.append(t)
-            geom_list = transformed
+            from .dwg_converter import apply_import_transform
+            geom_list = apply_import_transform(
+                geom_list, record.import_scale,
+                record.import_base_x, record.import_base_y)
 
         # Build batched render items (same as _commit_place_import)
         result = self._build_batched_underlay_group(geom_list, record)
