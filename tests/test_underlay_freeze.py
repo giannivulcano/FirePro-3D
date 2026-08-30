@@ -92,3 +92,75 @@ class TestControllerLifecycle:
         scene._underlay_freeze.end()             # must not raise
         scene.abort_underlay_freeze()            # public alias, must not raise
         assert scene._underlay_freeze.frozen is False
+
+
+class _FakeViewport:
+    """Minimal stand-in exposing exactly what _capture reads from the
+    viewport widget: rect() and devicePixelRatioF()."""
+    def __init__(self, w, h, dpr=1.0):
+        from PyQt6.QtCore import QRect
+        self._r = QRect(0, 0, w, h)
+        self._dpr = dpr
+
+    def rect(self):
+        return self._r
+
+    def devicePixelRatioF(self):
+        return self._dpr
+
+
+class _FakeView:
+    """Stand-in exposing viewport()/viewportTransform()/mapToScene(QRect).
+    Identity transform => scene coords == viewport px coords."""
+    def __init__(self, w=400, h=300, dpr=1.0):
+        self._vp = _FakeViewport(w, h, dpr)
+
+    def viewport(self):
+        return self._vp
+
+    def viewportTransform(self):
+        from PyQt6.QtGui import QTransform
+        return QTransform()
+
+    def mapToScene(self, rect):
+        from PyQt6.QtGui import QPolygonF
+        return QPolygonF(QRectF(rect))
+
+
+class TestCapture:
+    def test_capture_contains_underlay_pixels(self, qapp):
+        scene, record, group = make_underlay_scene()
+        got = scene._underlay_freeze._capture(_FakeView())
+        assert got is not None
+        pixmap, scene_rect, z = got
+        img = pixmap.toImage()
+        assert has_bait(img)
+
+    def test_capture_background_is_transparent(self, qapp):
+        """Theme constraint: bg alpha 0 so the live theme shows through."""
+        scene, record, group = make_underlay_scene()
+        pixmap, scene_rect, z = scene._underlay_freeze._capture(_FakeView())
+        img = pixmap.toImage()
+        corner = img.pixelColor(img.width() - 1, img.height() - 1)
+        assert corner.alpha() == 0
+
+    def test_capture_clamped_at_extreme_size(self, qapp):
+        """Memory bound: per-axis clamp holds regardless of viewport/DPR."""
+        from firepro3d.constants import UNDERLAY_FREEZE_MAX_PX
+        scene, record, group = make_underlay_scene()
+        got = scene._underlay_freeze._capture(_FakeView(9000, 9000, dpr=2.0))
+        assert got is not None
+        pixmap, scene_rect, z = got
+        assert pixmap.width() <= UNDERLAY_FREEZE_MAX_PX
+        assert pixmap.height() <= UNDERLAY_FREEZE_MAX_PX
+
+    def test_capture_skips_hidden_layer(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene.set_underlay_layer_hidden(record, group, "L1", True)
+        got = scene._underlay_freeze._capture(_FakeView())
+        # Whole (only) layer hidden -> nothing to capture
+        assert got is None or not has_bait(got[0].toImage())
+
+    def test_capture_none_without_underlays(self, qapp):
+        scene = Model_Space()
+        assert scene._underlay_freeze._capture(_FakeView()) is None
