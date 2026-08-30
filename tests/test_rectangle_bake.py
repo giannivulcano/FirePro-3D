@@ -28,3 +28,15 @@ def test_shape_covers_rotated_footprint(qapp):
     r.set_angle(90.0)
     br = r.shape().boundingRect()
     assert br.height() > br.width()
+
+
+def test_rotated_rect_drops_scale_capability(qapp):
+    """A rotated rect exposes move+rotate only (resize is unsafe while rotated)."""
+    from firepro3d.selection_manipulator import item_capabilities
+    r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
+    assert "scale" in item_capabilities(r)          # axis-aligned: resizable
+    r.set_angle(30.0)
+    caps = item_capabilities(r)
+    assert caps == {"translate", "rotate"}          # rotated: no scale
+    r.set_angle(0.0)
+    assert "scale" in item_capabilities(r)          # back to resizable

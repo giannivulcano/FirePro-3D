@@ -3722,10 +3722,10 @@ class PaperScene(QGraphicsScene):
         """Return the QUndoCommand class for *item* under gesture *mode*.
 
         SheetViewport always uses ViewportGeometryCommand.  TextAnnotationItem
-        uses MoveTextAnnotationCommand for a translate and ResizeTextBoxCommand
-        for a resize — the existing per-gesture commands (spec "Undo &
-        domains").  Both text commands consume the same 4-tuple snapshot
-        (:meth:`_text_box_geom`) via the thin adapters below.
+        uses ``_MoveTextBoxAdapter`` for a manipulator translate and
+        ResizeTextBoxCommand for a resize — both consume the same 4-tuple
+        snapshot (:meth:`_text_box_geom`), so an x/y-only move reuses the
+        atomic box-restore without a second serializer (spec "Undo & domains").
         """
         if isinstance(item, SheetViewport):
             return ViewportGeometryCommand

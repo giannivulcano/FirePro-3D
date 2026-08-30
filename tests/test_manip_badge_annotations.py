@@ -1,13 +1,13 @@
 """Manipulator translate adapters for the design-area badge and the model
-annotations (NoteAnnotation, DimensionAnnotation), plus the drawForeground
+annotations (NoteAnnotation, DimensionAnnotation), plus the per-item
 selection-boundary de-duplication seam.
 
 Governing spec: docs/specs/selection-manipulator.md.  These items are
 translate-ONLY under the manipulator in v1 (no scale/rotate handles): a badge
 carries a fixed table layout, annotations are parametric.  The manipulator
-frame becomes the sole selection boundary — the view's
-``_should_draw_selection_boundary`` predicate skips items the manipulator wraps
-while grip squares keep rendering.
+frame becomes the sole selection boundary — each geometry item gates its own
+dashed boundary (in paint) on ``construction_geometry._manip_wraps`` so a
+wrapped item draws no second boundary while grip squares keep rendering.
 """
 import json
 
@@ -217,7 +217,7 @@ def test_dimension_annotation_moves_via_manipulator(qapp, scene_and_view):
 
 def test_manipulator_frame_is_sole_boundary(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.construction_geometry import LineItem, _manip_wraps
     item = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(item)
     item.setSelected(True)
@@ -225,17 +225,18 @@ def test_manipulator_frame_is_sole_boundary(qapp, scene_and_view):
 
     manip = _manip(scene)
     assert manip.wraps(item)                          # manipulator owns the box
-    # The view's boundary-draw predicate skips wrapped items: the manipulator
-    # frame is the one boundary.  Grips are unaffected (drawn separately).
-    assert view._should_draw_selection_boundary(item) is False
+    # The functional dedup: each geometry item gates its own dashed selection
+    # boundary on ``_manip_wraps`` (paint()), so a wrapped item draws no second
+    # boundary — the manipulator frame is the one boundary.  Grips are separate.
+    assert _manip_wraps(item) is True
 
 
 def test_boundary_predicate_true_for_unwrapped(qapp, scene_and_view):
     scene, view = scene_and_view
-    from firepro3d.construction_geometry import LineItem
+    from firepro3d.construction_geometry import LineItem, _manip_wraps
     item = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(item)          # NOT selected → not wrapped
     qapp.processEvents()
     manip = _manip(scene)
     assert not manip.wraps(item)
-    assert view._should_draw_selection_boundary(item) is True
+    assert _manip_wraps(item) is False   # unwrapped → item draws its own boundary

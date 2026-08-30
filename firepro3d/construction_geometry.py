@@ -890,6 +890,21 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
 
     # ── Manipulator capability protocol (selection-manipulator.md) ──────────
 
+    def manip_capabilities(self) -> set:
+        """Narrow the duck-typed capability set for the current state.
+
+        Resize is only correct while the rect is axis-aligned: the manipulator
+        frame + its ``(fx, fy)`` factors live in the selection's axis-aligned
+        scene bounds, but ``manip_scale`` applies them in the rect's rotated
+        local frame — which shears (or swaps W/H at 90°/270°) once ``_angle``
+        is non-zero. So a rotated rect exposes move + rotate only (no resize
+        handles); rotate it back to 0° to resize, or see the ``rotated-rect
+        resize`` follow-up. Unrotated rects keep the full set.
+        """
+        if self._angle != 0.0:
+            return {"translate", "rotate"}
+        return {"translate", "rotate", "scale"}
+
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rotate: accumulate ``angle_deg`` onto the current angle about
         ``pivot`` (Y-up CCW+).  One home with ``set_angle`` so the manipulator
