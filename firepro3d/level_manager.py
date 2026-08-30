@@ -433,6 +433,9 @@ class LevelManager:
         are visible.  Elements on non-active levels that intersect the range
         are shown (faded).  Elements cut by *view_height* get ``_is_section_cut = True``.
         """
+        abort = getattr(scene, "abort_underlay_freeze", None)
+        if abort is not None:
+            abort()                      # spec §18
         active = active_level or getattr(scene, "active_level", DEFAULT_LEVEL)
         lvl_map = {l.name: l for l in self._levels}
         has_view_range = (view_height is not None and view_depth is not None)

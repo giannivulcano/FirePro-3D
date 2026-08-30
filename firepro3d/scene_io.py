@@ -625,6 +625,8 @@ class SceneIOMixin:
 
     def _clear_scene(self):
         """Remove all user content, keeping preview items and origin markers."""
+        # stop settle timer + drop pixmap before clear() deletes it (spec §18)
+        self.abort_underlay_freeze()
         from .sprinkler_system import SprinklerSystem
         from .annotations import Annotation
         from .scale_manager import ScaleManager

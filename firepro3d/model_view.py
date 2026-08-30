@@ -669,6 +669,15 @@ class Model_View(QGraphicsView):
     # Zoom with mouse wheel
     # -----------------------------
     def wheelEvent(self, event):
+        # Pure horizontal scroll (trackpad swipe) is not a zoom — bail before
+        # freezing or scaling.
+        if event.angleDelta().y() == 0:
+            return
+        # Freeze-blit the underlays for the gesture BEFORE the transform
+        # changes (capture must be at pre-gesture resolution).
+        sc = self.scene()
+        if sc is not None and hasattr(sc, "_underlay_freeze"):
+            sc._underlay_freeze.begin(self)
         # Zoom in/out
         if event.angleDelta().y() > 0:
             factor = self._zoom_factor
@@ -676,7 +685,6 @@ class Model_View(QGraphicsView):
             factor = 1 / self._zoom_factor
 
         # Zoom relative to cursor
-        cursor_pos = self.mapToScene(event.position().toPoint())
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.NoAnchor)
 
@@ -745,6 +753,12 @@ class Model_View(QGraphicsView):
     def mouseMoveEvent(self, event):
         self._last_vp_pos = event.pos()   # used by drawForeground for dim HUD
         if self._panning:
+            # Lazy begin-on-first-move: a middle-click that never drags
+            # freezes nothing; later moves hit the frozen fast path and
+            # just extend the settle timer.
+            sc = self.scene()
+            if sc is not None and hasattr(sc, "_underlay_freeze"):
+                sc._underlay_freeze.begin(self)
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
@@ -756,6 +770,10 @@ class Model_View(QGraphicsView):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
             sc = self.scene()
+            # Pan release = definitive gesture end -> immediate crisp
+            # restore (wheel zoom keeps the settle timer instead).
+            if sc is not None and hasattr(sc, "_underlay_freeze"):
+                sc._underlay_freeze.end()
             mode = getattr(sc, "mode", None) if sc else None
             self.setCursor(self._mode_cursors.get(
                 mode, Qt.CursorShape.ArrowCursor))
@@ -1007,6 +1025,11 @@ class Model_View(QGraphicsView):
 
     def fit_to_screen(self):
         """Zoom to fit all scene content (or clip rect) within the viewport."""
+        # Drop any gesture freeze first: the transient pixmap item must not
+        # inflate itemsBoundingRect(), and fit ends the gesture anyway.
+        sc0 = self.scene()
+        if sc0 is not None and hasattr(sc0, "abort_underlay_freeze"):
+            sc0.abort_underlay_freeze()
         sc = self.scene()
         if sc is None:
             return

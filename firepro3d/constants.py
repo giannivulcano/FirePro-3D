@@ -61,14 +61,35 @@ GRIDLINE_BUBBLE_OFFSET_MM = 1000.0  # absolute along-axis bubble standoff (mm)
 
 # ── Underlay rendering ───────────────────────────────────────────────────────
 # Cosmetic pen width (device pixels) for batched DXF/PDF underlay geometry, so
-# lines stay a constant thickness regardless of zoom or import scale. Matches
-# the gridline on-screen width (GRID_WIDTH in gridline.py).
-UNDERLAY_LINE_WIDTH_PX = 1.5
+# lines stay a constant thickness regardless of zoom or import scale.
+# HARD PERF CONSTRAINT: must be <= 1.0. Qt's fast cosmetic stroker only
+# handles widths <= 1.0px; wider cosmetic pens fall into the generic stroke
+# pipeline — measured ~20x slower over a dense underlay (22ms vs 1ms for the
+# same 94k-point drawing; the old 1.5 default made live repaints 500ms+).
+UNDERLAY_LINE_WIDTH_PX = 1.0
+# Screen hints at or below this round DOWN to 1.0 to stay on the fast path;
+# heavier user-chosen weights keep their true hint width (and its cost).
+UNDERLAY_FAST_PATH_SNAP_PX = 1.25
 
 # Screen-hint conversion for named underlay line weights (§16.3):
 # px = width_mm * UNDERLAY_MM_TO_PX_HINT. 6.0 makes Medium (0.25mm) ≈ 1.5px
 # so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
 UNDERLAY_MM_TO_PX_HINT = 6.0
+
+# ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
+# Gesture is considered ended after this idle gap; the vector restore fires
+# then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks
+# measured live) or every tick pays a fresh capture + settle repaint (the
+# thrash that made heavy underlays feel >1s per tick).
+UNDERLAY_FREEZE_SETTLE_MS = 450
+# Capture pad per side, as a fraction of the viewport (pan headroom during the
+# gesture; panning past the pad shows blank margin until settle — accepted).
+# 0.25 = 2.25x viewport pixels per capture (was 0.5 = 4x; capture cost scales
+# with covered pixels and is paid synchronously at gesture start).
+UNDERLAY_FREEZE_PAD_FRACTION = 0.25
+# Per-axis pixel clamp on the capture pixmap (memory bound at any DPR/monitor;
+# the pixmap-item transform corrects for any clamp, output just gets softer).
+UNDERLAY_FREEZE_MAX_PX = 8192
 
 # ── Default ceiling offset (mm below ceiling level) ──────────────────────────
 DEFAULT_CEILING_OFFSET_MM = -50.8      # −2 inches (sprinkler deflector below ceiling)

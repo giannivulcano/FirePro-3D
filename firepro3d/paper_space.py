@@ -1062,6 +1062,9 @@ class SheetViewport(QGraphicsObject):
             # change after the clear still propagates normally.
             # Echo suppression spans BOTH the level-isolation mutations and the
             # display-override mutations (D3): set the flag BEFORE isolation apply.
+            abort = getattr(self._source_scene, "abort_underlay_freeze", None)
+            if abort is not None:
+                abort()                  # spec §18: paper render is never frozen
             self._source_scene._suppress_paper_echo = True
 
             iso = None

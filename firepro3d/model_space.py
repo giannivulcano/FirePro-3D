@@ -19,6 +19,7 @@ from .sprinkler_system import SprinklerSystem
 from .cad_math import CAD_Math
 from .annotations import Annotation, DimensionAnnotation, NoteAnnotation
 from .underlay import Underlay
+from .underlay_freeze import UnderlayFreezeController, _UnderlayPathItem
 from .scale_manager import ScaleManager
 from .calibrate_dialog import CalibrateDialog
 from .roof_dialog import RoofDialog
@@ -37,7 +38,7 @@ from .gridline import (GridlineItem, reset_grid_counters,
 from .view_marker import ViewMarkerArrow
 from .constants import (Z_BELOW_GEOMETRY, Z_UNDERLAY, DEFAULT_LEVEL,
                        DEFAULT_CEILING_OFFSET_MM, UNDERLAY_LINE_WIDTH_PX,
-                       UNDERLAY_MM_TO_PX_HINT,
+                       UNDERLAY_MM_TO_PX_HINT, UNDERLAY_FAST_PATH_SNAP_PX,
                        AUTO_JOIN_TOLERANCE, TEE_TOLERANCE, Z_COPLANAR_TOL,
                        DESIGN_AREA_HL_RADIUS_PX,
                        Z_OVERLAY, ALIGN_PATH_TOL_PX,
@@ -76,6 +77,11 @@ def underlay_layer_pen(record: "Underlay", layer: str) -> QPen:
     if weight_name:
         from .paper_display import resolve_line_weight_mm
         width_px = resolve_line_weight_mm(weight_name) * UNDERLAY_MM_TO_PX_HINT
+        # Near-1px hints snap to 1.0: Qt's fast cosmetic stroker only takes
+        # widths <= 1.0 (see UNDERLAY_LINE_WIDTH_PX); ~1px hints are visually
+        # identical but ~20x cheaper to stroke over a dense underlay.
+        if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
+            width_px = min(width_px, 1.0)
     else:
         width_px = UNDERLAY_LINE_WIDTH_PX
     pen = QPen(colour, width_px)
@@ -92,7 +98,12 @@ def _pdf_width_to_px(pt_width: float) -> float:
     if pt_width <= 0.0:
         return UNDERLAY_LINE_WIDTH_PX
     width_mm = pt_width * 25.4 / 72.0
-    return max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
+    width_px = max(UNDERLAY_LINE_WIDTH_PX, width_mm * UNDERLAY_MM_TO_PX_HINT)
+    # Near-1px results snap to 1.0 for Qt's fast cosmetic-stroker path
+    # (widths > 1.0 stroke ~20x slower; see UNDERLAY_LINE_WIDTH_PX).
+    if width_px <= UNDERLAY_FAST_PATH_SNAP_PX:
+        width_px = min(width_px, 1.0)
+    return width_px
 
 
 class _PlacementSentinel:
@@ -146,6 +157,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.annotations = Annotation()
         self._sprinkler_db = None                              # shared DB, injected by MainWindow
         self.underlays: list[tuple[Underlay, QGraphicsItem]] = []  # (data, scene_item)
+        self._underlay_freeze = UnderlayFreezeController(self)  # spec §18
         self.scale_manager = ScaleManager()
         self.mode = None
         self.dimension_start = None
@@ -2353,6 +2365,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             rotation=rotation,
             colour="#c0c0c0",
             line_weight=UNDERLAY_LINE_WIDTH_PX,
+            # PDF page/dpi MUST persist or any later re-extraction (refresh,
+            # cache miss) silently rebuilds from page 0 — the cover sheet.
+            page=getattr(params, "pdf_page", 0),
+            dpi=getattr(params, "pdf_dpi", 150),
             import_scale=s,
             import_base_x=bx,
             import_base_y=by,
@@ -2373,7 +2389,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
         group.setData(2, all_layers)
-        group.setData(5, params.geom_list)  # raw pre-transform geom for cache
+        # Snapshot the FILTERED raw geoms — storing the full page extraction
+        # here poisoned the per-bounds cache on save (loads then rebuilt the
+        # whole sheet: 4x geometry, ~10x slower repaints).
+        _raw_for_cache = params.geom_list
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            _raw_for_cache = filter_geoms_by_bounds(
+                _raw_for_cache, [tuple(record.import_bounds)])
+        group.setData(5, _raw_for_cache)  # raw pre-transform geom for cache
         group.setData(6, not _cache_written)  # dirty until cached on save
 
         self._apply_underlay_display(group, record)
@@ -2687,7 +2711,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             if not geom_path.isEmpty() and has_override:
                 # Per-file/layer Line-Weight override wins: single pen, flat
                 # width for the whole layer (today's look).
-                item = QGraphicsPathItem(geom_path)
+                item = _UnderlayPathItem(geom_path)
                 item.setPen(underlay_layer_pen(record, layer))
                 item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                 item.setZValue(Z_UNDERLAY)
@@ -2710,7 +2734,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                         continue
                     pen = QPen(colour, _pdf_width_to_px(w))
                     pen.setCosmetic(True)
-                    item = QGraphicsPathItem(wpath)
+                    item = _UnderlayPathItem(wpath)
                     item.setPen(pen)
                     item.setBrush(QBrush(Qt.BrushStyle.NoBrush))
                     item.setZValue(Z_UNDERLAY)
@@ -2719,7 +2743,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     items.append(item)
 
             if not text_path.isEmpty():
-                item = QGraphicsPathItem(text_path)
+                item = _UnderlayPathItem(text_path)
                 item.setPen(QPen(Qt.PenStyle.NoPen))
                 item.setBrush(QBrush(QColor(
                     record.effective_layer_colour(layer))))
@@ -2915,7 +2939,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         (scale + base-point shift), convert to QGraphicsItems via
         ``_build_batched_underlay_group()``, and register the underlay.
         """
-        # Write geometry cache (raw, pre-transform)
+        # Apply spatial bounds filter (area selection at import time) —
+        # parity with _on_dxf_finished; keeps build + cache filtered.
+        if _record is not None and _record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            geom_list = filter_geoms_by_bounds(
+                geom_list, [tuple(_record.import_bounds)])
+
+        # Write geometry cache (filtered, pre-transform)
         _cache_written = self._write_underlay_cache(
             file_path, geom_list, page=page,
             selected_layers=None,
@@ -3006,6 +3037,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _apply_underlay_display(self, item: QGraphicsItem, record: Underlay):
         """Apply transform origin, scale, rotation, opacity, visibility, and lock state."""
+        self._underlay_freeze.abort()   # spec §18: edits apply instantly
         item.setTransformOriginPoint(item.boundingRect().center())
         item.setScale(record.scale)
         item.setRotation(record.rotation)
@@ -3072,6 +3104,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def remove_underlay(self, data: Underlay, item: QGraphicsItem):
         """Remove an underlay from the scene and the tracking list."""
+        self._underlay_freeze.abort()
         pair = (data, item)
         if pair in self.underlays:
             self.underlays.remove(pair)
@@ -3097,6 +3130,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 The Modify flow passes False so the NEW scale/rotation already
                 on the record (from import params) survive the rebuild.
         """
+        self._underlay_freeze.abort()
         # Sync current transform state back to record
         if sync_from_item:
             data.x = item.scenePos().x()
@@ -3195,6 +3229,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         is applied synchronously for the sync (PDF) path and is best-effort
         (the fresh entry appends at the end) for the async DXF path.
         """
+        self._underlay_freeze.abort()
         from .underlay import apply_import_params_preserving_management
 
         # 1. Locate the current (record, item) pair and its list index.
@@ -3270,12 +3305,22 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.underlays.insert(original_index, new_entry)
                     self.underlaysChanged.emit()
 
+    def abort_underlay_freeze(self):
+        """End any gesture freeze so vector underlay painting resumes now.
+
+        Called defensively by every underlay mutation site, level passes,
+        fit-to-screen and the paper render path (spec §18). No-op when no
+        freeze is active.
+        """
+        self._underlay_freeze.abort()
+
     def repen_underlay(self, record: Underlay):
         """Re-apply effective per-layer pens/brushes + opacity in place (§16.3).
 
         Never rebuilds the group (callable from any context, incl. DM live
         preview). Guards deleted C++ objects like the §7.2 pass.
         """
+        self._underlay_freeze.abort()
         for data, group in getattr(self, "underlays", []):
             if data is not record or group is None:
                 continue
@@ -3312,6 +3357,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Single choke point for hidden_layers edits (§16.6 — one state,
         two surfaces: browser tree and DM tab both route through here).
         No push_undo_state here — callers decide (browser pushes, DM never)."""
+        self._underlay_freeze.abort()
         if hidden and layer_name not in record.hidden_layers:
             record.hidden_layers.append(layer_name)
         elif not hidden and layer_name in record.hidden_layers:
@@ -3744,6 +3790,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def undo(self):
         """Restore the previous network state."""
+        self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos > 0:
             self._undo_pos -= 1
             self._restore_network(self._undo_stack[self._undo_pos])
@@ -3755,6 +3802,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def redo(self):
         """Restore the next network state."""
+        self._underlay_freeze.abort()   # spec §18: never restore under a stale blit
         if self._undo_pos < len(self._undo_stack) - 1:
             self._undo_pos += 1
             self._restore_network(self._undo_stack[self._undo_pos])
@@ -5500,6 +5548,17 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # import_bounds and rewrites the cache when it finishes.
             return False
 
+        # Heal poisoned caches: some writers stored the UNFILTERED page
+        # extraction under a key that claims the area-selected variant —
+        # re-apply the import-time spatial filter (mirrors _on_dxf_finished).
+        _healed = False
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            filtered = filter_geoms_by_bounds(
+                geom_list, [tuple(record.import_bounds)])
+            _healed = len(filtered) != len(geom_list)
+            geom_list = filtered
+
         # Snapshot raw geom for cache-on-save
         _raw_geom = geom_list
 
@@ -5556,7 +5615,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(2, all_layers)
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
-        group.setData(6, False)  # geometry came straight from the cache
+        # Dirty when healed so the next save rewrites the cache filtered.
+        group.setData(6, _healed)
         if source_mtime is None:
             group.setData(3, "source_missing")
 

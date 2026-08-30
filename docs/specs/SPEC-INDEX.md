@@ -13,7 +13,7 @@
 | SNAP toolbar / per-type toggles | `specs/snap-toolbar.md` | `ribbon_bar.py` (Snap group surface), `snap_engine.py` | current |
 | Ribbon bar (tabs/groups/buttons, mode-button sync, contextual tabs) | `specs/ribbon-bar.md` | `ribbon_bar.py`, `font_group.py`, `icons.py`, `preferences_dialog.py`, `main.py` (`init_ribbon` + `_init_*_tab` + contextual-tab mechanism) | current |
 | Ribbon icons / graphics | `specs/icon-style-guide.md` | `icons.py`, `svg_utils.py`, `graphics/Ribbon/` | current |
-| Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `dwg_converter.py` | current |
+| Underlay / import I/O (DXF·DWG·PDF) | `specs/underlay-workflow.md` (+ `architecture/io.md`) | `dxf_import_worker.py`, `pdf_import_worker.py`, `underlay.py`, `underlay_cache.py`, `underlay_freeze.py`, `dwg_converter.py` | current |
 | Hydraulics & reporting | `specs/hydraulic-solver-and-reporting.md` (+ `architecture/analysis.md`) | `hydraulic_solver.py`, `hydraulic_report.py`, `hydraulic_node_badge.py` | current |
 | Grid system / gridlines | `specs/grid-system.md` | `gridline.py`, `model_space.py`, `model_view.py`, `align_engine.py` | current |
 | 2D geometry / drawing items | `specs/2d-geometry.md` | `construction_geometry.py`, `model_space.py` (2D-geometry placement + dispatch), `snap_engine.py` (2D snap) | current |
