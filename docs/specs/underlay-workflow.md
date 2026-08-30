@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-29
-last-verified: 2026-08-29  # Underlay Manager shipped @ 56c8148 (levels/snap schema, Manager UI, hidden_in_views removed)
-verified-commit: 56c8148  # §18 stamped at wrap-up
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30); §18 freeze-blit 2026-08-30
+last-verified: 2026-08-30  # freeze-blit + fast-stroker pens + page persistence shipped on feat/underlay-freeze-blit
+verified-commit: a62f543
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -718,6 +718,7 @@ No change to rendering architecture from the prior design:
 
 - `_build_batched_underlay_group`: each layer's stroke item gets its pen from `underlay_layer_pen(record, layer) -> QPen` (colour + hint width, always cosmetic); text items use NoPen + colour brush.
 - **Screen hint:** no effective weight → `UNDERLAY_LINE_WIDTH_PX`. Named weight → `px = width_mm * UNDERLAY_MM_TO_PX_HINT` (6.0, `constants.py`). Always cosmetic — never zoom-scales (§3.4 invariant).
+- **Fast-stroker constraint (2026-08-30, perf-critical):** Qt's fast cosmetic stroker only handles widths ≤ 1.0 px; wider cosmetic pens use the generic stroke pipeline, measured **~20× slower** over a dense underlay (22 ms vs 1 ms on a 94k-point reference). `UNDERLAY_LINE_WIDTH_PX` is therefore **1.0** and hint widths ≤ `UNDERLAY_FAST_PATH_SNAP_PX` (1.25) snap down to 1.0; heavier user-chosen named weights keep their true hint width (and its cost). Never raise the default above 1.0.
 - **Live re-application:** `Model_Space.repen_underlay(record)` swaps pens/brushes in place (no group rebuild, no `scene.clear()`), O(2 × layer count). Called by the Manager on every edit. Guards deleted C++ objects (`RuntimeError` → skip).
 - **Cache untouched:** overrides at pen level only; `cache_key()` unchanged.
 - **Effective layer appearance:** `layer_overrides[layer]` → fall back to `record.colour` / `record.line_weight_name`. Two tiers only; state lives on the record in the project file.
@@ -798,7 +799,10 @@ the import dialog and not read from QSettings" statement is retired.
 non-goal).** Batch import is still not wanted. Instead, `pdf_page_names()`
 resolves each page's **name** (PyMuPDF page label else "Page N"); the thumbnail
 strip shows it as a caption and the info label echoes the selected page. Import
-stays single-page.
+stays single-page. **Amended 2026-08-30:** the interactive placement commit now
+persists `params.pdf_page`/`pdf_dpi` into the record (it previously defaulted
+to page 0 while the cache carried the selected page's geometry — masked by
+cache hits until any re-extraction silently rebuilt the wrong sheet).
 
 **17.3 PDF vector line-width preservation.** `pdf_import_worker._extract_path`
 now carries each path's **stroke width**; `_build_batched_underlay_group`
@@ -843,14 +847,23 @@ frozen to a bitmap and not re-stroked per frame.
   LevelManager pass, the Underlay Manager and the paper pass).
 - `UnderlayFreezeController` (owned by `Model_Space`): `begin(view)` hand-
   renders all visible `_UnderlayPathItem`s (pens/brushes/opacity/hidden-layers
-  respected, cosmetic pens at device width) into a transparent pixmap over the
-  padded viewport (`UNDERLAY_FREEZE_PAD_FRACTION`, per-axis clamp
-  `UNDERLAY_FREEZE_MAX_PX` — memory bounded at any zoom), adds a transient
-  `QGraphicsPixmapItem` in scene coordinates (stretches with the view =
-  transient degradation), and starts the `UNDERLAY_FREEZE_SETTLE_MS` single-
-  shot settle timer (scene-parented). `end()`/`abort()` removes the pixmap
-  (RuntimeError-guarded against C++-deleted objects) and restores vector
-  painting. Raster-PDF underlay children are not frozen (already cheap blits).
+  respected, cosmetic pens at device width, **aliased** — the capture only
+  lives inside the gesture's accepted degradation window and strokes ~25-40%
+  faster) into a transparent pixmap over the padded viewport
+  (`UNDERLAY_FREEZE_PAD_FRACTION` 0.25; per-axis clamp
+  `UNDERLAY_FREEZE_MAX_PX` with squeeze-not-truncate correction — memory
+  bounded at any zoom), adds a transient `QGraphicsPixmapItem` in scene
+  coordinates (stretches with the view = transient degradation), and starts
+  the `UNDERLAY_FREEZE_SETTLE_MS` single-shot settle timer (scene-parented).
+  `end()`/`abort()` removes the pixmap (RuntimeError-guarded against
+  C++-deleted objects) and restores vector painting. Raster-PDF underlay
+  children are not frozen (already cheap blits).
+- **Settle = 450 ms** (amended 2026-08-30 from the grill's ≤150 ms target,
+  deliberately): live instrumentation measured 0.3–3 s between deliberate
+  wheel ticks; a 100 ms settle unfroze between every tick, so each tick paid
+  a fresh capture plus a settle vector repaint (the ">1 s per tick" thrash).
+  450 ms spans a natural gesture: one capture at start, one crisp repaint
+  ~half a second after the last tick.
 
 ### 18.2 Gesture sources (`model_view.py`)
 
@@ -874,12 +887,19 @@ level hook because §6.6's no-op-skip bypasses `apply_to_scene`). The frozen
 pixmap uses a transparent background, so theme switches can never leave
 stale-theme pixels.
 
-### 18.4 Acceptance (2026-08-29 grill)
+### 18.4 Acceptance & as-built results (2026-08-29 grill; final 2026-08-30)
 
 ≤16 ms/frame during gestures at ×0.5–×8 on the reference FPD (probe:
 `tools/perf_probe_underlay.py`, FPD path arg + synthetic fallback; no timing
 asserts in pytest — behavioral tests live in `tests/test_underlay_freeze.py`).
-Measured on the reference file: gesture frames 4.0–5.1 ms at ×0.5–×8; a
-30-repaint zoom gesture 3.6 s → 167 ms. Import-side geometry reduction
-(bezier flatten tolerance) is explicitly out of scope — filed as a TODO
-follow-up.
+
+**As-built on the reference file (with the §16.3 fast-stroker fix, which
+turned out to be the dominant lever — live paints were 300–760 ms while
+underlay pens were 1.5 px):** plain vector repaints 5.7–15.8 ms at every
+zoom (≤16 ms even unfrozen); frozen gesture frames 2.2–5.2 ms; capture
+~71 ms; 30-repaint zoom gesture 3.6 s → 208 ms. NOTE: headless probes can
+understate live costs when the geometry cache misses (a cache miss
+re-extracts only `record.page` — see the page-persistence fix) — the live
+instrumented launcher pattern is the trustworthy measurement.
+Import-side geometry reduction (bezier flatten tolerance) is explicitly out
+of scope — filed as a TODO follow-up.
