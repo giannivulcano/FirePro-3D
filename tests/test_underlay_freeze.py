@@ -340,3 +340,33 @@ class TestGestureWiring:
             assert scene._underlay_freeze.frozen is False
         finally:
             view.close()
+
+
+class TestAbortHooks:
+    def _frozen_scene(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        assert scene._underlay_freeze.frozen is True
+        return scene, record, group
+
+    def test_repen_underlay_aborts(self, qapp):
+        scene, record, group = self._frozen_scene(qapp)
+        scene.repen_underlay(record)
+        assert scene._underlay_freeze.frozen is False
+
+    def test_apply_underlay_display_aborts(self, qapp):
+        scene, record, group = self._frozen_scene(qapp)
+        scene._apply_underlay_display(group, record)
+        assert scene._underlay_freeze.frozen is False
+
+    def test_set_underlay_layer_hidden_aborts(self, qapp):
+        scene, record, group = self._frozen_scene(qapp)
+        scene.set_underlay_layer_hidden(record, group, "L1", True)
+        assert scene._underlay_freeze.frozen is False
+
+    def test_level_apply_to_scene_aborts(self, qapp):
+        from firepro3d.level_manager import LevelManager
+        scene, record, group = self._frozen_scene(qapp)
+        lm = LevelManager()
+        lm.apply_to_scene(scene)
+        assert scene._underlay_freeze.frozen is False

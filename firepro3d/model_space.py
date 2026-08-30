@@ -3008,6 +3008,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def _apply_underlay_display(self, item: QGraphicsItem, record: Underlay):
         """Apply transform origin, scale, rotation, opacity, visibility, and lock state."""
+        self._underlay_freeze.abort()   # spec §18: edits apply instantly
         item.setTransformOriginPoint(item.boundingRect().center())
         item.setScale(record.scale)
         item.setRotation(record.rotation)
@@ -3099,6 +3100,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 The Modify flow passes False so the NEW scale/rotation already
                 on the record (from import params) survive the rebuild.
         """
+        self._underlay_freeze.abort()
         # Sync current transform state back to record
         if sync_from_item:
             data.x = item.scenePos().x()
@@ -3197,6 +3199,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         is applied synchronously for the sync (PDF) path and is best-effort
         (the fresh entry appends at the end) for the async DXF path.
         """
+        self._underlay_freeze.abort()
         from .underlay import apply_import_params_preserving_management
 
         # 1. Locate the current (record, item) pair and its list index.
@@ -3287,6 +3290,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         Never rebuilds the group (callable from any context, incl. DM live
         preview). Guards deleted C++ objects like the §7.2 pass.
         """
+        self._underlay_freeze.abort()
         for data, group in getattr(self, "underlays", []):
             if data is not record or group is None:
                 continue
@@ -3323,6 +3327,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """Single choke point for hidden_layers edits (§16.6 — one state,
         two surfaces: browser tree and DM tab both route through here).
         No push_undo_state here — callers decide (browser pushes, DM never)."""
+        self._underlay_freeze.abort()
         if hidden and layer_name not in record.hidden_layers:
             record.hidden_layers.append(layer_name)
         elif not hidden and layer_name in record.hidden_layers:
