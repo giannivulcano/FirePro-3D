@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30); §18 freeze-blit 2026-08-30
-last-verified: 2026-08-30  # freeze-blit + fast-stroker pens + page persistence shipped on feat/underlay-freeze-blit
-verified-commit: a62f543
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30, +§17.4 text-width/transform-dedup 2026-08-30); §18 freeze-blit 2026-08-30
+last-verified: 2026-08-30  # §17.4 twidth scaling + apply_import_transform de-dup shipped on feat/pdf-underlay-text-fix
+verified-commit: ed0bc5c
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -820,6 +820,21 @@ origin** and **x-scaled to the source span width** so a substitute font's
 advances don't drift. `_extract_text` emits `origin`, `size`, `twidth`,
 `valign=3`. (Both `_append_geom_to_path` copies — model_space + dxf_preview —
 are updated identically; a full de-dup is a filed follow-up.)
+
+**Amended 2026-08-30 (text width on the canvas).** The import transform that
+bakes an underlay's `import_scale`/base-point into geometry dicts **must scale
+`twidth` together with `size`** — `twidth` is in the same coordinate space as
+`size` and drives the append helper's horizontal fit (`sx = twidth/nat_w`), so
+leaving it raw distorted canvas text horizontally by the import-scale factor
+at architectural scales (the import-dialog preview renders **raw** geometry —
+no bake — so it stayed self-consistent, which is why the bug was
+canvas-only). This transform was inlined byte-identically in four
+`model_space` sites (`_commit_place_import`, `_on_dxf_finished`,
+`_import_pdf_vectors`, `_load_underlay_from_cache`), all with the same
+omission; it is now the single pure `dwg_converter.apply_import_transform()`
+(alongside `filter_geoms_by_bounds`/`compute_geom_bounds`). The
+`_append_geom_to_path` copies themselves were verified **byte-identical** (not
+the drift) — the two-copy de-dup remains the open §17.4 follow-up.
 
 **17.5 Architectural / engineering scale (PDF only).** The scale dropdown offers
 imperial **architectural** (`1/8"…3"=1'-0"`) and **engineering** (`1"=10'…100'`)
