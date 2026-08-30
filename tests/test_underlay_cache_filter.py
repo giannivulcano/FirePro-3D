@@ -84,3 +84,21 @@ def test_import_pdf_vectors_filters_by_bounds(qapp, tmp_path):
     rec, grp = scene.underlays[-1]
     assert len(grp.data(5)) == 5, (
         f"_import_pdf_vectors kept {len(grp.data(5))} geoms - unfiltered")
+
+
+def test_v4_cache_rejected(qapp, tmp_path):
+    """Old-extractor caches (v4) must be invalidated: they carry 10-20x
+    over-extracted geometry (the 2026-08-30 live-lag root cause)."""
+    import json as _json
+
+    from firepro3d.underlay_cache import read_cache
+
+    cache_dir = tmp_path / "c"
+    cache_dir.mkdir()
+    key = "somekey.json"
+    payload = {"version": 4, "source_mtime": 123.0,
+               "geom_count": 1,
+               "geoms": [{"kind": "path_points", "layer": "L", "width": 0.0,
+                          "closed": False, "points": [[0, 0], [1, 1]]}]}
+    (cache_dir / key).write_text(_json.dumps(payload))
+    assert read_cache(str(cache_dir), key, source_mtime=123.0) is None
