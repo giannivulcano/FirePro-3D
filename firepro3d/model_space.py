@@ -3075,6 +3075,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
 
     def remove_underlay(self, data: Underlay, item: QGraphicsItem):
         """Remove an underlay from the scene and the tracking list."""
+        self._underlay_freeze.abort()
         pair = (data, item)
         if pair in self.underlays:
             self.underlays.remove(pair)
