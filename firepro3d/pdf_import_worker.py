@@ -22,6 +22,8 @@ except ImportError:
     fitz = None
     _HAS_FITZ = False
 
+from .constants import PDF_BEZIER_FLATTEN_TOL
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Bezier flattening
@@ -32,7 +34,7 @@ def _flatten_bezier(
     p1: tuple[float, float],
     p2: tuple[float, float],
     p3: tuple[float, float],
-    tol: float = 1.0,
+    tol: float = PDF_BEZIER_FLATTEN_TOL,
 ) -> list[tuple[float, float]]:
     """Flatten a cubic Bezier curve via De Casteljau subdivision.
 
@@ -273,7 +275,7 @@ class PdfImportWorker(QThread):
                 pts = _flatten_bezier(
                     (p0.x, p0.y), (p1.x, p1.y),
                     (p2.x, p2.y), (p3.x, p3.y),
-                    tol=0.5,
+                    tol=PDF_BEZIER_FLATTEN_TOL,
                 )
                 if not current_points:
                     current_points.extend(pts)

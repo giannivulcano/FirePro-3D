@@ -76,6 +76,15 @@ UNDERLAY_FAST_PATH_SNAP_PX = 1.25
 # so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
 UNDERLAY_MM_TO_PX_HINT = 6.0
 
+# ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
+# Max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic béziers
+# from PDF vector imports. Because the tolerance is in *paper points* it is a
+# scale-independent ceiling on the plotted-sheet curve error: 2.0 pt ≈ 0.7 mm
+# on paper — imperceptible on a background underlay, yet ~4x coarser than the
+# old 0.5 (the Sleeman reference: 94k points -> a fraction of that). Fidelity
+# is gated visually at architectural plot scale; 4.0 is the hard upper bound.
+PDF_BEZIER_FLATTEN_TOL = 2.0
+
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires
 # then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks
