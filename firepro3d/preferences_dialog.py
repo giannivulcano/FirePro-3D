@@ -9,15 +9,16 @@ from typing import Callable
 
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+    QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QPushButton, QSpinBox, QTabWidget, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
 from .constants import (
     ALIGN_PATH_TOL_PX, ALIGN_DWELL_MS, ALIGN_MAX_POINTS,
     ALIGN_DIR_HV_DEFAULT, ALIGN_DIR_EXTENSION_DEFAULT, ALIGN_DIR_PARALLEL_DEFAULT,
-    ALIGN_DIR_PERPENDICULAR_DEFAULT,
+    ALIGN_DIR_PERPENDICULAR_DEFAULT, PDF_BEZIER_FLATTEN_TOL,
 )
 
 
@@ -686,6 +687,11 @@ class ImportPane(SettingsPane):
       its PDF Options combos from these; a per-import override does not write
       back (one-off).
 
+    - PDF bézier flatten tolerance (QSettings key
+      ``import/pdf_bezier_flatten_tol``). Unlike the defaults above this is a
+      live extraction parameter: it feeds ``_flatten_bezier`` AND the PDF cache
+      key, so changing it re-extracts underlays on next load/refresh.
+
     This is a QSettings-only preference; no live-object mutation is needed.
     Construct with no args.
     """
@@ -727,6 +733,20 @@ class ImportPane(SettingsPane):
         self._mode_combo = QComboBox()
         self._mode_combo.addItems(["Auto", "Vectors", "Raster"])
         pdf_form.addRow("Import mode:", self._mode_combo)
+        # Bézier flatten tolerance — curve tessellation quality for vector PDF
+        # imports. Higher = coarser (fewer points, faster/smaller), lower =
+        # smoother curves. In PDF points (paper-space); changing it re-extracts
+        # the underlay on next load/refresh (it is part of the PDF cache key).
+        self._flatten_tol_spin = QDoubleSpinBox()
+        self._flatten_tol_spin.setRange(0.25, 4.0)
+        self._flatten_tol_spin.setSingleStep(0.25)
+        self._flatten_tol_spin.setDecimals(2)
+        self._flatten_tol_spin.setSuffix(" pt")
+        self._flatten_tol_spin.setToolTip(
+            "Curve flatten tolerance for vector PDF imports (PDF points).\n"
+            "Higher = coarser curves + smaller/faster underlay; lower = smoother.\n"
+            "Re-extracts the underlay on next project load or Manager refresh.")
+        pdf_form.addRow("Curve flatten tolerance:", self._flatten_tol_spin)
         outer.addWidget(pdf_group)
 
         outer.addStretch()
@@ -752,10 +772,14 @@ class ImportPane(SettingsPane):
         oda_path = s.value("dwg/oda_converter_path", "", type=str)
         dpi = s.value("import/pdf_dpi", 150, type=int)
         mode = s.value("import/pdf_import_mode", "auto", type=str)
-        self._snapshot = {"oda_path": oda_path, "dpi": dpi, "mode": mode}
+        flatten_tol = s.value("import/pdf_bezier_flatten_tol",
+                              PDF_BEZIER_FLATTEN_TOL, type=float)
+        self._snapshot = {"oda_path": oda_path, "dpi": dpi, "mode": mode,
+                          "flatten_tol": flatten_tol}
         self._oda_edit.setText(oda_path)
         self._dpi_combo.setCurrentText(str(dpi))
         self._mode_combo.setCurrentText(mode.capitalize())
+        self._flatten_tol_spin.setValue(flatten_tol)
 
     def apply(self) -> None:
         """Write widget values to QSettings."""
@@ -763,6 +787,7 @@ class ImportPane(SettingsPane):
         s.setValue("dwg/oda_converter_path", self._oda_edit.text())
         s.setValue("import/pdf_dpi", int(self._dpi_combo.currentText()))
         s.setValue("import/pdf_import_mode", self._mode_combo.currentText().lower())
+        s.setValue("import/pdf_bezier_flatten_tol", self._flatten_tol_spin.value())
 
     def revert(self) -> None:
         """Restore snapshot values to widgets (no live objects to roll back)."""
@@ -771,6 +796,7 @@ class ImportPane(SettingsPane):
         self._oda_edit.setText(self._snapshot["oda_path"])
         self._dpi_combo.setCurrentText(str(self._snapshot["dpi"]))
         self._mode_combo.setCurrentText(self._snapshot["mode"].capitalize())
+        self._flatten_tol_spin.setValue(self._snapshot["flatten_tol"])
 
 
 class GeneralPane(SettingsPane):

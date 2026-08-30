@@ -79,11 +79,11 @@ UNDERLAY_MM_TO_PX_HINT = 6.0
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
 # Max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic béziers
 # from PDF vector imports. Because the tolerance is in *paper points* it is a
-# scale-independent ceiling on the plotted-sheet curve error: 2.0 pt ≈ 0.7 mm
-# on paper — imperceptible on a background underlay, yet ~4x coarser than the
-# old 0.5 (the Sleeman reference: 94k points -> a fraction of that). Fidelity
-# is gated visually at architectural plot scale; 4.0 is the hard upper bound.
-PDF_BEZIER_FLATTEN_TOL = 2.0
+# scale-independent ceiling on the plotted-sheet curve error: 1.5 pt ≈ 0.53 mm
+# on paper — 3x coarser than the old 0.5, but tuned back from a 2.0 first pass
+# that faceted visibly on the Sleeman reference at working zoom. Fidelity is
+# gated visually; 4.0 is the hard upper bound, 0.5 the original fine value.
+PDF_BEZIER_FLATTEN_TOL = 1.5
 
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires

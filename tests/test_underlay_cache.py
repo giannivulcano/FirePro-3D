@@ -165,24 +165,18 @@ class TestDeleteCache:
 
 
 class TestCacheVersioning:
-    def test_cache_version_is_5(self):
-        """Task 73: the bézier-tolerance change invalidates old caches."""
-        assert _CACHE_VERSION == 5
-
-    def test_v4_payload_is_rejected(self, tmp_path):
-        """A cache written under the previous version must miss (force re-extract)."""
+    def test_wrong_version_payload_is_rejected(self, tmp_path):
+        """A cache payload at a different version must miss (force re-extract)."""
         cache_dir = str(tmp_path / "proj.fpd.cache")
         os.makedirs(cache_dir)
         key = "stale.json"
-        # Hand-write a payload carrying the OLD version and a matching mtime.
         payload = {
-            "version": 4,
+            "version": _CACHE_VERSION + 99,  # any version that isn't current
             "source_mtime": 1000.0,
             "geoms": [{"kind": "path_points", "points": [(0, 0), (1, 1)]}],
         }
         with open(os.path.join(cache_dir, key), "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
-        # Even with a fresh (matching) mtime, the version mismatch must reject it.
         assert read_cache(cache_dir, key, source_mtime=1000.0) is None
 
     def test_current_version_payload_is_accepted(self, tmp_path):
@@ -193,3 +187,30 @@ class TestCacheVersioning:
                     [{"kind": "path_points", "points": [(0, 0), (1, 1)]}],
                     source_mtime=1000.0)
         assert read_cache(cache_dir, key, source_mtime=1000.0) is not None
+
+
+class TestCacheKeyFlattenTol:
+    """The PDF bézier flatten tolerance is an extraction parameter, so it must
+    participate in the cache key — changing it forces a re-extraction, and a
+    DXF import (which passes no tolerance) keeps its key stable."""
+
+    def test_different_tol_different_key(self):
+        k1 = compute_cache_key("/plans/sheet.pdf", page=0, flatten_tol=1.5)
+        k2 = compute_cache_key("/plans/sheet.pdf", page=0, flatten_tol=2.0)
+        assert k1 != k2
+
+    def test_same_tol_same_key(self):
+        k1 = compute_cache_key("/plans/sheet.pdf", page=0, flatten_tol=1.5)
+        k2 = compute_cache_key("/plans/sheet.pdf", page=0, flatten_tol=1.5)
+        assert k1 == k2
+
+    def test_none_tol_same_as_omitted(self):
+        """DXF/DWG (no tolerance) keys must be unchanged by this feature."""
+        k1 = compute_cache_key("/plans/floor.dxf", page=0)
+        k2 = compute_cache_key("/plans/floor.dxf", page=0, flatten_tol=None)
+        assert k1 == k2
+
+    def test_int_and_float_tol_normalised(self):
+        k1 = compute_cache_key("/plans/sheet.pdf", flatten_tol=2)
+        k2 = compute_cache_key("/plans/sheet.pdf", flatten_tol=2.0)
+        assert k1 == k2

@@ -53,10 +53,33 @@ def _max_deviation(polyline, samples=400):
     return worst
 
 
-def test_constant_exists_and_in_gated_range():
-    """The tolerance is a named constant within the grill's gated band."""
+def test_default_constant_in_spinbox_range():
+    """The shipped default tolerance sits within the Preferences spinbox range."""
     tol = constants.PDF_BEZIER_FLATTEN_TOL
-    assert 1.5 <= tol <= 4.0, f"tolerance {tol} outside gated band [1.5, 4.0]"
+    assert 0.25 <= tol <= 4.0, f"default tolerance {tol} outside range [0.25, 4.0]"
+
+
+def test_current_flatten_tol_reads_setting(tmp_path, monkeypatch):
+    """current_pdf_flatten_tol() reads the Preferences knob, else the default."""
+    from PyQt6.QtCore import QSettings
+    from firepro3d import pdf_import_worker
+
+    ini = str(tmp_path / "prefs.ini")
+
+    def _fake_qsettings(*_a, **_k):
+        return QSettings(ini, QSettings.Format.IniFormat)
+
+    monkeypatch.setattr(pdf_import_worker, "QSettings", _fake_qsettings)
+
+    # Unset → falls back to the module default constant.
+    assert (pdf_import_worker.current_pdf_flatten_tol()
+            == pdf_import_worker.PDF_BEZIER_FLATTEN_TOL)
+
+    # Set → reflects the stored value.
+    w = QSettings(ini, QSettings.Format.IniFormat)
+    w.setValue("import/pdf_bezier_flatten_tol", 3.25)
+    w.sync()
+    assert pdf_import_worker.current_pdf_flatten_tol() == 3.25
 
 
 def test_coarser_tol_yields_fewer_points():

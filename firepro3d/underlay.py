@@ -209,11 +209,21 @@ class Underlay:
         return props
 
     def cache_key(self) -> str:
-        """Return the cache filename for this underlay's geometry."""
+        """Return the cache filename for this underlay's geometry.
+
+        For PDF underlays the current bézier flatten tolerance (a Preferences
+        knob) participates in the key, so changing it re-extracts on reload.
+        DXF/DWG pass no tolerance, keeping their keys stable.
+        """
         from .underlay_cache import compute_cache_key
+        flatten_tol = None
+        if self.type == "pdf":
+            from .pdf_import_worker import current_pdf_flatten_tol
+            flatten_tol = current_pdf_flatten_tol()
         return compute_cache_key(
             self.path, page=self.page, selected_layers=self.selected_layers,
-            layout=self.layout, import_bounds=self.import_bounds)
+            layout=self.layout, import_bounds=self.import_bounds,
+            flatten_tol=flatten_tol)
 
 
 # ---------------------------------------------------------------------------
