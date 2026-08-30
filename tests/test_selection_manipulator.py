@@ -283,3 +283,75 @@ def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
     # HUD torn down, gesture over.
     assert _hud_of(view) is None
     assert not _manip(scene).is_dragging()
+
+
+# ── Task 5: resize handles + rotate knob (capability-gated) ─────────────────
+
+def test_rect_shows_8_handles_and_knob(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import RectangleItem
+    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    visible = [h for h in manip.childItems() if h.isVisible()]
+    assert len(visible) >= 9   # 8 resize + rotate knob
+
+
+def test_line_shows_no_resize_handles(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    scene.addItem(ln)
+    ln.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    visible = [h for h in manip.childItems() if h.isVisible()]
+    assert len(visible) == 0   # parametric line: frame + its own grips only
+
+
+def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.manip_math import HandleRole
+    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    # Drive the manipulator API directly (adapted to the ported signatures).
+    # Centre is (150, 125); start due-east, drag to due-north → ~90° CCW,
+    # Shift snaps the absolute angle to 15°.
+    manip._begin("rotate", QPointF(200, 125), QPointF(200, 125), HandleRole.ROTATE)
+    manip._update(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier,
+                  QPointF(150, 25))
+    manip._finish(QPointF(150, 25), Qt.KeyboardModifier.ShiftModifier)
+    qapp.processEvents()
+    assert r._angle % 15.0 == 0.0 and r._angle != 0.0
+    assert r.rotation() == 0.0            # baked-at-rest: no held Qt transform
+
+
+def test_resize_gesture_bakes_scale_no_transform(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.manip_math import HandleRole
+    r = RectangleItem(QPointF(100, 100), QPointF(200, 150))
+    scene.addItem(r)
+    scene._draw_rects.append(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    # Drag the bottom-right handle from (200,150) out to (300,200): the rect's
+    # width/height should grow, anchored at the top-left (100,100).
+    manip._begin("resize", QPointF(200, 150), QPointF(200, 150),
+                 HandleRole.BOTTOM_RIGHT)
+    manip._update(QPointF(300, 200), Qt.KeyboardModifier.NoModifier,
+                  QPointF(300, 200))
+    manip._finish(QPointF(300, 200), Qt.KeyboardModifier.NoModifier)
+    qapp.processEvents()
+    assert r.transform().isIdentity()                 # baked, no held transform
+    assert abs(r.rect().left() - 100.0) < 2.0         # TL anchor held
+    assert abs(r.rect().top() - 100.0) < 2.0
+    assert r.rect().width() > 120.0                    # grew from 100 wide
+    assert r.rect().height() > 60.0                    # grew from 50 tall

@@ -16,7 +16,8 @@ from PyQt6.QtWidgets import (
     QStyle,
 )
 from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtGui import QPen, QColor, QPainterPath, QBrush, QPainterPathStroker, QPolygonF
+from PyQt6.QtGui import (QPen, QColor, QPainterPath, QBrush, QPainterPathStroker,
+                         QPolygonF, QTransform)
 from .constants import DEFAULT_LEVEL, Z_CAT_CONSTRUCTION
 from .displayable_item import DisplayableItemMixin
 from .hatch_patterns import PATTERN_NAMES
@@ -579,10 +580,14 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         self.setFlag(self.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(self.GraphicsItemFlag.ItemIsMovable, False)
 
-        # Rotation state.  The rect stays axis-aligned in local coords; the item
-        # is rotated via Qt's native transform (see set_angle).  ``_pivot`` is
-        # None when the origin should track the rect centre on resize; an
-        # explicit pivot is stored and left fixed.
+        # Rotation state (baked-at-rest — selection-manipulator.md).  The rect
+        # stays axis-aligned in local coords; the rotation is stored as DATA
+        # (``_angle``/``_pivot``), NOT a held Qt item transform.  ``rotation()``
+        # is always 0 at rest.  ``_pivot`` is None when the origin should track
+        # the rect centre on resize; an explicit pivot is stored and left fixed.
+        # paint/shape/boundingRect/grip_points and the map* overrides all read
+        # the rotation from ``_rotation_transform()`` so the rendered/hit
+        # footprint matches the old held-transform footprint byte-for-byte.
         self._angle: float = 0.0
         self._pivot: QPointF | None = None
 
@@ -591,25 +596,83 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     def set_angle(self, angle_deg: float, pivot: "QPointF | None" = None) -> None:
         """Rotate the rectangle to ``angle_deg`` (from +x) about ``pivot``.
 
-        Uses Qt's item transform (``setRotation`` + ``setTransformOriginPoint``)
-        so paint, ``boundingRect`` and scene hit-testing rotate for free.  The
-        rect stays axis-aligned in local coords; only the item is rotated.
-        ``pivot`` defaults to the rect centre.  The item sits at identity
-        position with the rect holding scene coords, so local == scene here and
-        the pivot is used directly as the local transform origin.
+        Bake-at-rest: the angle/pivot are stored as DATA — NO Qt item transform
+        is applied (``rotation()`` stays 0).  ``paint``/``shape``/``boundingRect``
+        and the ``mapToScene``/``mapFromScene``/``mapRectToScene`` overrides read
+        this state so the rotated rect renders and hit-tests exactly as the old
+        ``setRotation``/``setTransformOriginPoint`` path did.  ``pivot`` defaults
+        to the rect centre (tracked on resize when ``_pivot is None``).
         """
         self._angle = float(angle_deg)
         if pivot is not None:
             self._pivot = QPointF(pivot)
-            origin = self._pivot
         else:
             self._pivot = None          # origin follows rect centre on resize
-            origin = self.rect().center()
-        self.setTransformOriginPoint(origin)
-        # ``_angle`` is Y-up (CCW-positive), matching line/arc angles and the
-        # rotate readout.  Qt's ``setRotation`` is CW-positive on the Y-down
-        # scene, so negate: a +30° readout must turn the rect 30° CCW on screen.
-        self.setRotation(-self._angle)
+        # Data-only: drop any held transform (a load path or legacy caller may
+        # have left one) and refresh the cached rotated footprint.
+        self.prepareGeometryChange()
+        self.update()
+
+    # ── Rotation helpers (data-only footprint) ────────────────────────────
+
+    def _rotation_origin(self) -> QPointF:
+        """Resolved rotation pivot: the explicit ``_pivot`` or the rect centre."""
+        return QPointF(self._pivot) if self._pivot is not None else self.rect().center()
+
+    def _rotation_transform(self) -> QTransform:
+        """Local→scene rotation matrix equivalent to the retired held transform.
+
+        Mirrors the old ``setRotation(-_angle)`` about the resolved pivot: a
+        Y-up CCW ``_angle`` becomes Qt's CW-positive ``rotate(-_angle)`` about
+        the origin.  Identity at angle 0, so unrotated rects keep the plain
+        local==scene contract.
+        """
+        m = QTransform()
+        if self._angle == 0.0:
+            return m
+        o = self._rotation_origin()
+        m.translate(o.x(), o.y())
+        m.rotate(-self._angle)          # Y-up CCW → Qt CW negate
+        m.translate(-o.x(), -o.y())
+        return m
+
+    # ── map* overrides (route rotation through data, not a held transform) ──
+
+    def mapToScene(self, *args):
+        """Local→scene through the data rotation (item pos is identity).
+
+        Overridden so external callers that historically relied on the held Qt
+        rotation (snap_engine, tool_geometry, grip_points…) keep working after
+        the bake-at-rest migration.  Accepts the same overloads used in-tree:
+        a ``QPointF``, an ``(x, y)`` pair, or a ``QPainterPath``.
+        """
+        t = self._rotation_transform()
+        if len(args) == 2:                       # (x, y)
+            return t.map(QPointF(args[0], args[1]))
+        obj = args[0]
+        if isinstance(obj, QPainterPath):
+            return t.map(obj)
+        return t.map(QPointF(obj))
+
+    def mapFromScene(self, *args):
+        """Scene→local inverse of :meth:`mapToScene`."""
+        inv, ok = self._rotation_transform().inverted()
+        if not ok:
+            inv = QTransform()
+        if len(args) == 2:
+            return inv.map(QPointF(args[0], args[1]))
+        obj = args[0]
+        if isinstance(obj, QPainterPath):
+            return inv.map(obj)
+        return inv.map(QPointF(obj))
+
+    def mapRectToScene(self, rect: QRectF) -> QRectF:
+        """Bounding rect of ``rect`` after the data rotation.
+
+        Matches Qt's held-transform ``mapRectToScene`` (returns the axis-aligned
+        bounds of the rotated rect), preserving offset/snap-distance callers.
+        """
+        return self._rotation_transform().mapRect(rect)
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -721,23 +784,20 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             new_r = r.translated(dx, dy)
         else:
             return
+        self.prepareGeometryChange()
         self.setRect(new_r)
-        # When the pivot follows the centre, keep the rotation origin on the new
-        # centre so a resized rectangle rotates about its own middle.
-        if self._pivot is None:
-            self.setTransformOriginPoint(self.rect().center())
+        # A centre-following pivot (``_pivot is None``) re-derives from the new
+        # rect centre automatically (see ``_rotation_origin``); no held origin
+        # to update now that rotation is baked-at-rest data.
 
     def translate(self, dx: float, dy: float):
+        self.prepareGeometryChange()
         self.setRect(self.rect().translated(dx, dy))
-        # Carry the rotation origin with the rect.  A centre-following pivot
-        # tracks the new centre; an explicit pivot (every rotate-step rect has
-        # one) must shift by the same offset — otherwise a rotated rect swings
-        # about a stale origin after a move and lands away from its ghost.
-        if self._pivot is None:
-            self.setTransformOriginPoint(self.rect().center())
-        else:
+        # Carry an explicit pivot with the rect (every rotate-step rect has one)
+        # so a rotated rect keeps swinging about the same relative origin after a
+        # move.  A centre-following pivot re-derives from the new centre.
+        if self._pivot is not None:
             self._pivot = QPointF(self._pivot.x() + dx, self._pivot.y() + dy)
-            self.setTransformOriginPoint(self._pivot)
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
@@ -761,9 +821,13 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             pen = QPen(self.pen())
             pen.setColor(QColor(dc))
             self.setPen(pen)
-        # Draw fill FIRST (behind the outline).  The rect is axis-aligned in
-        # local coords; Qt's item rotation (set_angle) rotates the whole item,
-        # so the fill in local-coord space rotates with the shape for free.
+        # Bake-at-rest: rotation is DATA, not a held item transform, so rotate
+        # the painter about the pivot here (local rect stays axis-aligned).
+        # save/restore keeps the rotation local to this paint call.
+        painter.save()
+        if self._angle != 0.0:
+            painter.setWorldTransform(self._rotation_transform(), True)
+        # Draw fill FIRST (behind the outline).
         if getattr(self, "fill_type", "none") != "none":
             cp = self.get_closed_path()
             if cp is not None:
@@ -777,14 +841,29 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             highlight.setCosmetic(True)
             painter.setPen(highlight)
             painter.drawRect(self.rect())
+        painter.restore()
 
     # ── Shape / hit-test ─────────────────────────────────────────────────────
+
+    def boundingRect(self) -> QRectF:
+        """Rotated-footprint bounds (bake-at-rest — no held item transform).
+
+        The base rect ``boundingRect`` is the axis-aligned local rect; with the
+        rotation baked to data we return the rotated footprint's bounds so Qt's
+        scene index / culling wraps the real shape (the held transform did this
+        for free before).
+        """
+        base = super().boundingRect()
+        if self._angle == 0.0:
+            return base
+        return self._rotation_transform().mapRect(base)
 
     def shape(self) -> QPainterPath:
         """Return a stroked outline path so the rectangle border is clickable.
 
         When filled, also include the interior so clicking anywhere inside
-        selects the rectangle.
+        selects the rectangle.  The path is rotated by the data ``_angle`` about
+        the pivot so scene hit-testing tracks the rotated footprint.
         """
         cp = self.get_closed_path()  # addRect path in local coords
         stroker = QPainterPathStroker()
@@ -792,7 +871,52 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
         path = stroker.createStroke(cp)
         if getattr(self, "fill_type", "none") != "none":
             path = path.united(cp)
+        if self._angle != 0.0:
+            path = self._rotation_transform().map(path)
         return path
+
+    # ── Manipulator capability protocol (selection-manipulator.md) ──────────
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rotate: accumulate ``angle_deg`` onto the current angle about
+        ``pivot`` (Y-up CCW+).  One home with ``set_angle`` so the manipulator
+        and the placement rotate-step cannot drift."""
+        self.set_angle(self._angle + angle_deg, pivot)
+
+    def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
+        """Baked resize about a scene ``anchor`` by factors ``(fx, fy)``.
+
+        Routes through the SAME rect-mutation primitive a corner grip uses
+        (:meth:`apply_grip`) so grips and the manipulator share one geometry
+        path.  The anchor's nearest local corner is held fixed and the opposite
+        corner is scaled about it in the rect's own (rotated) frame, then handed
+        to ``apply_grip`` in scene coords.  An anchor at the centre
+        (Ctrl / from-centre resize) scales both corners about the centre.
+        """
+        r = self.rect()
+        a_local = self.mapFromScene(anchor)
+        c = r.center()
+        tl = QPointF(r.left(), r.top())
+        br = QPointF(r.right(), r.bottom())
+        near_tl = abs(a_local.x() - r.left()) + abs(a_local.y() - r.top())
+        near_br = abs(a_local.x() - r.right()) + abs(a_local.y() - r.bottom())
+        near_c = abs(a_local.x() - c.x()) + abs(a_local.y() - c.y())
+        if near_c < near_tl and near_c < near_br:
+            # From-centre: scale both corners about the centre.
+            hw = r.width() * abs(fx) / 2.0
+            hh = r.height() * abs(fy) / 2.0
+            self.prepareGeometryChange()
+            self.setRect(QRectF(c.x() - hw, c.y() - hh, 2 * hw, 2 * hh))
+            return
+        if near_tl <= near_br:
+            fixed, moving, grip = tl, br, 4        # TL fixed, drag BR
+        else:
+            fixed, moving, grip = br, tl, 0        # BR fixed, drag TL
+        target_local = QPointF(
+            fixed.x() + (moving.x() - fixed.x()) * fx,
+            fixed.y() + (moving.y() - fixed.y()) * fy,
+        )
+        self.apply_grip(grip, self.mapToScene(target_local))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

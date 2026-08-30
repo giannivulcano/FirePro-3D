@@ -14,26 +14,44 @@ import math
 from typing import Callable, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen, QTransform
+from PyQt6.QtGui import (
+    QBrush, QColor, QCursor, QPainter, QPainterPath, QPen, QPixmap, QTransform,
+)
 from PyQt6.QtWidgets import (
     QApplication,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsScene,
+    QGraphicsSceneHoverEvent,
     QGraphicsSceneMouseEvent,
     QStyleOptionGraphicsItem,
     QWidget,
 )
 
 from . import theme
-from .dynamic_input import resolve_manip_move
-from .manip_math import move_delta
+from .dynamic_input import (
+    resolve_manip_move, resolve_manip_resize, resolve_manip_rotate,
+)
+from .manip_math import (
+    HandleRole, _ROLE_GEOM, _RESIZE_ROLES, _rect_point,
+    move_delta, resize_delta, rotate_delta,
+)
 
 log = logging.getLogger(__name__)
 
 MANIP_Z = 1e6          # spec: manipulator sits above all scene content
 _SHAPE_PAD_PX = 3.0    # interior hit slack so hairline frames stay grabbable
 _BOUND_PAD_PX = 6.0    # boundingRect pad (>= shape pad; generous for culling)
+
+# Handle metrics (device px; ItemIgnoresTransformations keeps them zoom-constant).
+# Placeholder styling until the Task-6 mockup binds the final look: white fill,
+# theme ``selection`` outline at rest / ``selection_active`` while dragging.
+_HANDLE_SIZE_PX = 8.0        # square side
+_HANDLE_BORDER_PX = 1.2
+_HANDLE_GRAB_PAD_PX = 3.0    # extra hit slack around the square
+_ROTATE_OFFSET_PX = 26.0     # stem length from the top-mid to the knob
+_ROTATE_RADIUS_PX = 5.0
+_ROTATE_SNAP_DEG = 15.0      # Shift-snap increment (absolute angle)
 
 #: Manipulator gesture mode -> dynamic-input schema name.  Move drives a
 #: gesture in v1; resize/rotate are wired ready for their handles (Task 5).
@@ -110,6 +128,138 @@ def bake_translate(item, dx: float, dy: float) -> bool:
 
 
 # --------------------------------------------------------------------------- #
+#  Rotate cursor + grab handles (ported from the SelectionBox prototype)
+# --------------------------------------------------------------------------- #
+
+def _yup_angle_from_delta(d: QTransform) -> float:
+    """App-convention (Y-up CCW+) rotation angle of a scene-space delta.
+
+    ``rotate_delta`` builds ``d`` with Qt's ``rotate`` (y-down CW+), so the
+    x-axis image gives the Qt angle; negate for the app's Y-up readout/bake
+    convention (matching ``RectangleItem.set_angle``)."""
+    v = d.map(QPointF(1.0, 0.0)) - d.map(QPointF(0.0, 0.0))
+    return -math.degrees(math.atan2(v.y(), v.x()))
+
+
+def _make_rotate_cursor(size: int = 22) -> QCursor:
+    """A small circular-arrow cursor (Qt has no stock rotate cursor)."""
+    pm = QPixmap(size, size)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    rect = QRectF(4, 4, size - 8, size - 8)
+    for color, width in ((QColor(0, 0, 0, 200), 3.4), (QColor(255, 255, 255), 1.6)):
+        pen = QPen(color, width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawArc(rect, 30 * 16, 280 * 16)
+        cx, cy = size / 2.0, size / 2.0
+        r = rect.width() / 2.0
+        ax = cx + r * math.cos(math.radians(-30))
+        ay = cy - r * math.sin(math.radians(30))
+        p.drawLine(QPointF(ax, ay), QPointF(ax - 4.2, ay - 1.2))
+        p.drawLine(QPointF(ax, ay), QPointF(ax + 1.4, ay - 4.4))
+    p.end()
+    return QCursor(pm, size // 2, size // 2)
+
+
+class _Handle(QGraphicsItem):
+    """Screen-constant grab handle — a child of the SelectionManipulator.
+
+    ``ItemIgnoresTransformations`` keeps the handle a constant device-pixel size
+    at any zoom.  Press begins the manipulator's ``resize``/``rotate`` gesture
+    for this handle's role via ``manip._begin``; move/release forward to
+    ``_update``/``_finish`` exactly as an interior-move drag does.
+    """
+
+    def __init__(self, manip: "SelectionManipulator", role: HandleRole):
+        super().__init__(manip)
+        self._manip = manip
+        self.role = role
+        self._hover = False
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
+        self.setAcceptHoverEvents(True)
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        self.setZValue(2.0 if role is not HandleRole.ROTATE else 1.5)
+
+    # -- geometry (device pixels, anchored at the handle's scene position) ----
+
+    def _half(self) -> float:
+        return _HANDLE_SIZE_PX / 2.0 + _HANDLE_GRAB_PAD_PX
+
+    def boundingRect(self) -> QRectF:
+        if self.role is HandleRole.ROTATE:
+            r = _ROTATE_OFFSET_PX + _ROTATE_RADIUS_PX + _HANDLE_GRAB_PAD_PX + 2.0
+            return QRectF(-r, -r, 2 * r, 2 * r)
+        h = self._half() * math.sqrt(2.0)   # covers the square at any rotation
+        return QRectF(-h, -h, 2 * h, 2 * h)
+
+    def _knob_center(self) -> QPointF:
+        """Rotate-knob centre in this item's (device) frame — above the top-mid.
+
+        The frame carries no rotation at rest (bake-at-rest), so the knob sits
+        straight up (device -y) by the stem offset.
+        """
+        return QPointF(0.0, -_ROTATE_OFFSET_PX)
+
+    def shape(self) -> QPainterPath:
+        path = QPainterPath()
+        if self.role is HandleRole.ROTATE:
+            c = self._knob_center()
+            r = _ROTATE_RADIUS_PX + _HANDLE_GRAB_PAD_PX
+            path.addEllipse(c, r, r)
+        else:
+            h = self._half()
+            path.addRect(QRectF(-h, -h, 2 * h, 2 * h))
+        return path
+
+    def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
+              widget: Optional[QWidget] = None) -> None:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        border = self._manip._handle_color(self._hover)
+        fill = QColor(Qt.GlobalColor.white)
+        if self.role is HandleRole.ROTATE:
+            c = self._knob_center()
+            stem = QPen(QColor(border.red(), border.green(), border.blue(), 140), 1.0)
+            painter.setPen(stem)
+            painter.drawLine(QPointF(0, 0), c)
+            painter.setPen(QPen(border, _HANDLE_BORDER_PX))
+            painter.setBrush(QBrush(border if self._hover else fill))
+            painter.drawEllipse(c, _ROTATE_RADIUS_PX, _ROTATE_RADIUS_PX)
+        else:
+            half = _HANDLE_SIZE_PX / 2.0
+            painter.setPen(QPen(border, _HANDLE_BORDER_PX))
+            painter.setBrush(QBrush(border if self._hover else fill))
+            painter.drawRect(QRectF(-half, -half, _HANDLE_SIZE_PX, _HANDLE_SIZE_PX))
+
+    # -- interaction ----------------------------------------------------------
+
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._hover = True
+        self.setCursor(self._manip._cursor_for(self.role))
+        self.update()
+
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._hover = False
+        self.unsetCursor()
+        self.update()
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            mode = "rotate" if self.role is HandleRole.ROTATE else "resize"
+            self._manip._begin(mode, event.scenePos(), event.screenPos(), self.role)
+            event.accept()
+        else:
+            event.ignore()
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        self._manip._update(event.scenePos(), event.modifiers(), event.screenPos())
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        self._manip._finish(event.scenePos(), event.modifiers())
+
+
+# --------------------------------------------------------------------------- #
 #  SelectionManipulator
 # --------------------------------------------------------------------------- #
 
@@ -148,11 +298,14 @@ class SelectionManipulator(QGraphicsObject):
 
         # drag state
         self._mode: Optional[str] = None
+        self._role: Optional[HandleRole] = None
         self._B0 = QTransform()
         self._R0 = QRectF()
         self._start_scene = QPointF()
         self._press_screen = QPointF()
         self._moved = False
+        self._base_angle = 0.0
+        self._last_factors: Tuple[float, float] = (1.0, 1.0)
         self._items0: List[Tuple[QGraphicsItem, QTransform,
                                  QTransform, QTransform]] = []
         self._D = QTransform()
@@ -170,6 +323,15 @@ class SelectionManipulator(QGraphicsObject):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self.hide()
+
+        # Screen-constant children: 8 resize handles + one rotate knob.  Their
+        # visibility is capability-gated in ``_layout`` (frame+move only for
+        # multi-select / parametric single-select).
+        self._handles = {role: _Handle(self, role) for role in _RESIZE_ROLES}
+        self._handles[HandleRole.ROTATE] = _Handle(self, HandleRole.ROTATE)
+        for h in self._handles.values():
+            h.hide()
+        self._rotate_cursor = _make_rotate_cursor()
 
         scene.addItem(self)
         scene.selectionChanged.connect(self._on_selection_changed)
@@ -325,7 +487,60 @@ class SelectionManipulator(QGraphicsObject):
         painter.drawRect(self._rect)
 
     def _layout(self) -> None:
-        """Position child handles on the frame (no handles yet — later tasks)."""
+        """Position the resize handles + rotate knob and capability-gate them.
+
+        Resize handles show only for a single item that implements
+        ``manip_scale``; the rotate knob shows only when every selected item
+        implements ``manip_rotate`` (spec handle-gating).  Multi-select or a
+        parametric single-select gets frame + interior-move only — the handles
+        stay hidden and the item's own grips (drawn by Model_View) drive edits.
+        """
+        r = self._rect
+        for role in _RESIZE_ROLES:
+            u, v, _, _ = _ROLE_GEOM[role]
+            self._handles[role].setPos(_rect_point(r, u, v))
+        # Knob anchored at the top-edge midpoint; the stem/knob draw upward from
+        # there in device space (see _Handle._knob_center).
+        self._handles[HandleRole.ROTATE].setPos(_rect_point(r, 0.5, 0.0))
+
+        caps = [item_capabilities(i) for i in self._items]
+        single = len(self._items) == 1
+        show_scale = single and bool(caps) and "scale" in caps[0]
+        show_rotate = bool(self._items) and all("rotate" in c for c in caps)
+        for role in _RESIZE_ROLES:
+            self._handles[role].setVisible(show_scale)
+        self._handles[HandleRole.ROTATE].setVisible(show_rotate)
+
+    # ------------------------------------------------------------- styling --
+
+    def _handle_color(self, active: bool) -> QColor:
+        """Handle outline colour: ``selection_active`` while dragging or hovered,
+        else the resting ``selection`` accent (placeholder until Task-6 mockup)."""
+        try:
+            th = theme.detect()
+            token = th.selection_active if (active or self._mode is not None) \
+                else th.selection
+            return QColor(token)
+        except Exception:                        # headless / no palette yet
+            return QColor("#8FE3B4" if active else "#63BE8B")
+
+    def _cursor_for(self, role: HandleRole) -> QCursor:
+        """Role cursor: the rotate glyph for the knob, else an axis-aware resize
+        cursor.  The frame is unrotated at rest, so the outward direction of each
+        resize handle in device space is just its ``_ROLE_GEOM`` direction."""
+        if role is HandleRole.ROTATE:
+            return self._rotate_cursor
+        _, _, dx, dy = _ROLE_GEOM[role]
+        ang = math.degrees(math.atan2(float(dy), float(dx))) % 180.0
+        if ang < 22.5 or ang >= 157.5:
+            shape = Qt.CursorShape.SizeHorCursor
+        elif ang < 67.5:
+            shape = Qt.CursorShape.SizeFDiagCursor
+        elif ang < 112.5:
+            shape = Qt.CursorShape.SizeVerCursor
+        else:
+            shape = Qt.CursorShape.SizeBDiagCursor
+        return QCursor(shape)
 
     # ----------------------------------------------------------- view helpers --
 
@@ -443,14 +658,16 @@ class SelectionManipulator(QGraphicsObject):
 
         Runs during a live gesture: the user armed the drag, then engaged the
         HUD and typed exact numbers.  The typed values are resolved through the
-        active schema into the same delta a released drag produces, baked via
-        the identical path (:meth:`_finish`'s move branch), and committed once.
-        Only ``move`` drives a gesture in v1; resize/rotate resolve but have no
-        applier yet, so they close the HUD without touching geometry.
+        active schema into the same bake a released drag produces (shared
+        ``_bake_*`` helpers), and committed once.  Handles move / resize /
+        rotate — the three transform gestures.
         """
         if self._mode is None:
             return
         mode = self._mode
+        role = self._role
+        r0 = QRectF(self._R0)
+        b0 = QTransform(self._B0)
         # Drop the held preview first: committed geometry carries no Qt item
         # transform (spec baked-at-rest rule).
         self.setTransform(self._B0)
@@ -464,18 +681,36 @@ class SelectionManipulator(QGraphicsObject):
             dx, dy = offset.x(), offset.y()
             if abs(dx) > 1e-12 or abs(dy) > 1e-12:
                 self._bake_move(items, dx, dy)
+        elif mode == "resize":
+            res = resolve_manip_resize(None, values)
+            w0, h0 = r0.width(), r0.height()
+            fx = (res["width"] / w0) if w0 > 1e-12 else 1.0
+            fy = (res["height"] / h0) if h0 > 1e-12 else 1.0
+            if abs(fx - 1.0) > 1e-12 or abs(fy - 1.0) > 1e-12:
+                self._bake_scale(items, role, (fx, fy), r0, b0)
+        elif mode == "rotate":
+            # Typed angle is the absolute app (Y-up) orientation; the frame is
+            # unrotated at rest, so the delta equals the typed value.
+            angle_deg = resolve_manip_rotate(None, values)["angle_deg"]
+            if abs(angle_deg) > 1e-9:
+                pivot = b0.map(r0.center())
+                self._bake_rotate(items, angle_deg, pivot)
         self._close_hud()
         self.rebake()
 
     # ------------------------------------------------------------- dragging --
 
-    def _begin(self, mode: str, scene_pos: QPointF, screen_pos: QPointF) -> None:
+    def _begin(self, mode: str, scene_pos: QPointF, screen_pos: QPointF,
+               role: Optional[HandleRole] = None) -> None:
         self._mode = mode
+        self._role = role
         self._B0 = self.transform()
         self._R0 = QRectF(self._rect)
         self._start_scene = QPointF(scene_pos)
         self._press_screen = QPointF(screen_pos)
         self._moved = False
+        self._base_angle = 0.0            # frame is unrotated at rest (baked)
+        self._last_factors = (1.0, 1.0)
         self._D = QTransform()
         self._held_snap = None
         self._items0 = []
@@ -499,6 +734,7 @@ class SelectionManipulator(QGraphicsObject):
             self._moved = True
 
         shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
         if self._mode == "move":
             snapped = self._snap(scene_pos)
             d = move_delta(self._start_scene, snapped, ortho=shift)
@@ -507,6 +743,29 @@ class SelectionManipulator(QGraphicsObject):
             # dy).  set_values converts DIMENSION scene→mm and is a no-op while
             # the user is typing (is_engaged guard inside _feed_hud).
             self._feed_hud({"dX": d.dx(), "dY": -d.dy()})
+        elif self._mode == "resize":
+            # Snap the dragged handle point (spec lifecycle step 2), then compute
+            # the scale delta in the (unrotated) frame.  Shift = keep aspect,
+            # Ctrl = scale about the centre.
+            snapped = self._snap(scene_pos)
+            d, fx, fy = resize_delta(self._B0, self._R0, self._role,
+                                     self._start_scene, snapped,
+                                     keep_aspect=shift, from_center=ctrl)
+            self._last_factors = (fx, fy)
+            self._apply(d)
+            self._feed_hud({"Width": abs(self._R0.width() * fx),
+                            "Height": abs(self._R0.height() * fy)})
+        elif self._mode == "rotate":
+            # No OSNAP on rotate; Shift = 15° absolute snap.  Centre is the
+            # frame centre (unrotated at rest).
+            center = self._B0.map(self._R0.center())
+            snap = _ROTATE_SNAP_DEG if shift else None
+            d, total = rotate_delta(center, self._start_scene, scene_pos,
+                                    self._base_angle, snap)
+            self._apply(d)
+            # total is the Qt (y-down CW+) absolute angle; the app readout is
+            # Y-up CCW+, so negate.
+            self._feed_hud({"Angle": -total})
 
     def _apply(self, d: QTransform) -> None:
         """Held-transform preview: prepend the scene-space delta to the frame
@@ -520,8 +779,12 @@ class SelectionManipulator(QGraphicsObject):
         if self._mode is None:
             return
         mode = self._mode
+        role = self._role
         moved = self._moved
         d = QTransform(self._D)
+        factors = self._last_factors
+        r0 = QRectF(self._R0)
+        b0 = QTransform(self._B0)
         items = [rec[0] for rec in self._items0]
 
         # Restore the preview: committed state carries no Qt item transform
@@ -541,6 +804,17 @@ class SelectionManipulator(QGraphicsObject):
             if abs(dx) > 1e-12 or abs(dy) > 1e-12:
                 self._bake_move(items, dx, dy)
             self.rebake()
+        elif mode == "resize":
+            if moved:
+                self._bake_scale(items, role, factors, r0, b0)
+                self.rebake()
+        elif mode == "rotate":
+            if moved:
+                angle_deg = _yup_angle_from_delta(d)
+                if abs(angle_deg) > 1e-9:
+                    pivot = b0.map(r0.center())
+                    self._bake_rotate(items, angle_deg, pivot)
+                self.rebake()
         self._close_hud()
 
     def _bake_move(self, items, dx: float, dy: float) -> None:
@@ -564,6 +838,57 @@ class SelectionManipulator(QGraphicsObject):
             tools._solve_constraints()
         if self._commit_hook is not None:
             self._commit_hook("move")
+
+    def _bake_scale(self, items, role: HandleRole,
+                    factors: Tuple[float, float], r0: QRectF,
+                    b0: QTransform) -> None:
+        """Bake a resize of *items* by ``factors`` about the fixed anchor.
+
+        The anchor is the corner diagonally opposite the dragged handle (or the
+        centre when Ctrl/from-centre was used — captured in ``factors`` already
+        via the resize math), mapped to scene coords through the resting frame
+        ``b0``.  Only single-item ``manip_scale`` items reach here (handle
+        gating), but the loop is written generically.  One undo per gesture.
+        """
+        fx, fy = factors
+        u, v, _dx, _dy = _ROLE_GEOM[role]
+        # Fixed anchor = opposite corner of the dragged handle, in the frame's
+        # local (== scene at rest) coords, then to scene through b0.
+        anchor_local = _rect_point(r0, 1.0 - u, 1.0 - v)
+        anchor = b0.map(anchor_local)
+        for it in items:
+            fn = getattr(it, "manip_scale", None)
+            if fn is None:
+                log.warning("SelectionManipulator: %s has no manip_scale — "
+                            "resize not baked", type(it).__name__)
+                continue
+            fn(fx, fy, anchor)
+        sc = self.scene()
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints()
+        if self._commit_hook is not None:
+            self._commit_hook("resize")
+
+    def _bake_rotate(self, items, angle_deg: float, pivot: QPointF) -> None:
+        """Bake a rotate of *items* by ``angle_deg`` (Y-up CCW+) about *pivot*.
+
+        One undo per gesture, shared by the released-drag path and the typed
+        (HUD) path so they can never diverge.
+        """
+        for it in items:
+            fn = getattr(it, "manip_rotate", None)
+            if fn is None:
+                log.warning("SelectionManipulator: %s has no manip_rotate — "
+                            "rotate not baked", type(it).__name__)
+                continue
+            fn(angle_deg, pivot)
+        sc = self.scene()
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints()
+        if self._commit_hook is not None:
+            self._commit_hook("rotate")
 
     def cancel_drag(self) -> None:
         """Abort the active drag and restore the pre-drag state (no commit)."""
