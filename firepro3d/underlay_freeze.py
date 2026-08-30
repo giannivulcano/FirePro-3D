@@ -137,8 +137,14 @@ class UnderlayFreezeController:
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        # pixmap px = viewport px + pad offset
-        base = view.viewportTransform() * QTransform().translate(pad_w, pad_h)
+        # pixmap px = (viewport px + pad offset), squeezed by the clamp ratio
+        # so a clamped pixmap holds the WHOLE padded region at reduced
+        # resolution instead of a truncated crop stretched over the viewport.
+        sq_x = (w / dpr) / px_rect.width()    # 1.0 unless clamped
+        sq_y = (h / dpr) / px_rect.height()
+        base = (view.viewportTransform()
+                * QTransform().translate(pad_w, pad_h)
+                * QTransform().scale(sq_x, sq_y))
         z_values = []
         for record, group in getattr(self._scene, "underlays", []):
             for child in group.childItems():

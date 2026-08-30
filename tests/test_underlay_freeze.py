@@ -423,3 +423,67 @@ class TestVectorPlotParity:
         images = doc[0].get_images(full=True)
         assert not images, "plotted page contains a raster image - freeze leaked"
         doc.close()
+
+
+class TestClampSqueeze:
+    def test_clamped_capture_keeps_far_edge_content(self, qapp):
+        """C1 regression: when the per-axis clamp engages, the capture is
+        squeezed to lower resolution — never truncated. Geometry near the
+        far edge of the padded viewport must still land in the pixmap."""
+        from firepro3d.constants import (UNDERLAY_FREEZE_MAX_PX,
+                                         UNDERLAY_FREEZE_PAD_FRACTION)
+        scene = Model_Space()
+        record = Underlay(type="pdf", path="synthetic.pdf", colour=BAIT)
+        geoms = [{"kind": "path_points", "layer": "L1", "width": 0.0,
+                  "closed": False,
+                  "points": [[8000.0, 8000.0], [8900.0, 8000.0]]}]
+        result = scene._build_batched_underlay_group(geoms, record)
+        assert result is not None
+        group, _ = result
+        scene._apply_underlay_display(group, record)
+        scene.underlays.append((record, group))
+
+        vp_w = vp_h = 9000
+        dpr = 2.0
+        got = scene._underlay_freeze._capture(_FakeView(vp_w, vp_h, dpr=dpr))
+        assert got is not None
+        pixmap, scene_rect, z = got
+        assert pixmap.width() <= UNDERLAY_FREEZE_MAX_PX          # clamp active
+        img = pixmap.toImage()
+
+        # Mirror the capture mapping to find where the line must land.
+        pad = int(vp_w * UNDERLAY_FREEZE_PAD_FRACTION)
+        padded = vp_w + 2 * pad
+        sq = (pixmap.width() / dpr) / padded
+        x1 = int((8000 + pad) * sq * dpr) - 60
+        x2 = int((8900 + pad) * sq * dpr) + 60
+        y1 = int((8000 + pad) * sq * dpr) - 60
+        y2 = y1 + 120
+        bait = QColor(BAIT)
+        found = False
+        for x in range(max(0, x1), min(img.width(), x2), 2):
+            for y in range(max(0, y1), min(img.height(), y2), 2):
+                c = img.pixelColor(x, y)
+                if (abs(c.red() - bait.red()) < 60
+                        and abs(c.blue() - bait.blue()) < 60):
+                    found = True
+                    break
+            if found:
+                break
+        assert found, "far-edge line missing from clamped capture (truncated)"
+
+
+class TestUndoRedoAbort:
+    def test_undo_aborts_freeze(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        assert scene._underlay_freeze.frozen is True
+        scene.undo()
+        assert scene._underlay_freeze.frozen is False
+
+    def test_redo_aborts_freeze(self, qapp):
+        scene, record, group = make_underlay_scene()
+        scene._underlay_freeze.begin(_FakeView())
+        assert scene._underlay_freeze.frozen is True
+        scene.redo()
+        assert scene._underlay_freeze.frozen is False
