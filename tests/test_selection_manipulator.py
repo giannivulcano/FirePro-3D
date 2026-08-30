@@ -65,6 +65,11 @@ def _manip(scene):
                 if isinstance(i, SelectionManipulator))
 
 
+def _hud_of(view):
+    """The manipulator's live HUD (owned per gesture on ``_hud``)."""
+    return _manip(view.scene())._hud
+
+
 def test_manipulator_attached_once_per_scene(qapp, scene_and_view):
     scene, view = scene_and_view
     manips = [i for i in scene.items() if isinstance(i, SelectionManipulator)]
@@ -219,3 +224,62 @@ def test_sprinkler_selection_resolves_to_node(qapp, scene_and_view):
     resolved = manip.selection_items()
     assert node in resolved
     assert spr not in resolved
+
+
+def test_hud_shows_live_move_values_then_returns_inactive(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    item = LineItem(QPointF(100, 100), QPointF(200, 100))
+    scene.addItem(item)
+    item.setSelected(True)
+    qapp.processEvents()
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(125, 100))
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(165, 130))
+    hud = _hud_of(view)
+    assert hud is not None                       # HUD opened for the gesture
+    vals = hud.current_values()                  # schema units (uncal: 1==1 mm)
+    assert set(("dX", "dY")).issubset(vals)      # move-schema fields present
+    assert vals["dX"] > 0                         # dragged right → +dX
+    assert abs(vals["dX"] - 40.0) < 2.0
+    assert abs(vals["dY"] - (-30.0)) < 2.0        # Y-up: dragged down → -dY
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(165, 130))
+    assert _hud_of(view) is None                  # torn down on release
+    manip = _manip(scene)
+    assert not manip.is_dragging()
+
+
+def test_typed_move_commits_exact_and_one_undo(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import LineItem
+    item = LineItem(QPointF(100, 100), QPointF(200, 100))
+    scene.addItem(item)
+    scene._draw_lines.append(item)               # register in serialized net
+    item.setSelected(True)
+    scene.push_undo_state()                       # baseline
+    undo_depth0 = len(scene._undo_stack)
+    qapp.processEvents()
+
+    x0 = item.line().p1().x()
+    y0 = item.line().p1().y()
+
+    _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(125, 100))
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(130, 100))  # arm gesture
+    hud = _hud_of(view)
+    assert hud is not None
+
+    # Drive the real engage/commit path: type an exact dX/dY, then accept.
+    hud.engage()
+    hud.editor("dX").setText("75")
+    hud.editor("dY").setText("0")
+    hud._accept()                                 # emits committed → _on_hud_committed
+    qapp.processEvents()
+
+    # Exact typed move applied (Y-up dY=0 → no vertical move).
+    assert abs(item.line().p1().x() - (x0 + 75.0)) < 1e-6
+    assert abs(item.line().p1().y() - y0) < 1e-6
+    assert item.transform().isIdentity()          # baked, no held transform
+    # Exactly one new undo entry for the gesture.
+    assert len(scene._undo_stack) == undo_depth0 + 1
+    # HUD torn down, gesture over.
+    assert _hud_of(view) is None
+    assert not _manip(scene).is_dragging()

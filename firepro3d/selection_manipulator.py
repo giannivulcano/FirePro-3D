@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from . import theme
+from .dynamic_input import resolve_manip_move
 from .manip_math import move_delta
 
 log = logging.getLogger(__name__)
@@ -33,6 +34,14 @@ log = logging.getLogger(__name__)
 MANIP_Z = 1e6          # spec: manipulator sits above all scene content
 _SHAPE_PAD_PX = 3.0    # interior hit slack so hairline frames stay grabbable
 _BOUND_PAD_PX = 6.0    # boundingRect pad (>= shape pad; generous for culling)
+
+#: Manipulator gesture mode -> dynamic-input schema name.  Move drives a
+#: gesture in v1; resize/rotate are wired ready for their handles (Task 5).
+_SCHEMA_FOR_MODE = {
+    "move": "manip_move",
+    "resize": "manip_resize",
+    "rotate": "manip_rotate",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -148,6 +157,14 @@ class SelectionManipulator(QGraphicsObject):
                                  QTransform, QTransform]] = []
         self._D = QTransform()
         self._held_snap = None
+
+        # Dynamic-input HUD (live readout + typed-input surface), owned per
+        # gesture.  Distinct from the scene's placement HUD (``dynamic_input``)
+        # — that one belongs to placement modes; this one reads out and drives
+        # a manipulator gesture, so it is built on ``_begin`` and torn down on
+        # every gesture exit.  ``None`` between gestures and in headless scenes
+        # that carry no view.
+        self._hud = None
 
         self.setZValue(MANIP_Z)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsFocusable, True)
@@ -360,6 +377,96 @@ class SelectionManipulator(QGraphicsObject):
         self._held_snap = res
         return QPointF(res.point) if res is not None else scene_pos
 
+    # --------------------------------------------------------------- HUD --
+
+    def _scale_manager(self):
+        """The scene's ScaleManager (DIMENSION scene↔mm), or None if absent."""
+        return getattr(self.scene(), "scale_manager", None)
+
+    def _open_hud(self, mode: str) -> None:
+        """Build the manipulator HUD for *mode* as a passive readout.
+
+        Parented to the visible view's viewport (mirroring
+        ``Model_Space._create_dynamic_input``); a no-op in a headless scene
+        with no view, so tests and off-screen scenes never crash.  The
+        ``committed`` signal is connected only for the life of the gesture so a
+        typed value can never reach a stale manipulator.
+        """
+        self._hud = None
+        schema_name = _SCHEMA_FOR_MODE.get(mode)
+        if schema_name is None:
+            return
+        view = self._view()
+        if view is None:
+            return
+        from .dynamic_input import DynamicInputHud, SCHEMAS
+        schema = SCHEMAS.get(schema_name)
+        if schema is None:
+            return
+        hud = DynamicInputHud(schema, self._scale_manager(), view.viewport())
+        hud.committed.connect(self._on_hud_committed)
+        if hasattr(view, "place_dynamic_input"):
+            # Passive readout: track the cursor (anchor None), same as the
+            # placement path before engage.
+            view.place_dynamic_input(hud, None)
+        hud.show()
+        hud.raise_()
+        self._hud = hud
+
+    def _feed_hud(self, values: dict) -> None:
+        """Push live schema-unit *values* into the HUD if one is open."""
+        hud = self._hud
+        if hud is not None and not hud.is_engaged():
+            hud.set_values(values)
+
+    def _close_hud(self) -> None:
+        """Tear the HUD down so ``is_engaged()`` is False and nothing dangles.
+
+        Disconnects first (a stray ``committed`` in the deleteLater window
+        would reach a manipulator whose gesture is already over), then removes
+        it from the viewport paint/focus chains.
+        """
+        hud = self._hud
+        self._hud = None
+        if hud is None:
+            return
+        try:
+            hud.committed.disconnect(self._on_hud_committed)
+        except (TypeError, RuntimeError):
+            pass
+        hud.hide()
+        hud.setParent(None)
+        hud.deleteLater()
+
+    def _on_hud_committed(self, values: dict) -> None:
+        """Apply a typed transform exactly, bake it, and end the gesture.
+
+        Runs during a live gesture: the user armed the drag, then engaged the
+        HUD and typed exact numbers.  The typed values are resolved through the
+        active schema into the same delta a released drag produces, baked via
+        the identical path (:meth:`_finish`'s move branch), and committed once.
+        Only ``move`` drives a gesture in v1; resize/rotate resolve but have no
+        applier yet, so they close the HUD without touching geometry.
+        """
+        if self._mode is None:
+            return
+        mode = self._mode
+        # Drop the held preview first: committed geometry carries no Qt item
+        # transform (spec baked-at-rest rule).
+        self.setTransform(self._B0)
+        for it, _s0, _inv, t0 in self._items0:
+            it.setTransform(t0)
+        items = [rec[0] for rec in self._items0]
+        self._end_drag()
+
+        if mode == "move":
+            offset = resolve_manip_move(None, values)["offset"]
+            dx, dy = offset.x(), offset.y()
+            if abs(dx) > 1e-12 or abs(dy) > 1e-12:
+                self._bake_move(items, dx, dy)
+        self._close_hud()
+        self.rebake()
+
     # ------------------------------------------------------------- dragging --
 
     def _begin(self, mode: str, scene_pos: QPointF, screen_pos: QPointF) -> None:
@@ -378,6 +485,7 @@ class SelectionManipulator(QGraphicsObject):
             if ok:
                 self._items0.append((it, s0, inv, it.transform()))
         self.setFocus(Qt.FocusReason.MouseFocusReason)
+        self._open_hud(mode)
 
     def _update(self, scene_pos: QPointF,
                 mods: Qt.KeyboardModifier, screen_pos: QPointF) -> None:
@@ -395,6 +503,10 @@ class SelectionManipulator(QGraphicsObject):
             snapped = self._snap(scene_pos)
             d = move_delta(self._start_scene, snapped, ortho=shift)
             self._apply(d)
+            # Live readout: dX/dY in schema (scene) units, Y-up (negate scene
+            # dy).  set_values converts DIMENSION scene→mm and is a no-op while
+            # the user is typing (is_engaged guard inside _feed_hud).
+            self._feed_hud({"dX": d.dx(), "dY": -d.dy()})
 
     def _apply(self, d: QTransform) -> None:
         """Held-transform preview: prepend the scene-space delta to the frame
@@ -420,27 +532,38 @@ class SelectionManipulator(QGraphicsObject):
         self._end_drag()
 
         if mode == "move" and not moved:
+            self._close_hud()
             self._click_through(scene_pos, mods)
             return
 
         if mode == "move":
             dx, dy = d.dx(), d.dy()
             if abs(dx) > 1e-12 or abs(dy) > 1e-12:
-                for it in items:
-                    if not bake_translate(it, dx, dy):
-                        log.warning(
-                            "SelectionManipulator: %s has no translate path — "
-                            "move not baked", type(it).__name__)
-                    fitting = getattr(it, "fitting", None)
-                    if fitting is not None:
-                        fitting.update()
-                sc = self.scene()
-                tools = getattr(sc, "_tools", None)
-                if tools is not None:
-                    tools._solve_constraints()
-                if self._commit_hook is not None:
-                    self._commit_hook("move")
+                self._bake_move(items, dx, dy)
             self.rebake()
+        self._close_hud()
+
+    def _bake_move(self, items, dx: float, dy: float) -> None:
+        """Bake a move of *items* by (dx, dy) and fire one undo.
+
+        The single home for the move commit, shared by the released-drag path
+        (:meth:`_finish`) and the typed-commit path (:meth:`_on_hud_committed`)
+        so they can never diverge on constraint solving or the undo push.
+        """
+        for it in items:
+            if not bake_translate(it, dx, dy):
+                log.warning(
+                    "SelectionManipulator: %s has no translate path — "
+                    "move not baked", type(it).__name__)
+            fitting = getattr(it, "fitting", None)
+            if fitting is not None:
+                fitting.update()
+        sc = self.scene()
+        tools = getattr(sc, "_tools", None)
+        if tools is not None:
+            tools._solve_constraints()
+        if self._commit_hook is not None:
+            self._commit_hook("move")
 
     def cancel_drag(self) -> None:
         """Abort the active drag and restore the pre-drag state (no commit)."""
@@ -450,6 +573,7 @@ class SelectionManipulator(QGraphicsObject):
         for it, _s0, _inv, t0 in self._items0:
             it.setTransform(t0)
         self._end_drag()
+        self._close_hud()
 
     def _end_drag(self) -> None:
         self._mode = None
