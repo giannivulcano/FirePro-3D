@@ -2375,7 +2375,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         _TYPE_LABELS = {"pdf": "PDF Underlay", "dxf": "DXF Underlay", "dwg": "DWG Underlay"}
         group.setData(0, _TYPE_LABELS.get(file_type, "DXF Underlay"))
         group.setData(2, all_layers)
-        group.setData(5, params.geom_list)  # raw pre-transform geom for cache
+        # Snapshot the FILTERED raw geoms — storing the full page extraction
+        # here poisoned the per-bounds cache on save (loads then rebuilt the
+        # whole sheet: 4x geometry, ~10x slower repaints).
+        _raw_for_cache = params.geom_list
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            _raw_for_cache = filter_geoms_by_bounds(
+                _raw_for_cache, [tuple(record.import_bounds)])
+        group.setData(5, _raw_for_cache)  # raw pre-transform geom for cache
         group.setData(6, not _cache_written)  # dirty until cached on save
 
         self._apply_underlay_display(group, record)
@@ -2917,7 +2925,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         (scale + base-point shift), convert to QGraphicsItems via
         ``_build_batched_underlay_group()``, and register the underlay.
         """
-        # Write geometry cache (raw, pre-transform)
+        # Apply spatial bounds filter (area selection at import time) —
+        # parity with _on_dxf_finished; keeps build + cache filtered.
+        if _record is not None and _record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            geom_list = filter_geoms_by_bounds(
+                geom_list, [tuple(_record.import_bounds)])
+
+        # Write geometry cache (filtered, pre-transform)
         _cache_written = self._write_underlay_cache(
             file_path, geom_list, page=page,
             selected_layers=None,
@@ -5519,6 +5534,17 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # import_bounds and rewrites the cache when it finishes.
             return False
 
+        # Heal poisoned caches: some writers stored the UNFILTERED page
+        # extraction under a key that claims the area-selected variant —
+        # re-apply the import-time spatial filter (mirrors _on_dxf_finished).
+        _healed = False
+        if record.import_bounds is not None:
+            from .dwg_converter import filter_geoms_by_bounds
+            filtered = filter_geoms_by_bounds(
+                geom_list, [tuple(record.import_bounds)])
+            _healed = len(filtered) != len(geom_list)
+            geom_list = filtered
+
         # Snapshot raw geom for cache-on-save
         _raw_geom = geom_list
 
@@ -5575,7 +5601,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         group.setData(0, _TYPE_LABELS.get(record.type, "DXF Underlay"))
         group.setData(2, all_layers)
         group.setData(5, _raw_geom)  # raw pre-transform geom for cache
-        group.setData(6, False)  # geometry came straight from the cache
+        # Dirty when healed so the next save rewrites the cache filtered.
+        group.setData(6, _healed)
         if source_mtime is None:
             group.setData(3, "source_missing")
 
