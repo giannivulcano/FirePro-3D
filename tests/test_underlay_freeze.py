@@ -240,3 +240,103 @@ class TestFreezeLifecycle:
             assert after == before
         finally:
             scene._underlay_freeze.end()
+
+
+def make_view(qapp, scene):
+    view = Model_View(scene)
+    view.resize(500, 400)
+    view.show()
+    qapp.processEvents()
+    return view
+
+
+def send_wheel(qapp, view, delta=120):
+    vp = view.viewport()
+    pos = QPointF(vp.width() / 2, vp.height() / 2)
+    gpos = QPointF(vp.mapToGlobal(QPoint(int(pos.x()), int(pos.y()))))
+    ev = QWheelEvent(pos, gpos, QPoint(0, 0), QPoint(0, delta),
+                     Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+                     Qt.ScrollPhase.NoScrollPhase, False)
+    qapp.sendEvent(vp, ev)
+
+
+class TestGestureWiring:
+    def test_wheel_zoom_begins_freeze(self, qapp):
+        scene, record, group = make_underlay_scene()
+        view = make_view(qapp, scene)
+        try:
+            send_wheel(qapp, view)
+            assert scene._underlay_freeze.frozen is True
+        finally:
+            scene._underlay_freeze.end()
+            view.close()
+
+    def test_settle_timer_restores(self, qapp):
+        import time
+        scene, record, group = make_underlay_scene()
+        view = make_view(qapp, scene)
+        try:
+            send_wheel(qapp, view)
+            assert scene._underlay_freeze.frozen is True
+            deadline = time.monotonic() + 2.0
+            while scene._underlay_freeze.frozen and time.monotonic() < deadline:
+                qapp.processEvents()
+                time.sleep(0.01)
+            assert scene._underlay_freeze.frozen is False
+        finally:
+            view.close()
+
+    def test_second_wheel_extends_not_restarts(self, qapp):
+        scene, record, group = make_underlay_scene()
+        view = make_view(qapp, scene)
+        try:
+            send_wheel(qapp, view)
+            pm1 = [i for i in scene.items()
+                   if isinstance(i, QGraphicsPixmapItem)]
+            send_wheel(qapp, view)
+            pm2 = [i for i in scene.items()
+                   if isinstance(i, QGraphicsPixmapItem)]
+            assert pm1 == pm2          # same single pixmap item, no rebuild
+        finally:
+            scene._underlay_freeze.end()
+            view.close()
+
+    def test_middle_drag_pan_freezes_and_release_restores(self, qapp):
+        scene, record, group = make_underlay_scene()
+        view = make_view(qapp, scene)
+        try:
+            vp = view.viewport()
+            press = QMouseEvent(
+                QEvent.Type.MouseButtonPress, QPointF(200, 200),
+                QPointF(vp.mapToGlobal(QPoint(200, 200))),
+                Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton,
+                Qt.KeyboardModifier.NoModifier)
+            qapp.sendEvent(vp, press)
+            move = QMouseEvent(
+                QEvent.Type.MouseMove, QPointF(230, 210),
+                QPointF(vp.mapToGlobal(QPoint(230, 210))),
+                Qt.MouseButton.NoButton, Qt.MouseButton.MiddleButton,
+                Qt.KeyboardModifier.NoModifier)
+            qapp.sendEvent(vp, move)
+            assert scene._underlay_freeze.frozen is True
+            release = QMouseEvent(
+                QEvent.Type.MouseButtonRelease, QPointF(230, 210),
+                QPointF(vp.mapToGlobal(QPoint(230, 210))),
+                Qt.MouseButton.MiddleButton, Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier)
+            qapp.sendEvent(vp, release)
+            assert scene._underlay_freeze.frozen is False
+        finally:
+            scene._underlay_freeze.end()
+            view.close()
+
+    def test_fit_to_screen_aborts_freeze(self, qapp):
+        scene, record, group = make_underlay_scene()
+        view = make_view(qapp, scene)
+        try:
+            send_wheel(qapp, view)
+            assert scene._underlay_freeze.frozen is True
+            view.fit_to_screen()
+            assert scene._underlay_freeze.frozen is False
+        finally:
+            view.close()
