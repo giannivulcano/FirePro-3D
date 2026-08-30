@@ -2270,6 +2270,7 @@ class MainWindow(QMainWindow):
             UnitsPane,
             ImportPane,
             GeneralPane,
+            UIPane,
             ProjectInfoPane,
         )
         panes = [
@@ -2284,12 +2285,32 @@ class MainWindow(QMainWindow):
             ),
             ImportPane(),
             GeneralPane(),
+            UIPane(on_theme_changed=self._apply_theme),
             ProjectInfoPane(
                 get_info=self._get_project_info,
                 set_info=self._set_project_info,
             ),
         ]
         return PreferencesDialog(panes, parent=self)
+
+    def _apply_theme(self) -> None:
+        """Re-apply the app + ribbon stylesheets for the current theme preference.
+
+        Called after the Preferences → UI theme is changed. The main-window
+        chrome and canvas restyle immediately; already-open dialogs and the 3D
+        toolbar (which latch ``theme.detect()`` at construction) pick up the new
+        theme when next reopened.
+        """
+        from PyQt6.QtWidgets import QApplication
+        from firepro3d import theme as _th
+        app = QApplication.instance()
+        if app is not None:
+            t = _th.detect()
+            app.setStyleSheet(_th.build_app_qss(t))
+            if getattr(self, "ribbon", None) is not None:
+                self.ribbon.setStyleSheet(_th.build_ribbon_qss(t))
+        if getattr(self, "view", None) is not None:
+            self.view.viewport().update()
 
     def _open_preferences(self) -> None:
         """Open the unified Preferences dialog and block until closed."""

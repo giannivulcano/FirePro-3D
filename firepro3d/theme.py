@@ -190,8 +190,48 @@ LIGHT = Theme(
 # Auto-detect
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Persisted UI-theme preference (Preferences → UI). "system" | "light" | "dark".
+_THEME_PREF_ORG = "GV"
+_THEME_PREF_APP = "FirePro3D"
+THEME_SETTINGS_KEY = "ui/theme"
+
+_pref_cache: str | None = None
+
+
+def theme_preference() -> str:
+    """Return the persisted UI-theme preference: 'system' | 'light' | 'dark'.
+
+    Cached after first read so ``detect()`` (called from paint paths) does not
+    hit QSettings on every repaint. Call :func:`refresh_theme_preference` after
+    changing the preference to invalidate the cache.
+    """
+    global _pref_cache
+    if _pref_cache is None:
+        from PyQt6.QtCore import QSettings
+        val = QSettings(_THEME_PREF_ORG, _THEME_PREF_APP).value(
+            THEME_SETTINGS_KEY, "system")
+        _pref_cache = str(val).lower()
+    return _pref_cache
+
+
+def refresh_theme_preference() -> None:
+    """Invalidate the cached UI-theme preference (call after changing it)."""
+    global _pref_cache
+    _pref_cache = None
+
+
 def detect() -> Theme:
-    """Return DARK or LIGHT by inspecting the application window palette."""
+    """Return the active theme.
+
+    Honors the persisted ``ui/theme`` preference (Preferences → UI): ``light``
+    or ``dark`` force the variant; ``system`` (the default) picks DARK or LIGHT
+    by inspecting the application window-palette lightness.
+    """
+    pref = theme_preference()
+    if pref == "light":
+        return LIGHT
+    if pref == "dark":
+        return DARK
     pal = QApplication.palette()
     lum = pal.color(QPalette.ColorRole.Window).lightness()
     return DARK if lum < 128 else LIGHT

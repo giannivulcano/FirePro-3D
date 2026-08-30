@@ -865,6 +865,61 @@ _PROJECT_INFO_FIELDS: list[tuple[str, str]] = [
 ]
 
 
+class UIPane(SettingsPane):
+    """UI preferences — application theme (System / Light / Dark).
+
+    QSettings-only (key ``ui/theme``, read by ``theme.detect()``). On apply the
+    ``on_theme_changed`` callback re-styles the live application; some already-
+    open dialogs/toolbars pick up the change when next reopened.
+    """
+
+    _THEME_KEY = "ui/theme"
+    _CHOICES = [("System", "system"), ("Light", "light"), ("Dark", "dark")]
+
+    def __init__(self, on_theme_changed: Callable[[], None] | None = None, parent=None):
+        super().__init__("UI", parent)
+        self._on_theme_changed = on_theme_changed
+        self._snapshot = "system"
+
+        form = QFormLayout(self)
+        self._theme_combo = QComboBox()
+        for label, _value in self._CHOICES:
+            self._theme_combo.addItem(label)
+        form.addRow("Theme:", self._theme_combo)
+
+        hint = QLabel(
+            "System follows your OS light/dark setting. Changes apply to the "
+            "main window immediately; some dialogs update when reopened.")
+        hint.setWordWrap(True)
+        hint.setProperty("role", "muted")
+        form.addRow(hint)
+
+    def load(self):
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+        val = str(s.value(self._THEME_KEY, "system")).lower()
+        self._snapshot = val
+        idx = next((i for i, (_, v) in enumerate(self._CHOICES) if v == val), 0)
+        self._theme_combo.setCurrentIndex(idx)
+
+    def apply(self):
+        val = self._CHOICES[self._theme_combo.currentIndex()][1]
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+        s.setValue(self._THEME_KEY, val)
+        s.sync()
+        if val != self._snapshot:
+            # Invalidate theme.py's cached preference, then restyle live.
+            from . import theme as _th
+            _th.refresh_theme_preference()
+            if self._on_theme_changed is not None:
+                self._on_theme_changed()
+        self._snapshot = val
+
+    def revert(self):
+        idx = next(
+            (i for i, (_, v) in enumerate(self._CHOICES) if v == self._snapshot), 0)
+        self._theme_combo.setCurrentIndex(idx)
+
+
 class ProjectInfoPane(SettingsPane):
     """Preferences pane for per-project metadata.
 
