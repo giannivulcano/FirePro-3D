@@ -20,7 +20,6 @@ import re
 from dataclasses import dataclass, field
 from .constants import (
     DEFAULT_TEXT_HEIGHT_MM, TEXT_METRIC_REF_PX, MIN_TEXT_WRAP_WIDTH_MM,
-    SELECTION_OUTLINE_COLOR, SELECTION_OUTLINE_WIDTH_MM,
     SELECTION_GRIP_OUTLINE_WIDTH_MM, SELECTION_GRIP_SIZE_MM,
     TEXT_BOX_MARGIN_MM,
     TB_CELL_PAD_MM, TB_LABEL_ROW_MM, TB_REV_ROW_MM, TB_LABEL_CAP_FRAC,
@@ -1404,23 +1403,16 @@ class TextAnnotationItem(QGraphicsTextItem):
         "C": Qt.AlignmentFlag.AlignCenter,
         "R": Qt.AlignmentFlag.AlignRight,
     }
-    _GRIP_MM = SELECTION_GRIP_SIZE_MM   # paper-mm size of grip squares (shared selection style)
 
     def __init__(self, data: "TextAnnotationData", parent=None):
         super().__init__(data.text, parent)
         self._data = data
         self._editing = False
         self._text_before_edit = data.text
-        self._pos_at_press = None
-        self._wrap_at_press = None
-        self._box_height_at_press = None    # stored box height at the start of a resize
-        self._x_at_press = None             # anchor x when a left-corner drag starts
-        self._y_at_press = None             # anchor y when a top-handle drag starts
-        self._right_at_press = None         # pinned right edge for left-corner drags
-        self._bottom_at_press = None        # pinned bottom edge for top-handle drags
-        self._grip_handle = None            # handle index 0-7 (TL,TM,TR,ML,MR,BL,BM,BR) or None
-        self._grip_corner = None            # deprecated alias kept for back-compat (unused)
-        self._resizing = False
+        self._pos_at_press = None           # anchor (x, y) at the start of a native move
+        # Box resize is driven by the scene SelectionManipulator (manip_scale);
+        # the retired per-item grip drag state (_resizing / _grip_handle / the
+        # *_at_press edge seeds) is gone — see section C below.
         self.setZValue(15)
         self.setTransformOriginPoint(0, 0)
         self.setFlags(
@@ -1514,14 +1506,14 @@ class TextAnnotationItem(QGraphicsTextItem):
         """Full-box hit area — grab anywhere in the box, not just on the glyphs.
 
         QGraphicsTextItem's default shape is the text-content rect, which makes
-        the empty area of a tall box (and the outer half of the border-straddling
-        grips) miss the item entirely. While selected, the grip halo is included
-        so every handle square is fully clickable. Only ever WIDER than the
+        the empty area of a tall box miss the item entirely.  Widening it to the
+        logical box lets the user grab anywhere in the box (spec: grab-anywhere).
+        The resize grips are now the scene's SelectionManipulator handles, so
+        the shape no longer includes the grip halo.  Only ever WIDER than the
         default — narrowing shape() breaks Qt's paint culling.
         """
         path = QPainterPath()
-        path.addRect(self.boundingRect() if self.isSelected()
-                     else self._box_rect_local())
+        path.addRect(self._box_rect_local())
         return path
 
     def contains(self, point) -> bool:
@@ -1531,15 +1523,14 @@ class TextAnnotationItem(QGraphicsTextItem):
         return self.shape().contains(point)
 
     def paint(self, painter: QPainter, option, widget=None) -> None:
-        """Paint the text block with opaque fill, edit frame, and selection grips.
+        """Paint the text block with opaque fill and the inline-edit frame.
 
         Renders in order: (1) solid-white knockout over the box rect when
-        opaque_bg is set, (2) the text via super(), (3) dashed #88aaff cosmetic
-        border while inline-editing (distinct state), (4) canonical selection
-        dashed boundary + 8 grips while selected but not editing.
-
-        Grips are drawn in item-local unscaled coords at SELECTION_GRIP_SIZE_MM /
-        scale so they appear the correct paper-mm size on screen and in export.
+        opaque_bg is set, (2) the text via super(), (3) the lighter #88aaff
+        cosmetic border while inline-editing (the EDITING state — distinct from
+        the SELECTED state).  The selected-but-not-editing dashed boundary + the
+        8 resize grips are now drawn by the scene's SelectionManipulator frame
+        (the per-item grip code is retired).
 
         Args:
             painter: Active QPainter for the scene.
@@ -1557,33 +1548,6 @@ class TextAnnotationItem(QGraphicsTextItem):
             painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(box)
-        elif self.isSelected():
-            s = self.scale() or 1.0
-            # Dashed selection boundary
-            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
-                                SELECTION_OUTLINE_WIDTH_MM / s, Qt.PenStyle.DashLine))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRect(box)
-            # 8 grip squares at corners + edge midpoints
-            gs = self._GRIP_MM / s
-            half = gs / 2
-            cx = (box.left() + box.right()) / 2
-            cy = (box.top() + box.bottom()) / 2
-            handles = [
-                QRectF(box.left()  - half, box.top()    - half, gs, gs),  # TL
-                QRectF(cx          - half, box.top()    - half, gs, gs),  # TM
-                QRectF(box.right() - half, box.top()    - half, gs, gs),  # TR
-                QRectF(box.left()  - half, cy           - half, gs, gs),  # ML
-                QRectF(box.right() - half, cy           - half, gs, gs),  # MR
-                QRectF(box.left()  - half, box.bottom() - half, gs, gs),  # BL
-                QRectF(cx          - half, box.bottom() - half, gs, gs),  # BM
-                QRectF(box.right() - half, box.bottom() - half, gs, gs),  # BR
-            ]
-            painter.setPen(QPen(QColor(SELECTION_OUTLINE_COLOR),
-                                SELECTION_GRIP_OUTLINE_WIDTH_MM / s))
-            painter.setBrush(QBrush(Qt.GlobalColor.white))
-            for h in handles:
-                painter.drawRect(h)
 
     # ── A. Edit lifecycle ──────────────────────────────────────────────────
 
@@ -1784,173 +1748,130 @@ class TextAnnotationItem(QGraphicsTextItem):
             self.sync_data_from_item()
         return super().itemChange(change, value)
 
-    # ── C. 8-handle box resize grips ─────────────────────────────────────────
+    # ── C. Box resize via the scene SelectionManipulator ─────────────────────
+    #
+    # The 8-handle grips are RETIRED: the scene's SelectionManipulator draws the
+    # frame + handles and drives resize/move through the ``manip_*`` capability
+    # protocol below (selection-manipulator.md).  The retired per-item grip
+    # methods (``_corner_grip_rects`` / ``_hit_grip_handle``) and the resize
+    # branches in the mouse handlers are gone — their box/wrap/pinned-edge model
+    # now lives in the single home :meth:`_resize_box_on_paper`.  Sheet text does
+    # NOT rotate in v1 (no ``manip_rotate``).
 
-    # Handle index map (mirrors SheetViewport handle ordering):
-    # 0=TL, 1=TM, 2=TR, 3=ML, 4=MR, 5=BL, 6=BM, 7=BR
-    _LEFT_HANDLES  = (0, 3, 5)   # move x + shrink/grow wrap (right edge pinned)
-    _RIGHT_HANDLES = (2, 4, 7)   # grow/shrink wrap (anchor x pinned)
-    _TOP_HANDLES   = (0, 1, 2)   # move y + shrink/grow box height (bottom pinned)
-    _BOTTOM_HANDLES = (5, 6, 7)  # grow/shrink box height (anchor y pinned)
+    def manip_capabilities(self) -> set:
+        """Manipulator capabilities: translate + scale, never rotate (v1)."""
+        return {"translate", "scale"}
 
-    def _corner_grip_rects(self) -> dict:
-        """Return the 8 grip hit-rectangles in scene (paper-mm) coordinates.
+    def manip_bounds(self) -> QRectF:
+        """On-paper text-box rect the manipulator frame wraps (scene coords).
 
-        Each grip is a _GRIP_MM × _GRIP_MM square centred on the corresponding
-        corner or edge midpoint of the logical box (_box_rect_local mapped to
-        scene coords). Uses _box_rect_local() — not sceneBoundingRect() — so
-        that the padding added to boundingRect() for stale-trail prevention
-        (Fix 1, 2026-07-20) does not displace the grip positions. Used by
-        mousePressEvent for hit-testing. Keys: "TL","TM","TR","ML","MR","BL","BM","BR".
-
-        Returns:
-            dict mapping handle name → QRectF in scene (paper-mm) coordinates.
+        Width is ``wrap_width_mm`` when set, else the auto content width; height
+        is ``box_height_mm`` when set, else the auto content height — exactly the
+        seeds the retired resize used (``_apply_grip_resize`` press seeds).  This
+        makes ``manip_scale``'s ``fx``/``fy`` (frame-relative factors) reproduce
+        the old delta arithmetic to the millimetre.
         """
-        sbr = self.mapRectToScene(self._box_rect_local())
-        g = self._GRIP_MM
-        half = g / 2
-        cx = sbr.center().x()
-        cy = sbr.center().y()
-        return {
-            "TL": QRectF(sbr.left()  - half, sbr.top()    - half, g, g),
-            "TM": QRectF(cx          - half, sbr.top()    - half, g, g),
-            "TR": QRectF(sbr.right() - half, sbr.top()    - half, g, g),
-            "ML": QRectF(sbr.left()  - half, cy           - half, g, g),
-            "MR": QRectF(sbr.right() - half, cy           - half, g, g),
-            "BL": QRectF(sbr.left()  - half, sbr.bottom() - half, g, g),
-            "BM": QRectF(cx          - half, sbr.bottom() - half, g, g),
-            "BR": QRectF(sbr.right() - half, sbr.bottom() - half, g, g),
-        }
+        x, y = self._data.x, self._data.y
+        w = self._data.wrap_width_mm
+        if w <= 0:
+            w = self.sceneBoundingRect().width()
+        h = self._data.box_height_mm
+        if h <= 0:
+            h = self._content_height_mm()
+        return QRectF(x, y, w, h)
 
-    def _hit_grip_handle(self, scene_pos) -> "int | None":
-        """Return the 0-based handle index hit by scene_pos, or None.
+    def manip_translate(self, dx: float, dy: float) -> None:
+        """Baked on-paper move by (dx, dy) mm (mirrors the retired move path)."""
+        self._data.x += dx
+        self._data.y += dy
+        self.setPos(self._data.x, self._data.y)
 
-        Handle indices: 0=TL, 1=TM, 2=TR, 3=ML, 4=MR, 5=BL, 6=BM, 7=BR.
+    def manip_scale(self, fx: float, fy: float, anchor: QPointF) -> None:
+        """Baked box resize about *anchor* — reproduces the retired grip-resize.
+
+        The manipulator supplies scene-space scale factors about the scene
+        anchor (the corner/edge opposite the dragged handle) and the current
+        frame is ``manip_bounds()``.  Only the axis that actually changed is
+        written: a mid-edge handle passes ``fx == 1`` or ``fy == 1`` and leaves
+        the other axis' fields untouched — mirroring the old per-handle axis
+        isolation (an MR drag never seeds ``box_height_mm``; a BM drag never
+        seeds ``wrap_width_mm``).  Which edge stays fixed is read from *anchor*.
+        Font ``height_mm`` is never touched.  All box/wrap/pinned-edge/min-clamp
+        bookkeeping is delegated to the one home :meth:`_resize_box_on_paper`.
+        """
+        box = self.manip_bounds()
+        x, y, w, h = box.x(), box.y(), box.width(), box.height()
+        eps = 1e-9
+        change_x = abs(fx - 1.0) > eps
+        change_y = abs(fy - 1.0) > eps
+        if not change_x and not change_y:
+            return
+        # Fixed edge = the one the anchor sits on (default left/top when ambiguous).
+        tol = max(1e-6, (abs(w) + abs(h)) * 1e-6)
+        anchor_left = abs(anchor.x() - x) <= abs(anchor.x() - (x + w)) + tol
+        anchor_top = abs(anchor.y() - y) <= abs(anchor.y() - (y + h)) + tol
+        new_w = abs(w * fx) if change_x else None
+        new_h = abs(h * fy) if change_y else None
+        self._resize_box_on_paper(new_w, new_h, anchor_left, anchor_top)
+
+    def _content_height_mm(self) -> float:
+        """Current text-content height in paper mm (the auto-height seed)."""
+        scale = self.scale() or 1.0
+        return super().boundingRect().height() * scale
+
+    def _resize_box_on_paper(self, new_w: "float | None", new_h: "float | None",
+                             anchor_left: bool, anchor_top: bool) -> None:
+        """The single home for the box/wrap resize (ex-mouse-move resize branch).
+
+        Sets ``wrap_width_mm`` / ``box_height_mm`` (and shifts ``x`` / ``y`` when
+        a left/top edge moves) so the anchored edge stays put on paper, applying
+        the same min clamps as the retired grip drag: horizontal ≥
+        ``MIN_TEXT_WRAP_WIDTH_MM``, vertical ≥ the current content height.  A
+        ``None`` target leaves that axis' fields untouched (mid-edge handle).
 
         Args:
-            scene_pos: QPointF in scene (paper-mm) coordinates.
-
-        Returns:
-            Integer handle index (0-7), or None if no grip was hit.
+            new_w: Target on-paper wrap width (mm), or None to skip the x axis.
+            new_h: Target on-paper box height (mm), or None to skip the y axis.
+            anchor_left: True keeps the left edge fixed (right edge moves);
+                False keeps the right edge fixed (left edge + x shift).
+            anchor_top: True keeps the top edge fixed (bottom edge moves);
+                False keeps the bottom edge fixed (top edge + y shift).
         """
-        names = ["TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"]
-        grips = self._corner_grip_rects()
-        for i, name in enumerate(names):
-            if grips[name].contains(scene_pos):
-                return i
-        return None
+        d = self._data
+        if new_w is not None:
+            new_w = max(MIN_TEXT_WRAP_WIDTH_MM, new_w)
+            if not anchor_left:
+                right = d.x + (d.wrap_width_mm
+                               if d.wrap_width_mm > 0
+                               else self.sceneBoundingRect().width())
+                d.x = right - new_w
+            d.wrap_width_mm = new_w
+        if new_h is not None:
+            new_h = max(self._content_height_mm(), new_h)
+            if not anchor_top:
+                bottom = d.y + (d.box_height_mm
+                                if d.box_height_mm > 0
+                                else self._content_height_mm())
+                d.y = bottom - new_h
+            d.box_height_mm = new_h
+        self.setPos(d.x, d.y)
+        self.prepareGeometryChange()
+        self._apply_format()
 
     def mousePressEvent(self, event) -> None:
-        """Start an 8-handle box resize drag when a grip is hit; otherwise begin move.
+        """Snapshot the pre-drag anchor, then begin a native move.
 
-        Left handles (TL/ML/BL): pin right edge, move anchor + adjust wrap.
-        Right handles (TR/MR/BR): pin anchor, adjust wrap (x unchanged).
-        Top handles (TL/TM/TR): pin bottom edge, move anchor y + adjust box height.
-        Bottom handles (BL/BM/BR): pin anchor y, adjust box height.
-        Corners = both axes. Midpoints = one axis only.
-
-        On auto-width (wrap_width_mm == 0), seeds from visual width.
-        On auto-height (box_height_mm == 0), seeds from current content height in mm.
+        Box resize is now driven entirely by the scene's SelectionManipulator
+        (manip_scale); the retired per-item grip branch is gone.  A native
+        (non-manipulator) move release still pushes a MoveTextAnnotationCommand
+        via mouseReleaseEvent — the manipulator intercepts its own press first,
+        so the two never double-push.
         """
-        if self.isSelected():
-            handle = self._hit_grip_handle(event.scenePos())
-            if handle is not None:
-                self._resizing = True
-                self._grip_handle = handle
-                # Seed x/wrap
-                self._x_at_press = self._data.x
-                if self._data.wrap_width_mm > 0:
-                    self._wrap_at_press = self._data.wrap_width_mm
-                else:
-                    self._wrap_at_press = self.sceneBoundingRect().width()
-                self._right_at_press = self._x_at_press + self._wrap_at_press
-                # Seed y/box_height
-                self._y_at_press = self._data.y
-                scale = self.scale() or 1.0
-                content_h_mm = super().boundingRect().height() * scale
-                if self._data.box_height_mm > 0:
-                    self._box_height_at_press = self._data.box_height_mm
-                else:
-                    self._box_height_at_press = content_h_mm
-                self._bottom_at_press = self._y_at_press + self._box_height_at_press
-                # Keep legacy alias in sync for any code still reading _grip_corner
-                _names = ["TL", "TM", "TR", "ML", "MR", "BL", "BM", "BR"]
-                self._grip_corner = _names[handle]
-                event.accept()
-                return
         self._pos_at_press = (self._data.x, self._data.y)
         super().mousePressEvent(event)
 
-    def mouseMoveEvent(self, event) -> None:
-        """Adjust wrap_width_mm, box_height_mm, x, and y during an 8-handle drag.
-
-        Left handles: pin right edge; x and wrap adjust.
-        Right handles: pin anchor x; only wrap adjusts.
-        Top handles: pin bottom edge; y and box_height adjust.
-        Bottom handles: pin anchor y; only box_height adjusts.
-        Corner handles: both axes. Mid-edge handles: one axis.
-        Vertical resize never touches font height_mm.
-        """
-        if self._resizing:
-            handle = self._grip_handle
-            sx = event.scenePos().x()
-            sy = event.scenePos().y()
-            scale = self.scale() or 1.0
-            content_h_mm = super().boundingRect().height() * scale
-
-            # Horizontal axis
-            if handle in self._LEFT_HANDLES:
-                right = self._right_at_press
-                new_x = min(sx, right - MIN_TEXT_WRAP_WIDTH_MM)
-                new_w = right - new_x
-                self._data.x = new_x
-                self._data.wrap_width_mm = new_w
-                self.setPos(new_x, self._data.y)
-            elif handle in self._RIGHT_HANDLES:
-                new_w = max(MIN_TEXT_WRAP_WIDTH_MM, sx - self._x_at_press)
-                self._data.wrap_width_mm = new_w
-
-            # Vertical axis
-            if handle in self._TOP_HANDLES:
-                bottom = self._bottom_at_press
-                min_h = content_h_mm
-                new_h = max(min_h, bottom - sy)
-                actual_dy = self._box_height_at_press - new_h
-                new_y = self._y_at_press + actual_dy
-                self._data.y = new_y
-                self._data.box_height_mm = new_h
-                self.setPos(self._data.x, new_y)
-            elif handle in self._BOTTOM_HANDLES:
-                min_h = content_h_mm
-                new_h = max(min_h, sy - self._y_at_press)
-                self._data.box_height_mm = new_h
-
-            self.prepareGeometryChange()
-            self._apply_format()
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
     def mouseReleaseEvent(self, event) -> None:
-        """Finish a resize or move drag and notify the undo hook."""
-        if self._resizing:
-            self._resizing = False
-            handle = self._grip_handle
-            self._grip_handle = None
-            self._grip_corner = None
-            old_state = (self._x_at_press, self._y_at_press,
-                         self._wrap_at_press, self._box_height_at_press)
-            new_state = (self._data.x, self._data.y,
-                         self._data.wrap_width_mm, self._data.box_height_mm)
-            self._x_at_press = None
-            self._y_at_press = None
-            self._wrap_at_press = None
-            self._box_height_at_press = None
-            self._right_at_press = None
-            self._bottom_at_press = None
-            self._on_box_resized(old_state, new_state)
-            event.accept()
-            return
+        """Finish a native move drag and notify the undo hook."""
         super().mouseReleaseEvent(event)
         if self._pos_at_press is not None:
             old = self._pos_at_press
@@ -1972,24 +1893,6 @@ class TextAnnotationItem(QGraphicsTextItem):
         scene = self.scene()
         if scene is not None and hasattr(scene, "_push_text_move"):
             scene._push_text_move(self._data, old_xy, new_xy)
-
-    def _on_box_resized(self, old_state: tuple, new_state: tuple) -> None:
-        """Hook called after a completed 8-handle box resize drag.
-
-        Routes to the scene's _push_text_box_resize helper to record a
-        ResizeTextBoxCommand on the undo stack. x, y, wrap_width_mm, and
-        box_height_mm are already updated live by mouseMoveEvent; the command
-        is for undo history only.
-
-        Args:
-            old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
-                       before the resize.
-            new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
-                       after the resize.
-        """
-        scene = self.scene()
-        if scene is not None and hasattr(scene, "_push_text_box_resize"):
-            scene._push_text_box_resize(self._data, old_state, new_state)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3411,6 +3314,22 @@ class TitleBlockTemplateItem(QGraphicsItem):
 # Paper scene
 # ─────────────────────────────────────────────────────────────────────────────
 
+class _MoveTextBoxAdapter(ResizeTextBoxCommand):
+    """A text-box move committed by the SelectionManipulator.
+
+    A manipulator translate bakes only ``x`` / ``y`` (wrap/box unchanged), but
+    the generic commit path snapshots the full 4-tuple ``(x, y, wrap, box_h)``.
+    Reusing ResizeTextBoxCommand's atomic 4-field restore keeps the undo path in
+    one home; only the visible label differs ("Move Text"), so the move reads
+    correctly in the undo history — the spec's "existing move command for a
+    translate" without a second serializer.
+    """
+
+    def __init__(self, scene, data, old_state, new_state):
+        super().__init__(scene, data, old_state, new_state)
+        self.setText("Move Text")
+
+
 class PaperScene(QGraphicsScene):
     """QGraphicsScene representing one paper layout.
 
@@ -3778,49 +3697,100 @@ class PaperScene(QGraphicsScene):
         return (data.x, data.y, data.w, data.h,
                 (cr.x(), cr.y(), cr.width(), cr.height()))
 
-    def _manip_capture_press(self, items) -> None:
-        """SelectionManipulator press_hook: snapshot pre-drag viewport geometry.
+    # Per-item-type manipulator snapshot + undo-command adapter.  The gesture
+    # path is generic: on press each dragged record is snapshotted with its
+    # type's ``snapshot`` fn; on commit each CHANGED record gets one undo command
+    # inside a single macro (spec "Undo & domains": paper = beginMacro +
+    # existing per-item commands + endMacro).
+    @staticmethod
+    def _manip_snapshot(item):
+        """Return the pre-drag snapshot fn for *item*, or None if unsupported.
 
-        Captures each dragged SheetViewport's geometry before any bake mutates
-        it, so :meth:`_manip_commit` can build old->new undo commands. Keyed by
-        ``id(SheetViewData)`` (the persistent record); non-viewport items are
-        ignored.
+        Dispatches on type so both SheetViewport (crop×scale geometry) and
+        TextAnnotationItem (box/wrap/anchor) share one gesture path.  The
+        snapshot tuple is the argument passed to the record's undo command
+        (see :meth:`_manip_command_for`).
         """
-        self._manip_geom_at_press = {
-            id(it.data): (it.data, self._viewport_geom(it.data))
-            for it in items if isinstance(it, SheetViewport)
-        }
+        if isinstance(item, SheetViewport):
+            return PaperScene._viewport_geom
+        if isinstance(item, TextAnnotationItem):
+            return PaperScene._text_box_geom
+        return None
+
+    @staticmethod
+    def _manip_command_for(item, mode: str):
+        """Return the QUndoCommand class for *item* under gesture *mode*.
+
+        SheetViewport always uses ViewportGeometryCommand.  TextAnnotationItem
+        uses MoveTextAnnotationCommand for a translate and ResizeTextBoxCommand
+        for a resize — the existing per-gesture commands (spec "Undo &
+        domains").  Both text commands consume the same 4-tuple snapshot
+        (:meth:`_text_box_geom`) via the thin adapters below.
+        """
+        if isinstance(item, SheetViewport):
+            return ViewportGeometryCommand
+        if isinstance(item, TextAnnotationItem):
+            return (_MoveTextBoxAdapter if mode == "move"
+                    else ResizeTextBoxCommand)
+        return None
+
+    @staticmethod
+    def _text_box_geom(data) -> tuple:
+        """Snapshot tuple of a TextAnnotationData box state (matches the
+        ResizeTextBoxCommand format: (x, y, wrap_width_mm, box_height_mm))."""
+        return (data.x, data.y, data.wrap_width_mm, data.box_height_mm)
+
+    def _manip_capture_press(self, items) -> None:
+        """SelectionManipulator press_hook: snapshot pre-drag record state.
+
+        Captures each dragged paper item's undoable state before any bake
+        mutates it, so :meth:`_manip_commit` can build old->new undo commands.
+        Keyed by ``id(record)`` (the persistent data object); the per-type
+        snapshot fn (:meth:`_manip_snapshot`) covers both SheetViewport and
+        TextAnnotationItem.  Items with no snapshot are ignored.  The dragged
+        item is stashed alongside so the commit can pick the right command class
+        for the gesture mode.
+        """
+        snap: dict = {}
+        for it in items:
+            snapshot = self._manip_snapshot(it)
+            if snapshot is None:
+                continue
+            snap[id(it.data)] = (it, it.data, snapshot(it.data), snapshot)
+        self._manip_geom_at_press = snap
 
     def _manip_commit(self, mode: str) -> None:
         """SelectionManipulator commit_hook: one undo entry per gesture (macro).
 
-        Wraps a per-viewport ViewportGeometryCommand for every dragged viewport
-        whose geometry actually changed inside a single ``beginMacro`` /
-        ``endMacro`` pair (spec "Undo & domains": paper = beginMacro + existing
-        per-item commands + endMacro).  The live data is already current (baked
-        by ``manip_scale`` / ``manip_translate``); the commands are for undo
+        Wraps a per-item undo command for every dragged record whose state
+        actually changed inside a single ``beginMacro`` / ``endMacro`` pair
+        (spec "Undo & domains").  The command class is chosen per item type and
+        gesture mode (:meth:`_manip_command_for`), so a viewport gets a
+        ViewportGeometryCommand and a text block gets a move/resize text command
+        as appropriate.  The live data is already current (baked by
+        ``manip_scale`` / ``manip_translate``); the commands are for undo
         history.  A gesture that changed nothing pushes no macro.
 
         Args:
-            mode: The gesture mode ("move"/"resize"); unused (both push the same
-                geometry command) but part of the commit_hook signature.
+            mode: The gesture mode ("move"/"resize"), from the manipulator.
         """
         snap = self._manip_geom_at_press
         self._manip_geom_at_press = {}
         if not snap:
             return
         changes = []
-        for data, old in snap.values():
-            new = self._viewport_geom(data)
+        for item, data, old, snapshot in snap.values():
+            new = snapshot(data)
             if old != new:
-                changes.append((data, old, new))
+                command_cls = self._manip_command_for(item, mode)
+                if command_cls is not None:
+                    changes.append((command_cls, data, old, new))
         if not changes:
             return
         self._undo_stack.beginMacro("Transform Selection")
         try:
-            for data, old, new in changes:
-                self._undo_stack.push(
-                    ViewportGeometryCommand(self, data, old, new))
+            for command_cls, data, old, new in changes:
+                self._undo_stack.push(command_cls(self, data, old, new))
         finally:
             self._undo_stack.endMacro()
 
@@ -4090,21 +4060,6 @@ class PaperScene(QGraphicsScene):
         """
         if not self._applying_command and old != new:
             self._undo_stack.push(MoveTextAnnotationCommand(self, data, old, new))
-
-    def _push_text_box_resize(self, data, old_state, new_state):
-        """Push a ResizeTextBoxCommand for a completed 8-handle box resize gesture.
-
-        No-op while a command is being applied or when all four fields are unchanged.
-
-        Args:
-            data: The TextAnnotationData being resized.
-            old_state: ``(old_x, old_y, old_wrap_width_mm, old_box_height_mm)``
-                       before the gesture.
-            new_state: ``(new_x, new_y, new_wrap_width_mm, new_box_height_mm)``
-                       after the gesture.
-        """
-        if not self._applying_command and old_state != new_state:
-            self._undo_stack.push(ResizeTextBoxCommand(self, data, old_state, new_state))
 
     def _push_text_edit(self, data, old_text, new_text):
         """Record an inline-edit commit on the undo stack.
