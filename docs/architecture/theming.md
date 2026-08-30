@@ -1,33 +1,74 @@
+<!-- last-verified: 2026-08-29 · verified-commit: ba9e090 (feat/design-token-system) -->
+
 # Theming & UI Style
 
 `firepro3d/theme.py` is the **single source of truth** for the application's
 visual language — colours, widget styling, and the dark/light variants. Every
-UI component should derive its colours from this module rather than hard-coding
-hex values, so a theme change stays a one-line switch.
+UI component's **chrome** should derive its colours from this module rather than
+hard-coding hex values, so a theme change stays a small edit. (Scope: chrome +
+canvas background + selection/grip feedback. Placed-element drawing colours —
+walls, pipes, sprinklers… — are a separate functional palette owned by
+`display_manager.py`, NOT this module.)
 
-## Token system
+## Token system (two layers)
 
-A theme is an immutable `Theme` dataclass of named colour tokens, grouped by
-role:
+A `Theme` is an immutable dataclass, and a theme variant **authors only Layer-1
+primitives**; everything else derives. Defining a new variant is just its ~16
+primitive values — no logic.
 
-| Group | Tokens |
+**Layer 1 — primitives (the only authored values):**
+
+| Group | Primitives |
 |---|---|
-| Backgrounds | `bg_base`, `bg_raised`, `bg_sunken`, `bg_tab_inactive`, `bg_tab_selected` |
-| Button states | `btn_hover`, `btn_pressed`, `btn_checked`, `btn_checked_border` |
-| Borders | `border_strong`, `border_subtle` |
-| Text | `text_primary`, `text_secondary`, `text_disabled`, `text_accent` |
-| Canvas | `canvas_bg`, `grid_dot` |
-| Semantic | `accent_primary`, `status_ok`, `status_warn`, `status_error` |
+| Surfaces (deepest→raised) | `ground`, `surface`, `sunken`, `raised` |
+| Lines | `line`, `line_strong` |
+| Ink (text) | `ink`, `muted`, `faint` |
+| Accent | `accent`, `accent_ink` |
+| Selection | `selection`, `selection_active` |
+| Status | `ok`, `warn`, `danger` |
 
-Two presets are provided — `LIGHT` and `DARK` — and `detect()` picks one by
-inspecting the application palette's window lightness:
+**Layer 2 — semantics (derived `@property`, shared by all variants):** the names
+consumers actually use — `bg_base`/`bg_raised`/`bg_sunken`, `btn_hover`/
+`btn_pressed`/`btn_checked`/`btn_checked_border`, `border_strong`/`border_subtle`,
+`text_primary`/`text_secondary`/`text_disabled`/`text_accent`, `canvas_bg`,
+`grid_dot`, `accent_primary`, `status_ok`/`status_warn`/`status_error`, and the
+soft/rgba fills `accent_soft`/`accent_soft2`/`warn_soft`/`danger_soft`, plus
+`chip`/`chip_ink`/`surface2`/`table`. Each is a pure function of primitives (an
+alias or an alpha/`_mix` derivation), so LIGHT can't drift from DARK.
+
+`Theme.color(name, alpha=255) -> QColor` resolves any primitive or hex-valued
+semantic name (used for delegate/canvas painting; the rgba `*_soft` strings are
+QSS-only).
 
 ```python
 from firepro3d import theme as th
 
-t = th.detect()                 # DARK or LIGHT
-dot_color = QColor(t.grid_dot)  # derive a colour from a token
+t = th.detect()                 # active variant (see below)
+dot_color = QColor(t.grid_dot)  # derive a colour from a semantic token
+grip = t.color("selection")     # or via the QColor accessor
 ```
+
+### Choosing the variant — `detect()` + the theme preference
+
+`detect()` returns the active `Theme` honouring the persisted **`ui/theme`**
+preference (**Preferences → UI** tab, `UIPane`): `light`/`dark` force the
+variant; `system` (default) picks DARK/LIGHT by the OS window-palette lightness.
+The preference is cached (`theme_preference()`); call `refresh_theme_preference()`
+after changing it. `MainWindow._apply_theme` re-applies the app + ribbon
+stylesheets live on change — but consumers that latch `detect()` at construction
+(dialogs, the 3D toolbar) only restyle when next opened.
+
+**DARK is dialed-in** (the refined green palette; `accent = #63BE8B`).
+**LIGHT is legible-but-provisional** — token-driven and readable, not held to the
+DARK aesthetic bar.
+
+### No hard-coded chrome colours
+
+Chrome must derive from tokens. `tests/test_theme_chrome_hexguard.py` fails if a
+migrated chrome file reintroduces raw hex in a `setStyleSheet(...)` call without
+an explicit `# theme-exempt: <reason>` marker (used only for fixed paper/preview
+backdrops). The guard is allow-listed to the migrated files today; extending it
+to the full chrome set is a tracked follow-up.
 
 ## Global stylesheet
 
@@ -95,11 +136,16 @@ deliberately theme-independent (CAD selection blue reads on both themes):
 - **Distinct states keep distinct looks** — e.g. sheet text inline-*editing*
   uses its own lighter `#88aaff` dashed frame; only the *selected* state uses
   the base style.
-- **Model-space grab handles** share the same color convention (white fill +
-  `SELECTION_OUTLINE_COLOR` outline) but are screen-pixel sized rather than
-  paper-mm (they use `ItemIgnoresTransformations`; `SELECTION_GRIP_SIZE_MM` is
-  paper-only). The gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) is
-  the first model-space conformer.
+- **Model-space grab handles** are screen-pixel sized rather than paper-mm (they
+  use `ItemIgnoresTransformations`; `SELECTION_GRIP_SIZE_MM` is paper-only). The
+  gridline pull-tab grip (`_PullTabGrip` in `gridline.py`) uses the
+  `SELECTION_OUTLINE_COLOR` constant. The central grip renderer in
+  `model_view.drawForeground` (which paints handles for all `grip_points()`
+  items) reads the **theme** `selection` / `selection_active` tokens instead — so
+  model-space grips follow the accent (green), while paper-space grips and the
+  dashed selection boundary still use the blue `SELECTION_*` constants. This
+  split is **interim**: the `SelectionBox` manipulator task (8 handles + rotation,
+  accent-styled) unifies both onto the selection tokens.
 
 ### ALIGN alignment guide
 
