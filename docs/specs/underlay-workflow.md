@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-29
 last-verified: 2026-08-29  # Underlay Manager shipped @ 56c8148 (levels/snap schema, Manager UI, hidden_in_views removed)
-verified-commit: 56c8148
+verified-commit: 56c8148  # §18 stamped at wrap-up
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -22,6 +22,8 @@ applies-to:
   - firepro3d/pdf_import_worker.py
   - firepro3d/dwg_converter.py
   - firepro3d/underlay_cache.py
+  - firepro3d/underlay_freeze.py            # §18 freeze-blit
+  - firepro3d/model_view.py                 # §18 gesture sources
   - firepro3d/underlay_context_menu.py
   - firepro3d/calibrate_dialog.py
 source-tasks:
@@ -824,3 +826,60 @@ Custom/calibrated factor is annotated with its ratio (`1:M` + named scale).
 **DXF/DWG arch-scale is deferred** — its `$INSUNITS`→scale path (`_DXF_INSUNITS`
 "to-inches" factors) is inconsistent with the calibration formula and must be
 reconciled first (filed follow-up).
+
+## 18. Interactive rendering performance — gesture freeze-blit (as-built, 2026-08-29)
+
+Dense vector underlays (20k+ batched primitives) made zoom/pan repaints scale
+with zoom (measured 47→228 ms/frame ×1→×8 on a reference project; no-underlay
+baseline 8–14 ms flat). During an interactive gesture the underlay is therefore
+frozen to a bitmap and not re-stroked per frame.
+
+### 18.1 Mechanism (`underlay_freeze.py`)
+
+- `_UnderlayPathItem(QGraphicsPathItem)`: the only child type
+  `_build_batched_underlay_group` creates; its `paint()` returns without
+  stroking while `scene._underlay_freeze.frozen` is set. **Paint-only
+  suppression** — never `setVisible`/`setOpacity` (those states belong to the
+  LevelManager pass, the Underlay Manager and the paper pass).
+- `UnderlayFreezeController` (owned by `Model_Space`): `begin(view)` hand-
+  renders all visible `_UnderlayPathItem`s (pens/brushes/opacity/hidden-layers
+  respected, cosmetic pens at device width) into a transparent pixmap over the
+  padded viewport (`UNDERLAY_FREEZE_PAD_FRACTION`, per-axis clamp
+  `UNDERLAY_FREEZE_MAX_PX` — memory bounded at any zoom), adds a transient
+  `QGraphicsPixmapItem` in scene coordinates (stretches with the view =
+  transient degradation), and starts the `UNDERLAY_FREEZE_SETTLE_MS` single-
+  shot settle timer (scene-parented). `end()`/`abort()` removes the pixmap
+  (RuntimeError-guarded against C++-deleted objects) and restores vector
+  painting. Raster-PDF underlay children are not frozen (already cheap blits).
+
+### 18.2 Gesture sources (`model_view.py`)
+
+Wheel zoom begins/extends the freeze (settle timer restarts per tick; timer
+expiry = gesture end; pure horizontal-scroll wheel events are ignored).
+Middle-drag pan begins on first pan move and ends on release.
+`fit_to_screen` aborts first (the transient pixmap must not inflate
+`itemsBoundingRect`).
+
+### 18.3 Abort sites (the invariants' teeth)
+
+`abort_underlay_freeze()` (public, on `Model_Space`) is called at entry of:
+`repen_underlay`, `_apply_underlay_display`, `set_underlay_layer_hidden`,
+`refresh_underlay`, `replace_underlay`, `remove_underlay` (Manager
+instant-apply, §16.6); `_clear_scene` (load/new — the settle timer must not
+outlive the items); `LevelManager.apply_to_scene` (level switches, guarded —
+elevation scenes lack the controller); `SheetViewport.paint` (guarded —
+covers the on-screen paper canvas AND `export_pdf`/`print_sheets`, so the
+plotted PDF can never contain the frozen bitmap; required separately from the
+level hook because §6.6's no-op-skip bypasses `apply_to_scene`). The frozen
+pixmap uses a transparent background, so theme switches can never leave
+stale-theme pixels.
+
+### 18.4 Acceptance (2026-08-29 grill)
+
+≤16 ms/frame during gestures at ×0.5–×8 on the reference FPD (probe:
+`tools/perf_probe_underlay.py`, FPD path arg + synthetic fallback; no timing
+asserts in pytest — behavioral tests live in `tests/test_underlay_freeze.py`).
+Measured on the reference file: gesture frames 4.0–5.1 ms at ×0.5–×8; a
+30-repaint zoom gesture 3.6 s → 167 ms. Import-side geometry reduction
+(bezier flatten tolerance) is explicitly out of scope — filed as a TODO
+follow-up.
