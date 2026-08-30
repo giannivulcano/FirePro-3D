@@ -8,6 +8,7 @@ import tempfile
 import pytest
 
 from firepro3d.underlay_cache import (
+    _CACHE_VERSION,
     cache_dir_for_project,
     compute_cache_key,
     delete_cache,
@@ -161,3 +162,34 @@ class TestDeleteCache:
     def test_delete_nonexistent_no_error(self, tmp_path):
         cache_dir = str(tmp_path / "proj.fpd.cache")
         delete_cache(cache_dir, "ghost.json")  # should not raise
+
+
+class TestCacheVersioning:
+    def test_cache_version_is_5(self):
+        """Task 73: the bézier-tolerance change invalidates old caches."""
+        assert _CACHE_VERSION == 5
+
+    def test_v4_payload_is_rejected(self, tmp_path):
+        """A cache written under the previous version must miss (force re-extract)."""
+        cache_dir = str(tmp_path / "proj.fpd.cache")
+        os.makedirs(cache_dir)
+        key = "stale.json"
+        # Hand-write a payload carrying the OLD version and a matching mtime.
+        payload = {
+            "version": 4,
+            "source_mtime": 1000.0,
+            "geoms": [{"kind": "path_points", "points": [(0, 0), (1, 1)]}],
+        }
+        with open(os.path.join(cache_dir, key), "w", encoding="utf-8") as fh:
+            json.dump(payload, fh)
+        # Even with a fresh (matching) mtime, the version mismatch must reject it.
+        assert read_cache(cache_dir, key, source_mtime=1000.0) is None
+
+    def test_current_version_payload_is_accepted(self, tmp_path):
+        """Sanity: a payload at the current version still reads back."""
+        cache_dir = str(tmp_path / "proj.fpd.cache")
+        key = "fresh.json"
+        write_cache(cache_dir, key,
+                    [{"kind": "path_points", "points": [(0, 0), (1, 1)]}],
+                    source_mtime=1000.0)
+        assert read_cache(cache_dir, key, source_mtime=1000.0) is not None
