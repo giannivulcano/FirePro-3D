@@ -18,11 +18,7 @@ import json
 import os
 import re
 
-# v5 (2026-08-30): invalidates caches written before the PDF-import-polish
-# extractor — old snapshots carried 10-20x over-extracted geometry (hidden
-# OCG layers, per-item splitting) and made every repaint of an affected
-# underlay ~10x slower. A version miss re-extracts once (fast) and rewrites.
-_CACHE_VERSION = 5
+_CACHE_VERSION = 4
 
 
 def cache_dir_for_project(project_path: str) -> str:
