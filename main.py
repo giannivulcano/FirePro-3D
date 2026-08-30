@@ -150,12 +150,13 @@ class _SplashScreen(QWidget):
         stack.setStackingMode(QStackedLayout.StackingMode.StackAll)
         stack.setContentsMargins(0, 0, 0, 0)
 
-        from firepro3d.loading_bar import _BAR_STYLE
+        from firepro3d.loading_bar import _bar_style
+        from firepro3d.theme import detect
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
         self._bar.setTextVisible(False)
-        self._bar.setStyleSheet(_BAR_STYLE)
+        self._bar.setStyleSheet(_bar_style(detect()))
 
         self._status = QLabel("Loading...")
         self._status.setFont(QFont("Segoe UI", 8))
