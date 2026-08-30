@@ -370,3 +370,56 @@ class TestAbortHooks:
         lm = LevelManager()
         lm.apply_to_scene(scene)
         assert scene._underlay_freeze.frozen is False
+
+
+class TestVectorPlotParity:
+    def test_export_during_freeze_is_vector(self, qapp, tmp_path):
+        """Hard constraint: a freeze active at export entry must not leak a
+        rasterized underlay into the plotted PDF."""
+        import fitz  # PyMuPDF
+        from unittest.mock import MagicMock
+        from firepro3d import paper_export
+        from firepro3d.paper_space import Sheet, SheetViewData, ViewResolver
+
+        scene, record, group = make_underlay_scene(n_lines=40)
+        scene._underlay_freeze.begin(_FakeView())
+        assert scene._underlay_freeze.frozen is True
+
+        # --- sheet + viewport bound to THIS scene + resolver, exactly per
+        #     tests/test_paper_export.py's _real_source_resolver pattern ---
+        resolver = MagicMock(spec=ViewResolver)
+        # Source rect covers the bait lines (x 10..400, y 10..205 scene mm);
+        # crop_rect stays unset so _effective_crop falls back to this rect.
+        resolver.resolve.return_value = (scene, QRectF(0.0, 0.0, 420.0, 220.0))
+        sheet = Sheet.create_default()
+        sheet.sheet_views = [
+            SheetViewData("plan", "L1", "L1", 1.0, 50, 50, 420, 220),
+        ]
+        out = tmp_path / "plot.pdf"
+        paper_export.export_pdf([sheet], resolver, str(out), dpi=150)
+
+        assert scene._underlay_freeze.frozen is False   # aborted by paint
+        doc = fitz.open(str(out))
+        drawings = doc[0].get_drawings()
+        assert len(drawings) >= 40, (
+            f"expected >=40 vector paths in plotted page, got {len(drawings)} "
+            "- underlay was rasterized or missing")
+        # The title block alone contributes thousands of drawings, so the
+        # count above can't distinguish underlay presence. Count the underlay's
+        # OWN vectors: 40 horizontal bait lines, each 390 mm long on paper
+        # (crop x 10..400 at viewport scale 1.0). Probed values: 40 unfrozen,
+        # 0 when the freeze leaks (rasterized).
+        mm = 72.0 / 25.4  # pt per paper mm
+        n_bait = sum(
+            1
+            for d in drawings
+            for it in d["items"]
+            if it[0] == "l"
+            and abs(it[1].y - it[2].y) < 0.5
+            and 380 * mm < abs(it[1].x - it[2].x) < 400 * mm)
+        assert n_bait == 40, (
+            f"expected the 40 bait lines as vector line items, got {n_bait} "
+            "- underlay was rasterized or missing")
+        images = doc[0].get_images(full=True)
+        assert not images, "plotted page contains a raster image - freeze leaked"
+        doc.close()
