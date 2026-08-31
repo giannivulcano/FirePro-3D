@@ -742,11 +742,22 @@ class ImportPane(SettingsPane):
         self._flatten_tol_spin.setSingleStep(0.25)
         self._flatten_tol_spin.setDecimals(2)
         self._flatten_tol_spin.setSuffix(" pt")
-        self._flatten_tol_spin.setToolTip(
-            "Curve flatten tolerance for vector PDF imports (PDF points).\n"
-            "Higher = coarser curves + smaller/faster underlay; lower = smoother.\n"
-            "Re-extracts the underlay on next project load or Manager refresh.")
-        pdf_form.addRow("Curve flatten tolerance:", self._flatten_tol_spin)
+        _flatten_tip = (
+            "How finely curves in a vector PDF are broken into straight "
+            "segments, measured in PDF points (1 pt = 1/72 inch on the sheet).\n\n"
+            "• Lower value → smoother curves, but more points (larger, slower "
+            "underlay). 0.25 pt is finer than the old default.\n"
+            "• Higher value → fewer points (smaller, faster underlay), but "
+            "curves look faceted when you zoom in past plot scale.\n\n"
+            "Only affects vector PDF imports. Changing it re-extracts the "
+            "underlay on the next project load, or immediately when you use "
+            "Refresh in the Underlay Manager.")
+        self._flatten_tol_spin.setToolTip(_flatten_tip)
+        # Explicit label so the tooltip also shows when hovering the label text
+        # (a QFormLayout string row auto-makes an untooltipped QLabel).
+        _flatten_lbl = QLabel("Curve flatten tolerance:")
+        _flatten_lbl.setToolTip(_flatten_tip)
+        pdf_form.addRow(_flatten_lbl, self._flatten_tol_spin)
         outer.addWidget(pdf_group)
 
         outer.addStretch()
