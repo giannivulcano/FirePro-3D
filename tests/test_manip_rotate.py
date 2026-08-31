@@ -106,3 +106,28 @@ def test_room_manip_rotate_boundary(scene):
 def test_room_marks_no_solo_rotate():
     from firepro3d.room import Room
     assert getattr(Room, "MANIP_NO_SOLO_ROTATE", False) is True
+
+
+def test_floor_manip_rotate_points_keeps_zrange(scene):
+    from firepro3d.floor_slab import FloorSlab
+    f = FloorSlab(points=[QPointF(0, 0), QPointF(200, 0),
+                          QPointF(200, 150), QPointF(0, 150)])
+    scene.addItem(f)
+    pivot = QPointF(100, 75)
+    p0 = [QPointF(p) for p in f._points]
+    z0 = f.z_range_mm()
+    # Elevation-field snapshot: z_range_mm() is None in a bare scene (no level
+    # manager), so its equality is trivially true; assert the real fields too.
+    elev0 = (f._top_mode, f._top_level, f._top_offset_mm, f._top_abs_z_mm,
+             f._bottom_mode, f._bottom_level, f._bottom_offset_mm,
+             f._bottom_abs_z_mm, f._thickness_mm)
+    f.manip_rotate(90.0, pivot)
+    for got, orig in zip(f._points, p0):
+        approx_pt(got, rot_yup(orig, pivot, 90.0))
+    assert f.z_range_mm() == z0               # elevation invariant
+    assert (f._top_mode, f._top_level, f._top_offset_mm, f._top_abs_z_mm,
+            f._bottom_mode, f._bottom_level, f._bottom_offset_mm,
+            f._bottom_abs_z_mm, f._thickness_mm) == elev0
+    f.manip_rotate(-90.0, pivot)
+    for got, orig in zip(f._points, p0):
+        approx_pt(got, orig)
