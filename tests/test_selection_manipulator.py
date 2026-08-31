@@ -371,3 +371,28 @@ def test_scene_clear_then_press_self_heals(qapp, scene_and_view):
     _post_mouse(view, QEvent.Type.MouseButtonPress, QPointF(50, 50))
     _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(50, 50))
     assert not sip.isdeleted(scene._live_manip())
+
+
+def test_rotate_knob_press_starts_rotation_via_gate(qapp, scene_and_view):
+    """Regression (live smoke 2026-08-30): the rotate knob sits ABOVE the frame,
+    so the model press-router must route knob presses to the manipulator
+    (hit_test includes handles, not just the frame shape). A real posted press
+    on the knob must begin a rotate gesture — not fall through to selection
+    (which is why 'rotation doesn't work')."""
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import RectangleItem
+    from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
+    r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
+    rect = manip._rect
+    knob = QPointF(rect.center().x(), rect.top() - _ROTATE_OFFSET_PX)
+    assert manip.hit_test(knob)                       # the gate would route it
+    _post_mouse(view, QEvent.Type.MouseButtonPress, knob)
+    assert manip._mode == "rotate"                    # rotate gesture began
+    _post_mouse(view, QEvent.Type.MouseMove, QPointF(rect.left() - 25, rect.center().y()))
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(rect.left() - 25, rect.center().y()))
+    assert r._angle != 0.0                             # actually rotated
+    assert r.rotation() == 0.0                         # baked at rest

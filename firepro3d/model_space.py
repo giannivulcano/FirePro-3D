@@ -7711,7 +7711,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if (_manip is not None and _manip.isVisible()
                 and self.mode in (None, "select")
                 and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
-                and _manip.shape().contains(_manip.mapFromScene(scene_pos))):
+                and _manip.hit_test(scene_pos)):
             super().mousePressEvent(event)
             return
 

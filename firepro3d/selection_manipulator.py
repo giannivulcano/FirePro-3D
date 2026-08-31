@@ -60,6 +60,13 @@ _ROTATE_OFFSET_PX = MANIP_STEM_LEN_PX     # stem length from the top-mid to the 
 _ROTATE_RADIUS_PX = MANIP_KNOB_RADIUS_PX
 _ROTATE_SNAP_DEG = 15.0      # Shift-snap increment (absolute angle)
 
+# Handle shape by role (user pick 2026-08-30): corners = circles, edge
+# midpoints = squares, rotate knob = circle.
+_CORNER_ROLES = frozenset({
+    HandleRole.TOP_LEFT, HandleRole.TOP_RIGHT,
+    HandleRole.BOTTOM_LEFT, HandleRole.BOTTOM_RIGHT,
+})
+
 
 def _handle_fill() -> QColor:
     """Handle/knob fill for the active theme (mockup style A).
@@ -252,9 +259,12 @@ class _Handle(QGraphicsItem):
             c = self._knob_center()
             r = _ROTATE_RADIUS_PX + self._grab_pad()
             path.addEllipse(c, r, r)
+        elif self.role in _CORNER_ROLES:
+            h = self._half()
+            path.addEllipse(QRectF(-h, -h, 2 * h, 2 * h))   # corner = circle
         else:
             h = self._half()
-            path.addRect(QRectF(-h, -h, 2 * h, 2 * h))
+            path.addRect(QRectF(-h, -h, 2 * h, 2 * h))       # midpoint = square
         return path
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
@@ -276,7 +286,11 @@ class _Handle(QGraphicsItem):
             half = size / 2.0
             painter.setPen(QPen(border, bw))
             painter.setBrush(QBrush(border if self._hover else fill))
-            painter.drawRect(QRectF(-half, -half, size, size))
+            rect = QRectF(-half, -half, size, size)
+            if self.role in _CORNER_ROLES:
+                painter.drawEllipse(rect)       # corner = circle
+            else:
+                painter.drawRect(rect)          # edge midpoint = square
 
     # -- interaction ----------------------------------------------------------
 
@@ -550,6 +564,23 @@ class SelectionManipulator(QGraphicsObject):
         path.addRect(self._rect.adjusted(-pad, -pad, pad, pad))
         return path
 
+    def hit_test(self, scene_pos: QPointF) -> bool:
+        """True if *scene_pos* is over the frame interior OR any visible handle.
+
+        The rotate knob (and the outer half of the corner/edge handles) sits
+        OUTSIDE the frame ``shape()``, so the model scene's press router must
+        test the handles too — otherwise a knob/handle press falls through to
+        selection and the gesture (rotation especially) never starts.
+        """
+        if not self.isVisible():
+            return False
+        if self.shape().contains(self.mapFromScene(scene_pos)):
+            return True
+        for h in self._handles.values():
+            if h.isVisible() and h.shape().contains(h.mapFromScene(scene_pos)):
+                return True
+        return False
+
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
         try:
@@ -558,7 +589,8 @@ class SelectionManipulator(QGraphicsObject):
             color = QColor("#63BE8B")
         pen = QPen(color, 1.0)
         pen.setCosmetic(True)
-        painter.setPen(pen)
+        pen.setStyle(Qt.PenStyle.DashLine)      # dashed = selection, distinct
+        painter.setPen(pen)                     # from an item's own solid edge
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawRect(self._rect)
 
