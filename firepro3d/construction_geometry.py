@@ -925,37 +925,22 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
     def manip_scale(self, fx: float, fy: float, anchor: "QPointF") -> None:
         """Baked resize about a scene ``anchor`` by factors ``(fx, fy)``.
 
-        Routes through the SAME rect-mutation primitive a corner grip uses
-        (:meth:`apply_grip`) so grips and the manipulator share one geometry
-        path.  The anchor's nearest local corner is held fixed and the opposite
-        corner is scaled about it in the rect's own (rotated) frame, then handed
-        to ``apply_grip`` in scene coords.  An anchor at the centre
-        (Ctrl / from-centre resize) scales both corners about the centre.
+        Scales every rect edge about the anchor (held fixed) in the rect's own
+        frame, so the baked result reproduces the manipulator's preview EXACTLY
+        for ANY anchor — a corner (incl. the anti-diagonal TR/BL), an edge
+        midpoint (one factor is 1.0), or the centre (Ctrl / from-centre).  A
+        previous version only handled the TL/BR diagonal, so a top-right or
+        bottom-left drag held the wrong corner fixed and the item jumped
+        (translated) on commit.  Negative factors mirror (normalised).
         """
         r = self.rect()
-        a_local = self.mapFromScene(anchor)
-        c = r.center()
-        tl = QPointF(r.left(), r.top())
-        br = QPointF(r.right(), r.bottom())
-        near_tl = abs(a_local.x() - r.left()) + abs(a_local.y() - r.top())
-        near_br = abs(a_local.x() - r.right()) + abs(a_local.y() - r.bottom())
-        near_c = abs(a_local.x() - c.x()) + abs(a_local.y() - c.y())
-        if near_c < near_tl and near_c < near_br:
-            # From-centre: scale both corners about the centre.
-            hw = r.width() * abs(fx) / 2.0
-            hh = r.height() * abs(fy) / 2.0
-            self.prepareGeometryChange()
-            self.setRect(QRectF(c.x() - hw, c.y() - hh, 2 * hw, 2 * hh))
-            return
-        if near_tl <= near_br:
-            fixed, moving, grip = tl, br, 4        # TL fixed, drag BR
-        else:
-            fixed, moving, grip = br, tl, 0        # BR fixed, drag TL
-        target_local = QPointF(
-            fixed.x() + (moving.x() - fixed.x()) * fx,
-            fixed.y() + (moving.y() - fixed.y()) * fy,
-        )
-        self.apply_grip(grip, self.mapToScene(target_local))
+        a = self.mapFromScene(anchor)          # anchor in the rect's local frame
+        left = a.x() + (r.left() - a.x()) * fx
+        right = a.x() + (r.right() - a.x()) * fx
+        top = a.y() + (r.top() - a.y()) * fy
+        bottom = a.y() + (r.bottom() - a.y()) * fy
+        self.prepareGeometryChange()
+        self.setRect(QRectF(QPointF(left, top), QPointF(right, bottom)).normalized())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
