@@ -1,15 +1,29 @@
 ---
-status: proposal          # designed 2026-08-29 (grill + brainstorm), unbuilt
-last-verified: 2026-08-29
-verified-commit: 5726bf9
+status: partial          # v1 built 2026-08-30; known interaction bugs deferred to the Unification roadmap
+last-verified: 2026-08-30
+verified-commit: 29d3eeb
 applies-to:
-  - firepro3d/selection_manipulator.py   # (new — does not exist yet)
-  - firepro3d/model_view.py              # drawForeground selected-item rendering seam
+  - firepro3d/selection_manipulator.py
+  - firepro3d/manip_math.py
+  - firepro3d/model_view.py              # drawForeground grip-render seam + boundary/grip dedup
+  - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
+  - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake migration
+  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities
 source-tasks:
-  - "TODO.md design-token follow-ups: Adopt the SelectionBox manipulator app-wide [P2]"
+  - "TODO.md: Adopt the SelectionBox manipulator app-wide [P2]"
 ---
+
+> **v1 status (2026-08-30):** built and merged — the manipulator drives model +
+> paper selection, baked move/rotate/scale, group move, HUD readout + typed
+> input, RectangleItem bake-at-rest, and paper handle retirement (parity). It
+> **coexists** with the legacy per-item grip system via the `provides_handles_for`
+> arbitration seam. That seam still leaks known interaction bugs (surfaced in
+> live smoke — the "two systems fighting one item" class). Rather than chase
+> them per-symptom, they are deferred to and structurally eliminated by the
+> **Unification Roadmap** (below): U1–U4 collapse the two systems into one, at
+> which point the whole bug class is impossible. Treat v1 as the transitional
+> state, not the destination.
 
 # Unified Selection Manipulator — Governing Spec
 
