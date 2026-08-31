@@ -131,3 +131,20 @@ def test_floor_manip_rotate_points_keeps_zrange(scene):
     f.manip_rotate(-90.0, pivot)
     for got, orig in zip(f._points, p0):
         approx_pt(got, orig)
+
+
+def test_roof_manip_rotate_points(scene):
+    from firepro3d.roof import RoofItem
+    r = RoofItem(points=[QPointF(0, 0), QPointF(300, 0),
+                         QPointF(300, 200), QPointF(0, 200)])
+    scene.addItem(r)
+    pivot = QPointF(0, 0)
+    p0 = [QPointF(p) for p in r._points]
+    pitch0 = r._pitch_deg
+    r.manip_rotate(45.0, pivot)
+    for got, orig in zip(r._points, p0):
+        approx_pt(got, rot_yup(orig, pivot, 45.0))
+    assert r._pitch_deg == pitch0             # roof form untouched
+    r.manip_rotate(-45.0, pivot)
+    for got, orig in zip(r._points, p0):
+        approx_pt(got, orig)
