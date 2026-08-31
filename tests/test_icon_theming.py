@@ -58,6 +58,31 @@ def test_theme_tokens_differ_light_vs_dark():
            icons.token_map(icons.DARK)[icons.PRIMARY_SENTINEL]
 
 
+def test_accent_token_derives_from_theme_variant():
+    from firepro3d import theme as th
+    assert icons.token_map(icons.LIGHT)[icons.ACCENT_SENTINEL] == th.LIGHT.accent
+    assert icons.token_map(icons.DARK)[icons.ACCENT_SENTINEL] == th.DARK.accent
+
+
+def test_accent_token_ground_truth_values():
+    # Regression guard: light accent is now green (#2f9e63), not blue (#004CFF);
+    # dark accent is the dialed-in sage (#63BE8B), not neon (#44FF88).
+    assert icons.token_map(icons.LIGHT)[icons.ACCENT_SENTINEL].lower() == "#2f9e63"
+    assert icons.token_map(icons.DARK)[icons.ACCENT_SENTINEL].lower() == "#63be8b"
+
+
+def test_legacy_accent_constants_removed():
+    # The two standalone accent constants are gone — theme.accent is the only home.
+    assert not hasattr(icons, "ACCENT_GREEN")
+    assert not hasattr(icons, "ACCENT_BLUE")
+
+
+def test_primary_token_unchanged():
+    # Only accent moved to the theme; primary ink stays black(light)/white(dark).
+    assert icons.token_map(icons.LIGHT)[icons.PRIMARY_SENTINEL] == "#1A1A1A"
+    assert icons.token_map(icons.DARK)[icons.PRIMARY_SENTINEL] == "#F0F0F0"
+
+
 def test_architecture_icons_exist_and_are_two_token_compliant():
     """Every Architecture-tab icon uses only the two authoring sentinels.
 
