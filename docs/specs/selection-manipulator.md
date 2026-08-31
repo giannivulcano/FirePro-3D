@@ -185,6 +185,58 @@ apply the exact value → bake + undo as if released.
   `selection-mode.md` (proposal), which continues to own what-gets-selected;
   this spec owns what-happens-to-the-selection.
 
+## Unification Roadmap (proposal — the intended end-state)
+
+**Problem this fixes.** v1 ships **two** systems that both mean "manipulate the
+selected thing": the legacy per-item grip protocol (`grip_points()`/
+`apply_grip()` rendered by `Model_View.drawForeground`, hit-tested by
+`scene_tools._find_grip_hit`) and the `SelectionManipulator`. `provides_handles_for`
+is an **arbitration predicate** deciding which owns an item — a transitional
+seam, not the destination. Every v1 smoke bug (double handles, deselect-on-
+handle-press, stolen press) was the same failure mode: two systems fighting over
+one item. A single owner makes that whole bug class impossible.
+
+**Target.** One capability-driven handle system. Each item exposes ALL its
+editable affordances — rigid-transform handles (resize/rotate) AND parametric
+handles (vertices, endpoints, radius, sweep) — as one kind of thing: a `Handle`
+(role + scene position + drag-behavior + commit). The manipulator is the single
+renderer, hit-tester, and undo funnel for every handle. A polygon vertex handle
+and a corner-scale handle are just two roles in one system. No `drawForeground`
+grip loop, no `_find_grip_hit`, no `provides_handles_for` — because there is one
+owner. `grip_points()`/`apply_grip()` survive only as the *mutation primitives*
+parametric Handles call (DRY — reuse, don't rewrite the edit math).
+
+**Phased path** (each step independently shippable + parity-tested):
+
+- **U1 — universal rigid rotate** *(already filed [P1])*: every parametric item
+  implements `manip_rotate` (baked). Group rotate lights up. Manipulator now
+  does rigid transforms for ALL items.
+- **U2 — the `Handle` model**: define one `Handle` abstraction (role, position,
+  drag→edit, commit) and a `manip_handles(self) -> list[Handle]` capability.
+  Re-express the manipulator's own resize/rotate handles as `Handle`s. No item
+  migration yet; pure internal refactor with identical behavior.
+- **U3 — migrate items onto `manip_handles`, one per PR**: each item exposes its
+  parametric points as `Handle`s whose drag calls its existing `apply_grip`
+  logic. The manipulator renders/hit-tests them inside the frame. Carry the
+  per-item drag semantics that live in `model_space` today (Ctrl angle-constrain
+  on wall/line/gridline endpoints, gridline multi-select **parallel-delta**,
+  wall-endpoint propagation, the **constraint solver** pass). Parity test each
+  item (posted-event drag == legacy grip drag).
+- **U4 — retire the parallel systems**: once every item provides `manip_handles`,
+  delete the `drawForeground` grip loop, `scene_tools._find_grip_hit`, and the
+  `provides_handles_for` predicate. One render path, one hit-test, one undo
+  funnel.
+- **U5 — fold in selection + other scenes**: integrate `selection-mode.md`
+  (hover pre-highlight / Tab-cycle / rubber-band) against the unified handles;
+  add handle providers for elevation and 3D scenes (their own selection specs).
+
+**Risks to honor at each step** (why it's staged, not a big-bang): the constraint
+solver, OSNAP-per-handle, the model full-network-snapshot vs paper macro undo
+split, gridline parallel-delta, wall-endpoint propagation, and the rotation
+Y-up/pivot convention all currently live in the `model_space` grip lifecycle and
+must move onto the `Handle`/manipulator path without behavior drift. The v1
+`provides_handles_for` seam stays until U4 removes it.
+
 ## Existing Code Context
 
 Prototype: `D:\Custom Code\FPD Design\selection box\selection_box.py`.
