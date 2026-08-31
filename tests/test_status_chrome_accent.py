@@ -14,6 +14,9 @@ def test_pill_on_style_uses_theme_accent(qapp):
     assert "#44ff88" not in style.lower()   # retired neon green
     assert "#44aaff" not in style.lower()   # rogue blue
     assert "#004cff" not in style.lower()   # blue accent
+    # ON pill matches the mode badge — transparent fill, no green background.
+    assert "background: transparent" in style
+    assert "#1a3a24" not in style.lower()
 
 
 def test_pill_off_style_has_no_accent(qapp):

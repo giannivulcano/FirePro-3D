@@ -200,15 +200,15 @@ def _pill_style(on: bool) -> str:
     """Stylesheet for a status-bar toggle pill (SNAP/ALIGN).
 
     ON derives its accent (text + border) from the active theme so the pill
-    matches ribbon-selection/grip green. The ON background and OFF greys are
-    intentionally left literal here (full-chrome unification is a filed
-    follow-up); only the accent is tokenised.
+    matches the mode badge (transparent fill, accent text + border — no green
+    background). The OFF greys are intentionally left literal here (full-chrome
+    unification is a filed follow-up); only the accent is tokenised.
     """
     if on:
         accent = th.detect().accent
         return (
             f"font-weight: bold; color: {accent}; "
-            "background: #1a3a24; padding: 2px 10px; "
+            "background: transparent; padding: 2px 10px; "
             f"border: 1px solid {accent}; border-radius: 3px;"
         )
     return (
