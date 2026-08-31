@@ -116,6 +116,19 @@ class Node(DisplayableItemMixin, QGraphicsEllipseItem):
         z = getattr(self, "z_pos", None)
         return (z, z) if z is not None else None
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the node position about ``pivot`` (Y-up CCW+).
+
+        Rotates the 2D scene position only — ``z_pos`` (elevation) is preserved.
+        ``setPos`` fires ``itemChange`` so connected pipes re-derive and the child
+        sprinkler rides the parent; the fitting is refreshed by the manipulator's
+        shared post-bake step.  ``x_pos``/``y_pos`` are kept in sync for hygiene.
+        """
+        new = CAD_Math.rotate_point(self.scenePos(), pivot, -angle_deg)
+        self.setPos(new)
+        self.x_pos = new.x()
+        self.y_pos = new.y()
+
     # -------------------------------------------------------------------------
     # Sprinkler helpers
     def add_sprinkler(self):

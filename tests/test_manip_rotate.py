@@ -44,3 +44,19 @@ def test_wall_manip_rotate_endpoints(scene):
     w.manip_rotate(-90.0, pivot)
     approx_pt(w._pt1, p1_0)
     approx_pt(w._pt2, p2_0)
+
+
+def test_node_manip_rotate_keeps_z(scene):
+    from firepro3d.node import Node
+    n = Node(30, 40, z=2500.0)
+    scene.addItem(n)
+    pivot = QPointF(0, 0)
+    p0 = QPointF(n.scenePos())
+    z0 = n.z_pos
+    n.manip_rotate(90.0, pivot)
+    approx_pt(n.scenePos(), rot_yup(p0, pivot, 90.0))
+    assert n.z_pos == z0                      # elevation untouched
+    assert n.x_pos == pytest.approx(n.scenePos().x())
+    assert n.y_pos == pytest.approx(n.scenePos().y())
+    n.manip_rotate(-90.0, pivot)
+    approx_pt(n.scenePos(), p0)
