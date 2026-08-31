@@ -211,6 +211,34 @@ def resolve_rotation(anchor, values: dict) -> dict:
     return {"angle_deg": values["Angle"]}
 
 
+def resolve_manip_move(anchor, values: dict) -> dict:
+    """Return the manipulator move offset for typed *dX*/*dY* (Y-up input).
+
+    Mirrors ``resolve_displacement`` but keyed on the manipulator's own schema
+    so the two never share a registry entry: the manipulator seeds and reads
+    this HUD from a live drag delta, not from a placement anchor.
+    """
+    return {"offset": QPointF(values["dX"], -values["dY"])}
+
+
+def resolve_manip_resize(anchor, values: dict) -> dict:
+    """Return the manipulator resize extents for typed *W*/*H* (scene units).
+
+    v1 only wires the plumbing — the resize gesture arrives with the resize
+    handles — so this is a passthrough the applier consumes directly.
+    """
+    return {"width": values["Width"], "height": values["Height"]}
+
+
+def resolve_manip_rotate(anchor, values: dict) -> dict:
+    """Return the manipulator rotation for a typed angle (Y-up degrees).
+
+    v1 only wires the plumbing — the rotate gesture arrives with the rotate
+    knob — so this yields the absolute orientation the applier rotates to.
+    """
+    return {"angle_deg": values["Angle"]}
+
+
 def resolve_spacing_count(anchor, values: dict) -> dict:
     """Return spacing plus an integer count, floored at one.
 
@@ -332,6 +360,41 @@ SCHEMAS: dict[str, Schema] = {
         # Anchored transform: the sized rectangle + its pivot are armed in the
         # scene before the rotate step, so the HUD stays shut until they exist —
         # like ``move`` and ``arc_span``.
+        needs_anchor=True,
+    ),
+    # ── Selection-manipulator transforms ─────────────────────────────────
+    # The manipulator's live readout + typed-input surface.  Like ``move``
+    # these are anchored transforms (needs_anchor): the base point is the
+    # gesture's grab point, so the readout stays a coherent measurement rather
+    # than a floating 0,0.  Only ``manip_move`` drives a gesture in v1; the
+    # resize/rotate schemas are wired ready for their handles (Task 5).
+    "manip_move": Schema(
+        name="manip_move",
+        fields=(
+            FieldSpec("dX", "dX", FieldKind.DIMENSION),
+            FieldSpec("dY", "dY", FieldKind.DIMENSION),
+        ),
+        resolve=resolve_manip_move,
+        returns_point=False,
+        needs_anchor=True,
+    ),
+    "manip_resize": Schema(
+        name="manip_resize",
+        fields=(
+            FieldSpec("Width", "W", FieldKind.DIMENSION, minimum=0.0),
+            FieldSpec("Height", "H", FieldKind.DIMENSION, minimum=0.0),
+        ),
+        resolve=resolve_manip_resize,
+        returns_point=False,
+        needs_anchor=True,
+    ),
+    "manip_rotate": Schema(
+        name="manip_rotate",
+        fields=(
+            FieldSpec("Angle", "A", FieldKind.ANGLE),
+        ),
+        resolve=resolve_manip_rotate,
+        returns_point=False,
         needs_anchor=True,
     ),
     "track": Schema(

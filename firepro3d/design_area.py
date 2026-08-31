@@ -1132,6 +1132,28 @@ class DesignArea(QGraphicsPathItem):
         finally:
             self.badge._syncing = False
 
+    # ── Selection-manipulator adapter (translate-only) ────────────────
+    # Governing spec: docs/specs/selection-manipulator.md.  The only movable
+    # part of a confirmed design area is its badge (the tile outline derives
+    # from the sprinkler set), so the manipulator moves the badge and wraps
+    # the badge box.  No scale/rotate — the badge is a fixed-layout table.
+
+    def manip_capabilities(self) -> set:
+        """Narrow the manipulator to translate only (no resize/rotate)."""
+        return {"translate"}
+
+    def manip_bounds(self):
+        """Scene box the manipulator frame wraps — the badge box (what moves),
+        not the whole tile outline."""
+        return self.badge.sceneBoundingRect()
+
+    def manip_translate(self, dx: float, dy: float):
+        """Baked move: shift the badge by (dx, dy).  DesignArea sits at
+        item-pos origin (parent coords == scene coords), so the badge pos is
+        the scene-space badge offset — routed through ``set_badge_offset`` so
+        ``_badge_user_moved`` is set and the move serializes for undo/save."""
+        self.set_badge_offset(self.badge.pos() + QPointF(dx, dy))
+
     # ------------------------------------------------------------------
     # Hydraulic snapshot
 

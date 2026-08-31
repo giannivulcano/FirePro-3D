@@ -36,6 +36,7 @@ class TestRegistry:
             "line", "rectangle", "circle", "polygon",
             "displacement", "distance", "spacing_count",
             "arc_span", "rotation", "track",
+            "manip_move", "manip_resize", "manip_rotate",
         }
 
     def test_line_fields(self):
@@ -76,6 +77,7 @@ class TestRegistry:
             "Distance": 90.0,
             "Spacing": 500.0, "Count": 3.0,
             "Span": 90.0, "ArcLength": 0.0,
+            "Width": 120.0, "Height": 140.0,
         }
         for name, schema in SCHEMAS.items():
             out = schema.resolve(anchor, sample)
@@ -98,7 +100,8 @@ class TestRegistry:
         """
         need = {n for n, s in SCHEMAS.items() if s.requires_anchor}
         assert need == {"line", "rectangle", "circle", "polygon",
-                        "displacement", "arc_span", "rotation", "track"}
+                        "displacement", "arc_span", "rotation", "track",
+                        "manip_move", "manip_resize", "manip_rotate"}
 
     def test_anchorless_transforms_do_not_require_an_anchor(self):
         assert SCHEMAS["distance"].requires_anchor is False

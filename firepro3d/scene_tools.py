@@ -763,8 +763,16 @@ class SceneTools:
 
         best = None
         best_dist = tol
+        _manip = getattr(self._scene, "_manipulator", None)
+        from PyQt6 import sip
+        if _manip is not None and sip.isdeleted(_manip):
+            _manip = None
         for item in self._scene.selectedItems():
             if not hasattr(item, "grip_points"):
+                continue
+            # Box-native items are manipulated by the manipulator's own handles;
+            # their coincident parametric grips must not steal the handle press.
+            if _manip is not None and _manip.provides_handles_for(item):
                 continue
             for idx, gpt in enumerate(item.grip_points()):
                 if hasattr(item, "grip_hittable") and not item.grip_hittable(idx):

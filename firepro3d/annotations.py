@@ -124,6 +124,17 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
         if index == 0:
             self.setPos(pos)
 
+    # ── Selection-manipulator adapter (translate-only) ────────────────────
+    # Governing spec: docs/specs/selection-manipulator.md.  A note's serialized
+    # position IS its pos() (network_codec.serialize_note uses scenePos), so a
+    # baked move is a plain moveBy.  No scale/rotate in v1.
+
+    def manip_capabilities(self) -> set:
+        return {"translate"}
+
+    def manip_translate(self, dx: float, dy: float):
+        self.moveBy(dx, dy)
+
     # ── visual editing frame ──────────────────────────────────────────────
 
     def paint(self, painter, option, widget=None):
@@ -259,6 +270,21 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
             dx = pos.x() - mid.x()
             dy = pos.y() - mid.y()
             self._offset_dist = dx * math.cos(perp) + dy * math.sin(perp)
+        self.update_geometry()
+
+    # ── Selection-manipulator adapter (translate-only) ────────────────────
+    # Governing spec: docs/specs/selection-manipulator.md.  A dimension is
+    # serialized from its internal measurement endpoints (_p1/_p2), not pos()
+    # (network_codec.serialize_dimension), so a bare moveBy would desync the
+    # drawn line from the saved geometry.  Translate the endpoints and rebuild.
+    # No scale/rotate in v1.
+
+    def manip_capabilities(self) -> set:
+        return {"translate"}
+
+    def manip_translate(self, dx: float, dy: float):
+        self._p1 = QPointF(self._p1.x() + dx, self._p1.y() + dy)
+        self._p2 = QPointF(self._p2.x() + dx, self._p2.y() + dy)
         self.update_geometry()
 
     # ---------------------------------|

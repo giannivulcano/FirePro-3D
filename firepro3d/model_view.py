@@ -287,7 +287,15 @@ class Model_View(QGraphicsView):
             painter.save()
             painter.resetTransform()
             _sel_t = th.detect()
+            _manip = getattr(scene, "_manipulator", None)
+            from PyQt6 import sip
+            if _manip is not None and sip.isdeleted(_manip):
+                _manip = None
             for item in selected:
+                # A box-native item shows the manipulator's own resize handles;
+                # its parametric grips must not also draw (double handles).
+                if _manip is not None and _manip.provides_handles_for(item):
+                    continue
                 for idx, gpt in enumerate(item.grip_points()):
                     # Don't render a handle for a grip that can't be picked
                     # (e.g. a hidden gridline bubble) — mirrors _find_grip_hit.

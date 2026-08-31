@@ -449,6 +449,35 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self.draw_origin()
         self.push_undo_state()   # initial empty state
         self.selectionChanged.connect(self._on_selection_changed)
+        # Scene-level selection manipulator (frame + rigid transforms) —
+        # governing spec docs/specs/selection-manipulator.md.  One undo entry
+        # per baked gesture via push_undo_state.
+        self._manipulator = None
+        self._create_manipulator()
+
+    def _create_manipulator(self):
+        """(Re)create the scene's selection manipulator and stash it."""
+        from .selection_manipulator import SelectionManipulator
+        self._manipulator = SelectionManipulator(
+            self, commit_hook=lambda mode: self.push_undo_state())
+        return self._manipulator
+
+    def _live_manip(self):
+        """Return the selection manipulator, recreating it if a scene rebuild
+        deleted its underlying C++ object.
+
+        The manipulator is a scene item, so paths that sweep the scene (undo
+        ``_restore_network``, load, new file) can delete the C++ QGraphicsObject
+        while this Python reference survives — touching it then raises
+        ``wrapped C/C++ object ... has been deleted`` and, because it is read at
+        the top of ``mousePressEvent``, would break *every* click (placement
+        included). Self-heal so the press pipeline never crashes.
+        """
+        from PyQt6 import sip
+        m = getattr(self, "_manipulator", None)
+        if m is not None and not sip.isdeleted(m):
+            return m
+        return self._create_manipulator()
 
     # -------------------------------------------------------------------------
     # Selection change handler
@@ -5863,6 +5892,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         if self.is_input_mode():
             self.cursorMoved.emit(self._format_cursor_readout(event.scenePos()))
             return
+        # ── Selection-manipulator drag owns the mouse ───────────────────
+        # While a manipulator gesture is in flight, moves belong to the
+        # grabber (held-transform preview); the placement machinery below
+        # must not run.  The passive X/Y readout stays live.
+        _manip = self._live_manip()
+        if _manip is not None and _manip.is_dragging():
+            self.cursorMoved.emit(self._format_cursor_readout(event.scenePos()))
+            super().mouseMoveEvent(event)
+            return
         scene_pos = event.scenePos()
         self._last_scene_pos = scene_pos
         self.cursorMoved.emit(self._format_cursor_readout(scene_pos))
@@ -7544,6 +7582,21 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 if isinstance(self._grip_item, GridlineItem):
                     self._align_active_item = self._grip_item
                 return  # consumed by grip system
+
+        # ── Selection-manipulator interior press (select mode only) ─────
+        # Grip hits above stay first (spec §event-routing: grip beats
+        # interior-move).  Route the press through normal item dispatch so
+        # the manipulator (z=1e6, shape = frame rect) receives it: drag =
+        # group move, plain click = click-through picking.  Shift-presses
+        # are excluded so Shift-click floor vertex editing keeps working
+        # (mirrors the grip-check gate above).
+        _manip = self._live_manip()
+        if (_manip is not None and _manip.isVisible()
+                and self.mode in (None, "select")
+                and not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                and _manip.hit_test(scene_pos)):
+            super().mousePressEvent(event)
+            return
 
         # ── Gridline body click → select (no body drag, use grips) ──
         if self.mode in (None, "select"):
@@ -10681,6 +10734,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         # ``_last_press_pos`` (its press was swallowed) against a fresh release.
         if self.is_input_mode():
             return
+        # ── Selection-manipulator drag release ──────────────────────────
+        # Deliver straight to the grabber: bake + commit happen in
+        # SelectionManipulator._finish; the marker-deselect logic below is
+        # for rubber-band drags and must not run on a manipulator gesture.
+        _manip = self._live_manip()
+        if (event.button() == Qt.MouseButton.LeftButton
+                and _manip is not None and _manip.is_dragging()):
+            super().mouseReleaseEvent(event)
+            return
         # ── Gridline body drag release ──────────────────────────────────
         if event.button() == Qt.MouseButton.LeftButton and self._dragging_gridline is not None:
             self.push_undo_state()
@@ -11201,6 +11263,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._opening_mirror_facing = not self._opening_mirror_facing
                 self._sync_opening_state_to_template()
                 self._refresh_opening_ghost()
+                event.accept()
+                return
+        # Esc mid-manipulator-drag cancels the gesture (restore pre-drag
+        # state, no commit) before any other Escape handling runs.
+        if event.key() == Qt.Key.Key_Escape:
+            _manip = self._live_manip()
+            if _manip is not None and _manip.is_dragging():
+                _manip.cancel_drag()
                 event.accept()
                 return
         # Radiation selection flow — intercept Enter/Escape first

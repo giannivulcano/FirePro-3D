@@ -210,6 +210,18 @@ SELECTION_OUTLINE_WIDTH_MM = 0.8           # dashed boundary pen width (paper mm
 SELECTION_GRIP_OUTLINE_WIDTH_MM = 0.3      # grip square outline pen width (paper mm)
 SELECTION_GRIP_SIZE_MM = 4.0               # grip square side length (paper mm)
 
+# ── Selection-manipulator handle/knob style (docs/specs/selection-manipulator.md) ──
+# Mockup-approved 2026-08-30 (style A): dark-filled square handles with a
+# theme-``selection`` border and a hollow rotate knob. The FILL is a function of
+# the theme — near-black on a dark canvas, white on a light canvas — so handles
+# read against the canvas either way while the green border does the defining.
+MANIP_HANDLE_SIZE_PX = 9.0                  # resize-handle square side (device px)
+MANIP_HANDLE_BORDER_PX = 1.2               # handle + knob outline width (device px)
+MANIP_KNOB_RADIUS_PX = 5.5                 # rotate-knob radius (device px)
+MANIP_STEM_LEN_PX = 28.0                   # top-mid → rotate-knob stem length (px)
+MANIP_HANDLE_FILL_DARK = "#101613"          # fill on a dark canvas (prototype value)
+MANIP_HANDLE_FILL_LIGHT = "#ffffff"         # fill on a light canvas
+
 TEXT_BOX_MARGIN_MM = 1.0  # inner padding between sheet-text content and its box edge
 
 # Word-standard font size ladder (pt) — shared by the ribbon Font group's

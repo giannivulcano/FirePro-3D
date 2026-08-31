@@ -9,11 +9,11 @@ def test_set_angle_stores_and_applies(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
     r.set_angle(37.0, QPointF(0, 0))
     assert abs(r._angle - 37.0) < 1e-9              # stored as the Y-up display angle
-    # App angles are Y-up (CCW+); Qt setRotation is CW+ on the Y-down scene, so the
-    # applied Qt rotation is negated (see set_angle).
-    assert abs(r.rotation() + 37.0) < 1e-9
-    # transform origin is the pivot (local coords == scene coords at identity pos)
-    assert r.transformOriginPoint() == QPointF(0, 0)
+    # Bake-at-rest (selection-manipulator.md): the angle is DATA, no held Qt
+    # item transform — rotation() stays 0.  The rotated footprint comes from
+    # _rotation_transform() (paint/shape/map*), not setRotation.
+    assert r.rotation() == 0.0
+    assert r._pivot == QPointF(0, 0)
 
 
 def test_positive_angle_rotates_ccw_like_yup_convention(qapp):
@@ -63,7 +63,7 @@ def test_apply_grip_resizes_in_rotated_frame(qapp):
 def test_default_angle_is_zero(qapp):
     r = RectangleItem(QPointF(0, 0), QPointF(100, 50))
     assert r._angle == 0.0
-    assert abs(r.rotation()) < 1e-9
+    assert r.rotation() == 0.0            # no held transform at any angle
 
 
 # ── Serialisation round-trips ─────────────────────────────────────────────────
@@ -81,15 +81,15 @@ def test_from_dict_restores_angle_and_pivot(qapp):
          "angle": 37.0, "pivot": [10.0, 20.0]}
     r = RectangleItem.from_dict(d)
     assert abs(r._angle - 37.0) < 1e-9
-    assert abs(r.rotation() + 37.0) < 1e-9
-    assert r.transformOriginPoint().x() == 10.0 and r.transformOriginPoint().y() == 20.0
+    assert r.rotation() == 0.0                 # baked-at-rest: angle is data
+    assert r._pivot.x() == 10.0 and r._pivot.y() == 20.0
 
 
 def test_from_dict_backcompat_no_angle(qapp):
     r = RectangleItem.from_dict({"type": "draw_rectangle", "x": 0, "y": 0,
                                  "w": 100, "h": 50})
     assert r._angle == 0.0
-    assert abs(r.rotation()) < 1e-9      # renders axis-aligned exactly as before
+    assert r.rotation() == 0.0            # renders axis-aligned exactly as before
 
 
 def test_centre_following_pivot_serialises_as_null_and_round_trips(qapp):
@@ -104,7 +104,8 @@ def test_centre_following_pivot_serialises_as_null_and_round_trips(qapp):
     # Render is still faithful (origin = current centre) and tracking survives.
     r2 = RectangleItem.from_dict(d)
     assert r2._pivot is None
-    assert r2.transformOriginPoint() == QPointF(50.0, 25.0)
+    # Centre-following pivot re-derives from the rect centre on demand.
+    assert r2._rotation_origin() == QPointF(50.0, 25.0)
     assert abs(r2._angle - 15.0) < 1e-9
 
 
@@ -123,9 +124,9 @@ def test_scene_io_round_trip_preserves_angle_pivot(qapp, tmp_path):
     assert len(scene2._draw_rects) == 1
     r2 = scene2._draw_rects[0]
     assert abs(r2._angle - 37.0) < 1e-9
-    assert abs(r2.rotation() + 37.0) < 1e-9
-    assert r2.transformOriginPoint().x() == 10.0
-    assert r2.transformOriginPoint().y() == 20.0
+    assert r2.rotation() == 0.0                 # baked-at-rest through file I/O
+    assert r2._pivot.x() == 10.0
+    assert r2._pivot.y() == 20.0
 
 
 def test_undo_path_preserves_angle_pivot(qapp):
@@ -140,9 +141,9 @@ def test_undo_path_preserves_angle_pivot(qapp):
     assert len(scene._draw_rects) == 1
     r2 = scene._draw_rects[0]
     assert abs(r2._angle - 37.0) < 1e-9
-    assert abs(r2.rotation() + 37.0) < 1e-9
-    assert r2.transformOriginPoint().x() == 10.0
-    assert r2.transformOriginPoint().y() == 20.0
+    assert r2.rotation() == 0.0                 # baked-at-rest through undo capture
+    assert r2._pivot.x() == 10.0
+    assert r2._pivot.y() == 20.0
 
 
 def test_translate_moves_rotated_rect_with_its_pivot(qapp):

@@ -124,10 +124,39 @@ def test_plan_viewport_renders_only_its_crop(qapp):
 
 
 # ── Task 4: grip rework + ViewportGeometryCommand carries crop_rect ───────────
+#
+# Grips retired (Task 7): resize now flows through the SelectionManipulator's
+# manip_scale.  _drag_grip translates the legacy 8-handle index + paper delta
+# into the equivalent manip_scale(fx, fy, anchor) call (same crop×scale
+# outcome — proven byte-for-byte in test_selection_manipulator_paper.py).
+
+# Legacy handle index -> (moves_left, moves_right, moves_top, moves_bottom).
+_LEGACY_HANDLE_EDGES = {
+    0: (True, False, True, False),    # TL
+    1: (False, False, True, False),   # T
+    2: (False, True, True, False),    # TR
+    3: (True, False, False, False),   # ML
+    4: (False, True, False, False),   # MR
+    5: (True, False, False, True),    # BL
+    6: (False, False, False, True),   # B
+    7: (False, True, False, True),    # BR
+}
+
 
 def _drag_grip(vp, handle_index, dx, dy):
     from PyQt6.QtCore import QPointF
-    vp._apply_grip_resize(handle_index, QPointF(dx, dy))
+    ml, mr, mt, mb = _LEGACY_HANDLE_EDGES[handle_index]
+    data = vp.data
+    x, y, w, h = data.x, data.y, data.w, data.h
+    # New on-paper size after moving the active edges by the paper delta.
+    new_w = w + (dx if mr else 0.0) - (dx if ml else 0.0)
+    new_h = h + (dy if mb else 0.0) - (dy if mt else 0.0)
+    fx = new_w / w if w else 1.0
+    fy = new_h / h if h else 1.0
+    # Anchor = the corner opposite the moving edges (fixed on paper).
+    ax = (x + w) if ml else x
+    ay = (y + h) if mt else y
+    vp.manip_scale(fx, fy, QPointF(ax, ay))
 
 
 def test_plan_grip_edits_crop_keeps_scale(qapp):
@@ -149,9 +178,12 @@ def test_plan_grip_edits_crop_keeps_scale(qapp):
 
 
 def test_detail_viewport_has_no_resize_grips(qapp):
+    """Detail viewports are marker-owned: the manipulator shows no resize
+    handles (scale capability dropped), and manip_scale is inert."""
     from PyQt6.QtWidgets import QGraphicsScene
     from PyQt6.QtCore import QRectF, QPointF
     from firepro3d.paper_space import PaperScene, Sheet, SheetViewData
+    from firepro3d.selection_manipulator import item_capabilities
     model = QGraphicsScene()
     markers = {"D1": _FakeMarker(QRectF(0, 0, 100, 100))}
     sheet = Sheet.create_default()
@@ -159,8 +191,11 @@ def test_detail_viewport_has_no_resize_grips(qapp):
     scene = PaperScene(sheet, _resolver(model, markers))
     vp = scene.add_viewport(data)
     vp.setSelected(True)
-    assert vp._grip_rects() == []
-    assert vp._hit_grip(QPointF(0, 0)) == -1
+    assert "scale" not in item_capabilities(vp)
+    # Inert: a manip_scale on a detail viewport changes nothing.
+    w_before = data.w
+    vp.manip_scale(2.0, 2.0, QPointF(0, 0))
+    assert data.w == w_before
 
 
 def test_viewport_geometry_undo_restores_crop(qapp):
