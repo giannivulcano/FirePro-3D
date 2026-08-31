@@ -42,7 +42,6 @@ from firepro3d.constants import DEFAULT_GRIDLINE_SPACING_MM, DEFAULT_GRIDLINE_LE
 from firepro3d.feature import DEFAULT_FEATURE_FOR_TYPE
 from firepro3d.wall_opening import WallOpening
 from firepro3d import theme as th
-from firepro3d.icons import ACCENT_GREEN
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -197,6 +196,28 @@ class _SplashScreen(QWidget):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _pill_style(on: bool) -> str:
+    """Stylesheet for a status-bar toggle pill (SNAP/ALIGN).
+
+    ON derives its accent (text + border) from the active theme so the pill
+    matches ribbon-selection/grip green. The ON background and OFF greys are
+    intentionally left literal here (full-chrome unification is a filed
+    follow-up); only the accent is tokenised.
+    """
+    if on:
+        accent = th.detect().accent
+        return (
+            f"font-weight: bold; color: {accent}; "
+            "background: #1a3a24; padding: 2px 10px; "
+            f"border: 1px solid {accent}; border-radius: 3px;"
+        )
+    return (
+        "font-weight: bold; color: #888; "
+        "background: transparent; padding: 2px 10px; "
+        "border: 1px solid #555; border-radius: 3px;"
+    )
+
+
 class _SnapIndicatorLabel(QLabel):
     """Clickable status-bar label for the SNAP state indicator."""
 
@@ -217,18 +238,7 @@ class _SnapIndicatorLabel(QLabel):
 
     def _apply_style(self) -> None:
         on = bool(self.property("snapOn"))
-        if on:
-            self.setStyleSheet(
-                f"font-weight: bold; color: {ACCENT_GREEN}; "
-                "background: #1a3a24; padding: 2px 10px; "
-                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
-            )
-        else:
-            self.setStyleSheet(
-                "font-weight: bold; color: #888; "
-                "background: transparent; padding: 2px 10px; "
-                "border: 1px solid #555; border-radius: 3px;"
-            )
+        self.setStyleSheet(_pill_style(on))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -261,18 +271,7 @@ class _GuidesIndicatorLabel(QLabel):
 
     def _apply_style(self) -> None:
         on = bool(self.property("guidesOn"))
-        if on:
-            self.setStyleSheet(
-                f"font-weight: bold; color: {ACCENT_GREEN}; "
-                "background: #1a3a24; padding: 2px 10px; "
-                f"border: 1px solid {ACCENT_GREEN}; border-radius: 3px;"
-            )
-        else:
-            self.setStyleSheet(
-                "font-weight: bold; color: #888; "
-                "background: transparent; padding: 2px 10px; "
-                "border: 1px solid #555; border-radius: 3px;"
-            )
+        self.setStyleSheet(_pill_style(on))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -311,12 +310,13 @@ class _SnapToolbar(QToolBar):
         self._main_window = main_window
         self._actions: dict[str, QAction] = {}
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        accent = th.detect().accent
         self.setStyleSheet(
             # Transparent 1px border on every button so checked/unchecked have
             # the same box size — toggling no longer reflows the toolbar.
             "QToolButton { padding: 2px 4px; border: 1px solid transparent;"
             " border-radius: 3px; }"
-            "QToolButton:checked { background: #2a5a8a; border-color: #44aaff; }"
+            f"QToolButton:checked {{ background: #2a5a8a; border-color: {accent}; }}"
             "QToolButton:disabled { color: #888; }"
             # Dimmed-but-checked must stay legible (F3 master-off state).
             "QToolButton:checked:disabled { background: #243a4e;"
