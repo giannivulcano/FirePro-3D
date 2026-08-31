@@ -52,21 +52,28 @@ Every colour value in an SVG icon **MUST** be exactly one of two authoring senti
 
 ### 4.2 Per-theme token table
 
-The loader substitutes sentinels with theme values at load time. The mapping is defined in `firepro3d/icons.py` (`_TOKENS`) — that dict is the single source of truth; this table documents it:
+The loader substitutes sentinels with theme values at load time. `icons.token_map()`
+builds the mapping; primary derives from the fixed ink table in `icons.py`
+(`_PRIMARY`), and **accent derives from the active theme variant's `accent`
+token** — `theme.py` is the single source of truth for the accent colour:
 
 | Token role | Sentinel (authored in SVG) | Light theme | Dark theme |
 |---|---|---|---|
 | Primary | `#1A1A1A` | `#1A1A1A` (black) | `#F0F0F0` (white) |
-| Accent | `#004CFF` | `#004CFF` (blue, `ACCENT_BLUE`) | `#44FF88` (green, `ACCENT_GREEN`) |
+| Accent | `#004CFF` | `theme.LIGHT.accent` (`#2f9e63` green) | `theme.DARK.accent` (`#63BE8B` sage) |
 
-Accent convention: **light theme = blue, dark theme = green**. The two display
-values are named constants in `icons.py` (`ACCENT_BLUE`, `ACCENT_GREEN`). The
-dark-theme green `#44FF88` is the **single source** shared with the ALIGN/SNAP
-status-bar pills in `main.py` (which import `ACCENT_GREEN`), so pill-green and
-icon-accent-green stay in sync. The authoring sentinel stays `#004CFF` — SVGs
-are always authored with the blue sentinel regardless of the per-theme display.
+Accent convention: **the accent display value is the active theme's `accent`
+token — one accent everywhere.** `icons.token_map()` reads `theme.LIGHT.accent` /
+`theme.DARK.accent`; there are no standalone accent constants in `icons.py`
+(`ACCENT_BLUE`/`ACCENT_GREEN` were retired). The same `theme.accent` drives the
+SNAP/ALIGN status-bar pills, the SNAP toolbar checked border, and the mode badge
+in `main.py` (each reads `theme.detect().accent`), plus ribbon-button selection
+and grip/selection rendering. The authoring sentinel stays `#004CFF` — SVGs are
+always authored with the blue sentinel regardless of the per-theme display value.
 
-To change a theme colour, edit **only** `icons.py` `_TOKENS`. SVG geometry is never touched for retheming — that is the purpose of this contract.
+To change the accent, edit `theme.py` (the variant's `accent`). To change the
+primary ink, edit `icons.py` `_PRIMARY`. SVG geometry is never touched for
+retheming — that is the purpose of this contract.
 
 ### 4.3 Substitution mechanics
 
