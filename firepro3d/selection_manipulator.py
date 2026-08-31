@@ -499,6 +499,19 @@ class SelectionManipulator(QGraphicsObject):
         selection boundary — the manipulator frame is the one boundary)."""
         return item in self._items
 
+    def provides_handles_for(self, item: QGraphicsItem) -> bool:
+        """True when the manipulator's OWN resize handles replace *item*'s
+        parametric grips — a single, scale-capable selection (a box-native
+        item like RectangleItem).  Such an item must be retired from the legacy
+        grip pipeline entirely: ``Model_View.drawForeground`` must not draw its
+        grips (double handles) and ``_find_grip_hit`` must not hit-test them
+        (a manipulator-handle press would otherwise be stolen by the coincident
+        rect grip, which also deselects the item).  Parametric items (no
+        ``manip_scale``) keep their grips inside the frame.
+        """
+        return (len(self._items) == 1 and self._items[0] is item
+                and "scale" in item_capabilities(item))
+
     # ----------------------------------------------------- selection tracking --
 
     def _mode_allows(self, sc) -> bool:

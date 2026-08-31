@@ -396,3 +396,25 @@ def test_rotate_knob_press_starts_rotation_via_gate(qapp, scene_and_view):
     _post_mouse(view, QEvent.Type.MouseButtonRelease, QPointF(rect.left() - 25, rect.center().y()))
     assert r._angle != 0.0                             # actually rotated
     assert r.rotation() == 0.0                         # baked at rest
+
+
+def test_rect_handle_press_keeps_selection_no_double_grips(qapp, scene_and_view):
+    """Regression (live smoke 2026-08-30): a box-native item's own parametric
+    grips must be retired from the legacy pipeline when the manipulator shows
+    its resize handles — otherwise the coincident rect grip (a) double-draws
+    and (b) steals the handle press, which deselected the item. Pressing a
+    corner handle must keep the rect selected and start a resize gesture."""
+    scene, view = scene_and_view
+    from firepro3d.construction_geometry import RectangleItem
+    r = RectangleItem(QPointF(100, 100), QPointF(220, 180))
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = next(i for i in scene.items() if isinstance(i, SelectionManipulator))
+    assert manip.provides_handles_for(r)                 # grips retired for r
+    corner = manip._rect.topRight()
+    assert manip.hit_test(corner)
+    _post_mouse(view, QEvent.Type.MouseButtonPress, corner)
+    assert r.isSelected()                                # NOT deselected
+    assert manip._mode == "resize"                       # resize gesture began
+    _post_mouse(view, QEvent.Type.MouseButtonRelease, corner)
