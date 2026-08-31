@@ -60,3 +60,30 @@ def test_node_manip_rotate_keeps_z(scene):
     assert n.y_pos == pytest.approx(n.scenePos().y())
     n.manip_rotate(-90.0, pivot)
     approx_pt(n.scenePos(), p0)
+
+
+def test_gridline_manip_rotate_origin_and_angle(scene):
+    from firepro3d.gridline import GridlineItem
+    g = GridlineItem(QPointF(0, 0), QPointF(100, 0), label="A")
+    scene.addItem(g)
+    pivot = QPointF(0, 0)
+    origin0 = QPointF(g._origin)
+    ang0 = g._angle_deg
+    far0 = g.grip_points()[1]                 # far endpoint (rendered)
+    g.manip_rotate(90.0, pivot)
+    approx_pt(g._origin, rot_yup(origin0, pivot, 90.0))
+    assert g._angle_deg == pytest.approx((ang0 + 90.0) % 360.0)
+    approx_pt(g.grip_points()[1], rot_yup(far0, pivot, 90.0), eps=1e-4)
+    g.manip_rotate(-90.0, pivot)
+    approx_pt(g._origin, origin0)
+
+
+def test_gridline_manip_rotate_respects_lock(scene):
+    from firepro3d.gridline import GridlineItem
+    g = GridlineItem(QPointF(0, 0), QPointF(100, 0), label="A")
+    scene.addItem(g)
+    g._locked = True
+    o0, a0 = QPointF(g._origin), g._angle_deg
+    g.manip_rotate(45.0, QPointF(10, 10))
+    approx_pt(g._origin, o0)
+    assert g._angle_deg == a0
