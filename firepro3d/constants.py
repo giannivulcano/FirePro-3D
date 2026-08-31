@@ -76,6 +76,18 @@ UNDERLAY_FAST_PATH_SNAP_PX = 1.25
 # so the no-override look is pixel-identical to UNDERLAY_LINE_WIDTH_PX.
 UNDERLAY_MM_TO_PX_HINT = 6.0
 
+# ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
+# DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic
+# béziers from PDF vector imports — overridable live via Preferences > Import &
+# Conversion (QSettings ``import/pdf_bezier_flatten_tol``, read by
+# ``pdf_import_worker.current_pdf_flatten_tol``). Task-73 outcome: a visual gate
+# on the Sleeman reference showed coarser values (2.0/1.5) facet noticeably when
+# zoomed past plot scale, so the DEFAULT stays at the original fine 0.5 (no
+# fidelity regression) and coarsening — for a smaller/faster underlay — is
+# opt-in per user. The value is part of the PDF cache key, so a change
+# re-extracts. Spinbox range 0.25–4.0.
+PDF_BEZIER_FLATTEN_TOL = 0.5
+
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires
 # then. Must exceed a natural slow wheel-tick cadence (~0.3-1s between ticks

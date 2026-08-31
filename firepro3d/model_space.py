@@ -5525,10 +5525,18 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return False
         from .underlay_cache import cache_dir_for_project, compute_cache_key, write_cache
         cache_dir = cache_dir_for_project(project_path)
+        # PDF sources: fold the current bézier flatten tolerance into the key so
+        # the write matches Underlay.cache_key()'s read key (which does the same
+        # for type=="pdf"). DXF/DWG pass None → key unchanged.
+        flatten_tol = None
+        if source_path.lower().endswith(".pdf"):
+            from .pdf_import_worker import current_pdf_flatten_tol
+            flatten_tol = current_pdf_flatten_tol()
         key = compute_cache_key(source_path, page=page,
                                 selected_layers=selected_layers,
                                 layout=layout,
-                                import_bounds=import_bounds)
+                                import_bounds=import_bounds,
+                                flatten_tol=flatten_tol)
         try:
             write_cache(cache_dir, key, geom_list, source_mtime=source_mtime)
         except OSError:

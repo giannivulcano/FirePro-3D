@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30, +§17.4 text-width/transform-dedup 2026-08-30); §18 freeze-blit 2026-08-30
-last-verified: 2026-08-30  # §17.4 twidth scaling + apply_import_transform de-dup shipped on feat/pdf-underlay-text-fix
-verified-commit: ed0bc5c
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30, +§17.4 text-width/transform-dedup 2026-08-30); §18 freeze-blit 2026-08-30 (+§18.5 PDF bézier flatten-tolerance knob 2026-08-30)
+last-verified: 2026-08-30  # §18.5 PDF bézier flatten-tolerance Preferences knob (task 73) shipped on feat/pdf-bezier-flatten-coarsen
+verified-commit: e065d0d
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -916,5 +916,36 @@ zoom (≤16 ms even unfrozen); frozen gesture frames 2.2–5.2 ms; capture
 understate live costs when the geometry cache misses (a cache miss
 re-extracts only `record.page` — see the page-persistence fix) — the live
 instrumented launcher pattern is the trustworthy measurement.
-Import-side geometry reduction (bezier flatten tolerance) is explicitly out
-of scope — filed as a TODO follow-up.
+
+### 18.5 PDF bézier flatten tolerance (task 73, 2026-08-30)
+
+The PDF vector extractor flattens cubic béziers by De Casteljau subdivision
+(`pdf_import_worker._flatten_bezier`); `tol` is the max chord deviation in
+**PDF points** (1 pt = 1/72"), i.e. a *scale-independent ceiling on the
+plotted-sheet curve error* (2.0 pt ≈ 0.7 mm on paper), applied before the
+import scale. It governs the geometry-cache size (the Sleeman reference:
+4,695 source paths → ~94k points at the fine setting).
+
+**Shipped as a live Preferences knob, not a hardcoded coarsening.** The
+value is `constants.PDF_BEZIER_FLATTEN_TOL` (the default) overridden by
+`import/pdf_bezier_flatten_tol` (Preferences → Import & Conversion, spinbox
+0.25–4.0 pt), read via `pdf_import_worker.current_pdf_flatten_tol()`. That
+one reader feeds BOTH the extraction and the **PDF cache key**
+(`compute_cache_key(flatten_tol=…)`, folded in only for PDF by
+`Underlay.cache_key()` / `_write_underlay_cache`), so changing the setting
+re-extracts on the next load or Underlay-Manager refresh. Because the
+tolerance now keys PDF caches, the earlier plan to bump `_CACHE_VERSION`
+globally was reverted (`_CACHE_VERSION` stays 4) — DXF/DWG pass
+`flatten_tol=None`, keeping their keys and caches valid.
+
+**Default = 0.5 (unchanged fidelity).** A visual gate on the Sleeman FPD
+showed coarser defaults (2.0, then 1.5) facet visibly when zoomed *past*
+plot scale, so the default keeps the original fine 0.5 — no fidelity
+regression — and coarsening (for a smaller/faster underlay) is opt-in per
+user. Curve **endpoints are always exact** (`_flatten_bezier` emits p0/p3 at
+any tol); only interior vertices thin, so on-curve snapping shifts subtly at
+coarse settings while arc/curve *ends* stay put. DXF spline/arc/ellipse
+flatten tuning is a separate filed follow-up (unit-aware — DXF tolerance is
+in drawing units, not paper points). Tests: `tests/test_pdf_bezier_flatten.py`
+(endpoint exactness, deviation bound, setting reader), cache-key tolerance
+participation in `tests/test_underlay_cache.py`.

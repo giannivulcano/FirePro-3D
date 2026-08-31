@@ -12,7 +12,7 @@ the multi-page thumbnail strip in the import dialog.
 from __future__ import annotations
 
 import math
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QSettings, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 
 try:
@@ -21,6 +21,29 @@ try:
 except ImportError:
     fitz = None
     _HAS_FITZ = False
+
+from .constants import PDF_BEZIER_FLATTEN_TOL
+
+# QSettings org/app — must match preferences_dialog._QSETTINGS_ORG/_APP.
+_QSETTINGS_ORG = "GV"
+_QSETTINGS_APP = "FirePro3D"
+
+
+def current_pdf_flatten_tol() -> float:
+    """Return the user's PDF bézier flatten tolerance (PDF points).
+
+    Reads the ``import/pdf_bezier_flatten_tol`` preference (Preferences →
+    Import & Conversion), falling back to :data:`PDF_BEZIER_FLATTEN_TOL`.
+    This value is BOTH an extraction parameter (fed to ``_flatten_bezier``)
+    and part of the PDF cache key (``compute_cache_key(flatten_tol=…)``), so
+    changing it re-extracts on the next load/refresh.
+    """
+    try:
+        s = QSettings(_QSETTINGS_ORG, _QSETTINGS_APP)
+        return float(s.value("import/pdf_bezier_flatten_tol",
+                             PDF_BEZIER_FLATTEN_TOL, type=float))
+    except Exception:
+        return PDF_BEZIER_FLATTEN_TOL
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -32,7 +55,7 @@ def _flatten_bezier(
     p1: tuple[float, float],
     p2: tuple[float, float],
     p3: tuple[float, float],
-    tol: float = 1.0,
+    tol: float = PDF_BEZIER_FLATTEN_TOL,
 ) -> list[tuple[float, float]]:
     """Flatten a cubic Bezier curve via De Casteljau subdivision.
 
@@ -101,6 +124,7 @@ class PdfImportWorker(QThread):
         self.page = page
         self.extract_vectors = extract_vectors
         self._cancelled = False
+        self._flatten_tol = current_pdf_flatten_tol()
 
     def cancel(self):
         self._cancelled = True
@@ -273,7 +297,7 @@ class PdfImportWorker(QThread):
                 pts = _flatten_bezier(
                     (p0.x, p0.y), (p1.x, p1.y),
                     (p2.x, p2.y), (p3.x, p3.y),
-                    tol=0.5,
+                    tol=getattr(self, "_flatten_tol", None) or PDF_BEZIER_FLATTEN_TOL,
                 )
                 if not current_points:
                     current_points.extend(pts)
@@ -368,6 +392,7 @@ def extract_pdf_vectors_sync(
 
         worker = PdfImportWorker.__new__(PdfImportWorker)
         worker._cancelled = False
+        worker._flatten_tol = current_pdf_flatten_tol()
 
         geometries: list[dict] = []
         layers_set: set[str] = set()
