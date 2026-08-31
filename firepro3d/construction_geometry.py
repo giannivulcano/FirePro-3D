@@ -910,6 +910,12 @@ class RectangleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsRectItem):
             return {"translate", "rotate"}
         return {"translate", "rotate", "scale"}
 
+    def manip_bounds(self) -> QRectF:
+        """The rect's own geometry in scene coords so the manipulator handles
+        hug the shape (not the pen-padded ``sceneBoundingRect``).  For a rotated
+        rect this is the axis-aligned bounds, which is the correct frame wrap."""
+        return self.mapRectToScene(self.rect())
+
     def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
         """Baked rotate: accumulate ``angle_deg`` onto the current angle about
         ``pivot`` (Y-up CCW+).  One home with ``set_angle`` so the manipulator

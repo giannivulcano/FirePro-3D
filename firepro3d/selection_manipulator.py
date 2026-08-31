@@ -594,8 +594,18 @@ class SelectionManipulator(QGraphicsObject):
                 return True
         return False
 
+    def _frame_is_redundant(self) -> bool:
+        """A single box-native item (rect/text/viewport) whose own outline IS
+        the bounding box — drawing the frame just traces the shape.  Show the
+        handles alone (PowerPoint/Figma style); keep the frame for multi-select
+        and non-box shapes, where the bounding box adds information."""
+        return (len(self._items) == 1
+                and self.provides_handles_for(self._items[0]))
+
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
               widget: Optional[QWidget] = None) -> None:
+        if self._frame_is_redundant():
+            return                              # handles (child items) suffice
         try:
             color = QColor(theme.detect().selection)
         except Exception:                       # headless / no palette yet
