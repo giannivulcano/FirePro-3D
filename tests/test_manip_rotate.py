@@ -87,3 +87,22 @@ def test_gridline_manip_rotate_respects_lock(scene):
     g.manip_rotate(45.0, QPointF(10, 10))
     approx_pt(g._origin, o0)
     assert g._angle_deg == a0
+
+
+def test_room_manip_rotate_boundary(scene):
+    from firepro3d.room import Room
+    r = Room(boundary=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 80)])
+    scene.addItem(r)
+    pivot = QPointF(50, 40)
+    b0 = [QPointF(p) for p in r._boundary]
+    r.manip_rotate(90.0, pivot)
+    for got, orig in zip(r._boundary, b0):
+        approx_pt(got, rot_yup(orig, pivot, 90.0))
+    r.manip_rotate(-90.0, pivot)
+    for got, orig in zip(r._boundary, b0):
+        approx_pt(got, orig)
+
+
+def test_room_marks_no_solo_rotate():
+    from firepro3d.room import Room
+    assert getattr(Room, "MANIP_NO_SOLO_ROTATE", False) is True
