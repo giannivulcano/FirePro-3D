@@ -77,13 +77,16 @@ UNDERLAY_FAST_PATH_SNAP_PX = 1.25
 UNDERLAY_MM_TO_PX_HINT = 6.0
 
 # ── Underlay import geometry (PDF bézier flattening) ─────────────────────────
-# Max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic béziers
-# from PDF vector imports. Because the tolerance is in *paper points* it is a
-# scale-independent ceiling on the plotted-sheet curve error: 1.5 pt ≈ 0.53 mm
-# on paper — 3x coarser than the old 0.5, but tuned back from a 2.0 first pass
-# that faceted visibly on the Sleeman reference at working zoom. Fidelity is
-# gated visually; 4.0 is the hard upper bound, 0.5 the original fine value.
-PDF_BEZIER_FLATTEN_TOL = 1.5
+# DEFAULT max chord deviation (PDF points; 1 pt = 1/72") when flattening cubic
+# béziers from PDF vector imports — overridable live via Preferences > Import &
+# Conversion (QSettings ``import/pdf_bezier_flatten_tol``, read by
+# ``pdf_import_worker.current_pdf_flatten_tol``). Task-73 outcome: a visual gate
+# on the Sleeman reference showed coarser values (2.0/1.5) facet noticeably when
+# zoomed past plot scale, so the DEFAULT stays at the original fine 0.5 (no
+# fidelity regression) and coarsening — for a smaller/faster underlay — is
+# opt-in per user. The value is part of the PDF cache key, so a change
+# re-extracts. Spinbox range 0.25–4.0.
+PDF_BEZIER_FLATTEN_TOL = 0.5
 
 # ── Underlay gesture freeze (freeze-blit, underlay-workflow spec §18) ────────
 # Gesture is considered ended after this idle gap; the vector restore fires

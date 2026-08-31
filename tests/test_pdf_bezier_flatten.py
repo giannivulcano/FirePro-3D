@@ -85,7 +85,7 @@ def test_current_flatten_tol_reads_setting(tmp_path, monkeypatch):
 def test_coarser_tol_yields_fewer_points():
     """A coarser tolerance must produce a strictly smaller polyline."""
     fine = _flatten_bezier(P0, P1, P2, P3, tol=0.5)
-    coarse = _flatten_bezier(P0, P1, P2, P3, tol=constants.PDF_BEZIER_FLATTEN_TOL)
+    coarse = _flatten_bezier(P0, P1, P2, P3, tol=2.0)
     assert len(coarse) < len(fine)
 
 
