@@ -20,3 +20,9 @@ def test_pill_off_style_has_no_accent(qapp):
     # Off state is intentionally grey — no accent hex leaks in.
     style = main._pill_style(False)
     assert "#888" in style  # off greys are deliberately retained (deferred)
+
+
+def test_mode_badge_style_uses_theme_accent(qapp):
+    style = main._mode_badge_style(th.detect().accent)
+    assert th.detect().accent in style
+    assert "#44aaff" not in style.lower()   # rogue blue retired

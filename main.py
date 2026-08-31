@@ -218,6 +218,17 @@ def _pill_style(on: bool) -> str:
     )
 
 
+def _mode_badge_style(accent: str) -> str:
+    """Stylesheet for the bottom-left active-mode badge (text-only).
+
+    Retints the badge text + border to the theme accent (was a rogue #44aaff).
+    """
+    return (
+        f"font-weight: bold; color: {accent}; padding: 2px 8px; "
+        f"border: 1px solid {accent}; border-radius: 3px;"
+    )
+
+
 class _SnapIndicatorLabel(QLabel):
     """Clickable status-bar label for the SNAP state indicator."""
 
@@ -675,12 +686,9 @@ class MainWindow(QMainWindow):
         self.coord_label = QLabel("X: —   Y: —")
         self.coord_label.setMinimumWidth(280)
         status_bar.addPermanentWidget(self.coord_label)
-        # Mode name badge — prominent indicator of active mode
+        # Mode name badge — prominent indicator of active mode (text, accent-bordered)
         self.mode_name_label = QLabel("Select")
-        self.mode_name_label.setStyleSheet(
-            "font-weight: bold; color: #44aaff; padding: 2px 8px; "
-            "border: 1px solid #44aaff; border-radius: 3px;"
-        )
+        self.mode_name_label.setStyleSheet(_mode_badge_style(th.detect().accent))
         self.mode_name_label.setMinimumWidth(100)
         status_bar.addWidget(self.mode_name_label)
         self.mode_label = QLabel("")
