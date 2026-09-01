@@ -1267,6 +1267,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             pass
         name_lbl = QLabel("Import Underlay")
         name_lbl.setProperty("role", "title")
+        self._title_lbl = name_lbl        # so _apply_modify_prefill can retitle to "Modify Underlay — …"
         self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
         self._header_file_lbl.setProperty("role", "faint")
         hb.addWidget(glyph)
