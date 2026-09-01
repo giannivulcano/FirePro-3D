@@ -925,64 +925,64 @@ def _import_extra_qss(t) -> str:
     # darkest. A thin light outer edge frames the frameless window. Active rail
     # tab = rounded accent-soft highlight (no left bar), matching the prototype.
     return f"""
-    QDialog#UnderlayManagerDialog {{ background:{t.surface};
+    QDialog#UnderlayImportDialog {{ background:{t.surface};
         border:1px solid {t.muted}; }}
-    #UnderlayManagerDialog QListWidget {{ background:{t.raised}; color:{t.ink};
+    #UnderlayImportDialog QListWidget {{ background:{t.raised}; color:{t.ink};
         border:1px solid {t.line_strong}; border-radius:6px; }}
-    #UnderlayManagerDialog QListWidget::item {{ padding:3px 6px; }}
-    #UnderlayManagerDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
-    #UnderlayManagerDialog QListWidget::item:selected {{
+    #UnderlayImportDialog QListWidget::item {{ padding:3px 6px; }}
+    #UnderlayImportDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
+    #UnderlayImportDialog QListWidget::item:selected {{
         background:{t.accent_soft}; color:{t.ink}; }}
     QFrame#importHeader {{ background:{t.raised};
         border-bottom:1px solid {t.line}; }}
     QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
-    #UnderlayManagerDialog QPushButton:hover:enabled {{
+    #UnderlayImportDialog QPushButton:hover:enabled {{
         background:{t.accent_soft}; border-color:{t.accent}; }}
-    #UnderlayManagerDialog QPushButton[variant="primary"] {{ color:#ffffff; }}
-    #UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled {{
+    #UnderlayImportDialog QPushButton[variant="primary"] {{ color:#ffffff; }}
+    #UnderlayImportDialog QPushButton[variant="primary"]:hover:enabled {{
         color:#ffffff; }}
-    #UnderlayManagerDialog QPushButton[switch="true"] {{ background:{t.raised};
+    #UnderlayImportDialog QPushButton[switch="true"] {{ background:{t.raised};
         color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
         padding:5px 14px; font-weight:600; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="left"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="left"] {{
         border-top-left-radius:7px; border-bottom-left-radius:7px; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="right"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="right"] {{
         border-top-right-radius:7px; border-bottom-right-radius:7px;
         border-left:none; }}
-    #UnderlayManagerDialog QPushButton[switch="true"][segpos="mid"] {{
+    #UnderlayImportDialog QPushButton[switch="true"][segpos="mid"] {{
         border-left:none; }}
-    #UnderlayManagerDialog QPushButton[switch="true"]:checked {{
+    #UnderlayImportDialog QPushButton[switch="true"]:checked {{
         background:{t.accent}; color:#ffffff; border-color:{t.accent}; }}
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
     QFrame#stepRail {{ background:{t.surface};
         border-right:1px solid {t.line_strong}; }}
-    #UnderlayManagerDialog QFrame#stepRailInner {{ background:transparent; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"] {{ border-radius:6px;
+    #UnderlayImportDialog QFrame#stepRailInner {{ background:transparent; }}
+    #UnderlayImportDialog QFrame[stepRow="true"] {{ border-radius:6px;
         border-left:2px solid transparent; background:transparent; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
-    #UnderlayManagerDialog QFrame[stepRow="true"][current="true"] {{
+    #UnderlayImportDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
+    #UnderlayImportDialog QFrame[stepRow="true"][current="true"] {{
         background:{t.accent_soft}; border-left:2px solid {t.accent}; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"] {{ background:{t.raised};
+    #UnderlayImportDialog QLabel[stepNo="true"] {{ background:{t.raised};
         color:{t.muted}; border-radius:8px; font-size:9px; font-weight:700; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"][current="true"],
-    #UnderlayManagerDialog QLabel[stepNo="true"][done="true"] {{
+    #UnderlayImportDialog QLabel[stepNo="true"][current="true"],
+    #UnderlayImportDialog QLabel[stepNo="true"][done="true"] {{
         background:{t.accent}; color:{t.accent_ink}; }}
-    #UnderlayManagerDialog QLabel[stepNo="true"][warn="true"] {{
+    #UnderlayImportDialog QLabel[stepNo="true"][warn="true"] {{
         background:{t.warn_soft}; color:{t.warn}; }}
-    #UnderlayManagerDialog QLabel[stepName="true"] {{ font-size:12px;
+    #UnderlayImportDialog QLabel[stepName="true"] {{ font-size:12px;
         font-weight:700; background:transparent; color:{t.ink}; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"] {{ font-size:10px;
+    #UnderlayImportDialog QLabel[stepStatus="true"] {{ font-size:10px;
         color:{t.faint}; background:transparent; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
-    #UnderlayManagerDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
+    #UnderlayImportDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
+    #UnderlayImportDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
         border-left:1px solid {t.line_strong}; }}
-    #UnderlayManagerDialog QWidget#panelPage {{ background:{t.surface}; }}
+    #UnderlayImportDialog QWidget#panelPage {{ background:{t.surface}; }}
     QFrame#scaleCard, QFrame#srcCard {{ background:{t.raised};
         border:1px solid {t.line_strong}; border-radius:7px; }}
-    #UnderlayManagerDialog QCheckBox {{ background:transparent; }}
-    #UnderlayManagerDialog QWidget#pdfOpts {{ background:transparent; }}
+    #UnderlayImportDialog QCheckBox {{ background:transparent; }}
+    #UnderlayImportDialog QWidget#pdfOpts {{ background:transparent; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
     QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
         border-radius:9px; border:1px solid transparent; }}
@@ -1236,7 +1236,7 @@ class UnderlayImportDialog(QDialog):
         # Share the manager's object-scoped QSS (prototype convention) + the
         # import-specific selectors. No custom header — the OS title bar shows
         # the window title.
-        self.setObjectName("UnderlayManagerDialog")
+        self.setObjectName("UnderlayImportDialog")
         self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
         # ── Header bar (single custom header; styled like the footer) ────────

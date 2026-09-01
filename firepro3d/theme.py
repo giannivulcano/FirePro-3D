@@ -717,44 +717,44 @@ RibbonSmallButton:disabled {{
 # Kept identical to the original so the manager renders the same after retirement.
 # ---------------------------------------------------------------------------
 _UNDERLAY_MANAGER_QSS = """
-QDialog#UnderlayManagerDialog {
+QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
     background: $surface;
     color: $ink;
     font-size: 13px;
 }
-#UnderlayManagerDialog QLabel { background: transparent; color: $ink; }
-#UnderlayManagerDialog QLabel[role="muted"]  { color: $muted; }
-#UnderlayManagerDialog QLabel[role="faint"]  { color: $faint; font-size: 12px; }
-#UnderlayManagerDialog QLabel[role="header"] {
+#UnderlayManagerDialog QLabel, #UnderlayImportDialog QLabel { background: transparent; color: $ink; }
+#UnderlayManagerDialog QLabel[role="muted"], #UnderlayImportDialog QLabel[role="muted"]  { color: $muted; }
+#UnderlayManagerDialog QLabel[role="faint"], #UnderlayImportDialog QLabel[role="faint"]  { color: $faint; font-size: 12px; }
+#UnderlayManagerDialog QLabel[role="header"], #UnderlayImportDialog QLabel[role="header"] {
     color: $muted; font-size: 10px; font-weight: 600;
 }
-#UnderlayManagerDialog QLabel[state="warn"] {
+#UnderlayManagerDialog QLabel[state="warn"], #UnderlayImportDialog QLabel[state="warn"] {
     color: $warn; background: $warn_soft;
     border-radius: 6px; padding: 6px 8px;
 }
 
-#UnderlayManagerDialog QPushButton {
+#UnderlayManagerDialog QPushButton, #UnderlayImportDialog QPushButton {
     background: $table; color: $ink;
     border: 1px solid $line_strong; border-radius: 6px;
     padding: 5px 12px; font-weight: 500;
 }
-#UnderlayManagerDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
-#UnderlayManagerDialog QPushButton:disabled { color: $faint; border-color: $line; }
-#UnderlayManagerDialog QPushButton[variant="primary"] {
+#UnderlayManagerDialog QPushButton:hover:enabled, #UnderlayImportDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
+#UnderlayManagerDialog QPushButton:disabled, #UnderlayImportDialog QPushButton:disabled { color: $faint; border-color: $line; }
+#UnderlayManagerDialog QPushButton[variant="primary"], #UnderlayImportDialog QPushButton[variant="primary"] {
     background: $accent; color: $accent_ink; border-color: $accent; font-weight: 600;
 }
-#UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
-#UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled {
+#UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
+#UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="danger"]:hover:enabled {
     background: $danger_soft; color: $danger; border-color: $danger;
 }
 
-#UnderlayManagerDialog QLineEdit {
+#UnderlayManagerDialog QLineEdit, #UnderlayImportDialog QLineEdit {
     background: $table; color: $ink;
     border: 1px solid $line_strong; border-radius: 6px;
     padding: 5px 9px;
     selection-background-color: $accent_soft2;
 }
-#UnderlayManagerDialog QLineEdit:focus { border-color: $accent; }
+#UnderlayManagerDialog QLineEdit:focus, #UnderlayImportDialog QLineEdit:focus { border-color: $accent; }
 
 QTableView#underlayTable {
     background: $table;
