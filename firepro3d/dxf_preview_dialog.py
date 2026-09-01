@@ -27,7 +27,7 @@ import os
 import tempfile
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
+    QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QStackedWidget,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
@@ -795,8 +795,14 @@ class UnderlayImportDialog(QDialog):
                  modify_record=None):
         super().__init__(parent)
         self.setWindowTitle("Import Underlay — Preview")
-        self.resize(1100, 700)
-        self.setWindowState(Qt.WindowState.WindowMaximized)
+        # Frameless: the shell draws its own single header (no OS title bar on
+        # top of ours). Draggable via the header; Cancel/✕ close it.
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.resize(1220, 680)
+        proj = getattr(parent, "_current_file", None)
+        self._project_name = (os.path.splitext(os.path.basename(proj))[0]
+                              if proj else "Untitled")
+        self._drag_pos = None
 
         self._sm = scale_manager
         self._default_dir = default_dir
@@ -807,6 +813,7 @@ class UnderlayImportDialog(QDialog):
         self._scale_verified = False
         self._scale_provenance = ""
         self._crop_scrim = None
+        self._active_step = "source"
         self._file_type: str = ""          # "dxf" or "pdf"
         self._all_geoms: list[dict] = []
         self._layers: list[str] = []
@@ -961,25 +968,34 @@ class UnderlayImportDialog(QDialog):
         #importPanel {{ background:{t.surface}; border-left:1px solid {t.line}; }}
         """)
 
-        # ── Title bar ───────────────────────────────────────────────────────
-        titlebar = QFrame(objectName="importTitleBar")
-        tbl = QHBoxLayout(titlebar)
-        tbl.setContentsMargins(14, 8, 14, 8)
+        # ── Title bar (single header — the window is frameless) ──────────────
+        self._titlebar = QFrame(objectName="importTitleBar")
+        self._titlebar.setFixedHeight(40)
+        tbl = QHBoxLayout(self._titlebar)
+        tbl.setContentsMargins(14, 8, 12, 8)
         glyph = QLabel()
         try:
             glyph.setPixmap(themed_icon(
-                "underlay_icon.svg",
+                "underlay_import_icon.svg",
                 "light" if t.name == "light" else "dark").pixmap(20, 20))
         except Exception:
             pass
-        self._title_lbl = QLabel("Import Underlay")
+        self._title_lbl = QLabel(f"Import Underlay  —  {self._project_name}")
         self._title_lbl.setStyleSheet(
             f"color:{t.ink}; font-size:13px; font-weight:600; background:transparent;")
         tbl.addWidget(glyph)
         tbl.addSpacing(8)
         tbl.addWidget(self._title_lbl)
         tbl.addStretch(1)
-        outer.addWidget(titlebar)
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(26, 24)
+        close_btn.setStyleSheet(
+            f"QPushButton{{border:none; background:transparent; color:{t.muted};"
+            f" font-size:14px; border-radius:5px;}}"
+            f"QPushButton:hover{{background:{t.danger}; color:#fff;}}")
+        close_btn.clicked.connect(self.reject)
+        tbl.addWidget(close_btn)
+        outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
@@ -1042,26 +1058,11 @@ class UnderlayImportDialog(QDialog):
         prev_lay.setContentsMargins(10, 10, 10, 8)
         prev_lay.setSpacing(6)
         ptool = QHBoxLayout()
-        self._pan_btn = _pill(
-            "Pan / Zoom", lambda: self._set_view_mode("pan"),
-            icon=QIcon(asset_path("Ribbon", "move_icon.svg")),
-            checkable=True, expanding=False)
-        self._pan_btn.setChecked(True)
-        self._rb_btn = _pill(
-            "Select Area", lambda: self._set_view_mode("rubber_band"),
-            tip=("Drag a rectangle on the preview to import only entities within "
-                 "that area.\nDrag outside or click 'Clear Selection' to reset."),
-            icon=QIcon(asset_path("Ribbon", "cut_icon.svg")),
-            checkable=True)
-        self._clear_sel_btn = _pill("Clear Selection", self._clear_selection)
-        self._calibrate_btn = _pill(
-            "Calibrate", self._start_pick2,
-            tip=("Click two points on the preview, then enter the real distance "
-                 "between them."),
-            icon=QIcon(asset_path("Ribbon", "dimension_icon.svg")))
-        for b in (self._pan_btn, self._rb_btn, self._clear_sel_btn,
-                  self._calibrate_btn):
-            ptool.addWidget(b)
+        self._preview_hint = QLabel(
+            "Drop a source to begin — everything happens on this preview.")
+        self._preview_hint.setStyleSheet(
+            f"color:{t.muted}; font-size:11px; background:transparent;")
+        ptool.addWidget(self._preview_hint)
         ptool.addStretch(1)
         self._fit_readout = QLabel("Fit · 100%")
         self._fit_readout.setStyleSheet(
@@ -1081,53 +1082,68 @@ class UnderlayImportDialog(QDialog):
         self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._info_lbl.setStyleSheet(f"color:{t.faint};")
         prev_lay.addWidget(self._info_lbl)
+        # Pan is the default view mode; kept hidden so _set_view_mode has a
+        # toggle target (Draw-crop lives in the Content panel).
+        self._pan_btn = QPushButton()
+        self._pan_btn.setCheckable(True)
+        self._pan_btn.setChecked(True)
+        self._pan_btn.setVisible(False)
         body.addWidget(prev_wrap, 1)
 
-        # Contextual panel (scrollable) — Source / Content / Placement sections
-        right_scroll = QScrollArea(objectName="importPanel")
-        right_scroll.setWidgetResizable(True)
-        right_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        right_scroll.setFixedWidth(324)
-        right_w = QWidget()
-        self._controls_panel = right_w
-        right_lay = QVBoxLayout(right_w)
-        right_lay.setContentsMargins(10, 10, 10, 10)
-        right_lay.setSpacing(9)
+        # ── Contextual panel: a QStackedWidget, ONE page per step ────────────
+        self._panel_stack = QStackedWidget(objectName="importPanel")
+        self._panel_stack.setFixedWidth(324)
+        self._controls_panel = self._panel_stack
+        self._panel_pages = {"source": 0, "content": 1, "place": 2}
 
-        # -- Source section: file row + recent sources --
-        file_grp = QGroupBox("Source")
-        file_vlay = QVBoxLayout(file_grp)
+        def _page():
+            w = QWidget()
+            v = QVBoxLayout(w)
+            v.setContentsMargins(14, 14, 14, 14)
+            v.setSpacing(9)
+            return w, v
+
+        def _hdr(txt):
+            l = QLabel(txt.upper())
+            l.setStyleSheet(
+                f"color:{t.ink}; font-size:12px; font-weight:700;"
+                f" letter-spacing:1px; background:transparent;")
+            return l
+
+        # -- Page 0: SOURCE (file + recent) --
+        src_pg, src_v = _page()
+        src_v.addWidget(_hdr("Source"))
         self._file_edit = QLineEdit()
-        file_vlay.addWidget(self._file_edit)
-        file_btn_row = QHBoxLayout()
-        file_btn_row.addWidget(_pill("Browse", self._browse_file))
-        file_btn_row.addWidget(_pill("Reload", self._load_file))
-        file_btn_row.addStretch()
-        file_vlay.addLayout(file_btn_row)
-        recent_lbl = QLabel("Recent")
-        recent_lbl.setStyleSheet(f"color:{t.faint}; font-size:10px;")
-        file_vlay.addWidget(recent_lbl)
+        src_v.addWidget(self._file_edit)
+        frow = QHBoxLayout()
+        frow.addWidget(_pill("Browse", self._browse_file))
+        frow.addWidget(_pill("Reload", self._load_file))
+        frow.addStretch()
+        src_v.addLayout(frow)
+        rlbl = QLabel("Recent")
+        rlbl.setStyleSheet(f"color:{t.faint}; font-size:10px;")
+        src_v.addWidget(rlbl)
         self._recent_list = QListWidget()
-        self._recent_list.setMaximumHeight(72)
+        self._recent_list.setMaximumHeight(140)
         self._recent_list.itemClicked.connect(self._on_recent_clicked)
-        file_vlay.addWidget(self._recent_list)
-        right_lay.addWidget(file_grp)
+        src_v.addWidget(self._recent_list)
+        src_v.addStretch(1)
+        self._panel_stack.addWidget(src_pg)
         self._refresh_recent_list()
 
-        # Layout selector (hidden until multi-layout DXF/DWG)
+        # -- Page 1: CONTENT (layout · layers · region · PDF options) --
+        con_pg, con_v = _page()
+        con_v.addWidget(_hdr("Content"))
         self._layout_label = QLabel("Layout:")
         self._layout_label.setVisible(False)
-        right_lay.addWidget(self._layout_label)
+        con_v.addWidget(self._layout_label)
         self._layout_combo = QComboBox()
         self._layout_combo.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._layout_combo.currentIndexChanged.connect(self._on_layout_changed)
         self._layout_combo.setVisible(False)
-        right_lay.addWidget(self._layout_combo)
-
-        # -- Content section: source layers --
-        layer_grp = QGroupBox("Content — source layers")
+        con_v.addWidget(self._layout_combo)
+        layer_grp = QGroupBox("Source layers")
         layer_vlay = QVBoxLayout(layer_grp)
         la_btn_row = QHBoxLayout()
         la_btn_row.addWidget(_pill("All", self._select_all_layers))
@@ -1135,28 +1151,59 @@ class UnderlayImportDialog(QDialog):
         la_btn_row.addStretch()
         layer_vlay.addLayout(la_btn_row)
         self._layer_list = QListWidget()
-        self._layer_list.setMaximumHeight(150)
+        self._layer_list.setMaximumHeight(180)
         self._layer_list.itemChanged.connect(self._on_layer_changed)
         layer_vlay.addWidget(self._layer_list)
-        right_lay.addWidget(layer_grp)
+        con_v.addWidget(layer_grp)
+        # Region (crop) — Draw crop / Clear live here (armed on the preview).
+        region_grp = QGroupBox("Region")
+        region_v = QVBoxLayout(region_grp)
+        self._region_lbl = QLabel(
+            "Whole sheet imports. Draw a crop on the preview to bring in just "
+            "one area.")
+        self._region_lbl.setWordWrap(True)
+        self._region_lbl.setStyleSheet(f"color:{t.muted}; font-size:11px;")
+        region_v.addWidget(self._region_lbl)
+        crop_row = QHBoxLayout()
+        self._rb_btn = _pill(
+            "Draw crop", lambda: self._set_view_mode("rubber_band"),
+            icon=QIcon(asset_path("Ribbon", "cut_icon.svg")), checkable=True)
+        self._clear_sel_btn = _pill("Clear", self._clear_selection)
+        crop_row.addWidget(self._rb_btn)
+        crop_row.addWidget(self._clear_sel_btn)
+        crop_row.addStretch()
+        region_v.addLayout(crop_row)
+        con_v.addWidget(region_grp)
+        self._pdf_opts_grp = QGroupBox("PDF Options")
+        pdf_form = QFormLayout(self._pdf_opts_grp)
+        self._dpi_combo = QComboBox()
+        self._dpi_combo.addItems(["72", "150", "300"])
+        self._dpi_combo.setCurrentIndex(1)
+        self._dpi_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
+        pdf_form.addRow("DPI:", self._dpi_combo)
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["Auto", "Vectors", "Raster"])
+        self._mode_combo.setCurrentIndex(0)
+        self._mode_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
+        pdf_form.addRow("Mode:", self._mode_combo)
+        self._pdf_opts_grp.setVisible(False)
+        con_v.addWidget(self._pdf_opts_grp)
+        con_v.addStretch(1)
+        self._panel_stack.addWidget(con_pg)
 
-        # -- Placement section: Levels · Scale evidence · Rotation · Base --
-        place_grp = QGroupBox("Placement")
-        place_vlay = QVBoxLayout(place_grp)
-        place_vlay.setSpacing(6)
-
-        # Levels multi-select (redesign: authored here, default = active level)
-        place_vlay.addWidget(QLabel("Levels — where it shows"))
+        # -- Page 2: PLACEMENT (levels · scale evidence · rotation · base · pos) --
+        pl_pg, pl_v = _page()
+        pl_v.addWidget(_hdr("Placement"))
+        pl_v.addWidget(QLabel("Levels — where it shows"))
         self._levels_picker = _LevelsPicker(
             self._import_levels or [self._current_level or DEFAULT_LEVEL],
             current=self._current_level or DEFAULT_LEVEL)
         self._levels_picker.setMaximumHeight(96)
         self._levels_picker.changed.connect(self._update_all)
         self._selected_levels = self._levels_picker.selected  # get_import_params hook
-        place_vlay.addWidget(self._levels_picker)
-        place_vlay.addWidget(_sep())
+        pl_v.addWidget(self._levels_picker)
+        pl_v.addWidget(_sep())
 
-        # Scale evidence: value + verified/unverified pill row
         scale_head = QHBoxLayout()
         scale_head.addWidget(QLabel("Scale:"))
         self._scale_combo = QComboBox()
@@ -1175,32 +1222,36 @@ class UnderlayImportDialog(QDialog):
         scale_head.addStretch()
         self._scale_pill = QLabel(" unverified ")
         scale_head.addWidget(self._scale_pill)
-        place_vlay.addLayout(scale_head)
-        looks_row = QHBoxLayout()
-        looks_row.addStretch()
-        looks_row.addWidget(_pill(
+        pl_v.addLayout(scale_head)
+        acts_row = QHBoxLayout()
+        self._calibrate_btn = _pill(
+            "Calibrate", self._start_pick2,
+            tip=("Click two points on the preview, then enter the real distance "
+                 "between them."),
+            icon=QIcon(asset_path("Ribbon", "dimension_icon.svg")))
+        acts_row.addWidget(self._calibrate_btn)
+        acts_row.addWidget(_pill(
             "Looks right", lambda: self._mark_scale_verified("Confirmed by eye.")))
-        place_vlay.addLayout(looks_row)
+        acts_row.addStretch()
+        pl_v.addLayout(acts_row)
         self._units_info_lbl = QLabel("")
         self._units_info_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._units_info_lbl.setVisible(False)
-        place_vlay.addWidget(self._units_info_lbl)
+        pl_v.addWidget(self._units_info_lbl)
         self._calibration_lbl = QLabel("")
         self._calibration_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
-        place_vlay.addWidget(self._calibration_lbl)
+        pl_v.addWidget(self._calibration_lbl)
         self._scale_readout_lbl = QLabel("")
         self._scale_readout_lbl.setStyleSheet(f"color: {t.accent}; font-size: 11px;")
         self._scale_readout_lbl.setVisible(False)
-        place_vlay.addWidget(self._scale_readout_lbl)
+        pl_v.addWidget(self._scale_readout_lbl)
         self._scale_ratio_lbl = QLabel("")
         self._scale_ratio_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._scale_ratio_lbl.setVisible(False)
-        place_vlay.addWidget(self._scale_ratio_lbl)
+        pl_v.addWidget(self._scale_ratio_lbl)
+        pl_v.addWidget(_sep())
 
-        place_vlay.addWidget(_sep())
-
-        # Rotation
         rot_row = QHBoxLayout()
         rot_row.addWidget(QLabel("Angle:"))
         self._rotation_edit = QLineEdit()
@@ -1215,11 +1266,9 @@ class UnderlayImportDialog(QDialog):
             "+90°", lambda: self._set_rotation(self._get_rotation() + 90.0)))
         rot_row.addWidget(_pill(
             "180°", lambda: self._set_rotation(self._get_rotation() + 180.0)))
-        place_vlay.addLayout(rot_row)
+        pl_v.addLayout(rot_row)
+        pl_v.addWidget(_sep())
 
-        place_vlay.addWidget(_sep())
-
-        # Base / Insertion point
         base_row = QHBoxLayout()
         base_x_lbl = QLabel("X:")
         base_row.addWidget(base_x_lbl)
@@ -1237,12 +1286,11 @@ class UnderlayImportDialog(QDialog):
         self._pick_base_btn = _pill(
             "Pick", self._start_pick_base, tip="Pick base point on preview")
         base_row.addWidget(self._pick_base_btn)
-        place_vlay.addLayout(base_row)
+        pl_v.addLayout(base_row)
         self._base_inputs = [base_x_lbl, self._base_x_edit,
                              base_y_lbl, self._base_y_edit, self._pick_base_btn]
 
-        # Position: Pick-after-import (default) / Insert at origin
-        place_vlay.addWidget(_sep())
+        pl_v.addWidget(_sep())
         pos_row = QHBoxLayout()
         pos_row.addWidget(QLabel("Position:"))
         self._origin_cb = QCheckBox("Insert at origin")
@@ -1250,30 +1298,13 @@ class UnderlayImportDialog(QDialog):
         self._origin_cb.toggled.connect(self._update_base_enabled)
         pos_row.addWidget(self._origin_cb)
         pos_row.addStretch()
-        place_vlay.addLayout(pos_row)
+        pl_v.addLayout(pos_row)
+        pl_v.addStretch(1)
+        self._panel_stack.addWidget(pl_pg)
 
-        right_lay.addWidget(place_grp)
-
-        # PDF options (DPI + import mode) — hidden for DXF/DWG
-        self._pdf_opts_grp = QGroupBox("PDF Options")
-        pdf_form = QFormLayout(self._pdf_opts_grp)
-        self._dpi_combo = QComboBox()
-        self._dpi_combo.addItems(["72", "150", "300"])
-        self._dpi_combo.setCurrentIndex(1)
-        self._dpi_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
-        pdf_form.addRow("DPI:", self._dpi_combo)
-        self._mode_combo = QComboBox()
-        self._mode_combo.addItems(["Auto", "Vectors", "Raster"])
-        self._mode_combo.setCurrentIndex(0)
-        self._mode_combo.currentIndexChanged.connect(self._on_pdf_option_changed)
-        pdf_form.addRow("Mode:", self._mode_combo)
-        self._pdf_opts_grp.setVisible(False)
-        right_lay.addWidget(self._pdf_opts_grp)
-
-        right_lay.addStretch()
-        right_scroll.setWidget(right_w)
-        body.addWidget(right_scroll)
+        body.addWidget(self._panel_stack)
         outer.addLayout(body, 1)
+        self._switch_step("source")
 
         # Progress bar (hidden by default)
         self._loading_bar = LoadingBar(self, cancel=True)
@@ -1320,11 +1351,40 @@ class UnderlayImportDialog(QDialog):
     # ── Shell wiring (redesign) ────────────────────────────────────────────
 
     def _on_rail_clicked(self, key: str) -> None:
-        """Rail rows are navigational; the panel shows all sections at once, so
-        just ensure the panel is visible/focused (best-effort scroll hook)."""
-        panel = getattr(self, "_controls_panel", None)
-        if panel is not None:
-            panel.setFocus()
+        """Rail rows switch the contextual panel to that step's section."""
+        self._switch_step(key)
+
+    def _switch_step(self, key: str) -> None:
+        """Show the panel page for *key* and mark that rail row active."""
+        idx = self._panel_pages.get(key)
+        if idx is None:
+            return
+        self._panel_stack.setCurrentIndex(idx)
+        self._active_step = key
+        self._update_all()
+
+    # Frameless-window drag: the header moves the dialog.
+    def mousePressEvent(self, event):
+        tb = getattr(self, "_titlebar", None)
+        if (tb is not None and event.button() == Qt.MouseButton.LeftButton
+                and tb.geometry().contains(event.position().toPoint())):
+            self._drag_pos = (event.globalPosition().toPoint()
+                              - self.frameGeometry().topLeft())
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if (self._drag_pos is not None
+                and event.buttons() & Qt.MouseButton.LeftButton):
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
@@ -1413,17 +1473,27 @@ class UnderlayImportDialog(QDialog):
             cropped=cropped, scale=scale_str, verified=verified,
             rotation=rotation, levels=levels, position=position))
 
+        active = getattr(self, "_active_step", "source")
+        states = {
+            "source": ("done" if path else "warn"),
+            "content": ("done" if path else "warn"),
+            "place": ("done" if (verified and levels) else "warn"),
+        }
+        # The active row is highlighted unless it already warns.
+        for k in states:
+            if k == active and states[k] != "warn":
+                states[k] = "active"
         self._rail.set_step(
             "source", (os.path.basename(path) or "Drop a file or Browse"),
-            "done" if path else "warn")
+            states["source"])
         self._rail.set_step(
             "content", ("cropped" if cropped else "whole sheet"),
-            "done" if path else "warn")
+            states["content"])
         self._rail.set_step(
             "place",
             f"{len(levels)} level{'s' if len(levels) != 1 else ''} · "
             f"{'verified' if verified else 'unverified'}",
-            "done" if (verified and levels) else "warn")
+            states["place"])
 
         ok_btn = self._button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_btn is not None:
@@ -1524,6 +1594,7 @@ class UnderlayImportDialog(QDialog):
         ext = os.path.splitext(path)[1].lower()
         if ext in (".pdf", ".dxf", ".dwg"):
             self._note_recent_source(path)
+            self._switch_step("content")   # loading a source auto-advances
         if ext == ".pdf":
             self._load_pdf(path)
         elif ext == ".dxf":
