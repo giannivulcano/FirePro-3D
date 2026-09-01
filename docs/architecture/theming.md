@@ -171,6 +171,10 @@ Rules:
   not wrap whole sections/pages in cards.
 - **Panel seams:** use an explicit 1px divider **widget** between regions — QSS
   `border` on a `QStackedWidget` is unreliable (the page paints over it).
+- **Scrollbars default to OFF** — only appear when content actually overflows.
+  Use `ScrollBarAsNeeded` (or size the widget to its content, e.g. the auto-fit
+  Levels list). Never `ScrollBarAlwaysOn`. For horizontal strips (PDF filmstrip)
+  hide the bar and use **side arrows** shown only when scrollable.
 
 ### Canvas selection & resize grips (base style)
 

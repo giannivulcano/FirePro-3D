@@ -110,3 +110,46 @@ def test_modify_prefill_levels_and_verified(qapp):
     assert dlg._scale_verified is True
     assert "Modify Underlay" in dlg.windowTitle()
     dlg.deleteLater()
+
+
+# ── New shell widgets (toggle / switch / empty-state) ─────────────────────
+
+def test_toggle_switch(qapp):
+    import firepro3d.theme as th
+    from firepro3d.dxf_preview_dialog import _ToggleSwitch
+    seen = []
+    sw = _ToggleSwitch(th.DARK, checked=False)
+    sw.toggled.connect(seen.append)
+    assert sw.isChecked() is False
+    sw.setChecked(True)
+    assert sw.isChecked() is True and seen == [True]
+    sw.setChecked(True)                 # no-op, no extra emit
+    assert seen == [True]
+
+
+def test_switch_bar(qapp):
+    from firepro3d.dxf_preview_dialog import _SwitchBar
+    sb = _SwitchBar(["A", "B", "C"])
+    assert sb.current_index() == 0
+    sb.set_current(2)
+    assert sb.current_index() == 2
+
+
+def test_empty_state_overlay_toggles(qapp):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
+    # isHidden(): False until explicitly hidden (isVisible needs a shown window)
+    assert dlg._drop_overlay.isHidden() is False     # nothing loaded yet
+    dlg._set_drop_overlay(False)
+    assert dlg._drop_overlay.isHidden() is True
+    dlg.deleteLater()
+
+
+def test_position_toggle_feeds_params(qapp):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
+    dlg._origin_switch.setChecked(True)        # explicit (avoid QSettings dependence)
+    assert dlg.get_import_params().insert_at_origin is True
+    dlg._origin_switch.setChecked(False)
+    assert dlg.get_import_params().insert_at_origin is False
+    dlg.deleteLater()
