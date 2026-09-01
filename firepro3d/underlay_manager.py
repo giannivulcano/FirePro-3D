@@ -314,7 +314,9 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         foot.addWidget(self.btn_close)
         root.addWidget(footer)
 
-        self.view.expandAll()
+        # Underlays default to COLLAPSED (Bug 2). Expansion state is then
+        # preserved across model resets by the _before_reset/_after_reset pair
+        # (Bug 3) rather than force-expanded on every edit.
 
     # -------------------------------------------------------------- lifecycle
     def showEvent(self, event):
@@ -347,12 +349,42 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         self.details.reloadRequested.connect(self._reload)
         self.details.relinkRequested.connect(self._relink)
 
-        # Model resets on scene.underlaysChanged; keep the tree expanded and
-        # the details/toolbar in sync afterwards.
+        # Model resets on scene.underlaysChanged (every VIS/appearance edit
+        # routes through beginResetModel/endResetModel). Snapshot which
+        # underlays the user had expanded BEFORE the reset and restore exactly
+        # those afterwards, so an edit never force-re-expands collapsed rows
+        # (Bug 3) and new/initial rows stay collapsed (Bug 2).
+        self._expanded_keys: set = set()
+        self.model.modelAboutToBeReset.connect(self._before_reset)
         self.model.modelReset.connect(self._after_reset)
 
+    def _before_reset(self) -> None:
+        """Snapshot the set of expanded top-level underlays, keyed by the
+        stable record identity (``id(record)`` — records survive the reset;
+        the model only rebuilds its _Node wrappers)."""
+        keys: set = set()
+        root = QModelIndex()
+        for row in range(self.proxy.rowCount(root)):
+            proxy_index = self.proxy.index(row, 0, root)
+            if not proxy_index.isValid():
+                continue
+            if self.view.isExpanded(proxy_index):
+                record = proxy_index.data(UnderlayRole)
+                if record is not None:
+                    keys.add(id(record))
+        self._expanded_keys = keys
+
     def _after_reset(self) -> None:
-        self.view.expandAll()
+        # Restore only the previously-expanded underlays; everything else
+        # (incl. brand-new imports) stays collapsed.
+        root = QModelIndex()
+        for row in range(self.proxy.rowCount(root)):
+            proxy_index = self.proxy.index(row, 0, root)
+            if not proxy_index.isValid():
+                continue
+            record = proxy_index.data(UnderlayRole)
+            if record is not None and id(record) in self._expanded_keys:
+                self.view.expand(proxy_index)
         self._sync_ui()
 
     def _on_double_click(self, index: QModelIndex) -> None:

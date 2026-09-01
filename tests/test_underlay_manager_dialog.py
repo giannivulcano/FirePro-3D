@@ -21,12 +21,19 @@ from firepro3d.underlay_manager import UnderlayManagerDialog
 class _FakeGroup:
     def __init__(self, layers=None):
         self._layers = layers or []
+        self._visible = True
 
     def data(self, idx):
         return self._layers if idx == 2 else None
 
     def childItems(self):
         return []
+
+    def setVisible(self, v):
+        self._visible = bool(v)
+
+    def isVisible(self):
+        return self._visible
 
 
 class _FakeScene(QObject):
@@ -40,13 +47,29 @@ class _FakeScene(QObject):
         self.apply_calls = 0
         self.refresh_calls = []
         self.refresh_all_calls = 0
+        self.layer_hidden_calls = []
         _outer = self
 
         class _LM:
             def apply_to_scene(_s, _scene, _active=None):
+                # Mirror the real LevelManager.apply_to_scene underlay path:
+                # the master ``record.visible`` gates the whole group.
                 _outer.apply_calls += 1
+                for data, group in list(_outer.underlays):
+                    if group is None:
+                        continue
+                    group.setVisible(bool(getattr(data, "visible", True)))
 
-        self.level_mgr = _LM()
+        # Real Model_Space exposes the level manager as ``_level_manager``;
+        # expose it there so the model's _apply_visibility fallback is exercised.
+        self._level_manager = _LM()
+
+    def set_underlay_layer_hidden(self, rec, group, layer, hidden):
+        self.layer_hidden_calls.append((rec, layer, hidden))
+        if hidden and layer not in rec.hidden_layers:
+            rec.hidden_layers.append(layer)
+        elif not hidden and layer in rec.hidden_layers:
+            rec.hidden_layers.remove(layer)
 
     def repen_underlay(self, rec):
         self.repen_calls.append(rec)
@@ -171,3 +194,83 @@ def test_details_layers_row_shows_count(qapp):
     dlg._select_row(0)
     # Both records are backed by _FakeGroup(["GRID", "WALLS"]) → 2 layers.
     assert dlg.details._rows["Layers"].text() == "2 layers"
+
+
+# --------------------------------------------------------------------------
+# Bug 1 — master visibility toggle hides whole group + remembers per-layer
+# --------------------------------------------------------------------------
+def test_master_vis_toggle_hides_group_and_remembers_layers(qapp):
+    from PyQt6.QtCore import Qt
+    from firepro3d.underlay_manager_model import Col
+
+    dlg, scene, mw = _make_dialog(1)
+    dlg.show()
+    record, group = scene.underlays[0]
+
+    # User individually hides a layer first (remembered per-layer state).
+    record.hidden_layers = ["WALLS"]
+
+    vis_index = dlg.model.index(0, Col.VIS, QModelIndex())
+
+    # Master OFF → group hidden on canvas, hidden_layers untouched.
+    dlg.model.setData(vis_index, False, Qt.ItemDataRole.EditRole)
+    assert record.visible is False
+    assert group.isVisible() is False           # whole underlay hidden
+    assert record.hidden_layers == ["WALLS"]     # per-layer state preserved
+    assert scene.apply_calls >= 1                # routed through apply_to_scene
+
+    # Master ON → group shown again, per-layer state still remembered.
+    dlg.model.setData(vis_index, True, Qt.ItemDataRole.EditRole)
+    assert record.visible is True
+    assert group.isVisible() is True
+    assert record.hidden_layers == ["WALLS"]     # NOT wiped by master toggle
+
+
+# --------------------------------------------------------------------------
+# Bug 2 / Bug 3 — collapsed by default, expansion preserved across resets
+# --------------------------------------------------------------------------
+def test_underlays_collapsed_by_default(qapp):
+    dlg, scene, mw = _make_dialog(2)
+    dlg.show()
+    root = QModelIndex()
+    for row in range(dlg.proxy.rowCount(root)):
+        idx = dlg.proxy.index(row, 0, root)
+        assert dlg.view.isExpanded(idx) is False
+
+
+def test_expansion_preserved_across_model_reset(qapp):
+    dlg, scene, mw = _make_dialog(2)
+    dlg.show()
+    root = QModelIndex()
+
+    # Expand underlay 0 only.
+    idx0 = dlg.proxy.index(0, 0, root)
+    idx1 = dlg.proxy.index(1, 0, root)
+    dlg.view.expand(idx0)
+    assert dlg.view.isExpanded(idx0) is True
+    assert dlg.view.isExpanded(idx1) is False
+
+    # Trigger a model reset (mirrors the VIS-edit → underlaysChanged path).
+    scene.underlaysChanged.emit()
+
+    # Re-fetch indices (nodes rebuilt) and assert expansion state survived.
+    idx0 = dlg.proxy.index(0, 0, root)
+    idx1 = dlg.proxy.index(1, 0, root)
+    assert dlg.view.isExpanded(idx0) is True     # still expanded
+    assert dlg.view.isExpanded(idx1) is False    # still collapsed
+
+
+def test_new_underlay_stays_collapsed_after_reset(qapp):
+    dlg, scene, mw = _make_dialog(1)
+    dlg.show()
+    root = QModelIndex()
+    dlg.view.expand(dlg.proxy.index(0, 0, root))
+
+    # Add a second underlay and reset.
+    new_rec = _dxf_record("/tmp/new.dxf")
+    scene.underlays.append((new_rec, _FakeGroup(["A", "B"])))
+    scene.underlaysChanged.emit()
+
+    # The pre-existing (expanded) row stays expanded; the new one is collapsed.
+    assert dlg.view.isExpanded(dlg.proxy.index(0, 0, root)) is True
+    assert dlg.view.isExpanded(dlg.proxy.index(1, 0, root)) is False

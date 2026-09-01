@@ -403,7 +403,13 @@ class UnderlayTreeModel(QAbstractItemModel):
                 pass
 
     def _apply_visibility(self):
-        lm = getattr(self._scene, "level_mgr", None)
+        # The real Model_Space exposes the level manager as ``_level_manager``
+        # (main.py sets ``scene._level_manager``); test fakes use ``level_mgr``.
+        # Honour both — otherwise the master (underlay-level) VIS toggle is a
+        # silent no-op on the live canvas, because ``apply_to_scene`` is the
+        # only path that gates the whole group on ``record.visible``.
+        lm = (getattr(self._scene, "level_mgr", None)
+              or getattr(self._scene, "_level_manager", None))
         if lm is None:
             return
         active = getattr(self._scene, "active_level", None)
