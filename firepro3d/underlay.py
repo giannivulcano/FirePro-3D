@@ -45,6 +45,8 @@ class Underlay:
     # Display management & view assignment (Revision 8, spec §16.2)
     layer_overrides: dict = field(default_factory=dict)
     line_weight_name: str = ""
+    # Scale provenance (redesign): True once calibrated or user-confirmed.
+    scale_verified: bool = False
 
     def to_dict(self) -> dict:
         d = {
@@ -81,6 +83,7 @@ class Underlay:
         d["layer_overrides"] = {k: dict(v)
                                 for k, v in self.layer_overrides.items()}
         d["line_weight_name"] = self.line_weight_name
+        d["scale_verified"] = self.scale_verified
         return d
 
     @staticmethod
@@ -120,6 +123,7 @@ class Underlay:
             layer_overrides = {k: dict(v)
                                for k, v in d.get("layer_overrides", {}).items()},
             line_weight_name = d.get("line_weight_name", ""),
+            scale_verified = d.get("scale_verified", False),
         )
 
     @staticmethod
@@ -228,7 +232,9 @@ class Underlay:
 
 # ---------------------------------------------------------------------------
 # Geometry / placement fields — everything the import dialog controls.
-# Management fields (levels, colour, line_weight_name, layer_overrides,
+# `levels` and `scale_verified` are authored by the import dialog (redesign:
+# the Placement multi-select + scale-evidence card), so Modify overwrites them.
+# The remaining management fields (colour, line_weight_name, layer_overrides,
 # hidden_layers, visible, snap, locked, opacity, line_weight) are NOT listed
 # here and are therefore preserved by apply_import_params_preserving_management.
 # ---------------------------------------------------------------------------
@@ -236,6 +242,7 @@ _GEOMETRY_PLACEMENT_FIELDS = (
     "type", "path", "page", "dpi", "scale", "rotation", "x", "y",
     "import_scale", "import_base_x", "import_base_y",
     "selected_layers", "layout", "import_bounds", "import_mode",
+    "levels", "scale_verified",
 )
 
 

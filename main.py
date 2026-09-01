@@ -1579,7 +1579,8 @@ class MainWindow(QMainWindow):
         # --- Underlay (moved from Manage → Import) ---
         g_ul = view_page.add_group("Underlay")
         _btn = g_ul.add_large_button(
-            "Underlay\nManager", _I("underlay_icon.svg"), self.open_underlay_manager)
+            "Underlay\nManager", _I("underlay_manager_icon.svg"),
+            self.open_underlay_manager)
         _btn.setToolTip("Import/manage PDF, DXF, or DWG underlays")
 
         # --- Display ---
@@ -4124,7 +4125,8 @@ class MainWindow(QMainWindow):
                 rotation=params.rotation,
                 scale=params.scale,
                 import_mode=params.import_mode,
-                levels=[self.scene.active_level],
+                levels=(list(params.levels) or [self.scene.active_level]),
+                scale_verified=params.scale_verified,
             )
             self.scene.import_pdf(
                 params.file_path,
@@ -4594,6 +4596,7 @@ class MainWindow(QMainWindow):
 def main():
     install_excepthook()
     app = QApplication(sys.argv)
+    th.apply_app_font(app)          # house UI font (Arial) app-wide
 
     # Show splash IMMEDIATELY — before heavy 3D imports
     splash = _SplashScreen()

@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-08-29 · verified-commit: ba9e090 (feat/design-token-system) -->
+<!-- last-verified: 2026-09-01 · verified-commit: 2727df5 (feat/import-dialog-redesign — house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
 
 # Theming & UI Style
 
@@ -114,6 +114,67 @@ invisible on the dark theme. States covered: unchecked, `:hover`,
 `:checked` (radial-gradient filled dot), `:disabled`.
 
 ## UI conventions
+
+### Typography & labels
+
+**House fonts (2026-09-01 decision).** Two families, exported from `theme.py`:
+
+- **`FONT_UI = "Arial"`** — all prose and labels (Title / Body / Overline /
+  Control). Applied app-wide at startup via `theme.apply_app_font(app)` in
+  `main.py` (sets the `QApplication` font family, preserving point size). Do not
+  hard-code a different UI family in QSS.
+- **`FONT_VALUE = "Consolas"`** — numeric readouts (dimensions, scale, pressure,
+  coordinates). Monospace so digit/decimal columns align and `1/l/0/O` stay
+  distinct. Applied on `DimensionEdit` (the canonical numeric input) and any
+  value/table cell showing numbers. **Not** for prose or labels.
+
+**Five type roles** (name → use → spec):
+
+| Role | Used for | Spec |
+|---|---|---|
+| **Title** | window/dialog/dock/tab names | `FONT_UI`, bold, ~14px, **pure ink** (`ink` token: `#F0F0F0` dark / `#1A1A1A` light) |
+| **Body** | standard/descriptive text, hints | `FONT_UI`, regular, ~12px, `muted` |
+| **Overline** | group/container labels (ribbon groups, dock sections, manager containers) | `FONT_UI`, **UPPERCASE**, bold, ~10px, `muted` — the shared `role="header"` style |
+| **Control** | button & tab labels | `FONT_UI`, **bold, sentence case**, ~12px, `ink` |
+| **Value** | numeric readouts | `FONT_VALUE`, ~12–13px, `ink` |
+
+Rules:
+- **No `letter-spacing`.** Character tracking is not part of the house style.
+- **Overline labels are UPPERCASE** via `role="header"` (author normal-case and
+  `QLabel(text.upper())`, or author uppercased). Field labels (`Scale:`, `X:`)
+  stay sentence case; **button** labels are bold sentence case, never all-caps.
+- **Button hover** in dialog chrome uses an **accent-soft** wash + accent border
+  (not a neutral `surface2` fill). The base Underlay-Manager QSS predates this
+  and may still use `surface2`; new/ported dialogs override to accent-soft.
+
+### Selection controls
+
+- **Binary on/off** (e.g. "Insert at origin") → a **toggle switch**: rounded
+  track + sliding knob, **accent when on**, switch on the left with the label to
+  its right. Not a lone checkbox, not radio buttons.
+- **Single-select among 3+** mutually-exclusive options → a **switch bar**: a
+  connected segmented control of exclusive buttons, active segment
+  **accent-filled, white text**.
+- **Multi-select** (independent options — Levels, Source Layers) → **checkboxes**
+  (checkable list items).
+
+### Windows & dialogs
+
+- App dialogs are **frameless with a single custom header** styled like the
+  footer (glyph + title + context), **Win11 DWM rounded corners**
+  (`DWMWA_WINDOW_CORNER_PREFERENCE`), and a **thin light perimeter border**. The
+  Underlay Manager / Import Underlay dialogs are the reference. Window controls =
+  three circular icons (grey circle + accent inlay: – minimise / + maximise / ×
+  close).
+- **Panel containerization:** flat **overline sections** (UPPERCASE label +
+  content); only *input surfaces* (lists, evidence readouts) get a border — do
+  not wrap whole sections/pages in cards.
+- **Panel seams:** use an explicit 1px divider **widget** between regions — QSS
+  `border` on a `QStackedWidget` is unreliable (the page paints over it).
+- **Scrollbars default to OFF** — only appear when content actually overflows.
+  Use `ScrollBarAsNeeded` (or size the widget to its content, e.g. the auto-fit
+  Levels list). Never `ScrollBarAlwaysOn`. For horizontal strips (PDF filmstrip)
+  hide the bar and use **side arrows** shown only when scrollable.
 
 ### Canvas selection & resize grips (base style)
 

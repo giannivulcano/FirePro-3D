@@ -1,12 +1,12 @@
 ---
 status: current
-last-verified: 2026-08-30
-verified-commit: 0510ce0
+last-verified: 2026-09-01
+verified-commit: 2727df5
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
   - firepro3d/graphics/Ribbon/
-source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired)"
+source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg + underlay_manager_icon.svg authored, import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign)"
 ---
 
 # Ribbon Icon Style Guide — Governing Spec

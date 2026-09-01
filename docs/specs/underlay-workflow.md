@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30, +§17.4 text-width/transform-dedup 2026-08-30); §18 freeze-blit 2026-08-30 (+§18.5 PDF bézier flatten-tolerance knob 2026-08-30)
-last-verified: 2026-08-30  # §18.5 PDF bézier flatten-tolerance Preferences knob (task 73) shipped on feat/pdf-bezier-flatten-coarsen
-verified-commit: e065d0d
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign)
+last-verified: 2026-09-01  # §10 rewritten to the Rev-8 shell (step-rail/preview/panel/footer, levels re-added, scale_verified, toggle Position, MRU, calibrate auto-verify)
+verified-commit: 2727df5
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -390,26 +390,53 @@ Underlay groups are **not selectable or movable** in the scene — they are refe
 
 ## 10. Import Dialog
 
-### 10.1 Dialog Layout (Revision 7)
+### 10.1 Dialog Layout (Revision 8 — first-principles redesign, 2026-09-01)
 
-`UnderlayImportDialog` (in `firepro3d/dxf_preview_dialog.py`) uses a two-panel layout:
+`UnderlayImportDialog` (`firepro3d/dxf_preview_dialog.py`) is a **frameless**
+`QDialog` sharing the Underlay-Manager QSS scope (`build_underlay_manager_qss` +
+`_import_extra_qss`), laid out as **header · [step rail | preview | contextual
+panel] · commit footer**. House chrome follows `architecture/theming.md`
+(Arial UI / Consolas values + the five type roles; switch-vs-checkbox; frameless
+windows; scrollbars-off; divider-widget seams).
 
-- **Left panel:** Preview-only (QGraphicsView with pan/zoom, info label). Scrollbars are disabled (`ScrollBarAlwaysOff`) — panning is driven programmatically via the scrollbar values, so the bars are hidden without losing pan.
-- **Right panel** (scrollable, 260-340px; horizontal scrollbar disabled): controls stacked vertically, top to bottom:
-  - File group (path field, **Browse** / **Reload** pill buttons)
-  - Layout combo (hidden until multi-layout file; see §10B)
-  - Preview mode — three pills in one segmented row (Pan/Zoom, Select Area, Clear Selection)
-  - **Placement** group (one bordered group, thin dividers between sub-rows; sits **above** Source Layers):
-    - ~~**Level**~~ — **removed**; new imports default to `[active_level]` (§7.3); level assignment happens post-import in the Underlay Manager (§16.6).
-    - **Scale** — compact preset combo (sized to its widest item) + an inline custom-factor field (shown only for "Custom…"; persists the last-used value via QSettings) + a **Calibrate** pill (two-point pick; DXF unit auto-detection in §10.4)
-    - **Rotation** — angle field + inline −90° / +90° / 180° pills
-    - **Base / Insertion Point** — X and Y fields side by side + an inline **Pick** pill
-  - Source layer filtering (All/None pills + per-layer checkboxes)
-  - PDF Options (DPI, import mode — hidden for DXF/DWG)
-- **Bottom bar:** Status label, **Insert at origin** checkbox, Import/Cancel buttons. While "Insert at origin" is checked the base-point fields and Pick pill are greyed out (the base point is unused in that mode).
-- **PDF thumbnail strip** above the splitter (visible only for multi-page PDFs).
+- **Header** (single, styled like the footer): layers glyph
+  (`underlay_import_icon.svg`, solid-accent top layer) + "Import Underlay —
+  {project}" + active file / "(no file loaded)" + three circular window controls
+  (`_WinDot`: – minimise / + maximise / × close; grey circle + accent inlay,
+  brighten on hover). Draggable; double-click the header maximises. **Win11 DWM
+  rounded corners** + a thin perimeter border.
+- **Step rail** (`_StepRail` of `_StepRow`): Source / Content / Placement — number
+  chip + name + status; active row = green rounded highlight + left accent bar.
+  Clicking a row switches the contextual panel; loading a source auto-advances to
+  Content.
+- **Preview** (central, top/bottom split): the PDF **filmstrip** on top (side
+  arrows, no scrollbar) for multi-page PDFs; the preview workspace below (pan /
+  cursor-anchored zoom clamped 25–1200% / crop / calibrate). Empty state = a
+  centred glyph + "Drop a PDF, DWG or DXF here". Crop draws a dashed-accent
+  rectangle with an **outside-dim scrim**. Base marker + pick cursor use `warn`.
+- **Contextual panel** (`QStackedWidget`, one page per step; **flat overline
+  sections** — only lists + inputs bordered):
+  - **Source:** file field + Browse/Reload + Recent (`underlay_mru.RecentSources`).
+  - **Content:** Region (Draw crop / Clear) **above** Source layers (All/None +
+    auto-expanding list), then PDF Options (DPI, import mode — hidden for DXF/DWG).
+  - **Placement:** **Levels** multi-select (auto-fits all levels), Scale (preset
+    combo + custom factor + verified/unverified pill + Calibrate / Looks-right),
+    Rotation, Base point (X/Y + Pick — stay enabled in both position modes),
+    Position (**toggle switch** "Insert at origin").
+- **Footer:** commit-sentence (rich text via one `update_all()`), Cancel, and a
+  solid-accent **Import →** (white text).
 
-**Visual conventions:** action buttons use a compact rounded "pill" style; the former separate Scale / Rotation / Base group boxes are merged into one **Placement** group. Checkbox indicators (the layer list and the "Insert at origin" box) are styled globally by `theme.build_app_qss()` — empty box unchecked, accent fill + white tick (`firepro3d/graphics/checkmark.svg`) checked — so they read clearly on the dark theme. Two-point scale-calibration markers render as a green diamond with a constant-size centre dot at the picked point.
+**Levels re-added (reverses the Rev-7 removal):** the Placement panel carries a
+plain multi-select defaulting to `[active_level]`; `ImportParams.levels` flows
+into the new record (`_record_levels` in `model_space.py`) and into
+`replace_underlay` on Modify (§10.7). The Underlay Manager (§16.6) remains a
+second home for post-import level reassignment.
+
+**Scale verification:** `Underlay.scale_verified` (bool, persisted via
+`to_dict`/`from_dict`, default False) — Calibrate (two-point pick) **or** "Looks
+right" sets it True; changing the scale factor resets it False; Modify keeps a
+verified scale verified. The commit sentence, rail state, and pill colour
+warn/ok on this state. Calibration markers use the theme `accent`.
 
 ### 10.2 PDF DPI dropdown
 
