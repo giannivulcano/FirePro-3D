@@ -776,6 +776,9 @@ def _import_extra_qss(t) -> str:
     """Import-specific selectors layered on the shared manager QSS (ported from
     the prototype's _extra_qss, mapped to the app's house tokens)."""
     return f"""
+    QFrame#importHeader {{ background:{t.raised}; border-bottom:1px solid {t.line}; }}
+    #UnderlayManagerDialog QPushButton:hover:enabled {{
+        background:{t.accent_soft}; border-color:{t.accent}; }}
     QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
     QFrame#stepRail QPushButton {{ text-align:left; padding:7px 10px; border:none;
         border-left:3px solid transparent; background:transparent; color:{t.ink};
@@ -820,12 +823,13 @@ class UnderlayImportDialog(QDialog):
                  levels: list[str] | None = None, current_level: str = "",
                  modify_record=None):
         super().__init__(parent)
-        # Plain dialog with the OS title bar (matches the prototype — no custom
-        # in-dialog header, so no doubled header chrome).
+        # Frameless: a single custom header (styled like the footer) replaces
+        # the OS title bar, so there is exactly one header.
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
         self.setWindowTitle(f"Import Underlay — {self._project_name}")
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.resize(1150, 660)
         self._drag_pos = None
 
@@ -984,6 +988,39 @@ class UnderlayImportDialog(QDialog):
         self.setObjectName("UnderlayManagerDialog")
         self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
+        # ── Header bar (single custom header; styled like the footer) ────────
+        self._titlebar = QFrame(objectName="importHeader")
+        self._titlebar.setFixedHeight(38)
+        hb = QHBoxLayout(self._titlebar)
+        hb.setContentsMargins(14, 7, 10, 7)
+        glyph = QLabel()
+        try:
+            glyph.setPixmap(themed_icon(
+                "underlay_import_icon.svg",
+                "light" if t.name == "light" else "dark").pixmap(18, 18))
+        except Exception:
+            pass
+        name_lbl = QLabel("Import Underlay")
+        name_lbl.setStyleSheet(
+            f"color:{t.ink}; font-size:13px; font-weight:600; background:transparent;")
+        self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
+        self._header_file_lbl.setProperty("role", "faint")
+        hb.addWidget(glyph)
+        hb.addSpacing(8)
+        hb.addWidget(name_lbl)
+        hb.addSpacing(10)
+        hb.addWidget(self._header_file_lbl)
+        hb.addStretch(1)
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(26, 22)
+        close_btn.setStyleSheet(
+            f"QPushButton{{border:none; background:transparent; color:{t.muted};"
+            f" font-size:13px; border-radius:5px;}}"
+            f"QPushButton:hover{{background:{t.danger}; color:#fff;}}")
+        close_btn.clicked.connect(self.reject)
+        hb.addWidget(close_btn)
+        outer.addWidget(self._titlebar)
+
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
         self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
@@ -1004,7 +1041,9 @@ class UnderlayImportDialog(QDialog):
         def _pill(text, slot, tip="", icon=None, checkable=False, expanding=False):
             b = QPushButton(icon, text) if icon is not None else QPushButton(text)
             b.setStyleSheet(
-                "QPushButton { padding: 3px 10px; border-radius: 11px; }")
+                f"QPushButton {{ padding: 3px 10px; border-radius: 11px; }}"
+                f"QPushButton:hover:enabled {{ background:{t.accent_soft};"
+                f" border-color:{t.accent}; }}")
             b.setSizePolicy(
                 QSizePolicy.Policy.Expanding if expanding
                 else QSizePolicy.Policy.Fixed,
@@ -1091,10 +1130,11 @@ class UnderlayImportDialog(QDialog):
             return w, v
 
         def _hdr(txt):
+            # Group labels: UPPERCASE, via the shared role="header" style
+            # (muted, 10px, 600 — no letter-spacing; matches the prototype
+            # _glabel and the house convention).
             l = QLabel(txt.upper())
-            l.setStyleSheet(
-                f"color:{t.ink}; font-size:12px; font-weight:700;"
-                f" letter-spacing:1px; background:transparent;")
+            l.setProperty("role", "header")
             return l
 
         # -- Page 0: SOURCE (file + recent) --
@@ -1440,6 +1480,9 @@ class UnderlayImportDialog(QDialog):
 
         path = self._file_edit.text().strip()
         name = os.path.splitext(os.path.basename(path))[0] if path else "(no file)"
+        if hasattr(self, "_header_file_lbl"):
+            self._header_file_lbl.setText(
+                os.path.basename(path) if path else "(no file loaded)")
         pages = getattr(self, "_pdf_page_count", 0) or 1
         page = (getattr(self, "_pdf_page", 0) or 0) + 1
         layers_hidden = sum(
