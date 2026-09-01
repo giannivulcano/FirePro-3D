@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 
-from PyQt6.QtCore import QModelIndex, Qt, pyqtSignal
+from PyQt6.QtCore import QModelIndex, QSettings, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView, QDialog, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
@@ -186,6 +186,9 @@ class _DetailsPanel(QFrame):
 class UnderlayManagerDialog(FramelessShellMixin, QDialog):
     """Modeless manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
+    #: QSettings key for the tree header's saved column layout (widths/order).
+    HEADER_STATE_KEY = "underlay_manager/header_state"
+
     def __init__(self, scene, main_window, theme: Theme | None = None, parent=None,
                  apply_stylesheet: bool = True):
         theme = theme or detect()
@@ -293,6 +296,11 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
             (Col.LEVELS, 160),
         ):
             self.view.setColumnWidth(col, width)
+        # Restore the user's saved header layout AFTER defaults — first-ever
+        # open uses the defaults above; later opens use the persisted widths.
+        self._restore_header_state(header)
+        # Persist any subsequent user resize back to QSettings.
+        header.sectionResized.connect(self._save_header_state)
         body.addWidget(self.view, 1)
 
         self.details = _DetailsPanel(self.t)
@@ -317,6 +325,39 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         # Underlays default to COLLAPSED (Bug 2). Expansion state is then
         # preserved across model resets by the _before_reset/_after_reset pair
         # (Bug 3) rather than force-expanded on every edit.
+
+    # ---------------------------------------------------------- header persist
+    def _settings(self) -> QSettings:
+        """The QSettings store to persist UI layout in.
+
+        Prefer the MainWindow's shared store (``main_window.settings`` — the
+        app-wide ``QSettings("GV", "FirePro3D")``); fall back to constructing
+        the SAME org/app store so persistence lands in one place.
+        """
+        settings = getattr(self.main_window, "settings", None)
+        if isinstance(settings, QSettings):
+            return settings
+        return QSettings("GV", "FirePro3D")
+
+    def _restore_header_state(self, header: QHeaderView) -> None:
+        try:
+            blob = self._settings().value(self.HEADER_STATE_KEY)
+            if blob:
+                header.restoreState(blob)
+        except Exception:
+            # Corrupt/old blob (or a changed column set): keep the defaults.
+            pass
+
+    def _save_header_state(self, *_args) -> None:
+        try:
+            self._settings().setValue(
+                self.HEADER_STATE_KEY, self.view.header().saveState())
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        self._save_header_state()
+        super().closeEvent(event)
 
     # -------------------------------------------------------------- lifecycle
     def showEvent(self, event):

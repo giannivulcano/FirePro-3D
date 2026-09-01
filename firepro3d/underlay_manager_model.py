@@ -46,6 +46,7 @@ SearchRole = Qt.ItemDataRole.UserRole + 2     # -> combined lowercase text for f
 SortRole = Qt.ItemDataRole.UserRole + 3       # -> per-column sort key
 LayerRole = Qt.ItemDataRole.UserRole + 4      # -> layer name (child row) / None (underlay row)
 AppearanceEditableRole = Qt.ItemDataRole.UserRole + 5  # -> bool: colour/weight/snap editable (False for raster PDF)
+LayerListRole = Qt.ItemDataRole.UserRole + 6  # -> list[str]: all source-layer names of the underlay (both row kinds)
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +260,11 @@ class UnderlayTreeModel(QAbstractItemModel):
             if node.layer is not None:
                 return True
             return not isinstance(self._group_for(record), QGraphicsPixmapItem)
+        if role == LayerListRole:
+            # All source-layer names for this underlay (same on both row kinds).
+            # Lets the VIS delegate tell "some layers hidden" (partial) from
+            # "all layers hidden" on the parent eye glyph.
+            return self._layers_of(record)
 
         if node.layer is not None:
             return self._layer_data(node, col, role)

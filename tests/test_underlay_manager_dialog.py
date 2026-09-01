@@ -274,3 +274,60 @@ def test_new_underlay_stays_collapsed_after_reset(qapp):
     # The pre-existing (expanded) row stays expanded; the new one is collapsed.
     assert dlg.view.isExpanded(dlg.proxy.index(0, 0, root)) is True
     assert dlg.view.isExpanded(dlg.proxy.index(1, 0, root)) is False
+
+
+# --------------------------------------------------------------------------
+# Feature 2 — persist column widths across sessions (temp QSettings store)
+# --------------------------------------------------------------------------
+def _temp_settings(tmp_path):
+    """A file-backed QSettings the test fully controls (never the real store)."""
+    from PyQt6.QtCore import QSettings
+    return QSettings(str(tmp_path / "uw.ini"), QSettings.Format.IniFormat)
+
+
+def _make_dialog_with_settings(settings, n=2):
+    records = [_dxf_record(f"/tmp/u{i}.dxf") for i in range(n)]
+    underlays = [(r, _FakeGroup(["GRID", "WALLS"])) for r in records]
+    scene = _FakeScene(underlays)
+    mw = _FakeMainWindow()
+    mw.settings = settings  # inject the store the dialog persists into
+    dlg = UnderlayManagerDialog(scene, mw)
+    return dlg, scene, mw
+
+
+def test_header_state_round_trips_across_reopen(qapp, tmp_path):
+    from firepro3d.underlay_manager_model import Col
+
+    settings = _temp_settings(tmp_path)
+
+    # First open: uses defaults, then user resizes a column.
+    dlg1, _s1, _m1 = _make_dialog_with_settings(settings)
+    dlg1.show()
+    header1 = dlg1.view.header()
+    header1.resizeSection(int(Col.NAME), 333)      # user drag -> sectionResized
+    assert header1.sectionSize(int(Col.NAME)) == 333
+    # sectionResized should have persisted the new layout.
+    assert settings.value(UnderlayManagerDialog.HEADER_STATE_KEY)
+
+    # Second open (new dialog, SAME store): restores the saved width.
+    dlg2, _s2, _m2 = _make_dialog_with_settings(settings)
+    dlg2.show()
+    assert dlg2.view.header().sectionSize(int(Col.NAME)) == 333
+
+
+def test_header_uses_injected_main_window_settings(qapp, tmp_path):
+    settings = _temp_settings(tmp_path)
+    dlg, _s, _m = _make_dialog_with_settings(settings)
+    assert dlg._settings() is settings
+
+
+def test_corrupt_header_blob_keeps_defaults(qapp, tmp_path):
+    from firepro3d.underlay_manager_model import Col
+
+    settings = _temp_settings(tmp_path)
+    settings.setValue(UnderlayManagerDialog.HEADER_STATE_KEY, b"not-a-header-state")
+
+    dlg, _s, _m = _make_dialog_with_settings(settings)
+    dlg.show()
+    # Defensive restore swallows the bad blob -> default NAME width intact.
+    assert dlg.view.header().sectionSize(int(Col.NAME)) == 200

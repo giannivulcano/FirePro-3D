@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 
 from .underlay_manager_model import (
     AppearanceEditableRole,
+    LayerListRole,
     LayerRole,
     UnderlayRole,
 )
@@ -81,6 +82,26 @@ def _draw_eye(p: QPainter, r: QRectF, on: bool, color: QColor) -> None:
         p.drawPath(path)
         for dx, dy in ((-w * 0.62, 3.6), (0.0, 4.6), (w * 0.62, 3.6)):
             p.drawLine(QPointF(cx + dx, cy + dy * 0.55), QPointF(cx + dx, cy + dy * 0.55 + 3))
+
+
+def _draw_eye_partial(p: QPainter, r: QRectF, color: QColor) -> None:
+    """Open-eye outline marked as *partially* on: the eye is drawn in a
+    dimmed (muted) colour and the pupil is left hollow (no filled dot), plus a
+    short dash across the lower lid — so it reads clearly as "visible, but some
+    layers hidden" and never as the full-on accent eye."""
+    p.setPen(_round_pen(color))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    cx, cy = r.center().x(), r.center().y()
+    w, h = r.width() / 2, r.height() / 2.4
+    path = QPainterPath()
+    path.moveTo(cx - w, cy)
+    path.quadTo(cx, cy - h * 1.5, cx + w, cy)
+    path.quadTo(cx, cy + h * 1.5, cx - w, cy)
+    p.drawPath(path)
+    # hollow pupil (outline only) distinguishes from the solid-dot full-on eye
+    p.drawEllipse(QPointF(cx, cy), 2.3, 2.3)
+    # short dash across the lower lid — the "partial" marker
+    p.drawLine(QPointF(cx - w * 0.5, cy + h * 0.9), QPointF(cx + w * 0.5, cy + h * 0.9))
 
 
 def _draw_snap(p: QPainter, r: QRectF, color: QColor) -> None:
@@ -151,6 +172,29 @@ class ToggleDelegate(_BaseDelegate):
         super().__init__(theme, parent)
         self.field = field  # "visible" | "snap"
 
+    @staticmethod
+    def _eye_state(record, total_layers) -> str:
+        """Return the parent-underlay eye state: ``"on"`` | ``"off"`` |
+        ``"partial"``.
+
+        * not visible                       -> ``"off"``
+        * visible, no layers hidden         -> ``"on"``
+        * visible, SOME (not all) hidden    -> ``"partial"``
+        * visible, ALL layers hidden        -> ``"on"`` (the underlay itself is
+          still toggled on; the eye reflects ``record.visible``, and "all
+          hidden" is not treated as partial)
+        """
+        if not getattr(record, "visible", True):
+            return "off"
+        hidden = set(getattr(record, "hidden_layers", None) or [])
+        if not hidden:
+            return "on"
+        total = set(total_layers or [])
+        # partial = at least one hidden but not every known layer hidden
+        if total and hidden >= total:
+            return "on"
+        return "partial"
+
     def paint(self, painter, option, index):
         self._paint_background(painter, option, index)
         record = self._record(index)
@@ -159,8 +203,13 @@ class ToggleDelegate(_BaseDelegate):
         layer = self._layer(index)
 
         if self.field == "visible":
-            on = record.visible if layer is None else (layer not in record.hidden_layers)
-            self._draw(painter, option, on, eye=True)
+            if layer is None:
+                state = self._eye_state(record, index.data(LayerListRole))
+                self._draw(painter, option, state != "off", eye=True,
+                           partial=(state == "partial"))
+            else:
+                on = layer not in record.hidden_layers
+                self._draw(painter, option, on, eye=True)
             return
 
         # snap: only for a vector underlay row (skip layer rows + raster PDF).
@@ -168,16 +217,20 @@ class ToggleDelegate(_BaseDelegate):
             return
         self._draw(painter, option, record.snap, eye=False)
 
-    def _draw(self, painter, option, on: bool, eye: bool) -> None:
+    def _draw(self, painter, option, on: bool, eye: bool,
+              partial: bool = False) -> None:
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color = self.t.color("accent") if on else self.t.color("faint", 170)
         r = QRectF(0, 0, 17, 17)
         r.moveCenter(QRectF(option.rect).center())
-        if eye:
-            _draw_eye(painter, r, on, color)
+        if eye and partial:
+            _draw_eye_partial(painter, r, self.t.color("muted"))
         else:
-            _draw_snap(painter, r, color)
+            color = self.t.color("accent") if on else self.t.color("faint", 170)
+            if eye:
+                _draw_eye(painter, r, on, color)
+            else:
+                _draw_snap(painter, r, color)
         painter.restore()
 
     def editorEvent(self, event, model, option, index):
