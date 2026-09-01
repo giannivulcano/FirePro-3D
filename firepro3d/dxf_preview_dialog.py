@@ -64,7 +64,7 @@ except ImportError:
 
 from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
-from .theme import detect, build_app_qss
+from .theme import detect, build_app_qss, build_underlay_manager_qss
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
@@ -772,6 +772,32 @@ def build_commit_sentence(
     return sentence
 
 
+def _import_extra_qss(t) -> str:
+    """Import-specific selectors layered on the shared manager QSS (ported from
+    the prototype's _extra_qss, mapped to the app's house tokens)."""
+    return f"""
+    QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
+    QFrame#stepRail QPushButton {{ text-align:left; padding:7px 10px; border:none;
+        border-left:3px solid transparent; background:transparent; color:{t.ink};
+        border-radius:0; font-weight:600; }}
+    QFrame#stepRail QPushButton:hover {{ background:{t.accent_soft}; }}
+    QFrame#stepRail QPushButton[state="active"] {{
+        border-left:3px solid {t.accent}; background:{t.accent_soft}; }}
+    QFrame#stepRail QPushButton[state="warn"] {{ border-left:3px solid {t.warn}; }}
+    QStackedWidget#detailsPanel {{ background:{t.surface};
+        border-left:1px solid {t.line}; }}
+    QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
+    QFrame#scaleCard, QFrame#srcCard {{ background:{t.sunken};
+        border:1px solid {t.line}; border-radius:7px; }}
+    QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
+    QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
+        border-radius:9px; border:1px solid transparent; }}
+    QLabel#scalePill[state="warn"] {{ color:{t.warn}; border-color:{t.warn}; }}
+    QLabel#scalePill[state="ok"] {{ color:{t.ok}; border-color:{t.ok}; }}
+    QLabel#dropHint {{ color:{t.muted}; font-size:13px; background:transparent; }}
+    """
+
+
 class UnderlayImportDialog(QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
@@ -794,14 +820,13 @@ class UnderlayImportDialog(QDialog):
                  levels: list[str] | None = None, current_level: str = "",
                  modify_record=None):
         super().__init__(parent)
-        self.setWindowTitle("Import Underlay — Preview")
-        # Frameless: the shell draws its own single header (no OS title bar on
-        # top of ours). Draggable via the header; Cancel/✕ close it.
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
-        self.resize(1220, 680)
+        # Plain dialog with the OS title bar (matches the prototype — no custom
+        # in-dialog header, so no doubled header chrome).
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
+        self.setWindowTitle(f"Import Underlay — {self._project_name}")
+        self.resize(1150, 660)
         self._drag_pos = None
 
         self._sm = scale_manager
@@ -953,49 +978,11 @@ class UnderlayImportDialog(QDialog):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # Object-scoped chrome for the shell (rail rows, cards, footer, pills).
-        self.setObjectName("ImportUnderlayDialog")
-        self.setStyleSheet(build_app_qss(t) + f"""
-        #ImportUnderlayDialog {{ background:{t.ground}; }}
-        #importTitleBar {{ background:{t.surface}; border-bottom:1px solid {t.line}; }}
-        #importFooter {{ background:{t.raised}; border-top:1px solid {t.line}; }}
-        #importRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
-        #importRail QPushButton {{ text-align:left; padding:7px 10px; border:none;
-            border-left:3px solid transparent; background:transparent; color:{t.ink};
-            border-radius:0; }}
-        #importRail QPushButton[state="active"],
-        #importRail QPushButton[state="warn"] {{ border-left:3px solid {t.accent}; }}
-        #importPanel {{ background:{t.surface}; border-left:1px solid {t.line}; }}
-        """)
-
-        # ── Title bar (single header — the window is frameless) ──────────────
-        self._titlebar = QFrame(objectName="importTitleBar")
-        self._titlebar.setFixedHeight(40)
-        tbl = QHBoxLayout(self._titlebar)
-        tbl.setContentsMargins(14, 8, 12, 8)
-        glyph = QLabel()
-        try:
-            glyph.setPixmap(themed_icon(
-                "underlay_import_icon.svg",
-                "light" if t.name == "light" else "dark").pixmap(20, 20))
-        except Exception:
-            pass
-        self._title_lbl = QLabel(f"Import Underlay  —  {self._project_name}")
-        self._title_lbl.setStyleSheet(
-            f"color:{t.ink}; font-size:13px; font-weight:600; background:transparent;")
-        tbl.addWidget(glyph)
-        tbl.addSpacing(8)
-        tbl.addWidget(self._title_lbl)
-        tbl.addStretch(1)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(26, 24)
-        close_btn.setStyleSheet(
-            f"QPushButton{{border:none; background:transparent; color:{t.muted};"
-            f" font-size:14px; border-radius:5px;}}"
-            f"QPushButton:hover{{background:{t.danger}; color:#fff;}}")
-        close_btn.clicked.connect(self.reject)
-        tbl.addWidget(close_btn)
-        outer.addWidget(self._titlebar)
+        # Share the manager's object-scoped QSS (prototype convention) + the
+        # import-specific selectors. No custom header — the OS title bar shows
+        # the window title.
+        self.setObjectName("UnderlayManagerDialog")
+        self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
@@ -1042,7 +1029,7 @@ class UnderlayImportDialog(QDialog):
         body.setSpacing(0)
 
         # Step rail
-        rail_wrap = QFrame(objectName="importRail")
+        rail_wrap = QFrame(objectName="stepRail")
         rail_wrap.setFixedWidth(188)
         rw = QVBoxLayout(rail_wrap)
         rw.setContentsMargins(6, 12, 6, 12)
@@ -1079,8 +1066,8 @@ class UnderlayImportDialog(QDialog):
         self._instruction_chip.setVisible(False)
         prev_lay.addWidget(self._instruction_chip)
         self._info_lbl = QLabel("Drop a PDF, DWG or DXF here — or use Browse.")
+        self._info_lbl.setObjectName("dropHint")
         self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._info_lbl.setStyleSheet(f"color:{t.faint};")
         prev_lay.addWidget(self._info_lbl)
         # Pan is the default view mode; kept hidden so _set_view_mode has a
         # toggle target (Draw-crop lives in the Content panel).
@@ -1091,7 +1078,7 @@ class UnderlayImportDialog(QDialog):
         body.addWidget(prev_wrap, 1)
 
         # ── Contextual panel: a QStackedWidget, ONE page per step ────────────
-        self._panel_stack = QStackedWidget(objectName="importPanel")
+        self._panel_stack = QStackedWidget(objectName="detailsPanel")
         self._panel_stack.setFixedWidth(324)
         self._controls_panel = self._panel_stack
         self._panel_pages = {"source": 0, "content": 1, "place": 2}
@@ -1221,6 +1208,7 @@ class UnderlayImportDialog(QDialog):
         scale_head.addWidget(self._custom_scale_edit)
         scale_head.addStretch()
         self._scale_pill = QLabel(" unverified ")
+        self._scale_pill.setObjectName("scalePill")
         scale_head.addWidget(self._scale_pill)
         pl_v.addLayout(scale_head)
         acts_row = QHBoxLayout()
@@ -1311,7 +1299,7 @@ class UnderlayImportDialog(QDialog):
         outer.addWidget(self._loading_bar)
 
         # ── Commit footer: sentence + Cancel / Import ───────────────────────
-        footer = QFrame(objectName="importFooter")
+        footer = QFrame(objectName="footerBar")
         fl = QHBoxLayout(footer)
         fl.setContentsMargins(14, 9, 14, 9)
         self._status_lbl = QLabel("")          # retained (some code sets it)
@@ -1444,13 +1432,11 @@ class UnderlayImportDialog(QDialog):
         the current dialog state. Safe to call before the shell is fully built."""
         if not hasattr(self, "_commit_label"):
             return
-        t = detect()
         verified = self._scale_verified
-        col = t.ok if verified else t.warn
         self._scale_pill.setText(" verified " if verified else " unverified ")
-        self._scale_pill.setStyleSheet(
-            f"background:transparent; color:{col}; border:1px solid {col};"
-            f" border-radius:8px; padding:1px 8px; font-size:10px; font-weight:700;")
+        self._scale_pill.setProperty("state", "ok" if verified else "warn")
+        self._scale_pill.style().unpolish(self._scale_pill)
+        self._scale_pill.style().polish(self._scale_pill)
 
         path = self._file_edit.text().strip()
         name = os.path.splitext(os.path.basename(path))[0] if path else "(no file)"
