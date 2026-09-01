@@ -212,3 +212,47 @@ def test_regular_polygon_manip_rotate(scene):
     approx_pt(rp._center, rot_yup(ctr0, pivot, 72.0))
     assert rp._rotation_deg == pytest.approx(rot0 + 72.0)
     approx_pt(rp.vertices()[0], rot_yup(v0, pivot, 72.0), eps=1e-3)
+
+
+# ── DesignArea badge (baked _angle on a fixed-layout label) — Task 8 ────
+
+def test_badge_self_rotate_tilts_in_place(qapp):
+    from firepro3d.design_area import DesignArea, badge_fixed_size_mm
+    sc = QGraphicsScene()
+    da = DesignArea()
+    sc.addItem(da)
+    assert da.badge is not None
+    da.set_badge_offset(QPointF(500, 300))
+    w, h = badge_fixed_size_mm()
+    center0 = da.badge.pos() + QPointF(w / 2, h / 2)
+    da.manip_rotate(30.0, QPointF(center0))   # rotate about own centre
+    center1 = da.badge.pos() + QPointF(w / 2, h / 2)
+    approx_pt(center1, center0, eps=1e-3)
+    assert da.badge._angle == pytest.approx(30.0)
+
+
+def test_badge_group_rotate_moves_center(qapp):
+    from firepro3d.design_area import DesignArea, badge_fixed_size_mm
+    sc = QGraphicsScene()
+    da = DesignArea()
+    sc.addItem(da)
+    da.set_badge_offset(QPointF(500, 300))
+    w, h = badge_fixed_size_mm()
+    center0 = da.badge.pos() + QPointF(w / 2, h / 2)
+    pivot = QPointF(0, 0)
+    da.manip_rotate(90.0, pivot)
+    center1 = da.badge.pos() + QPointF(w / 2, h / 2)
+    approx_pt(center1, rot_yup(center0, pivot, 90.0), eps=1e-3)
+    assert da.badge._angle == pytest.approx(90.0)
+
+
+def test_badge_angle_round_trips_through_serialization(qapp):
+    from firepro3d.design_area import DesignArea
+    from firepro3d import network_codec
+    sc = QGraphicsScene()
+    da = DesignArea()
+    sc.addItem(da)
+    da.set_badge_offset(QPointF(500, 300))
+    da.badge._angle = 42.0
+    d = network_codec.serialize_design_area(da, {}, None)
+    assert d.get("badge_angle") == pytest.approx(42.0)
