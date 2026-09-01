@@ -1233,9 +1233,8 @@ class UnderlayImportDialog(QDialog):
         # Pin it: the window keeps its explicit size, content fits inside.
         outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
-        # Share the manager's object-scoped QSS (prototype convention) + the
-        # import-specific selectors. No custom header — the OS title bar shows
-        # the window title.
+        # Shared chrome QSS is dual-homed in theme.py to both #UnderlayManagerDialog
+        # and #UnderlayImportDialog; this dialog's own id-scoped overrides follow.
         self.setObjectName("UnderlayImportDialog")
         self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
