@@ -126,11 +126,11 @@ class FramelessShellMixin:
     def _build_titlebar(self, title, controls):
         """Build a plain themed titlebar: title label + control dots.
 
-        Returns a ``QFrame`` (objectName ``importHeader`` to inherit the shared
+        Returns a ``QFrame`` (objectName ``shellHeader`` to inherit the shared
         chrome QSS). Populates ``self._win_controls``.
         """
         t = detect()
-        bar = QFrame(objectName="importHeader")
+        bar = QFrame(objectName="shellHeader")
         bar.setFixedHeight(40)
         hb = QHBoxLayout(bar)
         hb.setContentsMargins(14, 7, 10, 7)

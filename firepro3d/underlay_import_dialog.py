@@ -933,8 +933,6 @@ def _import_extra_qss(t) -> str:
     #UnderlayImportDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
     #UnderlayImportDialog QListWidget::item:selected {{
         background:{t.accent_soft}; color:{t.ink}; }}
-    QFrame#importHeader {{ background:{t.raised};
-        border-bottom:1px solid {t.line}; }}
     QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
     #UnderlayImportDialog QPushButton:hover:enabled {{
         background:{t.accent_soft}; border-color:{t.accent}; }}
@@ -1200,7 +1198,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self.setStyleSheet(build_underlay_manager_qss(t) + _import_extra_qss(t))
 
         # ── Header bar (single custom header; styled like the footer) ────────
-        self._titlebar = QFrame(objectName="importHeader")
+        self._titlebar = QFrame(objectName="shellHeader")
         self._titlebar.setFixedHeight(40)
         hb = QHBoxLayout(self._titlebar)
         hb.setContentsMargins(14, 7, 10, 7)
