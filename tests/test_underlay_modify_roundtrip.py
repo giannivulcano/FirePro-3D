@@ -145,6 +145,102 @@ def test_modify_async_extract_finished_restores_layers_and_crop(qapp):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 3c. PDF SYNC-BLOCK reconcile — runs against the FINAL geometry
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_modify_prefill_sync_block_reapplies_against_final_geometry(
+        qapp, monkeypatch):
+    """The sync PDF path renders page 0, then the prefill re-renders the target
+    page — so _populate_layer_list may have consumed the pending layer subset
+    against the WRONG page. The `if self._all_geoms:` reconcile block in
+    _apply_modify_prefill must re-apply layers + crop against the FINAL
+    geometry and then clear the pending fields (so the async callback can't
+    double-apply). This branch is otherwise untested — the other tests stub
+    _load_file so _all_geoms stays empty and it never runs.
+
+    Here we monkeypatch the loaders so they MIMIC the real sync PDF load:
+    _file_type="pdf", populated _all_geoms (final page), populated layer list.
+    Then we drive the REAL _apply_modify_prefill and assert the sync block ran.
+    """
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+
+    def fake_load_file(self):
+        # Mimic the real sync PDF load leaving FINAL geometry present when the
+        # sync block runs: two geoms inside [0,0,10,10] on layers A/B, one far
+        # outside. Populate the layer list as the real load does.
+        self._file_type = "pdf"
+        self._all_geoms = [
+            {"kind": "line", "layer": "A", "x1": 1, "y1": 1, "x2": 2, "y2": 2},
+            {"kind": "line", "layer": "B", "x1": 3, "y1": 3, "x2": 4, "y2": 4},
+            {"kind": "line", "layer": "B", "x1": 900, "y1": 900,
+             "x2": 901, "y2": 901},
+        ]
+        self._layers = ["A", "B"]
+        self._populate_layer_list()
+
+    monkeypatch.setattr(UnderlayImportDialog, "_load_file", fake_load_file)
+    monkeypatch.setattr(UnderlayImportDialog, "_load_pdf_page",
+                        lambda self, *a, **k: None)
+
+    rec = Underlay(
+        type="pdf", path="/nonexistent/plan.pdf", page=2, dpi=300,
+        import_mode="vectors", import_scale=2.0,
+        selected_layers=["B"], import_bounds=[0.0, 0.0, 10.0, 10.0],
+        rotation=0.0, levels=["Level 1"],
+    )
+    dlg = UnderlayImportDialog(None, modify_record=rec)
+    try:
+        # (a) The sync block ran: layers reflect the record's subset, and the
+        #     crop reduced _selected_indices to the two geoms inside the bounds
+        #     (indices 0 and 1 — crop selection is layer-independent; geom 2 is
+        #     far outside). If the block never ran, layers would stay all-checked
+        #     (None) and _selected_indices would stay None.
+        assert dlg._active_layers() == {"B"}
+        assert dlg._selected_indices == {0, 1}
+        # (b) Pending fields cleared (so the async callback can't double-apply).
+        assert dlg._pending_modify_layers is None
+        assert dlg._pending_modify_bounds is None
+    finally:
+        dlg.deleteLater()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3d. RASTER PDF — pending state invariant (nothing to apply, still cleared)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_modify_raster_pdf_clears_pending_state(qapp, monkeypatch):
+    """A raster-mode PDF Modify sets _pending_modify_* but the sync reconcile
+    block's `if self._all_geoms:` guard is False (raster loads leave
+    _all_geoms=[]), so nothing consumes them. The sync-path clear (gated to
+    _file_type=="pdf") must still null them so no stale pending survives a
+    same-session import-mode switch."""
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
+
+    def fake_load_file(self):
+        # Real raster PDF load: no vector geometry retained.
+        self._file_type = "pdf"
+        self._all_geoms = []
+        self._layers = []
+        self._populate_layer_list()
+
+    monkeypatch.setattr(UnderlayImportDialog, "_load_file", fake_load_file)
+    monkeypatch.setattr(UnderlayImportDialog, "_load_pdf_page",
+                        lambda self, *a, **k: None)
+
+    rec = Underlay(
+        type="pdf", path="/nonexistent/raster.pdf", import_mode="raster",
+        import_scale=2.0, selected_layers=None, import_bounds=None,
+        rotation=0.0,
+    )
+    dlg = UnderlayImportDialog(None, modify_record=rec)
+    try:
+        assert dlg._pending_modify_layers is None
+        assert dlg._pending_modify_bounds is None
+    finally:
+        dlg.deleteLater()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4. END-TO-END NO-OP GUARD
 # ─────────────────────────────────────────────────────────────────────────────
 

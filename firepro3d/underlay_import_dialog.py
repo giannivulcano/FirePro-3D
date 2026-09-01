@@ -1174,6 +1174,26 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 self._restore_crop_from_bounds(self._pending_modify_bounds)
                 self._pending_modify_bounds = None
 
+        # Enforce the "pending consumed by end of the SYNC load" invariant for
+        # PDF — and PDF ONLY. Two PDF sub-cases reach here:
+        #   • vector-sync: the reconcile block above already applied+cleared;
+        #   • raster: _load_pdf_page set _all_geoms=[] so the guard was False
+        #     and nothing was applied (raster records carry no layers/crop) —
+        #     the pending fields would otherwise linger as stale state that a
+        #     same-session import-mode switch could mis-read.
+        # Either way, by the time the SYNC PDF load returns the geometry is
+        # final, so clearing here is safe.
+        #
+        # ⚠ TIMING HAZARD — do NOT hoist this into an unconditional clear at the
+        # end of _apply_modify_prefill. The ASYNC DXF/DWG path has NOT loaded
+        # geometry yet (_load_file returned before the extract worker finishes);
+        # its pending fields MUST survive prefill to be consumed in
+        # _on_extract_finished / the memoized _extract_for_layout branch. Gating
+        # on the PDF (sync) file type keeps async intact.
+        if self._file_type == "pdf":
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
+
         # Rotation (display transform).
         self._set_rotation(record.rotation)
 
@@ -2098,6 +2118,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if cached is not None:
             self._all_geoms, layers = cached
             self._layers = list(layers)
+            # ASYNC consume site (DXF/DWG, memoized-layout branch). Same timing
+            # contract as _on_extract_finished: _apply_modify_prefill left these
+            # pending (its clear is gated to _file_type=="pdf") so this branch
+            # can consume them here once the (cached) geometry is available.
             self._populate_layer_list()   # applies _pending_modify_layers
             self._pending_modify_layers = None
             self._selected_indices = None
@@ -2188,6 +2212,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 ]
 
         self._layers = list(layers)
+        # ASYNC consume site (DXF/DWG). These pending fields were deliberately
+        # LEFT UNCLEARED by _apply_modify_prefill because geometry did not exist
+        # yet when that returned — the sync-path clear there is gated to
+        # _file_type=="pdf" precisely so this branch still sees them. Consume +
+        # clear them here now that the extract has finished.
         self._populate_layer_list()   # applies _pending_modify_layers
         self._pending_modify_layers = None
         self._selected_indices = None
