@@ -173,6 +173,8 @@ class ImportParams:
         self.import_mode: str = "auto"    # "auto" | "vectors" | "raster"
         self.layout: str = ""            # DWG layout name (empty = Model)
         self.import_bounds: list[float] | None = None  # area selection bounds
+        self.levels: list[str] = []            # authored by the Placement multi-select
+        self.scale_verified: bool = False      # calibrate / "Looks right"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
