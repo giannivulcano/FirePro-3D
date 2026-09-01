@@ -232,7 +232,9 @@ class Underlay:
 
 # ---------------------------------------------------------------------------
 # Geometry / placement fields — everything the import dialog controls.
-# Management fields (levels, colour, line_weight_name, layer_overrides,
+# `levels` and `scale_verified` are authored by the import dialog (redesign:
+# the Placement multi-select + scale-evidence card), so Modify overwrites them.
+# The remaining management fields (colour, line_weight_name, layer_overrides,
 # hidden_layers, visible, snap, locked, opacity, line_weight) are NOT listed
 # here and are therefore preserved by apply_import_params_preserving_management.
 # ---------------------------------------------------------------------------
@@ -240,6 +242,7 @@ _GEOMETRY_PLACEMENT_FIELDS = (
     "type", "path", "page", "dpi", "scale", "rotation", "x", "y",
     "import_scale", "import_base_x", "import_base_y",
     "selected_layers", "layout", "import_bounds", "import_mode",
+    "levels", "scale_verified",
 )
 
 

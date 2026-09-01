@@ -3216,6 +3216,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             layout=getattr(params, "layout", record.layout),
             import_bounds=getattr(params, "import_bounds", None),
             import_mode=getattr(params, "import_mode", record.import_mode),
+            levels=_record_levels(params, self.active_level),
+            scale_verified=getattr(params, "scale_verified", False),
         )
 
         # 3. Derive the authoritative layer set from the new geometry.
