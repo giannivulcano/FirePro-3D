@@ -776,10 +776,12 @@ def _import_extra_qss(t) -> str:
     """Import-specific selectors layered on the shared manager QSS (ported from
     the prototype's _extra_qss, mapped to the app's house tokens)."""
     return f"""
-    QFrame#importHeader {{ background:{t.raised}; border-bottom:1px solid {t.line}; }}
+    QFrame#importHeader {{ background:{t.raised};
+        border-bottom:2px solid {t.line_strong}; }}
     #UnderlayManagerDialog QPushButton:hover:enabled {{
         background:{t.accent_soft}; border-color:{t.accent}; }}
-    QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
+    QGraphicsView#previewView {{ border:2px solid {t.line_strong}; }}
+    QFrame#stepRail {{ background:{t.surface}; border-right:2px solid {t.line_strong}; }}
     QFrame#stepRail QPushButton {{ text-align:left; padding:7px 10px; border:none;
         border-left:3px solid transparent; background:transparent; color:{t.ink};
         border-radius:0; font-weight:600; }}
@@ -788,8 +790,8 @@ def _import_extra_qss(t) -> str:
         border-left:3px solid {t.accent}; background:{t.accent_soft}; }}
     QFrame#stepRail QPushButton[state="warn"] {{ border-left:3px solid {t.warn}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
-        border-left:1px solid {t.line}; }}
-    QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
+        border-left:2px solid {t.line_strong}; }}
+    QFrame#footerBar {{ background:{t.raised}; border-top:2px solid {t.line_strong}; }}
     QFrame#scaleCard, QFrame#srcCard {{ background:{t.sunken};
         border:1px solid {t.line}; border-radius:7px; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
@@ -831,6 +833,12 @@ class UnderlayImportDialog(QDialog):
         self.setWindowTitle(f"Import Underlay — {self._project_name}")
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.resize(1150, 660)
+        # Never let content (e.g. the PDF filmstrip/layer list on load) grow the
+        # dialog past the screen and push the panel off-edge.
+        _scr = QApplication.primaryScreen()
+        if _scr is not None:
+            _avail = _scr.availableGeometry()
+            self.setMaximumSize(_avail.width(), _avail.height())
         self._drag_pos = None
 
         self._sm = scale_manager
@@ -873,6 +881,7 @@ class UnderlayImportDialog(QDialog):
 
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
+        self._preview_view.setObjectName("previewView")
         self._preview_view._dialog = self  # direct ref — parent() changes after layout
         self._preview_view.rubber_band_rect.connect(self._on_rubber_band)
         self._preview_view.point_picked.connect(self._on_any_point_picked)
@@ -1011,14 +1020,20 @@ class UnderlayImportDialog(QDialog):
         hb.addSpacing(10)
         hb.addWidget(self._header_file_lbl)
         hb.addStretch(1)
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(26, 22)
-        close_btn.setStyleSheet(
-            f"QPushButton{{border:none; background:transparent; color:{t.muted};"
-            f" font-size:13px; border-radius:5px;}}"
-            f"QPushButton:hover{{background:{t.danger}; color:#fff;}}")
-        close_btn.clicked.connect(self.reject)
-        hb.addWidget(close_btn)
+
+        # Window controls (frameless): minimize · maximize/restore · close.
+        def _winbtn(glyph, slot, hover):
+            b = QPushButton(glyph)
+            b.setFixedSize(26, 22)
+            b.setStyleSheet(
+                f"QPushButton{{border:none; background:transparent;"
+                f" color:{t.muted}; font-size:12px; border-radius:5px;}}"
+                f"QPushButton:hover{{background:{hover}; color:#fff;}}")
+            b.clicked.connect(slot)
+            return b
+        hb.addWidget(_winbtn("—", self.showMinimized, t.line_strong))
+        hb.addWidget(_winbtn("▢", self._toggle_max, t.line_strong))
+        hb.addWidget(_winbtn("✕", self.reject, t.danger))
         outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
@@ -1033,6 +1048,10 @@ class UnderlayImportDialog(QDialog):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._thumb_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
+        self._thumb_list.setUniformItemSizes(True)
+        self._thumb_list.setGridSize(QSize(96, 118))
+        self._thumb_list.setWordWrap(False)
+        self._thumb_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._thumb_list.currentRowChanged.connect(self._on_page_thumb_clicked)
         self._thumb_list.setVisible(False)
         outer.addWidget(self._thumb_list)
@@ -1084,8 +1103,7 @@ class UnderlayImportDialog(QDialog):
         prev_lay.setContentsMargins(10, 10, 10, 8)
         prev_lay.setSpacing(6)
         ptool = QHBoxLayout()
-        self._preview_hint = QLabel(
-            "Drop a source to begin — everything happens on this preview.")
+        self._preview_hint = QLabel("")          # mode instructions only
         self._preview_hint.setStyleSheet(
             f"color:{t.muted}; font-size:11px; background:transparent;")
         ptool.addWidget(self._preview_hint)
@@ -1390,6 +1408,12 @@ class UnderlayImportDialog(QDialog):
         self._panel_stack.setCurrentIndex(idx)
         self._active_step = key
         self._update_all()
+
+    def _toggle_max(self):
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
 
     # Frameless-window drag: the header moves the dialog.
     def mousePressEvent(self, event):
@@ -2111,7 +2135,9 @@ class UnderlayImportDialog(QDialog):
                 name = (self._pdf_page_names[page_idx]
                         if page_idx < len(self._pdf_page_names)
                         else f"Page {page_idx + 1}")
-                item = QListWidgetItem(QIcon(pixmap), name)
+                disp = name if len(name) <= 16 else name[:15] + "…"
+                item = QListWidgetItem(QIcon(pixmap), disp)
+                item.setToolTip(name)          # full name on hover
                 self._thumb_list.addItem(item)
             self._thumb_list.setVisible(True)
             if self._thumb_list.count() > 0:
@@ -2819,12 +2845,11 @@ class UnderlayImportDialog(QDialog):
         self._draw_base_marker()
 
     def _update_base_enabled(self, *_):
-        """Grey out the base-point inputs while 'Insert at origin' is active —
-        the X/Y base point is ignored in that mode, so editable fields would
-        be misleading."""
-        at_origin = self._origin_cb.isChecked()
+        """The base point is the underlay's own origin — you always pick it on
+        the preview. 'Insert at origin' just maps that picked origin onto the
+        canvas origin at import, so the inputs stay enabled in both modes."""
         for w in getattr(self, "_base_inputs", []):
-            w.setEnabled(not at_origin)
+            w.setEnabled(True)
 
     # ── Status ────────────────────────────────────────────────────────────────
 
