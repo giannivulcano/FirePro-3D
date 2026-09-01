@@ -62,3 +62,26 @@ def test_tree_qss_selector_retargeted_to_qtreeview(qapp):
     assert len(hover_lines) == 1, hover_lines
     assert t.accent_soft in hover_lines[0]
     assert "$accent" not in qss  # all tokens substituted
+
+
+def test_tree_branch_strip_keeps_base_background(qapp):
+    """The ``::branch`` strip (indent / disclosure area to the left of the
+    first column) must paint the base row background — not the selection/hover
+    accent — so a hovered/selected CHILD (layer) row's highlight does not bleed
+    leftward past the row content into the indentation. Regression guard for the
+    child-row highlight overhang.
+    """
+    from firepro3d.theme import build_underlay_manager_qss, detect
+
+    t = detect()
+    qss = build_underlay_manager_qss(t)
+
+    branch_lines = [
+        ln for ln in qss.splitlines()
+        if "QTreeView#underlayTable::branch" in ln and "background" in ln
+    ]
+    assert branch_lines, "expected a ::branch background rule"
+    # The branch strip uses the base table background, not an accent.
+    assert t.table in branch_lines[-1]
+    assert t.accent_soft not in branch_lines[-1]
+    assert "$table" not in qss  # all tokens substituted

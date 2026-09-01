@@ -779,6 +779,12 @@ QTreeView#underlayTable::item {
 }
 QTreeView#underlayTable::item:hover    { background: $accent_soft; }
 QTreeView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
+/* Keep the branch/indent strip (left of the first column) on the base row
+   background so a hovered/selected child row's accent never bleeds leftward
+   past the row content into the disclosure/indent area. */
+QTreeView#underlayTable::branch,
+QTreeView#underlayTable::branch:hover,
+QTreeView#underlayTable::branch:selected { background: $table; }
 QHeaderView::section {
     background: $table; color: $muted;
     border: none; border-bottom: 1px solid $line_strong;

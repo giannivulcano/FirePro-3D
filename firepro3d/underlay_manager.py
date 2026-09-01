@@ -282,10 +282,15 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         header = self.view.header()
         header.setHighlightSections(False)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(Col.SOURCE, QHeaderView.ResizeMode.Stretch)
+        # Every inner divider (incl. SOURCE<->TYPE, NAME<->SOURCE) stays
+        # draggable: keep all sections Interactive and let the LAST column
+        # (LEVELS) absorb slack instead of a Stretch section (which resists
+        # interactive resize of its neighbouring dividers).
+        header.setStretchLastSection(True)
         for col, width in (
-            (Col.NAME, 200), (Col.TYPE, 64), (Col.VIS, 92), (Col.SNAP, 44),
-            (Col.COLOUR, 110), (Col.WEIGHT, 84), (Col.LEVELS, 160),
+            (Col.NAME, 200), (Col.SOURCE, 220), (Col.TYPE, 64), (Col.VIS, 92),
+            (Col.SNAP, 44), (Col.COLOUR, 110), (Col.WEIGHT, 84),
+            (Col.LEVELS, 160),
         ):
             self.view.setColumnWidth(col, width)
         body.addWidget(self.view, 1)

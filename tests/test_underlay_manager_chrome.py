@@ -8,11 +8,12 @@ existing CRUD widgets survive the change (guts unchanged).
 Construction mirrors ``tests/test_underlay_manager_dialog.py`` exactly.
 """
 from PyQt6.QtCore import Qt, QObject, pyqtSignal
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QHeaderView, QLabel
 
 from firepro3d.frameless_shell import FramelessShellMixin
 from firepro3d.underlay import Underlay
 from firepro3d.underlay_manager import UnderlayManagerDialog, _DetailsPanel
+from firepro3d.underlay_manager_model import Col
 
 
 # --------------------------------------------------------------------------
@@ -131,3 +132,16 @@ def test_details_panel_has_no_preview_box(qapp):
     panel = _DetailsPanel()
     assert not hasattr(panel, "preview")
     panel.deleteLater()
+
+
+def test_source_column_is_interactively_resizable(qapp):
+    """SOURCE must be Interactive (not Stretch) so the SOURCE<->TYPE and
+    NAME<->SOURCE dividers can be dragged; the LAST section stretches to
+    absorb slack instead. Regression guard for the un-draggable divider.
+    """
+    dlg = _make_dialog()
+    header = dlg.view.header()
+    assert header.sectionResizeMode(Col.SOURCE) == \
+        QHeaderView.ResizeMode.Interactive
+    assert header.stretchLastSection() is True
+    dlg.deleteLater()
