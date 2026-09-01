@@ -43,7 +43,7 @@ from PyQt6.QtGui import (
     QCursor, QPainter, QPixmap, QIcon, QTransform,
 )
 from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread,
+    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread, QTimer,
     pyqtSignal,
 )
 
@@ -1740,6 +1740,28 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if not getattr(self, "_did_initial_max", False):
             self._did_initial_max = True
             self.showMaximized()
+            # Any geometry loaded BEFORE the dialog was shown (Modify prefill or
+            # a constructor file_path) was fit against an unsized viewport, so
+            # _fit_scale is wrong and the preview reads "100%" while zoomed out.
+            # Re-fit once the maximize has given the viewport its real size.
+            QTimer.singleShot(0, self._fit_preview_to_content)
+
+    def _fit_preview_to_content(self) -> None:
+        """Fit the current preview geometry to the (now real-sized) viewport.
+
+        Safe no-op when there is nothing to show. Used to correct the fit for
+        geometry that loaded before the dialog was shown/sized."""
+        view = getattr(self, "_preview_view", None)
+        scene = getattr(self, "_preview_scene", None)
+        if view is None or scene is None:
+            return
+        rect = scene.itemsBoundingRect()
+        if rect.isEmpty():
+            return
+        view.fitInView(
+            rect.adjusted(-10, -10, 10, 10),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
@@ -2502,8 +2524,17 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         names = getattr(self, "_pdf_page_names", [])
         return names[page] if 0 <= page < len(names) else f"Page {page + 1}"
 
-    def _load_pdf_page(self, path: str, page: int, dpi: int | None = None):
-        """Load vectors from a specific PDF page."""
+    def _load_pdf_page(self, path: str, page: int, dpi: int | None = None,
+                       reset_base: bool = True):
+        """Load vectors from a specific PDF page.
+
+        Args:
+            reset_base: When True (initial load / prefill), auto-fill the base
+                point from the new page's geometry bounds. A user PAGE SWITCH
+                passes False so the user's base point (and, with it, scale /
+                levels / DPI / mode, which this method never touches) survives.
+                LAYERS and CROP still reset — the geometry itself changed.
+        """
         if dpi is None:
             dpi = int(self._dpi_combo.currentText())
 
@@ -2548,7 +2579,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                         ys += [y0, y0 + g.get("h", g.get("rh", 0))]
                     elif kind == "text":
                         xs.append(g["x"]); ys.append(g["y"])
-                if xs and ys:
+                if xs and ys and reset_base:
                     self._base_x_edit.blockSignals(True)
                     self._base_y_edit.blockSignals(True)
                     self._base_x_edit.set_value_mm(min(xs))
@@ -2632,7 +2663,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             return
         path = self._file_edit.text().strip()
         if path and os.path.exists(path):
-            self._load_pdf_page(path, row)
+            # A user page switch changes the geometry (layers + crop legitimately
+            # reset inside _load_pdf_page), but the user's non-geometry settings —
+            # scale, base point, levels, DPI, import mode — must PERSIST. Those
+            # widgets are never touched by _load_pdf_page; reset_base=False keeps
+            # it from re-deriving the base point from the new page's bounds.
+            self._load_pdf_page(path, row, reset_base=False)
 
     def _sync_page_indicator(self, page: int) -> None:
         """Reflect the restored PDF page in the thumbnail strip (Modify flow).
@@ -3075,6 +3111,38 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         else:
             lbl.setText(f"≈ {w_mm:.0f} × {h_mm:.0f} mm real")
         lbl.setVisible(True)
+
+    def _cancel_pick_mode(self):
+        """Leave the active point-pick sub-mode (calibrate or base) cleanly,
+        without closing the dialog. Mirrors the success-path cleanup: exits the
+        mode, restores the pan cursor / hides the snap cursor, drops any partial
+        scale-pick markers, and resets the status line."""
+        was = self._pick_mode
+        self._pick_mode = None
+        # Drop any partial scale-pick markers (diamonds/dots/line) drawn so far.
+        for m in getattr(self, "_pick_markers", []):
+            try:
+                if m.scene() is self._preview_scene:
+                    self._preview_scene.removeItem(m)
+            except RuntimeError:
+                pass
+        self._pick_markers = []
+        self._pick_pts = []
+        # set_mode("pan") restores the arrow cursor and hides the snap cursor.
+        self._preview_view.set_mode("pan")
+        if was == "base":
+            self._status_lbl.setText("Base point pick cancelled.")
+        else:
+            self._status_lbl.setText("Scale pick cancelled.")
+
+    def keyPressEvent(self, event):
+        if (event.key() == Qt.Key.Key_Escape
+                and self._pick_mode is not None):
+            # Escape exits the pick sub-mode; it must NOT reject the dialog.
+            self._cancel_pick_mode()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def _start_pick2(self):
         self._pick_pts = []
