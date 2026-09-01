@@ -52,3 +52,31 @@ def test_bake_rotate_refreshes_fittings(qapp, scene_and_view):
     manip = _manip(scene)
     manip._bake_rotate([n], 90.0, QPointF(0, 0))
     assert calls["n"] >= 1
+
+
+def test_lone_room_hides_rotate_knob(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.room import Room
+    from firepro3d.manip_math import HandleRole
+    r = Room(boundary=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 80)])
+    scene.addItem(r)
+    r.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    assert not manip._handles[HandleRole.ROTATE].isVisible()
+
+
+def test_room_in_group_shows_rotate_knob(qapp, scene_and_view):
+    scene, view = scene_and_view
+    from firepro3d.room import Room
+    from firepro3d.construction_geometry import LineItem
+    from firepro3d.manip_math import HandleRole
+    r = Room(boundary=[QPointF(0, 0), QPointF(100, 0), QPointF(100, 80)])
+    ln = LineItem(QPointF(0, 0), QPointF(60, 0))
+    scene.addItem(r)
+    scene.addItem(ln)
+    r.setSelected(True)
+    ln.setSelected(True)
+    qapp.processEvents()
+    manip = _manip(scene)
+    assert manip._handles[HandleRole.ROTATE].isVisible()

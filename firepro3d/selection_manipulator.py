@@ -638,6 +638,11 @@ class SelectionManipulator(QGraphicsObject):
         single = len(self._items) == 1
         show_scale = single and bool(caps) and "scale" in caps[0]
         show_rotate = bool(self._items) and all("rotate" in c for c in caps)
+        # A lone item that opts out of solo rotation (e.g. Room — follows a
+        # group rotation but is not an independent rotate target) hides the
+        # knob; multi-select group rotate is unaffected.
+        if single and getattr(self._items[0], "MANIP_NO_SOLO_ROTATE", False):
+            show_rotate = False
         for role in _RESIZE_ROLES:
             self._handles[role].setVisible(show_scale)
         self._handles[HandleRole.ROTATE].setVisible(show_rotate)
