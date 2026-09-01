@@ -44,9 +44,8 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtCore import (
     Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread,
-    QByteArray, pyqtSignal,
+    pyqtSignal,
 )
-from PyQt6.QtSvg import QSvgRenderer
 
 try:
     import ezdxf

@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QPushButton, QFrame, QHBoxLayout, QLabel
 from PyQt6.QtGui import QPainter, QPixmap, QIcon
-from PyQt6.QtCore import Qt, QSize, QByteArray
+from PyQt6.QtCore import Qt, QSize, QByteArray, QRect
 from PyQt6.QtSvg import QSvgRenderer
 
 from .theme import detect
@@ -267,20 +267,24 @@ class FramelessShellMixin:
         dx = gpos.x() - self._resize_origin.x()
         dy = gpos.y() - self._resize_origin.y()
         g = self._resize_geom
+        # QRect.right()/.bottom() are INCLUSIVE (left+width-1): keep the math in
+        # that convention so widths/heights stay pixel-exact.
         left, top = g.left(), g.top()
         right, bottom = g.right(), g.bottom()
         edge = self._resize_edge or ""
         min_w = max(self.minimumWidth(), 1)
         min_h = max(self.minimumHeight(), 1)
         if "l" in edge:
-            left = min(left + dx, right - min_w)
+            left = min(left + dx, right - min_w + 1)
         if "r" in edge:
-            right = max(right + dx, left + min_w)
+            right = max(right + dx, left + min_w - 1)
         if "t" in edge:
-            top = min(top + dy, bottom - min_h)
+            top = min(top + dy, bottom - min_h + 1)
         if "b" in edge:
-            bottom = max(bottom + dy, top + min_h)
-        self.setGeometry(left, top, right - left, bottom - top)
+            bottom = max(bottom + dy, top + min_h - 1)
+        r = QRect()
+        r.setCoords(left, top, right, bottom)
+        self.setGeometry(r)
 
     # ── DWM rounded corners ──────────────────────────────────────────────────
     def showEvent(self, event):
