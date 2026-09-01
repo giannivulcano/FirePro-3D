@@ -123,6 +123,13 @@ _ARC_VARIANT_CENTER = "center"   # centre-first: click 1 is the arc centre
 _ARC_VARIANT_START = "start"     # start-first: click 1 is the start point
 
 
+def _record_levels(params, active: str) -> list[str]:
+    """Levels for a new underlay record: the dialog's chosen levels, or
+    ``[active_level]`` when the dialog authored none (redesign §10.3 reversal)."""
+    chosen = list(getattr(params, "levels", None) or [])
+    return chosen if chosen else [active]
+
+
 class Model_Space(SceneIOMixin, QGraphicsScene):
     SNAP_RADIUS = 10
     SAVE_VERSION = 9  # v9: all dimensions stored in mm (was ft/in)
@@ -2372,7 +2379,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             import_base_x=bx,
             import_base_y=by,
             selected_layers=getattr(params, "selected_layers", None),
-            levels=[self.active_level],
+            levels=_record_levels(params, self.active_level),
+            scale_verified=getattr(params, "scale_verified", False),
             import_mode=getattr(params, "import_mode", "auto"),
             layout=getattr(params, "layout", ""),
             import_bounds=getattr(params, "import_bounds", None),

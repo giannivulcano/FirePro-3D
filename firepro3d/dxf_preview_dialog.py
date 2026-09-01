@@ -2383,6 +2383,12 @@ class UnderlayImportDialog(QDialog):
         selected = getattr(self, "_selected_layout", "")
         p.layout = "" if selected == "Model" else selected
 
+        # Placement levels + scale provenance (defensive: the Placement
+        # multi-select / verified-state land in later redesign tasks).
+        levels_getter = getattr(self, "_selected_levels", None)
+        p.levels = list(levels_getter()) if callable(levels_getter) else []
+        p.scale_verified = bool(getattr(self, "_scale_verified", False))
+
         self._save_settings()
         return p
 

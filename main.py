@@ -4124,7 +4124,8 @@ class MainWindow(QMainWindow):
                 rotation=params.rotation,
                 scale=params.scale,
                 import_mode=params.import_mode,
-                levels=[self.scene.active_level],
+                levels=(list(params.levels) or [self.scene.active_level]),
+                scale_verified=params.scale_verified,
             )
             self.scene.import_pdf(
                 params.file_path,
