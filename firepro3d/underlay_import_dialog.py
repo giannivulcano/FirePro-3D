@@ -1034,6 +1034,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._import_levels = list(levels) if levels else []
         self._current_level = current_level
         self._modify_record = modify_record
+        # Modify-flow deferred restores (consumed once geometry is available;
+        # the async DXF/DWG load populates layers/geoms after _load_file returns).
+        self._pending_modify_layers: list[str] | None = None
+        self._pending_modify_bounds: list[float] | None = None
         self._mru = RecentSources()
         self._scale_verified = False
         self._scale_provenance = ""
@@ -1109,17 +1113,27 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if _ok is not None:
             _ok.setText("Save changes")
 
+        # Saved layer subset / crop must survive the (async) geometry load.
+        # The sync PDF path populates the layer list inside _load_file below;
+        # the async DXF/DWG path populates it later in _on_extract_finished.
+        # Both consume these pending fields once geometry is available.
+        self._pending_modify_layers = list(record.selected_layers or [])
+        self._pending_modify_bounds = (
+            list(record.import_bounds) if record.import_bounds else None)
+
         # Load the file first (sync for PDF, async for DXF).
         self._file_edit.setText(record.path)
         self._load_file()
 
-        # PDF page — set the target page and (re)render it.
+        # PDF page — set the target page and (re)render it, then sync the
+        # visible page indicator (thumbnail strip row) to the restored page.
         if record.type == "pdf" and record.page:
             self._pdf_page = record.page
             try:
                 self._load_pdf_page(record.path, record.page)
             except Exception:
                 pass
+            self._sync_page_indicator(record.page)
 
         # DPI / import mode combos (PDF).
         self._dpi_combo.blockSignals(True)
@@ -1131,14 +1145,34 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
         # Scale — the record stores the baked import multiplier as import_scale.
         # Route it through the "Custom…" option so get_import_params().scale
-        # reproduces it exactly.
+        # reproduces it exactly. Do NOT block the combo signal when selecting
+        # Custom — _on_scale_combo_changed must fire to make _custom_scale_edit
+        # VISIBLE (the commit-sentence echo and other visibility-gated reads
+        # depend on it). Set the edit text AFTER, so the visible field carries
+        # the record's factor.
         custom_idx = len(self._SCALE_OPTIONS) - 1
-        self._scale_combo.blockSignals(True)
         self._scale_combo.setCurrentIndex(custom_idx)
-        self._scale_combo.blockSignals(False)
+        self._on_scale_combo_changed(custom_idx)   # ensure visible even if idx unchanged
         self._custom_scale_edit.blockSignals(True)
         self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
         self._custom_scale_edit.blockSignals(False)
+
+        # SYNC (PDF) path: geometry is already loaded (final page rendered
+        # above) and the layer list is populated. The multi-call PDF load
+        # (_load_pdf renders page 0, then the prefill re-renders the target
+        # page) means _populate_layer_list may have consumed _pending_modify_
+        # layers against the wrong page — so re-apply layers + crop explicitly
+        # here against the FINAL geometry, then clear the pending fields so the
+        # async callback doesn't double-apply. The ASYNC (DXF/DWG) path has no
+        # geometry yet (_load_file returned before extraction) → this guard is
+        # False and the extract-finished callback consumes the pending fields.
+        if self._all_geoms:
+            if self._pending_modify_layers:
+                self._apply_selected_layers(self._pending_modify_layers)
+            self._pending_modify_layers = None
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
 
         # Rotation (display transform).
         self._set_rotation(record.rotation)
@@ -2064,8 +2098,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if cached is not None:
             self._all_geoms, layers = cached
             self._layers = list(layers)
-            self._populate_layer_list()
+            self._populate_layer_list()   # applies _pending_modify_layers
+            self._pending_modify_layers = None
             self._selected_indices = None
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
             self._set_loading("Building preview…")
             self._rebuild_preview()
             self._clear_loading()
@@ -2150,8 +2188,14 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 ]
 
         self._layers = list(layers)
-        self._populate_layer_list()
+        self._populate_layer_list()   # applies _pending_modify_layers
+        self._pending_modify_layers = None
         self._selected_indices = None
+        # Modify flow: restore the saved crop now that geometry exists (async
+        # DXF/DWG — the sync PDF path applies it inline in the prefill).
+        if self._pending_modify_bounds is not None:
+            self._restore_crop_from_bounds(self._pending_modify_bounds)
+            self._pending_modify_bounds = None
 
         # Memoize — only complete (non-aborted) extractions reach here
         self._layout_cache[layout_name] = (
@@ -2554,6 +2598,20 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if path and os.path.exists(path):
             self._load_pdf_page(path, row)
 
+    def _sync_page_indicator(self, page: int) -> None:
+        """Reflect the restored PDF page in the thumbnail strip (Modify flow).
+
+        Set the current row WITHOUT firing _on_page_thumb_clicked (which would
+        reload the page and clobber the just-restored crop/layer selection).
+        """
+        strip = getattr(self, "_thumb_list", None)
+        if strip is None:
+            return
+        if 0 <= page < strip.count():
+            strip.blockSignals(True)
+            strip.setCurrentRow(page)
+            strip.blockSignals(False)
+
     # ── Common helpers ───────────────────────────────────────────────────────
 
     def _populate_layer_list(self):
@@ -2564,6 +2622,33 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
             self._layer_list.addItem(item)
+        self._layer_list.blockSignals(False)
+        # Modify flow: if a saved layer subset is pending (async paths populate
+        # the list after the extract finishes), apply it now. Do NOT clear the
+        # pending field here — the PDF sync load populates twice (page 0 then
+        # the target page), so the owning caller (prefill sync block / async
+        # extract callback) clears it once against the final geometry.
+        pending = getattr(self, "_pending_modify_layers", None)
+        if pending:
+            self._apply_selected_layers(pending)
+
+    def _apply_selected_layers(self, names) -> None:
+        """Check ONLY the layers in *names* (Modify-flow restore).
+
+        A ``None``/empty *names* means "all layers" (the record's
+        ``selected_layers`` is None when nothing was deselected) — leave the
+        freshly populated all-checked state untouched. Blocks the list's
+        itemChanged signal so no preview rebuild fires per check.
+        """
+        if not names:
+            return
+        wanted = set(names)
+        self._layer_list.blockSignals(True)
+        for i in range(self._layer_list.count()):
+            it = self._layer_list.item(i)
+            it.setCheckState(
+                Qt.CheckState.Checked if it.text() in wanted
+                else Qt.CheckState.Unchecked)
         self._layer_list.blockSignals(False)
 
     # ── Preview rendering ─────────────────────────────────────────────────────
@@ -2836,6 +2921,26 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     def _clear_selection(self):
         self._selected_indices = None
+        self._rebuild_preview()
+        self._update_status()
+
+    def _restore_crop_from_bounds(self, bounds) -> None:
+        """Rebuild ``_selected_indices`` from a saved crop bbox (Modify flow).
+
+        *bounds* is ``[min_x, min_y, max_x, max_y]`` (the same representation
+        ``get_import_params`` bakes into ``import_bounds``). Selects the geoms
+        whose representative point falls inside — using the SAME predicate the
+        save path round-trips through (``_geom_in_any_bound``) so re-Saving is
+        lossless. Repaints via the crop-apply preview refresh.
+        """
+        if not bounds:
+            return
+        from .dwg_converter import _geom_in_any_bound
+        box = [(bounds[0], bounds[1], bounds[2], bounds[3])]
+        sel = {idx for idx, g in enumerate(self._all_geoms)
+               if _geom_in_any_bound(g, box)}
+        self._selected_indices = sel or None
+        # Same repaint the rubber-band / area-select path uses.
         self._rebuild_preview()
         self._update_status()
 
