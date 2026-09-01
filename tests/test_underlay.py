@@ -256,3 +256,20 @@ class TestDisplayManagementFields:
         assert u.effective_layer_weight("A-DOOR") == "Heavy"
         assert u.effective_layer_colour("OTHER") == "#c0c0c0"
         assert u.effective_layer_weight("OTHER") == "Medium"
+
+
+class TestScaleVerified:
+    """scale_verified field — default, round-trip, backward compat."""
+
+    def test_scale_verified_defaults_false(self):
+        u = Underlay(type="dxf", path="x.dxf")
+        assert u.scale_verified is False
+
+    def test_scale_verified_roundtrips_true(self):
+        u = Underlay(type="dxf", path="x.dxf", scale_verified=True)
+        assert Underlay.from_dict(u.to_dict()).scale_verified is True
+
+    def test_scale_verified_backward_compat_missing_key(self):
+        # Old project dicts have no "scale_verified" -> default False, no crash.
+        d = {"type": "dxf", "path": "x.dxf"}
+        assert Underlay.from_dict(d).scale_verified is False

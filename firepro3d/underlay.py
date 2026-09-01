@@ -45,6 +45,8 @@ class Underlay:
     # Display management & view assignment (Revision 8, spec §16.2)
     layer_overrides: dict = field(default_factory=dict)
     line_weight_name: str = ""
+    # Scale provenance (redesign): True once calibrated or user-confirmed.
+    scale_verified: bool = False
 
     def to_dict(self) -> dict:
         d = {
@@ -81,6 +83,7 @@ class Underlay:
         d["layer_overrides"] = {k: dict(v)
                                 for k, v in self.layer_overrides.items()}
         d["line_weight_name"] = self.line_weight_name
+        d["scale_verified"] = self.scale_verified
         return d
 
     @staticmethod
@@ -120,6 +123,7 @@ class Underlay:
             layer_overrides = {k: dict(v)
                                for k, v in d.get("layer_overrides", {}).items()},
             line_weight_name = d.get("line_weight_name", ""),
+            scale_verified = d.get("scale_verified", False),
         )
 
     @staticmethod
