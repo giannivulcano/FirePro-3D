@@ -65,7 +65,8 @@ except ImportError:
 
 from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
-from .theme import detect, build_app_qss, build_underlay_manager_qss
+from .theme import (detect, build_app_qss, build_underlay_manager_qss,
+                    FONT_UI, FONT_VALUE)
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
@@ -287,7 +288,9 @@ class _PreviewView(QGraphicsView):
                 self._rb_item.setZValue(1000)
                 self.scene().addItem(self._rb_item)
                 self._rb_scrim = QGraphicsPathItem()
-                self._rb_scrim.setBrush(QBrush(QColor(10, 12, 15, 120)))
+                _scrim = QColor(detect().ground)
+                _scrim.setAlpha(140)
+                self._rb_scrim.setBrush(QBrush(_scrim))
                 self._rb_scrim.setPen(QPen(Qt.PenStyle.NoPen))
                 self._rb_scrim.setZValue(999)
                 self.scene().addItem(self._rb_scrim)
@@ -1205,7 +1208,7 @@ class UnderlayImportDialog(QDialog):
     # ── Overlay items ─────────────────────────────────────────────────────────
 
     def _create_overlay_items(self):
-        cursor_pen = QPen(QColor("#ff8800"), 1, Qt.PenStyle.DashDotLine)
+        cursor_pen = QPen(QColor(detect().warn), 1, Qt.PenStyle.DashDotLine)
         cursor_pen.setCosmetic(True)
         self._cursor_h = QGraphicsLineItem()
         self._cursor_v = QGraphicsLineItem()
@@ -1249,8 +1252,8 @@ class UnderlayImportDialog(QDialog):
         except Exception:
             pass
         name_lbl = QLabel("Import Underlay")
-        name_lbl.setStyleSheet(
-            f"color:{t.ink}; font-size:13px; font-weight:600; background:transparent;")
+        name_lbl.setStyleSheet(          # Title role
+            f"color:{t.ink}; font-size:14px; font-weight:700; background:transparent;")
         self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
         self._header_file_lbl.setProperty("role", "faint")
         hb.addWidget(glyph)
@@ -1548,6 +1551,7 @@ class UnderlayImportDialog(QDialog):
         self._scale_combo.currentIndexChanged.connect(self._on_scale_combo_changed)
         scale_head.addWidget(self._scale_combo)
         self._custom_scale_edit = QLineEdit()
+        self._custom_scale_edit.setFont(QFont(FONT_VALUE))   # numeric Value role
         self._custom_scale_edit.setPlaceholderText("factor")
         self._custom_scale_edit.setText("1.0")
         self._custom_scale_edit.setFixedWidth(80)
@@ -1579,7 +1583,9 @@ class UnderlayImportDialog(QDialog):
         self._calibration_lbl.setVisible(False)
         pl_v.addWidget(self._calibration_lbl)
         self._scale_ratio_lbl = QLabel("")
-        self._scale_ratio_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
+        self._scale_ratio_lbl.setStyleSheet(
+            f"color: {t.text_secondary}; font-size: 12px;"
+            f" font-family: '{FONT_VALUE}';")
         self._scale_ratio_lbl.setVisible(False)
         pl_v.addWidget(self._scale_ratio_lbl)
 
@@ -2658,11 +2664,12 @@ class UnderlayImportDialog(QDialog):
         self._pick_markers = []
         self._create_overlay_items()
 
-        pen_normal = QPen(QColor("#c0c0c0"), 0)
+        _th = detect()
+        pen_normal = QPen(QColor(_th.muted), 0)
         pen_normal.setCosmetic(True)
-        pen_sel = QPen(QColor("#4fa3e0"), 0)
+        pen_sel = QPen(QColor(_th.accent), 0)
         pen_sel.setCosmetic(True)
-        pen_dim = QPen(QColor("#444444"), 0)
+        pen_dim = QPen(QColor(_th.faint), 0)
         pen_dim.setCosmetic(True)
 
         # Batch all geometry into one QPainterPath per pen style
@@ -2780,7 +2787,7 @@ class UnderlayImportDialog(QDialog):
                 # 96/72 + HiDPI; rounding a pixel size loses sub-point accuracy.)
                 size = max(0.5, float(g.get("size", 6)))
                 _BASE = 100.0
-                f = QFont("Arial")
+                f = QFont(FONT_UI)
                 f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
                 f.setPixelSize(int(_BASE))
                 sc = size / _BASE
@@ -2834,7 +2841,7 @@ class UnderlayImportDialog(QDialog):
         bx = self._base_x_edit.value_mm()
         by = self._base_y_edit.value_mm()
         s = 15
-        pen = QPen(QColor("#ff4400"), 2)
+        pen = QPen(QColor(detect().warn), 2)
         pen.setCosmetic(True)
         h = QGraphicsLineItem(bx - s, by, bx + s, by)
         h.setPen(pen)
@@ -3035,7 +3042,8 @@ class UnderlayImportDialog(QDialog):
             self._on_point_picked(pt)
 
     def _on_pick2_pt(self, pt: QPointF):
-        pen = QPen(QColor("#00cc44"), 2)
+        _acc = detect().accent
+        pen = QPen(QColor(_acc), 2)
         pen.setCosmetic(True)
         s = 8
         # Diamond marker for scale pick points
@@ -3054,7 +3062,7 @@ class UnderlayImportDialog(QDialog):
         # picked point is unambiguous regardless of zoom.
         dot = QGraphicsEllipseItem(-3, -3, 6, 6)
         dot.setPos(pt)
-        dot.setBrush(QBrush(QColor("#00cc44")))
+        dot.setBrush(QBrush(QColor(_acc)))
         dot.setPen(QPen(Qt.PenStyle.NoPen))
         dot.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIgnoresTransformations, True)
         dot.setZValue(601)
@@ -3071,7 +3079,7 @@ class UnderlayImportDialog(QDialog):
                 self._pick_pts[0].x(), self._pick_pts[0].y(),
                 self._pick_pts[1].x(), self._pick_pts[1].y()
             )
-            line.setPen(QPen(QColor("#00cc44"), 1, Qt.PenStyle.DashLine))
+            line.setPen(QPen(QColor(_acc), 1, Qt.PenStyle.DashLine))
             line.setZValue(600)
             self._preview_scene.addItem(line)
             self._pick_markers.append(line)
