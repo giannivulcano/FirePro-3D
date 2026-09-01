@@ -4160,7 +4160,15 @@ class MainWindow(QMainWindow):
             dialog.deleteLater()
         if params is None:
             return
-        self.scene.replace_underlay(record, params)
+        # Modify-only insertion-position control: reuse (in-situ), origin, or
+        # an interactive pick that preserves the underlay's management fields.
+        mode = getattr(params, "placement_mode", "reuse")
+        if mode == "origin":
+            self.scene.replace_underlay(record, params, position=QPointF(0, 0))
+        elif mode == "pick":
+            self.scene.begin_replace_underlay_placement(record, params)
+        else:  # "reuse"
+            self.scene.replace_underlay(record, params)
 
     def _on_drop_import(self, path: str):
         """Handle a file dropped onto the canvas."""

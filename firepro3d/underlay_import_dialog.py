@@ -171,6 +171,11 @@ class ImportParams:
         self.selected_layers: list[str] | None = None  # None = all
         self.rotation: float = 0.0         # degrees (applied to final group)
         self.insert_at_origin: bool = True
+        # Modify-only insertion-position control. Only meaningful when the
+        # dialog was opened with a modify_record. "reuse" keeps the underlay
+        # exactly where it is (in-situ replace); "pick" re-places it
+        # interactively on the canvas; "origin" drops it at scene (0, 0).
+        self.placement_mode: str = "reuse"   # "reuse" | "pick" | "origin"
         # PDF-specific
         self.pdf_page: int = 0
         self.pdf_dpi: int = 150
@@ -913,6 +918,8 @@ def build_commit_sentence(
         sentence += " — then pick the insertion point."
     elif position == "origin":
         sentence += " — placed at the origin."
+    elif position == "reuse":
+        sentence += " — kept in its current position."
 
     return sentence
 
@@ -1647,16 +1654,33 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                              base_y_lbl, self._base_y_edit, self._pick_base_btn]
 
         # Position — binary → toggle switch (switch left, label right)
-        pl_v.addWidget(_hdr("Position"))
+        self._position_hdr = _hdr("Position")
+        pl_v.addWidget(self._position_hdr)
         pos_row = QHBoxLayout()
         self._origin_switch = _ToggleSwitch(t, checked=True)
         self._origin_switch.toggled.connect(
             lambda *_: (self._update_base_enabled(), self._update_all()))
         pos_row.addWidget(self._origin_switch)
         pos_row.addSpacing(8)
-        pos_row.addWidget(QLabel("Insert at origin"))
+        self._origin_switch_lbl = QLabel("Insert at origin")
+        pos_row.addWidget(self._origin_switch_lbl)
         pos_row.addStretch()
         pl_v.addLayout(pos_row)
+
+        # Modify-only 3-way insertion-position control (segmented switch bar,
+        # house style: single-select = switch bar). Subsumes the plain origin
+        # toggle when modifying, so that toggle+label are hidden in modify mode.
+        self._placement_bar = _SwitchBar(
+            ["Reuse existing position", "Pick new position", "Insert at origin"])
+        self._placement_bar.changed.connect(lambda *_: self._update_all())
+        pl_v.addWidget(self._placement_bar)
+        if self._modify_record is not None:
+            self._origin_switch.setVisible(False)
+            self._origin_switch_lbl.setVisible(False)
+            self._placement_bar.set_current(0)   # "Reuse existing position"
+        else:
+            self._placement_bar.setVisible(False)
+
         pl_v.addStretch(1)
         self._panel_stack.addWidget(pl_pg)
 
@@ -1917,7 +1941,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             scale_str = self._scale_combo.currentText() or "1:1"
         rotation = int(round(self._get_rotation()))
         levels = self._levels_picker.selected()
-        position = "origin" if self._origin_switch.isChecked() else "pick"
+        if self._modify_record is not None and hasattr(self, "_placement_bar"):
+            position = {0: "reuse", 1: "pick", 2: "origin"}.get(
+                self._placement_bar.current_index(), "reuse")
+        else:
+            position = "origin" if self._origin_switch.isChecked() else "pick"
 
         self._commit_label.setText(build_commit_sentence(
             name=name, page=page, pages=pages, layers_hidden=layers_hidden,
@@ -3495,6 +3523,13 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         p.pdf_dpi = int(self._dpi_combo.currentText())
         p.import_mode = self._mode_combo.currentText().lower()
         p.insert_at_origin = self._origin_switch.isChecked()
+
+        # Modify-only insertion-position control (3-way subsumes the origin
+        # toggle when modifying). Fresh imports leave placement_mode="reuse".
+        if self._modify_record is not None and hasattr(self, "_placement_bar"):
+            p.placement_mode = {
+                0: "reuse", 1: "pick", 2: "origin",
+            }.get(self._placement_bar.current_index(), "reuse")
 
         active_layers = self._active_layers()
         geoms = []

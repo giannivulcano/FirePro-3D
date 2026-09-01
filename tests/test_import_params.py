@@ -7,6 +7,11 @@ def test_import_params_defaults():
     assert p.scale_verified is False
 
 
+def test_import_params_placement_mode_defaults_reuse():
+    # Modify-only insertion-position control; fresh imports leave it "reuse".
+    assert ImportParams().placement_mode == "reuse"
+
+
 def test_levels_helper_prefers_params_over_active():
     from firepro3d.model_space import _record_levels
     p = ImportParams()

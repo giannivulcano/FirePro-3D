@@ -388,6 +388,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         self._place_import_params = None
         self._place_import_ghost = None
         self._place_import_bounds = QRectF(-50, -50, 100, 100)
+        # Modify "Pick new position" payloads (None for a fresh import):
+        # management fields to re-apply on commit + the old underlay to remove
+        # on commit (removal deferred so a cancelled pick is non-destructive).
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
         # Walls, Floors, Openings (Phase B/C/D)
         self._walls: list[WallSegment] = []
         self._floor_slabs: list[FloorSlab] = []
@@ -1245,6 +1250,11 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 self._place_import_ghost = None
             self._place_import_params = None
             self._place_import_bounds = QRectF(-50, -50, 100, 100)
+            # Cancelled Modify "Pick new position": the destructive removal of
+            # the old underlay is deferred to commit, so a cancel simply drops
+            # the payloads — the original underlay was never touched.
+            self._place_import_preserve_mgmt = None
+            self._place_import_remove_old = None
 
         # Clean up interactive transforms
         def _remove_preview(attr):
@@ -2279,6 +2289,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         """
         self._place_import_params = params
         self._place_import_ghost = None
+        # Fresh import carries no management/remove-old payload. The Modify
+        # "Pick new position" path re-sets these AFTER calling this method.
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
 
         # Build a bounding rect for the (scaled, base-point-adjusted) geometry
         if params.geom_list:
@@ -2386,10 +2400,32 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             import_bounds=getattr(params, "import_bounds", None),
         )
 
+        # Modify "Pick new position": carry the old record's management fields
+        # (colour/opacity/locked/snap/visible/hidden_layers/overrides/…) onto
+        # the freshly built record before display is applied, so the re-placed
+        # underlay keeps its look. Applying to a record we may still discard
+        # (build failure below) is harmless — the DESTRUCTIVE removal of the old
+        # underlay is deferred until the build is known good.
+        preserve_mgmt = getattr(self, "_place_import_preserve_mgmt", None)
+        remove_old = getattr(self, "_place_import_remove_old", None)
+        if preserve_mgmt:
+            for f, v in preserve_mgmt.items():
+                setattr(record, f, v)
+
         result = self._build_batched_underlay_group(transformed, record)
         if result is None:
+            # Build failed — do NOT remove the old underlay; leave it in place.
             self.set_mode(None)
             return
+
+        # Build succeeded → this pick is committing. Remove the old underlay
+        # now (deferred removal keeps a cancelled/failed pick non-destructive)
+        # and clear the payloads so set_mode(None) below is a no-op for them.
+        if remove_old is not None:
+            old_rec, old_item = remove_old
+            self.remove_underlay(old_rec, old_item)
+        self._place_import_preserve_mgmt = None
+        self._place_import_remove_old = None
 
         group, all_layers = result
         group.setPos(insert_pt)
@@ -3167,9 +3203,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         for data, item in snapshot:
             self.refresh_underlay(data, item)
 
-    def replace_underlay(self, record: Underlay, params):
+    def replace_underlay(self, record: Underlay, params, position=None):
         """Re-place an underlay's geometry from new import params, preserving
         the record's identity, draw position, list index, and management fields.
+
+        Args:
+            position: Optional ``QPointF`` overriding the on-canvas anchor. When
+                ``None`` (default) the underlay keeps its current position
+                (in-situ Modify). When a point is given, the rebuilt group and
+                record are anchored there instead (used by the Modify
+                "Insert at origin" mode → ``QPointF(0, 0)``).
 
         The Modify flow re-opens the import dialog pre-filled, lets the user
         change scale/placement/layers, and re-places the geometry WHILE
@@ -3202,12 +3245,16 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             return
 
         # Preserve the on-canvas anchor — Modify changes geometry/scale, not
-        # where the underlay sits in the scene.
-        try:
-            old_x = item.scenePos().x()
-            old_y = item.scenePos().y()
-        except RuntimeError:
-            old_x, old_y = record.x, record.y
+        # where the underlay sits in the scene. A caller-supplied `position`
+        # overrides this (Modify "Insert at origin" passes QPointF(0, 0)).
+        if position is not None:
+            old_x, old_y = position.x(), position.y()
+        else:
+            try:
+                old_x = item.scenePos().x()
+                old_y = item.scenePos().y()
+            except RuntimeError:
+                old_x, old_y = record.x, record.y
 
         # 2. Build an `incoming` Underlay carrying ONLY geometry+placement.
         #    Mirror _commit_place_import: params.scale bakes into the geometry
@@ -3263,6 +3310,57 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                     self.underlays.pop(cur)
                     self.underlays.insert(original_index, new_entry)
                     self.underlaysChanged.emit()
+
+    # Management fields NOT owned by the import dialog (everything outside
+    # _GEOMETRY_PLACEMENT_FIELDS). Carried across a Modify "Pick new position"
+    # re-placement so colour/opacity/locked/snap/visible/overrides survive.
+    _UNDERLAY_MGMT_FIELDS = (
+        "opacity", "locked", "colour", "line_weight", "snap", "visible",
+        "hidden_layers", "layer_overrides", "line_weight_name",
+    )
+
+    def begin_replace_underlay_placement(self, record: Underlay, params):
+        """Modify "Pick new position": re-place an underlay interactively.
+
+        Starts the same cursor-follow placement a fresh import uses
+        (``begin_place_import``), but stashes the old record's MANAGEMENT fields
+        (colour, opacity, locked, snap, visibility, hidden layers, per-layer
+        overrides, line-weight name) plus a reference to the OLD underlay so the
+        eventual ``_commit_place_import`` can, on the click:
+          1. remove the old underlay, then
+          2. apply the carried-over management fields onto the fresh record.
+
+        Cancel behaviour (non-destructive by construction): the destructive
+        removal is DEFERRED to commit — a cancelled pick (Esc / mode change)
+        never removed the old underlay, so it stays exactly where it was. The
+        trade-off is the original underlay remains visible under the ghost while
+        the user picks the new point; the swap happens atomically on click.
+        """
+        # Locate the (record, item) pair to remove on commit.
+        old_item = None
+        for d, it in self.underlays:
+            if d is record:
+                old_item = it
+                break
+        if old_item is None:
+            log.warning(
+                "begin_replace_underlay_placement: record not in underlays list")
+            # Fall back to a straight in-situ replace so nothing is lost.
+            self.replace_underlay(record, params)
+            return
+
+        # Snapshot management fields to carry across the re-placement.
+        preserve_mgmt = {
+            f: getattr(record, f) for f in self._UNDERLAY_MGMT_FIELDS
+            if hasattr(record, f)
+        }
+
+        # Start the fresh-import interactive placement, then stash the
+        # management payload + the old underlay to remove on commit.
+        # (begin_place_import clears these, so set them AFTER it.)
+        self.begin_place_import(params)
+        self._place_import_preserve_mgmt = preserve_mgmt
+        self._place_import_remove_old = (record, old_item)
 
     def abort_underlay_freeze(self):
         """End any gesture freeze so vector underlay painting resumes now.
