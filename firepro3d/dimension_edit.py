@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QLineEdit, QStyledItemDelegate
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFocusEvent
+from PyQt6.QtGui import QFocusEvent, QFont
 
 from .scale_manager import ScaleManager
+from .theme import FONT_VALUE
 
 
 class DimensionEdit(QLineEdit):
@@ -57,6 +58,12 @@ class DimensionEdit(QLineEdit):
         self._minimum = minimum      # accepted values must be strictly > minimum
         self._formatter = formatter  # optional mm -> str display override
         self._seed_text = ""
+
+        # Numeric "Value" role — monospace so digits/decimals align (house
+        # typography; see docs/architecture/theming.md).
+        vf = QFont(FONT_VALUE)
+        vf.setPointSizeF(self.font().pointSizeF())
+        self.setFont(vf)
 
         # Display the initial value
         self._reformat()

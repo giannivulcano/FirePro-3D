@@ -4596,6 +4596,7 @@ class MainWindow(QMainWindow):
 def main():
     install_excepthook()
     app = QApplication(sys.argv)
+    th.apply_app_font(app)          # house UI font (Arial) app-wide
 
     # Show splash IMMEDIATELY — before heavy 3D imports
     splash = _SplashScreen()

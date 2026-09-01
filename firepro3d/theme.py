@@ -34,6 +34,23 @@ from .assets import asset_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# House typography (see docs/architecture/theming.md § Typography & labels)
+#   FONT_UI    — Title / Body / Overline / Control (all prose + labels)
+#   FONT_VALUE — numeric readouts (dims, scale, pressure, coords): monospace so
+#                digit columns align and 1/l/0/O stay distinct.
+# ─────────────────────────────────────────────────────────────────────────────
+FONT_UI = "Arial"
+FONT_VALUE = "Consolas"
+
+
+def apply_app_font(app: QApplication) -> None:
+    """Set the app-wide UI font family to FONT_UI, preserving the point size."""
+    f = app.font()
+    f.setFamily(FONT_UI)
+    app.setFont(f)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Colour helpers
 # ─────────────────────────────────────────────────────────────────────────────
 

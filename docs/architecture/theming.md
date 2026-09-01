@@ -117,25 +117,35 @@ invisible on the dark theme. States covered: unchecked, `:hover`,
 
 ### Typography & labels
 
-- **Font family:** the app sets **no** explicit family — it inherits the system
-  default (**Segoe UI** on Windows). Do not hard-code a UI font family in QSS;
-  `main.py` uses `QFont("Segoe UI", …)` only for the splash logo/status where an
-  explicit size is needed.
-- **Monospace** (`"IBM Plex Mono", Consolas, monospace`) is reserved for
-  *technical values* — layer-name lists, scale/ratio readouts — never for prose
-  or labels.
-- **No `letter-spacing`.** Character tracking is not part of the house style;
-  don't add it to headers or labels.
-- **Group / section labels are UPPERCASE** and use the shared `role="header"`
-  style (muted, ~10px, weight 600) — e.g. `SOURCE`, `PLACEMENT`, `DETAILS`.
-  Author the label text in normal case and uppercase in code
-  (`QLabel(text.upper())` + `setProperty("role","header")`) or author it
-  uppercased; either way the rendered label is uppercase. Field labels
-  (`Scale:`, `X:`) stay sentence case.
-- **Button hover** in dialog chrome uses an **accent-soft** wash with an accent
-  border (not a neutral `surface2` fill). Object-scoped dialogs that predate this
-  (the base Underlay-Manager QSS) may still use `surface2`; new/ported dialogs
-  should override to accent-soft.
+**House fonts (2026-09-01 decision).** Two families, exported from `theme.py`:
+
+- **`FONT_UI = "Arial"`** — all prose and labels (Title / Body / Overline /
+  Control). Applied app-wide at startup via `theme.apply_app_font(app)` in
+  `main.py` (sets the `QApplication` font family, preserving point size). Do not
+  hard-code a different UI family in QSS.
+- **`FONT_VALUE = "Consolas"`** — numeric readouts (dimensions, scale, pressure,
+  coordinates). Monospace so digit/decimal columns align and `1/l/0/O` stay
+  distinct. Applied on `DimensionEdit` (the canonical numeric input) and any
+  value/table cell showing numbers. **Not** for prose or labels.
+
+**Five type roles** (name → use → spec):
+
+| Role | Used for | Spec |
+|---|---|---|
+| **Title** | window/dialog/dock/tab names | `FONT_UI`, bold, ~14px, **pure ink** (`ink` token: `#F0F0F0` dark / `#1A1A1A` light) |
+| **Body** | standard/descriptive text, hints | `FONT_UI`, regular, ~12px, `muted` |
+| **Overline** | group/container labels (ribbon groups, dock sections, manager containers) | `FONT_UI`, **UPPERCASE**, bold, ~10px, `muted` — the shared `role="header"` style |
+| **Control** | button & tab labels | `FONT_UI`, **bold, sentence case**, ~12px, `ink` |
+| **Value** | numeric readouts | `FONT_VALUE`, ~12–13px, `ink` |
+
+Rules:
+- **No `letter-spacing`.** Character tracking is not part of the house style.
+- **Overline labels are UPPERCASE** via `role="header"` (author normal-case and
+  `QLabel(text.upper())`, or author uppercased). Field labels (`Scale:`, `X:`)
+  stay sentence case; **button** labels are bold sentence case, never all-caps.
+- **Button hover** in dialog chrome uses an **accent-soft** wash + accent border
+  (not a neutral `surface2` fill). The base Underlay-Manager QSS predates this
+  and may still use `surface2`; new/ported dialogs override to accent-soft.
 
 ### Canvas selection & resize grips (base style)
 
