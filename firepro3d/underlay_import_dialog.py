@@ -1746,22 +1746,68 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             # Re-fit once the maximize has given the viewport its real size.
             QTimer.singleShot(0, self._fit_preview_to_content)
 
-    def _fit_preview_to_content(self) -> None:
-        """Fit the current preview geometry to the (now real-sized) viewport.
+    def _content_rect(self) -> QRectF:
+        """Scene bounds of the *drawing* content only.
 
-        Safe no-op when there is nothing to show. Used to correct the fit for
-        geometry that loaded before the dialog was shown/sized."""
+        ``QGraphicsScene.itemsBoundingRect()`` unions EVERY item — including the
+        base-point crosshair (drawn at the base point, which defaults to the
+        origin) and the invisible snap-cursor lines. When the geometry sits far
+        from the origin (a PDF page whose vectors are offset, or a page switch
+        that keeps a stale base point) that union balloons from the origin out
+        to the geometry, so a fit against it zooms the drawing way out even
+        though the readout says "Fit". Fit against the geometry alone instead:
+        the batched geometry group's scene bounds (vector), else the union of
+        every non-overlay item (raster pixmap fallback)."""
+        scene = getattr(self, "_preview_scene", None)
+        if scene is None:
+            return QRectF()
+        group = getattr(self, "_preview_geom_group", None)
+        if group is not None:
+            try:
+                r = group.sceneBoundingRect()
+                if not r.isEmpty():
+                    return r
+            except RuntimeError:
+                pass  # C++ object gone (scene cleared) — fall through
+        # Raster / no-group fallback: union of everything except the overlays.
+        overlays = set()
+        for attr in ("_cursor_h", "_cursor_v"):
+            o = getattr(self, attr, None)
+            if o is not None:
+                overlays.add(o)
+        for m in getattr(self, "_base_markers", []) or []:
+            overlays.add(m)
+        rect = QRectF()
+        for it in scene.items():
+            if it in overlays:
+                continue
+            r = it.sceneBoundingRect()
+            if r.isEmpty():
+                continue
+            rect = r if rect.isEmpty() else rect.united(r)
+        return rect
+
+    def _fit_preview_to_content(self) -> None:
+        """Canonical "fit drawing to viewport" — deterministic across every
+        content change (initial load, page switch, Modify prefill).
+
+        Fits against ``_content_rect`` (geometry only, no overlay markers) and
+        pins ``setSceneRect`` to that same rect so the scene rect can't drift as
+        cleared/added items accumulate. Same geometry → same rect → same fit,
+        so switching PDF pages and back reproduces the identical zoom. Safe
+        no-op when there is nothing to show."""
         view = getattr(self, "_preview_view", None)
         scene = getattr(self, "_preview_scene", None)
         if view is None or scene is None:
             return
-        rect = scene.itemsBoundingRect()
+        rect = self._content_rect()
         if rect.isEmpty():
             return
-        view.fitInView(
-            rect.adjusted(-10, -10, 10, 10),
-            Qt.AspectRatioMode.KeepAspectRatio,
-        )
+        fit_rect = rect.adjusted(-10, -10, 10, 10)
+        # Pin the scene rect to the content so the auto-grown default (which only
+        # ever expands) can't skew future pans/fits.
+        scene.setSceneRect(fit_rect)
+        view.fitInView(fit_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
@@ -2647,10 +2693,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             item = QGraphicsPixmapItem(pixmap)
             item.setZValue(-200)
             self._preview_scene.addItem(item)
-            self._preview_view.fitInView(
-                self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
+            self._fit_preview_to_content()
             self._set_drop_overlay(False)   # raster loaded → hide the prompt
         except Exception:
             pass
@@ -2662,13 +2705,31 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if row < 0:
             return
         path = self._file_edit.text().strip()
-        if path and os.path.exists(path):
-            # A user page switch changes the geometry (layers + crop legitimately
-            # reset inside _load_pdf_page), but the user's non-geometry settings —
-            # scale, base point, levels, DPI, import mode — must PERSIST. Those
-            # widgets are never touched by _load_pdf_page; reset_base=False keeps
-            # it from re-deriving the base point from the new page's bounds.
-            self._load_pdf_page(path, row, reset_base=False)
+        if not (path and os.path.exists(path)):
+            return
+        # A user page switch loads the new page's geometry (which resets the
+        # layer list + crop inside _load_pdf_page), but the user's selections
+        # should PERSIST across the switch — matched to the new page the same
+        # way the Modify flow matches them: layers by NAME, crop by BOUNDS.
+        # Capture BEFORE the load; re-apply AFTER (see below). Non-geometry
+        # settings (scale, base point, levels, DPI, import mode) persist because
+        # _load_pdf_page never touches those widgets; reset_base=False keeps it
+        # from re-deriving the base point from the new page's bounds.
+        captured_layers = self._active_layers()          # set[str] | None
+        captured_bounds = self._current_crop_bounds()     # [minx,miny,maxx,maxy] | None
+
+        self._load_pdf_page(path, row, reset_base=False)
+
+        # Re-apply against the freshly loaded page. Layers absent on the new page
+        # are simply not re-checked (no error); the crop bounds re-select
+        # whatever geoms now fall inside them. _restore_crop_from_bounds already
+        # rebuilds the preview; call it last so its rebuild reflects the layers.
+        if captured_layers is not None and self._all_geoms:
+            self._apply_selected_layers(captured_layers)
+            if captured_bounds is None:
+                self._rebuild_preview()
+        if captured_bounds is not None and self._all_geoms:
+            self._restore_crop_from_bounds(captured_bounds)
 
     def _sync_page_indicator(self, page: int) -> None:
         """Reflect the restored PDF page in the thumbnail strip (Modify flow).
@@ -2815,10 +2876,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
         self._draw_base_marker()
         if self._all_geoms:
-            self._preview_view.fitInView(
-                self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
-                Qt.AspectRatioMode.KeepAspectRatio
-            )
+            self._fit_preview_to_content()
         self._set_drop_overlay(not self._all_geoms)
 
     @staticmethod
@@ -2995,6 +3053,22 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._selected_indices = None
         self._rebuild_preview()
         self._update_status()
+
+    def _current_crop_bounds(self) -> list[float] | None:
+        """Bounding box of the currently cropped geoms, or None if no crop.
+
+        Same derivation ``get_import_params`` bakes into ``import_bounds``:
+        the bbox of the ``_selected_indices`` geoms via ``compute_geom_bounds``.
+        Used to carry a crop across a page switch (re-selected by bounds on the
+        new page through ``_restore_crop_from_bounds``)."""
+        if self._selected_indices is None:
+            return None
+        geoms = [g for idx, g in enumerate(self._all_geoms)
+                 if idx in self._selected_indices]
+        if not geoms:
+            return None
+        from .dwg_converter import compute_geom_bounds
+        return compute_geom_bounds(geoms)
 
     def _restore_crop_from_bounds(self, bounds) -> None:
         """Rebuild ``_selected_indices`` from a saved crop bbox (Modify flow).
