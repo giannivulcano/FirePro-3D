@@ -1503,6 +1503,13 @@ class UnderlayImportDialog(QDialog):
         pl_v.addStretch(1)
         self._panel_stack.addWidget(pl_pg)
 
+        # Dedicated seam widget between the preview and the info panel — QSS
+        # borders on a QStackedWidget don't render reliably (the page paints
+        # over them), so use an explicit 1px line that always shows.
+        seam = QWidget()
+        seam.setFixedWidth(1)
+        seam.setStyleSheet(f"background:{t.line_strong};")
+        body.addWidget(seam)
         body.addWidget(self._panel_stack)
         outer.addLayout(body, 1)
         self._switch_step("source")
