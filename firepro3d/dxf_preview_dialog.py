@@ -44,8 +44,9 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtCore import (
     Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread,
-    pyqtSignal,
+    QByteArray, pyqtSignal,
 )
+from PyQt6.QtSvg import QSvgRenderer
 
 try:
     import ezdxf
@@ -816,8 +817,8 @@ def _import_extra_qss(t) -> str:
     return f"""
     QDialog#UnderlayManagerDialog {{ background:{t.surface};
         border:1px solid {t.muted}; }}
-    #UnderlayManagerDialog QListWidget {{ background:{t.ground}; color:{t.ink};
-        border:1px solid {t.line}; border-radius:6px; }}
+    #UnderlayManagerDialog QListWidget {{ background:{t.raised}; color:{t.ink};
+        border:1px solid {t.line_strong}; border-radius:6px; }}
     #UnderlayManagerDialog QListWidget::item {{ padding:3px 6px; }}
     #UnderlayManagerDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
     #UnderlayManagerDialog QListWidget::item:selected {{
@@ -849,7 +850,8 @@ def _import_extra_qss(t) -> str:
     #UnderlayManagerDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
     #UnderlayManagerDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
-        border-left:1px solid {t.line}; }}
+        border-left:1px solid {t.line_strong}; }}
+    #UnderlayManagerDialog QWidget#panelPage {{ background:{t.surface}; }}
     QFrame#scaleCard, QFrame#srcCard {{ background:{t.ground};
         border:1px solid {t.line}; border-radius:7px; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
@@ -859,6 +861,50 @@ def _import_extra_qss(t) -> str:
     QLabel#scalePill[state="ok"] {{ color:{t.ok}; border-color:{t.ok}; }}
     QLabel#dropHint {{ color:{t.muted}; font-size:13px; background:transparent; }}
     """
+
+
+_WINCTL_INLAY = {
+    "min":   '<path d="M7 12 H17"/>',
+    "max":   '<path d="M12 7 V17 M7 12 H17"/>',
+    "close": '<path d="M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5"/>',
+}
+
+
+def _winctl_pixmap(kind: str, circle: str, inlay: str, px: int = 16) -> QPixmap:
+    """Render a window-control icon: grey circle + accent inlay."""
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+           f'<circle cx="12" cy="12" r="11" fill="{circle}"/>'
+           f'<g stroke="{inlay}" stroke-width="2.2" stroke-linecap="round"'
+           f' fill="none">{_WINCTL_INLAY[kind]}</g></svg>')
+    pm = QPixmap(px, px)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    QSvgRenderer(QByteArray(svg.encode())).render(p)
+    p.end()
+    return pm
+
+
+class _WinDot(QPushButton):
+    """A window-control dot (min/max/close): accent inlay on a grey circle;
+    the circle brightens on hover."""
+    def __init__(self, kind: str, slot, theme, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(18, 18)
+        self.setIconSize(QSize(16, 16))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("QPushButton{border:none;background:transparent;}")
+        self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent))
+        self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent))
+        self.setIcon(self._normal)
+        self.clicked.connect(slot)
+
+    def enterEvent(self, e):
+        self.setIcon(self._hover)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.setIcon(self._normal)
+        super().leaveEvent(e)
 
 
 class UnderlayImportDialog(QDialog):
@@ -1088,23 +1134,13 @@ class UnderlayImportDialog(QDialog):
         hb.addWidget(self._header_file_lbl)
         hb.addStretch(1)
 
-        # Window controls — three dots (prototype style): grey at rest, each
-        # lights its colour on hover. minimize · maximize/restore · close.
-        def _dot(slot, hover):
-            b = QPushButton()
-            b.setFixedSize(14, 14)
-            b.setCursor(Qt.CursorShape.PointingHandCursor)
-            b.setStyleSheet(
-                f"QPushButton{{border:none; border-radius:7px;"
-                f" background:{t.line_strong};}}"
-                f"QPushButton:hover{{background:{hover};}}")
-            b.clicked.connect(slot)
-            return b
+        # Window controls — circular icons (grey circle + accent inlay):
+        # minimize (–) · expand (+) · close (×); circle brightens on hover.
         dots = QHBoxLayout()
         dots.setSpacing(8)
-        dots.addWidget(_dot(self.showMinimized, t.warn))
-        dots.addWidget(_dot(self._toggle_max, t.ok))
-        dots.addWidget(_dot(self.reject, t.danger))
+        dots.addWidget(_WinDot("min", self.showMinimized, t))
+        dots.addWidget(_WinDot("max", self._toggle_max, t))
+        dots.addWidget(_WinDot("close", self.reject, t))
         hb.addLayout(dots)
         outer.addWidget(self._titlebar)
 
@@ -1112,8 +1148,8 @@ class UnderlayImportDialog(QDialog):
         self._thumb_list = QListWidget()
         self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
         self._thumb_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self._thumb_list.setIconSize(QSize(80, 100))
-        self._thumb_list.setFixedHeight(120)
+        self._thumb_list.setIconSize(QSize(78, 92))
+        self._thumb_list.setFixedHeight(112)
         # No scrollbar — side arrows appear only when the pages overflow.
         self._thumb_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1122,7 +1158,7 @@ class UnderlayImportDialog(QDialog):
         self._thumb_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self._thumb_list.setUniformItemSizes(True)
-        self._thumb_list.setGridSize(QSize(96, 118))
+        self._thumb_list.setGridSize(QSize(96, 108))
         self._thumb_list.setWordWrap(False)
         self._thumb_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._thumb_list.currentRowChanged.connect(self._on_page_thumb_clicked)
@@ -1133,12 +1169,12 @@ class UnderlayImportDialog(QDialog):
         self._strip_wrap = QWidget()
         self._strip_wrap.setVisible(False)
         strip_lay = QHBoxLayout(self._strip_wrap)
-        strip_lay.setContentsMargins(0, 0, 0, 0)
+        strip_lay.setContentsMargins(0, 5, 0, 5)   # symmetric top/bottom
         strip_lay.setSpacing(2)
 
         def _arrow(glyph, step):
             b = QPushButton(glyph)
-            b.setFixedSize(22, 118)
+            b.setFixedSize(22, 102)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{border:none; background:transparent;"
@@ -1244,6 +1280,7 @@ class UnderlayImportDialog(QDialog):
 
         def _page():
             w = QWidget()
+            w.setObjectName("panelPage")     # so the QSS bg reliably applies
             v = QVBoxLayout(w)
             v.setContentsMargins(14, 14, 14, 14)
             v.setSpacing(9)
