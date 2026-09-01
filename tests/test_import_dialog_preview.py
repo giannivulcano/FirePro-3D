@@ -12,7 +12,7 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QTransform
 from PyQt6.QtWidgets import QApplication
 
-from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+from firepro3d.underlay_import_dialog import UnderlayImportDialog
 from firepro3d.underlay_snap_index import UnderlaySnapIndex
 
 
@@ -162,7 +162,7 @@ class TestExtractionWorkers:
         return doc
 
     def test_extract_worker_emits_geoms_and_layers(self, qapp):
-        from firepro3d.dxf_preview_dialog import _DialogExtractWorker
+        from firepro3d.underlay_import_dialog import _DialogExtractWorker
         results = []
         w = _DialogExtractWorker(self._doc(3), "Model")
         w.finished_geoms.connect(lambda g, l: results.append((g, l)))
@@ -174,7 +174,7 @@ class TestExtractionWorkers:
         assert "0" in layers
 
     def test_extract_worker_cancel_aborts_without_result(self, qapp):
-        from firepro3d.dxf_preview_dialog import _DialogExtractWorker
+        from firepro3d.underlay_import_dialog import _DialogExtractWorker
         finished, aborted = [], []
         w = _DialogExtractWorker(self._doc(5), "Model")
         w.finished_geoms.connect(lambda g, l: finished.append(1))
@@ -191,7 +191,7 @@ class TestExtractionWorkers:
         dxf_path = str(tmp_path / "tiny.dxf")
         doc.saveas(dxf_path)
 
-        from firepro3d.dxf_preview_dialog import _DialogReadWorker
+        from firepro3d.underlay_import_dialog import _DialogReadWorker
         docs = []
         w = _DialogReadWorker(dxf_path)
         w.finished_doc.connect(lambda d: docs.append(d))
@@ -202,7 +202,7 @@ class TestExtractionWorkers:
     def test_read_worker_emits_error_for_bad_file(self, qapp, tmp_path):
         bad = tmp_path / "bad.dxf"
         bad.write_text("this is not a dxf")
-        from firepro3d.dxf_preview_dialog import _DialogReadWorker
+        from firepro3d.underlay_import_dialog import _DialogReadWorker
         errors, docs = [], []
         w = _DialogReadWorker(str(bad))
         w.finished_doc.connect(lambda d: docs.append(d))

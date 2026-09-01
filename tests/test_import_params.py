@@ -1,4 +1,4 @@
-from firepro3d.dxf_preview_dialog import ImportParams
+from firepro3d.underlay_import_dialog import ImportParams
 
 
 def test_import_params_defaults():

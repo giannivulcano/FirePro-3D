@@ -8,7 +8,7 @@ from __future__ import annotations
 import ezdxf
 
 from firepro3d.loading_bar import LoadingBar
-from firepro3d.dxf_preview_dialog import _DialogExtractWorker
+from firepro3d.underlay_import_dialog import _DialogExtractWorker
 
 
 class TestLoadingBarBusy:

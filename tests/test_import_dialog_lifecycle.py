@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QGraphicsRectItem
 
-from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+from firepro3d.underlay_import_dialog import UnderlayImportDialog
 
 
 def _dialog(qapp) -> UnderlayImportDialog:

@@ -71,7 +71,7 @@ def _make_underlay_group_with_items(
     group.setData(0, "DXF Underlay")
     scene.addItem(group)
 
-    # Invisible line item (same pattern as dxf_preview_dialog._create_snap_item)
+    # Invisible line item (same pattern as underlay_import_dialog._create_snap_item)
     line = QGraphicsLineItem(0, 0, 200, 0)
     line.setPen(_invisible_pen())
     scene.addItem(line)

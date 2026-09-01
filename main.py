@@ -17,7 +17,7 @@ from firepro3d.model_view import Model_View
 from firepro3d.sprinkler import Sprinkler
 from firepro3d.pipe import Pipe
 from firepro3d.annotations import NoteAnnotation
-from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+from firepro3d.underlay_import_dialog import UnderlayImportDialog
 from firepro3d.property_manager import PropertyManager
 from firepro3d.sprinkler_db import SprinklerDatabase
 from firepro3d.scale_manager import DisplayUnit

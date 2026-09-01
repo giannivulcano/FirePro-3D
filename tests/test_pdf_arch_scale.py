@@ -1,7 +1,7 @@
 """Item 7 (PDF): architectural/engineering scale ratios compute the correct
 import_scale (PDF points -> scene mm), matching the calibration ground truth
 scale = real_mm / source_points."""
-from firepro3d.dxf_preview_dialog import (
+from firepro3d.underlay_import_dialog import (
     pdf_scale_from_ratio, pdf_scale_ratio_text, _ARCH_SCALES, _ENG_SCALES,
     _MM_PER_POINT,
 )
@@ -63,7 +63,7 @@ def _blank_pdf(path):
 
 
 def test_pdf_load_offers_arch_scales_and_resolves(qapp, tmp_path):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     p = tmp_path / "blank.pdf"
     _blank_pdf(p)
     dlg = UnderlayImportDialog(None)
@@ -78,7 +78,7 @@ def test_pdf_load_offers_arch_scales_and_resolves(qapp, tmp_path):
 
 
 def test_dxf_style_combo_has_no_arch_scales(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None)
     dlg._populate_scale_combo(is_pdf=False)
     labels = [dlg._scale_combo.itemText(i)
@@ -87,7 +87,7 @@ def test_dxf_style_combo_has_no_arch_scales(qapp):
 
 
 def test_custom_factor_shows_equivalent_ratio(qapp, tmp_path):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     p = tmp_path / "blank.pdf"
     _blank_pdf(p)
     dlg = UnderlayImportDialog(None)

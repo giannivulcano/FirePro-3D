@@ -1,6 +1,6 @@
 """
-dxf_preview_dialog.py
-=====================
+underlay_import_dialog.py
+=========================
 Unified underlay import dialog for FirePro 3D.
 
 Handles both **PDF** and **DXF** files from a single preview-first dialog.
@@ -3333,7 +3333,3 @@ class UnderlayImportDialog(QDialog):
 
         self._save_settings()
         return p
-
-
-# ── Backwards compat alias ───────────────────────────────────────────────────
-DxfPreviewDialog = UnderlayImportDialog

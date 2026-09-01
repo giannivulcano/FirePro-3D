@@ -4,7 +4,7 @@ from firepro3d.underlay import Underlay
 
 
 class _StubParams:
-    """Minimal stand-in for dxf_preview_dialog.ImportParams — carries only the
+    """Minimal stand-in for underlay_import_dialog.ImportParams — carries only the
     attributes Model_Space.replace_underlay reads."""
 
     def __init__(self, **kw):
@@ -225,7 +225,7 @@ def test_dialog_modify_prefill_sets_widgets(qapp):
     """Constructing the dialog with modify_record pre-fills the scale/rotation/
     dpi/mode widgets and retitles the window. Uses a non-existent path so the
     file load fails gracefully (no hang)."""
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
 
     record = Underlay(type="dxf", path="/nonexistent/modify.dxf",
                       import_scale=0.5, rotation=45.0, dpi=300,

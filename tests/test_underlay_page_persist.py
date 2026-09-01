@@ -11,7 +11,7 @@ drove that path. These tests are that guard (TODO 72).
 import fitz  # PyMuPDF
 from PyQt6.QtCore import QPointF
 
-from firepro3d.dxf_preview_dialog import ImportParams
+from firepro3d.underlay_import_dialog import ImportParams
 from firepro3d.model_space import Model_Space
 from firepro3d.pdf_import_worker import extract_pdf_vectors_sync
 from firepro3d.underlay_cache import compute_cache_key

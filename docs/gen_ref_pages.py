@@ -29,7 +29,7 @@ TIERS = {
         "project_browser", "level_widget", "view_cube",
     ],
     "Dialogs": [
-        "auto_populate_dialog", "dxf_preview_dialog", "roof_dialog",
+        "auto_populate_dialog", "underlay_import_dialog", "roof_dialog",
         "wall_dialog", "array_dialog", "grid_lines_dialog",
         "view_range_dialog", "calibrate_dialog", "detail_view",
         "dimension_edit", "fs_visibility_dialog", "underlay_context_menu",

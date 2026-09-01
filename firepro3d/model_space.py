@@ -2275,7 +2275,7 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
         Parameters
         ----------
         params : ImportParams
-            Result from DxfPreviewDialog.get_import_params()
+            Result from UnderlayImportDialog.get_import_params()
         """
         self._place_import_params = params
         self._place_import_ghost = None

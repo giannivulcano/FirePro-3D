@@ -1,7 +1,7 @@
 """Tests for the import dialog shell primitives.
 
 These test the module-level classes/functions added to
-firepro3d/dxf_preview_dialog.py for the step-rail / contextual-panel /
+firepro3d/underlay_import_dialog.py for the step-rail / contextual-panel /
 commit-sentence redesign.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 
 def test_step_rail_states_and_click(qapp):
-    from firepro3d.dxf_preview_dialog import _StepRail
+    from firepro3d.underlay_import_dialog import _StepRail
     seen = []
     rail = _StepRail()
     rail.stepClicked.connect(seen.append)
@@ -29,7 +29,7 @@ def test_step_rail_states_and_click(qapp):
 # ---------------------------------------------------------------------------
 
 def test_levels_picker_default_and_selection(qapp):
-    from firepro3d.dxf_preview_dialog import _LevelsPicker
+    from firepro3d.underlay_import_dialog import _LevelsPicker
     seen = []
     lp = _LevelsPicker(["Level 1", "Level 2", "Roof"], current="Level 2")
     lp.changed.connect(lambda: seen.append(lp.selected()))
@@ -44,7 +44,7 @@ def test_levels_picker_default_and_selection(qapp):
 # ---------------------------------------------------------------------------
 
 def test_commit_sentence_omits_absent_clauses():
-    from firepro3d.dxf_preview_dialog import build_commit_sentence
+    from firepro3d.underlay_import_dialog import build_commit_sentence
     s = build_commit_sentence(name="site-plan", page=3, pages=6, layers_hidden=2,
                               cropped=True, scale="1:48", verified=False,
                               rotation=0, levels=["Level 1", "Level 2"],
@@ -56,7 +56,7 @@ def test_commit_sentence_omits_absent_clauses():
 
 
 def test_commit_sentence_single_page_no_rotation():
-    from firepro3d.dxf_preview_dialog import build_commit_sentence
+    from firepro3d.underlay_import_dialog import build_commit_sentence
     s = build_commit_sentence(name="plan", page=0, pages=1, layers_hidden=0,
                               cropped=False, scale="1:1", verified=True,
                               rotation=90, levels=["Level 1"], position="origin")
@@ -67,7 +67,7 @@ def test_commit_sentence_single_page_no_rotation():
 # ── Shell integration guards (T10/T11/T12/T14) ────────────────────────────
 
 def test_zoom_clamp(qapp):
-    from firepro3d.dxf_preview_dialog import _PreviewView
+    from firepro3d.underlay_import_dialog import _PreviewView
     from PyQt6.QtWidgets import QGraphicsScene
     v = _PreviewView(QGraphicsScene())
     v._fit_scale = 1.0
@@ -80,7 +80,7 @@ def test_zoom_clamp(qapp):
 
 
 def test_shell_construction_contract(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog, ImportParams
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog, ImportParams
     dlg = UnderlayImportDialog(None, levels=["Level 1", "Level 2"],
                                current_level="Level 1")
     assert dlg._rail is not None and dlg._levels_picker is not None
@@ -91,7 +91,7 @@ def test_shell_construction_contract(qapp):
 
 
 def test_dropzone_accepts_supported_exts(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
     assert dlg._accepts_drop("C:/x/plan.pdf") is True
     assert dlg._accepts_drop("C:/x/plan.DWG") is True
@@ -100,7 +100,7 @@ def test_dropzone_accepts_supported_exts(qapp):
 
 
 def test_modify_prefill_levels_and_verified(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     from firepro3d.underlay import Underlay
     rec = Underlay(type="dxf", path="x.dxf", levels=["Level 2"],
                    scale_verified=True, rotation=0.0)
@@ -116,7 +116,7 @@ def test_modify_prefill_levels_and_verified(qapp):
 
 def test_toggle_switch(qapp):
     import firepro3d.theme as th
-    from firepro3d.dxf_preview_dialog import _ToggleSwitch
+    from firepro3d.underlay_import_dialog import _ToggleSwitch
     seen = []
     sw = _ToggleSwitch(th.DARK, checked=False)
     sw.toggled.connect(seen.append)
@@ -128,7 +128,7 @@ def test_toggle_switch(qapp):
 
 
 def test_switch_bar(qapp):
-    from firepro3d.dxf_preview_dialog import _SwitchBar
+    from firepro3d.underlay_import_dialog import _SwitchBar
     sb = _SwitchBar(["A", "B", "C"])
     assert sb.current_index() == 0
     sb.set_current(2)
@@ -136,7 +136,7 @@ def test_switch_bar(qapp):
 
 
 def test_empty_state_overlay_toggles(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
     # isHidden(): False until explicitly hidden (isVisible needs a shown window)
     assert dlg._drop_overlay.isHidden() is False     # nothing loaded yet
@@ -146,7 +146,7 @@ def test_empty_state_overlay_toggles(qapp):
 
 
 def test_position_toggle_feeds_params(qapp):
-    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay_import_dialog import UnderlayImportDialog
     dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
     dlg._origin_switch.setChecked(True)        # explicit (avoid QSettings dependence)
     assert dlg.get_import_params().insert_at_origin is True
