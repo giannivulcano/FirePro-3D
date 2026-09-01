@@ -667,6 +667,78 @@ class _LevelsPicker(QWidget):
             item.setCheckState(new_state)
 
 
+def build_commit_sentence(
+    *,
+    name: str,
+    page: int,
+    pages: int,
+    layers_hidden: int,
+    cropped: bool,
+    scale: str,
+    verified: bool,
+    rotation: int | float,
+    levels: list[str],
+    position: str,
+    warn_hex: str | None = None,
+    ok_hex: str | None = None,
+) -> str:
+    """Return an HTML rich-text summary sentence describing the pending import.
+
+    Clauses are omitted when they carry no information (e.g. page clause when
+    pages <= 1, layers-hidden clause when 0, rotation clause when 0).
+    """
+    theme = detect()
+    if warn_hex is None:
+        warn_hex = theme.warn
+    if ok_hex is None:
+        ok_hex = theme.ok
+
+    parts: list[str] = []
+
+    # Name — always bold
+    parts.append(f"Import <b>{name}</b>")
+
+    # Page clause — only for multi-page sources
+    if pages > 1:
+        parts.append(f"· page {page} of {pages}")
+
+    # Layers hidden
+    if layers_hidden > 0:
+        parts.append(f"· {layers_hidden} layers hidden")
+
+    # Crop
+    if cropped:
+        parts.append("· cropped")
+    else:
+        parts.append("· whole sheet")
+
+    # Scale + verification
+    verified_word = "verified" if verified else "unverified"
+    color_hex = ok_hex if verified else warn_hex
+    parts.append(
+        f"· at <b>{scale}</b> "
+        f"(<span style='color:{color_hex}'>{verified_word}</span>)"
+    )
+
+    # Rotation — only when non-zero
+    if rotation != 0:
+        parts.append(f"· rotated {rotation}°")
+
+    # Levels — always
+    levels_str = " + ".join(levels)
+    parts.append(f"· onto <b>{levels_str}</b>")
+
+    sentence = " ".join(parts)
+
+    # Position tail
+    if position == "pick":
+        sentence += " — then pick the insertion point."
+    elif position == "origin":
+        sentence += " — placed at the origin."
+
+    return sentence
+
+
 class UnderlayImportDialog(QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
