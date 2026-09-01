@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .frameless_shell import FramelessShellMixin
 from .underlay_manager_delegates import (
     ColourDelegate, LevelsDelegate, ToggleDelegate, WeightDelegate,
     make_menu,
@@ -189,13 +190,18 @@ class _DetailsPanel(QFrame):
 # ---------------------------------------------------------------------------
 # The dialog
 # ---------------------------------------------------------------------------
-class UnderlayManagerDialog(QDialog):
+class UnderlayManagerDialog(FramelessShellMixin, QDialog):
     """Modeless manager — instant apply, no OK/Apply. Open with ``.show()``."""
 
     def __init__(self, scene, main_window, theme: Theme | None = None, parent=None,
                  apply_stylesheet: bool = True):
         theme = theme or detect()
         super().__init__(parent)
+        self.init_frameless_shell(
+            title="Underlay Manager",
+            controls=("min", "max", "close"),
+            resizable=True,
+        )
         self.scene = scene
         self.main_window = main_window
         self.t = theme
@@ -203,6 +209,7 @@ class UnderlayManagerDialog(QDialog):
         self.setWindowTitle("Underlay Manager")
         if apply_stylesheet:
             self.setStyleSheet(build_underlay_manager_qss(theme))
+        self.setMinimumSize(720, 420)
         self.resize(1080, 560)
         self.setModal(False)
 
@@ -222,6 +229,8 @@ class UnderlayManagerDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
+
+        root.addWidget(self._titlebar)
 
         toolbar = QFrame(objectName="toolbarBar")
         bar = QHBoxLayout(toolbar)

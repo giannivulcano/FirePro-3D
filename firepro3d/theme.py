@@ -781,6 +781,7 @@ QHeaderView::section {
 QTableView QTableCornerButton::section { background: $table; border: none; }
 
 QFrame#detailsPanel { background: $surface; border-left: 1px solid $line; }
+QFrame#importHeader { background: $surface2; border-bottom: 1px solid $line; }
 QFrame#footerBar    { background: $surface2; border-top: 1px solid $line; }
 QFrame#toolbarBar   { background: $surface; border-bottom: 1px solid $line; }
 QLabel#previewBox {
