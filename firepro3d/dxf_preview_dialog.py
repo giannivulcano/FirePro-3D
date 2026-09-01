@@ -892,12 +892,12 @@ class _WinDot(QPushButton):
     the circle brightens on hover."""
     def __init__(self, kind: str, slot, theme, parent=None):
         super().__init__(parent)
-        self.setFixedSize(18, 18)
-        self.setIconSize(QSize(16, 16))
+        self.setFixedSize(27, 27)
+        self.setIconSize(QSize(24, 24))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("QPushButton{border:none;background:transparent;}")
-        self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent))
-        self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent))
+        self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent, 24))
+        self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent, 24))
         self.setIcon(self._normal)
         self.clicked.connect(slot)
 
@@ -1115,9 +1115,9 @@ class UnderlayImportDialog(QDialog):
 
         # ── Header bar (single custom header; styled like the footer) ────────
         self._titlebar = QFrame(objectName="importHeader")
-        self._titlebar.setFixedHeight(38)
+        self._titlebar.setFixedHeight(44)
         hb = QHBoxLayout(self._titlebar)
-        hb.setContentsMargins(14, 7, 10, 7)
+        hb.setContentsMargins(14, 6, 10, 6)
         glyph = QLabel()
         try:
             glyph.setPixmap(themed_icon(
@@ -1195,7 +1195,7 @@ class UnderlayImportDialog(QDialog):
             lambda *_: self._update_strip_arrows())
         self._thumb_list.horizontalScrollBar().rangeChanged.connect(
             lambda *_: self._update_strip_arrows())
-        outer.addWidget(self._strip_wrap)
+        # (added to the preview column's top part below, not full-width here)
 
         # Compact "pill" button factory (rounded segmented-control style).
         def _pill(text, slot, tip="", icon=None, checkable=False, expanding=False):
@@ -1243,6 +1243,14 @@ class UnderlayImportDialog(QDialog):
         prev_lay = QVBoxLayout(prev_wrap)
         prev_lay.setContentsMargins(10, 10, 10, 8)
         prev_lay.setSpacing(6)
+        # Top part of the central panel: the PDF filmstrip (+ divider), shown
+        # only for multi-page PDFs. Bottom part = the preview workspace.
+        prev_lay.addWidget(self._strip_wrap)
+        self._strip_div = QWidget()
+        self._strip_div.setFixedHeight(1)
+        self._strip_div.setStyleSheet(f"background:{t.line_strong};")
+        self._strip_div.setVisible(False)
+        prev_lay.addWidget(self._strip_div)
         ptool = QHBoxLayout()
         self._preview_hint = QLabel("")          # mode instructions only
         self._preview_hint.setStyleSheet(
@@ -1631,6 +1639,8 @@ class UnderlayImportDialog(QDialog):
     def _show_strip(self, on: bool) -> None:
         self._strip_wrap.setVisible(on)
         self._thumb_list.setVisible(on)
+        if getattr(self, "_strip_div", None) is not None:
+            self._strip_div.setVisible(on)
         if on:
             self._update_strip_arrows()
 
