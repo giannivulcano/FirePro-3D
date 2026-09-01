@@ -119,4 +119,6 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
         "is_active":  da is active_design_area,
         "level":      da.level,
         "badge_offset": (list(da.badge_offset()) if da._badge_user_moved else None),
+        "badge_angle": (da.badge._angle if getattr(da, "badge", None)
+                        is not None else 0.0),
     }

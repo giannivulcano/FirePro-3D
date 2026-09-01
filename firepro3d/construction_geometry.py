@@ -311,6 +311,13 @@ class PolylineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
         self._rebuild_path()
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of all vertices about ``pivot`` (Y-up CCW+)."""
+        from .cad_math import CAD_Math
+        self._points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                        for p in self._points]
+        self._rebuild_path()
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -523,6 +530,13 @@ class LineItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsLineItem):
         """Move the entire line by (dx, dy)."""
         self._pt1 = QPointF(self._pt1.x() + dx, self._pt1.y() + dy)
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
+        self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of both endpoints about ``pivot`` (Y-up CCW+)."""
+        from .cad_math import CAD_Math
+        self._pt1 = CAD_Math.rotate_point(self._pt1, pivot, -angle_deg)
+        self._pt2 = CAD_Math.rotate_point(self._pt2, pivot, -angle_deg)
         self.setLine(self._pt1.x(), self._pt1.y(), self._pt2.x(), self._pt2.y())
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
@@ -1050,6 +1064,14 @@ class CircleItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsEllipseItem):
         cx, cy, r = self._center.x(), self._center.y(), self._radius
         self.setRect(cx - r, cy - r, 2 * r, 2 * r)
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate about ``pivot`` (Y-up CCW+): the centre moves; the
+        circle shape is rotation-invariant so the radius is unchanged."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        cx, cy, r = self._center.x(), self._center.y(), self._radius
+        self.setRect(cx - r, cy - r, 2 * r, 2 * r)
+
     # ── Closed-path protocol ─────────────────────────────────────────────────
 
     def is_closed(self) -> bool:
@@ -1221,6 +1243,14 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
 
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        self._rebuild_path()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate about ``pivot`` (Y-up CCW+): rotate the centre and
+        advance the start angle by ``angle_deg`` (Y-up); span unchanged."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        self._start_deg = (self._start_deg + angle_deg) % 360.0
         self._rebuild_path()
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
@@ -1432,6 +1462,14 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
 
     def translate(self, dx: float, dy: float):
         self._center = QPointF(self._center.x() + dx, self._center.y() + dy)
+        self._regenerate()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate about ``pivot`` (Y-up CCW+): rotate the centre and
+        advance the parametric orientation ``_rotation_deg`` by ``angle_deg``."""
+        from .cad_math import CAD_Math
+        self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
+        self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
         self._regenerate()
 
     def to_dict(self) -> dict:

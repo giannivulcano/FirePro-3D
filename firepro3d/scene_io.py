@@ -489,6 +489,11 @@ class SceneIOMixin:
             bo = da_entry.get("badge_offset")
             if bo is not None:
                 da.set_badge_offset(QPointF(bo[0], bo[1]))
+            ba = da_entry.get("badge_angle")
+            if ba is not None and getattr(da, "badge", None) is not None:
+                da.badge._angle = float(ba)
+                da.badge.prepareGeometryChange()
+                da.badge.update()
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles
 

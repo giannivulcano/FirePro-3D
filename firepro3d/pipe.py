@@ -344,6 +344,13 @@ class Pipe(DisplayableItemMixin, QGraphicsLineItem):
     # --------------------------------------------------------------
     # PIPE HELPERS
 
+    # NOTE (selection-manipulator U1): Pipe intentionally has NO manip_rotate /
+    # manip_translate.  Its geometry is derived entirely from node1/node2
+    # positions (see update_geometry), so rotating/moving the endpoints via the
+    # nodes rotates the pipe for free through Node.itemChange.  A pipe selected
+    # WITHOUT its nodes has no translate/rotate capability and is excluded from
+    # the manipulator wrap (move parity) — do not add these methods here.
+
     def update_geometry(self):
         start = self.node1.scenePos()
         end = self.node2.scenePos()

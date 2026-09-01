@@ -1,7 +1,7 @@
 ---
-status: partial          # v1 built 2026-08-30; known interaction bugs deferred to the Unification roadmap
-last-verified: 2026-08-30
-verified-commit: 29d3eeb
+status: partial          # v1 (2026-08-30) + U1 universal rigid rotate (2026-08-31); U2–U5 of the Unification roadmap remain
+last-verified: 2026-08-31
+verified-commit: 4e5f893
 applies-to:
   - firepro3d/selection_manipulator.py
   - firepro3d/manip_math.py
@@ -9,9 +9,14 @@ applies-to:
   - firepro3d/scene_tools.py             # _find_grip_hit suppression for box-native items
   - firepro3d/model_space.py             # press routing + manipulator lifecycle
   - firepro3d/paper_space.py             # SheetViewport / TextAnnotationItem handle retirement
-  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities
+  - firepro3d/construction_geometry.py   # RectangleItem bake-at-rest + manip capabilities; U1 manip_rotate on Line/Polyline/Circle/Arc/RegularPolygon
+  # U1 (universal rigid rotate) added manip_rotate to the parametric items —
+  # governed here for the manipulator contract; each item's geometry is owned
+  # by its own spec (see SPEC-INDEX): wall.py, node.py, gridline.py, room.py,
+  # floor_slab.py, roof.py, design_area.py (badge _angle, dual-serialized).
 source-tasks:
   - "TODO.md: Adopt the SelectionBox manipulator app-wide [P2]"
+  - "TODO.md: U1 — universal rigid rotate [P1]"
 ---
 
 > **v1 status (2026-08-30):** built and merged — the manipulator drives model +
@@ -69,7 +74,7 @@ manipulator is **capability-gated**, not one-size.
 |---|---|---|
 | `manip_bounds() -> QRectF` | all (fallback `sceneBoundingRect()`; cosmetic-pen items provide it explicitly) | box the frame wraps |
 | `manip_translate(dx, dy)` | all selectable items (adapter over `translate()`/`moveBy()`) | baked move |
-| `manip_rotate(angle_deg, pivot)` | v1: box-native only | baked rotate, app Y-up (CCW+) sign |
+| `manip_rotate(angle_deg, pivot)` | **U1: all parametric items** (wall, node→pipes ride, gridline, room [group-follow only], floor, roof, line/polyline/circle/arc/regular-polygon) + box-native (rect, badge) | baked rotate, app Y-up (CCW+) sign — `CAD_Math.rotate_point(p, pivot, -angle_deg)`; angle-carriers (gridline `_angle_deg`, arc `_start_deg`, regpoly `_rotation_deg`, badge `_angle`) accumulate `% 360` |
 | `manip_scale(fx, fy, anchor)` | v1: box-native only | baked resize in the item's own semantics |
 
 **Box-native (v1 rotate/scale set):** `RectangleItem`, `SheetViewport`,
@@ -191,9 +196,11 @@ apply the exact value → bake + undo as if released.
 
 ## Out of Scope (staged)
 
-- **[P1] follow-up (filed):** parametric items implement `manip_rotate`
-  (baked vertex rotation) → rotation becomes universal; group rotate lights up
-  for mixed selections.
+- **[P1] SHIPPED (U1, 2026-08-31):** parametric items implement `manip_rotate`
+  (baked vertex rotation) → rotation is universal; group rotate lights up for
+  mixed selections. (Annotations remain translate-only — a mixed selection that
+  includes a note/dimension hides the rotate knob; adding rotate there is the
+  next label-rotate follow-up.)
 - Paper viewport/text rotation semantics; movable rotation pivot; group scale.
 - Hover pre-highlight / Tab-cycle / rubber-band — owned by
   `selection-mode.md` (proposal), which continues to own what-gets-selected;
@@ -222,9 +229,14 @@ parametric Handles call (DRY — reuse, don't rewrite the edit math).
 
 **Phased path** (each step independently shippable + parity-tested):
 
-- **U1 — universal rigid rotate** *(already filed [P1])*: every parametric item
+- **U1 — universal rigid rotate** ✅ **DONE (2026-08-31):** every parametric item
   implements `manip_rotate` (baked). Group rotate lights up. Manipulator now
-  does rigid transforms for ALL items.
+  does rigid transforms for ALL items. Room is group-follow only
+  (`MANIP_NO_SOLO_ROTATE`); the fitting-refresh step is shared across
+  move/rotate/scale bakes. **Bug fixed en route:** `hit_test` mapped
+  `ItemIgnoresTransformations` handles with plain `mapFromScene` (correct only at
+  m11==1), so the rotate knob was unhittable at the fit-to-view zoom and the
+  press cleared the selection — now mapped via the view's `deviceTransform`.
 - **U2 — the `Handle` model**: define one `Handle` abstraction (role, position,
   drag→edit, commit) and a `manip_handles(self) -> list[Handle]` capability.
   Re-express the manipulator's own resize/rotate handles as `Handle`s. No item

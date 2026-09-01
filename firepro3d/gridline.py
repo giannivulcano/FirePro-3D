@@ -595,6 +595,20 @@ class GridlineItem(QGraphicsLineItem):
         self._origin.setY(self._origin.y() + dy)
         self._rebuild_geometry()
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate about ``pivot`` (Y-up CCW+).
+
+        Rotates ``_origin`` and adds ``angle_deg`` to the Y-up direction
+        ``_angle_deg``; ``_rebuild_geometry`` re-derives the far point and re-tilts
+        the bubbles (same as any gridline placed at that angle).  Locked gridlines
+        do not rotate (mirrors :meth:`translate`)."""
+        if self._locked:
+            return
+        from .cad_math import CAD_Math
+        self._origin = CAD_Math.rotate_point(self._origin, pivot, -angle_deg)
+        self._angle_deg = (self._angle_deg + angle_deg) % 360.0
+        self._rebuild_geometry()
+
     def set_length(self, length: float):
         if self._locked:
             return

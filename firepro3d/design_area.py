@@ -1139,8 +1139,8 @@ class DesignArea(QGraphicsPathItem):
     # the badge box.  No scale/rotate — the badge is a fixed-layout table.
 
     def manip_capabilities(self) -> set:
-        """Narrow the manipulator to translate only (no resize/rotate)."""
-        return {"translate"}
+        """Badge is translatable and rotatable (a label); never scalable."""
+        return {"translate", "rotate"}
 
     def manip_bounds(self):
         """Scene box the manipulator frame wraps — the badge box (what moves),
@@ -1153,6 +1153,22 @@ class DesignArea(QGraphicsPathItem):
         the scene-space badge offset — routed through ``set_badge_offset`` so
         ``_badge_user_moved`` is set and the move serializes for undo/save."""
         self.set_badge_offset(self.badge.pos() + QPointF(dx, dy))
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the badge about ``pivot`` (Y-up CCW+).
+
+        Rotates the badge *centre* about ``pivot`` (parent coords == scene coords)
+        and tilts the badge by ``angle_deg`` (baked into ``badge._angle``, applied
+        about the badge's own centre in paint/boundingRect).  Routed through
+        ``set_badge_offset`` so the move persists (undo/save)."""
+        from .cad_math import CAD_Math
+        w, h = badge_fixed_size_mm()
+        half = QPointF(w / 2.0, h / 2.0)
+        center = self.badge.pos() + half
+        new_center = CAD_Math.rotate_point(center, pivot, -angle_deg)
+        self.badge.prepareGeometryChange()
+        self.badge._angle = (self.badge._angle + angle_deg) % 360.0
+        self.set_badge_offset(new_center - half)
 
     # ------------------------------------------------------------------
     # Hydraulic snapshot
@@ -1381,6 +1397,7 @@ class DesignAreaBadge(QGraphicsItem):
         super().__init__(area)
         self._area = area
         self._syncing: bool = False   # guards itemChange during auto-centre/load
+        self._angle: float = 0.0   # Y-up CCW+ baked tilt (selection-manipulator U1)
         # No ItemIsMovable: Model_Space never forwards select-mode presses
         # to Qt items, so item-drag is dead scene-wide — the badge moves
         # via the parent DesignArea's grip protocol instead.
@@ -1388,17 +1405,39 @@ class DesignAreaBadge(QGraphicsItem):
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
         self.setZValue(1)  # above the parent outline
 
+    def _rotation_transform(self) -> "QTransform":
+        """Local->local rotation about the badge centre (Y-up CCW -> Qt CW)."""
+        from PyQt6.QtGui import QTransform
+        m = QTransform()
+        if self._angle == 0.0:
+            return m
+        w, h = badge_fixed_size_mm()
+        cx, cy = w / 2.0, h / 2.0
+        m.translate(cx, cy)
+        m.rotate(-self._angle)          # Y-up CCW -> Qt CW negate
+        m.translate(-cx, -cy)
+        return m
+
     def boundingRect(self) -> QRectF:
         # badge_rows() always returns _BADGE_ROW_COUNT (10) rows, so width
         # and height are constant — derive from constants alone to avoid
         # a scene traversal inside Qt's hottest geometry callback.
         w, h = badge_fixed_size_mm()
         m = DA_BADGE_LINE_MM
-        return QRectF(-m, -m, w + 2 * m, h + 2 * m)
+        base = QRectF(-m, -m, w + 2 * m, h + 2 * m)
+        if self._angle == 0.0:
+            return base
+        return self._rotation_transform().mapRect(base)
 
     def paint(self, painter, option, widget=None):
         color = QColor(self._area._display_color or "#ff0000")
-        paint_badge(painter, self._area.badge_rows(), color)
+        if self._angle != 0.0:
+            painter.save()
+            painter.setTransform(self._rotation_transform(), True)
+            paint_badge(painter, self._area.badge_rows(), color)
+            painter.restore()
+        else:
+            paint_badge(painter, self._area.badge_rows(), color)
 
     def itemChange(self, change, value):
         if (change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged

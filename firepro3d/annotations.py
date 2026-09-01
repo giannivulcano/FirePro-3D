@@ -130,6 +130,10 @@ class NoteAnnotation(QGraphicsTextItem, Annotation):
     # baked move is a plain moveBy.  No scale/rotate in v1.
 
     def manip_capabilities(self) -> set:
+        # Translate-only (U1 deferred rotate): a mixed selection that includes
+        # a note hides the group rotate knob (the manipulator requires every
+        # member to implement manip_rotate).  Adding "rotate" here + a
+        # manip_rotate method lights up group rotate for notes.
         return {"translate"}
 
     def manip_translate(self, dx: float, dy: float):
@@ -280,6 +284,9 @@ class DimensionAnnotation(QGraphicsLineItem, Annotation):
     # No scale/rotate in v1.
 
     def manip_capabilities(self) -> set:
+        # Translate-only (U1 deferred rotate): a mixed selection that includes
+        # a dimension hides the group rotate knob.  Adding "rotate" here + a
+        # manip_rotate method lights up group rotate for dimensions.
         return {"translate"}
 
     def manip_translate(self, dx: float, dy: float):

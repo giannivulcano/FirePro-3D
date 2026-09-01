@@ -78,6 +78,11 @@ from .displayable_item import DisplayableItemMixin
 class Room(DisplayableItemMixin, QGraphicsPolygonItem):
     """A closed polygonal room/space region derived from wall boundaries."""
 
+    # selection-manipulator U1: a room follows a GROUP rotation but is not an
+    # independent rotate target — the manipulator hides the rotate knob for a
+    # lone-room selection (see SelectionManipulator._layout).
+    MANIP_NO_SOLO_ROTATE = True
+
     def __init__(self, boundary: list[QPointF] | None = None,
                  color: str | QColor = "#4488cc"):
         super().__init__()
@@ -558,6 +563,16 @@ class Room(DisplayableItemMixin, QGraphicsPolygonItem):
 
     def translate(self, dx: float, dy: float):
         self._boundary = [QPointF(p.x() + dx, p.y() + dy) for p in self._boundary]
+        self._rebuild()
+
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the room boundary about ``pivot`` (Y-up CCW+).
+
+        Mirrors :meth:`translate`; rotates every boundary vertex then rebuilds.
+        (No standalone rotate affordance — see ``MANIP_NO_SOLO_ROTATE``.)"""
+        from .cad_math import CAD_Math
+        self._boundary = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                          for p in self._boundary]
         self._rebuild()
 
     # ── Serialization ────────────────────────────────────────────────────

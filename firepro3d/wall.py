@@ -488,6 +488,17 @@ class WallSegment(DisplayableItemMixin, QGraphicsPathItem):
         self._pt2 = QPointF(self._pt2.x() + dx, self._pt2.y() + dy)
         self._rebuild_path()
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the wall centerline about ``pivot`` (Y-up CCW+).
+
+        Mirrors :meth:`translate`: rotate both endpoints, then rebuild (miters +
+        hosted openings follow).  No lock check — ``translate`` has none either.
+        """
+        from .cad_math import CAD_Math
+        self._pt1 = CAD_Math.rotate_point(self._pt1, pivot, -angle_deg)
+        self._pt2 = CAD_Math.rotate_point(self._pt2, pivot, -angle_deg)
+        self._rebuild_path()
+
     # ── Properties API ───────────────────────────────────────────────────────
 
     def z_range_mm(self) -> tuple[float, float] | None:

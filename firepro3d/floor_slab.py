@@ -306,6 +306,16 @@ class FloorSlab(DisplayableItemMixin, QGraphicsPathItem):
         self._points = [QPointF(p.x() + dx, p.y() + dy) for p in self._points]
         self._rebuild_path()
 
+    def manip_rotate(self, angle_deg: float, pivot: "QPointF") -> None:
+        """Baked rigid rotate of the 2D slab boundary about ``pivot`` (Y-up CCW+).
+
+        Mirrors :meth:`translate`; the elevation Z-range is untouched (2D-plane
+        rotation only)."""
+        from .cad_math import CAD_Math
+        self._points = [CAD_Math.rotate_point(p, pivot, -angle_deg)
+                        for p in self._points]
+        self._rebuild_path()
+
     # ── Properties API ───────────────────────────────────────────────────────
 
     def get_properties(self) -> dict:

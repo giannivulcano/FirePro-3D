@@ -589,8 +589,28 @@ class SelectionManipulator(QGraphicsObject):
             return False
         if self.shape().contains(self.mapFromScene(scene_pos)):
             return True
+        # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
+        # the item's scene transform and ignores the view zoom, so it only
+        # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the
+        # mapped point is wrong and the knob/handles read as not-hit — the press
+        # then falls through to selection and clears it.  Map through the view's
+        # device transform instead (Qt's canonical path for screen-constant
+        # items), falling back to mapFromScene only when no view is reachable
+        # (headless).
+        view = self._view()
+        vt = view.viewportTransform() if view is not None else None
         for h in self._handles.values():
-            if h.isVisible() and h.shape().contains(h.mapFromScene(scene_pos)):
+            if not h.isVisible():
+                continue
+            if vt is not None:
+                dt = h.deviceTransform(vt)        # handle-local -> viewport px
+                inv, ok = dt.inverted()
+                if not ok:
+                    continue
+                local = inv.map(vt.map(scene_pos))  # scene -> px -> handle-local
+            else:
+                local = h.mapFromScene(scene_pos)
+            if h.shape().contains(local):
                 return True
         return False
 
@@ -638,6 +658,11 @@ class SelectionManipulator(QGraphicsObject):
         single = len(self._items) == 1
         show_scale = single and bool(caps) and "scale" in caps[0]
         show_rotate = bool(self._items) and all("rotate" in c for c in caps)
+        # A lone item that opts out of solo rotation (e.g. Room — follows a
+        # group rotation but is not an independent rotate target) hides the
+        # knob; multi-select group rotate is unaffected.
+        if single and getattr(self._items[0], "MANIP_NO_SOLO_ROTATE", False):
+            show_rotate = False
         for role in _RESIZE_ROLES:
             self._handles[role].setVisible(show_scale)
         self._handles[HandleRole.ROTATE].setVisible(show_rotate)
@@ -678,7 +703,15 @@ class SelectionManipulator(QGraphicsObject):
     def _view(self):
         sc = self.scene()
         views = sc.views() if sc else []
-        return views[0] if views else None
+        if not views:
+            return None
+        # Prefer a visible view: Model_Space keeps a hidden vestigial view at
+        # index 0 (m11==1) plus one per open plan tab, so views[0] can be the
+        # wrong (unshown) transform for hit-testing screen-constant handles.
+        for v in views:
+            if v.isVisible():
+                return v
+        return views[0]
 
     def _view_scale(self) -> float:
         v = self._view()
@@ -953,6 +986,14 @@ class SelectionManipulator(QGraphicsObject):
                 self.rebake()
         self._close_hud()
 
+    def _refresh_fittings(self, items) -> None:
+        """Refresh any node fittings after a bake (shared by move/rotate/scale
+        so they cannot drift on fitting freshness)."""
+        for it in items:
+            fitting = getattr(it, "fitting", None)
+            if fitting is not None:
+                fitting.update()
+
     def _bake_move(self, items, dx: float, dy: float) -> None:
         """Bake a move of *items* by (dx, dy) and fire one undo.
 
@@ -965,9 +1006,7 @@ class SelectionManipulator(QGraphicsObject):
                 log.warning(
                     "SelectionManipulator: %s has no translate path — "
                     "move not baked", type(it).__name__)
-            fitting = getattr(it, "fitting", None)
-            if fitting is not None:
-                fitting.update()
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
@@ -999,6 +1038,7 @@ class SelectionManipulator(QGraphicsObject):
                             "resize not baked", type(it).__name__)
                 continue
             fn(fx, fy, anchor)
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
@@ -1019,6 +1059,7 @@ class SelectionManipulator(QGraphicsObject):
                             "rotate not baked", type(it).__name__)
                 continue
             fn(angle_deg, pivot)
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
