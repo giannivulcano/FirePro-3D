@@ -1,13 +1,14 @@
-from PyQt6.QtWidgets import QDialog
+from PyQt6.QtWidgets import QDialog, QLabel
 from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRect, QEvent
 from firepro3d.frameless_shell import FramelessShellMixin
 
 
 class _Host(FramelessShellMixin, QDialog):
-    def __init__(self):
+    def __init__(self, icon=None):
         super().__init__()
-        self.init_frameless_shell(title="Host", controls=("min", "max", "close"), resizable=True)
+        self.init_frameless_shell(title="Host", controls=("min", "max", "close"),
+                                  resizable=True, icon=icon)
 
 
 def test_shell_is_frameless_with_three_controls(qapp):
@@ -15,6 +16,26 @@ def test_shell_is_frameless_with_three_controls(qapp):
     assert h.windowFlags() & Qt.WindowType.FramelessWindowHint
     assert {"min", "max", "close"} <= set(h._win_controls.keys())
     h.deleteLater()
+
+
+def test_titlebar_icon_optional(qapp):
+    # No icon: the mixin still builds a titlebar, no crash, no icon required.
+    h = _Host(icon=None)
+    assert h._titlebar is not None
+    assert not any(
+        lbl.pixmap() is not None and not lbl.pixmap().isNull()
+        for lbl in h._titlebar.findChildren(QLabel))
+    h.deleteLater()
+
+    # With a real icon filename, an icon label with a non-null pixmap shows.
+    h2 = _Host(icon="underlay_manager_icon.svg")
+    assert h2._titlebar is not None
+    icon_labels = [
+        lbl for lbl in h2._titlebar.findChildren(QLabel)
+        if lbl.pixmap() is not None and not lbl.pixmap().isNull()
+    ]
+    assert icon_labels, "expected an icon QLabel with a non-null pixmap"
+    h2.deleteLater()
 
 
 def test_double_click_titlebar_toggles_maximize(qapp):

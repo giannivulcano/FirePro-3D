@@ -80,16 +80,9 @@ class _DetailsPanel(QFrame):
         root.setContentsMargins(14, 12, 14, 14)
         root.setSpacing(9)
 
-        header = QLabel("D E T A I L S")
+        header = QLabel("DETAILS")
         header.setProperty("role", "header")
         root.addWidget(header)
-
-        # Themed placeholder where a preview would go (no real thumbnail for MVP).
-        self.preview = QLabel()
-        self.preview.setObjectName("previewBox")
-        self.preview.setFixedHeight(122)
-        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self.preview)
 
         self.name = QLabel()
         self.name.setStyleSheet("font-weight:600;font-size:14px;")
@@ -149,7 +142,7 @@ class _DetailsPanel(QFrame):
     # -- population --------------------------------------------------------
     def show_selection(self, records: list, layer_count: int = 0) -> None:
         single = len(records) == 1
-        for widget in (self.preview, self.name, self.status,
+        for widget in (self.name, self.status,
                        self.btn_reload, self.btn_relink):
             widget.setVisible(single)
         for i in range(self.grid.count()):
@@ -201,6 +194,7 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
             title="Underlay Manager",
             controls=("min", "max", "close"),
             resizable=True,
+            icon="underlay_manager_icon.svg",
         )
         self.scene = scene
         self.main_window = main_window

@@ -39,6 +39,7 @@ from PyQt6.QtCore import Qt, QSize, QByteArray, QRect
 from PyQt6.QtSvg import QSvgRenderer
 
 from .theme import detect
+from .icons import themed_icon
 
 
 _WINCTL_INLAY = {
@@ -98,7 +99,7 @@ class FramelessShellMixin:
 
     # ── setup ────────────────────────────────────────────────────────────────
     def init_frameless_shell(self, title, controls=("close",), resizable=False,
-                             build_titlebar=True):
+                             build_titlebar=True, icon=None):
         """Apply frameless flags and initialise shell state.
 
         Args:
@@ -108,6 +109,8 @@ class FramelessShellMixin:
             build_titlebar: If True, build ``self._titlebar`` here. Hosts that
                 build their own richer titlebar (icon + title + dots) should
                 pass ``False`` and populate ``self._win_controls`` themselves.
+            icon: Optional svg filename (e.g. ``"underlay_manager_icon.svg"``)
+                shown before the title in the mixin-built titlebar.
         """
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint
                             | Qt.WindowType.Dialog)
@@ -121,10 +124,10 @@ class FramelessShellMixin:
         if resizable:
             self.setMouseTracking(True)
         if build_titlebar:
-            self._titlebar = self._build_titlebar(title, controls)
+            self._titlebar = self._build_titlebar(title, controls, icon=icon)
 
-    def _build_titlebar(self, title, controls):
-        """Build a plain themed titlebar: title label + control dots.
+    def _build_titlebar(self, title, controls, icon=None):
+        """Build a plain themed titlebar: (optional icon) + title label + dots.
 
         Returns a ``QFrame`` (objectName ``shellHeader`` to inherit the shared
         chrome QSS). Populates ``self._win_controls``.
@@ -134,6 +137,16 @@ class FramelessShellMixin:
         bar.setFixedHeight(40)
         hb = QHBoxLayout(bar)
         hb.setContentsMargins(14, 7, 10, 7)
+        if isinstance(icon, str) and icon:
+            glyph = QLabel()
+            try:
+                glyph.setPixmap(themed_icon(
+                    icon,
+                    "light" if t.name == "light" else "dark").pixmap(22, 22))
+            except Exception:
+                pass
+            hb.addWidget(glyph)
+            hb.addSpacing(8)
         self._shell_title_lbl = QLabel(title)
         self._shell_title_lbl.setStyleSheet(
             f"color:{t.ink}; font-size:14px; font-weight:700; background:transparent;")

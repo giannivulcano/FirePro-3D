@@ -8,10 +8,11 @@ existing CRUD widgets survive the change (guts unchanged).
 Construction mirrors ``tests/test_underlay_manager_dialog.py`` exactly.
 """
 from PyQt6.QtCore import Qt, QObject, pyqtSignal
+from PyQt6.QtWidgets import QLabel
 
 from firepro3d.frameless_shell import FramelessShellMixin
 from firepro3d.underlay import Underlay
-from firepro3d.underlay_manager import UnderlayManagerDialog
+from firepro3d.underlay_manager import UnderlayManagerDialog, _DetailsPanel
 
 
 # --------------------------------------------------------------------------
@@ -112,3 +113,21 @@ def test_manager_resizable_respects_min_size(qapp):
     # resizable path is enabled
     assert dlg._resizable is True
     dlg.deleteLater()
+
+
+def test_manager_header_has_icon(qapp):
+    dlg = _make_dialog()
+    # The mixin-built titlebar should carry an icon QLabel with a real pixmap.
+    icon_labels = [
+        lbl for lbl in dlg._titlebar.findChildren(QLabel)
+        if lbl.pixmap() is not None and not lbl.pixmap().isNull()
+    ]
+    assert icon_labels, (
+        "expected an icon QLabel with a non-null pixmap in the mixin titlebar")
+    dlg.deleteLater()
+
+
+def test_details_panel_has_no_preview_box(qapp):
+    panel = _DetailsPanel()
+    assert not hasattr(panel, "preview")
+    panel.deleteLater()

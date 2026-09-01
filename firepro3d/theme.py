@@ -784,9 +784,6 @@ QFrame#detailsPanel { background: $surface; border-left: 1px solid $line; }
 QFrame#shellHeader { background: $surface2; border-bottom: 1px solid $line; }
 QFrame#footerBar    { background: $surface2; border-top: 1px solid $line; }
 QFrame#toolbarBar   { background: $surface; border-bottom: 1px solid $line; }
-QLabel#previewBox {
-    background: $table; border: 1px solid $line; border-radius: 6px;
-}
 
 QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
 QScrollBar::handle:vertical { background: $line_strong; border-radius: 5px; min-height: 30px; }
