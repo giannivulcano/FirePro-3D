@@ -1309,6 +1309,7 @@ class UnderlayImportDialog(QDialog):
         self._rotation_edit.editingFinished.connect(self._update_all)
         self._origin_cb.toggled.connect(lambda *_: self._update_all())
         self._layer_list.itemChanged.connect(lambda *_: self._update_all())
+        self._file_edit.textChanged.connect(lambda *_: self._update_all())
 
         self._update_base_enabled()  # base point starts disabled (origin on)
         self._update_all()
