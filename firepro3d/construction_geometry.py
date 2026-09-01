@@ -1250,7 +1250,7 @@ class ArcItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathItem):
         advance the start angle by ``angle_deg`` (Y-up); span unchanged."""
         from .cad_math import CAD_Math
         self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
-        self._start_deg = self._start_deg + angle_deg
+        self._start_deg = (self._start_deg + angle_deg) % 360.0
         self._rebuild_path()
 
     # ── Closed-path protocol ─────────────────────────────────────────────────
@@ -1469,7 +1469,7 @@ class RegularPolygonItem(Geometry2DMixin, DisplayableItemMixin, QGraphicsPathIte
         advance the parametric orientation ``_rotation_deg`` by ``angle_deg``."""
         from .cad_math import CAD_Math
         self._center = CAD_Math.rotate_point(self._center, pivot, -angle_deg)
-        self._rotation_deg = self._rotation_deg + angle_deg
+        self._rotation_deg = (self._rotation_deg + angle_deg) % 360.0
         self._regenerate()
 
     def to_dict(self) -> dict:

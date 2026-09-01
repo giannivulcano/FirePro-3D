@@ -179,8 +179,13 @@ def test_group_rotate_one_undo_restores_all(qapp, scene_and_view):
     la, lb = scene._draw_lines[0], scene._draw_lines[1]
     got = sorted([la, lb], key=lambda ln: ln._pt1.y())
     ra, rb = got[0], got[1]
-    assert abs(ra._pt1.x() - a0[0].x()) < 1e-6 and abs(ra._pt2.y() - a0[1].y()) < 1e-6
-    assert abs(rb._pt1.x() - b0[0].x()) < 1e-6 and abs(rb._pt2.y() - b0[1].y()) < 1e-6
+    # Assert ALL four coordinates restore (a 90° rotation swaps x/y, so a
+    # partial x-only/y-only check could false-green).
+    for got_ln, orig in ((ra, a0), (rb, b0)):
+        assert abs(got_ln._pt1.x() - orig[0].x()) < 1e-6
+        assert abs(got_ln._pt1.y() - orig[0].y()) < 1e-6
+        assert abs(got_ln._pt2.x() - orig[1].x()) < 1e-6
+        assert abs(got_ln._pt2.y() - orig[1].y()) < 1e-6
 
 
 def test_rotate_noop_is_byte_identical(qapp, scene_and_view):

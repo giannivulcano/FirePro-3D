@@ -1167,7 +1167,7 @@ class DesignArea(QGraphicsPathItem):
         center = self.badge.pos() + half
         new_center = CAD_Math.rotate_point(center, pivot, -angle_deg)
         self.badge.prepareGeometryChange()
-        self.badge._angle = self.badge._angle + angle_deg
+        self.badge._angle = (self.badge._angle + angle_deg) % 360.0
         self.set_badge_offset(new_center - half)
 
     # ------------------------------------------------------------------
