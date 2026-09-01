@@ -763,7 +763,7 @@ QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
 }
 #UnderlayManagerDialog QLineEdit:focus, #UnderlayImportDialog QLineEdit:focus { border-color: $accent; }
 
-QTableView#underlayTable {
+QTreeView#underlayTable {
     background: $table;
     alternate-background-color: $table;
     color: $ink;
@@ -773,19 +773,18 @@ QTableView#underlayTable {
     selection-color: $ink;
     outline: none;
 }
-QTableView#underlayTable::item {
+QTreeView#underlayTable::item {
     border-bottom: 1px solid $line;
     padding: 0 4px;
 }
-QTableView#underlayTable::item:hover    { background: $accent_soft; }
-QTableView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
+QTreeView#underlayTable::item:hover    { background: $accent_soft; }
+QTreeView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
 QHeaderView::section {
     background: $table; color: $muted;
     border: none; border-bottom: 1px solid $line_strong;
     padding: 7px 8px;
     font-size: 10px; font-weight: 600;
 }
-QTableView QTableCornerButton::section { background: $table; border: none; }
 
 QFrame#detailsPanel { background: $surface; border-left: 1px solid $line; }
 QFrame#shellHeader { background: $surface2; border-bottom: 1px solid $line; }

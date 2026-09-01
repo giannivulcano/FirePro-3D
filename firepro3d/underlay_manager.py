@@ -204,8 +204,9 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         if apply_stylesheet:
             self.setStyleSheet(build_underlay_manager_qss(theme))
         self.setMinimumSize(720, 420)
-        self.resize(1080, 560)
+        self.resize(1080, 560)  # restore baseline (size after un-maximize)
         self.setModal(False)
+        self._did_initial_max = False
 
         self._known_levels = lambda: [
             l.name for l in main_window.level_mgr.levels]
@@ -309,6 +310,17 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         root.addWidget(footer)
 
         self.view.expandAll()
+
+    # -------------------------------------------------------------- lifecycle
+    def showEvent(self, event):
+        # Chain to the mixin's showEvent (DWM rounded corners) via MRO, then
+        # maximize once on first show. The guard keeps the 1080x560 resize() as
+        # the restore baseline and prevents a later reshow (singleton reopen via
+        # open_underlay_manager) or user restore from being re-maximized.
+        super().showEvent(event)
+        if not getattr(self, "_did_initial_max", False):
+            self._did_initial_max = True
+            self.showMaximized()
 
     # ---------------------------------------------------------------- wiring
     def _wire(self) -> None:

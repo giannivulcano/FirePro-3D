@@ -37,3 +37,28 @@ def test_generic_button_hover_uses_accent(qapp):
     assert f"border-color: {t.accent}" in rule
     assert t.accent_soft in rule
     assert t.surface2 not in rule
+
+
+def test_tree_qss_selector_retargeted_to_qtreeview(qapp):
+    """The manager view is a QTreeView, so its QSS block must target
+    ``QTreeView#underlayTable`` — Qt QSS does not match a QTableView selector to
+    a QTreeView, which left the whole block (bg / accent hover / selection)
+    inert. This asserts the selector was retargeted and fully resolves.
+    """
+    from firepro3d.theme import build_underlay_manager_qss, detect
+
+    t = detect()
+    qss = build_underlay_manager_qss(t)
+
+    # Retargeted: tree selector present, stale table selector gone.
+    assert "QTreeView#underlayTable" in qss
+    assert "QTableView#underlayTable" not in qss
+
+    # The accent hover rule now applies to the tree, with accent_soft resolved.
+    hover_lines = [
+        ln for ln in qss.splitlines()
+        if "QTreeView#underlayTable::item:hover" in ln
+    ]
+    assert len(hover_lines) == 1, hover_lines
+    assert t.accent_soft in hover_lines[0]
+    assert "$accent" not in qss  # all tokens substituted

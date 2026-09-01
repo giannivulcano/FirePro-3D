@@ -1020,6 +1020,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             title=f"Import Underlay — {self._project_name}",
             controls=("min", "max", "close"), resizable=False,
             build_titlebar=False)
+        self._did_initial_max = False
         self.resize(1150, 660)
         # Never let content (e.g. the PDF filmstrip/layer list on load) grow the
         # dialog past the screen and push the panel off-edge.
@@ -1669,6 +1670,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     # Frameless chrome (_toggle_max / mouse*Event drag / showEvent rounded
     # corners / _enable_rounded_corners) is provided by FramelessShellMixin.
+
+    def showEvent(self, event):
+        # Chain to the mixin's showEvent (enables DWM rounded corners) via MRO,
+        # then maximize once on first show. The guard preserves a later
+        # double-click/restore (a reshow won't re-maximize).
+        super().showEvent(event)
+        if not getattr(self, "_did_initial_max", False):
+            self._did_initial_max = True
+            self.showMaximized()
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
