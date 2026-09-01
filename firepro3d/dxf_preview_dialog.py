@@ -216,6 +216,7 @@ class _PreviewView(QGraphicsView):
         self._pan_start = None
         self._rb_start: QPointF | None = None
         self._rb_item: QGraphicsRectItem | None = None
+        self._rb_scrim: QGraphicsPathItem | None = None
 
     def set_mode(self, mode: str):
         self._mode = mode
@@ -279,12 +280,17 @@ class _PreviewView(QGraphicsView):
             if self._mode == "rubber_band":
                 self._rb_start = scene_pos
                 self._rb_item = QGraphicsRectItem()
-                pen = QPen(QColor("#00aaff"), 1, Qt.PenStyle.DashLine)
+                pen = QPen(QColor(detect().accent), 1.4, Qt.PenStyle.DashLine)
                 pen.setCosmetic(True)
                 self._rb_item.setPen(pen)
-                self._rb_item.setBrush(QBrush(QColor(0, 170, 255, 30)))
+                self._rb_item.setBrush(QBrush(Qt.BrushStyle.NoBrush))  # outside-dim scrim
                 self._rb_item.setZValue(1000)
                 self.scene().addItem(self._rb_item)
+                self._rb_scrim = QGraphicsPathItem()
+                self._rb_scrim.setBrush(QBrush(QColor(10, 12, 15, 120)))
+                self._rb_scrim.setPen(QPen(Qt.PenStyle.NoPen))
+                self._rb_scrim.setZValue(999)
+                self.scene().addItem(self._rb_scrim)
             elif self._mode == "pick_point":
                 # Use snapped point if available
                 dlg = getattr(self, "_dialog", None)
@@ -305,6 +311,14 @@ class _PreviewView(QGraphicsView):
             rect = QRectF(self._rb_start, scene_pos).normalized()
             if self._rb_item:
                 self._rb_item.setRect(rect)
+            if getattr(self, "_rb_scrim", None) is not None:
+                ext = self.scene().itemsBoundingRect().united(rect).adjusted(
+                    -80, -80, 80, 80)
+                sp = QPainterPath()
+                sp.addRect(ext)
+                sp.addRect(rect)
+                sp.setFillRule(Qt.FillRule.OddEvenFill)
+                self._rb_scrim.setPath(sp)
         elif self._mode == "pick_point":
             scene_pos = self.mapToScene(event.pos())
             dlg = getattr(self, "_dialog", None)
@@ -339,6 +353,9 @@ class _PreviewView(QGraphicsView):
             if self._rb_item:
                 self.scene().removeItem(self._rb_item)
                 self._rb_item = None
+            if getattr(self, "_rb_scrim", None) is not None:
+                self.scene().removeItem(self._rb_scrim)
+                self._rb_scrim = None
             self._rb_start = None
             if rect.width() > 2 or rect.height() > 2:
                 self.rubber_band_rect.emit(rect)
@@ -1468,12 +1485,6 @@ class UnderlayImportDialog(QDialog):
         con_v.addWidget(self._layout_combo)
         # Region (crop) — sits above Source layers
         con_v.addWidget(_hdr("Region"))
-        self._region_lbl = QLabel(
-            "Whole sheet imports. Draw a crop on the preview to bring in just "
-            "one area.")
-        self._region_lbl.setWordWrap(True)
-        self._region_lbl.setStyleSheet(f"color:{t.muted}; font-size:11px;")
-        con_v.addWidget(self._region_lbl)
         crop_row = QHBoxLayout()
         self._rb_btn = _pill(
             "Draw crop", lambda: self._set_view_mode("rubber_band"),
@@ -1567,10 +1578,6 @@ class UnderlayImportDialog(QDialog):
         self._calibration_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
         pl_v.addWidget(self._calibration_lbl)
-        self._scale_readout_lbl = QLabel("")
-        self._scale_readout_lbl.setStyleSheet(f"color: {t.accent}; font-size: 11px;")
-        self._scale_readout_lbl.setVisible(False)
-        pl_v.addWidget(self._scale_readout_lbl)
         self._scale_ratio_lbl = QLabel("")
         self._scale_ratio_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._scale_ratio_lbl.setVisible(False)
@@ -3110,6 +3117,10 @@ class UnderlayImportDialog(QDialog):
                             f"{px_dist:.1f} px = {display}")
                     self._calibration_lbl.setVisible(True)
                     self._status_lbl.setText(f"Scale calibrated: {display}")
+                    # Calibration verifies the scale (set AFTER the factor edit
+                    # above, which fired the un-verify).
+                    self._mark_scale_verified(
+                        f"Measured on the preview — {display} between your picks.")
                 else:
                     self._status_lbl.setText("Could not parse distance — try again.")
             else:
