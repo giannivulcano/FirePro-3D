@@ -115,6 +115,28 @@ invisible on the dark theme. States covered: unchecked, `:hover`,
 
 ## UI conventions
 
+### Typography & labels
+
+- **Font family:** the app sets **no** explicit family — it inherits the system
+  default (**Segoe UI** on Windows). Do not hard-code a UI font family in QSS;
+  `main.py` uses `QFont("Segoe UI", …)` only for the splash logo/status where an
+  explicit size is needed.
+- **Monospace** (`"IBM Plex Mono", Consolas, monospace`) is reserved for
+  *technical values* — layer-name lists, scale/ratio readouts — never for prose
+  or labels.
+- **No `letter-spacing`.** Character tracking is not part of the house style;
+  don't add it to headers or labels.
+- **Group / section labels are UPPERCASE** and use the shared `role="header"`
+  style (muted, ~10px, weight 600) — e.g. `SOURCE`, `PLACEMENT`, `DETAILS`.
+  Author the label text in normal case and uppercase in code
+  (`QLabel(text.upper())` + `setProperty("role","header")`) or author it
+  uppercased; either way the rendered label is uppercase. Field labels
+  (`Scale:`, `X:`) stay sentence case.
+- **Button hover** in dialog chrome uses an **accent-soft** wash with an accent
+  border (not a neutral `surface2` fill). Object-scoped dialogs that predate this
+  (the base Underlay-Manager QSS) may still use `surface2`; new/ported dialogs
+  should override to accent-soft.
+
 ### Canvas selection & resize grips (base style)
 
 The canonical look-and-feel for any selectable/resizable canvas item

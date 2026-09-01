@@ -1579,7 +1579,8 @@ class MainWindow(QMainWindow):
         # --- Underlay (moved from Manage → Import) ---
         g_ul = view_page.add_group("Underlay")
         _btn = g_ul.add_large_button(
-            "Underlay\nManager", _I("underlay_icon.svg"), self.open_underlay_manager)
+            "Underlay\nManager", _I("underlay_manager_icon.svg"),
+            self.open_underlay_manager)
         _btn.setToolTip("Import/manage PDF, DXF, or DWG underlays")
 
         # --- Display ---
