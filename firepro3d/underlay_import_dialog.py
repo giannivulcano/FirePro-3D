@@ -67,6 +67,7 @@ from .dxf_import_worker import _sanitize_dxf
 from .loading_bar import LoadingBar
 from .theme import (detect, build_app_qss, build_underlay_manager_qss,
                     FONT_UI, FONT_VALUE)
+from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
@@ -992,51 +993,7 @@ def _import_extra_qss(t) -> str:
     """
 
 
-_WINCTL_INLAY = {
-    "min":   '<path d="M7 12 H17"/>',
-    "max":   '<path d="M12 7 V17 M7 12 H17"/>',
-    "close": '<path d="M8.5 8.5 L15.5 15.5 M15.5 8.5 L8.5 15.5"/>',
-}
-
-
-def _winctl_pixmap(kind: str, circle: str, inlay: str, px: int = 16) -> QPixmap:
-    """Render a window-control icon: grey circle + accent inlay."""
-    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
-           f'<circle cx="12" cy="12" r="11" fill="{circle}"/>'
-           f'<g stroke="{inlay}" stroke-width="2.2" stroke-linecap="round"'
-           f' fill="none">{_WINCTL_INLAY[kind]}</g></svg>')
-    pm = QPixmap(px, px)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    QSvgRenderer(QByteArray(svg.encode())).render(p)
-    p.end()
-    return pm
-
-
-class _WinDot(QPushButton):
-    """A window-control dot (min/max/close): accent inlay on a grey circle;
-    the circle brightens on hover."""
-    def __init__(self, kind: str, slot, theme, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(20, 20)
-        self.setIconSize(QSize(18, 18))
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QPushButton{border:none;background:transparent;}")
-        self._normal = QIcon(_winctl_pixmap(kind, theme.line_strong, theme.accent, 18))
-        self._hover = QIcon(_winctl_pixmap(kind, theme.faint, theme.accent, 18))
-        self.setIcon(self._normal)
-        self.clicked.connect(slot)
-
-    def enterEvent(self, e):
-        self.setIcon(self._hover)
-        super().enterEvent(e)
-
-    def leaveEvent(self, e):
-        self.setIcon(self._normal)
-        super().leaveEvent(e)
-
-
-class UnderlayImportDialog(QDialog):
+class UnderlayImportDialog(FramelessShellMixin, QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
     _SCALE_OPTIONS = [
@@ -1063,8 +1020,14 @@ class UnderlayImportDialog(QDialog):
         proj = getattr(parent, "_current_file", None)
         self._project_name = (os.path.splitext(os.path.basename(proj))[0]
                               if proj else "Untitled")
-        self.setWindowTitle(f"Import Underlay — {self._project_name}")
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        # Frameless chrome (flags, drag, maximize toggle, DWM rounded corners)
+        # comes from FramelessShellMixin. This dialog is modal and not resizable,
+        # and builds its own richer titlebar (icon + title + file label + dots)
+        # in _build_ui, so we skip the mixin's plain titlebar builder.
+        self.init_frameless_shell(
+            title=f"Import Underlay — {self._project_name}",
+            controls=("min", "max", "close"), resizable=False,
+            build_titlebar=False)
         self.resize(1150, 660)
         # Never let content (e.g. the PDF filmstrip/layer list on load) grow the
         # dialog past the screen and push the panel off-edge.
@@ -1072,7 +1035,6 @@ class UnderlayImportDialog(QDialog):
         if _scr is not None:
             _avail = _scr.availableGeometry()
             self.setMaximumSize(_avail.width(), _avail.height())
-        self._drag_pos = None
 
         self._sm = scale_manager
         self._default_dir = default_dir
@@ -1269,7 +1231,9 @@ class UnderlayImportDialog(QDialog):
         for _k, _slot in (("min", self.showMinimized),
                           ("max", self._toggle_max),
                           ("close", self.reject)):
-            hb.addWidget(_WinDot(_k, _slot, t), 0, _vc)
+            _dot = _WinDot(_k, _slot, t)
+            self._win_controls[_k] = _dot     # FramelessShellMixin contract
+            hb.addWidget(_dot, 0, _vc)
         outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
@@ -1712,61 +1676,8 @@ class UnderlayImportDialog(QDialog):
         self._active_step = key
         self._update_all()
 
-    def _toggle_max(self):
-        if self.isMaximized():
-            self.showNormal()
-        else:
-            self.showMaximized()
-
-    # Frameless-window drag: the header moves the dialog.
-    def mousePressEvent(self, event):
-        tb = getattr(self, "_titlebar", None)
-        if (tb is not None and event.button() == Qt.MouseButton.LeftButton
-                and tb.geometry().contains(event.position().toPoint())):
-            self._drag_pos = (event.globalPosition().toPoint()
-                              - self.frameGeometry().topLeft())
-            event.accept()
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if (self._drag_pos is not None
-                and event.buttons() & Qt.MouseButton.LeftButton):
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
-        super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        tb = getattr(self, "_titlebar", None)
-        if tb is not None and tb.geometry().contains(event.position().toPoint()):
-            self._toggle_max()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._enable_rounded_corners()
-
-    def _enable_rounded_corners(self):
-        """Win11 DWM rounded corners for the frameless window (matches the
-        native-framed Underlay Manager). No-op / harmless elsewhere."""
-        try:
-            import ctypes
-            hwnd = int(self.winId())
-            DWMWA_WINDOW_CORNER_PREFERENCE = 33
-            DWMWCP_ROUND = 2
-            val = ctypes.c_int(DWMWCP_ROUND)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(
-                hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
-                ctypes.byref(val), ctypes.sizeof(val))
-        except Exception:
-            pass
+    # Frameless chrome (_toggle_max / mouse*Event drag / showEvent rounded
+    # corners / _enable_rounded_corners) is provided by FramelessShellMixin.
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
