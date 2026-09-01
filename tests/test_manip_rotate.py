@@ -148,3 +148,67 @@ def test_roof_manip_rotate_points(scene):
     r.manip_rotate(-45.0, pivot)
     for got, orig in zip(r._points, p0):
         approx_pt(got, orig)
+
+
+def test_polyline_manip_rotate(scene):
+    from firepro3d.construction_geometry import PolylineItem
+    pl = PolylineItem(QPointF(0, 0))
+    pl._points = [QPointF(0, 0), QPointF(50, 0), QPointF(50, 50)]
+    pl._rebuild_path()
+    scene.addItem(pl)
+    pivot = QPointF(0, 0)
+    p0 = [QPointF(p) for p in pl._points]
+    pl.manip_rotate(90.0, pivot)
+    for got, orig in zip(pl._points, p0):
+        approx_pt(got, rot_yup(orig, pivot, 90.0))
+
+
+def test_line_manip_rotate(scene):
+    from firepro3d.construction_geometry import LineItem
+    ln = LineItem(QPointF(0, 0), QPointF(100, 0))
+    scene.addItem(ln)
+    pivot = QPointF(50, 0)
+    a0, b0 = QPointF(ln._pt1), QPointF(ln._pt2)
+    ln.manip_rotate(90.0, pivot)
+    approx_pt(ln._pt1, rot_yup(a0, pivot, 90.0))
+    approx_pt(ln._pt2, rot_yup(b0, pivot, 90.0))
+    approx_pt(ln.line().p1(), ln._pt1)        # setLine synced
+
+
+def test_circle_manip_rotate_moves_center_only(scene):
+    from firepro3d.construction_geometry import CircleItem
+    c = CircleItem(QPointF(100, 0), 20.0)
+    scene.addItem(c)
+    pivot = QPointF(0, 0)
+    ctr0, r0 = QPointF(c._center), c._radius
+    c.manip_rotate(90.0, pivot)
+    approx_pt(c._center, rot_yup(ctr0, pivot, 90.0))
+    assert c._radius == r0                     # shape invariant
+
+
+def test_arc_manip_rotate_center_and_angle(scene):
+    from firepro3d.construction_geometry import ArcItem
+    a = ArcItem(QPointF(0, 0), 50.0, 0.0, 90.0)
+    scene.addItem(a)
+    pivot = QPointF(0, 0)
+    start0, span0 = a._start_deg, a._span_deg
+    startpt0 = a.grip_points()[1]              # rendered start point probe
+    a.manip_rotate(30.0, pivot)
+    assert a._start_deg == pytest.approx(start0 + 30.0)
+    assert a._span_deg == pytest.approx(span0)         # span unchanged
+    approx_pt(a.grip_points()[1], rot_yup(startpt0, pivot, 30.0), eps=1e-3)
+
+
+def test_regular_polygon_manip_rotate(scene):
+    from firepro3d.construction_geometry import RegularPolygonItem
+    rp = RegularPolygonItem(QPointF(0, 0), sides=5, radius_mm=40.0,
+                            rotation_deg=0.0)
+    scene.addItem(rp)
+    pivot = QPointF(100, 0)
+    ctr0 = QPointF(rp._center)
+    rot0 = rp._rotation_deg
+    v0 = rp.vertices()[0]
+    rp.manip_rotate(72.0, pivot)
+    approx_pt(rp._center, rot_yup(ctr0, pivot, 72.0))
+    assert rp._rotation_deg == pytest.approx(rot0 + 72.0)
+    approx_pt(rp.vertices()[0], rot_yup(v0, pivot, 72.0), eps=1e-3)
