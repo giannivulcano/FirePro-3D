@@ -143,9 +143,12 @@ Rules:
 - **Overline labels are UPPERCASE** via `role="header"` (author normal-case and
   `QLabel(text.upper())`, or author uppercased). Field labels (`Scale:`, `X:`)
   stay sentence case; **button** labels are bold sentence case, never all-caps.
-- **Button hover** in dialog chrome uses an **accent-soft** wash + accent border
-  (not a neutral `surface2` fill). The base Underlay-Manager QSS predates this
-  and may still use `surface2`; new/ported dialogs override to accent-soft.
+- **Interactive-hover highlight uses the accent**, never grey: hovering any
+  interactive control (buttons, pills, list items, step rows) fills with
+  `accent_soft` and borders with `accent` (not a neutral `surface2`/`faint`
+  wash). This is the shared generic `:hover:enabled` rule; more-specific
+  variants (`primary`→`ok`, `danger`→danger) legitimately override it. The
+  Underlay Import dialog is the reference implementation.
 
 ### Selection controls
 

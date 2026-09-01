@@ -219,10 +219,12 @@ class UnderlayTreeModel(QAbstractItemModel):
         return len(Col)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if (orientation == Qt.Orientation.Horizontal
-                and role == Qt.ItemDataRole.DisplayRole
-                and 0 <= section < len(TITLES)):
-            return TITLES[section]
+        if orientation == Qt.Orientation.Horizontal:
+            if role == Qt.ItemDataRole.DisplayRole and 0 <= section < len(TITLES):
+                return TITLES[section]
+            if (role == Qt.ItemDataRole.TextAlignmentRole
+                    and section in (Col.VIS, Col.SNAP, Col.TYPE)):
+                return int(Qt.AlignmentFlag.AlignCenter)
         return None
 
     def flags(self, index):
@@ -240,6 +242,12 @@ class UnderlayTreeModel(QAbstractItemModel):
         record = node.record
         col = index.column()
 
+        if role == Qt.ItemDataRole.TextAlignmentRole:
+            # Centre the TYPE cell text (VIS/SNAP are delegate-painted/centred;
+            # other text columns keep default left alignment).
+            if col == Col.TYPE:
+                return int(Qt.AlignmentFlag.AlignCenter)
+            return None
         if role == UnderlayRole:
             return record
         if role == LayerRole:

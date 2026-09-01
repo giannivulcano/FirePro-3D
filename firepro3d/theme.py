@@ -745,7 +745,7 @@ QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
     border: 1px solid $line_strong; border-radius: 6px;
     padding: 5px 12px; font-weight: 500;
 }
-#UnderlayManagerDialog QPushButton:hover:enabled, #UnderlayImportDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
+#UnderlayManagerDialog QPushButton:hover:enabled, #UnderlayImportDialog QPushButton:hover:enabled { background: $accent_soft; border-color: $accent; }
 #UnderlayManagerDialog QPushButton:disabled, #UnderlayImportDialog QPushButton:disabled { color: $faint; border-color: $line; }
 #UnderlayManagerDialog QPushButton[variant="primary"], #UnderlayImportDialog QPushButton[variant="primary"] {
     background: $accent; color: $on_accent; border-color: $accent; font-weight: 600;

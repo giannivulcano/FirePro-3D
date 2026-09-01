@@ -225,3 +225,29 @@ def test_underlaysChanged_resets(qapp):
     scene.underlays.append((_dxf_record(), _FakeGroup(["GRID", "WALLS"])))
     scene.underlaysChanged.emit()
     assert model.rowCount(QModelIndex()) == 2
+
+
+def test_header_alignment_vis_snap_type_centered(qapp):
+    """VIS/SNAP/TYPE headers are centre-aligned; other columns default (None)."""
+    rec = _dxf_record()
+    _scene, model = _make_model([rec])
+    center = int(Qt.AlignmentFlag.AlignCenter)
+    align_role = Qt.ItemDataRole.TextAlignmentRole
+    horiz = Qt.Orientation.Horizontal
+    for col in (Col.VIS, Col.SNAP, Col.TYPE):
+        assert model.headerData(col, horiz, align_role) == center
+    # NAME/SOURCE/LEVELS keep default left alignment (None).
+    assert model.headerData(Col.NAME, horiz, align_role) is None
+    assert model.headerData(Col.SOURCE, horiz, align_role) is None
+
+
+def test_type_cell_text_centered(qapp):
+    """The TYPE cell text is centre-aligned; other text columns default (None)."""
+    rec = _dxf_record()
+    _scene, model = _make_model([rec])
+    center = int(Qt.AlignmentFlag.AlignCenter)
+    align_role = Qt.ItemDataRole.TextAlignmentRole
+    type_idx = model.index(0, int(Col.TYPE), QModelIndex())
+    assert model.data(type_idx, align_role) == center
+    name_idx = model.index(0, int(Col.NAME), QModelIndex())
+    assert model.data(name_idx, align_role) is None

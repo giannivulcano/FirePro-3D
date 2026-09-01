@@ -12,3 +12,28 @@ def test_theme_tokens_and_qss(qapp):
     qss = build_underlay_manager_qss(DARK)
     assert "#UnderlayManagerDialog" in qss
     assert "$accent" not in qss  # all tokens substituted
+
+
+def test_generic_button_hover_uses_accent(qapp):
+    """The generic QPushButton hover fills accent_soft + accent border (not grey).
+
+    House convention: interactive hover uses the accent, never a neutral
+    surface2/faint wash. This asserts against the resolved (detect()) theme.
+    """
+    from firepro3d.theme import build_underlay_manager_qss, detect
+
+    t = detect()
+    qss = build_underlay_manager_qss(t)
+
+    # Isolate the generic :hover:enabled rule (exclude variant-specific ones).
+    hover_lines = [
+        ln for ln in qss.splitlines()
+        if "QPushButton:hover:enabled" in ln and 'variant="' not in ln
+    ]
+    assert len(hover_lines) == 1, hover_lines
+    rule = hover_lines[0]
+
+    # Border uses the accent; fill uses accent_soft; grey tokens are gone.
+    assert f"border-color: {t.accent}" in rule
+    assert t.accent_soft in rule
+    assert t.surface2 not in rule

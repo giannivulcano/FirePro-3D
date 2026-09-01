@@ -934,8 +934,6 @@ def _import_extra_qss(t) -> str:
     #UnderlayImportDialog QListWidget::item:selected {{
         background:{t.accent_soft}; color:{t.ink}; }}
     QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
-    #UnderlayImportDialog QPushButton:hover:enabled {{
-        background:{t.accent_soft}; border-color:{t.accent}; }}
     #UnderlayImportDialog QPushButton[switch="true"] {{ background:{t.raised};
         color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
         padding:5px 14px; font-weight:600; }}
