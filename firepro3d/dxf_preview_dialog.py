@@ -27,7 +27,7 @@ import os
 import tempfile
 
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QStackedWidget,
+    QDialog, QLayout, QVBoxLayout, QHBoxLayout, QSplitter, QStackedWidget,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
     QGraphicsRectItem, QGraphicsTextItem, QGraphicsPixmapItem,
@@ -595,13 +595,57 @@ class _DialogExtractWorker(QThread):
 # (used by the redesigned import shell; do not depend on UnderlayImportDialog)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class _StepRail(QFrame):
-    """Vertical step-rail widget with three clickable rows: source / content / place.
+class _StepRow(QFrame):
+    """One rail row (ported from the prototype): number chip + name + status.
 
-    Each row is a flat QPushButton. Clicking emits ``stepClicked(key)``.
-    Rows carry a ``state`` dynamic property ("done" | "active" | "warn") that
-    QSS can use for colouring; the shell layer adds the stylesheet.
+    Carries ``stepRow`` + ``current``/``done``/``warn`` dynamic properties for
+    QSS (rounded highlight, left accent bar, chip colours). ``clicked`` fires on
+    press; ``click()`` is a test/convenience helper.
     """
+    clicked = pyqtSignal()
+
+    def __init__(self, number: int, name: str, parent=None):
+        super().__init__(parent)
+        self.setProperty("stepRow", True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 6, 8, 6)
+        lay.setSpacing(8)
+        self.no = QLabel(str(number))
+        self.no.setProperty("stepNo", True)
+        self.no.setFixedSize(16, 16)
+        self.no.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        col = QVBoxLayout(); col.setContentsMargins(0, 0, 0, 0); col.setSpacing(0)
+        self.name = QLabel(name)
+        self.name.setProperty("stepName", True)
+        self.status = QLabel("")
+        self.status.setProperty("stepStatus", True)
+        col.addWidget(self.name); col.addWidget(self.status)
+        lay.addWidget(self.no, 0, Qt.AlignmentFlag.AlignTop)
+        lay.addLayout(col, 1)
+
+    def set_state(self, current: bool, done: bool, warn: bool, status: str) -> None:
+        fm = self.status.fontMetrics()
+        self.status.setText(fm.elidedText(status, Qt.TextElideMode.ElideRight, 122))
+        self.status.setToolTip(status)
+        for prop, val in (("current", current), ("done", done), ("warn", warn)):
+            self.setProperty(prop, val)
+            self.no.setProperty(prop, val)
+            self.status.setProperty(prop, val)
+        for widget in (self, self.no, self.status):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
+    def mousePressEvent(self, _event) -> None:
+        self.clicked.emit()
+
+    def click(self) -> None:                 # convenience/test hook
+        self.clicked.emit()
+
+
+class _StepRail(QFrame):
+    """Vertical step-rail of three ``_StepRow``s: source / content / place.
+    Clicking a row emits ``stepClicked(key)``."""
 
     stepClicked = pyqtSignal(str)
 
@@ -612,43 +656,33 @@ class _StepRail(QFrame):
         super().__init__(parent)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(2)
+        lay.setSpacing(4)
 
-        self._rows: dict[str, QPushButton] = {}
+        self._rows: dict[str, _StepRow] = {}
         self._states: dict[str, str] = {}
 
-        for key in self._KEYS:
-            btn = QPushButton(self._LABELS[key])
-            btn.setFlat(True)
-            btn.setFixedWidth(160)
-            # Emit the key when clicked — capture key in default arg
-            btn.clicked.connect(lambda _checked, k=key: self.stepClicked.emit(k))
-            lay.addWidget(btn)
-            self._rows[key] = btn
-            self._states[key] = "active"
+        for i, key in enumerate(self._KEYS, start=1):
+            row = _StepRow(i, self._LABELS[key])
+            row.clicked.connect(lambda k=key: self.stepClicked.emit(k))
+            lay.addWidget(row)
+            self._rows[key] = row
+            self._states[key] = "done"
 
-    # ------------------------------------------------------------------
     def set_step(self, key: str, status: str, state: str) -> None:
-        """Update a step row's status text and state badge."""
-        btn = self._rows[key]
+        """state ∈ {active, done, warn, todo} → current/done/warn props.
+        active = highlighted + green chip; done = green chip; warn = warn chip;
+        todo = grey chip, no highlight."""
         self._states[key] = state
+        self._rows[key].set_state(
+            current=(state == "active"),
+            done=(state in ("active", "done")),
+            warn=(state == "warn"),
+            status=status)
 
-        # Elide the status to ~150px using the button's current font
-        fm = QFontMetricsF(btn.font())
-        elided = fm.elidedText(status, Qt.TextElideMode.ElideRight, 150)
-        btn.setText(f"{self._LABELS[key]}\n{elided}")
-        btn.setToolTip(status)
-
-        btn.setProperty("state", state)
-        btn.style().unpolish(btn)
-        btn.style().polish(btn)
-
-    def row(self, key: str) -> QPushButton:
-        """Return the QPushButton for *key*."""
+    def row(self, key: str) -> "_StepRow":
         return self._rows[key]
 
     def state(self, key: str) -> str:
-        """Return the stored state string for *key*."""
         return self._states[key]
 
 
@@ -796,11 +830,24 @@ def _import_extra_qss(t) -> str:
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
     QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
-    QFrame#stepRail QPushButton {{ text-align:left; padding:8px 11px; border:none;
-        background:transparent; color:{t.ink}; border-radius:7px; font-weight:600; }}
-    QFrame#stepRail QPushButton:hover {{ background:{t.accent_soft}; }}
-    QFrame#stepRail QPushButton[state="active"] {{
-        background:{t.accent_soft}; color:{t.accent}; }}
+    #UnderlayManagerDialog QFrame[stepRow="true"] {{ border-radius:6px;
+        border-left:2px solid transparent; background:transparent; }}
+    #UnderlayManagerDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
+    #UnderlayManagerDialog QFrame[stepRow="true"][current="true"] {{
+        background:{t.accent_soft}; border-left:2px solid {t.accent}; }}
+    #UnderlayManagerDialog QLabel[stepNo="true"] {{ background:{t.raised};
+        color:{t.muted}; border-radius:8px; font-size:9px; font-weight:700; }}
+    #UnderlayManagerDialog QLabel[stepNo="true"][current="true"],
+    #UnderlayManagerDialog QLabel[stepNo="true"][done="true"] {{
+        background:{t.accent}; color:{t.accent_ink}; }}
+    #UnderlayManagerDialog QLabel[stepNo="true"][warn="true"] {{
+        background:{t.warn_soft}; color:{t.warn}; }}
+    #UnderlayManagerDialog QLabel[stepName="true"] {{ font-size:12px;
+        font-weight:700; background:transparent; color:{t.ink}; }}
+    #UnderlayManagerDialog QLabel[stepStatus="true"] {{ font-size:10px;
+        color:{t.faint}; background:transparent; }}
+    #UnderlayManagerDialog QLabel[stepStatus="true"][warn="true"] {{ color:{t.warn}; }}
+    #UnderlayManagerDialog QLabel[stepStatus="true"][done="true"] {{ color:{t.muted}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
         border-left:1px solid {t.line}; }}
     QFrame#scaleCard, QFrame#srcCard {{ background:{t.ground};
@@ -1006,6 +1053,10 @@ class UnderlayImportDialog(QDialog):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+        # QDialog's default layout constraint resizes the window to its content's
+        # sizeHint — so loading a large drawing into the canvas grew the dialog.
+        # Pin it: the window keeps its explicit size, content fits inside.
+        outer.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         # Share the manager's object-scoped QSS (prototype convention) + the
         # import-specific selectors. No custom header — the OS title bar shows
@@ -1499,6 +1550,25 @@ class UnderlayImportDialog(QDialog):
             return
         super().mouseDoubleClickEvent(event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._enable_rounded_corners()
+
+    def _enable_rounded_corners(self):
+        """Win11 DWM rounded corners for the frameless window (matches the
+        native-framed Underlay Manager). No-op / harmless elsewhere."""
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            DWMWA_WINDOW_CORNER_PREFERENCE = 33
+            DWMWCP_ROUND = 2
+            val = ctypes.c_int(DWMWCP_ROUND)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
+                ctypes.byref(val), ctypes.sizeof(val))
+        except Exception:
+            pass
+
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
 
@@ -1605,22 +1675,26 @@ class UnderlayImportDialog(QDialog):
             rotation=rotation, levels=levels, position=position))
 
         active = getattr(self, "_active_step", "source")
-        # The active row always gets the green rounded highlight; others are
-        # neutral ("done"). (Warn conditions surface via the scale pill +
-        # commit sentence, not the rail, until number-chips land.)
-        states = {"source": "done", "content": "done", "place": "done"}
-        states[active] = "active"
+        # active → green highlight + green chip; completed → green chip; place
+        # (not done) → warn chip; otherwise grey/todo.
+        done = {"source": bool(path), "content": bool(path),
+                "place": bool(verified and levels)}
+        def _st(k):
+            if k == active:
+                return "active"
+            if done[k]:
+                return "done"
+            return "warn" if k == "place" else "todo"
         self._rail.set_step(
-            "source", (os.path.basename(path) or "Drop a file or Browse"),
-            states["source"])
+            "source", (os.path.basename(path) or "Drop a file or paste a URL"),
+            _st("source"))
         self._rail.set_step(
-            "content", ("cropped" if cropped else "whole sheet"),
-            states["content"])
+            "content", ("cropped" if cropped else "whole sheet"), _st("content"))
         self._rail.set_step(
             "place",
             f"{len(levels)} level{'s' if len(levels) != 1 else ''} · "
             f"{'verified' if verified else 'unverified'}",
-            states["place"])
+            _st("place"))
 
         ok_btn = self._button_box.button(QDialogButtonBox.StandardButton.Ok)
         if ok_btn is not None:
