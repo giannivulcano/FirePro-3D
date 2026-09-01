@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28 (+§17.2 page-persist 2026-08-30, +§17.4 text-width/transform-dedup 2026-08-30); §18 freeze-blit 2026-08-30 (+§18.5 PDF bézier flatten-tolerance knob 2026-08-30)
-last-verified: 2026-08-30  # §18.5 PDF bézier flatten-tolerance Preferences knob (task 73) shipped on feat/pdf-bezier-flatten-coarsen
-verified-commit: e065d0d
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign)
+last-verified: 2026-09-01  # §10 rewritten to the Rev-8 shell (step-rail/preview/panel/footer, levels re-added, scale_verified, toggle Position, MRU, calibrate auto-verify)
+verified-commit: 2727df5
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py

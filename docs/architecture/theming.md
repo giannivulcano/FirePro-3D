@@ -1,4 +1,4 @@
-<!-- last-verified: 2026-08-29 · verified-commit: ba9e090 (feat/design-token-system) -->
+<!-- last-verified: 2026-09-01 · verified-commit: 2727df5 (feat/import-dialog-redesign — house fonts, type roles, selection controls, windows/dialogs, scrollbars-off) -->
 
 # Theming & UI Style
 
