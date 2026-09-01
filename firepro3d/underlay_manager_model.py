@@ -39,7 +39,7 @@ class Col(IntEnum):
     LEVELS = 7
 
 
-TITLES = ["NAME", "SOURCE", "TYPE", "VIS", "SNAP", "COLOUR", "WEIGHT", "LEVELS"]
+TITLES = ["NAME", "SOURCE", "TYPE", "VISIBILITY", "SNAP", "COLOUR", "WEIGHT", "LEVELS"]
 
 UnderlayRole = Qt.ItemDataRole.UserRole + 1   # -> Underlay record (both row kinds)
 SearchRole = Qt.ItemDataRole.UserRole + 2     # -> combined lowercase text for filtering

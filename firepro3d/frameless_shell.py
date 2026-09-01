@@ -148,8 +148,7 @@ class FramelessShellMixin:
             hb.addWidget(glyph)
             hb.addSpacing(8)
         self._shell_title_lbl = QLabel(title)
-        self._shell_title_lbl.setStyleSheet(
-            f"color:{t.ink}; font-size:14px; font-weight:700; background:transparent;")
+        self._shell_title_lbl.setProperty("role", "title")
         hb.addWidget(self._shell_title_lbl)
         hb.addStretch(1)
         _vc = Qt.AlignmentFlag.AlignVCenter

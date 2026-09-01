@@ -92,6 +92,7 @@ class Theme:
     faint: str
     accent: str
     accent_ink: str
+    on_accent: str
     selection: str
     selection_active: str
     ok: str
@@ -187,7 +188,7 @@ DARK = Theme(
     ground="#141619", surface="#1E2125", sunken="#212529", raised="#24282D",
     line="#363B41", line_strong="#454B52",
     ink="#E6E9EC", muted="#98A1AA", faint="#6F7982",
-    accent="#63BE8B", accent_ink="#0E1712",
+    accent="#63BE8B", accent_ink="#0E1712", on_accent="#ffffff",
     selection="#63BE8B", selection_active="#8FE3B4",
     ok="#6FBE93", warn="#D9A24A", danger="#E07A6F",
 )
@@ -197,7 +198,7 @@ LIGHT = Theme(
     ground="#f4f5f6", surface="#ffffff", sunken="#ffffff", raised="#eceef0",
     line="#d4d8dc", line_strong="#b4bac0",
     ink="#1c2024", muted="#5a636c", faint="#98a1aa",
-    accent="#2f9e63", accent_ink="#ffffff",
+    accent="#2f9e63", accent_ink="#ffffff", on_accent="#ffffff",
     selection="#2f9e63", selection_active="#1f7a49",
     ok="#2f9e63", warn="#b46500", danger="#c42b1c",
 )
@@ -728,6 +729,12 @@ QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
 #UnderlayManagerDialog QLabel[role="header"], #UnderlayImportDialog QLabel[role="header"] {
     color: $muted; font-size: 10px; font-weight: 600;
 }
+#UnderlayManagerDialog QLabel[role="title"], #UnderlayImportDialog QLabel[role="title"] {
+    color: $ink; font-size: 14px; font-weight: 700;
+}
+#UnderlayManagerDialog QLabel[role="name"], #UnderlayImportDialog QLabel[role="name"] {
+    color: $ink; font-size: 14px; font-weight: 600;
+}
 #UnderlayManagerDialog QLabel[state="warn"], #UnderlayImportDialog QLabel[state="warn"] {
     color: $warn; background: $warn_soft;
     border-radius: 6px; padding: 6px 8px;
@@ -741,7 +748,7 @@ QDialog#UnderlayManagerDialog, QDialog#UnderlayImportDialog {
 #UnderlayManagerDialog QPushButton:hover:enabled, #UnderlayImportDialog QPushButton:hover:enabled { background: $surface2; border-color: $faint; }
 #UnderlayManagerDialog QPushButton:disabled, #UnderlayImportDialog QPushButton:disabled { color: $faint; border-color: $line; }
 #UnderlayManagerDialog QPushButton[variant="primary"], #UnderlayImportDialog QPushButton[variant="primary"] {
-    background: $accent; color: $accent_ink; border-color: $accent; font-weight: 600;
+    background: $accent; color: $on_accent; border-color: $accent; font-weight: 600;
 }
 #UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="primary"]:hover:enabled { background: $ok; }
 #UnderlayManagerDialog QPushButton[variant="danger"]:hover:enabled, #UnderlayImportDialog QPushButton[variant="danger"]:hover:enabled {
@@ -815,7 +822,7 @@ QToolTip {
 # Token names the Underlay Manager QSS references via `$name`.
 _UM_QSS_TOKENS = (
     "ground", "surface", "surface2", "table", "ink", "muted", "faint",
-    "line_strong", "line", "accent_ink", "accent_soft2", "accent_soft",
+    "line_strong", "line", "accent_ink", "on_accent", "accent_soft2", "accent_soft",
     "accent", "warn_soft", "warn", "danger_soft", "danger", "ok",
     "chip_ink", "chip",
 )

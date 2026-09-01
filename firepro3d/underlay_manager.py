@@ -85,7 +85,7 @@ class _DetailsPanel(QFrame):
         root.addWidget(header)
 
         self.name = QLabel()
-        self.name.setStyleSheet("font-weight:600;font-size:14px;")
+        self.name.setProperty("role", "name")
         root.addWidget(self.name)
 
         self.status = QLabel()
@@ -283,7 +283,7 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setSectionResizeMode(Col.SOURCE, QHeaderView.ResizeMode.Stretch)
         for col, width in (
-            (Col.NAME, 200), (Col.TYPE, 64), (Col.VIS, 40), (Col.SNAP, 44),
+            (Col.NAME, 200), (Col.TYPE, 64), (Col.VIS, 92), (Col.SNAP, 44),
             (Col.COLOUR, 110), (Col.WEIGHT, 84), (Col.LEVELS, 160),
         ):
             self.view.setColumnWidth(col, width)

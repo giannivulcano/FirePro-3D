@@ -936,9 +936,6 @@ def _import_extra_qss(t) -> str:
     QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
     #UnderlayImportDialog QPushButton:hover:enabled {{
         background:{t.accent_soft}; border-color:{t.accent}; }}
-    #UnderlayImportDialog QPushButton[variant="primary"] {{ color:#ffffff; }}
-    #UnderlayImportDialog QPushButton[variant="primary"]:hover:enabled {{
-        color:#ffffff; }}
     #UnderlayImportDialog QPushButton[switch="true"] {{ background:{t.raised};
         color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
         padding:5px 14px; font-weight:600; }}
@@ -950,7 +947,7 @@ def _import_extra_qss(t) -> str:
     #UnderlayImportDialog QPushButton[switch="true"][segpos="mid"] {{
         border-left:none; }}
     #UnderlayImportDialog QPushButton[switch="true"]:checked {{
-        background:{t.accent}; color:#ffffff; border-color:{t.accent}; }}
+        background:{t.accent}; color:{t.on_accent}; border-color:{t.accent}; }}
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
     QFrame#stepRail {{ background:{t.surface};
@@ -1210,8 +1207,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         except Exception:
             pass
         name_lbl = QLabel("Import Underlay")
-        name_lbl.setStyleSheet(          # Title role
-            f"color:{t.ink}; font-size:14px; font-weight:700; background:transparent;")
+        name_lbl.setProperty("role", "title")
         self._header_file_lbl = QLabel("")           # active file / "(no file loaded)"
         self._header_file_lbl.setProperty("role", "faint")
         hb.addWidget(glyph)

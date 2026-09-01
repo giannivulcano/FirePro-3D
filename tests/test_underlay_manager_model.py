@@ -6,8 +6,14 @@ from firepro3d.theme import DARK
 from firepro3d.underlay_manager_model import (
     UnderlayTreeModel,
     Col,
+    TITLES,
     AppearanceEditableRole,
 )
+
+
+def test_vis_column_header_reads_visibility():
+    """The visibility column header is spelled out, not abbreviated 'VIS'."""
+    assert TITLES[Col.VIS] == "VISIBILITY"
 
 
 class _FakeGroup:

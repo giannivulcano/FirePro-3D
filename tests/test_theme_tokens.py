@@ -9,7 +9,7 @@ from firepro3d import theme as th
 
 PRIMITIVES = {
     "ground", "surface", "sunken", "raised", "line", "line_strong",
-    "ink", "muted", "faint", "accent", "accent_ink",
+    "ink", "muted", "faint", "accent", "accent_ink", "on_accent",
     "selection", "selection_active", "ok", "warn", "danger",
 }
 
@@ -25,7 +25,7 @@ SEMANTICS = {
 }
 
 
-def test_theme_has_exactly_16_primitive_fields():
+def test_theme_has_exactly_the_expected_primitive_fields():
     names = {f.name for f in fields(th.Theme)} - {"name"}
     assert names == PRIMITIVES
 
@@ -101,7 +101,20 @@ def test_underlay_manager_qss_builds_from_house_theme():
     assert "$" not in qss                  # every placeholder substituted
 
 
-def test_no_importers_of_deleted_manager_theme():
+def test_on_accent_is_white_for_both_presets():
+    """Primary-button text token is white on the accent fill in both themes."""
+    assert th.DARK.on_accent == "#ffffff"
+    assert th.LIGHT.on_accent == "#ffffff"
+
+
+def test_primary_button_text_resolves_to_white_for_both_dialog_ids():
+    """The shared primary-button rule uses $on_accent (white), not $accent_ink."""
+    for preset in (th.DARK, th.LIGHT):
+        qss = th.build_underlay_manager_qss(preset)
+        # both dialog ids share one primary-button rule; color must be white
+        rule = qss.split('QPushButton[variant="primary"] {', 1)[1].split("}", 1)[0]
+        assert "color: #ffffff" in rule, rule
+        assert "$" not in qss  # every placeholder substituted
     import importlib
     import pathlib
     src = pathlib.Path(th.__file__).parent
