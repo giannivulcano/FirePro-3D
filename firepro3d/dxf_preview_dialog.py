@@ -619,6 +619,54 @@ class _StepRail(QFrame):
         return self._states[key]
 
 
+class _LevelsPicker(QWidget):
+    """Multi-select list of project levels (checkable QListWidget).
+
+    The *current* level starts checked; all others unchecked.
+    ``changed`` emits whenever any item's check state changes.
+    """
+
+    changed = pyqtSignal()
+
+    def __init__(self, levels: list[str], current: str, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+
+        self._list = QListWidget()
+        self._levels = list(levels)
+
+        for name in levels:
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            state = Qt.CheckState.Checked if name == current else Qt.CheckState.Unchecked
+            item.setCheckState(state)
+            self._list.addItem(item)
+
+        self._list.itemChanged.connect(lambda _item: self.changed.emit())
+        lay.addWidget(self._list)
+
+    # ------------------------------------------------------------------
+    def selected(self) -> list[str]:
+        """Return the names of all currently checked levels, in list order."""
+        result = []
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                result.append(item.text())
+        return result
+
+    def set_selected(self, names: list[str]) -> None:
+        """Set checked items to exactly *names*; others become unchecked."""
+        name_set = set(names)
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            new_state = (Qt.CheckState.Checked
+                         if item.text() in name_set
+                         else Qt.CheckState.Unchecked)
+            item.setCheckState(new_state)
+
+
 class UnderlayImportDialog(QDialog):
     """Unified preview-first import dialog for PDF and DXF underlays."""
 
