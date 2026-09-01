@@ -927,6 +927,12 @@ def _import_extra_qss(t) -> str:
     return f"""
     QDialog#UnderlayImportDialog {{ background:{t.surface};
         border:1px solid {t.muted}; }}
+    /* The app-wide `QWidget {{ font-size:13px }}` rule gives inheriting combos a
+       pixel-size font whose pointSize() is -1; Qt then emits
+       `QFont::setPointSize: Point size <= 0` when it measures the popup. This
+       point-based override (9.75pt == 13px @96dpi) restores a valid pointSize
+       while keeping the rendered size identical. */
+    #UnderlayImportDialog QComboBox {{ font-size:9.75pt; }}
     #UnderlayImportDialog QListWidget {{ background:{t.raised}; color:{t.ink};
         border:1px solid {t.line_strong}; border-radius:6px; }}
     #UnderlayImportDialog QListWidget::item {{ padding:3px 6px; }}
