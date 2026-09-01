@@ -722,8 +722,8 @@ class _LevelsPicker(QWidget):
         # Size to fit all levels (usually a handful) — no internal scrollbar.
         self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         rows = self._list.count()
-        rh = max(self._list.sizeHintForRow(0), 24) if rows else 24
-        self._list.setFixedHeight(rows * rh + 2 * self._list.frameWidth() + 8)
+        rh = max(self._list.sizeHintForRow(0) + 4, 28) if rows else 28
+        self._list.setFixedHeight(rows * rh + 2 * self._list.frameWidth() + 10)
         lay.addWidget(self._list)
 
     # ------------------------------------------------------------------
@@ -781,6 +781,48 @@ class _SwitchBar(QWidget):
     def set_current(self, i: int) -> None:
         if 0 <= i < len(self._btns):
             self._btns[i].setChecked(True)
+
+
+class _ToggleSwitch(QWidget):
+    """iOS-style binary toggle: rounded track + sliding knob; accent when on.
+    Place it left, with a label after it. ``toggled(bool)`` on change."""
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, theme, checked: bool = False, parent=None):
+        super().__init__(parent)
+        self._t = theme
+        self._checked = bool(checked)
+        self.setFixedSize(42, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, v: bool) -> None:
+        v = bool(v)
+        if v != self._checked:
+            self._checked = v
+            self.update()
+            self.toggled.emit(v)
+
+    def mousePressEvent(self, event):
+        self.setChecked(not self._checked)
+        event.accept()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.rect().adjusted(1, 1, -1, -1)
+        track = QColor(self._t.accent if self._checked else self._t.line_strong)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(track))
+        rad = r.height() / 2
+        p.drawRoundedRect(r, rad, rad)
+        d = r.height() - 4
+        x = (r.right() - d - 2) if self._checked else (r.left() + 2)
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.drawEllipse(int(x), r.top() + 2, int(d), int(d))
+        p.end()
 
 
 def build_commit_sentence(
@@ -1424,18 +1466,7 @@ class UnderlayImportDialog(QDialog):
         self._layout_combo.currentIndexChanged.connect(self._on_layout_changed)
         self._layout_combo.setVisible(False)
         con_v.addWidget(self._layout_combo)
-        # Source layers — flat section; only the list is bordered
-        con_v.addWidget(_hdr("Source layers"))
-        la_btn_row = QHBoxLayout()
-        la_btn_row.addWidget(_pill("All", self._select_all_layers))
-        la_btn_row.addWidget(_pill("None", self._deselect_all_layers))
-        la_btn_row.addStretch()
-        con_v.addLayout(la_btn_row)
-        self._layer_list = QListWidget()
-        self._layer_list.setMinimumHeight(90)
-        self._layer_list.itemChanged.connect(self._on_layer_changed)
-        con_v.addWidget(self._layer_list, 1)   # grows to fill; scrolls if huge
-        # Region (crop)
+        # Region (crop) — sits above Source layers
         con_v.addWidget(_hdr("Region"))
         self._region_lbl = QLabel(
             "Whole sheet imports. Draw a crop on the preview to bring in just "
@@ -1452,6 +1483,17 @@ class UnderlayImportDialog(QDialog):
         crop_row.addWidget(self._clear_sel_btn)
         crop_row.addStretch()
         con_v.addLayout(crop_row)
+        # Source layers — flat section; only the list is bordered
+        con_v.addWidget(_hdr("Source layers"))
+        la_btn_row = QHBoxLayout()
+        la_btn_row.addWidget(_pill("All", self._select_all_layers))
+        la_btn_row.addWidget(_pill("None", self._deselect_all_layers))
+        la_btn_row.addStretch()
+        con_v.addLayout(la_btn_row)
+        self._layer_list = QListWidget()
+        self._layer_list.setMinimumHeight(90)
+        self._layer_list.itemChanged.connect(self._on_layer_changed)
+        con_v.addWidget(self._layer_list, 1)   # grows to fill; scrolls if huge
         # PDF Options — flat, toggle-able container (hidden for DXF/DWG)
         self._pdf_opts_grp = QWidget()
         self._pdf_opts_grp.setObjectName("pdfOpts")   # transparent (not black)
@@ -1575,14 +1617,15 @@ class UnderlayImportDialog(QDialog):
         self._base_inputs = [base_x_lbl, self._base_x_edit,
                              base_y_lbl, self._base_y_edit, self._pick_base_btn]
 
-        # Position — single-select → switch bar (house style)
+        # Position — binary → toggle switch (switch left, label right)
         pl_v.addWidget(_hdr("Position"))
         pos_row = QHBoxLayout()
-        self._pos_switch = _SwitchBar(["Pick a point", "Insert at origin"])
-        self._pos_switch.set_current(1)          # default: insert at origin
-        self._pos_switch.changed.connect(
+        self._origin_switch = _ToggleSwitch(t, checked=True)
+        self._origin_switch.toggled.connect(
             lambda *_: (self._update_base_enabled(), self._update_all()))
-        pos_row.addWidget(self._pos_switch)
+        pos_row.addWidget(self._origin_switch)
+        pos_row.addSpacing(8)
+        pos_row.addWidget(QLabel("Insert at origin"))
         pos_row.addStretch()
         pl_v.addLayout(pos_row)
         pl_v.addStretch(1)
@@ -1821,7 +1864,7 @@ class UnderlayImportDialog(QDialog):
             scale_str = self._scale_combo.currentText() or "1:1"
         rotation = int(round(self._get_rotation()))
         levels = self._levels_picker.selected()
-        position = "origin" if self._pos_switch.current_index() == 1 else "pick"
+        position = "origin" if self._origin_switch.isChecked() else "pick"
 
         self._commit_label.setText(build_commit_sentence(
             name=name, page=page, pages=pages, layers_hidden=layers_hidden,
@@ -1916,7 +1959,7 @@ class UnderlayImportDialog(QDialog):
         self._rotation_edit.blockSignals(False)
         # Insert at origin
         origin = s.value(f"{pfx}insert_at_origin", True, type=bool)
-        self._pos_switch.set_current(1 if origin else 0)
+        self._origin_switch.setChecked(origin)
 
     def _save_settings(self):
         """Save current import settings to QSettings."""
@@ -1925,7 +1968,7 @@ class UnderlayImportDialog(QDialog):
         s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
         s.setValue(f"{pfx}custom_scale", self._get_custom_scale())
         s.setValue(f"{pfx}rotation", self._get_rotation())
-        s.setValue(f"{pfx}insert_at_origin", self._pos_switch.current_index() == 1)
+        s.setValue(f"{pfx}insert_at_origin", self._origin_switch.isChecked())
 
     # ── File loading ──────────────────────────────────────────────────────────
 
@@ -3238,7 +3281,7 @@ class UnderlayImportDialog(QDialog):
         p.pdf_page = self._pdf_page
         p.pdf_dpi = int(self._dpi_combo.currentText())
         p.import_mode = self._mode_combo.currentText().lower()
-        p.insert_at_origin = self._pos_switch.current_index() == 1
+        p.insert_at_origin = self._origin_switch.isChecked()
 
         active_layers = self._active_layers()
         geoms = []

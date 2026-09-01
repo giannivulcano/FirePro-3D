@@ -149,10 +149,12 @@ Rules:
 
 ### Selection controls
 
-- **Single-select** (mutually-exclusive options, incl. binary on/off like
-  "Position: pick / insert-at-origin") → a **switch bar**: a connected segmented
-  control of exclusive buttons, active segment **accent-filled, white text**.
-  Not radio buttons, not a lone checkbox.
+- **Binary on/off** (e.g. "Insert at origin") → a **toggle switch**: rounded
+  track + sliding knob, **accent when on**, switch on the left with the label to
+  its right. Not a lone checkbox, not radio buttons.
+- **Single-select among 3+** mutually-exclusive options → a **switch bar**: a
+  connected segmented control of exclusive buttons, active segment
+  **accent-filled, white text**.
 - **Multi-select** (independent options — Levels, Source Layers) → **checkboxes**
   (checkable list items).
 
