@@ -589,8 +589,28 @@ class SelectionManipulator(QGraphicsObject):
             return False
         if self.shape().contains(self.mapFromScene(scene_pos)):
             return True
+        # Handles are ItemIgnoresTransformations: a plain ``mapFromScene`` uses
+        # the item's scene transform and ignores the view zoom, so it only
+        # agrees at m11==1.  At any other zoom (e.g. the fit-to-view ~0.02) the
+        # mapped point is wrong and the knob/handles read as not-hit — the press
+        # then falls through to selection and clears it.  Map through the view's
+        # device transform instead (Qt's canonical path for screen-constant
+        # items), falling back to mapFromScene only when no view is reachable
+        # (headless).
+        view = self._view()
+        vt = view.viewportTransform() if view is not None else None
         for h in self._handles.values():
-            if h.isVisible() and h.shape().contains(h.mapFromScene(scene_pos)):
+            if not h.isVisible():
+                continue
+            if vt is not None:
+                dt = h.deviceTransform(vt)        # handle-local -> viewport px
+                inv, ok = dt.inverted()
+                if not ok:
+                    continue
+                local = inv.map(vt.map(scene_pos))  # scene -> px -> handle-local
+            else:
+                local = h.mapFromScene(scene_pos)
+            if h.shape().contains(local):
                 return True
         return False
 
@@ -683,7 +703,15 @@ class SelectionManipulator(QGraphicsObject):
     def _view(self):
         sc = self.scene()
         views = sc.views() if sc else []
-        return views[0] if views else None
+        if not views:
+            return None
+        # Prefer a visible view: Model_Space keeps a hidden vestigial view at
+        # index 0 (m11==1) plus one per open plan tab, so views[0] can be the
+        # wrong (unshown) transform for hit-testing screen-constant handles.
+        for v in views:
+            if v.isVisible():
+                return v
+        return views[0]
 
     def _view_scale(self) -> float:
         v = self._view()

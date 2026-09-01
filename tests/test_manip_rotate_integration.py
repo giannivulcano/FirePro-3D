@@ -230,3 +230,57 @@ def test_rotate_preserves_elevation(qapp, scene_and_view):
 
     assert n.z_pos == z_n
     assert f._top_offset_mm == f_top0 and f._bottom_offset_mm == f_bot0
+
+
+@pytest.mark.parametrize("zoom", [0.1, 0.02, 5.0])
+def test_rotate_knob_hittable_at_nonidentity_zoom(qapp, scene_and_view, zoom):
+    """Regression (U1 live smoke): clicking the rotate knob at a non-identity
+    view zoom must start a rotate, NOT deselect the item.
+
+    hit_test mapped ItemIgnoresTransformations handles with plain
+    ``mapFromScene`` (which ignores the view zoom and only agrees at m11==1), so
+    at the fit-to-view zoom the knob press fell through the manipulator routing
+    to _press_select_item -> empty pick -> clear selection.
+    """
+    from PyQt6.QtCore import QPoint
+    from firepro3d.construction_geometry import LineItem
+    from firepro3d.manip_math import HandleRole
+    from firepro3d.selection_manipulator import _ROTATE_OFFSET_PX
+    scene, view = scene_and_view
+    ln = LineItem(QPointF(120, 40), QPointF(220, 40))
+    scene.addItem(ln)
+    view.resetTransform()
+    view.scale(zoom, zoom)
+    view.centerOn(170, 40)
+    ln.setSelected(True)
+    qapp.processEvents()
+
+    manip = _manip(scene)
+    knob = manip._handles[HandleRole.ROTATE]
+    assert knob.isVisible()
+    # True visual knob pixel = handle anchor minus the stem offset (device px).
+    knob_vp = view.mapFromScene(knob.scenePos()) - QPoint(
+        0, int(round(_ROTATE_OFFSET_PX)))
+    knob_scene = view.mapToScene(knob_vp)
+
+    # The press-router gate must recognize the knob at this zoom.
+    assert manip.hit_test(knob_scene) is True
+
+    # And a real posted press must begin a rotate, not clear the selection.
+    app = QApplication.instance()
+    vp = view.viewport()
+    press = QMouseEvent(QEvent.Type.MouseButtonPress, knob_vp.toPointF(),
+                        vp.mapToGlobal(knob_vp).toPointF(),
+                        Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                        Qt.KeyboardModifier.NoModifier)
+    app.sendEvent(vp, press)
+    app.processEvents()
+    assert ln.isSelected()
+    assert manip.is_dragging()
+
+    release = QMouseEvent(QEvent.Type.MouseButtonRelease, knob_vp.toPointF(),
+                          vp.mapToGlobal(knob_vp).toPointF(),
+                          Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton,
+                          Qt.KeyboardModifier.NoModifier)
+    app.sendEvent(vp, release)
+    app.processEvents()
