@@ -655,6 +655,7 @@ class _StepRail(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("stepRailInner")   # transparent bg (matches the rail)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
@@ -830,7 +831,9 @@ def _import_extra_qss(t) -> str:
         background:{t.accent_soft}; border-color:{t.accent}; }}
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
-    QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
+    QFrame#stepRail {{ background:{t.surface};
+        border-right:1px solid {t.line_strong}; }}
+    #UnderlayManagerDialog QFrame#stepRailInner {{ background:transparent; }}
     #UnderlayManagerDialog QFrame[stepRow="true"] {{ border-radius:6px;
         border-left:2px solid transparent; background:transparent; }}
     #UnderlayManagerDialog QFrame[stepRow="true"]:hover {{ background:{t.accent_soft}; }}
@@ -1136,20 +1139,20 @@ class UnderlayImportDialog(QDialog):
 
         # Window controls — circular icons (grey circle + accent inlay):
         # minimize (–) · expand (+) · close (×); circle brightens on hover.
-        dots = QHBoxLayout()
-        dots.setSpacing(8)
-        dots.addWidget(_WinDot("min", self.showMinimized, t))
-        dots.addWidget(_WinDot("max", self._toggle_max, t))
-        dots.addWidget(_WinDot("close", self.reject, t))
-        hb.addLayout(dots)
+        # Added directly to the header row, vertically centred on its midline.
+        _vc = Qt.AlignmentFlag.AlignVCenter
+        for _k, _slot in (("min", self.showMinimized),
+                          ("max", self._toggle_max),
+                          ("close", self.reject)):
+            hb.addWidget(_WinDot(_k, _slot, t), 0, _vc)
         outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
         self._thumb_list = QListWidget()
         self._thumb_list.setFlow(QListWidget.Flow.LeftToRight)
         self._thumb_list.setViewMode(QListWidget.ViewMode.IconMode)
-        self._thumb_list.setIconSize(QSize(78, 92))
-        self._thumb_list.setFixedHeight(112)
+        self._thumb_list.setIconSize(QSize(78, 78))
+        self._thumb_list.setFixedHeight(100)
         # No scrollbar — side arrows appear only when the pages overflow.
         self._thumb_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1158,7 +1161,7 @@ class UnderlayImportDialog(QDialog):
         self._thumb_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
         self._thumb_list.setUniformItemSizes(True)
-        self._thumb_list.setGridSize(QSize(96, 108))
+        self._thumb_list.setGridSize(QSize(96, 96))
         self._thumb_list.setWordWrap(False)
         self._thumb_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._thumb_list.currentRowChanged.connect(self._on_page_thumb_clicked)
@@ -1169,12 +1172,12 @@ class UnderlayImportDialog(QDialog):
         self._strip_wrap = QWidget()
         self._strip_wrap.setVisible(False)
         strip_lay = QHBoxLayout(self._strip_wrap)
-        strip_lay.setContentsMargins(0, 5, 0, 5)   # symmetric top/bottom
+        strip_lay.setContentsMargins(0, 4, 0, 4)   # symmetric top/bottom
         strip_lay.setSpacing(2)
 
         def _arrow(glyph, step):
             b = QPushButton(glyph)
-            b.setFixedSize(22, 102)
+            b.setFixedSize(22, 90)
             b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
                 f"QPushButton{{border:none; background:transparent;"
@@ -1296,21 +1299,26 @@ class UnderlayImportDialog(QDialog):
 
         # -- Page 0: SOURCE (file + recent) --
         src_pg, src_v = _page()
-        src_v.addWidget(_hdr("Source"))
+        src_card = QFrame(objectName="srcCard")
+        sc = QVBoxLayout(src_card)
+        sc.setContentsMargins(12, 10, 12, 12)
+        sc.setSpacing(8)
+        sc.addWidget(_hdr("Source"))
         self._file_edit = QLineEdit()
-        src_v.addWidget(self._file_edit)
+        sc.addWidget(self._file_edit)
         frow = QHBoxLayout()
         frow.addWidget(_pill("Browse", self._browse_file))
         frow.addWidget(_pill("Reload", self._load_file))
         frow.addStretch()
-        src_v.addLayout(frow)
+        sc.addLayout(frow)
         rlbl = QLabel("Recent")
         rlbl.setStyleSheet(f"color:{t.faint}; font-size:10px;")
-        src_v.addWidget(rlbl)
+        sc.addWidget(rlbl)
         self._recent_list = QListWidget()
         self._recent_list.setMaximumHeight(140)
         self._recent_list.itemClicked.connect(self._on_recent_clicked)
-        src_v.addWidget(self._recent_list)
+        sc.addWidget(self._recent_list)
+        src_v.addWidget(src_card)
         src_v.addStretch(1)
         self._panel_stack.addWidget(src_pg)
         self._refresh_recent_list()
