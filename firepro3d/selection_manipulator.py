@@ -953,6 +953,14 @@ class SelectionManipulator(QGraphicsObject):
                 self.rebake()
         self._close_hud()
 
+    def _refresh_fittings(self, items) -> None:
+        """Refresh any node fittings after a bake (shared by move/rotate/scale
+        so they cannot drift on fitting freshness)."""
+        for it in items:
+            fitting = getattr(it, "fitting", None)
+            if fitting is not None:
+                fitting.update()
+
     def _bake_move(self, items, dx: float, dy: float) -> None:
         """Bake a move of *items* by (dx, dy) and fire one undo.
 
@@ -965,9 +973,7 @@ class SelectionManipulator(QGraphicsObject):
                 log.warning(
                     "SelectionManipulator: %s has no translate path — "
                     "move not baked", type(it).__name__)
-            fitting = getattr(it, "fitting", None)
-            if fitting is not None:
-                fitting.update()
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
@@ -999,6 +1005,7 @@ class SelectionManipulator(QGraphicsObject):
                             "resize not baked", type(it).__name__)
                 continue
             fn(fx, fy, anchor)
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
@@ -1019,6 +1026,7 @@ class SelectionManipulator(QGraphicsObject):
                             "rotate not baked", type(it).__name__)
                 continue
             fn(angle_deg, pivot)
+        self._refresh_fittings(items)
         sc = self.scene()
         tools = getattr(sc, "_tools", None)
         if tools is not None:
