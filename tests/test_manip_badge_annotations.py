@@ -97,8 +97,11 @@ def test_badge_moves_via_manipulator_one_undo(qapp, scene_and_view):
     manip = _manip(scene)
     assert manip.isVisible()
     assert da in manip.selection_items()          # wrapped (not excluded)
-    # translate-only: no resize handles, no rotate knob
-    assert _visible_handles(manip) == []
+    # U1: the badge is a rotatable label — the rotate knob shows; no resize
+    # handles (a fixed-layout table is not scalable).
+    from firepro3d.manip_math import _RESIZE_ROLES
+    assert manip._handles[HandleRole.ROTATE].isVisible()
+    assert all(not manip._handles[r].isVisible() for r in _RESIZE_ROLES)
 
     scene.push_undo_state()                        # baseline
     depth0 = len(scene._undo_stack)
@@ -125,12 +128,14 @@ def test_badge_moves_via_manipulator_one_undo(qapp, scene_and_view):
     assert abs(xu - x0) < 1e-6 and abs(yu - y0) < 1e-6
 
 
-def test_badge_manip_capabilities_translate_only(qapp, scene_and_view):
+def test_badge_manip_capabilities_translate_and_rotate(qapp, scene_and_view):
     scene, view = scene_and_view
     da = _confirmed_design_area(scene)
     from firepro3d.selection_manipulator import item_capabilities
     caps = item_capabilities(da)
-    assert caps == {"translate"}                   # no scale/rotate phantom
+    # U1: the badge is a rotatable label (translate + rotate); a fixed-layout
+    # table is never scalable, so "scale" stays absent.
+    assert caps == {"translate", "rotate"}
 
 
 def test_badge_manip_bounds_is_badge_box(qapp, scene_and_view):
