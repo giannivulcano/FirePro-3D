@@ -302,13 +302,18 @@ def test_rect_shows_8_handles_and_knob(qapp, scene_and_view):
 def test_line_shows_no_resize_handles(qapp, scene_and_view):
     scene, view = scene_and_view
     from firepro3d.construction_geometry import LineItem
+    from firepro3d.manip_math import HandleRole, _RESIZE_ROLES
     ln = LineItem(QPointF(0, 0), QPointF(100, 0))
     scene.addItem(ln)
     ln.setSelected(True)
     qapp.processEvents()
     manip = _manip(scene)
-    visible = [h for h in manip.childItems() if h.isVisible()]
-    assert len(visible) == 0   # parametric line: frame + its own grips only
+    # U1: a parametric line has no scale -> the 8 resize handles stay hidden
+    # (frame + its own grips), but it now implements manip_rotate, so the
+    # rotate knob IS shown (rigid rotate is universal after U1).
+    for role in _RESIZE_ROLES:
+        assert not manip._handles[role].isVisible()
+    assert manip._handles[HandleRole.ROTATE].isVisible()
 
 
 def test_rotate_gesture_bakes_angle_no_transform(qapp, scene_and_view):
