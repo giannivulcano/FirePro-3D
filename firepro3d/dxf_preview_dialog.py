@@ -36,7 +36,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QLineEdit, QFormLayout,
     QDialogButtonBox, QApplication,
     QCheckBox, QWidget, QSizePolicy, QScrollArea,
-    QMessageBox, QInputDialog, QAbstractItemView,
+    QMessageBox, QInputDialog, QAbstractItemView, QFrame,
 )
 from PyQt6.QtGui import (
     QPen, QColor, QBrush, QPainterPath, QFont, QFontMetricsF,
@@ -555,6 +555,68 @@ class _DialogExtractWorker(QThread):
             return
         geom_layers = {g.get("layer", "0") for g in geoms}
         self.finished_geoms.emit(geoms, sorted(layers_set | geom_layers))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shell primitives — step-rail / levels picker / commit-sentence
+# (used by the redesigned import shell; do not depend on UnderlayImportDialog)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _StepRail(QFrame):
+    """Vertical step-rail widget with three clickable rows: source / content / place.
+
+    Each row is a flat QPushButton. Clicking emits ``stepClicked(key)``.
+    Rows carry a ``state`` dynamic property ("done" | "active" | "warn") that
+    QSS can use for colouring; the shell layer adds the stylesheet.
+    """
+
+    stepClicked = pyqtSignal(str)
+
+    _KEYS = ("source", "content", "place")
+    _LABELS = {"source": "Source", "content": "Content", "place": "Placement"}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+
+        self._rows: dict[str, QPushButton] = {}
+        self._states: dict[str, str] = {}
+
+        for key in self._KEYS:
+            btn = QPushButton(self._LABELS[key])
+            btn.setFlat(True)
+            btn.setFixedWidth(160)
+            # Emit the key when clicked — capture key in default arg
+            btn.clicked.connect(lambda _checked, k=key: self.stepClicked.emit(k))
+            lay.addWidget(btn)
+            self._rows[key] = btn
+            self._states[key] = "active"
+
+    # ------------------------------------------------------------------
+    def set_step(self, key: str, status: str, state: str) -> None:
+        """Update a step row's status text and state badge."""
+        btn = self._rows[key]
+        self._states[key] = state
+
+        # Elide the status to ~150px using the button's current font
+        fm = QFontMetricsF(btn.font())
+        elided = fm.elidedText(status, Qt.TextElideMode.ElideRight, 150)
+        btn.setText(f"{self._LABELS[key]}\n{elided}")
+        btn.setToolTip(status)
+
+        btn.setProperty("state", state)
+        btn.style().unpolish(btn)
+        btn.style().polish(btn)
+
+    def row(self, key: str) -> QPushButton:
+        """Return the QPushButton for *key*."""
+        return self._rows[key]
+
+    def state(self, key: str) -> str:
+        """Return the stored state string for *key*."""
+        return self._states[key]
 
 
 class UnderlayImportDialog(QDialog):
