@@ -775,24 +775,35 @@ def build_commit_sentence(
 def _import_extra_qss(t) -> str:
     """Import-specific selectors layered on the shared manager QSS (ported from
     the prototype's _extra_qss, mapped to the app's house tokens)."""
+    # Contrast model: header + footer = raised (lighter) with darker buttons;
+    # the in-between panels (rail / canvas / detail) are darker; the canvas is
+    # darkest. A thin light outer edge frames the frameless window. Active rail
+    # tab = rounded accent-soft highlight (no left bar), matching the prototype.
     return f"""
+    QDialog#UnderlayManagerDialog {{ background:{t.surface};
+        border:1px solid {t.muted}; }}
+    #UnderlayManagerDialog QListWidget {{ background:{t.ground}; color:{t.ink};
+        border:1px solid {t.line}; border-radius:6px; }}
+    #UnderlayManagerDialog QListWidget::item {{ padding:3px 6px; }}
+    #UnderlayManagerDialog QListWidget::item:hover {{ background:{t.accent_soft}; }}
+    #UnderlayManagerDialog QListWidget::item:selected {{
+        background:{t.accent_soft}; color:{t.ink}; }}
     QFrame#importHeader {{ background:{t.raised};
-        border-bottom:2px solid {t.line_strong}; }}
+        border-bottom:1px solid {t.line}; }}
+    QFrame#footerBar {{ background:{t.raised}; border-top:1px solid {t.line}; }}
     #UnderlayManagerDialog QPushButton:hover:enabled {{
         background:{t.accent_soft}; border-color:{t.accent}; }}
-    QGraphicsView#previewView {{ border:2px solid {t.line_strong}; }}
-    QFrame#stepRail {{ background:{t.surface}; border-right:2px solid {t.line_strong}; }}
-    QFrame#stepRail QPushButton {{ text-align:left; padding:7px 10px; border:none;
-        border-left:3px solid transparent; background:transparent; color:{t.ink};
-        border-radius:0; font-weight:600; }}
+    QGraphicsView#previewView {{ background:{t.ground};
+        border:1px solid {t.line}; }}
+    QFrame#stepRail {{ background:{t.surface}; border-right:1px solid {t.line}; }}
+    QFrame#stepRail QPushButton {{ text-align:left; padding:8px 11px; border:none;
+        background:transparent; color:{t.ink}; border-radius:7px; font-weight:600; }}
     QFrame#stepRail QPushButton:hover {{ background:{t.accent_soft}; }}
     QFrame#stepRail QPushButton[state="active"] {{
-        border-left:3px solid {t.accent}; background:{t.accent_soft}; }}
-    QFrame#stepRail QPushButton[state="warn"] {{ border-left:3px solid {t.warn}; }}
+        background:{t.accent_soft}; color:{t.accent}; }}
     QStackedWidget#detailsPanel {{ background:{t.surface};
-        border-left:2px solid {t.line_strong}; }}
-    QFrame#footerBar {{ background:{t.raised}; border-top:2px solid {t.line_strong}; }}
-    QFrame#scaleCard, QFrame#srcCard {{ background:{t.sunken};
+        border-left:1px solid {t.line}; }}
+    QFrame#scaleCard, QFrame#srcCard {{ background:{t.ground};
         border:1px solid {t.line}; border-radius:7px; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
     QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
@@ -882,6 +893,11 @@ class UnderlayImportDialog(QDialog):
         self._preview_scene = QGraphicsScene()
         self._preview_view = _PreviewView(self._preview_scene, parent=self)
         self._preview_view.setObjectName("previewView")
+        # A QGraphicsView's sizeHint tracks its sceneRect; a large drawing would
+        # otherwise inflate the dialog on load. Ignore content size — the layout
+        # stretch gives it the room.
+        self._preview_view.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self._preview_view._dialog = self  # direct ref — parent() changes after layout
         self._preview_view.rubber_band_rect.connect(self._on_rubber_band)
         self._preview_view.point_picked.connect(self._on_any_point_picked)
@@ -1021,19 +1037,24 @@ class UnderlayImportDialog(QDialog):
         hb.addWidget(self._header_file_lbl)
         hb.addStretch(1)
 
-        # Window controls (frameless): minimize · maximize/restore · close.
-        def _winbtn(glyph, slot, hover):
-            b = QPushButton(glyph)
-            b.setFixedSize(26, 22)
+        # Window controls — three dots (prototype style): grey at rest, each
+        # lights its colour on hover. minimize · maximize/restore · close.
+        def _dot(slot, hover):
+            b = QPushButton()
+            b.setFixedSize(14, 14)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             b.setStyleSheet(
-                f"QPushButton{{border:none; background:transparent;"
-                f" color:{t.muted}; font-size:12px; border-radius:5px;}}"
-                f"QPushButton:hover{{background:{hover}; color:#fff;}}")
+                f"QPushButton{{border:none; border-radius:7px;"
+                f" background:{t.line_strong};}}"
+                f"QPushButton:hover{{background:{hover};}}")
             b.clicked.connect(slot)
             return b
-        hb.addWidget(_winbtn("—", self.showMinimized, t.line_strong))
-        hb.addWidget(_winbtn("▢", self._toggle_max, t.line_strong))
-        hb.addWidget(_winbtn("✕", self.reject, t.danger))
+        dots = QHBoxLayout()
+        dots.setSpacing(8)
+        dots.addWidget(_dot(self.showMinimized, t.warn))
+        dots.addWidget(_dot(self._toggle_max, t.ok))
+        dots.addWidget(_dot(self.reject, t.danger))
+        hb.addLayout(dots)
         outer.addWidget(self._titlebar)
 
         # PDF page thumbnail strip (hidden by default)
@@ -1042,8 +1063,9 @@ class UnderlayImportDialog(QDialog):
         self._thumb_list.setViewMode(QListWidget.ViewMode.IconMode)
         self._thumb_list.setIconSize(QSize(80, 100))
         self._thumb_list.setFixedHeight(120)
+        # No scrollbar — side arrows appear only when the pages overflow.
         self._thumb_list.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._thumb_list.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._thumb_list.setSelectionMode(
@@ -1054,7 +1076,36 @@ class UnderlayImportDialog(QDialog):
         self._thumb_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self._thumb_list.currentRowChanged.connect(self._on_page_thumb_clicked)
         self._thumb_list.setVisible(False)
-        outer.addWidget(self._thumb_list)
+
+        # Filmstrip container: ‹ arrow · thumbnails · › arrow. Arrows show only
+        # when the strip overflows (more pages than fit).
+        self._strip_wrap = QWidget()
+        self._strip_wrap.setVisible(False)
+        strip_lay = QHBoxLayout(self._strip_wrap)
+        strip_lay.setContentsMargins(0, 0, 0, 0)
+        strip_lay.setSpacing(2)
+
+        def _arrow(glyph, step):
+            b = QPushButton(glyph)
+            b.setFixedSize(22, 118)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setStyleSheet(
+                f"QPushButton{{border:none; background:transparent;"
+                f" color:{t.muted}; font-size:16px; font-weight:700;}}"
+                f"QPushButton:hover{{color:{t.accent};}}")
+            b.clicked.connect(lambda: self._scroll_strip(step))
+            b.setVisible(False)
+            return b
+        self._strip_left = _arrow("‹", -1)
+        self._strip_right = _arrow("›", +1)
+        strip_lay.addWidget(self._strip_left)
+        strip_lay.addWidget(self._thumb_list, 1)
+        strip_lay.addWidget(self._strip_right)
+        self._thumb_list.horizontalScrollBar().valueChanged.connect(
+            lambda *_: self._update_strip_arrows())
+        self._thumb_list.horizontalScrollBar().rangeChanged.connect(
+            lambda *_: self._update_strip_arrows())
+        outer.addWidget(self._strip_wrap)
 
         # Compact "pill" button factory (rounded segmented-control style).
         def _pill(text, slot, tip="", icon=None, checkable=False, expanding=False):
@@ -1371,7 +1422,9 @@ class UnderlayImportDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel)
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Import →")
+        _ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        _ok.setText("Import →")
+        _ok.setProperty("variant", "primary")   # solid accent (house primary)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         self._button_box = buttons
@@ -1438,8 +1491,33 @@ class UnderlayImportDialog(QDialog):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
 
+    def mouseDoubleClickEvent(self, event):
+        tb = getattr(self, "_titlebar", None)
+        if tb is not None and tb.geometry().contains(event.position().toPoint()):
+            self._toggle_max()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
+
+    def _scroll_strip(self, direction: int) -> None:
+        sb = self._thumb_list.horizontalScrollBar()
+        step = max(96, self._thumb_list.viewport().width() - 96)
+        sb.setValue(sb.value() + direction * step)
+
+    def _update_strip_arrows(self) -> None:
+        sb = self._thumb_list.horizontalScrollBar()
+        overflow = sb.maximum() > 0
+        self._strip_left.setVisible(overflow and sb.value() > sb.minimum())
+        self._strip_right.setVisible(overflow and sb.value() < sb.maximum())
+
+    def _show_strip(self, on: bool) -> None:
+        self._strip_wrap.setVisible(on)
+        self._thumb_list.setVisible(on)
+        if on:
+            self._update_strip_arrows()
 
     def _refresh_recent_list(self) -> None:
         self._recent_list.clear()
@@ -1527,15 +1605,11 @@ class UnderlayImportDialog(QDialog):
             rotation=rotation, levels=levels, position=position))
 
         active = getattr(self, "_active_step", "source")
-        states = {
-            "source": ("done" if path else "warn"),
-            "content": ("done" if path else "warn"),
-            "place": ("done" if (verified and levels) else "warn"),
-        }
-        # The active row is highlighted unless it already warns.
-        for k in states:
-            if k == active and states[k] != "warn":
-                states[k] = "active"
+        # The active row always gets the green rounded highlight; others are
+        # neutral ("done"). (Warn conditions surface via the scale pill +
+        # commit sentence, not the rail, until number-chips land.)
+        states = {"source": "done", "content": "done", "place": "done"}
+        states[active] = "active"
         self._rail.set_step(
             "source", (os.path.basename(path) or "Drop a file or Browse"),
             states["source"])
@@ -1672,7 +1746,7 @@ class UnderlayImportDialog(QDialog):
         """
         self._file_type = "dxf"
         self._pdf_opts_grp.setVisible(False)
-        self._thumb_list.setVisible(False)
+        self._show_strip(False)
         self._has_vectors = True
 
         if not _HAS_EZDXF:
@@ -2139,11 +2213,11 @@ class UnderlayImportDialog(QDialog):
                 item = QListWidgetItem(QIcon(pixmap), disp)
                 item.setToolTip(name)          # full name on hover
                 self._thumb_list.addItem(item)
-            self._thumb_list.setVisible(True)
+            self._show_strip(True)
             if self._thumb_list.count() > 0:
                 self._thumb_list.setCurrentRow(0)
         else:
-            self._thumb_list.setVisible(False)
+            self._show_strip(False)
 
         self._pdf_page = 0
         self._load_pdf_page(path, 0)
