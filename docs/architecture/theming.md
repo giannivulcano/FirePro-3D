@@ -147,6 +147,29 @@ Rules:
   (not a neutral `surface2` fill). The base Underlay-Manager QSS predates this
   and may still use `surface2`; new/ported dialogs override to accent-soft.
 
+### Selection controls
+
+- **Single-select** (mutually-exclusive options, incl. binary on/off like
+  "Position: pick / insert-at-origin") → a **switch bar**: a connected segmented
+  control of exclusive buttons, active segment **accent-filled, white text**.
+  Not radio buttons, not a lone checkbox.
+- **Multi-select** (independent options — Levels, Source Layers) → **checkboxes**
+  (checkable list items).
+
+### Windows & dialogs
+
+- App dialogs are **frameless with a single custom header** styled like the
+  footer (glyph + title + context), **Win11 DWM rounded corners**
+  (`DWMWA_WINDOW_CORNER_PREFERENCE`), and a **thin light perimeter border**. The
+  Underlay Manager / Import Underlay dialogs are the reference. Window controls =
+  three circular icons (grey circle + accent inlay: – minimise / + maximise / ×
+  close).
+- **Panel containerization:** flat **overline sections** (UPPERCASE label +
+  content); only *input surfaces* (lists, evidence readouts) get a border — do
+  not wrap whole sections/pages in cards.
+- **Panel seams:** use an explicit 1px divider **widget** between regions — QSS
+  `border` on a `QStackedWidget` is unreliable (the page paints over it).
+
 ### Canvas selection & resize grips (base style)
 
 The canonical look-and-feel for any selectable/resizable canvas item

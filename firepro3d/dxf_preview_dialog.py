@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QGroupBox,
     QFileDialog, QLineEdit, QFormLayout,
     QDialogButtonBox, QApplication,
-    QCheckBox, QWidget, QSizePolicy, QScrollArea,
+    QCheckBox, QWidget, QSizePolicy, QScrollArea, QButtonGroup,
     QMessageBox, QInputDialog, QAbstractItemView, QFrame,
 )
 from PyQt6.QtGui import (
@@ -234,6 +234,12 @@ class _PreviewView(QGraphicsView):
         super().fitInView(*args, **kwargs)
         self._fit_scale = self.transform().m11() or 1.0
         self.zoomChanged.emit(self._zoom_ratio())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        ov = getattr(self, "_drop_overlay", None)
+        if ov is not None:
+            ov.setGeometry(self.viewport().rect())
 
     def _zoom_ratio(self) -> float:
         return self.transform().m11() / (self._fit_scale or 1.0)
@@ -713,6 +719,11 @@ class _LevelsPicker(QWidget):
             self._list.addItem(item)
 
         self._list.itemChanged.connect(lambda _item: self.changed.emit())
+        # Size to fit all levels (usually a handful) — no internal scrollbar.
+        self._list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        rows = self._list.count()
+        rh = max(self._list.sizeHintForRow(0), 24) if rows else 24
+        self._list.setFixedHeight(rows * rh + 2 * self._list.frameWidth() + 8)
         lay.addWidget(self._list)
 
     # ------------------------------------------------------------------
@@ -734,6 +745,42 @@ class _LevelsPicker(QWidget):
                          if item.text() in name_set
                          else Qt.CheckState.Unchecked)
             item.setCheckState(new_state)
+
+
+class _SwitchBar(QWidget):
+    """Single-select segmented control (house style: single-select = switch
+    bar, multi-select = checkboxes). Exclusive; ``changed(index)`` on click."""
+    changed = pyqtSignal(int)
+
+    def __init__(self, options: list[str], parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._btns: list[QPushButton] = []
+        n = len(options)
+        for i, text in enumerate(options):
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setProperty("switch", True)
+            b.setProperty("segpos", "left" if i == 0
+                          else ("right" if i == n - 1 else "mid"))
+            self._group.addButton(b, i)
+            lay.addWidget(b)
+            self._btns.append(b)
+        if self._btns:
+            self._btns[0].setChecked(True)
+        self._group.idClicked.connect(self.changed.emit)
+
+    def current_index(self) -> int:
+        return self._group.checkedId()
+
+    def set_current(self, i: int) -> None:
+        if 0 <= i < len(self._btns):
+            self._btns[i].setChecked(True)
 
 
 def build_commit_sentence(
@@ -832,6 +879,18 @@ def _import_extra_qss(t) -> str:
     #UnderlayManagerDialog QPushButton[variant="primary"] {{ color:#ffffff; }}
     #UnderlayManagerDialog QPushButton[variant="primary"]:hover:enabled {{
         color:#ffffff; }}
+    #UnderlayManagerDialog QPushButton[switch="true"] {{ background:{t.raised};
+        color:{t.ink}; border:1px solid {t.line_strong}; border-radius:0;
+        padding:5px 14px; font-weight:600; }}
+    #UnderlayManagerDialog QPushButton[switch="true"][segpos="left"] {{
+        border-top-left-radius:7px; border-bottom-left-radius:7px; }}
+    #UnderlayManagerDialog QPushButton[switch="true"][segpos="right"] {{
+        border-top-right-radius:7px; border-bottom-right-radius:7px;
+        border-left:none; }}
+    #UnderlayManagerDialog QPushButton[switch="true"][segpos="mid"] {{
+        border-left:none; }}
+    #UnderlayManagerDialog QPushButton[switch="true"]:checked {{
+        background:{t.accent}; color:#ffffff; border-color:{t.accent}; }}
     QGraphicsView#previewView {{ background:{t.ground};
         border:1px solid {t.line}; }}
     QFrame#stepRail {{ background:{t.surface};
@@ -858,8 +917,10 @@ def _import_extra_qss(t) -> str:
     QStackedWidget#detailsPanel {{ background:{t.surface};
         border-left:1px solid {t.line_strong}; }}
     #UnderlayManagerDialog QWidget#panelPage {{ background:{t.surface}; }}
-    QFrame#scaleCard, QFrame#srcCard {{ background:{t.ground};
-        border:1px solid {t.line}; border-radius:7px; }}
+    QFrame#scaleCard, QFrame#srcCard {{ background:{t.raised};
+        border:1px solid {t.line_strong}; border-radius:7px; }}
+    #UnderlayManagerDialog QCheckBox {{ background:transparent; }}
+    #UnderlayManagerDialog QWidget#pdfOpts {{ background:transparent; }}
     QLabel#scaleVal {{ font-size:17px; font-weight:700; background:transparent; }}
     QLabel#scalePill {{ font-size:10px; font-weight:600; padding:2px 9px;
         border-radius:9px; border:1px solid transparent; }}
@@ -1267,6 +1328,29 @@ class UnderlayImportDialog(QDialog):
         ptool.addWidget(self._fit_readout)
         prev_lay.addLayout(ptool)
         prev_lay.addWidget(self._preview_view, 1)
+
+        # Empty-state overlay: layers glyph + prompt, centred over the preview
+        # until a source is loaded. Child of the viewport; resized to fill it.
+        self._drop_overlay = QWidget(self._preview_view.viewport())
+        self._preview_view._drop_overlay = self._drop_overlay
+        _dov = QVBoxLayout(self._drop_overlay)
+        _dov.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _dov.setSpacing(12)
+        _digl = QLabel()
+        _digl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        try:
+            _digl.setPixmap(themed_icon(
+                "underlay_import_icon.svg",
+                "light" if t.name == "light" else "dark").pixmap(56, 56))
+        except Exception:
+            pass
+        _dtx = QLabel("Drop a PDF, DWG or DXF here")
+        _dtx.setObjectName("dropHint")
+        _dtx.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _dov.addWidget(_digl)
+        _dov.addWidget(_dtx)
+        self._drop_overlay.setStyleSheet("background:transparent;")
+
         self._instruction_chip = QLabel("")
         self._instruction_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._instruction_chip.setStyleSheet(
@@ -1274,8 +1358,9 @@ class UnderlayImportDialog(QDialog):
             f" border-radius:9px; padding:3px; font-size:10.5px;")
         self._instruction_chip.setVisible(False)
         prev_lay.addWidget(self._instruction_chip)
-        self._info_lbl = QLabel("Drop a PDF, DWG or DXF here — or use Browse.")
-        self._info_lbl.setObjectName("dropHint")
+        # Status line (errors / layout hints); the drop prompt lives in the
+        # centred overlay above, not here.
+        self._info_lbl = QLabel("")
         self._info_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         prev_lay.addWidget(self._info_lbl)
         # Pan is the default view mode; kept hidden so _set_view_mode has a
@@ -1329,7 +1414,6 @@ class UnderlayImportDialog(QDialog):
 
         # -- Page 1: CONTENT (layout · layers · region · PDF options) --
         con_pg, con_v = _page()
-        con_v.addWidget(_hdr("Content"))
         # Layout (multi-layout DXF/DWG) — toggled visible
         self._layout_label = _hdr("Layout")
         self._layout_label.setVisible(False)
@@ -1348,9 +1432,9 @@ class UnderlayImportDialog(QDialog):
         la_btn_row.addStretch()
         con_v.addLayout(la_btn_row)
         self._layer_list = QListWidget()
-        self._layer_list.setMaximumHeight(180)
+        self._layer_list.setMinimumHeight(90)
         self._layer_list.itemChanged.connect(self._on_layer_changed)
-        con_v.addWidget(self._layer_list)
+        con_v.addWidget(self._layer_list, 1)   # grows to fill; scrolls if huge
         # Region (crop)
         con_v.addWidget(_hdr("Region"))
         self._region_lbl = QLabel(
@@ -1370,6 +1454,7 @@ class UnderlayImportDialog(QDialog):
         con_v.addLayout(crop_row)
         # PDF Options — flat, toggle-able container (hidden for DXF/DWG)
         self._pdf_opts_grp = QWidget()
+        self._pdf_opts_grp.setObjectName("pdfOpts")   # transparent (not black)
         pdf_v = QVBoxLayout(self._pdf_opts_grp)
         pdf_v.setContentsMargins(0, 0, 0, 0)
         pdf_v.setSpacing(6)
@@ -1388,27 +1473,20 @@ class UnderlayImportDialog(QDialog):
         pdf_v.addLayout(pdf_form)
         self._pdf_opts_grp.setVisible(False)
         con_v.addWidget(self._pdf_opts_grp)
-        con_v.addStretch(1)
         self._panel_stack.addWidget(con_pg)
 
         # -- Page 2: PLACEMENT (levels · scale evidence · rotation · base · pos) --
         pl_pg, pl_v = _page()
-        pl_v.addWidget(_hdr("Placement"))
         pl_v.addWidget(_hdr("Levels"))
         self._levels_picker = _LevelsPicker(
             self._import_levels or [self._current_level or DEFAULT_LEVEL],
             current=self._current_level or DEFAULT_LEVEL)
-        self._levels_picker.setMaximumHeight(96)
         self._levels_picker.changed.connect(self._update_all)
         self._selected_levels = self._levels_picker.selected  # get_import_params hook
         pl_v.addWidget(self._levels_picker)
 
-        # Scale — overline + bordered evidence card
+        # Scale — flat overline section (no container)
         pl_v.addWidget(_hdr("Scale"))
-        scale_card = QFrame(objectName="scaleCard")
-        scv = QVBoxLayout(scale_card)
-        scv.setContentsMargins(11, 9, 11, 10)
-        scv.setSpacing(6)
         scale_head = QHBoxLayout()
         self._scale_combo = QComboBox()
         self._populate_scale_combo(is_pdf=False)
@@ -1427,7 +1505,7 @@ class UnderlayImportDialog(QDialog):
         self._scale_pill = QLabel(" unverified ")
         self._scale_pill.setObjectName("scalePill")
         scale_head.addWidget(self._scale_pill)
-        scv.addLayout(scale_head)
+        pl_v.addLayout(scale_head)
         acts_row = QHBoxLayout()
         self._calibrate_btn = _pill(
             "Calibrate", self._start_pick2,
@@ -1438,24 +1516,23 @@ class UnderlayImportDialog(QDialog):
         acts_row.addWidget(_pill(
             "Looks right", lambda: self._mark_scale_verified("Confirmed by eye.")))
         acts_row.addStretch()
-        scv.addLayout(acts_row)
+        pl_v.addLayout(acts_row)
         self._units_info_lbl = QLabel("")
         self._units_info_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._units_info_lbl.setVisible(False)
-        scv.addWidget(self._units_info_lbl)
+        pl_v.addWidget(self._units_info_lbl)
         self._calibration_lbl = QLabel("")
         self._calibration_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._calibration_lbl.setVisible(False)
-        scv.addWidget(self._calibration_lbl)
+        pl_v.addWidget(self._calibration_lbl)
         self._scale_readout_lbl = QLabel("")
         self._scale_readout_lbl.setStyleSheet(f"color: {t.accent}; font-size: 11px;")
         self._scale_readout_lbl.setVisible(False)
-        scv.addWidget(self._scale_readout_lbl)
+        pl_v.addWidget(self._scale_readout_lbl)
         self._scale_ratio_lbl = QLabel("")
         self._scale_ratio_lbl.setStyleSheet(f"color: {t.text_secondary}; font-size: 11px;")
         self._scale_ratio_lbl.setVisible(False)
-        scv.addWidget(self._scale_ratio_lbl)
-        pl_v.addWidget(scale_card)
+        pl_v.addWidget(self._scale_ratio_lbl)
 
         # Rotation
         pl_v.addWidget(_hdr("Rotation"))
@@ -1481,13 +1558,13 @@ class UnderlayImportDialog(QDialog):
         base_x_lbl = QLabel("X:")
         base_row.addWidget(base_x_lbl)
         self._base_x_edit = DimensionEdit(self._sm, initial_mm=0.0)
-        self._base_x_edit.setFixedWidth(68)
+        self._base_x_edit.setFixedWidth(84)
         self._base_x_edit.valueChanged.connect(self._on_base_changed)
         base_row.addWidget(self._base_x_edit)
         base_y_lbl = QLabel("Y:")
         base_row.addWidget(base_y_lbl)
         self._base_y_edit = DimensionEdit(self._sm, initial_mm=0.0)
-        self._base_y_edit.setFixedWidth(68)
+        self._base_y_edit.setFixedWidth(84)
         self._base_y_edit.valueChanged.connect(self._on_base_changed)
         base_row.addWidget(self._base_y_edit)
         base_row.addStretch()
@@ -1498,13 +1575,14 @@ class UnderlayImportDialog(QDialog):
         self._base_inputs = [base_x_lbl, self._base_x_edit,
                              base_y_lbl, self._base_y_edit, self._pick_base_btn]
 
-        # Position
+        # Position — single-select → switch bar (house style)
         pl_v.addWidget(_hdr("Position"))
         pos_row = QHBoxLayout()
-        self._origin_cb = QCheckBox("Insert at origin")
-        self._origin_cb.setChecked(True)
-        self._origin_cb.toggled.connect(self._update_base_enabled)
-        pos_row.addWidget(self._origin_cb)
+        self._pos_switch = _SwitchBar(["Pick a point", "Insert at origin"])
+        self._pos_switch.set_current(1)          # default: insert at origin
+        self._pos_switch.changed.connect(
+            lambda *_: (self._update_base_enabled(), self._update_all()))
+        pos_row.addWidget(self._pos_switch)
         pos_row.addStretch()
         pl_v.addLayout(pos_row)
         pl_v.addStretch(1)
@@ -1555,7 +1633,6 @@ class UnderlayImportDialog(QDialog):
         self._custom_scale_edit.textChanged.connect(
             lambda *_: self._on_scale_factor_changed())
         self._rotation_edit.editingFinished.connect(self._update_all)
-        self._origin_cb.toggled.connect(lambda *_: self._update_all())
         self._layer_list.itemChanged.connect(lambda *_: self._update_all())
         self._file_edit.textChanged.connect(lambda *_: self._update_all())
 
@@ -1638,6 +1715,14 @@ class UnderlayImportDialog(QDialog):
 
     def _on_preview_zoom(self, ratio: float) -> None:
         self._fit_readout.setText(f"Fit · {int(round(ratio * 100))}%")
+
+    def _set_drop_overlay(self, on: bool) -> None:
+        ov = getattr(self, "_drop_overlay", None)
+        if ov is not None:
+            ov.setVisible(on)
+            if on:
+                ov.setGeometry(self._preview_view.viewport().rect())
+                ov.raise_()
 
     def _scroll_strip(self, direction: int) -> None:
         sb = self._thumb_list.horizontalScrollBar()
@@ -1736,7 +1821,7 @@ class UnderlayImportDialog(QDialog):
             scale_str = self._scale_combo.currentText() or "1:1"
         rotation = int(round(self._get_rotation()))
         levels = self._levels_picker.selected()
-        position = "origin" if self._origin_cb.isChecked() else "pick"
+        position = "origin" if self._pos_switch.current_index() == 1 else "pick"
 
         self._commit_label.setText(build_commit_sentence(
             name=name, page=page, pages=pages, layers_hidden=layers_hidden,
@@ -1831,7 +1916,7 @@ class UnderlayImportDialog(QDialog):
         self._rotation_edit.blockSignals(False)
         # Insert at origin
         origin = s.value(f"{pfx}insert_at_origin", True, type=bool)
-        self._origin_cb.setChecked(origin)
+        self._pos_switch.set_current(1 if origin else 0)
 
     def _save_settings(self):
         """Save current import settings to QSettings."""
@@ -1840,7 +1925,7 @@ class UnderlayImportDialog(QDialog):
         s.setValue(f"{pfx}scale_idx", self._scale_combo.currentIndex())
         s.setValue(f"{pfx}custom_scale", self._get_custom_scale())
         s.setValue(f"{pfx}rotation", self._get_rotation())
-        s.setValue(f"{pfx}insert_at_origin", self._origin_cb.isChecked())
+        s.setValue(f"{pfx}insert_at_origin", self._pos_switch.current_index() == 1)
 
     # ── File loading ──────────────────────────────────────────────────────────
 
@@ -2488,6 +2573,7 @@ class UnderlayImportDialog(QDialog):
                 self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
                 Qt.AspectRatioMode.KeepAspectRatio
             )
+            self._set_drop_overlay(False)   # raster loaded → hide the prompt
         except Exception:
             pass
         finally:
@@ -2608,6 +2694,7 @@ class UnderlayImportDialog(QDialog):
                 self._preview_scene.itemsBoundingRect().adjusted(-10, -10, 10, 10),
                 Qt.AspectRatioMode.KeepAspectRatio
             )
+        self._set_drop_overlay(not self._all_geoms)
 
     @staticmethod
     def _append_geom_to_path(path: QPainterPath, g: dict):
@@ -3151,7 +3238,7 @@ class UnderlayImportDialog(QDialog):
         p.pdf_page = self._pdf_page
         p.pdf_dpi = int(self._dpi_combo.currentText())
         p.import_mode = self._mode_combo.currentText().lower()
-        p.insert_at_origin = self._origin_cb.isChecked()
+        p.insert_at_origin = self._pos_switch.current_index() == 1
 
         active_layers = self._active_layers()
         geoms = []
