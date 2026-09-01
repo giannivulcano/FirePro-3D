@@ -62,3 +62,51 @@ def test_commit_sentence_single_page_no_rotation():
                               rotation=90, levels=["Level 1"], position="origin")
     assert "page" not in s and "layers hidden" not in s and "whole sheet" in s
     assert "rotated 90" in s and "placed at the origin" in s and "verified" in s
+
+
+# ── Shell integration guards (T10/T11/T12/T14) ────────────────────────────
+
+def test_zoom_clamp(qapp):
+    from firepro3d.dxf_preview_dialog import _PreviewView
+    from PyQt6.QtWidgets import QGraphicsScene
+    v = _PreviewView(QGraphicsScene())
+    v._fit_scale = 1.0
+    for _ in range(100):
+        v._apply_zoom(2.0)
+    assert v._zoom_ratio() <= 12.0 + 1e-6
+    for _ in range(100):
+        v._apply_zoom(0.5)
+    assert v._zoom_ratio() >= 0.25 - 1e-6
+
+
+def test_shell_construction_contract(qapp):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog, ImportParams
+    dlg = UnderlayImportDialog(None, levels=["Level 1", "Level 2"],
+                               current_level="Level 1")
+    assert dlg._rail is not None and dlg._levels_picker is not None
+    assert dlg._commit_label is not None
+    p = dlg.get_import_params()
+    assert isinstance(p, ImportParams) and p.levels == ["Level 1"]
+    dlg.deleteLater()
+
+
+def test_dropzone_accepts_supported_exts(qapp):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    dlg = UnderlayImportDialog(None, levels=["Level 1"], current_level="Level 1")
+    assert dlg._accepts_drop("C:/x/plan.pdf") is True
+    assert dlg._accepts_drop("C:/x/plan.DWG") is True
+    assert dlg._accepts_drop("C:/x/notes.txt") is False
+    dlg.deleteLater()
+
+
+def test_modify_prefill_levels_and_verified(qapp):
+    from firepro3d.dxf_preview_dialog import UnderlayImportDialog
+    from firepro3d.underlay import Underlay
+    rec = Underlay(type="dxf", path="x.dxf", levels=["Level 2"],
+                   scale_verified=True, rotation=0.0)
+    dlg = UnderlayImportDialog(None, levels=["Level 1", "Level 2", "Roof"],
+                               current_level="Level 1", modify_record=rec)
+    assert dlg._levels_picker.selected() == ["Level 2"]
+    assert dlg._scale_verified is True
+    assert "Modify Underlay" in dlg.windowTitle()
+    dlg.deleteLater()
