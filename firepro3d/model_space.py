@@ -2983,7 +2983,19 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _apply_underlay_display(self, item: QGraphicsItem, record: Underlay):
         """Apply transform origin, scale, rotation, opacity, visibility, and lock state."""
         self._underlay_freeze.abort()   # spec §18: edits apply instantly
-        item.setTransformOriginPoint(item.boundingRect().center())
+        # Pivot: vector underlays must rotate about the *base point*, matching
+        # the import-dialog preview (which does setTransformOriginPoint(bx, by)).
+        # apply_import_transform bakes ``coord -> (coord-base)*scale`` into the
+        # geometry, so the base point sits at group-local (0, 0). Rotating about
+        # the centroid instead swung the base point away from the insert point,
+        # flinging "Insert at origin" imports far from the preview (and subtly
+        # mis-placing off-centre-base non-origin imports too). Raster pixmaps
+        # have no base point — they are centred on the origin at import — so they
+        # keep the centroid pivot.
+        if isinstance(item, QGraphicsItemGroup):
+            item.setTransformOriginPoint(0.0, 0.0)
+        else:
+            item.setTransformOriginPoint(item.boundingRect().center())
         item.setScale(record.scale)
         item.setRotation(record.rotation)
         item.setOpacity(record.opacity)
