@@ -3508,32 +3508,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 deserialize_water_supply(self, ws_data)
 
             # Restore design areas
+            from .network_codec import deserialize_design_area
             for da_entry in state.get("design_areas", []):
-                spr_nids = da_entry.get("sprinkler_node_ids", [])
-                sprs = [id_to_node[nid].sprinkler for nid in spr_nids
-                        if nid in id_to_node and id_to_node[nid].has_sprinkler()]
-                da = DesignArea(sprs)
-                lvl = da_entry.get("level")
-                if not lvl:
-                    # Pre-2026-07 save: backfill from member sprinklers
-                    lvl = next((s.node.level for s in sprs if s.node),
-                               DEFAULT_LEVEL)
-                da.level = lvl
-                for key, value in da_entry.get("properties", {}).items():
-                    da.set_property(key, value)
-                self.addItem(da)
-                apply_category_defaults(da)
-                self.design_areas.append(da)
-                if da_entry.get("is_active", False):
-                    self.active_design_area = da
-                bo = da_entry.get("badge_offset")
-                if bo is not None:
-                    da.set_badge_offset(QPointF(bo[0], bo[1]))
-                ba = da_entry.get("badge_angle")
-                if ba is not None and getattr(da, "badge", None) is not None:
-                    da.badge._angle = float(ba)
-                    da.badge.prepareGeometryChange()
-                    da.badge.update()
+                da = deserialize_design_area(self, da_entry, id_to_node)
+                apply_category_defaults(da)  # Class-A display tail (undo self-contained)
                 # Tiles recomputed after walls & rooms restore below
 
             # ── Draw geometry ──────────────────────────────────────────────

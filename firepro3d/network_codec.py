@@ -271,3 +271,42 @@ def deserialize_pipe(scene, entry, id_to_node):
         pipe.set_pipe_display()
     pipe._display_overrides = entry.get("display_overrides", {})
     return pipe
+
+
+def deserialize_design_area(scene, entry, id_to_node):
+    """Create + register a DesignArea from a serialized entry.
+
+    Mirror of ``serialize_design_area``. Field application + scene registration only:
+    sprinkler membership, level (with pre-2026-07 backfill), properties, active flag,
+    badge offset/angle. Category/DM display application is a CALLER tail (inline in
+    _restore_network, deferred to main on file load) and is NOT applied here. Tile
+    geometry is recomputed by the caller after walls & rooms load. Returns the area.
+    """
+    from PyQt6.QtCore import QPointF
+    from .design_area import DesignArea
+    spr_node_ids = entry.get("sprinkler_node_ids", [])
+    sprs = []
+    for nid in spr_node_ids:
+        node = id_to_node.get(nid)
+        if node and node.has_sprinkler():
+            sprs.append(node.sprinkler)
+    da = DesignArea(sprs)
+    lvl = entry.get("level")
+    if not lvl:  # pre-2026-07 save: backfill from member sprinklers
+        lvl = next((s.node.level for s in sprs if s.node), DEFAULT_LEVEL)
+    da.level = lvl
+    for key, value in entry.get("properties", {}).items():
+        da.set_property(key, value)
+    scene.addItem(da)
+    scene.design_areas.append(da)
+    if entry.get("is_active", False):
+        scene.active_design_area = da
+    bo = entry.get("badge_offset")
+    if bo is not None:
+        da.set_badge_offset(QPointF(bo[0], bo[1]))
+    ba = entry.get("badge_angle")
+    if ba is not None and getattr(da, "badge", None) is not None:
+        da.badge._angle = float(ba)
+        da.badge.prepareGeometryChange()
+        da.badge.update()
+    return da

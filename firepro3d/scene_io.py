@@ -389,34 +389,9 @@ class SceneIOMixin:
             deserialize_water_supply(self, ws_data)
 
         # --- Design areas ---
+        from .network_codec import deserialize_design_area
         for da_entry in payload.get("design_areas", []):
-            spr_node_ids = da_entry.get("sprinkler_node_ids", [])
-            sprs = []
-            for nid in spr_node_ids:
-                node = id_to_node.get(nid)
-                if node and node.has_sprinkler():
-                    sprs.append(node.sprinkler)
-            da = DesignArea(sprs)
-            lvl = da_entry.get("level")
-            if not lvl:
-                # Pre-2026-07 save: backfill from member sprinklers
-                lvl = next((s.node.level for s in sprs if s.node),
-                           DEFAULT_LEVEL)
-            da.level = lvl
-            for key, value in da_entry.get("properties", {}).items():
-                da.set_property(key, value)
-            self.addItem(da)
-            self.design_areas.append(da)
-            if da_entry.get("is_active", False):
-                self.active_design_area = da
-            bo = da_entry.get("badge_offset")
-            if bo is not None:
-                da.set_badge_offset(QPointF(bo[0], bo[1]))
-            ba = da_entry.get("badge_angle")
-            if ba is not None and getattr(da, "badge", None) is not None:
-                da.badge._angle = float(ba)
-                da.badge.prepareGeometryChange()
-                da.badge.update()
+            deserialize_design_area(self, da_entry, id_to_node)
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles
 
