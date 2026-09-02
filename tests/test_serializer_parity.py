@@ -54,6 +54,30 @@ def _scene_with_hand_serialized_entities(with_sprinkler=True):
     return ms
 
 
+def _capture_via_two_paths(build_scene, tmp_path):
+    """Drive one network through BOTH deserialize paths; return (undo_scene, file_scene).
+
+    undo_scene  = a fresh scene after _restore_network(capture_dict)
+    file_scene  = a fresh scene after save_to_file -> load_from_file
+    Both start from the SAME source scene so their resulting entity state must match
+    field-for-field (Class-A parity).
+    """
+    src = build_scene()
+    snap = src._capture_network()
+
+    undo_scene = Model_Space()
+    undo_scene._level_manager = LevelManager()
+    undo_scene._restore_network(snap)
+
+    fp = str(tmp_path / "parity.fpd")
+    assert src.save_to_file(fp)
+    file_scene = Model_Space()
+    file_scene._level_manager = LevelManager()
+    file_scene.load_from_file(fp)
+
+    return undo_scene, file_scene
+
+
 def test_undo_snapshot_pipe_props_are_stored_props(qapp):
     """#1: undo pipe props must equal the stored _properties (the file path's
     source), not pipe.get_properties() which injects synthesized display rows."""
@@ -138,3 +162,52 @@ def test_codec_sections_stable_across_file_roundtrip(qapp, tmp_path):
     b = json.load(open(fp2, encoding="utf-8"))
     for key in _CODEC_KEYS:
         assert a[key] == b[key], f"codec section {key!r} not stable across round-trip"
+
+
+# ── Slice 4b: deserialize field-application parity (undo-restore vs file-load) ──
+
+def test_deserialize_parity_dimensions_notes(qapp, tmp_path):
+    """Dimension + note field state is identical via undo-restore and file-load."""
+    u, f = _capture_via_two_paths(
+        lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
+    # dimensions
+    ud, fd = u.annotations.dimensions[0], f.annotations.dimensions[0]
+    assert (ud._p1.x(), ud._p1.y()) == (fd._p1.x(), fd._p1.y())
+    assert (ud._p2.x(), ud._p2.y()) == (fd._p2.x(), fd._p2.y())
+    assert ud._offset_dist == fd._offset_dist
+    assert ud.level == fd.level
+    # notes
+    un, fn = u.annotations.notes[0], f.annotations.notes[0]
+    assert abs(un.textWidth() - fn.textWidth()) < 1e-6
+    assert (un.scenePos().x(), un.scenePos().y()) == (fn.scenePos().x(), fn.scenePos().y())
+    assert un.level == fn.level
+
+
+def test_deserialize_parity_water_supply(qapp, tmp_path):
+    u, f = _capture_via_two_paths(
+        lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
+    uw, fw = u.water_supply_node, f.water_supply_node
+    assert (uw.pos().x(), uw.pos().y()) == (fw.pos().x(), fw.pos().y())
+    uprops = {k: v["value"] for k, v in uw.get_properties().items()}
+    fprops = {k: v["value"] for k, v in fw.get_properties().items()}
+    assert uprops == fprops
+
+
+def test_deserialize_parity_nodes_pipes(qapp, tmp_path):
+    u, f = _capture_via_two_paths(
+        lambda: _scene_with_hand_serialized_entities(with_sprinkler=False), tmp_path)
+    un = list(u.sprinkler_system.nodes)
+    fn = list(f.sprinkler_system.nodes)
+    assert len(un) == len(fn)
+    for a, b in zip(un, fn):
+        assert (a.scenePos().x(), a.scenePos().y()) == (b.scenePos().x(), b.scenePos().y())
+        assert a.level == b.level
+        assert a.ceiling_level == b.ceiling_level
+        assert abs(a.ceiling_offset - b.ceiling_offset) < 1e-6
+        assert abs(a.z_pos - b.z_pos) < 1e-6
+        assert a._room_name == b._room_name
+    up = u.sprinkler_system.pipes[0]
+    fp = f.sprinkler_system.pipes[0]
+    assert {k: v["value"] for k, v in up._properties.items()} == \
+           {k: v["value"] for k, v in fp._properties.items()}
+    assert up.level == fp.level
