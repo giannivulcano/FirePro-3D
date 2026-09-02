@@ -713,7 +713,8 @@ class ModelBrowser(QWidget):
 
     def _remove_underlay(self, data, item):
         """Remove with confirmation dialog."""
-        filename = os.path.basename(data.path)
+        from .underlay_manager_model import _record_name
+        filename = _record_name(data)
         reply = QMessageBox.question(
             self, "Remove Underlay",
             f"Remove underlay '{filename}'?\nThis cannot be undone.",

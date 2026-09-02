@@ -1170,7 +1170,8 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         surfaced here — they are preserved by replace_underlay, not re-edited.
         """
         self._name_edit.setText(getattr(record, "name", "") or "")
-        _name = os.path.basename(record.path) or "underlay"
+        from .underlay_manager_model import _record_name
+        _name = _record_name(record) or "underlay"
         self.setWindowTitle(f"Modify Underlay — {_name}")
         if hasattr(self, "_title_lbl"):
             self._title_lbl.setText(f"Modify Underlay — {_name}")
