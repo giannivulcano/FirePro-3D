@@ -70,7 +70,9 @@ from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
-from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
+from .snap_engine import (
+    SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS, paint_snap_indicator,
+)
 from .underlay_snap_index import UnderlaySnapIndex
 from .scale_manager import ScaleManager
 from .dimension_edit import DimensionEdit
@@ -388,79 +390,11 @@ class _PreviewView(QGraphicsView):
         if snap is None:
             return
 
-        # ── Source-item trace (scene coords) ──────────────────────────
-        src = snap.source_item
-        if src is not None:
-            color = QColor(SNAP_COLORS.get(snap.snap_type, "#aaaaaa"))
-            trace_pen = QPen(color, 1, Qt.PenStyle.DashLine)
-            trace_pen.setCosmetic(True)
-            painter.save()
-            painter.setPen(trace_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            if isinstance(src, QGraphicsLineItem):
-                ln = src.line()
-                painter.drawLine(QLineF(src.mapToScene(ln.p1()),
-                                        src.mapToScene(ln.p2())))
-            elif isinstance(src, QGraphicsEllipseItem):
-                painter.drawEllipse(src.mapRectToScene(src.rect()))
-            elif isinstance(src, QGraphicsPathItem):
-                painter.drawPath(src.mapToScene(src.path()))
-            painter.restore()
-
-        # ── Snap glyph (viewport coords) ─────────────────────────────
-        color = QColor(SNAP_COLORS.get(snap.snap_type, "#ffffff"))
-        marker = SNAP_MARKERS.get(snap.snap_type, "square")
-        vp = self.mapFromScene(snap.point)
-        x, y = vp.x(), vp.y()
-        s = 6
-
-        painter.save()
-        painter.resetTransform()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        pen = QPen(color, 2)
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        if marker == "square":
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "circle":
-            painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "triangle":
-            from PyQt6.QtGui import QPolygon
-            from PyQt6.QtCore import QPoint
-            poly = QPolygon([
-                QPoint(int(x), int(y) - s),
-                QPoint(int(x) + s, int(y) + s),
-                QPoint(int(x) - s, int(y) + s),
-            ])
-            painter.drawPolygon(poly)
-        elif marker == "diamond":
-            from PyQt6.QtGui import QPolygon
-            from PyQt6.QtCore import QPoint
-            poly = QPolygon([
-                QPoint(int(x),     int(y) - s),
-                QPoint(int(x) + s, int(y)),
-                QPoint(int(x),     int(y) + s),
-                QPoint(int(x) - s, int(y)),
-            ])
-            painter.drawPolygon(poly)
-        elif marker == "cross":
-            painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-        elif marker == "right_angle":
-            painter.drawLine(int(x) - s, int(y), int(x), int(y))
-            painter.drawLine(int(x), int(y), int(x), int(y) - s)
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "tangent_circle":
-            painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            painter.drawLine(int(x) - s - 2, int(y) + s,
-                             int(x) + s + 2, int(y) + s)
-        elif marker == "x_cross":
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-        painter.restore()
+        # Draw the snap trace + marker via the one shared painter so the
+        # preview matches the main plan view exactly (source_item2 + filled
+        # face glyphs included).  Detection is unified, so the richer visuals
+        # "just work" off the same result fields.
+        paint_snap_indicator(painter, self, snap)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

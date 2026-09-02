@@ -22,11 +22,14 @@ import math
 from dataclasses import dataclass, field
 from typing import Callable
 
-from PyQt6.QtCore  import QLineF, QPointF, QRectF, Qt
-from PyQt6.QtGui   import QPainterPath, QTransform
+from PyQt6.QtCore  import QLineF, QPoint, QPointF, QRectF, Qt
+from PyQt6.QtGui   import (
+    QBrush, QColor, QPainter, QPainterPath, QPen, QPolygon, QTransform,
+)
 from PyQt6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsItemGroup,
     QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem,
+    QGraphicsRectItem,
 )
 
 from .annotations import DimensionAnnotation, NoteAnnotation
@@ -156,6 +159,173 @@ SNAP_MARKERS: dict[str, str] = {
     "perpendicular": "right_angle",
     "tangent":       "tangent_circle",
 }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared snap-indicator painter
+# ─────────────────────────────────────────────────────────────────────────────
+
+def paint_snap_indicator(painter: QPainter, view, snap_result) -> None:
+    """Draw the snap trace and marker glyph for one snap result.
+
+    This is the single source of truth for snap-indicator rendering, shared
+    by ``Model_View.drawForeground`` (main plan view) and
+    ``_PreviewView.drawForeground`` (import-dialog preview) so both draw
+    identical indicators.  It renders, in order:
+
+    1. **Source-item trace** — a dashed ghost (scene coords) of the item(s)
+       being snapped to.  Draws ``source_lines`` if present, otherwise the
+       ``source_item`` and optional ``source_item2``.  For path items, only
+       segments adjacent to the snap point are highlighted (so a single
+       corner snap does not light up an entire DXF rectangle).
+    2. **Marker glyph** — a colour-coded shape (viewport/device coords) at the
+       snap point.  ``face-`` named targets are drawn with a *filled* glyph;
+       all others are outlined.
+
+    All optional fields are guarded via ``getattr`` so a minimal result
+    (``point`` + ``snap_type`` only) paints without raising.  The marker is
+    drawn under ``resetTransform`` in device pixels via ``view.mapFromScene``,
+    matching the screen-constant handle sizing the plan view has always used
+    (so it stays constant across zoom).
+
+    Args:
+        painter: The active ``QPainter`` for the foreground pass.
+        view: The ``QGraphicsView`` whose foreground is being painted;
+            must provide ``mapFromScene``.
+        snap_result: An :class:`OsnapResult` (or ``None``).  When ``None``,
+            nothing is drawn.
+    """
+    if snap_result is None:
+        return
+
+    snap_type = snap_result.snap_type
+    point = snap_result.point
+
+    # ── 1. Source-item trace (scene coordinates — no resetTransform) ──────────
+    src_item = getattr(snap_result, "source_item", None)
+    src_lines = getattr(snap_result, "source_lines", None)
+    if src_item is not None or src_lines:
+        color = QColor(SNAP_COLORS.get(snap_type, "#aaaaaa"))
+        trace_pen = QPen(color, 1)
+        trace_pen.setStyle(Qt.PenStyle.DashLine)
+        trace_pen.setCosmetic(True)
+        painter.save()
+        painter.setPen(trace_pen)
+        painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+
+        # If source_lines are provided (Phase 4 intersections),
+        # draw only the participating segments instead of full items.
+        if src_lines:
+            for seg in src_lines:
+                painter.drawLine(seg)
+        else:
+            # Draw all source items (source_item + optional source_item2)
+            _sources = [src_item]
+            _src2 = getattr(snap_result, "source_item2", None)
+            if _src2 is not None:
+                _sources.append(_src2)
+            for src in _sources:
+                if isinstance(src, QGraphicsLineItem):
+                    ln = src.line()
+                    p1 = src.mapToScene(ln.p1())
+                    p2 = src.mapToScene(ln.p2())
+                    painter.drawLine(QLineF(p1, p2))
+                elif isinstance(src, QGraphicsEllipseItem):
+                    painter.drawEllipse(src.mapRectToScene(src.rect()))
+                elif isinstance(src, QGraphicsPathItem):
+                    # Draw only segments adjacent to snap point,
+                    # not the entire path (avoids lighting up a
+                    # whole DXF rectangle for one corner snap).
+                    sp = point
+                    path = src.path()
+                    n = path.elementCount()
+                    best_segs = []
+                    tol_sq = 1.0  # 1 mm² scene tolerance
+                    for si in range(n - 1):
+                        e1 = path.elementAt(si)
+                        e2 = path.elementAt(si + 1)
+                        p1 = src.mapToScene(QPointF(e1.x, e1.y))
+                        p2 = src.mapToScene(QPointF(e2.x, e2.y))
+                        d1 = (p1.x() - sp.x()) ** 2 + (p1.y() - sp.y()) ** 2
+                        d2 = (p2.x() - sp.x()) ** 2 + (p2.y() - sp.y()) ** 2
+                        mx = (p1.x() + p2.x()) * 0.5
+                        my = (p1.y() + p2.y()) * 0.5
+                        dm = (mx - sp.x()) ** 2 + (my - sp.y()) ** 2
+                        if d1 < tol_sq or d2 < tol_sq or dm < tol_sq:
+                            best_segs.append(QLineF(p1, p2))
+                    if best_segs:
+                        for seg in best_segs:
+                            painter.drawLine(seg)
+                    else:
+                        painter.drawPath(src.mapToScene(src.path()))
+                elif isinstance(src, QGraphicsRectItem):
+                    painter.drawRect(src.mapRectToScene(src.rect()))
+
+        painter.restore()
+
+    # ── 2. Marker glyph (viewport/device coordinates) ─────────────────────────
+    color  = QColor(SNAP_COLORS.get(snap_type, "#ffffff"))
+    marker = SNAP_MARKERS.get(snap_type, "square")
+    vp     = view.mapFromScene(point)
+    x, y   = vp.x(), vp.y()
+    s      = 6   # half-size in screen pixels
+
+    painter.save()
+    painter.resetTransform()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+    pen = QPen(color, 2)
+    pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+    painter.setPen(pen)
+
+    # Filled glyph variant for WallSegment face-corner / face-mid targets
+    # (§8.2 of the snap engine spec, amended: *filled* = face / secondary,
+    # *outlined* = centerline / default).
+    _name = getattr(snap_result, "name", None)
+    if _name is not None and _name.startswith("face-"):
+        painter.setBrush(QBrush(color))
+    else:
+        painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
+
+    if marker == "square":
+        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+    elif marker == "circle":
+        painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
+    elif marker == "triangle":
+        poly = QPolygon([
+            QPoint(int(x),     int(y) - s),
+            QPoint(int(x) + s, int(y) + s),
+            QPoint(int(x) - s, int(y) + s),
+        ])
+        painter.drawPolygon(poly)
+    elif marker == "diamond":
+        poly = QPolygon([
+            QPoint(int(x),     int(y) - s),
+            QPoint(int(x) + s, int(y)),
+            QPoint(int(x),     int(y) + s),
+            QPoint(int(x) - s, int(y)),
+        ])
+        painter.drawPolygon(poly)
+    elif marker == "cross":
+        painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
+        painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+    elif marker == "right_angle":
+        # ⊥ perpendicular symbol: right-angle corner
+        painter.drawLine(int(x) - s, int(y), int(x), int(y))
+        painter.drawLine(int(x), int(y), int(x), int(y) - s)
+        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+    elif marker == "tangent_circle":
+        # Tangent: small circle with horizontal line through bottom
+        painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        painter.drawLine(int(x) - s - 2, int(y) + s, int(x) + s + 2, int(y) + s)
+    elif marker == "x_cross":
+        # Intersection: X inside a square
+        painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
+        painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
+        painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
+
+    painter.restore()
+
 
 # Priority ordering — lower value = higher priority (endpoint wins over nearest)
 SNAP_PRIORITY: dict[str, int] = {
