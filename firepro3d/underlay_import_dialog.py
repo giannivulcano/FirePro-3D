@@ -74,7 +74,7 @@ from .snap_engine import (
     SnapEngine, OsnapResult, paint_snap_indicator,
 )
 from .underlay_snap_index import UnderlaySnapIndex
-from .scale_manager import ScaleManager
+from .scale_manager import ScaleManager, DisplayUnit
 from .dimension_edit import DimensionEdit
 from .assets import asset_path
 
@@ -1156,9 +1156,13 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         custom_idx = len(self._SCALE_OPTIONS) - 1
         self._scale_combo.setCurrentIndex(custom_idx)
         self._on_scale_combo_changed(custom_idx)   # ensure visible even if idx unchanged
-        self._custom_scale_edit.blockSignals(True)
-        self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
-        self._custom_scale_edit.blockSignals(False)
+        if self._ratio_fields_active():
+            # PDF Custom is driven by the two-field ratio — back-solve it.
+            self._set_ratio_fields_from_factor(float(record.import_scale))
+        else:
+            self._custom_scale_edit.blockSignals(True)
+            self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
+            self._custom_scale_edit.blockSignals(False)
 
         # DEFENSIVE RECONCILE — only fires when geometry is ALREADY present at
         # this point. All three real loaders are now ASYNC (PDF joined DXF/DWG
@@ -1573,6 +1577,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._custom_scale_edit.setVisible(False)
         self._custom_scale_edit.textChanged.connect(self._on_custom_scale_edited)
         scale_head.addWidget(self._custom_scale_edit)
+        # PDF-only human-readable ratio: imperial "[paper] in = [real] ft";
+        # metric "1 : [real]". Fields are plain numeric line-edits (the paper
+        # side accepts fractions like 3/8); the raw factor edit above stays the
+        # DXF/DWG path. Built once from the SM's unit system.
+        self._build_ratio_fields(scale_head)
         scale_head.addStretch()
         self._scale_pill = QLabel(" unverified ")
         self._scale_pill.setObjectName("scalePill")
@@ -1923,7 +1932,9 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             1 for i in range(self._layer_list.count())
             if self._layer_list.item(i).checkState() != Qt.CheckState.Checked)
         cropped = self._selected_indices is not None
-        if self._custom_scale_edit.isVisible():
+        if self._ratio_fields_active():
+            scale_str = pdf_scale_ratio_text(self._current_scale()) or "Custom"
+        elif self._custom_scale_edit.isVisible():
             scale_str = self._custom_scale_edit.text() or "1.0"
         else:
             scale_str = self._scale_combo.currentText() or "1:1"
@@ -3216,6 +3227,152 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     # ── Scale ─────────────────────────────────────────────────────────────────
 
+    def _is_imperial(self) -> bool:
+        """True when the dialog's ScaleManager displays imperial (feet-inches)."""
+        sm = getattr(self, "_sm", None)
+        if sm is None:
+            return False
+        return sm.display_unit == DisplayUnit.IMPERIAL
+
+    def _build_ratio_fields(self, row: QHBoxLayout):
+        """Create the PDF-only two-field ``[paper] = [real]`` ratio input.
+
+        Imperial reads ``[paper] in = [real] ft`` (paper accepts a fraction
+        such as ``3/8``); metric reads ``1 : [real]`` (1 paper-mm = N real-mm).
+        The fields are plain numeric line-edits — the imperial units differ per
+        side (inches vs feet) and the ``1 :`` metric form has no length unit, so
+        ``DimensionEdit``'s single-unit feet-inches formatting would obscure
+        rather than help. The layout is fixed once from the SM's unit system
+        (the dialog never switches unit systems mid-session).
+        """
+        imperial = self._is_imperial()
+
+        def _num_edit(placeholder: str, width: int, text: str = "") -> QLineEdit:
+            e = QLineEdit()
+            e.setFont(QFont(FONT_VALUE))
+            e.setPlaceholderText(placeholder)
+            e.setFixedWidth(width)
+            if text:
+                e.setText(text)
+            e.textChanged.connect(self._on_ratio_field_edited)
+            return e
+
+        def _lbl(text: str) -> QLabel:
+            la = QLabel(text)
+            la.setFont(QFont(FONT_UI))
+            return la
+
+        self._ratio_widgets: list = []
+        if imperial:
+            # 1/4" = 1'-0" is the most common architectural plan scale → seed it.
+            self._paper_edit = _num_edit("3/8", 54, "1/4")
+            self._real_edit = _num_edit("1", 44, "1")
+            self._ratio_widgets = [
+                self._paper_edit, _lbl("in ="), self._real_edit, _lbl("ft"),
+            ]
+        else:
+            self._paper_edit = _num_edit("1", 44, "1")
+            self._paper_edit.setReadOnly(True)   # metric paper side is fixed at 1
+            self._real_edit = _num_edit("100", 60, "100")
+            self._ratio_widgets = [
+                _lbl("1 :"), self._real_edit,
+            ]
+            # _paper_edit exists (kept at 1) but is not shown in the metric form.
+        for w in self._ratio_widgets:
+            w.setVisible(False)
+            row.addWidget(w)
+
+    def _set_ratio_fields_visible(self, visible: bool):
+        """Show/hide the whole two-field ratio row as one unit."""
+        for w in getattr(self, "_ratio_widgets", []):
+            w.setVisible(visible)
+
+    def _on_ratio_field_edited(self, *_):
+        """A ratio field changed — refresh readouts and un-verify the scale."""
+        self._update_scale_ratio_label()
+        self._update_scale_readout()
+        self._on_scale_factor_changed()
+
+    @staticmethod
+    def _parse_ratio_number(text: str) -> float | None:
+        """Parse a bare number or a simple fraction (e.g. ``3/8``) → float.
+
+        Returns None on blank/garbage; the caller falls back to a safe value.
+        ``ScaleManager.parse_dimension`` handles ``6 1/2"`` but not a bare
+        ``3/8``, so the paper-inches field needs this lighter parser.
+        """
+        text = (text or "").strip().rstrip('"').strip()
+        if not text:
+            return None
+        try:
+            if "/" in text:
+                whole = 0.0
+                frac = text
+                if " " in text:                      # "1 1/2" mixed number
+                    w, frac = text.split(None, 1)
+                    whole = float(w)
+                num, den = frac.split("/", 1)
+                den_f = float(den)
+                if den_f == 0:
+                    return None
+                return whole + float(num) / den_f
+            return float(text)
+        except ValueError:
+            return None
+
+    def _custom_ratio_factor(self) -> float:
+        """mm-per-point factor derived from the two ratio fields.
+
+        Imperial: ``pdf_scale_from_ratio(paper_in*25.4, real_ft*304.8)``.
+        Metric:   ``pdf_scale_from_ratio(1.0, real_mm)`` (1 paper-mm = N real).
+        Guards blanks/zeros by returning the last valid factor (or 1.0).
+        """
+        if self._is_imperial():
+            paper_in = self._parse_ratio_number(self._paper_edit.text())
+            real_ft = self._parse_ratio_number(self._real_edit.text())
+            if paper_in and real_ft and paper_in > 0 and real_ft > 0:
+                factor = pdf_scale_from_ratio(paper_in * 25.4, real_ft * 304.8)
+                self._last_ratio_factor = factor
+                return factor
+        else:
+            real_mm = self._parse_ratio_number(self._real_edit.text())
+            if real_mm and real_mm > 0:
+                factor = pdf_scale_from_ratio(1.0, real_mm)
+                self._last_ratio_factor = factor
+                return factor
+        return getattr(self, "_last_ratio_factor", 1.0)
+
+    def _set_ratio_fields_from_factor(self, factor: float):
+        """Back-solve the two ratio fields from a known mm-per-point *factor*.
+
+        Used by the PDF calibration flow: fix the real side (1 ft imperial /
+        1 mm-basis metric) and derive the paper side so the fields round-trip
+        the calibrated factor through :meth:`_custom_ratio_factor`.
+        """
+        if factor <= 0:
+            return
+        if self._is_imperial():
+            # Fix real = 1 ft; paper_in = 304.8 * _MM_PER_POINT / factor / 25.4.
+            real_ft = 1.0
+            paper_in = (real_ft * 304.8) * _MM_PER_POINT / factor / 25.4
+            self._real_edit.setText(f"{real_ft:g}")
+            self._paper_edit.setText(f"{paper_in:.5g}")
+        else:
+            # Metric 1 : M, M = real-mm per paper-mm = factor / _MM_PER_POINT.
+            real_mm = factor / _MM_PER_POINT
+            self._real_edit.setText(f"{real_mm:.5g}")
+        self._last_ratio_factor = factor
+
+    def _ratio_fields_active(self) -> bool:
+        """True when the two-field ratio (not the raw factor) drives the scale.
+
+        Active only for a PDF import with "Custom…" selected; DXF/DWG Custom
+        keeps the raw mm-per-point ``_custom_scale_edit``.
+        """
+        return (getattr(self, "_file_type", "") == "pdf"
+                and self._scale_combo.currentData() is None
+                and hasattr(self, "_paper_edit"))
+
     def _populate_scale_combo(self, is_pdf: bool):
         """(Re)fill the scale combo, storing each preset's scale in itemData.
 
@@ -3239,13 +3396,35 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     def _on_scale_combo_changed(self, idx: int):
         is_custom = self._scale_combo.currentData() is None   # "Custom…"
-        self._custom_scale_edit.setVisible(is_custom)
+        is_pdf = getattr(self, "_file_type", "") == "pdf"
+        # PDF Custom → human-readable two-field ratio (raw factor hidden);
+        # non-PDF Custom → raw mm-per-point factor (unchanged DXF behaviour);
+        # not-Custom → neither.
+        use_ratio = is_custom and is_pdf
+        self._custom_scale_edit.setVisible(is_custom and not use_ratio)
+        self._set_ratio_fields_visible(use_ratio)
         self._calibration_lbl.setVisible(
             is_custom and bool(self._calibration_lbl.text()))
         self._update_scale_readout()
         self._update_scale_ratio_label()
 
     def _on_custom_scale_edited(self, *_):
+        # When the ratio fields own the PDF Custom scale, a programmatic write
+        # to the hidden raw factor edit (e.g. a restored/detected factor) must
+        # be mirrored into the two fields so they stay the source of truth.
+        if self._ratio_fields_active():
+            try:
+                factor = float(self._custom_scale_edit.text())
+            except (ValueError, AttributeError):
+                factor = 0.0
+            if factor > 0:
+                blocked = [(w, w.blockSignals(True))
+                           for w in (self._paper_edit, self._real_edit)]
+                try:
+                    self._set_ratio_fields_from_factor(factor)
+                finally:
+                    for w, prev in blocked:
+                        w.blockSignals(prev)
         self._update_scale_ratio_label()
         self._update_scale_readout()
 
@@ -3276,7 +3455,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         data = self._scale_combo.currentData()
         if data is not None:
             return float(data)
-        return self._get_custom_scale()   # "Custom…"
+        # "Custom…": PDF drives the factor from the two-field ratio; DXF/DWG
+        # keeps the raw mm-per-point field.
+        if self._ratio_fields_active():
+            return self._custom_ratio_factor()
+        return self._get_custom_scale()
 
     def _update_scale_readout(self):
         """Show the real-world size of the loaded geometry at the current scale."""
@@ -3432,7 +3615,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                     factor = parsed_mm / px_dist
                     custom_idx = len(self._SCALE_OPTIONS) - 1
                     self._scale_combo.setCurrentIndex(custom_idx)
-                    self._custom_scale_edit.setText(f"{factor:.5g}")
+                    if self._file_type == "pdf":
+                        # PDF Custom uses the two-field ratio — back-solve it.
+                        self._set_ratio_fields_from_factor(factor)
+                    else:
+                        self._custom_scale_edit.setText(f"{factor:.5g}")
                     display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
                     if self._file_type == "pdf":
                         ratio = pdf_scale_ratio_text(factor)
