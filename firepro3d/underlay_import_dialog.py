@@ -2294,9 +2294,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._all_geoms, layers = cached
             self._layers = list(layers)
             # ASYNC consume site (DXF/DWG, memoized-layout branch). Same timing
-            # contract as _on_extract_finished: _apply_modify_prefill left these
-            # pending (its clear is gated to _file_type=="pdf") so this branch
-            # can consume them here once the (cached) geometry is available.
+            # contract as _on_extract_finished: _apply_modify_prefill leaves
+            # these pending for every async loader (DXF/DWG here; PDF in
+            # _on_pdf_extract_finished) so this branch can consume them here
+            # once the (cached) geometry is available.
             self._populate_layer_list()   # applies _pending_modify_layers
             self._pending_modify_layers = None
             self._selected_indices = None
@@ -2399,14 +2400,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._layers = list(layers)
         # ASYNC consume site (DXF/DWG). These pending fields were deliberately
         # LEFT UNCLEARED by _apply_modify_prefill because geometry did not exist
-        # yet when that returned — the sync-path clear there is gated to
-        # _file_type=="pdf" precisely so this branch still sees them. Consume +
-        # clear them here now that the extract has finished.
+        # yet when that returned — the prefill no longer clears pending for any
+        # loader (PDF now consumes async in _on_pdf_extract_finished too), so
+        # this branch still sees them. Consume + clear them here now that the
+        # extract has finished.
         self._populate_layer_list()   # applies _pending_modify_layers
         self._pending_modify_layers = None
         self._selected_indices = None
         # Modify flow: restore the saved crop now that geometry exists (async
-        # DXF/DWG — the sync PDF path applies it inline in the prefill).
+        # DXF/DWG here; the async PDF path applies it in _on_pdf_extract_finished).
         if self._pending_modify_bounds is not None:
             self._restore_crop_from_bounds(self._pending_modify_bounds)
             self._pending_modify_bounds = None
