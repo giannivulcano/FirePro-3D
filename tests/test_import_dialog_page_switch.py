@@ -6,8 +6,24 @@ the new page just aren't re-checked; the crop re-selects whatever falls in it.
 from __future__ import annotations
 
 import os
+import time
 
 import firepro3d.pdf_import_worker as piw
+
+
+def _pump_until_pdf_done(dlg, qapp, timeout=5.0):
+    """Pump the GUI loop until the dialog's async PDF worker finishes.
+
+    PDF vector extraction runs on a worker thread now, so a page switch's new
+    geometry + layer list only appear after the worker delivers and the finish
+    handler runs. Drive that to completion before asserting.
+    """
+    deadline = time.monotonic() + timeout
+    while getattr(dlg, "_pdf_worker", None) is not None \
+            and time.monotonic() < deadline:
+        qapp.processEvents()
+        time.sleep(0.005)
+    qapp.processEvents()
 
 
 def _make_pdf_dialog(qapp, tmp_path, monkeypatch):
@@ -67,6 +83,7 @@ def test_page_switch_preserves_settings_resets_geometry(qapp, tmp_path,
 
     # ── User switches to page index 1 via the thumbnail strip ───────────────
     dlg._on_page_thumb_clicked(1)
+    _pump_until_pdf_done(dlg, qapp)
 
     # New geometry loaded, layer list refreshed to the new page's layers.
     assert dlg._pdf_page == 1
@@ -92,6 +109,7 @@ def test_page_switch_preserves_layers_and_crop(qapp, tmp_path, monkeypatch):
 
     # Load page 0 so the layer list is populated (indices 0=A,1=B).
     dlg._on_page_thumb_clicked(0)
+    _pump_until_pdf_done(dlg, qapp)
     assert dlg._layer_list.count() == 2
 
     # User deselects layer "B" → only "A" active.
@@ -111,6 +129,7 @@ def test_page_switch_preserves_layers_and_crop(qapp, tmp_path, monkeypatch):
 
     # ── Switch to page 1 (same stubbed geometry) ───────────────────────────
     dlg._on_page_thumb_clicked(1)
+    _pump_until_pdf_done(dlg, qapp)
 
     # Layer selection re-applied by NAME (B still deselected).
     assert dlg._active_layers() == {"A"}

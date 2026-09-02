@@ -625,6 +625,50 @@ class _DialogExtractWorker(QThread):
         self.finished_geoms.emit(geoms, sorted(layers_set | geom_layers))
 
 
+class _DialogPdfExtractWorker(QThread):
+    """PDF vector extraction off the GUI thread (mirrors _DialogExtractWorker).
+
+    Wraps :func:`pdf_import_worker.extract_pdf_vectors_sync`, which already
+    returns ``(geoms, layer_names)`` — so ``finished_geoms`` carries both and
+    the dialog's finish handler needs no separate layer computation. Emits the
+    same ``status`` / ``finished_geoms`` / ``aborted`` / ``error`` signals the
+    DXF worker does, so the loading-overlay wiring is identical. The extraction
+    itself is one blocking PyMuPDF call and is not chunk-interruptible; Cancel
+    is honoured before the call and its result discarded after (the finish
+    slot's ``_pdf_worker is None`` guard).
+    """
+
+    status = pyqtSignal(str)                  # phase description for the card
+    finished_geoms = pyqtSignal(list, list)   # (geom dicts, layer names)
+    aborted = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, path: str, page: int, parent=None):
+        super().__init__(parent)
+        self._path = path
+        self._page = page
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            self.status.emit("Opening PDF…")
+            if self._cancelled:
+                self.aborted.emit()
+                return
+            from .pdf_import_worker import extract_pdf_vectors_sync
+            self.status.emit(f"Reading page {self._page + 1}…")
+            geoms, layers = extract_pdf_vectors_sync(self._path, self._page)
+            if self._cancelled:
+                self.aborted.emit()
+                return
+            self.finished_geoms.emit(geoms, layers)
+        except Exception as e:  # noqa: BLE001 — surfaced on the info label
+            self.error.emit(str(e))
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Shell primitives — step-rail / levels picker / commit-sentence
 # (used by the redesigned import shell; do not depend on UnderlayImportDialog)
@@ -1078,6 +1122,8 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._extracting = False  # re-entrancy guard for extraction
         self._loading_cancelled = False  # loading-card Cancel latch
         self._extract_worker: _DialogExtractWorker | None = None
+        self._pdf_worker: _DialogPdfExtractWorker | None = None
+        self._pdf_extract_ctx: dict | None = None  # in-flight PDF load context
         self._read_worker: _DialogReadWorker | None = None
         self._extract_total: int | None = None
         self._pending_read_path: str = ""
@@ -1130,10 +1176,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if _ok is not None:
             _ok.setText("Save changes")
 
-        # Saved layer subset / crop must survive the (async) geometry load.
-        # The sync PDF path populates the layer list inside _load_file below;
-        # the async DXF/DWG path populates it later in _on_extract_finished.
-        # Both consume these pending fields once geometry is available.
+        # Saved layer subset / crop must survive the async geometry load. ALL
+        # loaders are async: the PDF path consumes these in
+        # _on_pdf_extract_finished; DXF/DWG in _on_extract_finished. They are
+        # left pending here and consumed once geometry is final.
         self._pending_modify_layers = list(record.selected_layers or [])
         self._pending_modify_bounds = (
             list(record.import_bounds) if record.import_bounds else None)
@@ -1174,15 +1220,16 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
         self._custom_scale_edit.blockSignals(False)
 
-        # SYNC (PDF) path: geometry is already loaded (final page rendered
-        # above) and the layer list is populated. The multi-call PDF load
-        # (_load_pdf renders page 0, then the prefill re-renders the target
-        # page) means _populate_layer_list may have consumed _pending_modify_
-        # layers against the wrong page — so re-apply layers + crop explicitly
-        # here against the FINAL geometry, then clear the pending fields so the
-        # async callback doesn't double-apply. The ASYNC (DXF/DWG) path has no
-        # geometry yet (_load_file returned before extraction) → this guard is
-        # False and the extract-finished callback consumes the pending fields.
+        # DEFENSIVE RECONCILE — only fires when geometry is ALREADY present at
+        # this point. All three real loaders are now ASYNC (PDF joined DXF/DWG
+        # on a worker thread), so _all_geoms is empty here and this block is a
+        # no-op — the pending fields survive to be consumed by the matching
+        # finish handler (_on_pdf_extract_finished / _on_extract_finished / the
+        # memoized _extract_for_layout branch). It is retained for any path that
+        # DOES populate geometry synchronously (e.g. a stubbed loader in a test,
+        # or a future memoized PDF hit): re-apply layers + crop against that
+        # FINAL geometry and clear pending so the async callback can't
+        # double-apply.
         if self._all_geoms:
             if self._pending_modify_layers:
                 self._apply_selected_layers(self._pending_modify_layers)
@@ -1191,25 +1238,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 self._restore_crop_from_bounds(self._pending_modify_bounds)
                 self._pending_modify_bounds = None
 
-        # Enforce the "pending consumed by end of the SYNC load" invariant for
-        # PDF — and PDF ONLY. Two PDF sub-cases reach here:
-        #   • vector-sync: the reconcile block above already applied+cleared;
-        #   • raster: _load_pdf_page set _all_geoms=[] so the guard was False
-        #     and nothing was applied (raster records carry no layers/crop) —
-        #     the pending fields would otherwise linger as stale state that a
-        #     same-session import-mode switch could mis-read.
-        # Either way, by the time the SYNC PDF load returns the geometry is
-        # final, so clearing here is safe.
-        #
-        # ⚠ TIMING HAZARD — do NOT hoist this into an unconditional clear at the
-        # end of _apply_modify_prefill. The ASYNC DXF/DWG path has NOT loaded
-        # geometry yet (_load_file returned before the extract worker finishes);
-        # its pending fields MUST survive prefill to be consumed in
-        # _on_extract_finished / the memoized _extract_for_layout branch. Gating
-        # on the PDF (sync) file type keeps async intact.
-        if self._file_type == "pdf":
-            self._pending_modify_layers = None
-            self._pending_modify_bounds = None
+        # ⚠ TIMING HAZARD (retired): there used to be an unconditional
+        # `if self._file_type == "pdf": clear pending` gate here, valid only
+        # while the PDF load was SYNCHRONOUS (geometry final by prefill's end).
+        # PDF extraction is now ASYNC, so clearing here would drop the saved
+        # layer subset + crop BEFORE the worker finishes → they would be lost on
+        # Modify. The consume+clear now lives in _on_pdf_extract_finished (vector
+        # PDF) and in _load_pdf_page's raster branch (raster records carry no
+        # layers/crop) — both AFTER geometry is final. Do NOT reintroduce a
+        # prefill-end clear.
 
         # Rotation (display transform).
         self._set_rotation(record.rotation)
@@ -2043,9 +2080,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_loading_cancel(self):
         """Cancel button on the loading card — abort an in-flight extraction."""
         self._loading_cancelled = True
-        w = getattr(self, "_extract_worker", None)
-        if w is not None:
-            w.cancel()
+        for attr in ("_extract_worker", "_pdf_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.cancel()
 
     # ── Persist settings between sessions ──────────────────────────────────
 
@@ -2097,7 +2135,8 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._load_file()
 
     def _load_file(self):
-        if self._extracting or self._read_worker is not None:
+        if (self._extracting or self._read_worker is not None
+                or self._pdf_worker is not None):
             return  # a load is already in flight
         path = self._file_edit.text().strip()
         if not path or not os.path.exists(path):
@@ -2658,88 +2697,195 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._pdf_page = page
         mode = self._mode_combo.currentText().lower()  # "auto", "vectors", "raster"
 
+        # A page switch / re-render supersedes any in-flight vector extraction.
+        prev = self._pdf_worker
+        if prev is not None:
+            self._pdf_worker = None
+            prev.cancel()
+
         if mode == "raster":
             self._has_vectors = False
             self._all_geoms = []
             self._layers = []
             self._populate_layer_list()
             self._selected_indices = None
+            # RASTER PDF Modify: geometry is final (empty) once this returns, so
+            # the sync-load pending invariant must hold here — raster records
+            # carry no layers/crop, so clearing (rather than applying) is right.
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
             self._show_raster_preview(path, page, dpi)
             self._clear_loading()
             self._info_lbl.setText(
                 f"{self._page_name(page)} — raster at {dpi} DPI.")
+            self._units_info_lbl.setVisible(False)
+            self._update_scale_readout()
+            self._update_status()
+            return
+
+        # ── Vector / Auto — extract off the GUI thread ───────────────────────
+        # Geometry is NO LONGER final when this method returns; _apply_modify_
+        # prefill therefore leaves _pending_modify_* alone (its sync clear was
+        # retired) and _on_pdf_extract_finished consumes them once the worker
+        # delivers the final page geometry — mirroring _on_extract_finished.
+        self._pdf_extract_ctx = {
+            "path": path, "page": page, "dpi": dpi,
+            "mode": mode, "reset_base": reset_base,
+        }
+        self._set_loading(f"Extracting vectors from page {page + 1}…")
+        w = _DialogPdfExtractWorker(path, page)
+        self._pdf_worker = w
+        w.status.connect(self._on_pdf_extract_status)
+        w.finished_geoms.connect(self._on_pdf_extract_finished)
+        w.aborted.connect(self._on_pdf_extract_aborted)
+        w.error.connect(self._on_pdf_extract_error)
+        _keepalive(w)
+        w.start()
+
+    def _on_pdf_extract_status(self, message: str):
+        """Map each PDF worker phase string onto a loading-card stage row."""
+        if self._pdf_worker is None or self.sender() is not self._pdf_worker:
+            return  # dialog closed, or a superseded (page-switch) worker
+        if self._loading_cancelled:
+            self._pdf_worker.cancel()
+            return
+        self._ensure_overlay_open(message)
+        self._loading_overlay.stage_started(message)
+
+    def _on_pdf_extract_finished(self, geoms: list, layers: list):
+        """Continue the PDF vector load once the worker delivers geometry.
+
+        Runs the post-extraction work the old inline sync code did (base-point
+        autofill, layer list, preview rebuild) AND consumes the Modify pending
+        layer subset + crop against this FINAL geometry — the async analogue of
+        the DXF :meth:`_on_extract_finished` consume site. Clearing the pending
+        fields here (not at prefill's end) is what keeps the Modify round-trip
+        lossless now that PDF extraction is asynchronous.
+        """
+        if self._pdf_worker is None or self.sender() is not self._pdf_worker:
+            return  # dialog closed / superseded mid-extraction — discard
+        self._pdf_worker = None
+        ctx = self._pdf_extract_ctx or {}
+        path = ctx.get("path", "")
+        page = ctx.get("page", self._pdf_page)
+        dpi = ctx.get("dpi", 150)
+        mode = ctx.get("mode", "auto")
+        reset_base = ctx.get("reset_base", True)
+
+        if geoms:
+            self._has_vectors = True
+            self._all_geoms = geoms
+            self._layers = layers
+            # Populate the layer tree (applies _pending_modify_layers), then
+            # consume + clear the Modify pending fields against FINAL geometry.
+            self._populate_layer_list()
+            self._selected_indices = None
+            if self._pending_modify_layers:
+                self._apply_selected_layers(self._pending_modify_layers)
+            self._pending_modify_layers = None
+
+            xs, ys = [], []
+            for g in geoms:
+                kind = g.get("kind")
+                if kind == "line":
+                    xs += [g["x1"], g["x2"]]
+                    ys += [g["y1"], g["y2"]]
+                elif kind == "path_points":
+                    for pt in g.get("points", []):
+                        xs.append(pt[0]); ys.append(pt[1])
+                elif kind in ("circle", "arc"):
+                    x0 = g.get("x", g.get("rx", 0))
+                    y0 = g.get("y", g.get("ry", 0))
+                    xs += [x0, x0 + g.get("w", g.get("rw", 0))]
+                    ys += [y0, y0 + g.get("h", g.get("rh", 0))]
+                elif kind == "text":
+                    xs.append(g["x"]); ys.append(g["y"])
+            if xs and ys and reset_base:
+                self._base_x_edit.blockSignals(True)
+                self._base_y_edit.blockSignals(True)
+                self._base_x_edit.set_value_mm(min(xs))
+                self._base_y_edit.set_value_mm(max(ys))
+                self._base_x_edit.blockSignals(False)
+                self._base_y_edit.blockSignals(False)
+
+            self._set_loading("Building preview…")
+            self._rebuild_preview()
+            # Restore the saved crop AFTER geometry exists (Modify flow), then
+            # clear the pending bounds — the async analogue of the DXF path.
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
+            self._clear_loading()
+            n = len(geoms)
+            self._info_lbl.setText(
+                f"{self._page_name(page)} — {n} vector entities from "
+                f"{os.path.basename(path)}")
+        elif mode == "vectors":
+            self._has_vectors = False
+            self._all_geoms = []
+            self._layers = []
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
+            self._preview_scene.clear()
+            self._base_markers = []
+            self._pick_markers = []
+            self._create_overlay_items()
+            self._clear_loading()
+            self._info_lbl.setText(
+                f"No vector geometry found on page {page + 1}.")
+            self._status_lbl.setText(
+                "No vectors found — switch to Auto or Raster.")
         else:
-            from .pdf_import_worker import extract_pdf_vectors_sync
-            self._set_loading(f"Extracting vectors from page {page + 1}…")
-            geoms, layers = extract_pdf_vectors_sync(path, page)
-
-            if geoms:
-                self._has_vectors = True
-                self._all_geoms = geoms
-                self._layers = layers
-                self._populate_layer_list()
-                self._selected_indices = None
-
-                xs, ys = [], []
-                for g in geoms:
-                    kind = g.get("kind")
-                    if kind == "line":
-                        xs += [g["x1"], g["x2"]]
-                        ys += [g["y1"], g["y2"]]
-                    elif kind == "path_points":
-                        for pt in g.get("points", []):
-                            xs.append(pt[0]); ys.append(pt[1])
-                    elif kind in ("circle", "arc"):
-                        x0 = g.get("x", g.get("rx", 0))
-                        y0 = g.get("y", g.get("ry", 0))
-                        xs += [x0, x0 + g.get("w", g.get("rw", 0))]
-                        ys += [y0, y0 + g.get("h", g.get("rh", 0))]
-                    elif kind == "text":
-                        xs.append(g["x"]); ys.append(g["y"])
-                if xs and ys and reset_base:
-                    self._base_x_edit.blockSignals(True)
-                    self._base_y_edit.blockSignals(True)
-                    self._base_x_edit.set_value_mm(min(xs))
-                    self._base_y_edit.set_value_mm(max(ys))
-                    self._base_x_edit.blockSignals(False)
-                    self._base_y_edit.blockSignals(False)
-
-                self._set_loading("Building preview…")
-                self._rebuild_preview()
-                self._clear_loading()
-                n = len(geoms)
-                self._info_lbl.setText(
-                    f"{self._page_name(page)} — {n} vector entities from "
-                    f"{os.path.basename(path)}")
-            elif mode == "vectors":
-                self._has_vectors = False
-                self._all_geoms = []
-                self._layers = []
-                self._populate_layer_list()
-                self._selected_indices = None
-                self._preview_scene.clear()
-                self._base_markers = []
-                self._pick_markers = []
-                self._create_overlay_items()
-                self._clear_loading()
-                self._info_lbl.setText(
-                    f"No vector geometry found on page {page + 1}.")
-                self._status_lbl.setText(
-                    "No vectors found — switch to Auto or Raster.")
-            else:
-                self._has_vectors = False
-                self._all_geoms = []
-                self._layers = []
-                self._populate_layer_list()
-                self._selected_indices = None
-                self._show_raster_preview(path, page, dpi)
-                self._clear_loading()
-                self._info_lbl.setText(
-                    f"No vector geometry found on page {page + 1} — "
-                    f"will import as raster image.")
+            self._has_vectors = False
+            self._all_geoms = []
+            self._layers = []
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
+            self._show_raster_preview(path, page, dpi)
+            self._clear_loading()
+            self._info_lbl.setText(
+                f"No vector geometry found on page {page + 1} — "
+                f"will import as raster image.")
 
         self._units_info_lbl.setVisible(False)
         self._update_scale_readout()
+        self._update_status()
+
+    def _on_pdf_extract_aborted(self):
+        """Cancel finished the PDF worker — return to a clean un-imported state.
+
+        A superseded (page-switch) worker also emits ``aborted`` when its
+        ``cancel()`` lands; the sender-identity guard ignores that so it can't
+        reset the state of the worker that replaced it.
+        """
+        sender = self.sender()
+        if sender is not None and sender is not self._pdf_worker:
+            return  # stale superseded worker
+        self._pdf_worker = None
+        self._has_vectors = False
+        self._all_geoms = []
+        self._clear_loading()
+        self._info_lbl.setText("Extraction cancelled.")
+        self._update_status()
+
+    def _on_pdf_extract_error(self, msg: str):
+        """PDF extraction raised — mark the stage failed, re-enable controls.
+
+        Called via the worker's ``error`` signal (sender is the worker) or
+        directly (sender is None). A signal from a superseded worker is ignored.
+        """
+        sender = self.sender()
+        if sender is not None and sender is not self._pdf_worker:
+            return  # stale superseded worker
+        self._pdf_worker = None
+        self._has_vectors = False
+        self._all_geoms = []
+        self._clear_loading()
+        self._info_lbl.setText(f"Error: {msg}")
         self._update_status()
 
     def _show_raster_preview(self, path: str, page: int, dpi: int = 150):
@@ -2786,21 +2932,38 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         # settings (scale, base point, levels, DPI, import mode) persist because
         # _load_pdf_page never touches those widgets; reset_base=False keeps it
         # from re-deriving the base point from the new page's bounds.
+        # Only a REAL user switch (geometry already loaded) has selections to
+        # preserve. During the INITIAL load, the thumbnail strip's
+        # setCurrentRow(0) fires this handler while _all_geoms is still empty —
+        # there is nothing to capture, and (critically) a Modify prefill may
+        # have already stashed the record's saved layer subset + crop in the
+        # pending fields. Overwriting those here would drop them, so bail to a
+        # plain load and leave the pending fields for the finish handler.
+        if not self._all_geoms:
+            self._load_pdf_page(path, row, reset_base=False)
+            return
+
+        # A user page switch loads the new page's geometry (which resets the
+        # layer list + crop inside _load_pdf_page), but the user's selections
+        # should PERSIST across the switch — matched to the new page the same
+        # way the Modify flow matches them: layers by NAME, crop by BOUNDS.
+        # Non-geometry settings (scale, base point, levels, DPI, import mode)
+        # persist because _load_pdf_page never touches those widgets;
+        # reset_base=False keeps it from re-deriving the base point.
         captured_layers = self._active_layers()          # set[str] | None
         captured_bounds = self._current_crop_bounds()     # [minx,miny,maxx,maxy] | None
 
-        self._load_pdf_page(path, row, reset_base=False)
+        # The PDF load is ASYNC — geometry is not final when _load_pdf_page
+        # returns, so the re-apply can't run inline here. Stash the captured
+        # selections into the same pending fields _on_pdf_extract_finished
+        # consumes once the new page's geometry is final. Absent layers are
+        # simply not re-checked; the crop re-selects whatever falls inside it.
+        self._pending_modify_layers = (
+            list(captured_layers) if captured_layers is not None else None)
+        self._pending_modify_bounds = (
+            list(captured_bounds) if captured_bounds is not None else None)
 
-        # Re-apply against the freshly loaded page. Layers absent on the new page
-        # are simply not re-checked (no error); the crop bounds re-select
-        # whatever geoms now fall inside them. _restore_crop_from_bounds already
-        # rebuilds the preview; call it last so its rebuild reflects the layers.
-        if captured_layers is not None and self._all_geoms:
-            self._apply_selected_layers(captured_layers)
-            if captured_bounds is None:
-                self._rebuild_preview()
-        if captured_bounds is not None and self._all_geoms:
-            self._restore_crop_from_bounds(captured_bounds)
+        self._load_pdf_page(path, row, reset_base=False)
 
     def _sync_page_indicator(self, page: int) -> None:
         """Reflect the restored PDF page in the thumbnail strip (Modify flow).
@@ -3531,11 +3694,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         # (readfile is not interruptible).  Slots guard on the worker
         # attributes being None, so late signals are discarded; the
         # _LIVE_WORKERS keepalive lets the threads finish safely.
-        w = self._extract_worker
-        if w is not None:
-            self._extract_worker = None
-            if hasattr(w, "cancel"):
-                w.cancel()
+        for attr in ("_extract_worker", "_pdf_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                setattr(self, attr, None)
+                if hasattr(w, "cancel"):
+                    w.cancel()
         self._read_worker = None
         self._extracting = False
 

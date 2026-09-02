@@ -208,35 +208,45 @@ def test_modify_prefill_sync_block_reapplies_against_final_geometry(
 # 3d. RASTER PDF — pending state invariant (nothing to apply, still cleared)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_modify_raster_pdf_clears_pending_state(qapp, monkeypatch):
-    """A raster-mode PDF Modify sets _pending_modify_* but the sync reconcile
-    block's `if self._all_geoms:` guard is False (raster loads leave
-    _all_geoms=[]), so nothing consumes them. The sync-path clear (gated to
-    _file_type=="pdf") must still null them so no stale pending survives a
-    same-session import-mode switch."""
+def test_modify_raster_pdf_clears_pending_state(qapp, tmp_path):
+    """A raster-mode PDF Modify sets _pending_modify_* but a raster load retains
+    no vector geometry (and raster records carry no layers/crop), so there is
+    nothing to consume. Since PDF extraction is now ASYNC, the raster clear
+    lives in _load_pdf_page's raster branch — which runs SYNCHRONOUSLY and is
+    geometry-final on return. Drive the REAL raster branch and assert both
+    pending fields are nulled so no stale pending survives a same-session
+    import-mode switch."""
+    import fitz
+
     from firepro3d.underlay_import_dialog import UnderlayImportDialog
 
-    def fake_load_file(self):
-        # Real raster PDF load: no vector geometry retained.
-        self._file_type = "pdf"
-        self._all_geoms = []
-        self._layers = []
-        self._populate_layer_list()
+    p = tmp_path / "raster.pdf"
+    d = fitz.open()
+    pg = d.new_page(width=200, height=200)
+    sh = pg.new_shape()
+    sh.draw_line((10, 10), (180, 10))
+    sh.finish(width=1.0, color=(0, 0, 0))
+    sh.commit()
+    d.save(str(p))
+    d.close()
 
-    monkeypatch.setattr(UnderlayImportDialog, "_load_file", fake_load_file)
-    monkeypatch.setattr(UnderlayImportDialog, "_load_pdf_page",
-                        lambda self, *a, **k: None)
-
-    rec = Underlay(
-        type="pdf", path="/nonexistent/raster.pdf", import_mode="raster",
-        import_scale=2.0, selected_layers=None, import_bounds=None,
-        rotation=0.0,
-    )
-    dlg = UnderlayImportDialog(None, modify_record=rec)
+    dlg = UnderlayImportDialog()
     try:
+        dlg._file_type = "pdf"
+        dlg._file_edit.setText(str(p))
+        dlg._mode_combo.setCurrentText("Raster")
+        # Simulate a Modify prefill having stashed pending state.
+        dlg._pending_modify_layers = ["A"]
+        dlg._pending_modify_bounds = [0.0, 0.0, 10.0, 10.0]
+
+        # The raster branch runs synchronously (no worker) and must clear both.
+        dlg._load_pdf_page(str(p), 0)
+
         assert dlg._pending_modify_layers is None
         assert dlg._pending_modify_bounds is None
     finally:
+        dlg._modified = False
+        dlg.close()
         dlg.deleteLater()
 
 
