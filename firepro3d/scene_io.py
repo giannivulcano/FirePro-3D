@@ -439,13 +439,8 @@ class SceneIOMixin:
         # --- Water supply ---
         ws_data = payload.get("water_supply")
         if ws_data:
-            ws = WaterSupply(ws_data["x"], ws_data["y"])
-            self.addItem(ws)
-            self.water_supply_node = ws
-            self.sprinkler_system.supply_node = ws
-            for key, value in ws_data.get("properties", {}).items():
-                ws.set_property(key, value)
-            ws._display_overrides = ws_data.get("display_overrides", {})
+            from .network_codec import deserialize_water_supply
+            deserialize_water_supply(self, ws_data)
 
         # --- Design areas ---
         for da_entry in payload.get("design_areas", []):

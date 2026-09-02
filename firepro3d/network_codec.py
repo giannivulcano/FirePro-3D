@@ -172,3 +172,21 @@ def deserialize_note(scene, entry):
         note.set_property(key, value)
     note.level = entry.get("level", DEFAULT_LEVEL)
     return note
+
+
+def deserialize_water_supply(scene, entry):
+    """Create + register the WaterSupply node. Mirror of ``serialize_water_supply``.
+
+    Sets both scene.water_supply_node and sprinkler_system.supply_node. The
+    display_overrides field is applied here; category/DM display is a caller tail.
+    Returns the WaterSupply.
+    """
+    from .water_supply import WaterSupply
+    ws = WaterSupply(entry["x"], entry["y"])
+    scene.addItem(ws)
+    scene.water_supply_node = ws
+    scene.sprinkler_system.supply_node = ws
+    for key, value in entry.get("properties", {}).items():
+        ws.set_property(key, value)
+    ws._display_overrides = entry.get("display_overrides", {})
+    return ws

@@ -3554,13 +3554,8 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             # Restore water supply
             ws_data = state.get("water_supply")
             if ws_data:
-                ws = WaterSupply(ws_data["x"], ws_data["y"])
-                self.addItem(ws)
-                self.water_supply_node = ws
-                self.sprinkler_system.supply_node = ws
-                for key, value in ws_data.get("properties", {}).items():
-                    ws.set_property(key, value)
-                ws._display_overrides = ws_data.get("display_overrides", {})
+                from .network_codec import deserialize_water_supply
+                deserialize_water_supply(self, ws_data)
 
             # Restore design areas
             for da_entry in state.get("design_areas", []):
