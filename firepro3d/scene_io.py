@@ -282,22 +282,9 @@ class SceneIOMixin:
             id_to_node[entry["id"]] = deserialize_node(self, entry)
 
         # --- Pipes ---
+        from .network_codec import deserialize_pipe
         for entry in payload.get("pipes", []):
-            n1 = id_to_node.get(entry["node1_id"])
-            n2 = id_to_node.get(entry["node2_id"])
-            if n1 and n2:
-                pipe = self.add_pipe(n1, n2, _propagate_ceiling=False)
-                pipe.level = entry.get("level", DEFAULT_LEVEL)
-                for key, value in entry.get("properties", {}).items():
-                    pipe.set_property(key, value)
-                props = entry.get("properties", {})
-                if "Line Type" not in props:
-                    dia = props.get("Diameter", "1\"Ø")
-                    pipe._properties["Line Type"]["value"] = (
-                        "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
-                    )
-                    pipe.set_pipe_display()
-                pipe._display_overrides = entry.get("display_overrides", {})
+            deserialize_pipe(self, entry, id_to_node)
 
         # --- Fittings ---
         for node in id_to_node.values():

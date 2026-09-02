@@ -3480,27 +3480,9 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             for entry in state.get("nodes", []):
                 id_to_node[entry["id"]] = deserialize_node(self, entry)
 
+            from .network_codec import deserialize_pipe
             for entry in state.get("pipes", []):
-                n1 = id_to_node.get(entry["node1_id"])
-                n2 = id_to_node.get(entry["node2_id"])
-                if n1 and n2:
-                    pipe = Pipe(n1, n2)
-                    self.sprinkler_system.add_pipe(pipe)
-                    self.addItem(pipe)
-                    pipe.update_label()
-                    for key, value in entry.get("properties", {}).items():
-                        pipe.set_property(key, value)
-                    # Old files without Line Type: auto-assign based on diameter
-                    props = entry.get("properties", {})
-                    if "Line Type" not in props:
-                        dia = props.get("Diameter", "1\"Ø")
-                        pipe._properties["Line Type"]["value"] = (
-                            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
-                        )
-                        pipe.set_pipe_display()
-                    pipe.level = entry.get("level", DEFAULT_LEVEL)
-                    pipe._display_overrides = entry.get("display_overrides", {})
-                    apply_category_defaults(pipe)
+                deserialize_pipe(self, entry, id_to_node)
 
             for node in id_to_node.values():
                 node.fitting.update()

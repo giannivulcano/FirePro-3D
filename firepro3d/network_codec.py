@@ -243,3 +243,31 @@ def deserialize_node(scene, entry):
     else:
         node.z_pos = entry.get("elevation", 0)
     return node
+
+
+def deserialize_pipe(scene, entry, id_to_node):
+    """Create + register a Pipe via scene.add_pipe (the canonical creation path).
+
+    Mirror of ``serialize_pipe``. Returns the pipe, or None if either endpoint node
+    id is missing. Uses ``_propagate_ceiling=False``: nodes already carry
+    authoritative ceiling data on load/restore. Routing both paths through add_pipe
+    single-homes creation (geometry, visibility, label, category defaults, fitting
+    DM colours) and removes _restore_network's hand-rolled variant.
+    """
+    from .pipe import Pipe
+    n1 = id_to_node.get(entry["node1_id"])
+    n2 = id_to_node.get(entry["node2_id"])
+    if not (n1 and n2):
+        return None
+    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False)
+    pipe.level = entry.get("level", DEFAULT_LEVEL)
+    for key, value in entry.get("properties", {}).items():
+        pipe.set_property(key, value)
+    props = entry.get("properties", {})
+    if "Line Type" not in props:  # legacy backfill (pre-Line-Type saves)
+        dia = props.get("Diameter", "1\"Ø")
+        pipe._properties["Line Type"]["value"] = (
+            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch")
+        pipe.set_pipe_display()
+    pipe._display_overrides = entry.get("display_overrides", {})
+    return pipe
