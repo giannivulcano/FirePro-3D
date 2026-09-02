@@ -73,7 +73,7 @@ def test_zoom_clamp(qapp):
     v._fit_scale = 1.0
     for _ in range(100):
         v._apply_zoom(2.0)
-    assert v._zoom_ratio() <= 12.0 + 1e-6
+    assert v._zoom_ratio() <= 20.0 + 1e-6      # cap raised to 2000% of fit
     for _ in range(100):
         v._apply_zoom(0.5)
     assert v._zoom_ratio() >= 0.25 - 1e-6
