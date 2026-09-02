@@ -578,10 +578,11 @@ class _DialogPdfExtractWorker(QThread):
     returns ``(geoms, layer_names)`` — so ``finished_geoms`` carries both and
     the dialog's finish handler needs no separate layer computation. Emits the
     same ``status`` / ``finished_geoms`` / ``aborted`` / ``error`` signals the
-    DXF worker does, so the loading-overlay wiring is identical. The extraction
-    itself is one blocking PyMuPDF call and is not chunk-interruptible; Cancel
-    is honoured before the call and its result discarded after (the finish
-    slot's ``_pdf_worker is None`` guard).
+    DXF worker does, so the loading-overlay wiring is identical. Cancel is
+    honoured MID-extraction: ``extract_pdf_vectors_sync`` is handed a
+    ``should_cancel`` poll (this worker's ``_cancelled`` flag) so a large page
+    aborts within ~100 drawing paths, returning ``None`` → ``aborted`` here.
+    (The GUI-thread preview-build phase that follows remains non-cancellable.)
     """
 
     status = pyqtSignal(str)                  # phase description for the card
@@ -606,10 +607,16 @@ class _DialogPdfExtractWorker(QThread):
                 return
             from .pdf_import_worker import extract_pdf_vectors_sync
             self.status.emit(f"Reading page {self._page + 1}…")
-            geoms, layers = extract_pdf_vectors_sync(self._path, self._page)
-            if self._cancelled:
+            # should_cancel makes extraction interruptible MID-run: a Cancel
+            # during a large page's extraction now aborts within ~100 drawing
+            # paths instead of only after the whole page finishes.
+            # extract_pdf_vectors_sync returns None when it observed the flag.
+            result = extract_pdf_vectors_sync(
+                self._path, self._page, should_cancel=lambda: self._cancelled)
+            if result is None or self._cancelled:
                 self.aborted.emit()
                 return
+            geoms, layers = result
             self.finished_geoms.emit(geoms, layers)
         except Exception as e:  # noqa: BLE001 — surfaced on the info label
             self.error.emit(str(e))

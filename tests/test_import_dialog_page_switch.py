@@ -44,7 +44,7 @@ def _make_pdf_dialog(qapp, tmp_path, monkeypatch):
     ]
     monkeypatch.setattr(
         piw, "extract_pdf_vectors_sync",
-        lambda path, page: (geoms, ["A", "B"]))
+        lambda path, page, should_cancel=None: (geoms, ["A", "B"]))
     # underlay_import_dialog imports the symbol lazily inside _load_pdf_page via
     # `from .pdf_import_worker import extract_pdf_vectors_sync`, so patching the
     # module attribute above is what the lazy import resolves.
