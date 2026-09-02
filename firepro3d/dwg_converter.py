@@ -470,6 +470,110 @@ def apply_import_transform(
     return out
 
 
+def append_geom_to_path(path, g: dict) -> None:
+    """Append a single geometry dict to a batched ``QPainterPath``.
+
+    The single shared home for the geom->path builder that was previously
+    duplicated (byte-equivalently) as ``_append_geom_to_path`` in
+    ``model_space`` and ``underlay_import_dialog``. Batched underlay rendering
+    uses one ``QPainterPath`` per DXF layer instead of one ``QGraphicsItem``
+    per geometry (which freezes on large files).
+
+    Handles the extraction-pipeline geom kinds ``line``, ``circle``, ``arc``,
+    ``ellipse_full``, ``path_points`` and ``text``. Unknown kinds are ignored.
+
+    Text is rendered DPI-independently and fractional-exact: a fixed pixel em
+    (``_BASE``) is scaled by ``size/_BASE`` (point sizing would inflate by the
+    screen-DPI/72 factor and rounding a pixel size would lose sub-point
+    accuracy). When a source span width (``twidth``) is known for a single
+    line, the substitute font is x-scaled to fit it so no substitute-font
+    drift creeps in. ``valign`` follows the PDF span convention (3 == baseline,
+    i.e. ``y`` is the span origin).
+
+    Args:
+        path: The ``QPainterPath`` to append to (mutated in place).
+        g: A geometry dict from the DXF/PDF extraction pipeline.
+    """
+    # Imported lazily so this pure-geometry module stays Qt-free at import time
+    # (it is also used from non-GUI conversion paths).
+    from PyQt6.QtCore import QRectF
+    from PyQt6.QtGui import QFont, QFontMetricsF, QPainterPath, QTransform
+
+    from .theme import FONT_UI
+
+    kind = g.get("kind")
+    if kind == "line":
+        path.moveTo(g["x1"], g["y1"])
+        path.lineTo(g["x2"], g["y2"])
+    elif kind == "circle":
+        path.addEllipse(g["x"], g["y"], g["w"], g["h"])
+    elif kind == "arc":
+        rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
+        path.arcMoveTo(rect, g["start"])
+        path.arcTo(rect, g["start"], g["span"])
+    elif kind == "ellipse_full":
+        path.addEllipse(
+            g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
+            g["w"], g["h"])
+    elif kind == "path_points":
+        pts = g["points"]
+        if len(pts) < 2:
+            return
+        path.moveTo(pts[0][0], pts[0][1])
+        for p in pts[1:]:
+            path.lineTo(p[0], p[1])
+        if g.get("closed") and len(pts) >= 3:
+            path.closeSubpath()
+    elif kind == "text":
+        txt = g.get("text", "")
+        if txt:
+            # DPI-independent + fractional-exact size: render at a fixed
+            # pixel em, then scale by size/BASE. (Point size would inflate by
+            # 96/72 + HiDPI; rounding a pixel size loses sub-point accuracy.)
+            size = max(0.5, float(g.get("size", 6)))
+            _BASE = 100.0
+            f = QFont(FONT_UI)
+            f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+            f.setPixelSize(int(_BASE))
+            sc = size / _BASE
+            tx, ty = g["x"], g["y"]
+            ha = g.get("halign", 0)
+            va = g.get("valign", 3)
+            twidth = g.get("twidth")
+            lines = txt.split("\n")
+            single = len(lines) == 1
+            fm = QFontMetricsF(f)
+            line_h = fm.height() * sc
+            total_h = line_h * len(lines)
+            # Vertical anchor for the text block
+            if va == 0:       # top
+                base_y = ty + fm.ascent() * sc
+            elif va == 1:     # middle
+                base_y = ty + fm.ascent() * sc - total_h / 2
+            elif va == 2:     # bottom
+                base_y = ty + fm.ascent() * sc - total_h
+            else:             # baseline (PDF spans: y == span origin)
+                base_y = ty
+            for i, line in enumerate(lines):
+                if not line.strip():
+                    continue
+                nat_w = fm.horizontalAdvance(line)   # at BASE px
+                # fit x to the source span width when known, else scale = size
+                sx = (twidth / nat_w) if (twidth and nat_w > 0 and single) else sc
+                final_w = nat_w * sx
+                lx = tx
+                if ha == 1:   # center
+                    lx -= final_w / 2
+                elif ha == 2: # right
+                    lx -= final_w
+                tmp = QPainterPath()
+                tmp.addText(0.0, 0.0, f, line)
+                tr = QTransform()
+                tr.translate(lx, base_y + i * line_h)
+                tr.scale(sx, sc)
+                path.addPath(tr.map(tmp))
+
+
 def filter_geoms_by_bounds(
     geoms: list[dict],
     bounds: list[tuple[float, float, float, float]] | None,

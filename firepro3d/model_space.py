@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsEllipseItem, QGraphicsLine
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import (QPen, QBrush, QColor, QPixmap, QPainterPath, QFont,
                           QImage, QPolygonF,
-                          QFontMetricsF, QTransform)
+                          QTransform)
 from PyQt6.QtPdf import QPdfDocument, QPdfDocumentRenderOptions
 from .node import Node
 from .pipe import Pipe
@@ -2607,80 +2607,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
     def _append_geom_to_path(path: QPainterPath, g: dict):
         """Append a single geometry dict to a batched QPainterPath.
 
-        Mirrors UnderlayImportDialog._append_geom_to_path — used for
-        batched underlay rendering where one QPainterPath per layer
-        replaces one QGraphicsItem per geometry.
+        Thin shim delegating to the single shared builder
+        :func:`firepro3d.dwg_converter.append_geom_to_path` (kept as a
+        staticmethod so existing ``self._append_geom_to_path`` / test callers
+        stay stable). Used for batched underlay rendering where one
+        QPainterPath per layer replaces one QGraphicsItem per geometry.
         """
-        kind = g.get("kind")
-        if kind == "line":
-            path.moveTo(g["x1"], g["y1"])
-            path.lineTo(g["x2"], g["y2"])
-        elif kind == "circle":
-            path.addEllipse(g["x"], g["y"], g["w"], g["h"])
-        elif kind == "arc":
-            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
-            path.arcMoveTo(rect, g["start"])
-            path.arcTo(rect, g["start"], g["span"])
-        elif kind == "ellipse_full":
-            path.addEllipse(
-                g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
-                g["w"], g["h"])
-        elif kind == "path_points":
-            pts = g["points"]
-            if len(pts) < 2:
-                return
-            path.moveTo(pts[0][0], pts[0][1])
-            for p in pts[1:]:
-                path.lineTo(p[0], p[1])
-            if g.get("closed") and len(pts) >= 3:
-                path.closeSubpath()
-        elif kind == "text":
-            txt = g.get("text", "")
-            if txt:
-                # DPI-independent + fractional-exact size: render at a fixed
-                # pixel em, then scale by size/BASE. (Point size would inflate by
-                # 96/72 + HiDPI; rounding a pixel size loses sub-point accuracy.)
-                size = max(0.5, float(g.get("size", 6)))
-                _BASE = 100.0
-                f = QFont("Arial")
-                f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-                f.setPixelSize(int(_BASE))
-                sc = size / _BASE
-                tx, ty = g["x"], g["y"]
-                ha = g.get("halign", 0)
-                va = g.get("valign", 3)
-                twidth = g.get("twidth")
-                lines = txt.split("\n")
-                single = len(lines) == 1
-                fm = QFontMetricsF(f)
-                line_h = fm.height() * sc
-                total_h = line_h * len(lines)
-                if va == 0:       # top
-                    base_y = ty + fm.ascent() * sc
-                elif va == 1:     # middle
-                    base_y = ty + fm.ascent() * sc - total_h / 2
-                elif va == 2:     # bottom
-                    base_y = ty + fm.ascent() * sc - total_h
-                else:             # baseline (PDF spans: y == span origin)
-                    base_y = ty
-                for i, line in enumerate(lines):
-                    if not line.strip():
-                        continue
-                    nat_w = fm.horizontalAdvance(line)   # at BASE px
-                    # fit x to the source span width when known, else scale = size
-                    sx = (twidth / nat_w) if (twidth and nat_w > 0 and single) else sc
-                    final_w = nat_w * sx
-                    lx = tx
-                    if ha == 1:   # center
-                        lx -= final_w / 2
-                    elif ha == 2: # right
-                        lx -= final_w
-                    tmp = QPainterPath()
-                    tmp.addText(0.0, 0.0, f, line)
-                    tr = QTransform()
-                    tr.translate(lx, base_y + i * line_h)
-                    tr.scale(sx, sc)
-                    path.addPath(tr.map(tmp))
+        from .dwg_converter import append_geom_to_path
+        append_geom_to_path(path, g)
 
     def _build_batched_underlay_group(
         self,
