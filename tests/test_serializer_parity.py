@@ -237,3 +237,25 @@ def test_sprinkler_ceiling_parity_across_paths(qapp, tmp_path):
     assert un.has_sprinkler() and fn.has_sprinkler()
     assert (un.sprinkler.scenePos().x(), un.sprinkler.scenePos().y()) == \
            (fn.sprinkler.scenePos().x(), fn.sprinkler.scenePos().y())
+
+
+def test_full_roundtrip_and_capture_bytes_stable(qapp, tmp_path):
+    """After the 4b unify: save->load->save reproduces the codec sections byte-for-byte,
+    and _capture_network of the reloaded scene equals the original capture (undo bytes
+    stable — a deserialize-only slice must not perturb serialize)."""
+    ms = _scene_with_hand_serialized_entities(with_sprinkler=False)
+    cap_before = ms._capture_network()
+    fp1 = str(tmp_path / "a.fpd")
+    assert ms.save_to_file(fp1)
+    ms2 = Model_Space()
+    ms2._level_manager = LevelManager()
+    ms2.load_from_file(fp1)
+    fp2 = str(tmp_path / "b.fpd")
+    assert ms2.save_to_file(fp2)
+    a = json.load(open(fp1, encoding="utf-8"))
+    b = json.load(open(fp2, encoding="utf-8"))
+    for key in _CODEC_KEYS:
+        assert a[key] == b[key], f"codec section {key!r} not stable across round-trip"
+    cap_after = ms2._capture_network()
+    for key in _CODEC_KEYS:
+        assert cap_before[key] == cap_after[key], f"capture {key!r} drifted"
