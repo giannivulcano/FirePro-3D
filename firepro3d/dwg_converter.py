@@ -574,6 +574,25 @@ def append_geom_to_path(path, g: dict) -> None:
                 path.addPath(tr.map(tmp))
 
 
+def filter_geoms_by_layers(geoms: list[dict], layers) -> list[dict]:
+    """Keep only geoms whose ``layer`` is in *layers*.
+
+    ``layers is None`` means no filter (all layers kept). Geoms missing a
+    ``layer`` key are treated as layer ``"0"`` (the DXF/default layer).
+
+    Args:
+        geoms: Geometry dicts from the DXF/PDF extraction pipeline.
+        layers: Iterable of layer names to keep, or ``None`` for no filter.
+
+    Returns:
+        A new list containing only the kept geometry dicts.
+    """
+    if layers is None:
+        return list(geoms)
+    keep = set(layers)
+    return [g for g in geoms if g.get("layer", "0") in keep]
+
+
 def filter_geoms_by_bounds(
     geoms: list[dict],
     bounds: list[tuple[float, float, float, float]] | None,

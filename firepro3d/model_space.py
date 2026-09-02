@@ -2920,6 +2920,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             import_mode=import_mode,
         )
 
+        # Filter the render geometry by the record's selected layers. The
+        # cache holds the FULL page (layer-agnostic); only what is drawn is
+        # filtered — mirroring how the DXF worker filters by layer. The
+        # per-layer Manager hide (hidden_layers) still composes on top via
+        # _apply_underlay_hidden_layers below. selected_layers is None → all.
+        from .dwg_converter import filter_geoms_by_layers
+        geom_list = filter_geoms_by_layers(geom_list, record.selected_layers)
+
         result = self._build_batched_underlay_group(geom_list, record)
 
         if result is None:
@@ -5568,6 +5576,15 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             geom_list = apply_import_transform(
                 geom_list, record.import_scale,
                 record.import_base_x, record.import_base_y)
+
+        # Filter the render geometry by the record's selected layers. PDF
+        # caches hold the FULL page (layer-agnostic key), so a cache hit must
+        # re-apply the layer filter or ALL layers draw regardless of the
+        # dialog selection. DXF caches key on selected_layers already, so this
+        # is a no-op there. hidden_layers still composes on top below.
+        # selected_layers is None → no filter (all layers).
+        from .dwg_converter import filter_geoms_by_layers
+        geom_list = filter_geoms_by_layers(geom_list, record.selected_layers)
 
         # Build batched render items (same as _commit_place_import)
         result = self._build_batched_underlay_group(geom_list, record)
