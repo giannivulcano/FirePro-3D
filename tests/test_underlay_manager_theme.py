@@ -82,6 +82,38 @@ def test_tree_branch_strip_keeps_base_background(qapp):
     ]
     assert branch_lines, "expected a ::branch background rule"
     # The branch strip uses the base table background, not an accent.
-    assert t.table in branch_lines[-1]
-    assert t.accent_soft not in branch_lines[-1]
+    for ln in branch_lines:
+        assert t.table in ln
+        assert t.accent_soft not in ln
     assert "$table" not in qss  # all tokens substituted
+
+
+def test_tree_branch_disclosure_arrows_via_image(qapp):
+    """Styling ``::branch`` disables Qt's native expand/collapse arrows, so the
+    manager QSS must supply explicit chevron ``image:`` rules for the
+    has-children closed AND open states — otherwise parent (underlay) rows lose
+    their disclosure arrows entirely. Regression guard for that.
+    """
+    import os
+    import re
+
+    from firepro3d.theme import build_underlay_manager_qss, detect
+
+    t = detect()
+    qss = build_underlay_manager_qss(detect())
+
+    # Closed and open has-children branch states both carry an image rule.
+    assert re.search(r"::branch:.*closed[\s\S]*?image:\s*url", qss), \
+        "closed has-children branch is missing a chevron image"
+    assert re.search(r"::branch:open[\s\S]*?image:\s*url", qss), \
+        "open has-children branch is missing a chevron image"
+
+    # Every referenced url() path resolves to a real file on disk.
+    urls = re.findall(r'url\("([^"]+)"\)', qss)
+    assert urls, "expected chevron url() paths in the branch rules"
+    for u in urls:
+        assert os.path.exists(u), f"chevron asset missing: {u}"
+        assert "\\" not in u, f"url() path must use forward slashes: {u}"
+
+    # No unresolved $tokens anywhere (asset paths included).
+    assert not re.findall(r"\$[a-z_]+", qss), "unresolved $tokens remain"

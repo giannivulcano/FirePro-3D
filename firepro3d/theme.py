@@ -781,10 +781,18 @@ QTreeView#underlayTable::item:hover    { background: $accent_soft; }
 QTreeView#underlayTable::item:selected { background: $accent_soft2; color: $ink; }
 /* Keep the branch/indent strip (left of the first column) on the base row
    background so a hovered/selected child row's accent never bleeds leftward
-   past the row content into the disclosure/indent area. */
-QTreeView#underlayTable::branch,
-QTreeView#underlayTable::branch:hover,
-QTreeView#underlayTable::branch:selected { background: $table; }
+   past the row content into the disclosure/indent area. Styling ::branch
+   disables Qt's native arrow drawing, so we must supply the disclosure
+   chevrons explicitly for the has-children closed/open states. */
+QTreeView#underlayTable::branch { background: $table; }
+QTreeView#underlayTable::branch:has-children:!has-siblings:closed,
+QTreeView#underlayTable::branch:closed:has-children:has-siblings {
+    background: $table; image: url("$chevron_right");
+}
+QTreeView#underlayTable::branch:open:has-children:!has-siblings,
+QTreeView#underlayTable::branch:open:has-children:has-siblings {
+    background: $table; image: url("$chevron_down");
+}
 QHeaderView::section {
     background: $table; color: $muted;
     border: none; border-bottom: 1px solid $line_strong;
@@ -846,4 +854,13 @@ def build_underlay_manager_qss(t: Theme) -> str:
     # longest keys first so `$line` never clobbers `$line_strong`
     for key in sorted(_UM_QSS_TOKENS, key=len, reverse=True):
         qss = qss.replace("$" + key, getattr(t, key))
+    # Disclosure chevrons for the tree's ::branch states. These are asset file
+    # paths, not theme tokens; Qt QSS url() needs forward slashes even on
+    # Windows, so normalise the backslashes the OS join may produce.
+    qss = qss.replace(
+        "$chevron_right", asset_path("chevron_right.svg").replace("\\", "/")
+    )
+    qss = qss.replace(
+        "$chevron_down", asset_path("chevron_down.svg").replace("\\", "/")
+    )
     return qss
