@@ -1,7 +1,7 @@
 ---
 status: partial            # current: as-built composition §2/§3 ; proposal: target decomposition §5/§6
-last-verified: 2026-08-28
-verified-commit: c675721   # slices 1 (A+C), 2 (B), 4a (NetworkCodec serialize) landed; census in §2 mapped @ 3a99b63
+last-verified: 2026-09-02
+verified-commit: 951c72a   # slices 1 (A+C), 2 (B), 4a (serialize) + 4b (deserialize) landed; census in §2 mapped @ 3a99b63
 applies-to:
   - firepro3d/model_space.py
   - firepro3d/scene_tools.py
@@ -38,12 +38,12 @@ Any extraction MUST honor these — they are why concerns are entangled and what
 
 These are real gaps between the two serializers / dispatch paths, banked as follow-up tasks (not blockers for decomposition, but the decomposition must not entrench them):
 
-- Pipe properties read from `pipe._properties` (file) vs `pipe.get_properties()` (undo — adds synthesized rows; only harmless because `set_property` discards them).
-- `_restore_network` skips `update_geometry()` and `_recalc_name_counters()` that the file-load path runs.
-- `NoteAnnotation.text_width` may be lost on undo (ctor arg present in file path, absent in undo path).
-- `wall`/`room`/`floor_slab`/`roof` are captured by copy but have **no `paste_items` branch** → silently dropped on paste; `block_item` pastes but isn't tracked in any list → orphaned from undo.
-- Gridline paste is detected by structural heuristic (`"origin"+"angle"`, no `"type"`) — fragile.
-- `Room.z_range_mm()` still reads the retired floor `.level`, which new two-boundary slabs don't reliably write.
+- ~~Pipe properties read from `pipe._properties` (file) vs `pipe.get_properties()` (undo)~~ — **RESOLVED 4a**: both serialize via `network_codec.serialize_pipe` (reads `_properties`).
+- ~~`_restore_network` skips `update_geometry()` and `_recalc_name_counters()`~~ — **RESOLVED**: `_recalc_name_counters()` is now called on restore; `update_geometry()` is now run via `add_pipe` (both deserialize paths route pipes through it — slice 4b). Verified by `test_pipe_geometry_correct_after_undo` (green) and `test_name_counters_recomputed_after_undo`.
+- ~~`NoteAnnotation.text_width` lost on undo~~ — **RESOLVED**: both paths pass `text_width` to the ctor via `network_codec.deserialize_note` (slice 4b). Verified by `test_note_text_width_survives_undo`.
+- `wall`/`room`/`floor_slab`/`roof` are captured by copy but have **no `paste_items` branch** → silently dropped on paste; `block_item` pastes but isn't tracked in any list → orphaned from undo. *(Still open — the paste path is Tier-3, deferred out of 4b.)*
+- Gridline paste is detected by structural heuristic (`"origin"+"angle"`, no `"type"`) — fragile. *(Still open — Tier-3 paste path.)*
+- `Room.z_range_mm()` still reads the retired floor `.level`, which new two-boundary slabs don't reliably write. *(Still open — separate bug, not a deserialize-path issue.)*
 
 ## 5. Target composition (proposal — `status: proposal`)
 
@@ -72,7 +72,7 @@ The end state is a thin `Model_Space` core plus scene-referencing collaborators.
   - **A —** move the *item-aware* pure helpers (`_compute_fillet`, `_compute_chamfer`, `_offset_polyline_pts`, `_get_item_segments`, `_compute_intersections`, `_compute_extend_intersections`, `extract_edges`) → new `tool_geometry.py`. A new module *is* warranted: these dispatch on `construction_geometry` item types, so they cannot live in `cad_math.py`/`geometry_intersect.py` (item-agnostic; would create an import cycle). **Reuse, don't relocate:** the raw-math duplicates `_offset_line_intersection` (≈ `gi.line_line_intersection_unbounded`) and `_point_to_segment_dist` (≈ `CAD_Math.point_on_line_nearest`) fold into the existing modules instead of moving.
   - **C —** **split** the constraint solver: the pure algorithm (`solve(constraints, moved_item=None) -> list[unsatisfied]`, loop + stall/convergence detection) → `constraints.py` (already governed by `parametric-constraint-system.md`); the repaint + `_report_constraint_conflict` side-effect tail stays as a thin scene-side `_solve_constraints` shell. Update the 3 model_space call-sites + scene_tools.
 - **Slice 2 = B — `SceneToolsMixin` mixin → composition — ✅ landed 4ae820a** (`self._tools = SceneTools(self)`). Redirect its borrowed state attrs + geometry registries to `self._scene.*`; audit `self.mode` direct writes against `set_mode` side-effects; keep dispatch `getattr` resolution working (forwarding stubs or dispatch-on-collaborator). This is the first slice that changes an app-wide access/dispatch pattern → isolated for its own review + **manual smoke test**.
-- **`NetworkCodec` unify** — split: **4a (serialize) ✅ landed c675721** (the 6 hand-serialized types route through `network_codec.py`; `.fpd` byte-identical) and **4b (deserialize) — pending** (unify per-entity field-application in `load_from_file`/`_restore_network`; the corrupt-a-save surface — its own fresh pass). *Then* domain concerns. **Underlay** is the recommended first domain slice (excluded from undo, own serialization block, isolated async worker, single shared `self.underlays` list).
+- **`NetworkCodec` unify** — split: **4a (serialize) ✅ landed c675721** (the 6 hand-serialized types route through `network_codec.py`; `.fpd` byte-identical) and **4b (deserialize) ✅ landed 951c72a** — the same 6 types deserialize through `network_codec.deserialize_{node,pipe,dimension,note,water_supply,design_area}`; each caller (`load_from_file`, `_restore_network`) keeps its own orchestration (id maps, ordering, load-only migrations) and its own **display tail** (restore applies category/DM display inline; file-load defers to `main`'s `apply_saved_display_settings` — an intentional context difference, *not* converged). Two non-display drifts converged deliberately: node ceiling ordering (apply after the sprinkler block — `add_sprinkler` does not read node ceiling, dropping load's save/restore dance) and pipe creation (both paths via `add_pipe(_propagate_ceiling=False)`). Field-application parity + byte-identical file round-trip + undo-capture stability asserted in `tests/test_serializer_parity.py`. Net −252 LOC from `model_space.py`+`scene_io.py`. *Then* domain concerns. **Underlay** is the recommended first domain slice (excluded from undo, own serialization block, isolated async worker, single shared `self.underlays` list).
 
 ## 7. Governed-behavior cross-references (Rule A — do not restate)
 
