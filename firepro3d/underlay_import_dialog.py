@@ -1141,7 +1141,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if record.type == "pdf" and record.page:
             self._pdf_page = record.page
             try:
-                self._load_pdf_page(record.path, record.page)
+                # reset_base=False: the record's saved base point is restored
+                # below (lines ~1207-1211). The default (True) would let the
+                # async _on_pdf_extract_finished geometry-bounds AUTO-FILL
+                # clobber that restored base once the worker delivers geometry
+                # — the same guard the page-switch path already uses.
+                self._load_pdf_page(record.path, record.page, reset_base=False)
             except Exception:
                 pass
             self._sync_page_indicator(record.page)
