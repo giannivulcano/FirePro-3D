@@ -28,6 +28,11 @@ from .constants import PDF_BEZIER_FLATTEN_TOL
 _QSETTINGS_ORG = "GV"
 _QSETTINGS_APP = "FirePro3D"
 
+# How often (in drawing paths) extract_pdf_vectors_sync polls should_cancel.
+# Small enough that Cancel feels immediate; large enough that the poll is
+# negligible against the per-path extraction cost.
+_CANCEL_POLL_EVERY = 100
+
 
 def current_pdf_flatten_tol() -> float:
     """Return the user's PDF bézier flatten tolerance (PDF points).
@@ -374,10 +379,23 @@ class PdfImportWorker(QThread):
 def extract_pdf_vectors_sync(
     file_path: str,
     page: int = 0,
-) -> tuple[list[dict], list[str]]:
+    should_cancel=None,
+) -> tuple[list[dict], list[str]] | None:
     """Extract vector geometry from a PDF page synchronously.
 
-    Returns (geometry_list, layer_names).
+    Args:
+        file_path: Path to the PDF file.
+        page: 0-based page index to extract.
+        should_cancel: Optional zero-arg callable polled during the drawing
+            loop (every :data:`_CANCEL_POLL_EVERY` paths). When it returns
+            truthy, extraction aborts early and this function returns ``None``.
+            Defaults to ``None`` — no polling, i.e. the original behaviour, so
+            callers that never cancel (e.g. ``model_space`` reloads) are
+            unaffected.
+
+    Returns:
+        ``(geometry_list, layer_names)`` on success, or ``None`` when the run
+        was cancelled via *should_cancel*.
     """
     if not _HAS_FITZ:
         return [], []
@@ -397,7 +415,14 @@ def extract_pdf_vectors_sync(
         geometries: list[dict] = []
         layers_set: set[str] = set()
 
-        for path in drawings:
+        for i, path in enumerate(drawings):
+            # Poll for cancellation periodically so a Cancel during a large
+            # page's extraction takes effect mid-run rather than only after
+            # the whole page finishes.
+            if (should_cancel is not None
+                    and i % _CANCEL_POLL_EVERY == 0
+                    and should_cancel()):
+                return None
             try:
                 geoms = worker._extract_path(path)
                 for g in geoms:
@@ -405,6 +430,9 @@ def extract_pdf_vectors_sync(
                     layers_set.add(g.get("layer", "PDF Vectors"))
             except Exception:
                 pass
+
+        if should_cancel is not None and should_cancel():
+            return None
 
         # Also extract text
         try:

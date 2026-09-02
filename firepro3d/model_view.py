@@ -2,12 +2,11 @@ import math
 
 from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
-    QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
-from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, QEvent, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont, QKeyEvent
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent
 from . import theme as th
-from .snap_engine import SNAP_COLORS, SNAP_MARKERS
+from .snap_engine import paint_snap_indicator
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
@@ -150,11 +149,19 @@ class Model_View(QGraphicsView):
         """
         Overlay drawn on top of all scene content.
 
-        Renders four things (in order):
-        1. Snap trace — dashed ghost of the item being snapped to (scene coords).
+        Renders (in order):
+        1. Snap trace + OSNAP marker — dashed ghost of the snapped item(s) plus
+           the coloured snap-point glyph, both from the shared paint_snap_indicator
+           (see snap_engine) so this view and the import-dialog preview match.
         2. Grip handles — small squares on selected geometry items (viewport coords).
-        3. OSNAP snap indicator — coloured shape at snap point (viewport coords).
-        4. Dim HUD — live dimension text near the cursor (viewport coords).
+        3. Dim HUD — live dimension text near the cursor (viewport coords).
+
+        Note: the snap trace+marker draw BEFORE grip handles (the shared painter
+        emits them together). During a snapped grip-drag (snapping is active when
+        ``mode != "select"`` OR ``_grip_dragging``) the marker and the active grip
+        square co-occur at the snap point; the grip then paints over the marker
+        centre. This overlap is cosmetic (the marker outline still rings the grip)
+        and was accepted when the painter was unified.
         """
         super().drawForeground(painter, rect)
         scene = self.scene()
@@ -196,67 +203,11 @@ class Model_View(QGraphicsView):
 
         snap_result = getattr(scene, "_snap_result", None)
 
-        # ── 1. Snap trace (scene coordinates — no resetTransform) ─────────────
-        if snap_result is not None and snap_result.source_item is not None:
-            color = QColor(SNAP_COLORS.get(snap_result.snap_type, "#aaaaaa"))
-            trace_pen = QPen(color, 1)
-            trace_pen.setStyle(Qt.PenStyle.DashLine)
-            trace_pen.setCosmetic(True)
-            painter.save()
-            painter.setPen(trace_pen)
-            painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-
-            # If source_lines are provided (Phase 4 intersections),
-            # draw only the participating segments instead of full items.
-            _src_lines = getattr(snap_result, "source_lines", None)
-            if _src_lines:
-                for seg in _src_lines:
-                    painter.drawLine(seg)
-            else:
-                # Draw all source items (source_item + optional source_item2)
-                _sources = [snap_result.source_item]
-                _src2 = getattr(snap_result, "source_item2", None)
-                if _src2 is not None:
-                    _sources.append(_src2)
-                for src in _sources:
-                    if isinstance(src, QGraphicsLineItem):
-                        ln = src.line()
-                        p1 = src.mapToScene(ln.p1())
-                        p2 = src.mapToScene(ln.p2())
-                        painter.drawLine(QLineF(p1, p2))
-                    elif isinstance(src, QGraphicsEllipseItem):
-                        painter.drawEllipse(src.mapRectToScene(src.rect()))
-                    elif isinstance(src, QGraphicsPathItem):
-                        # Draw only segments adjacent to snap point,
-                        # not the entire path (avoids lighting up a
-                        # whole DXF rectangle for one corner snap).
-                        sp = snap_result.point
-                        path = src.path()
-                        n = path.elementCount()
-                        best_segs = []
-                        tol_sq = 1.0  # 1 mm² scene tolerance
-                        for si in range(n - 1):
-                            e1 = path.elementAt(si)
-                            e2 = path.elementAt(si + 1)
-                            p1 = src.mapToScene(QPointF(e1.x, e1.y))
-                            p2 = src.mapToScene(QPointF(e2.x, e2.y))
-                            d1 = (p1.x() - sp.x()) ** 2 + (p1.y() - sp.y()) ** 2
-                            d2 = (p2.x() - sp.x()) ** 2 + (p2.y() - sp.y()) ** 2
-                            mx = (p1.x() + p2.x()) * 0.5
-                            my = (p1.y() + p2.y()) * 0.5
-                            dm = (mx - sp.x()) ** 2 + (my - sp.y()) ** 2
-                            if d1 < tol_sq or d2 < tol_sq or dm < tol_sq:
-                                best_segs.append(QLineF(p1, p2))
-                        if best_segs:
-                            for seg in best_segs:
-                                painter.drawLine(seg)
-                        else:
-                            painter.drawPath(src.mapToScene(src.path()))
-                    elif isinstance(src, QGraphicsRectItem):
-                        painter.drawRect(src.mapRectToScene(src.rect()))
-
-            painter.restore()
+        # ── 1. Snap trace + marker (shared painter — see snap_engine) ─────────
+        # Trace (dashed scene-coord ghost of the snapped item(s)) and the
+        # colour-coded marker glyph are drawn by the one shared function so the
+        # main plan view and the import-dialog preview stay pixel-identical.
+        paint_snap_indicator(painter, self, snap_result)
 
         # ── 1b. Floor vertex dots during placement ─────────────────────────────
         floor_active = getattr(scene, "_floor_active", None)
@@ -307,69 +258,6 @@ class Model_View(QGraphicsView):
                     painter.setPen(QPen(QColor(_sel_t.selection), 1))
                     painter.setBrush(QBrush(fill))
                     painter.drawRect(vp.x() - 4, vp.y() - 4, 8, 8)
-            painter.restore()
-
-        # ── 3. OSNAP snap indicator (viewport coordinates) ────────────────────
-        if snap_result is not None:
-            color  = QColor(SNAP_COLORS.get(snap_result.snap_type, "#ffffff"))
-            marker = SNAP_MARKERS.get(snap_result.snap_type, "square")
-            vp     = self.mapFromScene(snap_result.point)
-            x, y   = vp.x(), vp.y()
-            s      = 6   # half-size in screen pixels
-
-            painter.save()
-            painter.resetTransform()
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-            pen = QPen(color, 2)
-            pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-            painter.setPen(pen)
-
-            # Filled glyph variant for WallSegment face-corner / face-mid
-            # targets (§8.2 of the snap engine spec, amended: *filled* =
-            # face / secondary, *outlined* = centerline / default).
-            _name = getattr(snap_result, "name", None)
-            if _name is not None and _name.startswith("face-"):
-                painter.setBrush(QBrush(color))
-            else:
-                painter.setBrush(QBrush(Qt.BrushStyle.NoBrush))
-
-            if marker == "square":
-                painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            elif marker == "circle":
-                painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            elif marker == "triangle":
-                poly = QPolygon([
-                    QPoint(int(x),     int(y) - s),
-                    QPoint(int(x) + s, int(y) + s),
-                    QPoint(int(x) - s, int(y) + s),
-                ])
-                painter.drawPolygon(poly)
-            elif marker == "diamond":
-                poly = QPolygon([
-                    QPoint(int(x),     int(y) - s),
-                    QPoint(int(x) + s, int(y)),
-                    QPoint(int(x),     int(y) + s),
-                    QPoint(int(x) - s, int(y)),
-                ])
-                painter.drawPolygon(poly)
-            elif marker == "cross":
-                painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-                painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-            elif marker == "right_angle":
-                # ⊥ perpendicular symbol: right-angle corner
-                painter.drawLine(int(x) - s, int(y), int(x), int(y))
-                painter.drawLine(int(x), int(y), int(x), int(y) - s)
-                painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            elif marker == "tangent_circle":
-                # Tangent: small circle with horizontal line through bottom
-                painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-                painter.drawLine(int(x) - s - 2, int(y) + s, int(x) + s + 2, int(y) + s)
-            elif marker == "x_cross":
-                # Intersection: X inside a square
-                painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-                painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-                painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-
             painter.restore()
 
         # ── 3b. Constraint indicators (viewport coordinates) ───────────────

@@ -361,8 +361,9 @@ class ModelBrowser(QWidget):
                 ul_root.setFont(0, f_bold)
                 ul_root.setExpanded(True)
 
+                from .underlay_manager_model import _record_name
                 for idx, (data, item) in enumerate(underlays):
-                    filename = os.path.basename(data.path)
+                    filename = _record_name(data)
                     is_missing = (item is None
                                   or item.data(0) == "missing_underlay")
                     level_label = (
@@ -712,7 +713,8 @@ class ModelBrowser(QWidget):
 
     def _remove_underlay(self, data, item):
         """Remove with confirmation dialog."""
-        filename = os.path.basename(data.path)
+        from .underlay_manager_model import _record_name
+        filename = _record_name(data)
         reply = QMessageBox.question(
             self, "Remove Underlay",
             f"Remove underlay '{filename}'?\nThis cannot be undone.",

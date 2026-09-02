@@ -39,11 +39,11 @@ from PyQt6.QtWidgets import (
     QMessageBox, QInputDialog, QAbstractItemView, QFrame,
 )
 from PyQt6.QtGui import (
-    QPen, QColor, QBrush, QPainterPath, QFont, QFontMetricsF,
+    QPen, QColor, QBrush, QPainterPath, QFont,
     QCursor, QPainter, QPixmap, QIcon, QTransform,
 )
 from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread, QTimer,
+    Qt, QPointF, QRectF, QSizeF, QSize, QSettings, QThread, QTimer,
     pyqtSignal,
 )
 
@@ -63,16 +63,18 @@ except ImportError:
     _HAS_FITZ = False
 
 from .dxf_import_worker import _sanitize_dxf
-from .loading_bar import LoadingBar
+from .loading import LoadingOverlay
 from .theme import (detect, build_app_qss, build_underlay_manager_qss,
                     FONT_UI, FONT_VALUE)
 from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
 from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
-from .snap_engine import SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS
+from .snap_engine import (
+    SnapEngine, OsnapResult, paint_snap_indicator,
+)
 from .underlay_snap_index import UnderlaySnapIndex
-from .scale_manager import ScaleManager
+from .scale_manager import ScaleManager, DisplayUnit
 from .dimension_edit import DimensionEdit
 from .assets import asset_path
 
@@ -82,13 +84,16 @@ from .assets import asset_path
 # ─────────────────────────────────────────────────────────────────────────────
 
 _DXF_INSUNITS: dict[int, tuple[str, float]] = {
-    # code: (display_name, scale_factor_to_inches)
+    # code: (display_name, scale_factor_to_mm)
+    # Factor is source-unit -> mm (mm per source unit), matching the app's
+    # scale = real_mm / source_units. code 0 (Unitless) is unused: the
+    # consumer gate skips it.
     0: ("Unitless",  1.0),
-    1: ("Inches",    1.0),
-    2: ("Feet",      12.0),
-    4: ("Millimeters", 1.0 / 25.4),
-    5: ("Centimeters", 1.0 / 2.54),
-    6: ("Meters",    1.0 / 0.0254),
+    1: ("Inches",    25.4),
+    2: ("Feet",      304.8),
+    4: ("Millimeters", 1.0),
+    5: ("Centimeters", 10.0),
+    6: ("Meters",    1000.0),
 }
 
 
@@ -117,6 +122,9 @@ def _arch(label: str, paper_in: float, real_ft: float) -> tuple[str, float]:
 
 # Imperial architectural scales (paper inches : 1 foot).
 _ARCH_SCALES: list[tuple[str, float]] = [
+    _arch('1/32" = 1\'-0"', 0.03125, 1.0),
+    _arch('1/16" = 1\'-0"', 0.0625, 1.0),
+    _arch('3/32" = 1\'-0"', 0.09375, 1.0),
     _arch('1/8" = 1\'-0"', 0.125, 1.0),
     _arch('3/16" = 1\'-0"', 0.1875, 1.0),
     _arch('1/4" = 1\'-0"', 0.25, 1.0),
@@ -137,6 +145,11 @@ _ENG_SCALES: list[tuple[str, float]] = [
     _arch('1" = 50\'', 1.0, 50.0),
     _arch('1" = 100\'', 1.0, 100.0),
 ]
+
+
+_SCALE_SNAP_TOL = 0.02   # snap a calibrated factor to a standard scale within 2%
+# Standard metric plot-scale denominators (1:N) to snap a metric ratio to.
+_METRIC_SCALE_DENOMS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
 
 
 def pdf_scale_ratio_text(factor: float) -> str:
@@ -185,6 +198,7 @@ class ImportParams:
         self.import_bounds: list[float] | None = None  # area selection bounds
         self.levels: list[str] = []            # authored by the Placement multi-select
         self.scale_verified: bool = False      # calibrate / "Looks right"
+        self.name: str = ""                    # user-authored underlay name (blank = basename)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,7 +217,7 @@ class _PreviewView(QGraphicsView):
     zoomChanged = pyqtSignal(float)          # emits the ratio vs fit (1.0 == fit)
 
     _ZOOM_MIN = 0.25                          # 25% of fit
-    _ZOOM_MAX = 12.0                          # 1200% of fit
+    _ZOOM_MAX = 20.0                          # 2000% of fit
 
     def __init__(self, scene: QGraphicsScene, parent=None):
         super().__init__(scene, parent)
@@ -247,12 +261,15 @@ class _PreviewView(QGraphicsView):
         ov = getattr(self, "_drop_overlay", None)
         if ov is not None:
             ov.setGeometry(self.viewport().rect())
+        lo = getattr(self, "_loading_overlay", None)
+        if lo is not None:
+            lo.recenter()
 
     def _zoom_ratio(self) -> float:
         return self.transform().m11() / (self._fit_scale or 1.0)
 
     def _clamped_factor(self, factor: float) -> float:
-        """Clamp *factor* so the resulting zoom stays in [25%, 1200%] of fit."""
+        """Clamp *factor* so the resulting zoom stays in [25%, 2000%] of fit."""
         cur = self.transform().m11()
         if cur <= 0:
             return factor
@@ -381,79 +398,11 @@ class _PreviewView(QGraphicsView):
         if snap is None:
             return
 
-        # ── Source-item trace (scene coords) ──────────────────────────
-        src = snap.source_item
-        if src is not None:
-            color = QColor(SNAP_COLORS.get(snap.snap_type, "#aaaaaa"))
-            trace_pen = QPen(color, 1, Qt.PenStyle.DashLine)
-            trace_pen.setCosmetic(True)
-            painter.save()
-            painter.setPen(trace_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            if isinstance(src, QGraphicsLineItem):
-                ln = src.line()
-                painter.drawLine(QLineF(src.mapToScene(ln.p1()),
-                                        src.mapToScene(ln.p2())))
-            elif isinstance(src, QGraphicsEllipseItem):
-                painter.drawEllipse(src.mapRectToScene(src.rect()))
-            elif isinstance(src, QGraphicsPathItem):
-                painter.drawPath(src.mapToScene(src.path()))
-            painter.restore()
-
-        # ── Snap glyph (viewport coords) ─────────────────────────────
-        color = QColor(SNAP_COLORS.get(snap.snap_type, "#ffffff"))
-        marker = SNAP_MARKERS.get(snap.snap_type, "square")
-        vp = self.mapFromScene(snap.point)
-        x, y = vp.x(), vp.y()
-        s = 6
-
-        painter.save()
-        painter.resetTransform()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        pen = QPen(color, 2)
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        if marker == "square":
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "circle":
-            painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "triangle":
-            from PyQt6.QtGui import QPolygon
-            from PyQt6.QtCore import QPoint
-            poly = QPolygon([
-                QPoint(int(x), int(y) - s),
-                QPoint(int(x) + s, int(y) + s),
-                QPoint(int(x) - s, int(y) + s),
-            ])
-            painter.drawPolygon(poly)
-        elif marker == "diamond":
-            from PyQt6.QtGui import QPolygon
-            from PyQt6.QtCore import QPoint
-            poly = QPolygon([
-                QPoint(int(x),     int(y) - s),
-                QPoint(int(x) + s, int(y)),
-                QPoint(int(x),     int(y) + s),
-                QPoint(int(x) - s, int(y)),
-            ])
-            painter.drawPolygon(poly)
-        elif marker == "cross":
-            painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-        elif marker == "right_angle":
-            painter.drawLine(int(x) - s, int(y), int(x), int(y))
-            painter.drawLine(int(x), int(y), int(x), int(y) - s)
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-        elif marker == "tangent_circle":
-            painter.drawEllipse(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            painter.drawLine(int(x) - s - 2, int(y) + s,
-                             int(x) + s + 2, int(y) + s)
-        elif marker == "x_cross":
-            painter.drawRect(int(x) - s, int(y) - s, 2 * s, 2 * s)
-            painter.drawLine(int(x) - s, int(y) - s, int(x) + s, int(y) + s)
-            painter.drawLine(int(x) + s, int(y) - s, int(x) - s, int(y) + s)
-        painter.restore()
+        # Draw the snap trace + marker via the one shared painter so the
+        # preview matches the main plan view exactly (source_item2 + filled
+        # face glyphs included).  Detection is unified, so the richer visuals
+        # "just work" off the same result fields.
+        paint_snap_indicator(painter, self, snap)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -620,6 +569,57 @@ class _DialogExtractWorker(QThread):
             return
         geom_layers = {g.get("layer", "0") for g in geoms}
         self.finished_geoms.emit(geoms, sorted(layers_set | geom_layers))
+
+
+class _DialogPdfExtractWorker(QThread):
+    """PDF vector extraction off the GUI thread (mirrors _DialogExtractWorker).
+
+    Wraps :func:`pdf_import_worker.extract_pdf_vectors_sync`, which already
+    returns ``(geoms, layer_names)`` — so ``finished_geoms`` carries both and
+    the dialog's finish handler needs no separate layer computation. Emits the
+    same ``status`` / ``finished_geoms`` / ``aborted`` / ``error`` signals the
+    DXF worker does, so the loading-overlay wiring is identical. Cancel is
+    honoured MID-extraction: ``extract_pdf_vectors_sync`` is handed a
+    ``should_cancel`` poll (this worker's ``_cancelled`` flag) so a large page
+    aborts within ~100 drawing paths, returning ``None`` → ``aborted`` here.
+    (The GUI-thread preview-build phase that follows remains non-cancellable.)
+    """
+
+    status = pyqtSignal(str)                  # phase description for the card
+    finished_geoms = pyqtSignal(list, list)   # (geom dicts, layer names)
+    aborted = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, path: str, page: int, parent=None):
+        super().__init__(parent)
+        self._path = path
+        self._page = page
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        try:
+            self.status.emit("Opening PDF…")
+            if self._cancelled:
+                self.aborted.emit()
+                return
+            from .pdf_import_worker import extract_pdf_vectors_sync
+            self.status.emit(f"Reading page {self._page + 1}…")
+            # should_cancel makes extraction interruptible MID-run: a Cancel
+            # during a large page's extraction now aborts within ~100 drawing
+            # paths instead of only after the whole page finishes.
+            # extract_pdf_vectors_sync returns None when it observed the flag.
+            result = extract_pdf_vectors_sync(
+                self._path, self._page, should_cancel=lambda: self._cancelled)
+            if result is None or self._cancelled:
+                self.aborted.emit()
+                return
+            geoms, layers = result
+            self.finished_geoms.emit(geoms, layers)
+        except Exception as e:  # noqa: BLE001 — surfaced on the info label
+            self.error.emit(str(e))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1073,7 +1073,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._pdf_page_names: list[str] = []
         self._doc = None          # ezdxf document (DXF/DWG only)
         self._extracting = False  # re-entrancy guard for extraction
+        self._loading_cancelled = False  # loading-card Cancel latch
         self._extract_worker: _DialogExtractWorker | None = None
+        self._pdf_worker: _DialogPdfExtractWorker | None = None
+        self._pdf_extract_ctx: dict | None = None  # in-flight PDF load context
         self._read_worker: _DialogReadWorker | None = None
         self._extract_total: int | None = None
         self._pending_read_path: str = ""
@@ -1118,7 +1121,9 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         available); management fields (colour, levels, overrides…) are NOT
         surfaced here — they are preserved by replace_underlay, not re-edited.
         """
-        _name = os.path.basename(record.path) or "underlay"
+        self._name_edit.setText(getattr(record, "name", "") or "")
+        from .underlay_manager_model import _record_name
+        _name = _record_name(record) or "underlay"
         self.setWindowTitle(f"Modify Underlay — {_name}")
         if hasattr(self, "_title_lbl"):
             self._title_lbl.setText(f"Modify Underlay — {_name}")
@@ -1126,10 +1131,10 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if _ok is not None:
             _ok.setText("Save changes")
 
-        # Saved layer subset / crop must survive the (async) geometry load.
-        # The sync PDF path populates the layer list inside _load_file below;
-        # the async DXF/DWG path populates it later in _on_extract_finished.
-        # Both consume these pending fields once geometry is available.
+        # Saved layer subset / crop must survive the async geometry load. ALL
+        # loaders are async: the PDF path consumes these in
+        # _on_pdf_extract_finished; DXF/DWG in _on_extract_finished. They are
+        # left pending here and consumed once geometry is final.
         self._pending_modify_layers = list(record.selected_layers or [])
         self._pending_modify_bounds = (
             list(record.import_bounds) if record.import_bounds else None)
@@ -1143,7 +1148,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if record.type == "pdf" and record.page:
             self._pdf_page = record.page
             try:
-                self._load_pdf_page(record.path, record.page)
+                # reset_base=False: the record's saved base point is restored
+                # below (lines ~1207-1211). The default (True) would let the
+                # async _on_pdf_extract_finished geometry-bounds AUTO-FILL
+                # clobber that restored base once the worker delivers geometry
+                # — the same guard the page-switch path already uses.
+                self._load_pdf_page(record.path, record.page, reset_base=False)
             except Exception:
                 pass
             self._sync_page_indicator(record.page)
@@ -1166,19 +1176,24 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         custom_idx = len(self._SCALE_OPTIONS) - 1
         self._scale_combo.setCurrentIndex(custom_idx)
         self._on_scale_combo_changed(custom_idx)   # ensure visible even if idx unchanged
-        self._custom_scale_edit.blockSignals(True)
-        self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
-        self._custom_scale_edit.blockSignals(False)
+        if self._ratio_fields_active():
+            # PDF Custom is driven by the two-field ratio — back-solve it.
+            self._set_ratio_fields_from_factor(float(record.import_scale))
+        else:
+            self._custom_scale_edit.blockSignals(True)
+            self._custom_scale_edit.setText(f"{record.import_scale:.6g}")
+            self._custom_scale_edit.blockSignals(False)
 
-        # SYNC (PDF) path: geometry is already loaded (final page rendered
-        # above) and the layer list is populated. The multi-call PDF load
-        # (_load_pdf renders page 0, then the prefill re-renders the target
-        # page) means _populate_layer_list may have consumed _pending_modify_
-        # layers against the wrong page — so re-apply layers + crop explicitly
-        # here against the FINAL geometry, then clear the pending fields so the
-        # async callback doesn't double-apply. The ASYNC (DXF/DWG) path has no
-        # geometry yet (_load_file returned before extraction) → this guard is
-        # False and the extract-finished callback consumes the pending fields.
+        # DEFENSIVE RECONCILE — only fires when geometry is ALREADY present at
+        # this point. All three real loaders are now ASYNC (PDF joined DXF/DWG
+        # on a worker thread), so _all_geoms is empty here and this block is a
+        # no-op — the pending fields survive to be consumed by the matching
+        # finish handler (_on_pdf_extract_finished / _on_extract_finished / the
+        # memoized _extract_for_layout branch). It is retained for any path that
+        # DOES populate geometry synchronously (e.g. a stubbed loader in a test,
+        # or a future memoized PDF hit): re-apply layers + crop against that
+        # FINAL geometry and clear pending so the async callback can't
+        # double-apply.
         if self._all_geoms:
             if self._pending_modify_layers:
                 self._apply_selected_layers(self._pending_modify_layers)
@@ -1187,25 +1202,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 self._restore_crop_from_bounds(self._pending_modify_bounds)
                 self._pending_modify_bounds = None
 
-        # Enforce the "pending consumed by end of the SYNC load" invariant for
-        # PDF — and PDF ONLY. Two PDF sub-cases reach here:
-        #   • vector-sync: the reconcile block above already applied+cleared;
-        #   • raster: _load_pdf_page set _all_geoms=[] so the guard was False
-        #     and nothing was applied (raster records carry no layers/crop) —
-        #     the pending fields would otherwise linger as stale state that a
-        #     same-session import-mode switch could mis-read.
-        # Either way, by the time the SYNC PDF load returns the geometry is
-        # final, so clearing here is safe.
-        #
-        # ⚠ TIMING HAZARD — do NOT hoist this into an unconditional clear at the
-        # end of _apply_modify_prefill. The ASYNC DXF/DWG path has NOT loaded
-        # geometry yet (_load_file returned before the extract worker finishes);
-        # its pending fields MUST survive prefill to be consumed in
-        # _on_extract_finished / the memoized _extract_for_layout branch. Gating
-        # on the PDF (sync) file type keeps async intact.
-        if self._file_type == "pdf":
-            self._pending_modify_layers = None
-            self._pending_modify_bounds = None
+        # ⚠ TIMING HAZARD (retired): there used to be an unconditional
+        # `if self._file_type == "pdf": clear pending` gate here, valid only
+        # while the PDF load was SYNCHRONOUS (geometry final by prefill's end).
+        # PDF extraction is now ASYNC, so clearing here would drop the saved
+        # layer subset + crop BEFORE the worker finishes → they would be lost on
+        # Modify. The consume+clear now lives in _on_pdf_extract_finished (vector
+        # PDF) and in _load_pdf_page's raster branch (raster records carry no
+        # layers/crop) — both AFTER geometry is final. Do NOT reintroduce a
+        # prefill-end clear.
 
         # Rotation (display transform).
         self._set_rotation(record.rotation)
@@ -1436,6 +1441,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         _dov.addWidget(_dtx)
         self._drop_overlay.setStyleSheet("background:transparent;")
 
+        # Staged loading card — floats centred over the preview viewport while a
+        # source loads/extracts. Recentered from _PreviewView.resizeEvent.
+        self._loading_overlay = LoadingOverlay(t, self._preview_view.viewport())
+        self._preview_view._loading_overlay = self._loading_overlay
+        self._loading_overlay.cancelRequested.connect(self._on_loading_cancel)
+
         self._instruction_chip = QLabel("")
         self._instruction_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._instruction_chip.setStyleSheet(
@@ -1480,6 +1491,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
         # -- Page 0: SOURCE (file + recent) --
         src_pg, src_v = _page()
+        src_v.addWidget(_hdr("Name"))
+        self._name_edit = QLineEdit()
+        self._name_edit.setFont(QFont(FONT_UI))
+        self._name_edit.setPlaceholderText("underlay name (optional)")
+        src_v.addWidget(self._name_edit)
         src_v.addWidget(_hdr("Source"))
         self._file_edit = QLineEdit()
         src_v.addWidget(self._file_edit)
@@ -1581,6 +1597,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._custom_scale_edit.setVisible(False)
         self._custom_scale_edit.textChanged.connect(self._on_custom_scale_edited)
         scale_head.addWidget(self._custom_scale_edit)
+        # PDF-only human-readable ratio: imperial "[paper] in = [real] ft";
+        # metric "1 : [real]". Fields are plain numeric line-edits (the paper
+        # side accepts fractions like 3/8); the raw factor edit above stays the
+        # DXF/DWG path. Built once from the SM's unit system.
+        self._build_ratio_fields(scale_head)
         scale_head.addStretch()
         self._scale_pill = QLabel(" unverified ")
         self._scale_pill.setObjectName("scalePill")
@@ -1694,10 +1715,6 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         body.addWidget(self._panel_stack)
         outer.addLayout(body, 1)
         self._switch_step("source")
-
-        # Progress bar (hidden by default)
-        self._loading_bar = LoadingBar(self, cancel=True)
-        outer.addWidget(self._loading_bar)
 
         # ── Commit footer: sentence + Cancel / Import ───────────────────────
         footer = QFrame(objectName="footerBar")
@@ -1935,7 +1952,9 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             1 for i in range(self._layer_list.count())
             if self._layer_list.item(i).checkState() != Qt.CheckState.Checked)
         cropped = self._selected_indices is not None
-        if self._custom_scale_edit.isVisible():
+        if self._ratio_fields_active():
+            scale_str = pdf_scale_ratio_text(self._current_scale()) or "Custom"
+        elif self._custom_scale_edit.isVisible():
             scale_str = self._custom_scale_edit.text() or "1.0"
         else:
             scale_str = self._scale_combo.currentText() or "1:1"
@@ -1981,13 +2000,13 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     # ── Loading state ─────────────────────────────────────────────────────
 
     def _set_controls_enabled(self, enabled: bool):
-        """Enable/disable the preview, controls panel, and bottom buttons.
+        """Enable/disable the controls panel and bottom buttons.
 
-        Disabled during loading AND extraction — the progress bar pumps
-        processEvents, so enabled controls would let layer toggles or
-        Import clicks land on a half-built ``_all_geoms``.
+        Disabled during loading AND extraction so enabled controls can't let
+        layer toggles or Import clicks land on a half-built ``_all_geoms``. The
+        preview view is left enabled so the overlay's Cancel button (a child of
+        the viewport) stays clickable; the overlay covers the preview anyway.
         """
-        self._preview_view.setEnabled(enabled)
         panel = getattr(self, "_controls_panel", None)
         if panel is not None:
             panel.setEnabled(enabled)
@@ -1995,24 +2014,108 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if btns:
             btns.setEnabled(enabled)
 
+    def _overlay_plan(self) -> list[tuple[str, str]]:
+        """Return the ordered ``(key, label)`` stage plan for the current file type.
+
+        The plan pre-lists the whole checklist so the overlay shows every stage
+        as pending from the start. Paper-layout DXFs emit extra stages
+        (viewports/clip/annotations) whose keys aren't in the base plan — those
+        get inserted by :meth:`LoadingOverlay.advance` as they arrive.
+        """
+        ft = getattr(self, "_file_type", "")
+        if ft == "pdf":
+            return [("read", "Read PDF"),
+                    ("extract", "Extract vectors"),
+                    ("build", "Build preview")]
+        if ft == "dwg":
+            return [("convert", "Convert DWG → DXF"),
+                    ("read", "Read DXF"),
+                    ("scan", "Scan entities"),
+                    ("extract", "Extract geometry"),
+                    ("build", "Build preview")]
+        return [("read", "Read file"),
+                ("scan", "Scan entities"),
+                ("extract", "Extract geometry"),
+                ("build", "Build preview")]
+
+    def _status_key(self, message: str) -> str:
+        """Map a status/loading message to a plan key by case-insensitive match.
+
+        Falls back to returning *message* itself as a one-off key, which makes
+        :meth:`LoadingOverlay.advance` insert a fresh row for an unmatched stage.
+        """
+        m = (message or "").strip().lower()
+        if m.startswith("converting dwg") or "dwg → dxf" in m or "dwg -> dxf" in m:
+            return "convert"
+        if "reading viewports" in m:
+            return "viewports"
+        if "reading sheet annotations" in m:
+            return "annotations"
+        if m.startswith("opening pdf") or m.startswith("reading page"):
+            return "read"
+        if m.startswith("reading") and ("dxf" in m or "pdf" in m
+                                         or "file" in m or "source" in m):
+            return "read"
+        if m.startswith("checking dxf") or m.startswith("parsing dxf"):
+            return "read"
+        if m.startswith("scanning") or "preparing extraction" in m:
+            return "scan"
+        if "extracting geometry" in m or "extracting vectors" in m or "rendering" in m:
+            return "extract"
+        if "clipping" in m:
+            return "clip"
+        if "building preview" in m:
+            return "build"
+        return message
+
+    def _ensure_overlay_open(self, message: str):
+        """Show the loading card (if not already) with *message* as its hint.
+
+        Idempotent — reuses the open card across sub-phases so successive
+        ``busy()``/``_set_loading()`` calls don't wipe the accumulated stage
+        rows. On first open the card is seeded with the full stage plan; every
+        call then advances the checklist to the row matching *message*.
+        """
+        ov = self._loading_overlay
+        if not ov.is_active():
+            self._loading_cancelled = False
+            name = os.path.basename(self._file_edit.text().strip()) or "Loading"
+            ov.begin(name, "", message, plan=self._overlay_plan())
+        else:
+            ov.hint_lbl.setText(message)
+            ov.name_lbl.setText(
+                os.path.basename(self._file_edit.text().strip()) or ov.name_lbl.text())
+        ov.advance(self._status_key(message), running_label=message)
+
     def _set_loading(self, message: str):
-        """Disable controls and show a loading message with indeterminate progress."""
-        self._loading_bar.start(message)
+        """Show the loading card with an indeterminate hint; disable controls."""
+        self._ensure_overlay_open(message)
         self._set_controls_enabled(False)
 
     def _set_extracting(self, total: int):
-        """Switch progress bar to determinate mode for entity extraction."""
-        self._loading_bar.start_determinate(total, "Extracting entities…")
+        """Mark the start of the counted extraction phase on the overlay."""
+        self._ensure_overlay_open("Extracting entities…")
         self._set_controls_enabled(False)
 
     def _update_progress(self, current: int, total: int, message: str = ""):
-        """Update progress bar value and optional message."""
-        self._loading_bar.update(current, message)
+        """Drive the determinate bar from a counted phase (current/total)."""
+        if total:
+            self._loading_overlay.set_fraction(min(0.96, current / total))
+        if message:
+            self._loading_overlay.hint_lbl.setText(message)
 
     def _clear_loading(self):
-        """Re-enable controls and hide progress bar."""
-        self._loading_bar.finish()
+        """Re-enable controls and hide the loading card."""
+        self._loading_overlay.finish()
         self._set_controls_enabled(True)
+
+    def _on_loading_cancel(self):
+        """Cancel button on the loading card — abort an in-flight extraction."""
+        self._loading_cancelled = True
+        for attr in ("_extract_worker", "_pdf_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                w.cancel()
 
     # ── Persist settings between sessions ──────────────────────────────────
 
@@ -2064,7 +2167,8 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._load_file()
 
     def _load_file(self):
-        if self._extracting or self._read_worker is not None:
+        if (self._extracting or self._read_worker is not None
+                or self._pdf_worker is not None):
             return  # a load is already in flight
         path = self._file_edit.text().strip()
         if not path or not os.path.exists(path):
@@ -2126,7 +2230,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_read_status(self, message: str):
         if self._read_worker is None:
             return
-        self._loading_bar.busy(message)
+        self._ensure_overlay_open(message)
 
     def _on_read_finished(self, doc):
         if self._read_worker is None:
@@ -2216,15 +2320,22 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             return
         self._selected_layout = layout_name
 
+        # Replace the static "Select a layout to preview." hint immediately so
+        # the info area narrates the switch (both the memoized and worker
+        # branches below). The finished/summary path overwrites it with the
+        # entity count.
+        self._info_lbl.setText(f"Loading {layout_name}…")
+
         # ── Memoized layout — skip re-extraction entirely ────────────────
         cached = self._layout_cache.get(layout_name)
         if cached is not None:
             self._all_geoms, layers = cached
             self._layers = list(layers)
             # ASYNC consume site (DXF/DWG, memoized-layout branch). Same timing
-            # contract as _on_extract_finished: _apply_modify_prefill left these
-            # pending (its clear is gated to _file_type=="pdf") so this branch
-            # can consume them here once the (cached) geometry is available.
+            # contract as _on_extract_finished: _apply_modify_prefill leaves
+            # these pending for every async loader (DXF/DWG here; PDF in
+            # _on_pdf_extract_finished) so this branch can consume them here
+            # once the (cached) geometry is available.
             self._populate_layer_list()   # applies _pending_modify_layers
             self._pending_modify_layers = None
             self._selected_indices = None
@@ -2266,25 +2377,31 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_extract_progress(self, current: int, total: int):
         if self._extract_worker is None:
             return
-        if self._loading_bar.cancelled:
+        if self._loading_cancelled:
             self._extract_worker.cancel()
             return
         if total != self._extract_total:
             self._extract_total = total
-            self._set_extracting(total)  # determinate bar + controls off
+            self._set_extracting(total)  # controls off; card already open
         pct = f"  {current:,} / {total:,}" if total else ""
         self._update_progress(current, total, f"Extracting geometry…{pct}")
 
     def _on_extract_status(self, message: str):
-        """Show a descriptive phase label for the un-counted extraction
-        phases (scan, viewport clip, sheet annotations) as an indeterminate
-        pulse so the bar never sits frozen at 100 %."""
+        """Map each worker phase string onto a stage row on the loading card.
+
+        Each ``status`` emit advances the planned checklist to the matching
+        stage; :meth:`LoadingOverlay.advance` finishes the prior running row
+        (leaving a check behind) and inserts a row for any unplanned stage
+        (paper-layout viewports/clip/annotations), so the checklist narrates
+        scan → extract → clip → annotations as they run.
+        """
         if self._extract_worker is None:
             return
-        if self._loading_bar.cancelled:
+        if self._loading_cancelled:
             self._extract_worker.cancel()
             return
-        self._loading_bar.busy(message)
+        self._ensure_overlay_open(message)
+        self._loading_overlay.advance(self._status_key(message), running_label=message)
 
     def _on_extract_finished(self, geoms: list, layers: list):
         if self._extract_worker is None:
@@ -2317,14 +2434,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._layers = list(layers)
         # ASYNC consume site (DXF/DWG). These pending fields were deliberately
         # LEFT UNCLEARED by _apply_modify_prefill because geometry did not exist
-        # yet when that returned — the sync-path clear there is gated to
-        # _file_type=="pdf" precisely so this branch still sees them. Consume +
-        # clear them here now that the extract has finished.
+        # yet when that returned — the prefill no longer clears pending for any
+        # loader (PDF now consumes async in _on_pdf_extract_finished too), so
+        # this branch still sees them. Consume + clear them here now that the
+        # extract has finished.
         self._populate_layer_list()   # applies _pending_modify_layers
         self._pending_modify_layers = None
         self._selected_indices = None
         # Modify flow: restore the saved crop now that geometry exists (async
-        # DXF/DWG — the sync PDF path applies it inline in the prefill).
+        # DXF/DWG here; the async PDF path applies it in _on_pdf_extract_finished).
         if self._pending_modify_bounds is not None:
             self._restore_crop_from_bounds(self._pending_modify_bounds)
             self._pending_modify_bounds = None
@@ -2361,6 +2479,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             find_oda_converter, convert_dwg_to_dxf,
             cleanup_converted_dxf, read_dxf, ODA_DOWNLOAD_URL,
         )
+
+        # Set early so the loading overlay's first-open plan is the DWG plan
+        # (convert → read → scan → extract → build). The nested _load_dxf call
+        # later flips this to "dxf", but the card is already open by then so the
+        # plan is fixed at the convert stage.
+        self._file_type = "dwg"
 
         oda_path = find_oda_converter()
         if oda_path is None:
@@ -2615,88 +2739,195 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._pdf_page = page
         mode = self._mode_combo.currentText().lower()  # "auto", "vectors", "raster"
 
+        # A page switch / re-render supersedes any in-flight vector extraction.
+        prev = self._pdf_worker
+        if prev is not None:
+            self._pdf_worker = None
+            prev.cancel()
+
         if mode == "raster":
             self._has_vectors = False
             self._all_geoms = []
             self._layers = []
             self._populate_layer_list()
             self._selected_indices = None
+            # RASTER PDF Modify: geometry is final (empty) once this returns, so
+            # the sync-load pending invariant must hold here — raster records
+            # carry no layers/crop, so clearing (rather than applying) is right.
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
             self._show_raster_preview(path, page, dpi)
             self._clear_loading()
             self._info_lbl.setText(
                 f"{self._page_name(page)} — raster at {dpi} DPI.")
+            self._units_info_lbl.setVisible(False)
+            self._update_scale_readout()
+            self._update_status()
+            return
+
+        # ── Vector / Auto — extract off the GUI thread ───────────────────────
+        # Geometry is NO LONGER final when this method returns; _apply_modify_
+        # prefill therefore leaves _pending_modify_* alone (its sync clear was
+        # retired) and _on_pdf_extract_finished consumes them once the worker
+        # delivers the final page geometry — mirroring _on_extract_finished.
+        self._pdf_extract_ctx = {
+            "path": path, "page": page, "dpi": dpi,
+            "mode": mode, "reset_base": reset_base,
+        }
+        self._set_loading(f"Extracting vectors from page {page + 1}…")
+        w = _DialogPdfExtractWorker(path, page)
+        self._pdf_worker = w
+        w.status.connect(self._on_pdf_extract_status)
+        w.finished_geoms.connect(self._on_pdf_extract_finished)
+        w.aborted.connect(self._on_pdf_extract_aborted)
+        w.error.connect(self._on_pdf_extract_error)
+        _keepalive(w)
+        w.start()
+
+    def _on_pdf_extract_status(self, message: str):
+        """Map each PDF worker phase string onto a loading-card stage row."""
+        if self._pdf_worker is None or self.sender() is not self._pdf_worker:
+            return  # dialog closed, or a superseded (page-switch) worker
+        if self._loading_cancelled:
+            self._pdf_worker.cancel()
+            return
+        self._ensure_overlay_open(message)
+        self._loading_overlay.advance(self._status_key(message), running_label=message)
+
+    def _on_pdf_extract_finished(self, geoms: list, layers: list):
+        """Continue the PDF vector load once the worker delivers geometry.
+
+        Runs the post-extraction work the old inline sync code did (base-point
+        autofill, layer list, preview rebuild) AND consumes the Modify pending
+        layer subset + crop against this FINAL geometry — the async analogue of
+        the DXF :meth:`_on_extract_finished` consume site. Clearing the pending
+        fields here (not at prefill's end) is what keeps the Modify round-trip
+        lossless now that PDF extraction is asynchronous.
+        """
+        if self._pdf_worker is None or self.sender() is not self._pdf_worker:
+            return  # dialog closed / superseded mid-extraction — discard
+        self._pdf_worker = None
+        ctx = self._pdf_extract_ctx or {}
+        path = ctx.get("path", "")
+        page = ctx.get("page", self._pdf_page)
+        dpi = ctx.get("dpi", 150)
+        mode = ctx.get("mode", "auto")
+        reset_base = ctx.get("reset_base", True)
+
+        if geoms:
+            self._has_vectors = True
+            self._all_geoms = geoms
+            self._layers = layers
+            # Populate the layer tree (applies _pending_modify_layers), then
+            # consume + clear the Modify pending fields against FINAL geometry.
+            self._populate_layer_list()
+            self._selected_indices = None
+            if self._pending_modify_layers:
+                self._apply_selected_layers(self._pending_modify_layers)
+            self._pending_modify_layers = None
+
+            xs, ys = [], []
+            for g in geoms:
+                kind = g.get("kind")
+                if kind == "line":
+                    xs += [g["x1"], g["x2"]]
+                    ys += [g["y1"], g["y2"]]
+                elif kind == "path_points":
+                    for pt in g.get("points", []):
+                        xs.append(pt[0]); ys.append(pt[1])
+                elif kind in ("circle", "arc"):
+                    x0 = g.get("x", g.get("rx", 0))
+                    y0 = g.get("y", g.get("ry", 0))
+                    xs += [x0, x0 + g.get("w", g.get("rw", 0))]
+                    ys += [y0, y0 + g.get("h", g.get("rh", 0))]
+                elif kind == "text":
+                    xs.append(g["x"]); ys.append(g["y"])
+            if xs and ys and reset_base:
+                self._base_x_edit.blockSignals(True)
+                self._base_y_edit.blockSignals(True)
+                self._base_x_edit.set_value_mm(min(xs))
+                self._base_y_edit.set_value_mm(max(ys))
+                self._base_x_edit.blockSignals(False)
+                self._base_y_edit.blockSignals(False)
+
+            self._set_loading("Building preview…")
+            self._rebuild_preview()
+            # Restore the saved crop AFTER geometry exists (Modify flow), then
+            # clear the pending bounds — the async analogue of the DXF path.
+            if self._pending_modify_bounds is not None:
+                self._restore_crop_from_bounds(self._pending_modify_bounds)
+                self._pending_modify_bounds = None
+            self._clear_loading()
+            n = len(geoms)
+            self._info_lbl.setText(
+                f"{self._page_name(page)} — {n} vector entities from "
+                f"{os.path.basename(path)}")
+        elif mode == "vectors":
+            self._has_vectors = False
+            self._all_geoms = []
+            self._layers = []
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
+            self._preview_scene.clear()
+            self._base_markers = []
+            self._pick_markers = []
+            self._create_overlay_items()
+            self._clear_loading()
+            self._info_lbl.setText(
+                f"No vector geometry found on page {page + 1}.")
+            self._status_lbl.setText(
+                "No vectors found — switch to Auto or Raster.")
         else:
-            from .pdf_import_worker import extract_pdf_vectors_sync
-            self._set_loading(f"Extracting vectors from page {page + 1}…")
-            geoms, layers = extract_pdf_vectors_sync(path, page)
-
-            if geoms:
-                self._has_vectors = True
-                self._all_geoms = geoms
-                self._layers = layers
-                self._populate_layer_list()
-                self._selected_indices = None
-
-                xs, ys = [], []
-                for g in geoms:
-                    kind = g.get("kind")
-                    if kind == "line":
-                        xs += [g["x1"], g["x2"]]
-                        ys += [g["y1"], g["y2"]]
-                    elif kind == "path_points":
-                        for pt in g.get("points", []):
-                            xs.append(pt[0]); ys.append(pt[1])
-                    elif kind in ("circle", "arc"):
-                        x0 = g.get("x", g.get("rx", 0))
-                        y0 = g.get("y", g.get("ry", 0))
-                        xs += [x0, x0 + g.get("w", g.get("rw", 0))]
-                        ys += [y0, y0 + g.get("h", g.get("rh", 0))]
-                    elif kind == "text":
-                        xs.append(g["x"]); ys.append(g["y"])
-                if xs and ys and reset_base:
-                    self._base_x_edit.blockSignals(True)
-                    self._base_y_edit.blockSignals(True)
-                    self._base_x_edit.set_value_mm(min(xs))
-                    self._base_y_edit.set_value_mm(max(ys))
-                    self._base_x_edit.blockSignals(False)
-                    self._base_y_edit.blockSignals(False)
-
-                self._set_loading("Building preview…")
-                self._rebuild_preview()
-                self._clear_loading()
-                n = len(geoms)
-                self._info_lbl.setText(
-                    f"{self._page_name(page)} — {n} vector entities from "
-                    f"{os.path.basename(path)}")
-            elif mode == "vectors":
-                self._has_vectors = False
-                self._all_geoms = []
-                self._layers = []
-                self._populate_layer_list()
-                self._selected_indices = None
-                self._preview_scene.clear()
-                self._base_markers = []
-                self._pick_markers = []
-                self._create_overlay_items()
-                self._clear_loading()
-                self._info_lbl.setText(
-                    f"No vector geometry found on page {page + 1}.")
-                self._status_lbl.setText(
-                    "No vectors found — switch to Auto or Raster.")
-            else:
-                self._has_vectors = False
-                self._all_geoms = []
-                self._layers = []
-                self._populate_layer_list()
-                self._selected_indices = None
-                self._show_raster_preview(path, page, dpi)
-                self._clear_loading()
-                self._info_lbl.setText(
-                    f"No vector geometry found on page {page + 1} — "
-                    f"will import as raster image.")
+            self._has_vectors = False
+            self._all_geoms = []
+            self._layers = []
+            self._populate_layer_list()
+            self._selected_indices = None
+            self._pending_modify_layers = None
+            self._pending_modify_bounds = None
+            self._show_raster_preview(path, page, dpi)
+            self._clear_loading()
+            self._info_lbl.setText(
+                f"No vector geometry found on page {page + 1} — "
+                f"will import as raster image.")
 
         self._units_info_lbl.setVisible(False)
         self._update_scale_readout()
+        self._update_status()
+
+    def _on_pdf_extract_aborted(self):
+        """Cancel finished the PDF worker — return to a clean un-imported state.
+
+        A superseded (page-switch) worker also emits ``aborted`` when its
+        ``cancel()`` lands; the sender-identity guard ignores that so it can't
+        reset the state of the worker that replaced it.
+        """
+        sender = self.sender()
+        if sender is not None and sender is not self._pdf_worker:
+            return  # stale superseded worker
+        self._pdf_worker = None
+        self._has_vectors = False
+        self._all_geoms = []
+        self._clear_loading()
+        self._info_lbl.setText("Extraction cancelled.")
+        self._update_status()
+
+    def _on_pdf_extract_error(self, msg: str):
+        """PDF extraction raised — mark the stage failed, re-enable controls.
+
+        Called via the worker's ``error`` signal (sender is the worker) or
+        directly (sender is None). A signal from a superseded worker is ignored.
+        """
+        sender = self.sender()
+        if sender is not None and sender is not self._pdf_worker:
+            return  # stale superseded worker
+        self._pdf_worker = None
+        self._has_vectors = False
+        self._all_geoms = []
+        self._clear_loading()
+        self._info_lbl.setText(f"Error: {msg}")
         self._update_status()
 
     def _show_raster_preview(self, path: str, page: int, dpi: int = 150):
@@ -2743,21 +2974,38 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         # settings (scale, base point, levels, DPI, import mode) persist because
         # _load_pdf_page never touches those widgets; reset_base=False keeps it
         # from re-deriving the base point from the new page's bounds.
+        # Only a REAL user switch (geometry already loaded) has selections to
+        # preserve. During the INITIAL load, the thumbnail strip's
+        # setCurrentRow(0) fires this handler while _all_geoms is still empty —
+        # there is nothing to capture, and (critically) a Modify prefill may
+        # have already stashed the record's saved layer subset + crop in the
+        # pending fields. Overwriting those here would drop them, so bail to a
+        # plain load and leave the pending fields for the finish handler.
+        if not self._all_geoms:
+            self._load_pdf_page(path, row, reset_base=False)
+            return
+
+        # A user page switch loads the new page's geometry (which resets the
+        # layer list + crop inside _load_pdf_page), but the user's selections
+        # should PERSIST across the switch — matched to the new page the same
+        # way the Modify flow matches them: layers by NAME, crop by BOUNDS.
+        # Non-geometry settings (scale, base point, levels, DPI, import mode)
+        # persist because _load_pdf_page never touches those widgets;
+        # reset_base=False keeps it from re-deriving the base point.
         captured_layers = self._active_layers()          # set[str] | None
         captured_bounds = self._current_crop_bounds()     # [minx,miny,maxx,maxy] | None
 
-        self._load_pdf_page(path, row, reset_base=False)
+        # The PDF load is ASYNC — geometry is not final when _load_pdf_page
+        # returns, so the re-apply can't run inline here. Stash the captured
+        # selections into the same pending fields _on_pdf_extract_finished
+        # consumes once the new page's geometry is final. Absent layers are
+        # simply not re-checked; the crop re-selects whatever falls inside it.
+        self._pending_modify_layers = (
+            list(captured_layers) if captured_layers is not None else None)
+        self._pending_modify_bounds = (
+            list(captured_bounds) if captured_bounds is not None else None)
 
-        # Re-apply against the freshly loaded page. Layers absent on the new page
-        # are simply not re-checked (no error); the crop bounds re-select
-        # whatever geoms now fall inside them. _restore_crop_from_bounds already
-        # rebuilds the preview; call it last so its rebuild reflects the layers.
-        if captured_layers is not None and self._all_geoms:
-            self._apply_selected_layers(captured_layers)
-            if captured_bounds is None:
-                self._rebuild_preview()
-        if captured_bounds is not None and self._all_geoms:
-            self._restore_crop_from_bounds(captured_bounds)
+        self._load_pdf_page(path, row, reset_base=False)
 
     def _sync_page_indicator(self, page: int) -> None:
         """Reflect the restored PDF page in the thumbnail strip (Modify flow).
@@ -2909,78 +3157,15 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     @staticmethod
     def _append_geom_to_path(path: QPainterPath, g: dict):
-        """Append a single geometry dict to a batched QPainterPath."""
-        kind = g.get("kind")
-        if kind == "line":
-            path.moveTo(g["x1"], g["y1"])
-            path.lineTo(g["x2"], g["y2"])
-        elif kind == "circle":
-            path.addEllipse(g["x"], g["y"], g["w"], g["h"])
-        elif kind == "arc":
-            rect = QRectF(g["rx"], g["ry"], g["rw"], g["rh"])
-            path.arcMoveTo(rect, g["start"])
-            path.arcTo(rect, g["start"], g["span"])
-        elif kind == "ellipse_full":
-            path.addEllipse(
-                g["pos_cx"] + g["x"], g["pos_cy"] + g["y"],
-                g["w"], g["h"])
-        elif kind == "path_points":
-            pts = g["points"]
-            if len(pts) < 2:
-                return
-            path.moveTo(pts[0][0], pts[0][1])
-            for p in pts[1:]:
-                path.lineTo(p[0], p[1])
-            if g.get("closed") and len(pts) >= 3:
-                path.closeSubpath()
-        elif kind == "text":
-            txt = g.get("text", "")
-            if txt:
-                # DPI-independent + fractional-exact size: render at a fixed
-                # pixel em, then scale by size/BASE. (Point size would inflate by
-                # 96/72 + HiDPI; rounding a pixel size loses sub-point accuracy.)
-                size = max(0.5, float(g.get("size", 6)))
-                _BASE = 100.0
-                f = QFont(FONT_UI)
-                f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
-                f.setPixelSize(int(_BASE))
-                sc = size / _BASE
-                tx, ty = g["x"], g["y"]
-                ha = g.get("halign", 0)
-                va = g.get("valign", 3)
-                twidth = g.get("twidth")
-                lines = txt.split("\n")
-                single = len(lines) == 1
-                fm = QFontMetricsF(f)
-                line_h = fm.height() * sc
-                total_h = line_h * len(lines)
-                # Vertical anchor for the text block
-                if va == 0:       # top
-                    base_y = ty + fm.ascent() * sc
-                elif va == 1:     # middle
-                    base_y = ty + fm.ascent() * sc - total_h / 2
-                elif va == 2:     # bottom
-                    base_y = ty + fm.ascent() * sc - total_h
-                else:             # baseline (PDF spans: y == span origin)
-                    base_y = ty
-                for i, line in enumerate(lines):
-                    if not line.strip():
-                        continue
-                    nat_w = fm.horizontalAdvance(line)   # at BASE px
-                    # fit x to the source span width when known, else scale = size
-                    sx = (twidth / nat_w) if (twidth and nat_w > 0 and single) else sc
-                    final_w = nat_w * sx
-                    lx = tx
-                    if ha == 1:   # center
-                        lx -= final_w / 2
-                    elif ha == 2: # right
-                        lx -= final_w
-                    tmp = QPainterPath()
-                    tmp.addText(0.0, 0.0, f, line)
-                    tr = QTransform()
-                    tr.translate(lx, base_y + i * line_h)
-                    tr.scale(sx, sc)
-                    path.addPath(tr.map(tmp))
+        """Append a single geometry dict to a batched QPainterPath.
+
+        Thin shim delegating to the single shared builder
+        :func:`firepro3d.dwg_converter.append_geom_to_path` (kept as a
+        staticmethod so existing ``self._append_geom_to_path`` / test callers
+        stay stable).
+        """
+        from .dwg_converter import append_geom_to_path
+        append_geom_to_path(path, g)
 
     def _draw_base_marker(self):
         # Remove previous base marker items (guard against deleted C++ objects)
@@ -3120,6 +3305,177 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     # ── Scale ─────────────────────────────────────────────────────────────────
 
+    def _is_imperial(self) -> bool:
+        """True when the dialog's ScaleManager displays imperial (feet-inches)."""
+        sm = getattr(self, "_sm", None)
+        if sm is None:
+            return False
+        return sm.display_unit == DisplayUnit.IMPERIAL
+
+    def _build_ratio_fields(self, row: QHBoxLayout):
+        """Create the PDF-only two-field ``[paper] = [real]`` ratio input.
+
+        Imperial reads ``[paper] in = [real] ft`` (paper accepts a fraction
+        such as ``3/8``); metric reads ``1 : [real]`` (1 paper-mm = N real-mm).
+        The fields are plain numeric line-edits — the imperial units differ per
+        side (inches vs feet) and the ``1 :`` metric form has no length unit, so
+        ``DimensionEdit``'s single-unit feet-inches formatting would obscure
+        rather than help. The layout is fixed once from the SM's unit system
+        (the dialog never switches unit systems mid-session).
+        """
+        imperial = self._is_imperial()
+
+        def _num_edit(placeholder: str, width: int, text: str = "") -> QLineEdit:
+            e = QLineEdit()
+            e.setFont(QFont(FONT_VALUE))
+            e.setPlaceholderText(placeholder)
+            e.setFixedWidth(width)
+            if text:
+                e.setText(text)
+            e.textChanged.connect(self._on_ratio_field_edited)
+            return e
+
+        def _lbl(text: str) -> QLabel:
+            la = QLabel(text)
+            la.setFont(QFont(FONT_UI))
+            return la
+
+        self._ratio_widgets: list = []
+        if imperial:
+            # 1/4" = 1'-0" is the most common architectural plan scale → seed it.
+            self._paper_edit = _num_edit("3/8", 54, "1/4")
+            self._real_edit = _num_edit("1", 44, "1")
+            self._ratio_widgets = [
+                self._paper_edit, _lbl("in ="), self._real_edit, _lbl("ft"),
+            ]
+        else:
+            self._paper_edit = _num_edit("1", 44, "1")
+            self._paper_edit.setReadOnly(True)   # metric paper side is fixed at 1
+            self._real_edit = _num_edit("100", 60, "100")
+            self._ratio_widgets = [
+                _lbl("1 :"), self._real_edit,
+            ]
+            # _paper_edit exists (kept at 1) but is not shown in the metric form.
+        for w in self._ratio_widgets:
+            w.setVisible(False)
+            row.addWidget(w)
+
+    def _set_ratio_fields_visible(self, visible: bool):
+        """Show/hide the whole two-field ratio row as one unit."""
+        for w in getattr(self, "_ratio_widgets", []):
+            w.setVisible(visible)
+
+    def _on_ratio_field_edited(self, *_):
+        """A ratio field changed — refresh readouts and un-verify the scale."""
+        self._update_scale_ratio_label()
+        self._update_scale_readout()
+        self._on_scale_factor_changed()
+
+    @staticmethod
+    def _parse_ratio_number(text: str) -> float | None:
+        """Parse a bare number or a simple fraction (e.g. ``3/8``) → float.
+
+        Returns None on blank/garbage; the caller falls back to a safe value.
+        ``ScaleManager.parse_dimension`` handles ``6 1/2"`` but not a bare
+        ``3/8``, so the paper-inches field needs this lighter parser.
+        """
+        text = (text or "").strip().rstrip('"').strip()
+        if not text:
+            return None
+        try:
+            if "/" in text:
+                whole = 0.0
+                frac = text
+                if " " in text:                      # "1 1/2" mixed number
+                    w, frac = text.split(None, 1)
+                    whole = float(w)
+                num, den = frac.split("/", 1)
+                den_f = float(den)
+                if den_f == 0:
+                    return None
+                return whole + float(num) / den_f
+            return float(text)
+        except ValueError:
+            return None
+
+    def _custom_ratio_factor(self) -> float:
+        """mm-per-point factor derived from the two ratio fields.
+
+        Imperial: ``pdf_scale_from_ratio(paper_in*25.4, real_ft*304.8)``.
+        Metric:   ``pdf_scale_from_ratio(1.0, real_mm)`` (1 paper-mm = N real).
+        Guards blanks/zeros by returning the last valid factor (or 1.0).
+        """
+        if self._is_imperial():
+            paper_in = self._parse_ratio_number(self._paper_edit.text())
+            real_ft = self._parse_ratio_number(self._real_edit.text())
+            if paper_in and real_ft and paper_in > 0 and real_ft > 0:
+                factor = pdf_scale_from_ratio(paper_in * 25.4, real_ft * 304.8)
+                self._last_ratio_factor = factor
+                return factor
+        else:
+            real_mm = self._parse_ratio_number(self._real_edit.text())
+            if real_mm and real_mm > 0:
+                factor = pdf_scale_from_ratio(1.0, real_mm)
+                self._last_ratio_factor = factor
+                return factor
+        return getattr(self, "_last_ratio_factor", 1.0)
+
+    def _set_ratio_fields_from_factor(self, factor: float):
+        """Back-solve the two ratio fields from a known mm-per-point *factor*.
+
+        Used by the PDF calibration flow: fix the real side (1 ft imperial /
+        1 mm-basis metric) and derive the paper side so the fields round-trip
+        the calibrated factor through :meth:`_custom_ratio_factor`.
+        """
+        if factor <= 0:
+            return
+        if self._is_imperial():
+            # Fix real = 1 ft; paper_in = 304.8 * _MM_PER_POINT / factor / 25.4.
+            real_ft = 1.0
+            paper_in = (real_ft * 304.8) * _MM_PER_POINT / factor / 25.4
+            self._real_edit.setText(f"{real_ft:g}")
+            self._paper_edit.setText(f"{paper_in:.5g}")
+        else:
+            # Metric 1 : M, M = real-mm per paper-mm = factor / _MM_PER_POINT.
+            real_mm = factor / _MM_PER_POINT
+            self._real_edit.setText(f"{real_mm:.5g}")
+        self._last_ratio_factor = factor
+
+    def _nearest_named_scale_preset(self, factor: float) -> int | None:
+        """Combo index of the nearest arch/eng NAMED preset within _SCALE_SNAP_TOL
+        of *factor* (relative), or None. Only the named plot scales are snap targets
+        — the generic 1:N base options aren't physical PDF plot scales."""
+        named = {lbl for lbl, _ in _ARCH_SCALES + _ENG_SCALES}
+        combo = self._scale_combo
+        best_idx, best_err = None, _SCALE_SNAP_TOL
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+            if data is None or combo.itemText(i) not in named:
+                continue
+            err = abs(float(data) - factor) / factor
+            if err < best_err:
+                best_idx, best_err = i, err
+        return best_idx
+
+    def _snap_metric_ratio_factor(self, factor: float) -> float | None:
+        """For a metric PDF, snap the drawing ratio 1:M to the nearest standard M
+        within _SCALE_SNAP_TOL; return the clean factor for 1:M, or None."""
+        M = factor * 72.0 / 25.4          # real-per-paper = drawing ratio denominator
+        for denom in _METRIC_SCALE_DENOMS:
+            if abs(denom - M) <= _SCALE_SNAP_TOL * M:
+                return pdf_scale_from_ratio(1.0, float(denom))
+        return None
+
+    def _ratio_fields_active(self) -> bool:
+        """True when the two-field ratio (not the raw factor) drives the scale.
+
+        Active only for a PDF import with "Custom…" selected; DXF/DWG Custom
+        keeps the raw mm-per-point ``_custom_scale_edit``.
+        """
+        return (getattr(self, "_file_type", "") == "pdf"
+                and self._scale_combo.currentData() is None
+                and hasattr(self, "_paper_edit"))
+
     def _populate_scale_combo(self, is_pdf: bool):
         """(Re)fill the scale combo, storing each preset's scale in itemData.
 
@@ -3143,13 +3499,35 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
     def _on_scale_combo_changed(self, idx: int):
         is_custom = self._scale_combo.currentData() is None   # "Custom…"
-        self._custom_scale_edit.setVisible(is_custom)
+        is_pdf = getattr(self, "_file_type", "") == "pdf"
+        # PDF Custom → human-readable two-field ratio (raw factor hidden);
+        # non-PDF Custom → raw mm-per-point factor (unchanged DXF behaviour);
+        # not-Custom → neither.
+        use_ratio = is_custom and is_pdf
+        self._custom_scale_edit.setVisible(is_custom and not use_ratio)
+        self._set_ratio_fields_visible(use_ratio)
         self._calibration_lbl.setVisible(
             is_custom and bool(self._calibration_lbl.text()))
         self._update_scale_readout()
         self._update_scale_ratio_label()
 
     def _on_custom_scale_edited(self, *_):
+        # When the ratio fields own the PDF Custom scale, a programmatic write
+        # to the hidden raw factor edit (e.g. a restored/detected factor) must
+        # be mirrored into the two fields so they stay the source of truth.
+        if self._ratio_fields_active():
+            try:
+                factor = float(self._custom_scale_edit.text())
+            except (ValueError, AttributeError):
+                factor = 0.0
+            if factor > 0:
+                blocked = [(w, w.blockSignals(True))
+                           for w in (self._paper_edit, self._real_edit)]
+                try:
+                    self._set_ratio_fields_from_factor(factor)
+                finally:
+                    for w, prev in blocked:
+                        w.blockSignals(prev)
         self._update_scale_ratio_label()
         self._update_scale_readout()
 
@@ -3180,7 +3558,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         data = self._scale_combo.currentData()
         if data is not None:
             return float(data)
-        return self._get_custom_scale()   # "Custom…"
+        # "Custom…": PDF drives the factor from the two-field ratio; DXF/DWG
+        # keeps the raw mm-per-point field.
+        if self._ratio_fields_active():
+            return self._custom_ratio_factor()
+        return self._get_custom_scale()
 
     def _update_scale_readout(self):
         """Show the real-world size of the loaded geometry at the current scale."""
@@ -3333,28 +3715,58 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 fallback = self._sm.bare_number_unit() if self._sm else "mm"
                 parsed_mm = ScaleManager.parse_dimension(text.strip(), fallback)
                 if parsed_mm is not None and parsed_mm > 0:
-                    factor = parsed_mm / px_dist
-                    custom_idx = len(self._SCALE_OPTIONS) - 1
-                    self._scale_combo.setCurrentIndex(custom_idx)
-                    self._custom_scale_edit.setText(f"{factor:.5g}")
-                    display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
-                    if self._file_type == "pdf":
-                        ratio = pdf_scale_ratio_text(factor)
-                        self._calibration_lbl.setText(
-                            f"{px_dist:.1f} pt = {display}   ({ratio})")
-                    else:
-                        self._calibration_lbl.setText(
-                            f"{px_dist:.1f} px = {display}")
-                    self._calibration_lbl.setVisible(True)
-                    self._status_lbl.setText(f"Scale calibrated: {display}")
-                    # Calibration verifies the scale (set AFTER the factor edit
-                    # above, which fired the un-verify).
-                    self._mark_scale_verified(
-                        f"Measured on the preview — {display} between your picks.")
+                    self._apply_calibration(px_dist, parsed_mm)
                 else:
                     self._status_lbl.setText("Could not parse distance — try again.")
             else:
                 self._status_lbl.setText("Scale pick cancelled.")
+
+    def _apply_calibration(self, px_dist: float, parsed_mm: float) -> None:
+        """Set the dialog scale from a preview measurement of *parsed_mm* real
+        over *px_dist* preview units.
+
+        For a PDF, the derived mm-per-point factor is snapped to the nearest
+        standard plot scale within ``_SCALE_SNAP_TOL``: first a named
+        architectural/engineering preset (selects that clean combo entry), then
+        — for a metric drawing — the nearest standard ``1:N`` ratio. Only when
+        no standard scale is close does the raw measured factor drive "Custom".
+        The verify stamp is applied LAST (the combo/edit writes fire an
+        un-verify that this call re-sets).
+        """
+        factor = parsed_mm / px_dist
+        display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
+
+        snapped = False
+        if self._file_type == "pdf":
+            idx = self._nearest_named_scale_preset(factor)
+            if idx is not None:
+                self._scale_combo.setCurrentIndex(idx)             # clean named preset
+                clean = self._scale_combo.itemText(idx)
+                self._calibration_lbl.setText(
+                    f"{px_dist:.1f} pt = {display}  →  snapped to {clean}")
+                snapped = True
+            elif not self._is_imperial():
+                clean_factor = self._snap_metric_ratio_factor(factor)
+                if clean_factor is not None:
+                    self._scale_combo.setCurrentIndex(len(self._SCALE_OPTIONS) - 1)  # Custom
+                    self._set_ratio_fields_from_factor(clean_factor)
+                    M = round(clean_factor * 72.0 / 25.4)
+                    self._calibration_lbl.setText(
+                        f"{px_dist:.1f} pt = {display}  →  snapped to 1:{M}")
+                    snapped = True
+        if not snapped:
+            self._scale_combo.setCurrentIndex(len(self._SCALE_OPTIONS) - 1)  # Custom
+            if self._file_type == "pdf":
+                self._set_ratio_fields_from_factor(factor)
+                self._calibration_lbl.setText(
+                    f"{px_dist:.1f} pt = {display}   ({pdf_scale_ratio_text(factor)})")
+            else:
+                self._custom_scale_edit.setText(f"{factor:.5g}")
+                self._calibration_lbl.setText(f"{px_dist:.1f} px = {display}")
+        self._calibration_lbl.setVisible(True)
+        self._status_lbl.setText(f"Scale calibrated: {display}")
+        self._mark_scale_verified(   # keep LAST — re-verifies after the combo/edit un-verify
+            f"Measured on the preview — {display} between your picks.")
 
     # ── Snap ──────────────────────────────────────────────────────────────────
 
@@ -3488,11 +3900,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         # (readfile is not interruptible).  Slots guard on the worker
         # attributes being None, so late signals are discarded; the
         # _LIVE_WORKERS keepalive lets the threads finish safely.
-        w = self._extract_worker
-        if w is not None:
-            self._extract_worker = None
-            if hasattr(w, "cancel"):
-                w.cancel()
+        for attr in ("_extract_worker", "_pdf_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                setattr(self, attr, None)
+                if hasattr(w, "cancel"):
+                    w.cancel()
         self._read_worker = None
         self._extracting = False
 
@@ -3559,6 +3972,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         levels_getter = getattr(self, "_selected_levels", None)
         p.levels = list(levels_getter()) if callable(levels_getter) else []
         p.scale_verified = bool(getattr(self, "_scale_verified", False))
+        p.name = self._name_edit.text().strip()
 
         self._save_settings()
         return p

@@ -41,3 +41,8 @@ Thumbs.db
 test.json
 docs/superpowers/plans/
 .superpowers/
+
+# Test-run scratch (subagent pytest homes, throwaway probes)
+.testhome/
+_probe*.py
+_t.txt
