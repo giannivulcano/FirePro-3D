@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign)
-last-verified: 2026-09-01  # §10 rewritten to the Rev-8 shell (step-rail/preview/panel/footer, levels re-added, scale_verified, toggle Position, MRU, calibrate auto-verify)
-verified-commit: 2727df5
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match)
+last-verified: 2026-09-01  # §10 Rev-8 shell + §10.7 Modify lossless round-trip / 3-way insertion-position / page-switch preservation / origin-pivot fix; import dialog module renamed to underlay_import_dialog.py
+verified-commit: cfcb6d6
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -17,7 +17,8 @@ applies-to:
   - firepro3d/underlay_manager_theme.py
   - firepro3d/underlay_snap_index.py  # §16.8 per-underlay snap
   - firepro3d/snap_engine.py
-  - firepro3d/dxf_preview_dialog.py
+  - firepro3d/underlay_import_dialog.py   # §10 import dialog (renamed 2026-09-01); §10.7 Modify flow
+  - firepro3d/frameless_shell.py          # §10.1 FramelessShellMixin — shared frameless house chrome
   - firepro3d/dxf_import_worker.py
   - firepro3d/pdf_import_worker.py
   - firepro3d/dwg_converter.py
@@ -34,7 +35,7 @@ source-tasks:
 # Underlay Workflow — Specification
 
 > **Status:** §1–§15 describe current behavior (verified 2026-06-23). **§16 is current** (Underlay Manager shipped on `feat/underlay-manager`, 2026-08-29 @ `56c8148`). §17 PDF Import Polish shipped 2026-08-28. Sections tagged "(as-built)" reflect shipped code.
-> **Source files:** `firepro3d/underlay.py`, `firepro3d/dxf_preview_dialog.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
+> **Source files:** `firepro3d/underlay.py`, `firepro3d/underlay_import_dialog.py`, `firepro3d/frameless_shell.py`, `firepro3d/underlay_manager.py`, `firepro3d/dxf_import_worker.py`, `firepro3d/dwg_converter.py`, `firepro3d/pdf_import_worker.py`, `firepro3d/model_space.py`, `firepro3d/model_browser.py`, `firepro3d/scene_io.py`, `firepro3d/underlay_context_menu.py`, `firepro3d/underlay_cache.py`, `firepro3d/calibrate_dialog.py`, `main.py`
 > **Date:** 2026-04-13
 > **Revision:** 8 (adds §16 — display management & view assignment design: per-layer colour/weight, per-view visibility, Display Manager Underlays tab)
 > **Revision 7:** import-dialog UI cleanup: pill controls, merged Placement group, level-of-insertion selector, inline custom scale + "Calibrate", "Insert at origin" greys base point, hidden preview scrollbars; checkbox indicators styled globally in `firepro3d/theme.py`
@@ -392,19 +393,23 @@ Underlay groups are **not selectable or movable** in the scene — they are refe
 
 ### 10.1 Dialog Layout (Revision 8 — first-principles redesign, 2026-09-01)
 
-`UnderlayImportDialog` (`firepro3d/dxf_preview_dialog.py`) is a **frameless**
-`QDialog` sharing the Underlay-Manager QSS scope (`build_underlay_manager_qss` +
-`_import_extra_qss`), laid out as **header · [step rail | preview | contextual
-panel] · commit footer**. House chrome follows `architecture/theming.md`
-(Arial UI / Consolas values + the five type roles; switch-vs-checkbox; frameless
-windows; scrollbars-off; divider-widget seams).
+`UnderlayImportDialog` (`firepro3d/underlay_import_dialog.py`) is a **frameless**
+`QDialog` sharing the Underlay-Manager QSS scope (single-homed in `theme.py`) and
+the frameless house chrome via `FramelessShellMixin` (`frameless_shell.py`, the
+same mixin the Underlay Manager inherits — see §16.6 and
+`architecture/theming.md`). Laid out as **header · [step rail | preview |
+contextual panel] · commit footer**. House chrome follows
+`architecture/theming.md` (Arial UI / Consolas values + the type roles;
+switch-vs-checkbox; frameless windows; scrollbars-off; divider-widget seams).
+Opens **maximized**.
 
-- **Header** (single, styled like the footer): layers glyph
+- **Header** (single `shellHeader`, styled like the footer): layers glyph
   (`underlay_import_icon.svg`, solid-accent top layer) + "Import Underlay —
-  {project}" + active file / "(no file loaded)" + three circular window controls
-  (`_WinDot`: – minimise / + maximise / × close; grey circle + accent inlay,
-  brighten on hover). Draggable; double-click the header maximises. **Win11 DWM
-  rounded corners** + a thin perimeter border.
+  {project}" (`role="title"`) + active file / "(no file loaded)" + the standard
+  frameless min/max/close controls. Drag-to-move and double-click-to-maximize,
+  plus resize edges and **Win11 DWM rounded corners**, all come from
+  `FramelessShellMixin` (shared with the Underlay Manager, §16.6) — the dialog
+  does not hand-roll them.
 - **Step rail** (`_StepRail` of `_StepRow`): Source / Content / Placement — number
   chip + name + status; active row = green rounded highlight + left accent bar.
   Clicking a row switches the contextual panel; loading a source auto-advances to
@@ -498,7 +503,24 @@ File selected
 
 ### 10.7 Modify (prefill/re-import) flow
 
-The import dialog supports a **prefill/modify mode**: when invoked via the Manager's re-import action, it pre-populates all import params from the existing record.
+The import dialog supports a **prefill/modify mode**: when invoked via the
+Manager's Modify action, it re-opens pre-filled from the existing record as a
+**lossless round-trip** — page/layers/crop/scale/base and levels are restored so
+the dialog reflects the placed underlay, not a fresh import. (`_apply_modify_prefill`;
+crop is re-selected by bounds via `_restore_crop_from_bounds`, the PDF page is
+re-selected without re-firing the thumbnail load via `_sync_page_indicator`.)
+
+**Insertion-position control (Modify-only, 3-way).** A single-select switch bar
+replaces the plain "Insert at origin" toggle while modifying, with three modes
+(default **Reuse existing position**):
+
+- **Reuse existing position** — keep the underlay where it sits (`position=None`).
+- **Pick new position** — interactive cursor-follow re-placement via
+  `begin_replace_underlay_placement`, which carries the management fields
+  (`_UNDERLAY_MGMT_FIELDS`) across the re-place. **Escape exits pick mode.**
+- **Insert at origin** — anchor at `QPointF(0, 0)`.
+
+The chosen mode flows as `replace_underlay(record, params, position=…)`.
 
 On confirm, `Model_Space.replace_underlay` OVERWRITES only geometry and placement:
 `path / page / dpi / scale / rotation / base / selected_layers / layout / import_bounds / import_mode`
@@ -506,7 +528,42 @@ On confirm, `Model_Space.replace_underlay` OVERWRITES only geometry and placemen
 It PRESERVES all management fields:
 `levels / colour / line_weight_name / layer_overrides (by layer name) / hidden_layers / visible / snap / locked / opacity`
 
-Note: `params.scale` bakes into geometry via `import_scale`; the display `scale` field is preserved as-is. Layer overrides are matched by layer name — new layers get inherit-defaults; stale names are left dormant.
+Note: `params.scale` bakes into geometry via `import_scale`; the display `scale`
+field is preserved as-is. Layer overrides are matched by layer name — new layers
+get inherit-defaults; stale names are left dormant. `position` overrides only the
+on-canvas anchor; when `None` the underlay keeps its current `scenePos`.
+
+### 10.8 Page-switch preservation (multi-page PDF)
+
+Switching PDF pages in the dialog (`_on_page_thumb_clicked`) loads the new page's
+geometry but **preserves the user's selections** the same way Modify does:
+**layers by NAME, crop by BOUNDS** (captured before the load, re-applied after).
+Non-geometry settings — scale, base point, levels, DPI, import mode — persist
+because `_load_pdf_page(reset_base=False)` never touches those widgets and does
+not re-derive the base point from the new page's bounds. Layers absent on the new
+page are silently not re-checked; crop bounds re-select whatever geometry now
+falls inside them.
+
+### 10.9 Deterministic preview fit
+
+The preview "fit" fits against `_content_rect()` — **geometry only, excluding
+overlay markers** (crop scrim, base/pick cursors) — so the same content always
+fits to the same frame regardless of transient overlay state (initial load, page
+switch, Modify prefill).
+
+### 10.10 Insert-at-origin + rotation pivot (as-built)
+
+Vector underlays rotate about the **base point**, not the centroid, matching the
+import-dialog preview. `apply_import_transform` bakes `coord → (coord − base) ×
+scale` into the geometry, so the base point sits at group-local `(0, 0)`;
+`model_space._apply_underlay_display` therefore calls
+`setTransformOriginPoint(0, 0)` on vector `QGraphicsItemGroup`s. Raster pixmaps
+have no base point (centred on origin at import) and keep the centroid pivot.
+
+> **Backward-compat:** the previous centroid pivot swung the base point away from
+> the insert point, flinging "Insert at origin" imports far from the preview (and
+> subtly mis-placing off-centre-base non-origin imports). Existing rotated
+> underlays shift once on reload to the corrected position.
 
 ---
 

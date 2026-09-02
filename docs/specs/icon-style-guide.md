@@ -1,12 +1,12 @@
 ---
 status: current
 last-verified: 2026-09-01
-verified-commit: 2727df5
+verified-commit: cfcb6d6
 applies-to:
   - firepro3d/icons.py
   - firepro3d/svg_utils.py
   - firepro3d/graphics/Ribbon/
-source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg + underlay_manager_icon.svg authored, import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign)"
+source-tasks: "ribbon-overhaul A3 — forge icon style-guide spec; accent-token reversal re-verified during 2026-08-27 floor-workflow task; Architecture-tab icon set authored 2026-08-28 (feat/architecture-tab-icons); underlay_icon.svg authored 2026-08-28 (feat/pdf-import-polish); accent unified onto theme.accent 2026-08-30 (feat/unify-accent-theme-token — ACCENT_BLUE/ACCENT_GREEN retired); underlay_import_icon.svg authored + import icon top layer made solid-accent for legibility 2026-09-01 (feat/import-dialog-redesign); underlay_manager_icon.svg (family-matched Manager icon) + graphics/chevron_{right,down}.svg tree decorations 2026-09-01 (feat/underlay-manager-chrome-match)"
 ---
 
 # Ribbon Icon Style Guide — Governing Spec
@@ -28,6 +28,18 @@ Out of scope: SNAP toolbar icon conventions (owned by `specs/snap-toolbar.md §7
 - File names follow the pattern `{noun}_icon.svg` — lowercase, underscores, no spaces (e.g. `pipe_icon.svg`, `sprinkler_icon.svg`).
 - One glyph per file. Composite icons are composed by the button layout, not by SVG nesting.
 - Names beginning with `_` are **reserved for system assets** (e.g. `_missing_icon.svg` — the fallback glyph). Do not create user-facing icons with a leading underscore.
+- `underlay_manager_icon.svg` (accent-top stacked-layers) is the family-matched
+  sibling of `underlay_import_icon.svg` — both are ribbon icons under this
+  contract.
+
+> **Exception — UI-decoration SVGs are NOT two-token ribbon icons.** SVGs that
+> live **outside** `firepro3d/graphics/Ribbon/` are ordinary chrome assets, not
+> governed by §4's two-token rule. The tree expand/collapse chevrons
+> (`graphics/chevron_right.svg`, `graphics/chevron_down.svg`, neutral grey, used
+> as QSS `::branch` images by the Underlay Manager tree) are the current example:
+> they are painted directly as authored and are never run through
+> `icons.token_map()`. Only files under `graphics/Ribbon/` must obey the
+> two-token contract.
 
 ## 3. Canvas
 
