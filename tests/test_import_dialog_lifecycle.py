@@ -23,13 +23,19 @@ class TestExtractionControlsDisabled:
     def test_set_extracting_disables_controls(self, qapp):
         dlg = _dialog(qapp)
         dlg._set_extracting(100)
-        assert not dlg._preview_view.isEnabled()
+        # The controls panel and dialog buttons are disabled so no layer
+        # toggle or Import click can land on a half-built _all_geoms. The
+        # preview view stays ENABLED on purpose: the loading card (and its
+        # Cancel button) is a child of the viewport, and Qt cannot re-enable
+        # a child of a disabled parent — disabling the view would make Cancel
+        # un-clickable. The card visually covers the preview instead.
+        assert not dlg._controls_panel.isEnabled()
         btns = dlg.findChild(QDialogButtonBox)
         assert btns is not None
         assert not btns.isEnabled(), (
             "Import/Cancel must be disabled during extraction")
         dlg._clear_loading()
-        assert dlg._preview_view.isEnabled()
+        assert dlg._controls_panel.isEnabled()
         assert btns.isEnabled()
 
     def test_accept_ignored_while_extracting(self, qapp):

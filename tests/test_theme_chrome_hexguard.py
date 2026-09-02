@@ -10,7 +10,7 @@ import pytest
 SRC = pathlib.Path(__file__).resolve().parents[1] / "firepro3d"
 
 GUARDED = [
-    "loading_bar.py", "wall_dialog.py", "roof_dialog.py",
+    "loading_bar.py", "loading.py", "wall_dialog.py", "roof_dialog.py",
     "titleblock_arrange.py", "titleblock_editor.py",
     "auto_populate_dialog.py", "underlay_import_dialog.py", "view_3d.py",
 ]

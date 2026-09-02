@@ -63,7 +63,7 @@ except ImportError:
     _HAS_FITZ = False
 
 from .dxf_import_worker import _sanitize_dxf
-from .loading_bar import LoadingBar
+from .loading import LoadingOverlay
 from .theme import (detect, build_app_qss, build_underlay_manager_qss,
                     FONT_UI, FONT_VALUE)
 from .frameless_shell import FramelessShellMixin, _WinDot, _winctl_pixmap
@@ -247,6 +247,9 @@ class _PreviewView(QGraphicsView):
         ov = getattr(self, "_drop_overlay", None)
         if ov is not None:
             ov.setGeometry(self.viewport().rect())
+        lo = getattr(self, "_loading_overlay", None)
+        if lo is not None:
+            lo.recenter()
 
     def _zoom_ratio(self) -> float:
         return self.transform().m11() / (self._fit_scale or 1.0)
@@ -1073,6 +1076,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         self._pdf_page_names: list[str] = []
         self._doc = None          # ezdxf document (DXF/DWG only)
         self._extracting = False  # re-entrancy guard for extraction
+        self._loading_cancelled = False  # loading-card Cancel latch
         self._extract_worker: _DialogExtractWorker | None = None
         self._read_worker: _DialogReadWorker | None = None
         self._extract_total: int | None = None
@@ -1436,6 +1440,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         _dov.addWidget(_dtx)
         self._drop_overlay.setStyleSheet("background:transparent;")
 
+        # Staged loading card — floats centred over the preview viewport while a
+        # source loads/extracts. Recentered from _PreviewView.resizeEvent.
+        self._loading_overlay = LoadingOverlay(t, self._preview_view.viewport())
+        self._preview_view._loading_overlay = self._loading_overlay
+        self._loading_overlay.cancelRequested.connect(self._on_loading_cancel)
+
         self._instruction_chip = QLabel("")
         self._instruction_chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._instruction_chip.setStyleSheet(
@@ -1694,10 +1704,6 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         body.addWidget(self._panel_stack)
         outer.addLayout(body, 1)
         self._switch_step("source")
-
-        # Progress bar (hidden by default)
-        self._loading_bar = LoadingBar(self, cancel=True)
-        outer.addWidget(self._loading_bar)
 
         # ── Commit footer: sentence + Cancel / Import ───────────────────────
         footer = QFrame(objectName="footerBar")
@@ -1981,13 +1987,13 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     # ── Loading state ─────────────────────────────────────────────────────
 
     def _set_controls_enabled(self, enabled: bool):
-        """Enable/disable the preview, controls panel, and bottom buttons.
+        """Enable/disable the controls panel and bottom buttons.
 
-        Disabled during loading AND extraction — the progress bar pumps
-        processEvents, so enabled controls would let layer toggles or
-        Import clicks land on a half-built ``_all_geoms``.
+        Disabled during loading AND extraction so enabled controls can't let
+        layer toggles or Import clicks land on a half-built ``_all_geoms``. The
+        preview view is left enabled so the overlay's Cancel button (a child of
+        the viewport) stays clickable; the overlay covers the preview anyway.
         """
-        self._preview_view.setEnabled(enabled)
         panel = getattr(self, "_controls_panel", None)
         if panel is not None:
             panel.setEnabled(enabled)
@@ -1995,24 +2001,51 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if btns:
             btns.setEnabled(enabled)
 
+    def _ensure_overlay_open(self, message: str):
+        """Show the loading card (if not already) with *message* as its hint.
+
+        Idempotent — reuses the open card across sub-phases so successive
+        ``busy()``/``_set_loading()`` calls don't wipe the accumulated stage
+        rows. The message becomes the header/hint line.
+        """
+        ov = self._loading_overlay
+        if not ov.is_active():
+            self._loading_cancelled = False
+            name = os.path.basename(self._file_edit.text().strip()) or "Loading"
+            ov.begin(name, "", message)
+        else:
+            ov.hint_lbl.setText(message)
+            ov.name_lbl.setText(
+                os.path.basename(self._file_edit.text().strip()) or ov.name_lbl.text())
+
     def _set_loading(self, message: str):
-        """Disable controls and show a loading message with indeterminate progress."""
-        self._loading_bar.start(message)
+        """Show the loading card with an indeterminate hint; disable controls."""
+        self._ensure_overlay_open(message)
         self._set_controls_enabled(False)
 
     def _set_extracting(self, total: int):
-        """Switch progress bar to determinate mode for entity extraction."""
-        self._loading_bar.start_determinate(total, "Extracting entities…")
+        """Mark the start of the counted extraction phase on the overlay."""
+        self._ensure_overlay_open("Extracting entities…")
         self._set_controls_enabled(False)
 
     def _update_progress(self, current: int, total: int, message: str = ""):
-        """Update progress bar value and optional message."""
-        self._loading_bar.update(current, message)
+        """Drive the determinate bar from a counted phase (current/total)."""
+        if total:
+            self._loading_overlay.set_fraction(min(0.96, current / total))
+        if message:
+            self._loading_overlay.hint_lbl.setText(message)
 
     def _clear_loading(self):
-        """Re-enable controls and hide progress bar."""
-        self._loading_bar.finish()
+        """Re-enable controls and hide the loading card."""
+        self._loading_overlay.finish()
         self._set_controls_enabled(True)
+
+    def _on_loading_cancel(self):
+        """Cancel button on the loading card — abort an in-flight extraction."""
+        self._loading_cancelled = True
+        w = getattr(self, "_extract_worker", None)
+        if w is not None:
+            w.cancel()
 
     # ── Persist settings between sessions ──────────────────────────────────
 
@@ -2126,7 +2159,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_read_status(self, message: str):
         if self._read_worker is None:
             return
-        self._loading_bar.busy(message)
+        self._ensure_overlay_open(message)
 
     def _on_read_finished(self, doc):
         if self._read_worker is None:
@@ -2266,25 +2299,35 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_extract_progress(self, current: int, total: int):
         if self._extract_worker is None:
             return
-        if self._loading_bar.cancelled:
+        if self._loading_cancelled:
             self._extract_worker.cancel()
             return
         if total != self._extract_total:
             self._extract_total = total
-            self._set_extracting(total)  # determinate bar + controls off
+            self._set_extracting(total)  # controls off; card already open
         pct = f"  {current:,} / {total:,}" if total else ""
         self._update_progress(current, total, f"Extracting geometry…{pct}")
 
     def _on_extract_status(self, message: str):
-        """Show a descriptive phase label for the un-counted extraction
-        phases (scan, viewport clip, sheet annotations) as an indeterminate
-        pulse so the bar never sits frozen at 100 %."""
+        """Map each worker phase string onto a stage row on the loading card.
+
+        Every ``status`` emit begins a new stage; :meth:`LoadingOverlay.stage_started`
+        auto-finalizes the previously running row (leaving a check behind), so
+        the checklist narrates scan → extract → clip → annotations as they run.
+        """
         if self._extract_worker is None:
             return
-        if self._loading_bar.cancelled:
+        if self._loading_cancelled:
             self._extract_worker.cancel()
             return
-        self._loading_bar.busy(message)
+        self._ensure_overlay_open(message)
+        ov = self._loading_overlay
+        # Leave the entity count as the just-finished stage's fact when we have
+        # it (stage_started else finalizes the prior row with no fact).
+        prev = ov._rows[-1] if ov._rows else None
+        if prev is not None and prev.state == "run" and self._extract_total:
+            prev.set_state("done", f"{self._extract_total:,} entities")
+        ov.stage_started(message)
 
     def _on_extract_finished(self, geoms: list, layers: list):
         if self._extract_worker is None:
