@@ -41,10 +41,16 @@ def main_window(_main_window_singleton):
     yield _main_window_singleton
 
 
-def test_open_preferences_has_five_tabs(main_window):
-    """_build_preferences_dialog() returns a dialog with exactly 5 tabs."""
+def test_open_preferences_has_six_tabs(main_window):
+    """_build_preferences_dialog() returns a dialog with exactly 6 tabs.
+
+    The sixth tab is the UI pane (System/Light/Dark theme selector) added on
+    the design-token branch.
+    """
     dlg = main_window._build_preferences_dialog()
-    assert dlg._tabs.count() == 5
+    assert dlg._tabs.count() == 6
+    titles = [dlg._tabs.tabText(i) for i in range(dlg._tabs.count())]
+    assert "UI" in titles
     dlg.deleteLater()
 
 

@@ -216,6 +216,16 @@ class PlanViewManager:
     def remove(self, name: str):
         self._views.pop(name, None)
 
+    def clear(self):
+        """Drop all per-view cut-plane settings.
+
+        Called by ``MainWindow.new_file()`` (alongside
+        ``DetailViewManager.clear()``) so stale ``Plan: <old level>`` views
+        don't leak across projects — masked otherwise because ``create()``
+        reuses an existing view by name.
+        """
+        self._views.clear()
+
     def to_list(self) -> list[dict]:
         return [pv.to_dict() for pv in self._views.values()]
 

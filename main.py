@@ -2266,7 +2266,7 @@ class MainWindow(QMainWindow):
         self._push_titleblock_template()
 
     def _build_preferences_dialog(self):
-        """Construct a ``PreferencesDialog`` with all 5 panes wired to live targets.
+        """Construct a ``PreferencesDialog`` with all 6 panes wired to live targets.
 
         This is a factory (non-exec); call ``dlg.exec()`` yourself — or use
         ``_open_preferences()`` for the normal open-and-block path.
@@ -3954,6 +3954,7 @@ class MainWindow(QMainWindow):
             return
         self._current_file = None
         self.detail_manager.clear()
+        self.plan_view_mgr.clear()
         self.project_browser.refresh_details(self.detail_manager.detail_names)
         self.scene._clear_scene()
         self.level_widget.populate()

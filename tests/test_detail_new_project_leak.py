@@ -138,3 +138,41 @@ def test_clear_removes_marker_from_scene(mw):
     assert not any(isinstance(it, DetailMarker) for it in scene.items()), (
         "clear() must remove the DetailMarker QGraphicsItem from the scene"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sibling leak: plan_view_mgr per-view cut-plane settings across new_file()
+#
+# Same bug class as the detail leak above — new_file() cleared the detail
+# manager but not plan_view_mgr._views, so a stale "Plan: <old level>" cut-plane
+# view survived into the fresh project (masked because create() reuses by name).
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_new_file_clears_plan_views(mw):
+    """File → New must drop stale per-level PlanViews (only the fresh one left)."""
+    win = mw
+
+    # Create a PlanView for a level that the fresh project won't reactivate.
+    win.plan_view_mgr.create("Old Level", win.level_mgr)
+    assert win.plan_view_mgr.get("Plan: Old Level") is not None, (
+        "pre-condition: stale plan view must exist before new_file()"
+    )
+
+    win._modified = False
+    win.new_file()
+
+    assert win.plan_view_mgr.get("Plan: Old Level") is None, (
+        "new_file() must clear stale PlanViews; the old level's view leaked"
+    )
+
+
+def test_plan_view_clear_empties_views(mw):
+    """PlanViewManager.clear() must empty _views."""
+    pvm = mw.plan_view_mgr
+    pvm.create("Level A", mw.level_mgr)
+    pvm.create("Level B", mw.level_mgr)
+    assert pvm._views, "pre-condition: views must exist before clear()"
+
+    pvm.clear()
+
+    assert pvm._views == {}, "clear() must empty _views"
