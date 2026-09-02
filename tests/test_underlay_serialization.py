@@ -150,6 +150,16 @@ class TestToDictTypeSpecific:
                         "selected_layers"):
                 assert key in d, f"Missing key '{key}' for type={utype}"
 
+    def test_name_round_trip_and_backfill(self):
+        """User-authored name survives to_dict/from_dict; old dicts default ''."""
+        u = Underlay(type="dxf", path="a.dxf", name="Ground Floor")
+        d = u.to_dict()
+        assert d["name"] == "Ground Floor"
+        assert Underlay.from_dict(d).name == "Ground Floor"
+        # Legacy project files predate the field.
+        d.pop("name", None)
+        assert Underlay.from_dict(d).name == ""
+
     def test_hidden_layers_deep_copy(self):
         """to_dict must return a copy — mutating the output must not
         affect the original Underlay."""

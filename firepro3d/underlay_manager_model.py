@@ -79,6 +79,18 @@ def _record_type_label(record) -> str:
     return str(getattr(record, "type", "") or "").upper()
 
 
+def _record_name(record) -> str:
+    """Display name for an underlay: user-authored name, else file basename.
+
+    Falls back to ``"(untitled)"`` when both the name and path are blank so a
+    row is never empty.
+    """
+    name = (getattr(record, "name", "") or "").strip()
+    if name:
+        return name
+    return os.path.basename(getattr(record, "path", "") or "") or "(untitled)"
+
+
 def _record_source(record) -> str:
     src = getattr(record, "source", None)
     if src:
@@ -274,15 +286,15 @@ class UnderlayTreeModel(QAbstractItemModel):
         record = node.record
 
         if role == SearchRole:
-            basename = os.path.basename(getattr(record, "path", "") or "")
+            name = _record_name(record)
             src = _record_source(record)
             typ = _record_type_label(record)
             levels = _record_levels_text(record)
-            return " ".join([basename, src, typ, levels]).lower()
+            return " ".join([name, src, typ, levels]).lower()
 
         if role == Qt.ItemDataRole.DisplayRole:
             if col == Col.NAME:
-                name = os.path.basename(getattr(record, "path", "") or "")
+                name = _record_name(record)
                 if _record_missing(record):
                     name += " ⚠"
                 return name
@@ -295,7 +307,7 @@ class UnderlayTreeModel(QAbstractItemModel):
 
         if role == SortRole:
             if col == Col.NAME:
-                return os.path.basename(getattr(record, "path", "") or "").lower()
+                return _record_name(record).lower()
             if col == Col.SOURCE:
                 return _record_source(record).lower()
             if col == Col.LEVELS:

@@ -361,8 +361,9 @@ class ModelBrowser(QWidget):
                 ul_root.setFont(0, f_bold)
                 ul_root.setExpanded(True)
 
+                from .underlay_manager_model import _record_name
                 for idx, (data, item) in enumerate(underlays):
-                    filename = os.path.basename(data.path)
+                    filename = _record_name(data)
                     is_missing = (item is None
                                   or item.data(0) == "missing_underlay")
                     level_label = (

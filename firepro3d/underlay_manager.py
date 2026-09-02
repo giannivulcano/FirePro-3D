@@ -137,7 +137,9 @@ class _DetailsPanel(QFrame):
 
     @staticmethod
     def _name(record) -> str:
-        return os.path.basename(getattr(record, "path", "") or "") or "(untitled)"
+        """User-authored name, else file basename (matches the NAME column)."""
+        from .underlay_manager_model import _record_name
+        return _record_name(record)
 
     # -- population --------------------------------------------------------
     def show_selection(self, records: list, layer_count: int = 0) -> None:
@@ -514,8 +516,8 @@ class UnderlayManagerDialog(FramelessShellMixin, QDialog):
 
     def _confirm_delete(self, records: list) -> bool:
         if len(records) == 1:
-            name = os.path.basename(getattr(records[0], "path", "") or "") \
-                or "(untitled)"
+            from .underlay_manager_model import _record_name
+            name = _record_name(records[0])
             title = f'Delete "{name}"?'
         else:
             title = f"Delete {len(records)} underlays?"

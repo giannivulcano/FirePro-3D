@@ -47,6 +47,9 @@ class Underlay:
     line_weight_name: str = ""
     # Scale provenance (redesign): True once calibrated or user-confirmed.
     scale_verified: bool = False
+    # User-authored display name (import dialog Source step). Blank falls back
+    # to the file basename for display (Manager NAME column, browser node).
+    name: str = ""
 
     def to_dict(self) -> dict:
         d = {
@@ -84,6 +87,7 @@ class Underlay:
                                 for k, v in self.layer_overrides.items()}
         d["line_weight_name"] = self.line_weight_name
         d["scale_verified"] = self.scale_verified
+        d["name"] = self.name
         return d
 
     @staticmethod
@@ -124,6 +128,7 @@ class Underlay:
                                for k, v in d.get("layer_overrides", {}).items()},
             line_weight_name = d.get("line_weight_name", ""),
             scale_verified = d.get("scale_verified", False),
+            name = d.get("name", ""),
         )
 
     @staticmethod
@@ -181,7 +186,9 @@ class Underlay:
         All fields are read-only labels for MVP. Edits are done via
         the browser tree context menu actions.
         """
+        display_name = (self.name or "").strip() or os.path.basename(self.path)
         props = {
+            "Name": {"type": "label", "value": display_name},
             "File": {"type": "label", "value": os.path.basename(self.path)},
             "Path": {"type": "label", "value": self.path},
             "Type": {"type": "label", "value": self.type.upper()},
@@ -242,7 +249,7 @@ _GEOMETRY_PLACEMENT_FIELDS = (
     "type", "path", "page", "dpi", "scale", "rotation", "x", "y",
     "import_scale", "import_base_x", "import_base_y",
     "selected_layers", "layout", "import_bounds", "import_mode",
-    "levels", "scale_verified",
+    "levels", "scale_verified", "name",
 )
 
 

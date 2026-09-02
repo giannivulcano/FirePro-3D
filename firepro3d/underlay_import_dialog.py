@@ -185,6 +185,7 @@ class ImportParams:
         self.import_bounds: list[float] | None = None  # area selection bounds
         self.levels: list[str] = []            # authored by the Placement multi-select
         self.scale_verified: bool = False      # calibrate / "Looks right"
+        self.name: str = ""                    # user-authored underlay name (blank = basename)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1168,6 +1169,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         available); management fields (colour, levels, overrides…) are NOT
         surfaced here — they are preserved by replace_underlay, not re-edited.
         """
+        self._name_edit.setText(getattr(record, "name", "") or "")
         _name = os.path.basename(record.path) or "underlay"
         self.setWindowTitle(f"Modify Underlay — {_name}")
         if hasattr(self, "_title_lbl"):
@@ -1527,6 +1529,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
 
         # -- Page 0: SOURCE (file + recent) --
         src_pg, src_v = _page()
+        src_v.addWidget(_hdr("Name"))
+        self._name_edit = QLineEdit()
+        self._name_edit.setFont(QFont(FONT_UI))
+        self._name_edit.setPlaceholderText("underlay name (optional)")
+        src_v.addWidget(self._name_edit)
         src_v.addWidget(_hdr("Source"))
         self._file_edit = QLineEdit()
         src_v.addWidget(self._file_edit)
@@ -3768,6 +3775,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         levels_getter = getattr(self, "_selected_levels", None)
         p.levels = list(levels_getter()) if callable(levels_getter) else []
         p.scale_verified = bool(getattr(self, "_scale_verified", False))
+        p.name = self._name_edit.text().strip()
 
         self._save_settings()
         return p
