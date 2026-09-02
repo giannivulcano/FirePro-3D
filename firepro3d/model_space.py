@@ -3475,64 +3475,14 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self.sprinkler_system = SprinklerSystem()
             self.annotations = Annotation()
 
+            from .network_codec import deserialize_node
             id_to_node: dict[int, Node] = {}
             for entry in state.get("nodes", []):
-                node = Node(entry["x"], entry["y"])
-                self.addItem(node)
-                self.sprinkler_system.add_node(node)
-                id_to_node[entry["id"]] = node
-                node._display_overrides = entry.get("display_overrides", {})
-                if entry.get("sprinkler"):
-                    template = Sprinkler(None)
-                    for key, value in entry["sprinkler"].items():
-                        if isinstance(value, dict):
-                            template.set_property(key, value["value"])
-                        else:
-                            template.set_property(key, value)
-                    self.add_sprinkler(node, template)
-                    node.sprinkler._display_overrides = entry.get(
-                        "sprinkler_display_overrides", {})
-                node._fitting_display_overrides_pending = entry.get(
-                    "fitting_display_overrides", {})
-                node.level = entry.get("level", DEFAULT_LEVEL)
-                node._room_name = entry.get("room_name", "")
-                node.ceiling_level = entry.get("ceiling_level", node.level)
-                if "ceiling_offset_mm" in entry:
-                    node.ceiling_offset = entry["ceiling_offset_mm"]
-                else:
-                    node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # old inches → mm
-                node._properties["Ceiling Level"]["value"] = node.ceiling_level
-                node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
-                if self._level_manager:
-                    lvl = self._level_manager.get(node.ceiling_level)
-                    if lvl:
-                        node.z_pos = lvl.elevation + node.ceiling_offset
-                    else:
-                        node.z_pos = entry.get("elevation", 0)
-                else:
-                    node.z_pos = entry.get("elevation", 0)
+                id_to_node[entry["id"]] = deserialize_node(self, entry)
 
+            from .network_codec import deserialize_pipe
             for entry in state.get("pipes", []):
-                n1 = id_to_node.get(entry["node1_id"])
-                n2 = id_to_node.get(entry["node2_id"])
-                if n1 and n2:
-                    pipe = Pipe(n1, n2)
-                    self.sprinkler_system.add_pipe(pipe)
-                    self.addItem(pipe)
-                    pipe.update_label()
-                    for key, value in entry.get("properties", {}).items():
-                        pipe.set_property(key, value)
-                    # Old files without Line Type: auto-assign based on diameter
-                    props = entry.get("properties", {})
-                    if "Line Type" not in props:
-                        dia = props.get("Diameter", "1\"Ø")
-                        pipe._properties["Line Type"]["value"] = (
-                            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
-                        )
-                        pipe.set_pipe_display()
-                    pipe.level = entry.get("level", DEFAULT_LEVEL)
-                    pipe._display_overrides = entry.get("display_overrides", {})
-                    apply_category_defaults(pipe)
+                deserialize_pipe(self, entry, id_to_node)
 
             for node in id_to_node.values():
                 node.fitting.update()
@@ -3543,69 +3493,25 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 # Apply DM colours without re-aligning (align was done by update)
                 self._apply_fitting_dm_colors(node.fitting)
 
+            from .network_codec import deserialize_dimension, deserialize_note
             for entry in state.get("annotations", []):
                 ann_type = entry.get("type")
                 if ann_type == "dimension":
-                    p1 = QPointF(entry["p1"][0], entry["p1"][1])
-                    p2 = QPointF(entry["p2"][0], entry["p2"][1])
-                    dim = DimensionAnnotation(p1, p2)
-                    dim._offset_dist = entry.get("offset_dist", 10)
-                    dim._witness_ext_override = entry.get("witness_ext_override", None)
-                    self.addItem(dim)
-                    self.annotations.add_dimension(dim)
-                    for key, value in entry.get("properties", {}).items():
-                        dim.set_property(key, value)
-                    dim.update_geometry()
-                    dim.level = entry.get("level", DEFAULT_LEVEL)
+                    deserialize_dimension(self, entry)
                 elif ann_type == "note":
-                    tw = entry.get("text_width", -1)
-                    note = NoteAnnotation(
-                        x=entry["x"], y=entry["y"],
-                        text_width=tw if tw and tw > 0 else 0)  # parity with load_from_file
-                    self.addItem(note)
-                    self.annotations.add_note(note)
-                    for key, value in entry.get("properties", {}).items():
-                        note.set_property(key, value)
-                    note.level = entry.get("level", DEFAULT_LEVEL)
+                    deserialize_note(self, entry)
 
             # Restore water supply
             ws_data = state.get("water_supply")
             if ws_data:
-                ws = WaterSupply(ws_data["x"], ws_data["y"])
-                self.addItem(ws)
-                self.water_supply_node = ws
-                self.sprinkler_system.supply_node = ws
-                for key, value in ws_data.get("properties", {}).items():
-                    ws.set_property(key, value)
-                ws._display_overrides = ws_data.get("display_overrides", {})
+                from .network_codec import deserialize_water_supply
+                deserialize_water_supply(self, ws_data)
 
             # Restore design areas
+            from .network_codec import deserialize_design_area
             for da_entry in state.get("design_areas", []):
-                spr_nids = da_entry.get("sprinkler_node_ids", [])
-                sprs = [id_to_node[nid].sprinkler for nid in spr_nids
-                        if nid in id_to_node and id_to_node[nid].has_sprinkler()]
-                da = DesignArea(sprs)
-                lvl = da_entry.get("level")
-                if not lvl:
-                    # Pre-2026-07 save: backfill from member sprinklers
-                    lvl = next((s.node.level for s in sprs if s.node),
-                               DEFAULT_LEVEL)
-                da.level = lvl
-                for key, value in da_entry.get("properties", {}).items():
-                    da.set_property(key, value)
-                self.addItem(da)
-                apply_category_defaults(da)
-                self.design_areas.append(da)
-                if da_entry.get("is_active", False):
-                    self.active_design_area = da
-                bo = da_entry.get("badge_offset")
-                if bo is not None:
-                    da.set_badge_offset(QPointF(bo[0], bo[1]))
-                ba = da_entry.get("badge_angle")
-                if ba is not None and getattr(da, "badge", None) is not None:
-                    da.badge._angle = float(ba)
-                    da.badge.prepareGeometryChange()
-                    da.badge.update()
+                da = deserialize_design_area(self, da_entry, id_to_node)
+                apply_category_defaults(da)  # Class-A display tail (undo self-contained)
                 # Tiles recomputed after walls & rooms restore below
 
             # ── Draw geometry ──────────────────────────────────────────────

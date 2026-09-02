@@ -122,3 +122,191 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
         "badge_angle": (da.badge._angle if getattr(da, "badge", None)
                         is not None else 0.0),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deserialize half (slice 4b). Scene-referencing: each function creates + registers
+# its entity on *scene* and applies the shared FIELD state. Each caller keeps its own
+# orchestration (id maps, loop order, load-only migrations) and its own DISPLAY tail
+# (undo-restore applies display inline; file-load defers it to main). Local imports
+# mirror load_from_file's cycle-avoidance pattern.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def deserialize_dimension(scene, entry):
+    """Create + register a DimensionAnnotation from a serialized entry.
+
+    Scene-referencing: adds the item to *scene* and its annotation store.
+    Mirror of ``serialize_dimension``. Returns the dimension.
+    """
+    from PyQt6.QtCore import QPointF
+    from .annotations import DimensionAnnotation
+    p1 = QPointF(entry["p1"][0], entry["p1"][1])
+    p2 = QPointF(entry["p2"][0], entry["p2"][1])
+    dim = DimensionAnnotation(p1, p2)
+    dim._offset_dist = entry.get(
+        "offset_dist", float(entry.get("properties", {}).get("Offset", "10")))
+    dim._witness_ext_override = entry.get("witness_ext_override", None)
+    scene.addItem(dim)
+    scene.annotations.add_dimension(dim)
+    for key, value in entry.get("properties", {}).items():
+        dim.set_property(key, value)
+    dim.update_geometry()
+    dim.level = entry.get("level", DEFAULT_LEVEL)
+    return dim
+
+
+def deserialize_note(scene, entry):
+    """Create + register a NoteAnnotation from a serialized entry.
+
+    Mirror of ``serialize_note``. Preserves the wrap-width contract
+    (text_width > 0 -> wrapped; else 0). Returns the note.
+    """
+    from .annotations import NoteAnnotation
+    tw = entry.get("text_width", -1)
+    note = NoteAnnotation(x=entry["x"], y=entry["y"],
+                          text_width=tw if tw and tw > 0 else 0)
+    scene.addItem(note)
+    scene.annotations.add_note(note)
+    for key, value in entry.get("properties", {}).items():
+        note.set_property(key, value)
+    note.level = entry.get("level", DEFAULT_LEVEL)
+    return note
+
+
+def deserialize_water_supply(scene, entry):
+    """Create + register the WaterSupply node. Mirror of ``serialize_water_supply``.
+
+    Sets both scene.water_supply_node and sprinkler_system.supply_node. The
+    display_overrides field is applied here; category/DM display is a caller tail.
+    Returns the WaterSupply.
+    """
+    from .water_supply import WaterSupply
+    ws = WaterSupply(entry["x"], entry["y"])
+    scene.addItem(ws)
+    scene.water_supply_node = ws
+    scene.sprinkler_system.supply_node = ws
+    for key, value in entry.get("properties", {}).items():
+        ws.set_property(key, value)
+    ws._display_overrides = entry.get("display_overrides", {})
+    return ws
+
+
+def deserialize_node(scene, entry):
+    """Create + register a Node (+ optional sprinkler) from a serialized entry.
+
+    Mirror of ``serialize_node``. Scene-referencing: adds to *scene* and its
+    sprinkler_system, and uses scene._level_manager to resolve z_pos.
+
+    Ordering (slice 4b): the sprinkler sub-block runs BEFORE ceiling application.
+    ``add_sprinkler`` does not read node ceiling, so applying ceiling afterward is a
+    single source of truth and drops load_from_file's historical save/restore dance.
+    The fitting-display pending flag is set here; the fitting display tail (update +
+    DM colours) stays with each caller. Returns the node; caller stores it under
+    entry["id"].
+    """
+    from .node import Node
+    from .sprinkler import Sprinkler
+    node = Node(entry["x"], entry["y"])
+    scene.addItem(node)
+    scene.sprinkler_system.add_node(node)
+    node._display_overrides = entry.get("display_overrides", {})
+
+    if entry.get("sprinkler"):
+        template = Sprinkler(None)
+        for key, value in entry["sprinkler"].items():
+            if isinstance(value, dict):
+                template.set_property(key, value["value"])
+            else:
+                template.set_property(key, value)
+        scene.add_sprinkler(node, template)
+        node.sprinkler._display_overrides = entry.get(
+            "sprinkler_display_overrides", {})
+
+    node._fitting_display_overrides_pending = entry.get(
+        "fitting_display_overrides", {})
+
+    node.level = entry.get("level", DEFAULT_LEVEL)
+    node._room_name = entry.get("room_name", "")
+    node.ceiling_level = entry.get("ceiling_level", node.level)
+    if "ceiling_offset_mm" in entry:
+        node.ceiling_offset = entry["ceiling_offset_mm"]
+    else:
+        node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # inches -> mm
+    node._properties["Ceiling Level"]["value"] = node.ceiling_level
+    node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
+
+    lm = getattr(scene, "_level_manager", None)
+    lvl = lm.get(node.ceiling_level) if lm else None
+    if lvl:
+        node.z_pos = lvl.elevation + node.ceiling_offset
+    else:
+        node.z_pos = entry.get("elevation", 0)
+    return node
+
+
+def deserialize_pipe(scene, entry, id_to_node):
+    """Create + register a Pipe via scene.add_pipe (the canonical creation path).
+
+    Mirror of ``serialize_pipe``. Returns the pipe, or None if either endpoint node
+    id is missing. Uses ``_propagate_ceiling=False``: nodes already carry
+    authoritative ceiling data on load/restore. Routing both paths through add_pipe
+    single-homes creation (geometry, visibility, label, category defaults, fitting
+    DM colours) and removes _restore_network's hand-rolled variant.
+    """
+    from .pipe import Pipe
+    n1 = id_to_node.get(entry["node1_id"])
+    n2 = id_to_node.get(entry["node2_id"])
+    if not (n1 and n2):
+        return None
+    pipe = scene.add_pipe(n1, n2, _propagate_ceiling=False)
+    pipe.level = entry.get("level", DEFAULT_LEVEL)
+    for key, value in entry.get("properties", {}).items():
+        pipe.set_property(key, value)
+    props = entry.get("properties", {})
+    if "Line Type" not in props:  # legacy backfill (pre-Line-Type saves)
+        dia = props.get("Diameter", "1\"Ø")
+        pipe._properties["Line Type"]["value"] = (
+            "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch")
+        pipe.set_pipe_display()
+    pipe._display_overrides = entry.get("display_overrides", {})
+    return pipe
+
+
+def deserialize_design_area(scene, entry, id_to_node):
+    """Create + register a DesignArea from a serialized entry.
+
+    Mirror of ``serialize_design_area``. Field application + scene registration only:
+    sprinkler membership, level (with pre-2026-07 backfill), properties, active flag,
+    badge offset/angle. Category/DM display application is a CALLER tail (inline in
+    _restore_network, deferred to main on file load) and is NOT applied here. Tile
+    geometry is recomputed by the caller after walls & rooms load. Returns the area.
+    """
+    from PyQt6.QtCore import QPointF
+    from .design_area import DesignArea
+    spr_node_ids = entry.get("sprinkler_node_ids", [])
+    sprs = []
+    for nid in spr_node_ids:
+        node = id_to_node.get(nid)
+        if node and node.has_sprinkler():
+            sprs.append(node.sprinkler)
+    da = DesignArea(sprs)
+    lvl = entry.get("level")
+    if not lvl:  # pre-2026-07 save: backfill from member sprinklers
+        lvl = next((s.node.level for s in sprs if s.node), DEFAULT_LEVEL)
+    da.level = lvl
+    for key, value in entry.get("properties", {}).items():
+        da.set_property(key, value)
+    scene.addItem(da)
+    scene.design_areas.append(da)
+    if entry.get("is_active", False):
+        scene.active_design_area = da
+    bo = entry.get("badge_offset")
+    if bo is not None:
+        da.set_badge_offset(QPointF(bo[0], bo[1]))
+    ba = entry.get("badge_angle")
+    if ba is not None and getattr(da, "badge", None) is not None:
+        da.badge._angle = float(ba)
+        da.badge.prepareGeometryChange()
+        da.badge.update()
+    return da

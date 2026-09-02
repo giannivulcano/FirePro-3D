@@ -20,9 +20,7 @@ import logging
 import os
 import shutil
 
-from PyQt6.QtCore import QPointF
-
-from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
@@ -189,13 +187,9 @@ class SceneIOMixin:
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
         from .node import Node
-        from .pipe import Pipe
-        from .sprinkler import Sprinkler
-        from .annotations import DimensionAnnotation, NoteAnnotation, _rebuild_path_from_elements
+        from .annotations import _rebuild_path_from_elements
         from .underlay import Underlay
         from .scale_manager import ScaleManager
-        from .water_supply import WaterSupply
-        from .design_area import DesignArea
         from .construction_geometry import (
             PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem,
@@ -276,69 +270,15 @@ class SceneIOMixin:
         # --- Nodes ---
         # Create each node unconditionally — bypass find_nearby_node so that
         # vertical pipes (same XY, different Z) keep distinct node objects.
+        from .network_codec import deserialize_node
         id_to_node: dict[int, Node] = {}
         for entry in payload.get("nodes", []):
-            node = Node(entry["x"], entry["y"])
-            node.level = self.active_level
-            self.addItem(node)
-            self.sprinkler_system.add_node(node)
-            id_to_node[entry["id"]] = node
-            node.level = entry.get("level", DEFAULT_LEVEL)
-            node._room_name = entry.get("room_name", "")
-            node.ceiling_level = entry.get("ceiling_level", node.level)
-            if "ceiling_offset_mm" in entry:
-                node.ceiling_offset = entry["ceiling_offset_mm"]
-            else:
-                node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4
-            node._properties["Ceiling Level"]["value"] = node.ceiling_level
-            node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
-            if self._level_manager:
-                lvl = self._level_manager.get(node.ceiling_level)
-                if lvl:
-                    node.z_pos = lvl.elevation + node.ceiling_offset
-                else:
-                    node.z_pos = entry.get("elevation", 0)
-            else:
-                node.z_pos = entry.get("elevation", 0)
-            node._display_overrides = entry.get("display_overrides", {})
-            if entry.get("sprinkler"):
-                _saved_cl = node.ceiling_level
-                _saved_co = node.ceiling_offset
-                _saved_zp = node.z_pos
-                template = Sprinkler(None)
-                for key, value in entry["sprinkler"].items():
-                    if isinstance(value, dict):
-                        template.set_property(key, value["value"])
-                    else:
-                        template.set_property(key, value)
-                self.add_sprinkler(node, template)
-                node.ceiling_level = _saved_cl
-                node.ceiling_offset = _saved_co
-                node.z_pos = _saved_zp
-                node._properties["Ceiling Level"]["value"] = _saved_cl
-                node._properties["Ceiling Offset"]["value"] = str(_saved_co)
-                node.sprinkler._display_overrides = entry.get(
-                    "sprinkler_display_overrides", {})
-            node._fitting_display_overrides_pending = entry.get(
-                "fitting_display_overrides", {})
+            id_to_node[entry["id"]] = deserialize_node(self, entry)
 
         # --- Pipes ---
+        from .network_codec import deserialize_pipe
         for entry in payload.get("pipes", []):
-            n1 = id_to_node.get(entry["node1_id"])
-            n2 = id_to_node.get(entry["node2_id"])
-            if n1 and n2:
-                pipe = self.add_pipe(n1, n2, _propagate_ceiling=False)
-                pipe.level = entry.get("level", DEFAULT_LEVEL)
-                for key, value in entry.get("properties", {}).items():
-                    pipe.set_property(key, value)
-                props = entry.get("properties", {})
-                if "Line Type" not in props:
-                    dia = props.get("Diameter", "1\"Ø")
-                    pipe._properties["Line Type"]["value"] = (
-                        "Main" if dia in Pipe._MAIN_DIAMETERS else "Branch"
-                    )
-                    pipe.set_pipe_display()
-                pipe._display_overrides = entry.get("display_overrides", {})
+            deserialize_pipe(self, entry, id_to_node)
 
         # --- Fittings ---
         for node in id_to_node.values():
@@ -349,31 +289,13 @@ class SceneIOMixin:
                 del node._fitting_display_overrides_pending
 
         # --- Annotations ---
+        from .network_codec import deserialize_dimension, deserialize_note
         for entry in payload.get("annotations", []):
             ann_type = entry.get("type")
             if ann_type == "dimension":
-                p1 = QPointF(entry["p1"][0], entry["p1"][1])
-                p2 = QPointF(entry["p2"][0], entry["p2"][1])
-                dim = DimensionAnnotation(p1, p2)
-                dim._offset_dist = entry.get("offset_dist",
-                    float(entry.get("properties", {}).get("Offset", "10")))
-                dim._witness_ext_override = entry.get("witness_ext_override", None)
-                self.addItem(dim)
-                self.annotations.add_dimension(dim)
-                for key, value in entry.get("properties", {}).items():
-                    dim.set_property(key, value)
-                dim.update_geometry()
-                dim.level = entry.get("level", DEFAULT_LEVEL)
+                deserialize_dimension(self, entry)
             elif ann_type == "note":
-                tw = entry.get("text_width", -1)
-                note = NoteAnnotation(
-                    x=entry["x"], y=entry["y"],
-                    text_width=tw if tw and tw > 0 else 0)
-                self.addItem(note)
-                self.annotations.add_note(note)
-                for key, value in entry.get("properties", {}).items():
-                    note.set_property(key, value)
-                note.level = entry.get("level", DEFAULT_LEVEL)
+                deserialize_note(self, entry)
 
         # --- Underlays ---
         project_dir = os.path.dirname(os.path.abspath(filename))
@@ -457,43 +379,13 @@ class SceneIOMixin:
         # --- Water supply ---
         ws_data = payload.get("water_supply")
         if ws_data:
-            ws = WaterSupply(ws_data["x"], ws_data["y"])
-            self.addItem(ws)
-            self.water_supply_node = ws
-            self.sprinkler_system.supply_node = ws
-            for key, value in ws_data.get("properties", {}).items():
-                ws.set_property(key, value)
-            ws._display_overrides = ws_data.get("display_overrides", {})
+            from .network_codec import deserialize_water_supply
+            deserialize_water_supply(self, ws_data)
 
         # --- Design areas ---
+        from .network_codec import deserialize_design_area
         for da_entry in payload.get("design_areas", []):
-            spr_node_ids = da_entry.get("sprinkler_node_ids", [])
-            sprs = []
-            for nid in spr_node_ids:
-                node = id_to_node.get(nid)
-                if node and node.has_sprinkler():
-                    sprs.append(node.sprinkler)
-            da = DesignArea(sprs)
-            lvl = da_entry.get("level")
-            if not lvl:
-                # Pre-2026-07 save: backfill from member sprinklers
-                lvl = next((s.node.level for s in sprs if s.node),
-                           DEFAULT_LEVEL)
-            da.level = lvl
-            for key, value in da_entry.get("properties", {}).items():
-                da.set_property(key, value)
-            self.addItem(da)
-            self.design_areas.append(da)
-            if da_entry.get("is_active", False):
-                self.active_design_area = da
-            bo = da_entry.get("badge_offset")
-            if bo is not None:
-                da.set_badge_offset(QPointF(bo[0], bo[1]))
-            ba = da_entry.get("badge_angle")
-            if ba is not None and getattr(da, "badge", None) is not None:
-                da.badge._angle = float(ba)
-                da.badge.prepareGeometryChange()
-                da.badge.update()
+            deserialize_design_area(self, da_entry, id_to_node)
             # Tile geometry is recomputed after walls & rooms load —
             # computing here would produce wall-less (over-wide) tiles
 
