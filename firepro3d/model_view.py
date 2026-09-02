@@ -2,12 +2,11 @@ import math
 
 from PyQt6.QtWidgets import (
     QGraphicsView, QScrollBar, QMenu, QGraphicsItem,
-    QGraphicsLineItem, QGraphicsEllipseItem, QGraphicsPathItem, QGraphicsRectItem,
 )
-from PyQt6.QtCore import Qt, QPoint, QPointF, QLineF, QRectF, QEvent, pyqtSignal
-from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QPolygon, QFont, QKeyEvent
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, QEvent, pyqtSignal
+from PyQt6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QKeyEvent
 from . import theme as th
-from .snap_engine import SNAP_COLORS, SNAP_MARKERS, paint_snap_indicator
+from .snap_engine import paint_snap_indicator
 
 _DETAIL_BORDER_COLOR = "#4488cc"
 
@@ -150,11 +149,19 @@ class Model_View(QGraphicsView):
         """
         Overlay drawn on top of all scene content.
 
-        Renders four things (in order):
-        1. Snap trace — dashed ghost of the item being snapped to (scene coords).
+        Renders (in order):
+        1. Snap trace + OSNAP marker — dashed ghost of the snapped item(s) plus
+           the coloured snap-point glyph, both from the shared paint_snap_indicator
+           (see snap_engine) so this view and the import-dialog preview match.
         2. Grip handles — small squares on selected geometry items (viewport coords).
-        3. OSNAP snap indicator — coloured shape at snap point (viewport coords).
-        4. Dim HUD — live dimension text near the cursor (viewport coords).
+        3. Dim HUD — live dimension text near the cursor (viewport coords).
+
+        Note: the snap trace+marker draw BEFORE grip handles (the shared painter
+        emits them together). During a snapped grip-drag (snapping is active when
+        ``mode != "select"`` OR ``_grip_dragging``) the marker and the active grip
+        square co-occur at the snap point; the grip then paints over the marker
+        centre. This overlap is cosmetic (the marker outline still rings the grip)
+        and was accepted when the painter was unified.
         """
         super().drawForeground(painter, rect)
         scene = self.scene()

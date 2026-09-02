@@ -43,7 +43,7 @@ from PyQt6.QtGui import (
     QCursor, QPainter, QPixmap, QIcon, QTransform,
 )
 from PyQt6.QtCore import (
-    Qt, QPointF, QRectF, QLineF, QSizeF, QSize, QSettings, QThread, QTimer,
+    Qt, QPointF, QRectF, QSizeF, QSize, QSettings, QThread, QTimer,
     pyqtSignal,
 )
 
@@ -71,7 +71,7 @@ from .icons import themed_icon
 from .constants import DEFAULT_LEVEL
 from .underlay_mru import RecentSources
 from .snap_engine import (
-    SnapEngine, OsnapResult, SNAP_COLORS, SNAP_MARKERS, paint_snap_indicator,
+    SnapEngine, OsnapResult, paint_snap_indicator,
 )
 from .underlay_snap_index import UnderlaySnapIndex
 from .scale_manager import ScaleManager
