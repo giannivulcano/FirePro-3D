@@ -296,6 +296,11 @@ class LoadingOverlay(QFrame):
         self._rows: list[_StageRow] = []
         self._expected = 4
         self._active = False   # explicit — isVisible() is False under a hidden ancestor
+        # Planned-checklist state (populated by begin(plan=…)).
+        self._planned = False
+        self._row_by_key: dict[str, _StageRow] = {}
+        self._plan_keys: list[str] = []
+        self._running_key: str | None = None
         self.hide()
 
     def is_active(self) -> bool:
@@ -337,13 +342,32 @@ class LoadingOverlay(QFrame):
         """)
 
     # ------------------------------------------------------------------ API
-    def begin(self, name: str, fmt_label: str, hint: str) -> None:
-        """Reset the checklist and show the card for a fresh load."""
+    def begin(
+        self,
+        name: str,
+        fmt_label: str,
+        hint: str,
+        plan: list[tuple[str, str]] | None = None,
+    ) -> None:
+        """Reset the checklist and show the card for a fresh load.
+
+        Args:
+            name: Header title (usually the source file name).
+            fmt_label: Small right-aligned format label in the header.
+            hint: Sub-line hint text under the header.
+            plan: Optional ordered ``(key, label)`` stages. When given, every
+                row is pre-created in the ``pending`` state and later advanced
+                by :meth:`advance`. When ``None``, the overlay falls back to
+                the legacy append-on-:meth:`stage_started` behavior.
+        """
         for row in self._rows:
             self._rows_lay.removeWidget(row)
             row.setParent(None)
             row.deleteLater()
         self._rows = []
+        self._row_by_key = {}
+        self._plan_keys = []
+        self._running_key = None
         self._expected = 4
         self._active = True
         self.name_lbl.setText(name)
@@ -351,8 +375,77 @@ class LoadingOverlay(QFrame):
         self.hint_lbl.setText(hint)
         self._bar.set_fraction(0.04)
         self._spin.start()
+
+        self._planned = plan is not None
+        if plan:
+            self._expected = len(plan)
+            for key, label in plan:
+                row = _StageRow(label, self.t)
+                self._rows.append(row)
+                self._rows_lay.addWidget(row)
+                self._row_by_key[key] = row
+                self._plan_keys.append(key)
+                row.set_state("pending")
+
         self.show()
         self.raise_()
+        self.recenter()
+
+    def advance(self, key: str, running_label: str | None = None) -> None:
+        """Advance the planned checklist so *key*'s row becomes the running one.
+
+        Marks the currently running row done (no fact), completes any rows
+        before *key* that are still ``pending`` (they were fast or skipped),
+        and sets *key*'s row to ``run``. If *key* is not in the plan, a new
+        running row is inserted at the current position and registered, so
+        unexpected extra stages (e.g. paper-layout clipping) still show.
+
+        Args:
+            key: The plan key to activate.
+            running_label: Overrides the running row's label; when ``None`` the
+                row keeps its plan label.
+        """
+        # Finish the row that was running.
+        if self._running_key is not None:
+            prev = self._row_by_key.get(self._running_key)
+            if prev is not None and prev.state == "run":
+                prev.set_state("done")
+
+        row = self._row_by_key.get(key)
+        if row is None:
+            # Unknown key — insert a fresh running row after the last
+            # done/running row so it reads in sequence.
+            insert_at = 0
+            for i, r in enumerate(self._rows):
+                if r.state in ("done", "run"):
+                    insert_at = i + 1
+            label = running_label or key
+            row = _StageRow(label, self.t)
+            self._rows.insert(insert_at, row)
+            self._rows_lay.insertWidget(insert_at, row)
+            self._row_by_key[key] = row
+            self._plan_keys.insert(min(insert_at, len(self._plan_keys)), key)
+            row.show()
+            row.set_state("run")
+            self._running_key = key
+            self.recenter()
+            return
+
+        # Known key — complete any still-pending rows before it.
+        try:
+            target_idx = self._plan_keys.index(key)
+        except ValueError:
+            target_idx = len(self._plan_keys)
+        for k in self._plan_keys[:target_idx]:
+            r = self._row_by_key.get(k)
+            if r is not None and r.state == "pending":
+                r.set_state("done")
+
+        if running_label is not None:
+            row._base = running_label
+        row.show()
+        row.set_state("run")
+        self._running_key = key
         self.recenter()
 
     def set_expected(self, count: int) -> None:
@@ -370,9 +463,18 @@ class LoadingOverlay(QFrame):
         row.set_state("run")           # visible are not auto-shown
         self.recenter()
 
-    def stage_done(self, fact: str) -> None:
-        """Mark the current stage done, leaving *fact* behind, and advance the bar."""
-        if self._rows:
+    def stage_done(self, fact: str = "") -> None:
+        """Mark the current stage done, leaving *fact* behind, and advance the bar.
+
+        In planned mode the fact lands on the currently running row
+        (``_running_key``); otherwise it lands on the last appended row.
+        """
+        if self._planned and self._running_key is not None:
+            row = self._row_by_key.get(self._running_key)
+            if row is not None:
+                row.set_state("done", fact)
+            self._running_key = None
+        elif self._rows:
             self._rows[-1].set_state("done", fact)
         done = sum(1 for r in self._rows if r.state == "done")
         self._bar.set_fraction(min(0.96, done / max(self._expected, len(self._rows))))
@@ -382,8 +484,17 @@ class LoadingOverlay(QFrame):
         self._bar.set_fraction(fraction)
 
     def finish(self) -> None:
-        """Stop all animations and hide the card."""
+        """Stop all animations and hide the card.
+
+        In planned mode any rows still ``pending`` or ``run`` are marked done
+        first, so a completed load reads as a fully checked list.
+        """
         self._active = False
+        if self._planned:
+            for row in self._rows:
+                if row.state in ("pending", "run"):
+                    row.set_state("done")
+            self._running_key = None
         self._spin.stop()
         for row in self._rows:
             row.icon._timer.stop()          # a cancelled load may leave one running

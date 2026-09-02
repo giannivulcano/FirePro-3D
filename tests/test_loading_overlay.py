@@ -13,7 +13,7 @@ import inspect
 import ezdxf
 import pytest
 
-from firepro3d.loading import LoadProgress, LoadCancelled
+from firepro3d.loading import LoadProgress, LoadCancelled, LoadingOverlay
 from firepro3d import loading
 
 
@@ -34,6 +34,75 @@ def test_progress_cancel_raises_on_next_stage(qapp):
     assert prog.is_cancelled()
     with pytest.raises(LoadCancelled):
         prog.stage("Extract")
+
+
+# ── Planned checklist (pre-list + advance) ────────────────────────────────
+
+def test_plan_prelists_all_pending(qapp):
+    """A plan pre-creates every stage row up front in the ``pending`` state."""
+    ov = LoadingOverlay()
+    ov.begin("f.dxf", "", "hint",
+             plan=[("read", "Read file"), ("scan", "Scan"), ("extract", "Extract")])
+    try:
+        assert len(ov._rows) == 3
+        assert all(r.state == "pending" for r in ov._rows)
+    finally:
+        ov.finish()
+        ov.deleteLater()
+
+
+def test_advance_marks_prior_done_and_current_run(qapp):
+    """``advance`` runs the target row and completes everything before it."""
+    ov = LoadingOverlay()
+    ov.begin("f.dxf", "", "hint",
+             plan=[("read", "Read file"), ("scan", "Scan"), ("extract", "Extract")])
+    try:
+        ov.advance("scan")
+        assert ov._row_by_key["read"].state == "done"
+        assert ov._row_by_key["scan"].state == "run"
+        assert ov._row_by_key["extract"].state == "pending"
+
+        ov.advance("extract")
+        assert ov._row_by_key["scan"].state == "done"
+        assert ov._row_by_key["extract"].state == "run"
+
+        ov.stage_done("ok")
+        assert ov._row_by_key["extract"].state == "done"
+        assert ov._row_by_key["extract"].fact.text() == "ok"
+    finally:
+        ov.finish()
+        ov.deleteLater()
+
+
+def test_advance_inserts_unknown_key(qapp):
+    """A key absent from the plan inserts a fresh running row in place."""
+    ov = LoadingOverlay()
+    ov.begin("f.dxf", "", "hint",
+             plan=[("read", "Read file"), ("scan", "Scan"),
+                   ("extract", "Extract"), ("build", "Build preview")])
+    try:
+        assert "clip" not in ov._row_by_key
+        ov.advance("clip", running_label="Clipping…")
+        assert "clip" in ov._row_by_key
+        assert ov._row_by_key["clip"].state == "run"
+        assert ov._row_by_key["clip"] in ov._rows
+    finally:
+        ov.finish()
+        ov.deleteLater()
+
+
+def test_finish_marks_remaining_done(qapp):
+    """``finish`` completes any still-pending/running rows before hiding."""
+    ov = LoadingOverlay()
+    ov.begin("f.dxf", "", "hint",
+             plan=[("read", "Read file"), ("scan", "Scan"), ("extract", "Extract")])
+    try:
+        ov.advance("scan")
+        ov.finish()
+        assert all(r.state == "done" for r in ov._rows)
+        assert not ov.isVisible()
+    finally:
+        ov.deleteLater()
 
 
 # ── processEvents guard ───────────────────────────────────────────────────

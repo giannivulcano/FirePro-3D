@@ -1994,22 +1994,78 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
         if btns:
             btns.setEnabled(enabled)
 
+    def _overlay_plan(self) -> list[tuple[str, str]]:
+        """Return the ordered ``(key, label)`` stage plan for the current file type.
+
+        The plan pre-lists the whole checklist so the overlay shows every stage
+        as pending from the start. Paper-layout DXFs emit extra stages
+        (viewports/clip/annotations) whose keys aren't in the base plan — those
+        get inserted by :meth:`LoadingOverlay.advance` as they arrive.
+        """
+        ft = getattr(self, "_file_type", "")
+        if ft == "pdf":
+            return [("read", "Read PDF"),
+                    ("extract", "Extract vectors"),
+                    ("build", "Build preview")]
+        if ft == "dwg":
+            return [("convert", "Convert DWG → DXF"),
+                    ("read", "Read DXF"),
+                    ("scan", "Scan entities"),
+                    ("extract", "Extract geometry"),
+                    ("build", "Build preview")]
+        return [("read", "Read file"),
+                ("scan", "Scan entities"),
+                ("extract", "Extract geometry"),
+                ("build", "Build preview")]
+
+    def _status_key(self, message: str) -> str:
+        """Map a status/loading message to a plan key by case-insensitive match.
+
+        Falls back to returning *message* itself as a one-off key, which makes
+        :meth:`LoadingOverlay.advance` insert a fresh row for an unmatched stage.
+        """
+        m = (message or "").strip().lower()
+        if m.startswith("converting dwg") or "dwg → dxf" in m or "dwg -> dxf" in m:
+            return "convert"
+        if "reading viewports" in m:
+            return "viewports"
+        if "reading sheet annotations" in m:
+            return "annotations"
+        if m.startswith("opening pdf") or m.startswith("reading page"):
+            return "read"
+        if m.startswith("reading") and ("dxf" in m or "pdf" in m
+                                         or "file" in m or "source" in m):
+            return "read"
+        if m.startswith("checking dxf") or m.startswith("parsing dxf"):
+            return "read"
+        if m.startswith("scanning") or "preparing extraction" in m:
+            return "scan"
+        if "extracting geometry" in m or "extracting vectors" in m or "rendering" in m:
+            return "extract"
+        if "clipping" in m:
+            return "clip"
+        if "building preview" in m:
+            return "build"
+        return message
+
     def _ensure_overlay_open(self, message: str):
         """Show the loading card (if not already) with *message* as its hint.
 
         Idempotent — reuses the open card across sub-phases so successive
         ``busy()``/``_set_loading()`` calls don't wipe the accumulated stage
-        rows. The message becomes the header/hint line.
+        rows. On first open the card is seeded with the full stage plan; every
+        call then advances the checklist to the row matching *message*.
         """
         ov = self._loading_overlay
         if not ov.is_active():
             self._loading_cancelled = False
             name = os.path.basename(self._file_edit.text().strip()) or "Loading"
-            ov.begin(name, "", message)
+            ov.begin(name, "", message, plan=self._overlay_plan())
         else:
             ov.hint_lbl.setText(message)
             ov.name_lbl.setText(
                 os.path.basename(self._file_edit.text().strip()) or ov.name_lbl.text())
+        ov.advance(self._status_key(message), running_label=message)
 
     def _set_loading(self, message: str):
         """Show the loading card with an indeterminate hint; disable controls."""
@@ -2313,9 +2369,11 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
     def _on_extract_status(self, message: str):
         """Map each worker phase string onto a stage row on the loading card.
 
-        Every ``status`` emit begins a new stage; :meth:`LoadingOverlay.stage_started`
-        auto-finalizes the previously running row (leaving a check behind), so
-        the checklist narrates scan → extract → clip → annotations as they run.
+        Each ``status`` emit advances the planned checklist to the matching
+        stage; :meth:`LoadingOverlay.advance` finishes the prior running row
+        (leaving a check behind) and inserts a row for any unplanned stage
+        (paper-layout viewports/clip/annotations), so the checklist narrates
+        scan → extract → clip → annotations as they run.
         """
         if self._extract_worker is None:
             return
@@ -2323,13 +2381,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._extract_worker.cancel()
             return
         self._ensure_overlay_open(message)
-        ov = self._loading_overlay
-        # Leave the entity count as the just-finished stage's fact when we have
-        # it (stage_started else finalizes the prior row with no fact).
-        prev = ov._rows[-1] if ov._rows else None
-        if prev is not None and prev.state == "run" and self._extract_total:
-            prev.set_state("done", f"{self._extract_total:,} entities")
-        ov.stage_started(message)
+        self._loading_overlay.advance(self._status_key(message), running_label=message)
 
     def _on_extract_finished(self, geoms: list, layers: list):
         if self._extract_worker is None:
@@ -2407,6 +2459,12 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             find_oda_converter, convert_dwg_to_dxf,
             cleanup_converted_dxf, read_dxf, ODA_DOWNLOAD_URL,
         )
+
+        # Set early so the loading overlay's first-open plan is the DWG plan
+        # (convert → read → scan → extract → build). The nested _load_dxf call
+        # later flips this to "dxf", but the card is already open by then so the
+        # plan is fixed at the convert stage.
+        self._file_type = "dwg"
 
         oda_path = find_oda_converter()
         if oda_path is None:
@@ -2714,7 +2772,7 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._pdf_worker.cancel()
             return
         self._ensure_overlay_open(message)
-        self._loading_overlay.stage_started(message)
+        self._loading_overlay.advance(self._status_key(message), running_label=message)
 
     def _on_pdf_extract_finished(self, geoms: list, layers: list):
         """Continue the PDF vector load once the worker delivers geometry.
