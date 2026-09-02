@@ -349,31 +349,13 @@ class SceneIOMixin:
                 del node._fitting_display_overrides_pending
 
         # --- Annotations ---
+        from .network_codec import deserialize_dimension, deserialize_note
         for entry in payload.get("annotations", []):
             ann_type = entry.get("type")
             if ann_type == "dimension":
-                p1 = QPointF(entry["p1"][0], entry["p1"][1])
-                p2 = QPointF(entry["p2"][0], entry["p2"][1])
-                dim = DimensionAnnotation(p1, p2)
-                dim._offset_dist = entry.get("offset_dist",
-                    float(entry.get("properties", {}).get("Offset", "10")))
-                dim._witness_ext_override = entry.get("witness_ext_override", None)
-                self.addItem(dim)
-                self.annotations.add_dimension(dim)
-                for key, value in entry.get("properties", {}).items():
-                    dim.set_property(key, value)
-                dim.update_geometry()
-                dim.level = entry.get("level", DEFAULT_LEVEL)
+                deserialize_dimension(self, entry)
             elif ann_type == "note":
-                tw = entry.get("text_width", -1)
-                note = NoteAnnotation(
-                    x=entry["x"], y=entry["y"],
-                    text_width=tw if tw and tw > 0 else 0)
-                self.addItem(note)
-                self.annotations.add_note(note)
-                for key, value in entry.get("properties", {}).items():
-                    note.set_property(key, value)
-                note.level = entry.get("level", DEFAULT_LEVEL)
+                deserialize_note(self, entry)
 
         # --- Underlays ---
         project_dir = os.path.dirname(os.path.abspath(filename))

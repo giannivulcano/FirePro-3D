@@ -3543,30 +3543,13 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
                 # Apply DM colours without re-aligning (align was done by update)
                 self._apply_fitting_dm_colors(node.fitting)
 
+            from .network_codec import deserialize_dimension, deserialize_note
             for entry in state.get("annotations", []):
                 ann_type = entry.get("type")
                 if ann_type == "dimension":
-                    p1 = QPointF(entry["p1"][0], entry["p1"][1])
-                    p2 = QPointF(entry["p2"][0], entry["p2"][1])
-                    dim = DimensionAnnotation(p1, p2)
-                    dim._offset_dist = entry.get("offset_dist", 10)
-                    dim._witness_ext_override = entry.get("witness_ext_override", None)
-                    self.addItem(dim)
-                    self.annotations.add_dimension(dim)
-                    for key, value in entry.get("properties", {}).items():
-                        dim.set_property(key, value)
-                    dim.update_geometry()
-                    dim.level = entry.get("level", DEFAULT_LEVEL)
+                    deserialize_dimension(self, entry)
                 elif ann_type == "note":
-                    tw = entry.get("text_width", -1)
-                    note = NoteAnnotation(
-                        x=entry["x"], y=entry["y"],
-                        text_width=tw if tw and tw > 0 else 0)  # parity with load_from_file
-                    self.addItem(note)
-                    self.annotations.add_note(note)
-                    for key, value in entry.get("properties", {}).items():
-                        note.set_property(key, value)
-                    note.level = entry.get("level", DEFAULT_LEVEL)
+                    deserialize_note(self, entry)
 
             # Restore water supply
             ws_data = state.get("water_supply")

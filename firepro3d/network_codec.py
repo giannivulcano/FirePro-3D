@@ -122,3 +122,53 @@ def serialize_design_area(da, node_id: dict, active_design_area) -> dict:
         "badge_angle": (da.badge._angle if getattr(da, "badge", None)
                         is not None else 0.0),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Deserialize half (slice 4b). Scene-referencing: each function creates + registers
+# its entity on *scene* and applies the shared FIELD state. Each caller keeps its own
+# orchestration (id maps, loop order, load-only migrations) and its own DISPLAY tail
+# (undo-restore applies display inline; file-load defers it to main). Local imports
+# mirror load_from_file's cycle-avoidance pattern.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def deserialize_dimension(scene, entry):
+    """Create + register a DimensionAnnotation from a serialized entry.
+
+    Scene-referencing: adds the item to *scene* and its annotation store.
+    Mirror of ``serialize_dimension``. Returns the dimension.
+    """
+    from PyQt6.QtCore import QPointF
+    from .annotations import DimensionAnnotation
+    p1 = QPointF(entry["p1"][0], entry["p1"][1])
+    p2 = QPointF(entry["p2"][0], entry["p2"][1])
+    dim = DimensionAnnotation(p1, p2)
+    dim._offset_dist = entry.get(
+        "offset_dist", float(entry.get("properties", {}).get("Offset", "10")))
+    dim._witness_ext_override = entry.get("witness_ext_override", None)
+    scene.addItem(dim)
+    scene.annotations.add_dimension(dim)
+    for key, value in entry.get("properties", {}).items():
+        dim.set_property(key, value)
+    dim.update_geometry()
+    dim.level = entry.get("level", DEFAULT_LEVEL)
+    return dim
+
+
+def deserialize_note(scene, entry):
+    """Create + register a NoteAnnotation from a serialized entry.
+
+    Mirror of ``serialize_note``. Preserves the wrap-width contract
+    (text_width > 0 -> wrapped; else 0). Returns the note.
+    """
+    from .annotations import NoteAnnotation
+    tw = entry.get("text_width", -1)
+    note = NoteAnnotation(x=entry["x"], y=entry["y"],
+                          text_width=tw if tw and tw > 0 else 0)
+    scene.addItem(note)
+    scene.annotations.add_note(note)
+    for key, value in entry.get("properties", {}).items():
+        note.set_property(key, value)
+    note.level = entry.get("level", DEFAULT_LEVEL)
+    return note
