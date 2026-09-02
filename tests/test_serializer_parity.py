@@ -211,3 +211,29 @@ def test_deserialize_parity_nodes_pipes(qapp, tmp_path):
     assert {k: v["value"] for k, v in up._properties.items()} == \
            {k: v["value"] for k, v in fp._properties.items()}
     assert up.level == fp.level
+
+
+def test_sprinkler_ceiling_parity_across_paths(qapp, tmp_path):
+    """A sprinklered node's ceiling fields AND sprinkler scene position must be
+    identical whether restored via undo or loaded from file (slice 4b converges
+    the ceiling-vs-add_sprinkler ordering)."""
+    def build():
+        ms = Model_Space()
+        ms._level_manager = LevelManager()
+        n = ms.add_node(300.0, 400.0)
+        ms.add_sprinkler(n)
+        n.ceiling_level = "Level 1"
+        n.ceiling_offset = -101.6  # -4 in, non-default
+        n._properties["Ceiling Level"]["value"] = n.ceiling_level
+        n._properties["Ceiling Offset"]["value"] = str(n.ceiling_offset)
+        n._recompute_z_pos()
+        return ms
+    u, f = _capture_via_two_paths(build, tmp_path)
+    un = next(iter(u.sprinkler_system.nodes))
+    fn = next(iter(f.sprinkler_system.nodes))
+    assert un.ceiling_level == fn.ceiling_level
+    assert abs(un.ceiling_offset - fn.ceiling_offset) < 1e-6
+    assert abs(un.z_pos - fn.z_pos) < 1e-6
+    assert un.has_sprinkler() and fn.has_sprinkler()
+    assert (un.sprinkler.scenePos().x(), un.sprinkler.scenePos().y()) == \
+           (fn.sprinkler.scenePos().x(), fn.sprinkler.scenePos().y())

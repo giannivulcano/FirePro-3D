@@ -3475,42 +3475,10 @@ class Model_Space(SceneIOMixin, QGraphicsScene):
             self.sprinkler_system = SprinklerSystem()
             self.annotations = Annotation()
 
+            from .network_codec import deserialize_node
             id_to_node: dict[int, Node] = {}
             for entry in state.get("nodes", []):
-                node = Node(entry["x"], entry["y"])
-                self.addItem(node)
-                self.sprinkler_system.add_node(node)
-                id_to_node[entry["id"]] = node
-                node._display_overrides = entry.get("display_overrides", {})
-                if entry.get("sprinkler"):
-                    template = Sprinkler(None)
-                    for key, value in entry["sprinkler"].items():
-                        if isinstance(value, dict):
-                            template.set_property(key, value["value"])
-                        else:
-                            template.set_property(key, value)
-                    self.add_sprinkler(node, template)
-                    node.sprinkler._display_overrides = entry.get(
-                        "sprinkler_display_overrides", {})
-                node._fitting_display_overrides_pending = entry.get(
-                    "fitting_display_overrides", {})
-                node.level = entry.get("level", DEFAULT_LEVEL)
-                node._room_name = entry.get("room_name", "")
-                node.ceiling_level = entry.get("ceiling_level", node.level)
-                if "ceiling_offset_mm" in entry:
-                    node.ceiling_offset = entry["ceiling_offset_mm"]
-                else:
-                    node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # old inches → mm
-                node._properties["Ceiling Level"]["value"] = node.ceiling_level
-                node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
-                if self._level_manager:
-                    lvl = self._level_manager.get(node.ceiling_level)
-                    if lvl:
-                        node.z_pos = lvl.elevation + node.ceiling_offset
-                    else:
-                        node.z_pos = entry.get("elevation", 0)
-                else:
-                    node.z_pos = entry.get("elevation", 0)
+                id_to_node[entry["id"]] = deserialize_node(self, entry)
 
             for entry in state.get("pipes", []):
                 n1 = id_to_node.get(entry["node1_id"])

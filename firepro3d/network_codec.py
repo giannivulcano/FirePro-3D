@@ -190,3 +190,56 @@ def deserialize_water_supply(scene, entry):
         ws.set_property(key, value)
     ws._display_overrides = entry.get("display_overrides", {})
     return ws
+
+
+def deserialize_node(scene, entry):
+    """Create + register a Node (+ optional sprinkler) from a serialized entry.
+
+    Mirror of ``serialize_node``. Scene-referencing: adds to *scene* and its
+    sprinkler_system, and uses scene._level_manager to resolve z_pos.
+
+    Ordering (slice 4b): the sprinkler sub-block runs BEFORE ceiling application.
+    ``add_sprinkler`` does not read node ceiling, so applying ceiling afterward is a
+    single source of truth and drops load_from_file's historical save/restore dance.
+    The fitting-display pending flag is set here; the fitting display tail (update +
+    DM colours) stays with each caller. Returns the node; caller stores it under
+    entry["id"].
+    """
+    from .node import Node
+    from .sprinkler import Sprinkler
+    node = Node(entry["x"], entry["y"])
+    scene.addItem(node)
+    scene.sprinkler_system.add_node(node)
+    node._display_overrides = entry.get("display_overrides", {})
+
+    if entry.get("sprinkler"):
+        template = Sprinkler(None)
+        for key, value in entry["sprinkler"].items():
+            if isinstance(value, dict):
+                template.set_property(key, value["value"])
+            else:
+                template.set_property(key, value)
+        scene.add_sprinkler(node, template)
+        node.sprinkler._display_overrides = entry.get(
+            "sprinkler_display_overrides", {})
+
+    node._fitting_display_overrides_pending = entry.get(
+        "fitting_display_overrides", {})
+
+    node.level = entry.get("level", DEFAULT_LEVEL)
+    node._room_name = entry.get("room_name", "")
+    node.ceiling_level = entry.get("ceiling_level", node.level)
+    if "ceiling_offset_mm" in entry:
+        node.ceiling_offset = entry["ceiling_offset_mm"]
+    else:
+        node.ceiling_offset = entry.get("ceiling_offset", -2.0) * 25.4  # inches -> mm
+    node._properties["Ceiling Level"]["value"] = node.ceiling_level
+    node._properties["Ceiling Offset"]["value"] = str(node.ceiling_offset)
+
+    lm = getattr(scene, "_level_manager", None)
+    lvl = lm.get(node.ceiling_level) if lm else None
+    if lvl:
+        node.z_pos = lvl.elevation + node.ceiling_offset
+    else:
+        node.z_pos = entry.get("elevation", 0)
+    return node
