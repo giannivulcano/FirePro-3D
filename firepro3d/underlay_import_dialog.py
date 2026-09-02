@@ -204,7 +204,7 @@ class _PreviewView(QGraphicsView):
     zoomChanged = pyqtSignal(float)          # emits the ratio vs fit (1.0 == fit)
 
     _ZOOM_MIN = 0.25                          # 25% of fit
-    _ZOOM_MAX = 12.0                          # 1200% of fit
+    _ZOOM_MAX = 20.0                          # 2000% of fit
 
     def __init__(self, scene: QGraphicsScene, parent=None):
         super().__init__(scene, parent)
@@ -256,7 +256,7 @@ class _PreviewView(QGraphicsView):
         return self.transform().m11() / (self._fit_scale or 1.0)
 
     def _clamped_factor(self, factor: float) -> float:
-        """Clamp *factor* so the resulting zoom stays in [25%, 1200%] of fit."""
+        """Clamp *factor* so the resulting zoom stays in [25%, 2000%] of fit."""
         cur = self.transform().m11()
         if cur <= 0:
             return factor
