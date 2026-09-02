@@ -1,7 +1,7 @@
 ---
-status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match)
-last-verified: 2026-09-01  # §10 Rev-8 shell + §10.7 Modify lossless round-trip / 3-way insertion-position / page-switch preservation / origin-pivot fix; import dialog module renamed to underlay_import_dialog.py
-verified-commit: cfcb6d6
+status: current            # §1–§15 verified 2026-06-23; §16 Underlay Manager 2026-08-29; §17 PDF-import-polish 2026-08-28; §18 freeze-blit 2026-08-30; §10 Import-dialog Rev-8 first-principles redesign 2026-09-01 (feat/import-dialog-redesign); §10.7 Modify round-trip + 3-way insertion + frameless shell 2026-09-01 (feat/underlay-manager-chrome-match); §10 Import-dialog Polish v2 2026-09-02 (feat/import-dialog-polish-v2 — staged loading overlay, Name field, two-field scale, $INSUNITS→mm, Modify base/layers)
+last-verified: 2026-09-02  # §10 Polish v2: staged LoadingOverlay (PDF now threaded) + Name field + two-field [paper]=[real] scale w/ 2% calibration snap + $INSUNITS→mm fix + Modify preserves base & filters PDF by selected_layers + preview zoom cap 2000%
+verified-commit: ea6c1ea
 applies-to:
   - firepro3d/preferences_dialog.py    # §17.1 ImportPane PDF DPI/mode defaults
   - firepro3d/underlay.py
@@ -18,6 +18,7 @@ applies-to:
   - firepro3d/underlay_snap_index.py  # §16.8 per-underlay snap
   - firepro3d/snap_engine.py
   - firepro3d/underlay_import_dialog.py   # §10 import dialog (renamed 2026-09-01); §10.7 Modify flow
+  - firepro3d/loading.py                   # §10.11 staged LoadingOverlay + LoadProgress/LoaderWorker (Polish v2)
   - firepro3d/frameless_shell.py          # §10.1 FramelessShellMixin — shared frameless house chrome
   - firepro3d/dxf_import_worker.py
   - firepro3d/pdf_import_worker.py
@@ -135,6 +136,9 @@ class Underlay:
     layout: str = ""                   # Layout name (empty = Model space)
     # Area selection persistence (Revision 6)
     import_bounds: list[float] | None = None  # [min_x, min_y, max_x, max_y]
+    # Display name (Import Dialog Polish v2). Blank → falls back to
+    # basename(path) at every display site via _record_name (§10.11).
+    name: str = ""
 ```
 
 > **Removed field:** `hidden_in_views: list[str]` — per-view underlay exclusion is removed from the record. Per-view visibility is a property of the VIEW, to be re-homed onto PlanView/DetailView/SheetViewport as a future drafting-overrides/view-templates feature (cross-ref `view-relationships.md §7.4`). Interim: an underlay shows in every view of its assigned levels (paper viewports included). Any old `.fpd` files containing `hidden_in_views` silently ignore the key on load.
@@ -166,6 +170,7 @@ class Underlay:
 | `selected_layers` | `None` | — |
 | `layout` | `""` | — |
 | `import_bounds` | `None` | — |
+| `name` | `""` | Blank display name; sites fall back to `basename(path)` (§10.11) |
 
 `hidden_in_views` is **not** emitted by `to_dict()` and is silently ignored by `from_dict()` (stale key from pre-56c8148 files). The old `level: str` key is also dropped from `to_dict()` output; `from_dict()` reads `levels` first and, if absent, falls back to the legacy `level` string to produce a single-element list.
 
@@ -416,18 +421,25 @@ Opens **maximized**.
   Content.
 - **Preview** (central, top/bottom split): the PDF **filmstrip** on top (side
   arrows, no scrollbar) for multi-page PDFs; the preview workspace below (pan /
-  cursor-anchored zoom clamped 25–1200% / crop / calibrate). Empty state = a
-  centred glyph + "Drop a PDF, DWG or DXF here". Crop draws a dashed-accent
-  rectangle with an **outside-dim scrim**. Base marker + pick cursor use `warn`.
+  cursor-anchored zoom / crop / calibrate). Zoom is clamped to **2000% of fit**
+  (raised from the earlier cap; §10.9); during a layout-switch extraction the
+  placeholder reads "Loading &lt;layout&gt;…". The snap indicator shares the
+  main view's `snap_engine.paint_snap_indicator` for full visual parity (§10.12).
+  Empty state = a centred glyph + "Drop a PDF, DWG or DXF here". Crop draws a
+  dashed-accent rectangle with an **outside-dim scrim**. Base marker + pick
+  cursor use `warn`.
 - **Contextual panel** (`QStackedWidget`, one page per step; **flat overline
   sections** — only lists + inputs bordered):
-  - **Source:** file field + Browse/Reload + Recent (`underlay_mru.RecentSources`).
+  - **Source:** file field + Browse/Reload + Recent (`underlay_mru.RecentSources`)
+    + an editable **Name** field (`Underlay.name`, §10.11) — authored here on
+    import and Modify, blank by default.
   - **Content:** Region (Draw crop / Clear) **above** Source layers (All/None +
     auto-expanding list), then PDF Options (DPI, import mode — hidden for DXF/DWG).
   - **Placement:** **Levels** multi-select (auto-fits all levels), Scale (preset
-    combo + custom factor + verified/unverified pill + Calibrate / Looks-right),
-    Rotation, Base point (X/Y + Pick — stay enabled in both position modes),
-    Position (**toggle switch** "Insert at origin").
+    combo + verified/unverified pill + Calibrate / Looks-right; the custom entry
+    is the **two-field `[paper] = [real]` ratio for PDF** and the raw mm-per-point
+    factor for DXF/DWG — §10.13), Rotation, Base point (X/Y + Pick — stay enabled
+    in both position modes), Position (**toggle switch** "Insert at origin").
 - **Footer:** commit-sentence (rich text via one `update_all()`), Cancel, and a
   solid-accent **Import →** (white text).
 
@@ -457,7 +469,21 @@ warn/ok on this state. Calibration markers use the theme `accent`.
 
 ### 10.4 DXF unit auto-detection
 
-Reads `$INSUNITS` from the DXF header. Maps known unit codes (1=inches, 2=feet, 4=mm, 5=cm, 6=meters) to scale factors. Missing or unitless (`0`) defaults to scale factor 1.0 (assumes inches). The pick-2-pts calibration serves as a fallback when auto-detection is wrong or absent.
+Reads `$INSUNITS` from the DXF header and maps the source unit → **mm** via
+`_DXF_INSUNITS`: 1=inches→25.4, 2=feet→304.8, 4=mm→1.0, 5=cm→10.0, 6=meters→1000.0.
+The mapped factor is `real_mm / source_units` (mm per source unit), matching the
+app's calibration ground truth, and is written into the Custom scale factor. A
+DXF with `$INSUNITS` set therefore imports at correct real size.
+
+> **Corrected 2026-09-02 (`efa18b0`):** the mapping was previously ~25.4× too
+> small (it mixed points-per-inch factors into a real-units DXF), so a
+> unit-tagged feet/inch/mm DXF imported at the wrong size. It now maps
+> source-unit → mm directly.
+
+Missing or unitless (`0`) leaves Custom untouched (the gate skips code `0`). The
+pick-2-pts calibration serves as a fallback when auto-detection is wrong or
+absent. The arch/eng plot-scale presets remain **PDF-only** — a paper plot scale
+is semantically wrong for a real-units DXF (§10.13).
 
 ### 10.5 DXF entity coverage
 
@@ -490,12 +516,12 @@ Reads `$INSUNITS` from the DXF header. Maps known unit codes (1=inches, 2=feet, 
 File selected
   → Worker thread parses geometry (DxfImportWorker / PdfImportWorker)
   → Preview rendered in dialog
-  → User configures: layers, scale, rotation, base point, DPI, import mode
-    (Level is NOT configured here — removed from dialog; defaults to active level)
+  → User configures: name, layers, scale, rotation, base point, DPI, import mode,
+    Levels (multi-select, defaults to [active_level] — §10.1 Levels re-added)
   → "Import →" pressed
   → ImportParams constructed
   → Scene placement: origin or interactive click-to-place
-  → Underlay record created (levels = [active_level]; import_mode from params; snap = True)
+  → Underlay record created (name from params; levels from params; import_mode from params; snap = True)
   → _apply_underlay_display() sets transform origin, scale, rotation, opacity, lock
   → Record + scene item appended to self.underlays
   → underlaysChanged emitted → Underlay Manager + browser tree refresh
@@ -505,10 +531,26 @@ File selected
 
 The import dialog supports a **prefill/modify mode**: when invoked via the
 Manager's Modify action, it re-opens pre-filled from the existing record as a
-**lossless round-trip** — page/layers/crop/scale/base and levels are restored so
-the dialog reflects the placed underlay, not a fresh import. (`_apply_modify_prefill`;
-crop is re-selected by bounds via `_restore_crop_from_bounds`, the PDF page is
-re-selected without re-firing the thumbnail load via `_sync_page_indicator`.)
+**lossless round-trip** — page/layers/crop/scale/base/name and levels are
+restored so the dialog reflects the placed underlay, not a fresh import.
+(`_apply_modify_prefill`; crop is re-selected by bounds via
+`_restore_crop_from_bounds`, the PDF page is re-selected without re-firing the
+thumbnail load via `_sync_page_indicator`, the dialog title retitles to
+"Modify Underlay — &lt;name&gt;" via `_record_name`.)
+
+**Base-point preservation (`29ba95a`).** The Modify prefill reloads geometry
+with `reset_base=False` (§10.8) so the geometry-bounds auto-fill does **not**
+clobber the record's saved base point (X/Y). A fresh import still uses
+`reset_base=True` to seed the base from the geometry bounds.
+
+**PDF render-filter by `selected_layers` (`910d07f`).** On reload, PDF Modify
+now filters the rendered geometry by `record.selected_layers` on the
+"Reuse existing" / "Insert at origin" paths, via `filter_geoms_by_layers` in
+`_import_pdf_vectors` — previously all layers drew regardless of the dialog
+selection (DXF already filtered). The geometry **cache stays full-page**
+(layer-agnostic); the layer filter is applied at build time on both the
+fresh-extract and cache-hit paths. Per-layer Manager hides (`hidden_layers`)
+compose on top afterward.
 
 **Insertion-position control (Modify-only, 3-way).** A single-select switch bar
 replaces the plain "Insert at origin" toggle while modifying, with three modes
@@ -531,7 +573,10 @@ It PRESERVES all management fields:
 Note: `params.scale` bakes into geometry via `import_scale`; the display `scale`
 field is preserved as-is. Layer overrides are matched by layer name — new layers
 get inherit-defaults; stale names are left dormant. `position` overrides only the
-on-canvas anchor; when `None` the underlay keeps its current `scenePos`.
+on-canvas anchor; when `None` the underlay keeps its current `scenePos`. The
+**`name`** field is re-authored from the dialog on Modify
+(`name = getattr(params, "name", record.name)`) — it is editable on both import
+and Modify (§10.11), not silently frozen.
 
 ### 10.8 Page-switch preservation (multi-page PDF)
 
@@ -544,12 +589,17 @@ not re-derive the base point from the new page's bounds. Layers absent on the ne
 page are silently not re-checked; crop bounds re-select whatever geometry now
 falls inside them.
 
-### 10.9 Deterministic preview fit
+### 10.9 Deterministic preview fit & zoom cap
 
 The preview "fit" fits against `_content_rect()` — **geometry only, excluding
 overlay markers** (crop scrim, base/pick cursors) — so the same content always
 fits to the same frame regardless of transient overlay state (initial load, page
 switch, Modify prefill).
+
+The cursor-anchored zoom is clamped to **2000% of fit** (`7ec5bb5`; raised from
+the earlier cap) so users can inspect fine geometry (e.g. verifying flatten
+tessellation at working zoom). During a layout-switch extraction the preview
+placeholder reads "Loading &lt;layout&gt;…" (`b17ea37`) instead of going blank.
 
 ### 10.10 Insert-at-origin + rotation pivot (as-built)
 
@@ -564,6 +614,80 @@ have no base point (centred on origin at import) and keep the centroid pivot.
 > the insert point, flinging "Insert at origin" imports far from the preview (and
 > subtly mis-placing off-centre-base non-origin imports). Existing rotated
 > underlays shift once on reload to the corrected position.
+
+### 10.11 Underlay Name (Polish v2, `39828bf` / `ae2968b`)
+
+`Underlay.name` (str, blank default) is the user-authored display name,
+persisted via `to_dict`/`from_dict`. It is editable in the dialog's **Source**
+step and authored on both fresh import and Modify. Wherever an underlay is
+named, the display precedence is **`name or basename(path)`**, computed once by
+`underlay_manager_model._record_name`:
+
+- Manager **NAME** column, model-browser underlay node, Modify dialog title,
+  the Manager's Remove-confirm dialog, and `Underlay.get_properties()["Name"]`
+  all route through `_record_name` (get_properties inlines the same
+  `name or basename` rule).
+
+Duplicate names are allowed — the field is a label, not a key.
+
+### 10.12 Staged loading overlay (Polish v2, `0b76c12` / `a323041` / `3347efb`)
+
+The inline bottom progress bar is **retired**. A centred **`LoadingOverlay`
+card** (`firepro3d/loading.py`) floats over the preview and narrates the load.
+
+- **Pre-listed checklist.** `begin(plan=…)` pre-creates every stage row in
+  `pending`, and `advance(key)` walks them `pending → run → done`; each finished
+  stage leaves a mono **fact** behind (e.g. "6 pages", "3 layers · 234 entities").
+  Stages narrate read / scan / extract / clip (paper-layout) / annotations /
+  build.
+- **PDF extraction is now threaded.** A `_DialogPdfExtractWorker` (QThread) runs
+  PDF vector extraction off the GUI thread, mirroring the existing DXF
+  `_DialogExtractWorker`. Both hold their in-memory source and never re-read the
+  file mid-run.
+- **Cancel.** DXF aborts per **~100-entity chunk**; PDF polls a `should_cancel`
+  callback every **~100 drawing paths** inside `extract_pdf_vectors_sync`
+  (`ea6c1ea`). The final GUI-thread **preview-build** phase is **not**
+  cancellable (known limitation). On cancel or error the running stage shows
+  failed/aborted and the load returns to **Source untouched**.
+- **Re-entrancy guard.** The overlay **never calls `processEvents`** — it is
+  driven entirely by cross-thread queued signals (`LoadProgress` →
+  `began`/`stageStarted`/`stageDone`) plus `update()`; pumping the loop here
+  would re-enter and recurse (a guard test enforces this by name).
+- **Threading contract.** `LoadProgress` is handed to the worker; the loader
+  calls `begin`/`stage`/`done` from the worker thread and those cross to the GUI
+  thread as queued connections. `is_active()` is an explicit flag (not
+  `isVisible()`, which reads False under a not-yet-shown parent).
+
+### 10.13 Custom scale input — two-field ratio + calibration snap (Polish v2)
+
+**Two-field ratio (PDF only, `1615e48`).** For a PDF with "Custom…" selected,
+the raw mm-per-point factor field is replaced by a **`[paper] = [real]`** ratio,
+unit-system aware:
+
+- **Imperial:** `[paper] in = [real] ft` (the paper field accepts a fraction
+  such as `3/8`; seeded to `1/4" = 1'-0"`).
+- **Metric:** `1 : [real]` (paper side fixed at 1; `1` paper-mm = `N` real-mm).
+
+The two fields are the source of truth (`_custom_ratio_factor` →
+`pdf_scale_from_ratio`); editing either un-verifies the scale. **DXF/DWG keep
+the raw mm-per-point factor edit** — the ratio row is PDF-only
+(`_ratio_fields_active`).
+
+**Calibration snap (`d964495`).** After a two-point Calibrate measurement, the
+derived factor is snapped to the nearest **standard** plot scale within
+`_SCALE_SNAP_TOL` (**2%**, relative):
+
+1. A named **architectural/engineering** preset (`_nearest_named_scale_preset`)
+   — selects that clean combo entry; or
+2. for a metric drawing, the nearest standard **`1:N`** denominator
+   (`_snap_metric_ratio_factor`, from `_METRIC_SCALE_DENOMS`) — fills the ratio
+   fields with the clean `1:N`.
+
+Only when no standard scale is within 2% does the raw measured factor drive
+**Custom** (ratio fields for PDF, factor edit for DXF). The verify stamp is
+applied **last** (it re-verifies after the combo/edit writes fire their
+un-verify). Architectural presets now include **`1/32"`, `1/16"`, `3/32"`** in
+addition to the existing larger scales.
 
 ---
 
