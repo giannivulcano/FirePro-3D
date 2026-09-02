@@ -122,6 +122,9 @@ def _arch(label: str, paper_in: float, real_ft: float) -> tuple[str, float]:
 
 # Imperial architectural scales (paper inches : 1 foot).
 _ARCH_SCALES: list[tuple[str, float]] = [
+    _arch('1/32" = 1\'-0"', 0.03125, 1.0),
+    _arch('1/16" = 1\'-0"', 0.0625, 1.0),
+    _arch('3/32" = 1\'-0"', 0.09375, 1.0),
     _arch('1/8" = 1\'-0"', 0.125, 1.0),
     _arch('3/16" = 1\'-0"', 0.1875, 1.0),
     _arch('1/4" = 1\'-0"', 0.25, 1.0),
@@ -142,6 +145,11 @@ _ENG_SCALES: list[tuple[str, float]] = [
     _arch('1" = 50\'', 1.0, 50.0),
     _arch('1" = 100\'', 1.0, 100.0),
 ]
+
+
+_SCALE_SNAP_TOL = 0.02   # snap a calibrated factor to a standard scale within 2%
+# Standard metric plot-scale denominators (1:N) to snap a metric ratio to.
+_METRIC_SCALE_DENOMS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000]
 
 
 def pdf_scale_ratio_text(factor: float) -> str:
@@ -3421,6 +3429,31 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
             self._real_edit.setText(f"{real_mm:.5g}")
         self._last_ratio_factor = factor
 
+    def _nearest_named_scale_preset(self, factor: float) -> int | None:
+        """Combo index of the nearest arch/eng NAMED preset within _SCALE_SNAP_TOL
+        of *factor* (relative), or None. Only the named plot scales are snap targets
+        — the generic 1:N base options aren't physical PDF plot scales."""
+        named = {lbl for lbl, _ in _ARCH_SCALES + _ENG_SCALES}
+        combo = self._scale_combo
+        best_idx, best_err = None, _SCALE_SNAP_TOL
+        for i in range(combo.count()):
+            data = combo.itemData(i)
+            if data is None or combo.itemText(i) not in named:
+                continue
+            err = abs(float(data) - factor) / factor
+            if err < best_err:
+                best_idx, best_err = i, err
+        return best_idx
+
+    def _snap_metric_ratio_factor(self, factor: float) -> float | None:
+        """For a metric PDF, snap the drawing ratio 1:M to the nearest standard M
+        within _SCALE_SNAP_TOL; return the clean factor for 1:M, or None."""
+        M = factor * 72.0 / 25.4          # real-per-paper = drawing ratio denominator
+        for denom in _METRIC_SCALE_DENOMS:
+            if abs(denom - M) <= _SCALE_SNAP_TOL * M:
+                return pdf_scale_from_ratio(1.0, float(denom))
+        return None
+
     def _ratio_fields_active(self) -> bool:
         """True when the two-field ratio (not the raw factor) drives the scale.
 
@@ -3670,32 +3703,58 @@ class UnderlayImportDialog(FramelessShellMixin, QDialog):
                 fallback = self._sm.bare_number_unit() if self._sm else "mm"
                 parsed_mm = ScaleManager.parse_dimension(text.strip(), fallback)
                 if parsed_mm is not None and parsed_mm > 0:
-                    factor = parsed_mm / px_dist
-                    custom_idx = len(self._SCALE_OPTIONS) - 1
-                    self._scale_combo.setCurrentIndex(custom_idx)
-                    if self._file_type == "pdf":
-                        # PDF Custom uses the two-field ratio — back-solve it.
-                        self._set_ratio_fields_from_factor(factor)
-                    else:
-                        self._custom_scale_edit.setText(f"{factor:.5g}")
-                    display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
-                    if self._file_type == "pdf":
-                        ratio = pdf_scale_ratio_text(factor)
-                        self._calibration_lbl.setText(
-                            f"{px_dist:.1f} pt = {display}   ({ratio})")
-                    else:
-                        self._calibration_lbl.setText(
-                            f"{px_dist:.1f} px = {display}")
-                    self._calibration_lbl.setVisible(True)
-                    self._status_lbl.setText(f"Scale calibrated: {display}")
-                    # Calibration verifies the scale (set AFTER the factor edit
-                    # above, which fired the un-verify).
-                    self._mark_scale_verified(
-                        f"Measured on the preview — {display} between your picks.")
+                    self._apply_calibration(px_dist, parsed_mm)
                 else:
                     self._status_lbl.setText("Could not parse distance — try again.")
             else:
                 self._status_lbl.setText("Scale pick cancelled.")
+
+    def _apply_calibration(self, px_dist: float, parsed_mm: float) -> None:
+        """Set the dialog scale from a preview measurement of *parsed_mm* real
+        over *px_dist* preview units.
+
+        For a PDF, the derived mm-per-point factor is snapped to the nearest
+        standard plot scale within ``_SCALE_SNAP_TOL``: first a named
+        architectural/engineering preset (selects that clean combo entry), then
+        — for a metric drawing — the nearest standard ``1:N`` ratio. Only when
+        no standard scale is close does the raw measured factor drive "Custom".
+        The verify stamp is applied LAST (the combo/edit writes fire an
+        un-verify that this call re-sets).
+        """
+        factor = parsed_mm / px_dist
+        display = self._sm.format_length(parsed_mm) if self._sm else f"{parsed_mm:.1f} mm"
+
+        snapped = False
+        if self._file_type == "pdf":
+            idx = self._nearest_named_scale_preset(factor)
+            if idx is not None:
+                self._scale_combo.setCurrentIndex(idx)             # clean named preset
+                clean = self._scale_combo.itemText(idx)
+                self._calibration_lbl.setText(
+                    f"{px_dist:.1f} pt = {display}  →  snapped to {clean}")
+                snapped = True
+            elif not self._is_imperial():
+                clean_factor = self._snap_metric_ratio_factor(factor)
+                if clean_factor is not None:
+                    self._scale_combo.setCurrentIndex(len(self._SCALE_OPTIONS) - 1)  # Custom
+                    self._set_ratio_fields_from_factor(clean_factor)
+                    M = round(clean_factor * 72.0 / 25.4)
+                    self._calibration_lbl.setText(
+                        f"{px_dist:.1f} pt = {display}  →  snapped to 1:{M}")
+                    snapped = True
+        if not snapped:
+            self._scale_combo.setCurrentIndex(len(self._SCALE_OPTIONS) - 1)  # Custom
+            if self._file_type == "pdf":
+                self._set_ratio_fields_from_factor(factor)
+                self._calibration_lbl.setText(
+                    f"{px_dist:.1f} pt = {display}   ({pdf_scale_ratio_text(factor)})")
+            else:
+                self._custom_scale_edit.setText(f"{factor:.5g}")
+                self._calibration_lbl.setText(f"{px_dist:.1f} px = {display}")
+        self._calibration_lbl.setVisible(True)
+        self._status_lbl.setText(f"Scale calibrated: {display}")
+        self._mark_scale_verified(   # keep LAST — re-verifies after the combo/edit un-verify
+            f"Measured on the preview — {display} between your picks.")
 
     # ── Snap ──────────────────────────────────────────────────────────────────
 
