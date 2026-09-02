@@ -20,9 +20,7 @@ import logging
 import os
 import shutil
 
-from PyQt6.QtCore import QPointF
-
-from .constants import DEFAULT_LEVEL, DEFAULT_CEILING_OFFSET_MM
+from .constants import DEFAULT_LEVEL
 from .underlay import Underlay
 from .network_codec import (
     serialize_node, serialize_pipe, serialize_dimension,
@@ -189,13 +187,9 @@ class SceneIOMixin:
     def load_from_file(self, filename: str):
         """Clear the scene and restore from JSON."""
         from .node import Node
-        from .pipe import Pipe
-        from .sprinkler import Sprinkler
-        from .annotations import DimensionAnnotation, NoteAnnotation, _rebuild_path_from_elements
+        from .annotations import _rebuild_path_from_elements
         from .underlay import Underlay
         from .scale_manager import ScaleManager
-        from .water_supply import WaterSupply
-        from .design_area import DesignArea
         from .construction_geometry import (
             PolylineItem, LineItem, RectangleItem,
             CircleItem, ArcItem, RegularPolygonItem,
